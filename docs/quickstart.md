@@ -55,7 +55,7 @@ npm link
 awf --version
 ```
 
-You should see the current version number (e.g., `0.17.0`)
+You should see the current version number (e.g., `0.18.0`)
 
 ## Your First Command
 

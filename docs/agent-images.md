@@ -1,23 +1,26 @@
 # Agent Image Tools
 
-Reference guide for the development tools, utilities, and runtime versions pre-installed in the `agent` and `agent-act` container images used by the firewall.
+Reference guide for the development tools, utilities, and runtime versions pre-installed in the agent container images used by the firewall.
 
 > 📘 **Note:** This document is also available in the [online documentation](https://github.github.io/gh-aw-firewall/reference/agent-images/).
 
 ## Overview
 
-The firewall uses two main container image types for running user commands:
+The firewall uses two main container image presets for running user commands:
 
-- **`agent` (default)**: Lightweight Ubuntu 22.04-based image with essential dev tools
-- **`agent-act`**: GitHub Actions runner-compatible image based on Ubuntu 24.04
+- **`default`**: Lightweight Ubuntu 22.04-based image with essential dev tools (~200MB)
+- **`act`**: GitHub Actions runner-compatible image based on Ubuntu 24.04 (~2GB)
 
 ### Image Selection
 
-Use the `--agent-image` flag to choose which image to use:
+Use the `--agent-image` flag to choose which preset to use:
 
 ```bash
 # Default agent image (lightweight)
 sudo awf --allow-domains github.com -- node --version
+
+# Explicit default preset
+sudo awf --agent-image default --allow-domains github.com -- node --version
 
 # GitHub Actions-compatible image
 sudo awf --agent-image act --allow-domains github.com -- node --version
@@ -25,31 +28,31 @@ sudo awf --agent-image act --allow-domains github.com -- node --version
 
 ### Base Images
 
-| Image | Base | Purpose |
-|-------|------|---------|
-| `agent` | `ubuntu:22.04` | Minimal development environment with Node.js, Python, git |
-| `agent-act` | `catthehacker/ubuntu:act-24.04` | GitHub Actions runner subset with multiple runtime versions |
+| Preset | Actual Image | Base | Purpose |
+|--------|--------------|------|---------|
+| `default` | `ghcr.io/github/gh-aw-firewall/agent` | `ubuntu:22.04` | Minimal development environment with Node.js, Python, git |
+| `act` | `ghcr.io/github/gh-aw-firewall/agent-act` | `catthehacker/ubuntu:act-24.04` | GitHub Actions runner subset with multiple runtime versions |
 
-**Note:** The `agent-act` image inherits from [catthehacker/docker_images](https://github.com/catthehacker/docker_images), which provides medium-sized subsets of GitHub Actions runner images. For full GitHub Actions runner parity, you need the full-sized images (60GB+). See the catthehacker repository for details on runner compatibility.
+**Note:** The `act` preset image inherits from [catthehacker/docker_images](https://github.com/catthehacker/docker_images), which provides medium-sized subsets of GitHub Actions runner images. For full GitHub Actions runner parity, you need the full-sized images (60GB+). See the catthehacker repository for details on runner compatibility.
 
 ## Verifying Tools Locally
 
 Check installed tools and versions by running bash in the container:
 
 ```bash
-# Verify tools in agent image
+# Verify tools in default preset image
 sudo awf --allow-domains '' -- bash -c 'node --version && python3 --version && git --version'
 
-# Verify tools in agent-act image
+# Verify tools in act preset image
 sudo awf --agent-image act --allow-domains '' -- bash -c 'which -a node && node --version'
 
-# Interactive exploration
+# Interactive exploration (default preset)
 sudo awf --tty --allow-domains '' -- bash
 ```
 
-## Agent Image Tools
+## Default Preset (`default`) - Tools
 
-The default `agent` image (based on Ubuntu 22.04) includes the following pre-installed tools:
+The `default` preset image (based on Ubuntu 22.04) includes the following pre-installed tools:
 
 | Tool | Version | Package | Notes |
 |------|---------|---------|-------|
@@ -71,9 +74,9 @@ The default `agent` image (based on Ubuntu 22.04) includes the following pre-ins
 
 **⚠️ Docker CLI Stub:** The `docker` command is present but is a stub—there is no Docker daemon running inside the container. Docker-in-Docker is not supported. Use `--mount` to access Docker sockets from the host if needed.
 
-## Agent-Act Image Tools
+## Act Preset (`act`) - Tools
 
-The `agent-act` image (based on Ubuntu 24.04) includes the following pre-installed tools:
+The `act` preset image (based on Ubuntu 24.04) includes the following pre-installed tools:
 
 | Tool | Version | Package | Notes |
 |------|---------|---------|-------|

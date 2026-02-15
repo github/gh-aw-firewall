@@ -6,37 +6,69 @@
 sudo awf [options] -- <command>
 
 Options:
-  --allow-domains <domains>  Comma-separated list of allowed domains (optional)
-                             If not specified, all network access is blocked
-                             Example: github.com,api.github.com,arxiv.org
-  --allow-domains-file <path>  Path to file containing allowed domains
-  --block-domains <domains>    Comma-separated list of blocked domains
-                               Takes precedence over allowed domains
-  --block-domains-file <path>  Path to file containing blocked domains
-  --enable-host-access         Enable access to host services via host.docker.internal
-                               (see "Host Access" section for security implications)
-  --allow-host-ports <ports>   Ports to allow when using --enable-host-access
-                               Example: --allow-host-ports 3000,8080 or 3000-3010
-  --ssl-bump                   Enable SSL Bump for HTTPS content inspection
-  --allow-urls <urls>          Comma-separated list of allowed URL patterns (requires --ssl-bump)
-                               Example: https://github.com/myorg/*
+  --allow-domains <domains>  Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:
+                             - github.com: exact domain + subdomains (HTTP & HTTPS)
+                             - *.github.com: any subdomain of github.com
+                             - api-*.example.com: prefix wildcards
+                             - https://secure.com: HTTPS only
+                             - http://legacy.com: HTTP only
+                             - localhost: auto-configure for local testing
+  --allow-domains-file <path>  Path to file containing allowed domains (one per line or
+                               comma-separated, supports # comments)
+  --block-domains <domains>    Comma-separated list of blocked domains (takes precedence over allowed
+                               domains). Supports wildcards.
+  --block-domains-file <path>  Path to file containing blocked domains (one per line or
+                               comma-separated, supports # comments)
   --log-level <level>          Log level: debug, info, warn, error (default: info)
-  --keep-containers            Keep containers running after command exits
+  --keep-containers            Keep containers running after command exits (default: false)
+  --tty                        Allocate a pseudo-TTY for the container (required for interactive
+                               tools like Claude Code) (default: false)
   --work-dir <dir>             Working directory for temporary files
-  --container-workdir <dir>    Working directory inside the container
-  --dns-servers <servers>      Comma-separated list of DNS servers (default: 8.8.8.8,8.8.4.4)
-  --proxy-logs-dir <path>      Directory to save Squid proxy logs to
-  -e, --env <KEY=VALUE>        Additional environment variables (can repeat)
-  --env-all                    Pass all host environment variables to container
-  -v, --mount <path:path>      Volume mount (host_path:container_path[:ro|rw])
-  --tty                        Allocate a pseudo-TTY for interactive tools
-  --build-local                Build containers locally instead of using GHCR images
+  --build-local                Build containers locally instead of using GHCR images (default: false)
   --agent-image <value>        Agent container image (default: "default")
-                               See "Agent Image" section for available options
+                               Presets (pre-built, fast):
+                                 default  - Minimal ubuntu:22.04 (~200MB)
+                                 act      - GitHub Actions parity (~2GB)
+                               Custom base images (requires --build-local):
+                                 ubuntu:XX.XX
+                                 ghcr.io/catthehacker/ubuntu:runner-XX.XX
+                                 ghcr.io/catthehacker/ubuntu:full-XX.XX
   --image-registry <registry>  Container image registry (default: ghcr.io/github/gh-aw-firewall)
   --image-tag <tag>            Container image tag (default: latest)
-  --skip-pull                  Use local images without pulling from registry
-                               (requires images to be pre-downloaded)
+  --skip-pull                  Use local images without pulling from registry (requires images to be
+                               pre-downloaded) (default: false)
+  -e, --env <KEY=VALUE>        Additional environment variables to pass to container (can be
+                               specified multiple times)
+  --env-all                    Pass all host environment variables to container (excludes system vars
+                               like PATH) (default: false)
+  -v, --mount <path:path>      Volume mount (can be specified multiple times). Format:
+                               host_path:container_path[:ro|rw]
+  --allow-full-filesystem-access  ⚠️  SECURITY WARNING: Mount entire host filesystem with read-write access.
+                               This DISABLES selective mounting security and exposes ALL files including:
+                               - Docker Hub tokens (~/.docker/config.json)
+                               - GitHub CLI tokens (~/.config/gh/hosts.yml)
+                               - NPM, Cargo, Composer credentials
+                               Only use if you cannot use --mount for specific directories. (default: false)
+  --container-workdir <dir>    Working directory inside the container (should match GITHUB_WORKSPACE
+                               for path consistency)
+  --dns-servers <servers>      Comma-separated list of trusted DNS servers. DNS traffic is ONLY
+                               allowed to these servers (default: 8.8.8.8,8.8.4.4)
+  --proxy-logs-dir <path>      Directory to save Squid proxy logs to (writes access.log directly to
+                               this directory)
+  --enable-host-access         Enable access to host services via host.docker.internal. Security
+                               warning: When combined with --allow-domains host.docker.internal,
+                               containers can access ANY service on the host machine. (default: false)
+  --allow-host-ports <ports>   Comma-separated list of ports or port ranges to allow when using
+                               --enable-host-access. By default, only ports 80 and 443 are allowed.
+                               Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or
+                               --allow-host-ports 3000-3010,8000-8090
+  --ssl-bump                   Enable SSL Bump for HTTPS content inspection (allows URL path
+                               filtering for HTTPS) (default: false)
+  --allow-urls <urls>          Comma-separated list of allowed URL patterns for HTTPS (requires --ssl-bump).
+                               Supports wildcards: https://github.com/myorg/*
+  --enable-api-proxy           Enable API proxy sidecar for holding authentication credentials.
+                               Deploys a Node.js proxy that injects API keys securely.
+                               Supports OpenAI (Codex) and Anthropic (Claude) APIs. (default: false)
   -V, --version                Output the version number
   -h, --help                   Display help for command
 
