@@ -549,23 +549,10 @@ export function generateDockerCompose(
     // This is safe as ~/.claude contains only Claude-specific state, not credentials
     agentVolumes.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
 
-    // Mount ~/.claude.json for Claude Code authentication configuration
-    // This file must be accessible in chroot mode for Claude Code to find apiKeyHelper
-    // We create the file if it doesn't exist, then mount it
-    const claudeJsonPath = path.join(effectiveHome, '.claude.json');
-    if (!fs.existsSync(claudeJsonPath)) {
-      // Create parent directory if needed
-      const parentDir = path.dirname(claudeJsonPath);
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true, mode: 0o755 });
-      }
-      // Create empty file that will be populated by entrypoint
-      // Use 0o666 mode to allow container root to write and host user to read
-      // The entrypoint script runs as root and modifies this file
-      fs.writeFileSync(claudeJsonPath, '{}', { mode: 0o666 });
-      logger.debug(`Created ${claudeJsonPath} for chroot mounting`);
-    }
-    agentVolumes.push(`${claudeJsonPath}:/host${claudeJsonPath}:rw`);
+    // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
+    // prevent atomic writes (temp file + rename), which Claude Code requires.
+    // The writable home volume provides a writable $HOME, and entrypoint.sh
+    // creates ~/.claude.json with apiKeyHelper content from CLAUDE_CODE_API_KEY_HELPER.
 
     // Mount ~/.cargo and ~/.rustup for Rust toolchain access
     // On GitHub Actions runners, Rust is installed via rustup at $HOME/.cargo and $HOME/.rustup
