@@ -56,6 +56,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+        with:
+          platforms: arm64
+
       - name: Install cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
 
@@ -65,11 +70,12 @@ jobs:
         with:
           context: ./containers/squid
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}/squid:${{ steps.version_early.outputs.version_number }}
             ghcr.io/${{ github.repository }}/squid:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=squid
+          cache-to: type=gha,mode=max,scope=squid
 
       - name: Sign Squid image with cosign
         run: |
@@ -96,6 +102,7 @@ jobs:
         with:
           context: ./containers/agent
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}/agent:${{ steps.version_early.outputs.version_number }}
             ghcr.io/${{ github.repository }}/agent:latest
@@ -128,11 +135,12 @@ jobs:
         with:
           context: ./containers/api-proxy
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository }}/api-proxy:${{ steps.version_early.outputs.version_number }}
             ghcr.io/${{ github.repository }}/api-proxy:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=api-proxy
+          cache-to: type=gha,mode=max,scope=api-proxy
 
       - name: Sign API Proxy image with cosign
         run: |
@@ -154,12 +162,14 @@ jobs:
             ghcr.io/${{ github.repository }}/api-proxy@${{ steps.build_api_proxy.outputs.digest }}
 
       # Build agent-act image with catthehacker/ubuntu:act-24.04 base for GitHub Actions parity
+      # amd64-only: catthehacker/ubuntu:act-24.04 does not publish arm64 manifests
       - name: Build and push Agent-Act image
         id: build_agent_act
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ./containers/agent
           push: true
+          platforms: linux/amd64
           tags: |
             ghcr.io/${{ github.repository }}/agent-act:${{ steps.version_early.outputs.version_number }}
             ghcr.io/${{ github.repository }}/agent-act:latest
