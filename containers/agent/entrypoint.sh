@@ -147,7 +147,7 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
       fi
       echo "[entrypoint] ✓ Claude Code API key helper validated: $CLAUDE_CODE_API_KEY_HELPER"
     else
-      # File exists but no apiKeyHelper - write it (overwrites empty {} created by docker-manager)
+      # File exists but no apiKeyHelper - write it
       echo "[entrypoint] Claude Code config file exists but missing apiKeyHelper, writing..."
       echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$CONFIG_FILE"
       chmod 666 "$CONFIG_FILE"
