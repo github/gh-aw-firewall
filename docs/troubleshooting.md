@@ -87,6 +87,32 @@
   echo $GITHUB_TOKEN  # Should print the token
   ```
 
+### Token Caching Issues
+
+**Problem:** Sensitive tokens (GITHUB_TOKEN, OPENAI_API_KEY, etc.) not being properly cached or cleared
+
+**Solution:**
+1. Enable debug logging for the one-shot-token library:
+   ```bash
+   export AWF_ONE_SHOT_TOKEN_DEBUG=1
+   sudo -E awf --allow-domains ... 'your-command'
+   ```
+2. Check the debug output for:
+   - `Initialized with N default token(s)` - Library loaded successfully
+   - `Token <NAME> accessed and cached` - Token was read and cached
+   - `INFO: Token <NAME> cleared from process environment` - Token removed from /proc/environ
+   - `WARNING: Token <NAME> still exposed` - Token cleanup failed (security concern)
+3. If tokens are still exposed, check:
+   - The token name is in the default protected list (see `containers/agent/one-shot-token/README.md`)
+   - Or set `AWF_ONE_SHOT_TOKENS` to explicitly protect custom tokens:
+     ```bash
+     export AWF_ONE_SHOT_TOKENS="MY_CUSTOM_TOKEN,ANOTHER_TOKEN"
+     export AWF_ONE_SHOT_TOKEN_DEBUG=1
+     sudo -E awf --allow-domains ... 'your-command'
+     ```
+
+**Note:** Debug output goes to stderr. Use `2>&1 | tee debug.log` to capture it.
+
 ## MCP Server Issues
 
 ### MCP Server Can't Connect
