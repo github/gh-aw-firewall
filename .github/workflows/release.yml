@@ -70,7 +70,7 @@ jobs:
 
       - name: Build and push Squid image
         id: build_squid
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./containers/squid
           push: true
@@ -128,7 +128,7 @@ jobs:
 
       - name: Build and push Agent image
         id: build_agent
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./containers/agent
           push: true
@@ -187,7 +187,7 @@ jobs:
 
       - name: Build and push API Proxy image
         id: build_api_proxy
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./containers/api-proxy
           push: true
@@ -242,7 +242,7 @@ jobs:
 
       - name: Build and push Agent-Act image
         id: build_agent_act
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./containers/agent
           push: true
