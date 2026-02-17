@@ -335,6 +335,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     EXCLUDED_ENV_VARS.add('COPILOT_API_KEY');
+    EXCLUDED_ENV_VARS.add('COPILOT_GITHUB_TOKEN');
   }
 
   // Start with required/overridden environment variables
