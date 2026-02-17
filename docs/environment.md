@@ -68,6 +68,33 @@ The following environment variables are set internally by the firewall and used 
 
 **Note:** These are set automatically based on CLI options and should not be overridden manually.
 
+## Debugging Environment Variables
+
+The following environment variables control debugging behavior:
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `AWF_ONE_SHOT_TOKEN_DEBUG` | Enable debug logging for one-shot-token library | `off` | `1` or `true` |
+
+### One-Shot Token Debug Logging
+
+The one-shot-token library protects sensitive tokens (GITHUB_TOKEN, OPENAI_API_KEY, etc.) from environment variable inspection. By default, it operates silently. To troubleshoot token caching issues, enable debug logging:
+
+```bash
+# Enable debug logging
+export AWF_ONE_SHOT_TOKEN_DEBUG=1
+
+# Run AWF with sudo -E to preserve the variable
+sudo -E awf --allow-domains github.com 'your-command'
+```
+
+When enabled, the library logs:
+- Token initialization messages
+- Token access and caching events
+- Environment cleanup confirmations
+
+**Note:** Debug output goes to stderr and does not interfere with command stdout. See `containers/agent/one-shot-token/README.md` for complete documentation.
+
 **Historical note:** Prior to v0.13.5, `HTTP_PROXY` and `HTTPS_PROXY` were set to point to Squid. These have been removed in favor of transparent iptables-based redirection, which is more reliable and avoids conflicts with tools that don't honor proxy environment variables.
 
 ## Troubleshooting
