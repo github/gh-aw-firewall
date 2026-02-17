@@ -65,6 +65,7 @@ Once the workflow completes:
 4. Verify Docker images are published:
    - `squid:<version>` and `squid:latest`
    - `agent:<version>` and `agent:latest`
+   - `api-proxy:<version>` and `api-proxy:latest`
    - `agent-act:<version>` and `agent-act:latest` (GitHub Actions parity image)
 
 ## Manual Release
@@ -91,6 +92,7 @@ Each release includes:
 Docker images are published to `ghcr.io/github/gh-aw-firewall`:
 - `squid:<version>` and `squid:latest` - Squid proxy container
 - `agent:<version>` and `agent:latest` - Agent execution environment (minimal, ~200MB)
+- `api-proxy:<version>` and `api-proxy:latest` - API proxy sidecar for credential isolation
 - `agent-act:<version>` and `agent-act:latest` - Agent with GitHub Actions parity (~2GB)
 
 These images are automatically pulled by the CLI when running commands.
@@ -124,6 +126,7 @@ pkg . --targets node18-linux-x64 --output release/awf
 # Build images locally
 docker build -t awf-test/squid:local ./containers/squid
 docker build -t awf-test/agent:local ./containers/agent
+docker build -t awf-test/api-proxy:local ./containers/api-proxy
 
 # Test with local images
 sudo ./dist/cli.js \
@@ -165,7 +168,7 @@ If users report that Docker images can't be pulled:
 
 To make packages public:
 1. Go to repository **Packages** page
-2. Click on the package (squid or agent)
+2. Click on the package (squid, agent, api-proxy, or agent-act)
 3. Go to **Package settings**
 4. Change visibility to **Public**
 
