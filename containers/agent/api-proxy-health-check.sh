@@ -151,7 +151,7 @@ if [ "$API_PROXY_CONFIGURED" = "true" ]; then
   echo "[health-check] ✓ Connectivity established"
   echo "[health-check] =========================================="
 else
-  echo "[health-check] No API proxy configured (ANTHROPIC_BASE_URL and OPENAI_BASE_URL not set)"
+  echo "[health-check] No API proxy configured (ANTHROPIC_BASE_URL, OPENAI_BASE_URL, and COPILOT_API_URL not set)"
   echo "[health-check] Skipping health checks"
 fi
 

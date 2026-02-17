@@ -1034,6 +1034,12 @@ program
       !!config.anthropicApiKey,
       !!config.copilotApiKey
     );
+
+    // Log API proxy status at info level for visibility
+    if (config.enableApiProxy) {
+      logger.info(`API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!config.copilotApiKey}`);
+    }
+
     for (const warning of apiProxyValidation.warnings) {
       logger.warn(warning);
     }
