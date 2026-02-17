@@ -172,4 +172,82 @@ describe('API Proxy Sidecar', () => {
     // Port 10001 should also be healthy
     expect(result.stdout).toContain('anthropic-proxy');
   }, 180000);
+
+  test('should start api-proxy sidecar with Copilot key and pass healthcheck', async () => {
+    const result = await runner.runWithSudo(
+      `curl -s http://${API_PROXY_IP}:10002/health`,
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          COPILOT_API_KEY: 'ghu_fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain('"status":"healthy"');
+    expect(result.stdout).toContain('copilot-proxy');
+  }, 180000);
+
+  test('should set COPILOT_API_URL in agent when Copilot key is provided', async () => {
+    const result = await runner.runWithSudo(
+      'bash -c "echo COPILOT_API_URL=$COPILOT_API_URL"',
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          COPILOT_API_KEY: 'ghu_fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain(`COPILOT_API_URL=http://${API_PROXY_IP}:10002`);
+  }, 180000);
+
+  test('should set COPILOT_TOKEN to placeholder in agent when Copilot key is provided', async () => {
+    const result = await runner.runWithSudo(
+      'bash -c "echo COPILOT_TOKEN=$COPILOT_TOKEN"',
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          COPILOT_API_KEY: 'ghu_fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain('COPILOT_TOKEN=placeholder-token-for-credential-isolation');
+  }, 180000);
+
+  test('should report copilot in health providers when Copilot key is provided', async () => {
+    // When Copilot key is provided, the main health endpoint should report copilot: true
+    const result = await runner.runWithSudo(
+      `curl -s http://${API_PROXY_IP}:10000/health`,
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          COPILOT_API_KEY: 'ghu_fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain('"copilot":true');
+  }, 180000);
 });
