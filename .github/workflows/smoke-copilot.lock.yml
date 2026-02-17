@@ -834,6 +834,7 @@ jobs:
           # Fix permissions on firewall logs so they can be uploaded as artifacts
           # AWF runs with sudo, creating files owned by root
           sudo chmod -R a+r /tmp/gh-aw/sandbox/firewall/logs 2>/dev/null || true
+          sudo chmod -R a+r /tmp/gh-aw/sandbox/firewall/api-proxy-logs 2>/dev/null || true
           awf logs summary | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload cache-memory data as artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -855,6 +856,7 @@ jobs:
             /tmp/gh-aw/aw_info.json
             /tmp/gh-aw/mcp-logs/
             /tmp/gh-aw/sandbox/firewall/logs/
+            /tmp/gh-aw/sandbox/firewall/api-proxy-logs/
             /tmp/gh-aw/agent-stdio.log
             /tmp/gh-aw/agent/
           if-no-files-found: ignore
