@@ -334,6 +334,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('CODEX_API_KEY');
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
+    EXCLUDED_ENV_VARS.add('COPILOT_API_KEY');
   }
 
   // Start with required/overridden environment variables
@@ -421,6 +422,7 @@ export function generateDockerCompose(
     if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
     if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (process.env.COPILOT_API_KEY && !config.enableApiProxy) environment.COPILOT_API_KEY = process.env.COPILOT_API_KEY;
     if (process.env.USER) environment.USER = process.env.USER;
     if (process.env.TERM) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
@@ -950,6 +952,7 @@ export function generateDockerCompose(
         // Pass API keys securely to sidecar (not visible to agent)
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
+        ...(config.copilotApiKey && { COPILOT_API_KEY: config.copilotApiKey }),
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
@@ -1012,6 +1015,15 @@ export function generateDockerCompose(
       // The helper script returns a placeholder key; real authentication happens via ANTHROPIC_BASE_URL
       environment.CLAUDE_CODE_API_KEY_HELPER = '/usr/local/bin/get-claude-key.sh';
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
+    }
+    if (config.copilotApiKey) {
+      environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:10002`;
+      logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:10002`);
+
+      // Set placeholder token for GitHub Copilot CLI compatibility
+      // Real authentication happens via COPILOT_API_URL pointing to api-proxy
+      environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
+      logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');

@@ -45,6 +45,7 @@ function sanitizeForLog(str) {
 // Read API keys from environment (set by docker-compose)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const COPILOT_API_KEY = process.env.COPILOT_API_KEY;
 
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
@@ -56,6 +57,9 @@ if (OPENAI_API_KEY) {
 }
 if (ANTHROPIC_API_KEY) {
   console.log('[API Proxy] Anthropic API key configured');
+}
+if (COPILOT_API_KEY) {
+  console.log('[API Proxy] GitHub Copilot API key configured');
 }
 
 // Create proxy agent for routing through Squid
@@ -169,7 +173,7 @@ if (OPENAI_API_KEY) {
         status: 'healthy',
         service: 'awf-api-proxy',
         squid_proxy: HTTPS_PROXY || 'not configured',
-        providers: { openai: true, anthropic: !!ANTHROPIC_API_KEY },
+        providers: { openai: true, anthropic: !!ANTHROPIC_API_KEY, copilot: !!COPILOT_API_KEY },
       }));
       return;
     }
@@ -193,7 +197,7 @@ if (OPENAI_API_KEY) {
         status: 'healthy',
         service: 'awf-api-proxy',
         squid_proxy: HTTPS_PROXY || 'not configured',
-        providers: { openai: false, anthropic: !!ANTHROPIC_API_KEY },
+        providers: { openai: false, anthropic: !!ANTHROPIC_API_KEY, copilot: !!COPILOT_API_KEY },
       }));
       return;
     }
@@ -231,6 +235,29 @@ if (ANTHROPIC_API_KEY) {
   });
 }
 
+
+// GitHub Copilot API proxy (port 10002)
+if (COPILOT_API_KEY) {
+  const copilotServer = http.createServer((req, res) => {
+    // Health check endpoint
+    if (req.url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'healthy', service: 'copilot-proxy' }));
+      return;
+    }
+
+    // Log and proxy the request
+    console.log(`[Copilot Proxy] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.url)}`);
+    console.log(`[Copilot Proxy] Injecting Authorization header with COPILOT_API_KEY`);
+    proxyRequest(req, res, 'api.githubcopilot.com', {
+      'Authorization': `Bearer ${COPILOT_API_KEY}`,
+    });
+  });
+
+  copilotServer.listen(10002, '0.0.0.0', () => {
+    console.log('[API Proxy] GitHub Copilot proxy listening on port 10002');
+  });
+}
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('[API Proxy] Received SIGTERM, shutting down gracefully...');
