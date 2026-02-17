@@ -68,8 +68,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pid-logger.sh /usr/local/bin/pid-logger.sh
 COPY api-proxy-health-check.sh /usr/local/bin/api-proxy-health-check.sh
 COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
-COPY copilot-pre-exec-check.sh /usr/local/bin/copilot-pre-exec-check.sh
-RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/copilot-pre-exec-check.sh
+RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh
 
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)
