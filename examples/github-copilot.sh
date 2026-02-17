@@ -37,7 +37,7 @@ echo "Running GitHub Copilot CLI with API proxy and debug logging enabled..."
 echo ""
 
 # Run Copilot CLI with API proxy enabled
-# Use sudo -E to preserve environment variables (COPILOT_API_KEY, GITHUB_TOKEN, AWF_ONE_SHOT_TOKEN_DEBUG)
+# Use sudo -E to preserve environment variables (COPILOT_GITHUB_TOKEN, GITHUB_TOKEN, AWF_ONE_SHOT_TOKEN_DEBUG)
 # Required domains:
 # - api.githubcopilot.com: Copilot API endpoint (proxied via api-proxy)
 # - github.com: GitHub API access

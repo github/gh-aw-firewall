@@ -97,15 +97,6 @@ if [ -n "$COPILOT_API_URL" ]; then
   echo "[health-check] Checking GitHub Copilot API proxy configuration..."
   echo "[health-check] COPILOT_API_URL=$COPILOT_API_URL"
 
-  # Verify credentials are NOT in agent environment
-  if [ -n "$COPILOT_API_KEY" ]; then
-    echo "[health-check][ERROR] COPILOT_API_KEY found in agent environment!"
-    echo "[health-check][ERROR] Credential isolation failed - API key should only be in api-proxy container"
-    echo "[health-check][ERROR] COPILOT_API_KEY=${COPILOT_API_KEY:+<present>}"
-    exit 1
-  fi
-  echo "[health-check] ✓ COPILOT_API_KEY NOT in agent environment (correct)"
-
   # Verify COPILOT_GITHUB_TOKEN is placeholder (protected by one-shot-token)
   if [ -n "$COPILOT_GITHUB_TOKEN" ]; then
     if [ "$COPILOT_GITHUB_TOKEN" != "placeholder-token-for-credential-isolation" ]; then

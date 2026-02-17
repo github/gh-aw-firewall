@@ -399,13 +399,13 @@ export interface WrapperConfig {
    * variables are set in the agent container:
    * - OPENAI_BASE_URL=http://api-proxy:10000/v1 (set when OPENAI_API_KEY is provided)
    * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided)
-   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_API_KEY is provided)
+   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN is provided)
    * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided)
    *
    * API keys are passed via environment variables:
    * - OPENAI_API_KEY - Optional OpenAI API key for Codex
    * - ANTHROPIC_API_KEY - Optional Anthropic API key for Claude
-   * - COPILOT_API_KEY - Optional GitHub Copilot API key
+   * - COPILOT_GITHUB_TOKEN - Optional GitHub token for Copilot
    *
    * @default false
    * @example
@@ -413,7 +413,7 @@ export interface WrapperConfig {
    * # Enable API proxy with keys from environment
    * export OPENAI_API_KEY="sk-..."
    * export ANTHROPIC_API_KEY="sk-ant-..."
-   * export COPILOT_API_KEY="ghu_..."
+   * export COPILOT_GITHUB_TOKEN="ghp_..."
    * awf --enable-api-proxy --allow-domains api.openai.com,api.anthropic.com,api.githubcopilot.com -- command
    * ```
    */
@@ -444,16 +444,17 @@ export interface WrapperConfig {
   anthropicApiKey?: string;
 
   /**
-   * GitHub Copilot API key (used by API proxy sidecar)
+   * GitHub token for Copilot (used by API proxy sidecar)
    *
-   * When enableApiProxy is true, this key is injected into the Node.js sidecar
+   * When enableApiProxy is true, this token is injected into the Node.js sidecar
    * container and used to authenticate requests to api.githubcopilot.com.
    *
-   * The key is NOT exposed to the agent container - only the proxy URL is provided.
+   * The token is NOT exposed to the agent container - only the proxy URL is provided.
+   * The agent receives a placeholder value that is protected by the one-shot-token library.
    *
    * @default undefined
    */
-  copilotApiKey?: string;
+  copilotGithubToken?: string;
 }
 
 /**

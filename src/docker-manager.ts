@@ -334,7 +334,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('CODEX_API_KEY');
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
-    EXCLUDED_ENV_VARS.add('COPILOT_API_KEY');
+    // COPILOT_GITHUB_TOKEN gets a placeholder (not excluded), protected by one-shot-token
   }
 
   // Start with required/overridden environment variables
@@ -349,12 +349,12 @@ export function generateDockerCompose(
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
-    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY',
+    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
   };
 
   // When api-proxy is enabled with Copilot, set placeholder tokens early
   // so --env-all won't override them with real values from host environment
-  if (config.enableApiProxy && config.copilotApiKey) {
+  if (config.enableApiProxy && config.copilotGithubToken) {
     environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
@@ -432,7 +432,7 @@ export function generateDockerCompose(
     if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
     if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    if (process.env.COPILOT_API_KEY && !config.enableApiProxy) environment.COPILOT_API_KEY = process.env.COPILOT_API_KEY;
+    // COPILOT_GITHUB_TOKEN is handled separately - gets placeholder when api-proxy enabled
     if (process.env.USER) environment.USER = process.env.USER;
     if (process.env.TERM) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
@@ -962,7 +962,7 @@ export function generateDockerCompose(
         // Pass API keys securely to sidecar (not visible to agent)
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
-        ...(config.copilotApiKey && { COPILOT_API_KEY: config.copilotApiKey }),
+        ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
@@ -1026,7 +1026,7 @@ export function generateDockerCompose(
       environment.CLAUDE_CODE_API_KEY_HELPER = '/usr/local/bin/get-claude-key.sh';
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
     }
-    if (config.copilotApiKey) {
+    if (config.copilotGithubToken) {
       environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:10002`;
       logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:10002`);
 
