@@ -98,14 +98,23 @@ if [ -n "$COPILOT_API_URL" ]; then
   echo "[health-check] COPILOT_API_URL=$COPILOT_API_URL"
 
   # Verify credentials are NOT in agent environment
-  if [ -n "$COPILOT_API_KEY" ] || [ -n "$COPILOT_GITHUB_TOKEN" ]; then
-    echo "[health-check][ERROR] Copilot credentials found in agent environment!"
-    echo "[health-check][ERROR] Credential isolation failed - keys should only be in api-proxy container"
+  if [ -n "$COPILOT_API_KEY" ]; then
+    echo "[health-check][ERROR] COPILOT_API_KEY found in agent environment!"
+    echo "[health-check][ERROR] Credential isolation failed - API key should only be in api-proxy container"
     echo "[health-check][ERROR] COPILOT_API_KEY=${COPILOT_API_KEY:+<present>}"
-    echo "[health-check][ERROR] COPILOT_GITHUB_TOKEN=${COPILOT_GITHUB_TOKEN:+<present>}"
     exit 1
   fi
-  echo "[health-check] ✓ Copilot credentials NOT in agent environment (correct)"
+  echo "[health-check] ✓ COPILOT_API_KEY NOT in agent environment (correct)"
+
+  # Verify COPILOT_GITHUB_TOKEN is placeholder (protected by one-shot-token)
+  if [ -n "$COPILOT_GITHUB_TOKEN" ]; then
+    if [ "$COPILOT_GITHUB_TOKEN" != "placeholder-token-for-credential-isolation" ]; then
+      echo "[health-check][ERROR] COPILOT_GITHUB_TOKEN contains non-placeholder value!"
+      echo "[health-check][ERROR] Token should be 'placeholder-token-for-credential-isolation'"
+      exit 1
+    fi
+    echo "[health-check] ✓ COPILOT_GITHUB_TOKEN is placeholder value (correct)"
+  fi
 
   # Verify COPILOT_TOKEN is placeholder (if present)
   if [ -n "$COPILOT_TOKEN" ]; then

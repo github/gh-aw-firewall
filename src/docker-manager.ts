@@ -335,7 +335,6 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     EXCLUDED_ENV_VARS.add('COPILOT_API_KEY');
-    EXCLUDED_ENV_VARS.add('COPILOT_GITHUB_TOKEN');
   }
 
   // Start with required/overridden environment variables
@@ -1028,6 +1027,11 @@ export function generateDockerCompose(
       // Real authentication happens via COPILOT_API_URL pointing to api-proxy
       environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
       logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
+
+      // Set placeholder for COPILOT_GITHUB_TOKEN (protected by one-shot-token library)
+      // Real authentication happens via COPILOT_API_URL pointing to api-proxy
+      environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
+      logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value for credential isolation');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');
