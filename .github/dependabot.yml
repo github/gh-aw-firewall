@@ -1,5 +1,8 @@
 # Dependabot configuration for automated dependency updates
 # See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# PR budget: ~5 total across all ecosystems (2 + 1 + 1 + 1 = 5)
+# Each ecosystem groups ALL deps into a single PR to minimize noise.
 
 version: 2
 updates:
@@ -9,30 +12,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 2
     groups:
-      # Group TypeScript-related dependencies
-      typescript:
+      all-npm-dependencies:
         patterns:
-          - "typescript"
-          - "@types/*"
-          - "@typescript-eslint/*"
-          - "ts-*"
-      # Group testing dependencies
-      testing:
-        patterns:
-          - "jest"
-          - "*jest*"
-      # Group linting dependencies
-      linting:
-        patterns:
-          - "eslint"
-          - "*eslint*"
-      # Group commit-related dependencies
-      commitlint:
-        patterns:
-          - "@commitlint/*"
-          - "husky"
+          - "*"
 
   # npm ecosystem - docs-site
   - package-ecosystem: "npm"
@@ -40,13 +24,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     groups:
-      # Group Astro-related dependencies
-      astro:
+      all-docs-site-dependencies:
         patterns:
-          - "astro"
-          - "@astrojs/*"
+          - "*"
 
   # Docker ecosystem - agent container
   - package-ecosystem: "docker"
@@ -54,7 +36,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
+    groups:
+      all-docker-agent:
+        patterns:
+          - "*"
 
   # Docker ecosystem - squid container
   - package-ecosystem: "docker"
@@ -62,7 +48,11 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
+    groups:
+      all-docker-squid:
+        patterns:
+          - "*"
 
   # GitHub Actions ecosystem
   - package-ecosystem: "github-actions"
@@ -70,9 +60,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     groups:
-      # Group GitHub official actions
-      github-actions:
+      all-github-actions:
         patterns:
-          - "actions/*"
+          - "*"
