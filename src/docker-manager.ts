@@ -352,6 +352,13 @@ export function generateDockerCompose(
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY',
   };
 
+  // When api-proxy is enabled with Copilot, set placeholder tokens early
+  // so --env-all won't override them with real values from host environment
+  if (config.enableApiProxy && config.copilotApiKey) {
+    environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
+    logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
+  }
+
   // When host access is enabled, bypass the proxy for the host gateway IPs.
   // MCP Streamable HTTP (SSE) traffic through Squid crashes it (comm.cc:1583),
   // so MCP gateway traffic must go directly to the host, not through Squid.
@@ -1028,10 +1035,8 @@ export function generateDockerCompose(
       environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
       logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
 
-      // Set placeholder for COPILOT_GITHUB_TOKEN (protected by one-shot-token library)
-      // Real authentication happens via COPILOT_API_URL pointing to api-proxy
-      environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
-      logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value for credential isolation');
+      // Note: COPILOT_GITHUB_TOKEN placeholder is set early (before --env-all)
+      // to prevent override by host environment variable
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');
