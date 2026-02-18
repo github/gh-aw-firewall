@@ -103,18 +103,68 @@ sudo awf --enable-api-proxy \
 
 ## Environment variables
 
-When API keys are provided, AWF sets these environment variables in the agent container:
+AWF manages environment variables differently across the three containers (squid, api-proxy, agent) to ensure secure credential isolation.
+
+### Squid container
+
+The Squid proxy container runs with minimal environment variables:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `HTTP_PROXY` | Not set | Squid is the proxy, not a client |
+| `HTTPS_PROXY` | Not set | Squid is the proxy, not a client |
+
+### API proxy container
+
+The API proxy sidecar receives **real credentials** and routing configuration:
 
 | Variable | Value | When set | Description |
 |----------|-------|----------|-------------|
-| `OPENAI_BASE_URL` | `http://172.30.0.30:10000/v1` | `OPENAI_API_KEY` is set | OpenAI API proxy endpoint |
-| `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` is set | Anthropic API proxy endpoint |
+| `OPENAI_API_KEY` | Real API key | `--enable-api-proxy` and env set | OpenAI API key (injected into requests) |
+| `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
+| `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token (injected into requests) |
+| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
+| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 
-These are standard environment variables recognized by:
+:::danger[Real credentials in api-proxy]
+The api-proxy container holds **real, unredacted credentials**. These are used to authenticate requests to LLM providers. This container is isolated from the agent and has all capabilities dropped for security.
+:::
+
+### Agent container
+
+The agent container receives **redacted placeholders** and proxy URLs:
+
+| Variable | Value | When set | Description |
+|----------|-------|----------|-------------|
+| `OPENAI_BASE_URL` | `http://172.30.0.30:10000/v1` | `OPENAI_API_KEY` provided to host | Redirects OpenAI SDK to proxy |
+| `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` provided to host | Redirects Anthropic SDK to proxy |
+| `ANTHROPIC_AUTH_TOKEN` | `placeholder-token-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host | Placeholder token (real auth via BASE_URL) |
+| `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
+| `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` provided to host | Redirects Copilot CLI to proxy |
+| `COPILOT_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token (real auth via API_URL) |
+| `COPILOT_GITHUB_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token |
+| `OPENAI_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
+| `ANTHROPIC_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
+| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
+| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
+| `NO_PROXY` | `localhost,127.0.0.1,172.30.0.30` | `--enable-api-proxy` | Bypass proxy for localhost and api-proxy |
+| `AWF_API_PROXY_IP` | `172.30.0.30` | `--enable-api-proxy` | Used by iptables setup script |
+| `AWF_ONE_SHOT_TOKENS` | `COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,...` | Always | Tokens protected by one-shot-token library |
+
+:::tip[Placeholder tokens]
+Token variables in the agent are set to `placeholder-token-for-credential-isolation` instead of real values. This ensures:
+- Agent code cannot exfiltrate credentials
+- CLI tools that check for token presence still work
+- Real authentication happens via the `*_BASE_URL` or `*_API_URL` environment variables
+- The one-shot-token library protects placeholder values from being read more than once
+:::
+
+These environment variables are recognized by:
 - OpenAI Python SDK (`openai`)
 - OpenAI Node.js SDK (`openai`)
 - Anthropic Python SDK (`anthropic`)
 - Anthropic TypeScript SDK (`@anthropic-ai/sdk`)
+- GitHub Copilot CLI (`@github/copilot`)
 - Codex CLI
 - Claude Code CLI
 
