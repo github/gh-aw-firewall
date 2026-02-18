@@ -94,6 +94,12 @@ const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
 // instead of pre-built GHCR images that may be stale.
 const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
+// Fix detection job permissions: the compiler generates `permissions: {}` but
+// the detection job needs `actions: read` to download artifacts from the agent job.
+// Match only the detection job's permissions (indented under `  detection:`), not
+// the workflow-level `permissions: {}`.
+const detectionPermissionsRegex = /^(  detection:\n(?:    .+\n)*?)    permissions: \{\}/m;
+
 for (const workflowPath of workflowPaths) {
   let content = fs.readFileSync(workflowPath, 'utf-8');
   let modified = false;
@@ -137,6 +143,17 @@ for (const workflowPath of workflowPaths) {
     content = content.replace(imageTagRegex, '--build-local');
     modified = true;
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+  }
+
+  // Fix detection job permissions: add actions: read for artifact downloads
+  const detectionMatch = content.match(detectionPermissionsRegex);
+  if (detectionMatch) {
+    content = content.replace(
+      detectionPermissionsRegex,
+      '$1    permissions:\n      actions: read'
+    );
+    modified = true;
+    console.log(`  Fixed detection job permissions (added actions: read)`);
   }
 
   if (modified) {
