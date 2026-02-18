@@ -3,6 +3,44 @@
  */
 
 /**
+ * API Proxy port configuration
+ *
+ * These ports are used by the api-proxy sidecar container to expose
+ * authentication-injecting proxies for different LLM providers.
+ *
+ * All ports must be allowed in:
+ * - containers/api-proxy/Dockerfile (EXPOSE directive)
+ * - src/host-iptables.ts (firewall rules)
+ * - containers/agent/setup-iptables.sh (NAT rules)
+ */
+export const API_PROXY_PORTS = {
+  /**
+   * OpenAI API proxy port
+   * Also serves as the health check endpoint for Docker healthcheck
+   * @see containers/api-proxy/server.js
+   */
+  OPENAI: 10000,
+
+  /**
+   * Anthropic (Claude) API proxy port
+   * @see containers/api-proxy/server.js
+   */
+  ANTHROPIC: 10001,
+
+  /**
+   * GitHub Copilot API proxy port
+   * @see containers/api-proxy/server.js
+   */
+  COPILOT: 10002,
+} as const;
+
+/**
+ * Health check port for the API proxy sidecar
+ * Always uses the OpenAI port (10000) for Docker healthcheck
+ */
+export const API_PROXY_HEALTH_PORT = API_PROXY_PORTS.OPENAI;
+
+/**
  * Main configuration interface for the firewall wrapper
  * 
  * This configuration controls the entire firewall lifecycle including:
@@ -391,9 +429,9 @@ export interface WrapperConfig {
    * - Proxies requests to LLM providers
    *
    * The sidecar exposes three endpoints accessible from the agent container:
-   * - http://api-proxy:10000 - OpenAI API proxy (for Codex)
-   * - http://api-proxy:10001 - Anthropic API proxy (for Claude)
-   * - http://api-proxy:10002 - GitHub Copilot API proxy
+   * - http://api-proxy:10000 - OpenAI API proxy (for Codex) {@link API_PROXY_PORTS.OPENAI}
+   * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
+   * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
    *
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
@@ -416,6 +454,7 @@ export interface WrapperConfig {
    * export COPILOT_GITHUB_TOKEN="ghp_..."
    * awf --enable-api-proxy --allow-domains api.openai.com,api.anthropic.com,api.githubcopilot.com -- command
    * ```
+   * @see API_PROXY_PORTS for port configuration
    */
   enableApiProxy?: boolean;
 

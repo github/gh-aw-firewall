@@ -24,9 +24,10 @@ RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy
 USER apiproxy
 
 # Expose ports
-# 10000 - OpenAI API proxy
+# 10000 - OpenAI API proxy (also serves as health check endpoint)
 # 10001 - Anthropic API proxy
-EXPOSE 10000 10001
+# 10002 - GitHub Copilot API proxy
+EXPOSE 10000 10001 10002
 
 # Redirect stdout/stderr to log file for persistence
 # Use shell form to enable redirection and tee for both file and console

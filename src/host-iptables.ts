@@ -1,6 +1,7 @@
 import execa from 'execa';
 import { logger } from './logger';
 import { isIPv6 } from 'net';
+import { API_PROXY_PORTS } from './types';
 
 const NETWORK_NAME = 'awf-net';
 const CHAIN_NAME = 'FW_WRAPPER';
@@ -442,13 +443,15 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   ]);
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
-  // Only allow ports 10000 (OpenAI) and 10001 (Anthropic) — nothing else.
+  // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot).
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   if (apiProxyIp) {
-    logger.debug(`Allowing traffic to API proxy sidecar at ${apiProxyIp}:10000-10001`);
+    const minPort = Math.min(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
+    const maxPort = Math.max(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
+    logger.debug(`Allowing traffic to API proxy sidecar at ${apiProxyIp}:${minPort}-${maxPort}`);
     await execa('iptables', [
       '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'tcp', '-d', apiProxyIp, '--dport', '10000:10001',
+      '-p', 'tcp', '-d', apiProxyIp, '--dport', `${minPort}:${maxPort}`,
       '-j', 'ACCEPT',
     ]);
   }

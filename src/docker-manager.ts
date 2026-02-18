@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
-import { DockerComposeConfig, WrapperConfig, BlockedTarget } from './types';
+import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from './types';
 import { logger } from './logger';
 import { generateSquidConfig } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns } from './ssl-bump';
@@ -968,7 +968,7 @@ export function generateDockerCompose(
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
       },
       healthcheck: {
-        test: ['CMD', 'curl', '-f', 'http://localhost:10000/health'],
+        test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
         interval: '5s',
         timeout: '3s',
         retries: 5,
@@ -1009,12 +1009,12 @@ export function generateDockerCompose(
     // container names in chroot mode
     environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
     if (config.openaiApiKey) {
-      environment.OPENAI_BASE_URL = `http://${networkConfig.proxyIp}:10000/v1`;
-      logger.debug(`OpenAI API will be proxied through sidecar at http://${networkConfig.proxyIp}:10000/v1`);
+      environment.OPENAI_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`;
+      logger.debug(`OpenAI API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`);
     }
     if (config.anthropicApiKey) {
-      environment.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:10001`;
-      logger.debug(`Anthropic API will be proxied through sidecar at http://${networkConfig.proxyIp}:10001`);
+      environment.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`;
+      logger.debug(`Anthropic API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`);
 
       // Set placeholder token for Claude Code CLI compatibility
       // Real authentication happens via ANTHROPIC_BASE_URL pointing to api-proxy
@@ -1027,8 +1027,8 @@ export function generateDockerCompose(
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
     }
     if (config.copilotGithubToken) {
-      environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:10002`;
-      logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:10002`);
+      environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
+      logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
 
       // Set placeholder token for GitHub Copilot CLI compatibility
       // Real authentication happens via COPILOT_API_URL pointing to api-proxy
