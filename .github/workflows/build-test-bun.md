@@ -1,10 +1,10 @@
 ---
 description: Build Test Bun
 on:
+  roles: all
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
-roles: all
 permissions:
   contents: read
   pull-requests: read
@@ -21,6 +21,7 @@ tools:
   bash:
     - "*"
   github:
+    github-token: "${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN }}"
 sandbox:
   mcp:
     container: "ghcr.io/github/gh-aw-mcpg"
@@ -33,8 +34,6 @@ safe-outputs:
     run-failure: "**Build Test Failed** [{workflow_name}]({run_url}) - See logs for details"
 timeout-minutes: 15
 strict: true
-env:
-  GH_TOKEN: "${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN }}"
 ---
 
 # Build Test: Bun

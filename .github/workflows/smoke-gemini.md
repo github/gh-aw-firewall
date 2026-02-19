@@ -1,19 +1,18 @@
 ---
-description: Smoke test workflow that validates Codex engine functionality by testing AWF firewall capabilities
+description: Smoke test workflow that validates Gemini engine functionality by testing AWF firewall capabilities
 on: 
-  roles: all
   schedule: every 12h
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
-  reaction: "hooray"
+  reaction: "rocket"
 permissions:
   contents: read
   issues: read
   pull-requests: read
   discussions: read
-name: Smoke Codex
-engine: codex
+name: Smoke Gemini
+engine: gemini
 strict: true
 imports:
   - shared/gh.md
@@ -45,7 +44,7 @@ safe-outputs:
       expires: 2h
       close-older-issues: true
     add-labels:
-      allowed: [smoke-codex]
+      allowed: [smoke-gemini]
     hide-comment:
     messages:
       footer: "> 🔮 *The oracle has spoken through [{workflow_name}]({run_url})*"
@@ -72,7 +71,7 @@ post-steps:
       echo "Safe output validation passed"
 ---
 
-# Smoke Test: Codex Engine Validation
+# Smoke Test: Gemini Engine Validation
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
@@ -82,7 +81,7 @@ post-steps:
 2. **Safe Inputs GH CLI Testing**: Use the `safeinputs-gh` tool to query 2 pull requests from ${{ github.repository }} (use args: "pr list --repo ${{ github.repository }} --limit 2 --json number,title,author")
 3. **Playwright Testing**: Use the playwright tools to navigate to https://github.com and verify the page title contains "GitHub" (do NOT try to install playwright - use the provided MCP tools)
 4. **Tavily Web Search Testing**: Use the Tavily MCP server to perform a web search for "GitHub Agentic Workflows Firewall" and verify that results are returned with at least one item
-5. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
+5. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-gemini-${{ github.run_id }}.txt` with content "Smoke test passed for Gemini at $(date)" (create the directory if it doesn't exist)
 6. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 7. **Discussion Interaction Testing**: 
    - Use the `github-discussion-query` safe-input tool with params: `limit=1, jq=".[0]"` to get the latest discussion from ${{ github.repository }}
@@ -100,4 +99,4 @@ Add a **very brief** comment (max 5-10 lines) to the current pull request with:
 Use the `add_comment` tool to add a **mystical oracle-themed comment** to the latest discussion (using the `discussion_number` you extracted in step 7) - be creative and use mystical language like "🔮 The ancient spirits stir..."
 
 If all tests pass:
-- Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
+- Use the `add_labels` safe-output tool to add the label `smoke-gemini` to the pull request

@@ -1,12 +1,12 @@
 ---
 description: Smoke Copilot
 on:
+  roles: all
   schedule: every 12h
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
   reaction: "eyes"
-roles: all
 permissions:
   contents: read
   pull-requests: read
