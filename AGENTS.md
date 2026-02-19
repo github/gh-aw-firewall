@@ -12,6 +12,7 @@ This is a firewall for GitHub Copilot CLI (package name: `@github/awf`) that pro
 - **[docs/chroot-mode.md](docs/chroot-mode.md)** - Chroot mode for transparent host binary access
 - **[docs/logging_quickref.md](docs/logging_quickref.md)** - Quick reference for log queries and monitoring
 - **[docs/environment.md](docs/environment.md)** - Environment variable configuration and security best practices
+- **[docs/releasing.md](docs/releasing.md)** - Release process and versioning instructions
 
 ## Development Workflow
 
