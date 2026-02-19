@@ -347,6 +347,10 @@ export function generateDockerCompose(
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    // Disable ANSI color output from CLI tools (Rich, Chalk, etc.) inside the container.
+    // Tools like Rich inject ANSI escape codes that break test assertions expecting plain text.
+    // NO_COLOR is a standard convention (https://no-color.org/) supported by many libraries.
+    NO_COLOR: '1',
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
