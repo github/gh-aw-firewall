@@ -1,54 +1,80 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'  # Trigger on version tags like v1.0.0, v0.1.0, etc.
-  workflow_dispatch:  # Allow manual triggers
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+concurrency:
+  group: release
+  cancel-in-progress: false  # Never cancel an in-progress release
 
 permissions:
-  contents: write   # Required for creating releases
+  contents: write   # Required for creating releases, pushing version commits and tags
   packages: write   # Required for pushing to GHCR
   id-token: write   # Required for cosign keyless signing
 
 jobs:
-  setup:
-    name: Extract Version
+  bump-version:
+    name: Bump Version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      version_number: ${{ steps.version.outputs.version_number }}
+      version: ${{ steps.bump.outputs.version }}
+      version_number: ${{ steps.bump.outputs.version_number }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify branch
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/v')
+        run: |
+          echo "::error::Release should be triggered on main or a maintenance branch (v*.x), got: ${{ github.ref }}"
+          exit 1
 
       - name: Setup Node.js
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: '22'
 
-      - name: Extract version from tag
-        id: version
+      - name: Bump version
+        id: bump
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=$(node -p "require('./package.json').version")
-            echo "version=v$VERSION" >> $GITHUB_OUTPUT
-            echo "version_number=$VERSION" >> $GITHUB_OUTPUT
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-            VERSION_NUMBER="${VERSION#v}"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "version_number=$VERSION_NUMBER" >> $GITHUB_OUTPUT
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # npm version creates a commit and tag (e.g., "v0.21.0")
+          npm version ${{ inputs.bump }} --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+
+          git add package.json package-lock.json
+          git commit -m "$VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD --tags
+
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          echo "version_number=$VERSION" >> $GITHUB_OUTPUT
+          echo "Bumped to v$VERSION (${{ inputs.bump }})"
 
   build-squid:
     name: Build Squid Image
     runs-on: ubuntu-latest
-    needs: setup
+    needs: bump-version
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -76,7 +102,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/squid:${{ needs.setup.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/squid:${{ needs.bump-version.outputs.version_number }}
             ghcr.io/${{ github.repository }}/squid:latest
           cache-from: type=gha,scope=squid
           cache-to: type=gha,mode=max,scope=squid
@@ -103,10 +129,12 @@ jobs:
   build-agent:
     name: Build Agent Image
     runs-on: ubuntu-latest
-    needs: setup
+    needs: bump-version
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -134,7 +162,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/agent:${{ needs.setup.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/agent:${{ needs.bump-version.outputs.version_number }}
             ghcr.io/${{ github.repository }}/agent:latest
           # Disable cache for agent image to ensure security-critical packages
           # (like libcap2-bin for capability dropping) are always freshly installed
@@ -162,10 +190,12 @@ jobs:
   build-api-proxy:
     name: Build API Proxy Image
     runs-on: ubuntu-latest
-    needs: setup
+    needs: bump-version
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -193,7 +223,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/api-proxy:${{ needs.setup.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/api-proxy:${{ needs.bump-version.outputs.version_number }}
             ghcr.io/${{ github.repository }}/api-proxy:latest
           cache-from: type=gha,scope=api-proxy
           cache-to: type=gha,mode=max,scope=api-proxy
@@ -222,10 +252,12 @@ jobs:
   build-agent-act:
     name: Build Agent-Act Image
     runs-on: ubuntu-latest
-    needs: setup
+    needs: bump-version
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -248,7 +280,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ghcr.io/${{ github.repository }}/agent-act:${{ needs.setup.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/agent-act:${{ needs.bump-version.outputs.version_number }}
             ghcr.io/${{ github.repository }}/agent-act:latest
           build-args: |
             BASE_IMAGE=ghcr.io/catthehacker/ubuntu:act-24.04
@@ -276,10 +308,14 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [setup, build-squid, build-agent, build-api-proxy, build-agent-act]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-agent-act]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}  # Checkout the version tag
+          fetch-depth: 0  # Full history for tag listing and changelog generation
+          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -322,7 +358,7 @@ jobs:
         run: |
           npx tsx scripts/ci/smoke-test-binary.ts \
             release/awf-linux-x64 \
-            ${{ needs.setup.outputs.version_number }}
+            ${{ needs.bump-version.outputs.version_number }}
 
       - name: Verify arm64 binary is valid ELF
         run: |
@@ -344,7 +380,7 @@ jobs:
         id: previous_tag
         run: |
           set -euo pipefail
-          CURRENT_TAG="${{ needs.setup.outputs.version }}"
+          CURRENT_TAG="${{ needs.bump-version.outputs.version }}"
 
           # Use git tags directly (more reliable than gh release list)
           # Get the most recent tag that is not the current tag
@@ -357,7 +393,7 @@ jobs:
         id: changelog
         run: |
           set -euo pipefail
-          CURRENT_TAG="${{ needs.setup.outputs.version }}"
+          CURRENT_TAG="${{ needs.bump-version.outputs.version }}"
           PREVIOUS_TAG="${{ steps.previous_tag.outputs.previous_tag }}"
 
           echo "Generating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
@@ -419,8 +455,8 @@ jobs:
       - name: Create Release Notes
         id: release_notes
         env:
-          VERSION: ${{ needs.setup.outputs.version }}
-          VERSION_NUMBER: ${{ needs.setup.outputs.version_number }}
+          VERSION: ${{ needs.bump-version.outputs.version }}
+          VERSION_NUMBER: ${{ needs.bump-version.outputs.version_number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -447,11 +483,11 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          tag_name: ${{ needs.setup.outputs.version }}
-          name: Release ${{ needs.setup.outputs.version }}
+          tag_name: ${{ needs.bump-version.outputs.version }}
+          name: Release ${{ needs.bump-version.outputs.version }}
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(needs.setup.outputs.version, 'alpha') || contains(needs.setup.outputs.version, 'beta') || contains(needs.setup.outputs.version, 'rc') }}
+          prerelease: ${{ contains(needs.bump-version.outputs.version, 'alpha') || contains(needs.bump-version.outputs.version, 'beta') || contains(needs.bump-version.outputs.version, 'rc') }}
           files: |
             release/awf-linux-x64
             release/awf-linux-arm64
