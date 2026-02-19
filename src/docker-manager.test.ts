@@ -1387,7 +1387,8 @@ describe('docker-manager', () => {
         tmpfs.forEach((mount: string) => {
           expect(mount).toContain('noexec');
           expect(mount).toContain('nosuid');
-          expect(mount).toContain('size=1m');
+          // Each mount must have a size limit (value varies: 1m for secrets, 65536k for /dev/shm)
+          expect(mount).toMatch(/size=\d+[mk]/);
         });
       });
 
@@ -1409,18 +1410,20 @@ describe('docker-manager', () => {
         }
       });
 
-      it('should include exactly 4 tmpfs mounts (mcp-logs + workDir, both normal and /host)', () => {
+      it('should include exactly 5 tmpfs mounts (mcp-logs + workDir both normal and /host, plus /host/dev/shm)', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         const agent = result.services.agent;
         const tmpfs = agent.tmpfs as string[];
 
-        expect(tmpfs).toHaveLength(4);
+        expect(tmpfs).toHaveLength(5);
         // Normal paths
         expect(tmpfs.some((t: string) => t.includes('/tmp/gh-aw/mcp-logs:'))).toBe(true);
         expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
         // /host-prefixed paths (chroot always on)
         expect(tmpfs.some((t: string) => t.includes('/host/tmp/gh-aw/mcp-logs:'))).toBe(true);
         expect(tmpfs.some((t: string) => t.startsWith(`/host${mockConfig.workDir}:`))).toBe(true);
+        // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
+        expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
       });
     });
 
