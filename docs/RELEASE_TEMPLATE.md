@@ -31,44 +31,52 @@ Everything below the `---` separator becomes the release notes.
 
 ### One-Line Installer (Recommended)
 
-**Linux (x64 and ARM64) with automatic SHA verification:**
+**Linux and macOS (x64 and ARM64) with automatic SHA verification:**
 ```bash
 curl -sSL https://raw.githubusercontent.com/{{REPOSITORY}}/main/install.sh | sudo bash
 ```
 
 This installer:
-- Automatically detects your architecture (x86_64 or aarch64)
+- Automatically detects your OS (Linux or macOS) and architecture (x86_64/aarch64/arm64)
 - Downloads the correct release binary
 - Verifies SHA256 checksum against `checksums.txt`
-- Validates the file is a valid ELF executable
+- Validates the file is a valid executable (ELF on Linux, Mach-O on macOS)
 - Installs to `/usr/local/bin/awf`
 
 ### Manual Binary Installation (Alternative)
 
 **Linux (x64):**
 ```bash
-# Download binary and checksums
 curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/awf-linux-x64 -o awf
 curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/checksums.txt -o checksums.txt
-
-# Verify checksum
 sha256sum -c checksums.txt --ignore-missing
-
-# Install
 chmod +x awf
 sudo mv awf /usr/local/bin/
 ```
 
 **Linux (ARM64):**
 ```bash
-# Download binary and checksums
 curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/awf-linux-arm64 -o awf
 curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/checksums.txt -o checksums.txt
-
-# Verify checksum
 sha256sum -c checksums.txt --ignore-missing
+chmod +x awf
+sudo mv awf /usr/local/bin/
+```
 
-# Install
+**macOS (Apple Silicon / ARM64):**
+```bash
+curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/awf-darwin-arm64 -o awf
+curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/checksums.txt -o checksums.txt
+shasum -a 256 -c checksums.txt --ignore-missing
+chmod +x awf
+sudo mv awf /usr/local/bin/
+```
+
+**macOS (Intel / x64):**
+```bash
+curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/awf-darwin-x64 -o awf
+curl -fL https://github.com/{{REPOSITORY}}/releases/download/{{VERSION}}/checksums.txt -o checksums.txt
+shasum -a 256 -c checksums.txt --ignore-missing
 chmod +x awf
 sudo mv awf /usr/local/bin/
 ```
