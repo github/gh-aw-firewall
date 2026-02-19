@@ -833,11 +833,20 @@ export function generateDockerCompose(
     //
     // Hide both normal and /host-prefixed paths since /tmp is mounted at both
     // /tmp and /host/tmp in chroot mode (which is always on)
+    //
+    // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
+    // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
+    // (used by python/black's blackd server and other tools) require a writable /dev/shm.
+    // A tmpfs overlay at /host/dev/shm provides a writable, isolated in-memory filesystem.
+    // Security: Docker containers use their own IPC namespace (no --ipc=host), so shared
+    // memory is fully isolated from the host and other containers. Size is capped at 64MB
+    // (Docker's default). noexec and nosuid flags restrict abuse vectors.
     tmpfs: [
       '/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
       '/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
       `${config.workDir}:rw,noexec,nosuid,size=1m`,
       `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
+      '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],
     depends_on: {
       'squid-proxy': {
