@@ -161,39 +161,17 @@
 
 AWF automatically sets `JAVA_TOOL_OPTIONS` with `-Dhttp.proxyHost`, `-Dhttp.proxyPort`, `-Dhttps.proxyHost`, `-Dhttps.proxyPort`, and `-Dhttp.nonProxyHosts` inside the agent container. This works for most Java tools that read standard JVM system properties, including Gradle and SBT.
 
-### Maven Requires Extra Configuration
-
-**Problem:** Maven builds fail with network errors even though the domain is in `--allow-domains`
-
-**Cause:** Maven's HTTP transport (Apache HttpClient / Maven Resolver) ignores Java system properties for proxy configuration. Unlike Gradle and most other Java tools, Maven does **not** read `-DproxyHost`/`-DproxyPort` from `JAVA_TOOL_OPTIONS`.
-
-**Solution:** Create `~/.m2/settings.xml` with proxy configuration before running Maven:
-
-```bash
-mkdir -p ~/.m2
-cat > ~/.m2/settings.xml << EOF
-<settings>
-  <proxies>
-    <proxy>
-      <id>awf-http</id><active>true</active><protocol>http</protocol>
-      <host>${SQUID_PROXY_HOST}</host><port>${SQUID_PROXY_PORT}</port>
-    </proxy>
-    <proxy>
-      <id>awf-https</id><active>true</active><protocol>https</protocol>
-      <host>${SQUID_PROXY_HOST}</host><port>${SQUID_PROXY_PORT}</port>
-    </proxy>
-  </proxies>
-</settings>
-EOF
-```
-
-The `SQUID_PROXY_HOST` and `SQUID_PROXY_PORT` environment variables are automatically set by AWF in the agent container.
-
-For agentic workflows, add this as a setup step in the workflow `.md` file so the agent creates the file before running Maven commands.
+AWF also automatically generates `~/.m2/settings.xml` with proxy configuration in the agent container entrypoint. This ensures Maven builds work out of the box without manual configuration.
 
 ### Gradle Works Automatically
 
 Gradle reads JVM system properties via `ProxySelector.getDefault()`, so the `JAVA_TOOL_OPTIONS` environment variable set by AWF is sufficient. No extra configuration is needed for Gradle builds.
+
+### Maven Works Automatically
+
+Maven's HTTP transport (Apache HttpClient / Maven Resolver) ignores `JAVA_TOOL_OPTIONS` for proxy configuration. AWF handles this by automatically generating `~/.m2/settings.xml` with proxy settings in the agent container entrypoint. No manual configuration is needed.
+
+If you need to override the auto-generated `settings.xml` (e.g., to add custom repositories or mirrors), create your own `~/.m2/settings.xml` before running Maven — the entrypoint will not overwrite an existing file if one is bind-mounted.
 
 ### Why This Is Needed
 
@@ -201,7 +179,7 @@ AWF uses a forward proxy (Squid) for HTTPS egress control rather than transparen
 
 - **Most tools**: Use `HTTP_PROXY`/`HTTPS_PROXY` environment variables (set automatically by AWF)
 - **Java tools**: Use `JAVA_TOOL_OPTIONS` with JVM system properties (set automatically by AWF)
-- **Maven**: Requires `~/.m2/settings.xml` (must be configured manually — see above)
+- **Maven**: Uses `~/.m2/settings.xml` (generated automatically by AWF)
 
 ## Log Analysis
 

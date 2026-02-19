@@ -167,6 +167,39 @@ echo "[entrypoint] Proxy configuration:"
 echo "[entrypoint]   HTTP_PROXY=$HTTP_PROXY"
 echo "[entrypoint]   HTTPS_PROXY=$HTTPS_PROXY"
 
+# Generate Maven settings.xml with proxy configuration
+# Maven ignores JAVA_TOOL_OPTIONS and HTTP_PROXY; it requires ~/.m2/settings.xml
+if [ -n "$SQUID_PROXY_HOST" ] && [ -n "$SQUID_PROXY_PORT" ]; then
+  MAVEN_DIR="$(eval echo ~awfuser)/.m2"
+  if [ ! -f "$MAVEN_DIR/settings.xml" ]; then
+    mkdir -p "$MAVEN_DIR"
+    cat > "$MAVEN_DIR/settings.xml" << MAVEN_SETTINGS
+<settings>
+  <proxies>
+    <proxy>
+      <id>awf-http</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>${SQUID_PROXY_HOST}</host>
+      <port>${SQUID_PROXY_PORT}</port>
+    </proxy>
+    <proxy>
+      <id>awf-https</id>
+      <active>true</active>
+      <protocol>https</protocol>
+      <host>${SQUID_PROXY_HOST}</host>
+      <port>${SQUID_PROXY_PORT}</port>
+    </proxy>
+  </proxies>
+</settings>
+MAVEN_SETTINGS
+    chown awfuser:awfuser "$MAVEN_DIR" "$MAVEN_DIR/settings.xml"
+    echo "[entrypoint] ✓ Generated Maven settings.xml with proxy configuration"
+  else
+    echo "[entrypoint] Maven settings.xml already exists, skipping generation"
+  fi
+fi
+
 # Print network information
 echo "[entrypoint] Network information:"
 echo "[entrypoint]   IP address: $(hostname -I)"

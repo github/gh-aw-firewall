@@ -494,6 +494,19 @@ describe('docker-manager', () => {
       expect(env.SQUID_PROXY_PORT).toBe('3128');
     });
 
+    it('should set JAVA_TOOL_OPTIONS with JVM proxy properties', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.JAVA_TOOL_OPTIONS).toBeDefined();
+      expect(env.JAVA_TOOL_OPTIONS).toContain('-Dhttp.proxyHost=squid-proxy');
+      expect(env.JAVA_TOOL_OPTIONS).toContain('-Dhttp.proxyPort=3128');
+      expect(env.JAVA_TOOL_OPTIONS).toContain('-Dhttps.proxyHost=squid-proxy');
+      expect(env.JAVA_TOOL_OPTIONS).toContain('-Dhttps.proxyPort=3128');
+      expect(env.JAVA_TOOL_OPTIONS).toContain('-Dhttp.nonProxyHosts=localhost|127.0.0.1');
+    });
+
     it('should mount required volumes in agent container (default behavior)', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
