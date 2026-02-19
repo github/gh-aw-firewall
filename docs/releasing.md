@@ -22,13 +22,15 @@ npm version minor
 npm version major
 ```
 
-This updates `package.json` and creates a version commit locally.
+This updates `package.json` and creates a version commit (and a local tag) automatically.
 
 ### 2. Push the Version Commit
 
 ```bash
 git push origin main
 ```
+
+> **Note:** Do not push git tags manually. The release workflow creates and pushes the tag automatically after all builds succeed.
 
 ### 3. Run the Release Workflow
 

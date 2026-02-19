@@ -3,6 +3,10 @@ name: Release
 on:
   workflow_dispatch:  # Trigger from Actions UI or gh workflow run
 
+concurrency:
+  group: release
+  cancel-in-progress: false  # Never cancel an in-progress release
+
 permissions:
   contents: write   # Required for creating releases and pushing tags
   packages: write   # Required for pushing to GHCR
@@ -23,6 +27,12 @@ jobs:
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: '22'
+
+      - name: Verify branch
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/v')
+        run: |
+          echo "::error::Release should be triggered on main or a maintenance branch (v*.x), got: ${{ github.ref }}"
+          exit 1
 
       - name: Extract version from package.json
         id: version
@@ -336,7 +346,7 @@ jobs:
       - name: Create git tag
         run: |
           TAG="${{ needs.setup.outputs.version }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
+          if [ -n "$(git tag -l "$TAG")" ]; then
             echo "Tag $TAG already exists, skipping creation"
           else
             git tag "$TAG"
