@@ -65,6 +65,17 @@ if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN
 fi
 
+# Bypass Squid for traffic to the container's own IP.
+# Test frameworks often bind servers to 0.0.0.0 and connect via the non-loopback IP
+# (e.g., 172.30.0.20). Without this rule, the DNAT redirect rules catch self-directed
+# traffic and route it through Squid, which denies it with 403.
+AGENT_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / { split($2,a,"/"); print a[1]; exit }')
+if [ -n "$AGENT_IP" ] && is_valid_ipv4 "$AGENT_IP"; then
+  echo "[iptables] Bypass Squid for self-directed traffic (agent IP: ${AGENT_IP})..."
+  iptables -t nat -A OUTPUT -d "$AGENT_IP" -j RETURN
+  iptables -A OUTPUT -p tcp -d "$AGENT_IP" -j ACCEPT
+fi
+
 # Get DNS servers from environment (default to Google DNS)
 DNS_SERVERS="${AWF_DNS_SERVERS:-8.8.8.8,8.8.4.4}"
 echo "[iptables] Configuring DNS rules for trusted servers: $DNS_SERVERS"
