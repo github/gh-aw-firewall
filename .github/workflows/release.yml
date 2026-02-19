@@ -1,13 +1,10 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'  # Trigger on version tags like v1.0.0, v0.1.0, etc.
-  workflow_dispatch:  # Allow manual triggers
+  workflow_dispatch:  # Trigger from Actions UI or gh workflow run
 
 permissions:
-  contents: write   # Required for creating releases
+  contents: write   # Required for creating releases and pushing tags
   packages: write   # Required for pushing to GHCR
   id-token: write   # Required for cosign keyless signing
 
@@ -23,24 +20,17 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
       - name: Setup Node.js
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: '22'
 
-      - name: Extract version from tag
+      - name: Extract version from package.json
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=$(node -p "require('./package.json').version")
-            echo "version=v$VERSION" >> $GITHUB_OUTPUT
-            echo "version_number=$VERSION" >> $GITHUB_OUTPUT
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-            VERSION_NUMBER="${VERSION#v}"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "version_number=$VERSION_NUMBER" >> $GITHUB_OUTPUT
-          fi
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+          echo "version_number=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing version: v$VERSION"
 
   build-squid:
     name: Build Squid Image
@@ -280,6 +270,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0  # Full history for tag listing and changelog generation
+          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -339,6 +332,17 @@ jobs:
         run: |
           cd release
           sha256sum * > checksums.txt
+
+      - name: Create git tag
+        run: |
+          TAG="${{ needs.setup.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping creation"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
+          fi
 
       - name: Get previous release tag
         id: previous_tag

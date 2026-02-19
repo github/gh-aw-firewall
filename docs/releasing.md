@@ -5,13 +5,11 @@ This document describes how to create a new release of the agentic-workflow-fire
 ## Prerequisites
 
 - Push access to the repository
-- Ability to create and push tags
+- Ability to trigger workflows (Actions tab or `gh` CLI)
 
 ## Release Steps
 
-### 1. Update Version
-
-Update the version in `package.json`:
+### 1. Bump the Version
 
 ```bash
 # For a patch release (0.1.0 -> 0.1.1)
@@ -24,32 +22,29 @@ npm version minor
 npm version major
 ```
 
-This will:
-- Update `package.json` version
-- Create a git commit with the version change
-- Create a git tag (e.g., `v0.1.1`)
+This updates `package.json` and creates a version commit locally.
 
-### 2. Push Changes and Tag
+### 2. Push the Version Commit
 
 ```bash
-# Push the version commit
 git push origin main
-
-# Push the tag (this triggers the release workflow)
-git push origin --tags
 ```
 
-### 3. Monitor Release Workflow
+### 3. Run the Release Workflow
 
-1. Go to **Actions** tab in GitHub
-2. Watch the **Release** workflow run
-3. The workflow will:
-   - Build TypeScript
-   - Build and push Docker images to GHCR
-   - Create Linux x64 binary
-   - Create NPM tarball
-   - Generate checksums
-   - Publish GitHub Release
+Trigger the release from the **Actions** tab or CLI:
+
+```bash
+gh workflow run release.yml
+```
+
+The workflow will:
+- Read the version from `package.json`
+- Build and push Docker images to GHCR
+- Create Linux x64 and arm64 binaries
+- Create NPM tarball and checksums
+- Create the git tag (e.g., `v0.1.1`)
+- Publish the GitHub Release with changelog
 
 ### 4. Verify Release
 
@@ -58,6 +53,7 @@ Once the workflow completes:
 1. Go to **Releases** page
 2. Verify the new release is published with:
    - Linux x64 binary (`awf-linux-x64`)
+   - Linux arm64 binary (`awf-linux-arm64`)
    - NPM tarball (`awf.tgz`)
    - Checksums file (`checksums.txt`)
    - Installation instructions with GHCR image references
@@ -68,23 +64,13 @@ Once the workflow completes:
    - `api-proxy:<version>` and `api-proxy:latest`
    - `agent-act:<version>` and `agent-act:latest` (GitHub Actions parity image)
 
-## Manual Release
-
-If you need to trigger a release manually without creating a new tag:
-
-1. Go to **Actions** → **Release** workflow
-2. Click **Run workflow**
-3. Select branch (usually `main`)
-4. Click **Run workflow**
-
-This will create a release using the version from `package.json`.
-
 ## Release Artifacts
 
 Each release includes:
 
 ### GitHub Release Assets
 - `awf-linux-x64` - Linux x64 standalone executable
+- `awf-linux-arm64` - Linux arm64 standalone executable
 - `awf.tgz` - NPM package tarball (alternative installation method)
 - `checksums.txt` - SHA256 checksums for all files
 
@@ -101,7 +87,7 @@ The `agent-act` image is used when running with `--agent-image act` for workflow
 
 ## Testing a Release Locally
 
-Before pushing a tag, you can test the build process locally:
+Before releasing, you can test the build process locally:
 
 ### Test Binary Creation
 
@@ -174,13 +160,12 @@ To make packages public:
 
 ### Version mismatch
 
-If you accidentally pushed the wrong version:
+If you accidentally released the wrong version:
 
-1. Delete the tag locally: `git tag -d v0.1.0`
-2. Delete the tag remotely: `git push origin :refs/tags/v0.1.0`
-3. Delete the release from GitHub UI
-4. Delete or retag the GHCR images if needed
-5. Fix the version and retry
+1. Delete the tag remotely: `git push origin :refs/tags/v0.1.0`
+2. Delete the release from GitHub UI
+3. Delete or retag the GHCR images if needed
+4. Fix the version and re-run the workflow
 
 ## Pre-release Versions
 
@@ -206,6 +191,7 @@ For backporting fixes to older major versions:
 1. Create a maintenance branch: `git checkout -b v0.x`
 2. Cherry-pick or apply fixes
 3. Update version: `npm version patch`
-4. Push branch and tag: `git push origin v0.x --tags`
+4. Push branch: `git push origin v0.x`
+5. Run the release workflow on the maintenance branch
 
 The release workflow works the same for maintenance branches.
