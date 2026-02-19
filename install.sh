@@ -32,7 +32,7 @@ set -e
 # Issue #107: https://github.com/github/gh-aw-firewall/issues/107
 
 REPO="github/gh-aw-firewall"
-BINARY_NAME="awf-linux-x64"
+BINARY_NAME=""  # Set dynamically by check_platform
 INSTALL_DIR="/usr/local/bin"
 INSTALL_NAME="awf"
 
@@ -93,12 +93,18 @@ check_platform() {
 
     case "$arch" in
         x86_64|amd64)
+            BINARY_NAME="awf-linux-x64"
+            ;;
+        aarch64|arm64)
+            BINARY_NAME="awf-linux-arm64"
             ;;
         *)
-            error "Unsupported architecture: $arch (supported: x86_64)"
+            error "Unsupported architecture: $arch (supported: x86_64, aarch64)"
             exit 1
             ;;
     esac
+
+    info "Detected architecture: $arch (binary: $BINARY_NAME)"
 }
 
 # Validate version format (should be like v1.0.0, v1.2.3, etc.)

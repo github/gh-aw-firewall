@@ -300,23 +300,35 @@ jobs:
         run: |
           mkdir -p release
 
-          # Create standalone executable for Linux
+          # Create standalone executables for Linux (x64 and arm64)
           pkg . \
             --targets node18-linux-x64 \
             --output release/awf-linux-x64
 
-          # Verify the binary was created
+          pkg . \
+            --targets node18-linux-arm64 \
+            --output release/awf-linux-arm64
+
+          # Verify the binaries were created
           echo "=== Contents of release directory ==="
           ls -lh release/
-          echo "=== Verifying binary ==="
-          test -f release/awf-linux-x64 && echo "✓ Binary exists at release/awf-linux-x64" || echo "✗ Binary NOT found!"
-          file release/awf-linux-x64
+          echo "=== Verifying binaries ==="
+          for bin in awf-linux-x64 awf-linux-arm64; do
+            test -f "release/$bin" && echo "✓ Binary exists at release/$bin" || echo "✗ Binary NOT found: $bin"
+            file "release/$bin"
+          done
 
-      - name: Smoke test binary
+      - name: Smoke test binary (x64)
         run: |
           npx tsx scripts/ci/smoke-test-binary.ts \
             release/awf-linux-x64 \
             ${{ needs.setup.outputs.version_number }}
+
+      - name: Verify arm64 binary is valid ELF
+        run: |
+          file release/awf-linux-arm64 | grep -q "ELF 64-bit LSB" || { echo "ERROR: arm64 binary is not a valid ELF"; exit 1; }
+          file release/awf-linux-arm64 | grep -qi "aarch64\|arm" || { echo "ERROR: arm64 binary is not for ARM architecture"; exit 1; }
+          echo "✓ arm64 binary is a valid ELF for ARM64"
 
       - name: Create tarball for npm package
         run: |
@@ -442,6 +454,7 @@ jobs:
           prerelease: ${{ contains(needs.setup.outputs.version, 'alpha') || contains(needs.setup.outputs.version, 'beta') || contains(needs.setup.outputs.version, 'rc') }}
           files: |
             release/awf-linux-x64
+            release/awf-linux-arm64
             release/awf.tgz
             release/checksums.txt
         env:
