@@ -63,16 +63,34 @@ check_sudo() {
     fi
 }
 
+# Compute SHA256 hash portably (Linux uses sha256sum, macOS uses shasum)
+sha256_portable() {
+    local file="$1"
+    if command -v sha256sum &> /dev/null; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum &> /dev/null; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        error "Neither sha256sum nor shasum found"
+        exit 1
+    fi
+}
+
 # Check required commands
 check_requirements() {
     local missing=()
-    
-    for cmd in curl sha256sum file; do
+
+    for cmd in curl file; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
     done
-    
+
+    # Need at least one SHA256 tool
+    if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
+        missing+=("sha256sum or shasum")
+    fi
+
     if [ ${#missing[@]} -ne 0 ]; then
         error "Missing required commands: ${missing[*]}"
         error "Please install them and try again"
@@ -86,25 +104,42 @@ check_platform() {
     os=$(uname -s)
     arch=$(uname -m)
 
-    if [ "$os" != "Linux" ]; then
-        error "Unsupported OS: $os (this installer supports Linux only)"
-        exit 1
-    fi
-
-    case "$arch" in
-        x86_64|amd64)
-            BINARY_NAME="awf-linux-x64"
+    case "$os" in
+        Linux)
+            case "$arch" in
+                x86_64|amd64)
+                    BINARY_NAME="awf-linux-x64"
+                    ;;
+                aarch64|arm64)
+                    BINARY_NAME="awf-linux-arm64"
+                    ;;
+                *)
+                    error "Unsupported architecture: $arch (supported: x86_64, aarch64)"
+                    exit 1
+                    ;;
+            esac
             ;;
-        aarch64|arm64)
-            BINARY_NAME="awf-linux-arm64"
+        Darwin)
+            case "$arch" in
+                x86_64)
+                    BINARY_NAME="awf-darwin-x64"
+                    ;;
+                arm64)
+                    BINARY_NAME="awf-darwin-arm64"
+                    ;;
+                *)
+                    error "Unsupported architecture: $arch (supported: x86_64, arm64)"
+                    exit 1
+                    ;;
+            esac
             ;;
         *)
-            error "Unsupported architecture: $arch (supported: x86_64, aarch64)"
+            error "Unsupported OS: $os (supported: Linux, macOS)"
             exit 1
             ;;
     esac
 
-    info "Detected architecture: $arch (binary: $BINARY_NAME)"
+    info "Detected platform: $os $arch (binary: $BINARY_NAME)"
 }
 
 # Validate version format (should be like v1.0.0, v1.2.3, etc.)
@@ -207,7 +242,7 @@ verify_checksum() {
     
     # Calculate actual checksum
     local actual_sum
-    actual_sum=$(sha256sum "$file" | awk '{print $1}' | tr 'A-F' 'a-f')
+    actual_sum=$(sha256_portable "$file" | tr 'A-F' 'a-f')
     
     if [ "$expected_sum" != "$actual_sum" ]; then
         error "Checksum verification failed!"
@@ -260,9 +295,15 @@ main() {
     # Make binary executable
     chmod +x "$TEMP_DIR/$BINARY_NAME"
     
-    # Test if it's a valid ELF executable
-    if ! file "$TEMP_DIR/$BINARY_NAME" | grep -q "ELF.*executable"; then
-        error "Downloaded file is not a valid Linux executable"
+    # Test if it's a valid executable (ELF on Linux, Mach-O on macOS)
+    local file_type
+    file_type=$(file "$TEMP_DIR/$BINARY_NAME")
+    if echo "$file_type" | grep -q "ELF.*executable"; then
+        info "Valid Linux ELF executable"
+    elif echo "$file_type" | grep -q "Mach-O 64-bit"; then
+        info "Valid macOS Mach-O executable"
+    else
+        error "Downloaded file is not a valid executable: $file_type"
         exit 1
     fi
     

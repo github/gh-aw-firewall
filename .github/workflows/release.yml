@@ -345,11 +345,20 @@ jobs:
             --targets node18-linux-arm64 \
             --output release/awf-linux-arm64
 
+          # Create standalone executables for macOS (x64 and arm64)
+          pkg . \
+            --targets node18-macos-x64 \
+            --output release/awf-darwin-x64
+
+          pkg . \
+            --targets node18-macos-arm64 \
+            --output release/awf-darwin-arm64
+
           # Verify the binaries were created
           echo "=== Contents of release directory ==="
           ls -lh release/
           echo "=== Verifying binaries ==="
-          for bin in awf-linux-x64 awf-linux-arm64; do
+          for bin in awf-linux-x64 awf-linux-arm64 awf-darwin-x64 awf-darwin-arm64; do
             test -f "release/$bin" && echo "✓ Binary exists at release/$bin" || echo "✗ Binary NOT found: $bin"
             file "release/$bin"
           done
@@ -365,6 +374,16 @@ jobs:
           file release/awf-linux-arm64 | grep -q "ELF 64-bit LSB" || { echo "ERROR: arm64 binary is not a valid ELF"; exit 1; }
           file release/awf-linux-arm64 | grep -qi "aarch64\|arm" || { echo "ERROR: arm64 binary is not for ARM architecture"; exit 1; }
           echo "✓ arm64 binary is a valid ELF for ARM64"
+
+      - name: Verify macOS binaries are valid Mach-O
+        run: |
+          file release/awf-darwin-x64 | grep -q "Mach-O 64-bit" || { echo "ERROR: macOS x64 binary is not a valid Mach-O"; exit 1; }
+          file release/awf-darwin-x64 | grep -qi "x86_64" || { echo "ERROR: macOS x64 binary is not for x86_64 architecture"; exit 1; }
+          echo "✓ macOS x64 binary is a valid Mach-O for x86_64"
+
+          file release/awf-darwin-arm64 | grep -q "Mach-O 64-bit" || { echo "ERROR: macOS arm64 binary is not a valid Mach-O"; exit 1; }
+          file release/awf-darwin-arm64 | grep -qi "arm64" || { echo "ERROR: macOS arm64 binary is not for ARM64 architecture"; exit 1; }
+          echo "✓ macOS arm64 binary is a valid Mach-O for ARM64"
 
       - name: Create tarball for npm package
         run: |
@@ -491,6 +510,8 @@ jobs:
           files: |
             release/awf-linux-x64
             release/awf-linux-arm64
+            release/awf-darwin-x64
+            release/awf-darwin-arm64
             release/awf.tgz
             release/checksums.txt
         env:
