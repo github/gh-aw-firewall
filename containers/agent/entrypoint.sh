@@ -176,6 +176,35 @@ echo "[entrypoint]   Hostname: $(hostname)"
 # Use runuser instead of su to avoid PAM session issues
 runuser -u awfuser -- git config --global --add safe.directory '*' 2>/dev/null || true
 
+# SECURITY: Sanitize git credentials to prevent token extraction via prompt injection
+# Attack vector: On GitHub Actions, actions/checkout sets an extraheader in .git/config
+# containing an AUTHORIZATION token. Agents can extract this token and use it for
+# unauthorized API calls (e.g., creating PRs via curl with stolen tokens).
+# See: https://github.com/phpstan/phpstan/actions/runs/22106856182
+echo "[entrypoint] Sanitizing git credentials..."
+
+# 1. Disable credential helpers globally for awfuser (prevents credential store/cache lookups)
+runuser -u awfuser -- git config --global credential.helper '' 2>/dev/null || true
+
+# 2. Strip credential-related settings from workspace .git/config
+# AWF_WORKDIR contains the workspace path; check both /host prefix (for chroot) and direct path
+for workspace_root in "/host${AWF_WORKDIR}" "${AWF_WORKDIR}"; do
+  GIT_CONFIG_FILE="${workspace_root}/.git/config"
+  if [ -f "$GIT_CONFIG_FILE" ]; then
+    # Remove ALL http.*.extraheader entries (these contain AUTHORIZATION: basic <token>)
+    git config -f "$GIT_CONFIG_FILE" --get-regexp 'http\..*\.extraheader' 2>/dev/null | while read -r key _rest; do
+      git config -f "$GIT_CONFIG_FILE" --unset-all "$key" 2>/dev/null || true
+    done
+    # Also remove plain http.extraheader (without URL scope)
+    git config -f "$GIT_CONFIG_FILE" --unset-all 'http.extraheader' 2>/dev/null || true
+    # Remove credential helper entries from local config
+    git config -f "$GIT_CONFIG_FILE" --unset-all 'credential.helper' 2>/dev/null || true
+    echo "[entrypoint] ✓ Sanitized git credentials in $GIT_CONFIG_FILE"
+  fi
+done
+
+echo "[entrypoint] Git credential sanitization complete"
+
 echo "[entrypoint] =================================="
 
 # Determine which capabilities to drop

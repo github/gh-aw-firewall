@@ -351,6 +351,9 @@ export function generateDockerCompose(
     // Tools like Rich inject ANSI escape codes that break test assertions expecting plain text.
     // NO_COLOR is a standard convention (https://no-color.org/) supported by many libraries.
     NO_COLOR: '1',
+    // SECURITY: Prevent git from prompting for credentials interactively.
+    // This stops credential helpers from being invoked via terminal prompts.
+    GIT_TERMINAL_PROMPT: '0',
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
@@ -757,6 +760,13 @@ export function generateDockerCompose(
       `${effectiveHome}/.cargo/credentials`,        // Rust crates.io tokens
       `${effectiveHome}/.composer/auth.json`,       // PHP Composer tokens
       `${effectiveHome}/.config/gh/hosts.yml`,      // GitHub CLI OAuth tokens
+      // Git credentials (CRITICAL - repository access, API token extraction)
+      // Agents can extract tokens from git config and use them for unauthorized API calls
+      // (e.g., creating PRs via curl with stolen AUTHORIZATION headers)
+      `${effectiveHome}/.gitconfig`,                // Git global config (may contain credential helpers or extraheader tokens)
+      `${effectiveHome}/.git-credentials`,          // Git credential store (plaintext tokens: https://user:TOKEN@host)
+      `${effectiveHome}/.config/git/config`,        // Git XDG config (may contain credential helpers or extraheader tokens)
+      `${effectiveHome}/.config/git/credentials`,   // Git XDG credential store (plaintext tokens)
       // SSH private keys (CRITICAL - server access, git operations)
       `${effectiveHome}/.ssh/id_rsa`,
       `${effectiveHome}/.ssh/id_ed25519`,
@@ -789,6 +799,11 @@ export function generateDockerCompose(
       `/dev/null:/host${effectiveHome}/.cargo/credentials:ro`,
       `/dev/null:/host${effectiveHome}/.composer/auth.json:ro`,
       `/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`,
+      // Git credentials (CRITICAL - repository access, API token extraction)
+      `/dev/null:/host${effectiveHome}/.gitconfig:ro`,
+      `/dev/null:/host${effectiveHome}/.git-credentials:ro`,
+      `/dev/null:/host${effectiveHome}/.config/git/config:ro`,
+      `/dev/null:/host${effectiveHome}/.config/git/credentials:ro`,
       // SSH private keys (CRITICAL - server access, git operations)
       `/dev/null:/host${effectiveHome}/.ssh/id_rsa:ro`,
       `/dev/null:/host${effectiveHome}/.ssh/id_ed25519:ro`,
