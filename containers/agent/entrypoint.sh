@@ -162,6 +162,66 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
   fi
 fi
 
+# Pre-seed JVM build tool proxy configuration
+# Java build tools (Maven, Gradle, sbt) do not honor HTTP_PROXY/HTTPS_PROXY env vars
+# and need explicit proxy configuration files
+if [ -n "$HTTP_PROXY" ]; then
+  # Extract proxy host and port from HTTP_PROXY (format: http://IP:PORT)
+  PROXY_HOST="${HTTP_PROXY#http://}"
+  PROXY_HOST="${PROXY_HOST%:*}"
+  PROXY_PORT="${SQUID_PROXY_PORT:-3128}"
+
+  # Determine path prefix for config files (chroot-aware, same pattern as .claude.json)
+  if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
+    JVM_HOME_PREFIX="/host${HOME}"
+  else
+    JVM_HOME_PREFIX="${HOME}"
+  fi
+
+  echo "[entrypoint] Pre-seeding JVM build tool proxy configuration (${PROXY_HOST}:${PROXY_PORT})..."
+
+  # Maven proxy config (~/.m2/settings.xml)
+  mkdir -p "${JVM_HOME_PREFIX}/.m2"
+  cat > "${JVM_HOME_PREFIX}/.m2/settings.xml" << MAVEN_EOF
+<settings>
+  <proxies>
+    <proxy>
+      <id>awf-http</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>${PROXY_HOST}</host>
+      <port>${PROXY_PORT}</port>
+    </proxy>
+    <proxy>
+      <id>awf-https</id>
+      <active>true</active>
+      <protocol>https</protocol>
+      <host>${PROXY_HOST}</host>
+      <port>${PROXY_PORT}</port>
+    </proxy>
+  </proxies>
+</settings>
+MAVEN_EOF
+  chown awfuser:awfuser "${JVM_HOME_PREFIX}/.m2/settings.xml" 2>/dev/null || true
+  echo "[entrypoint] ✓ Created Maven proxy config (${JVM_HOME_PREFIX}/.m2/settings.xml)"
+
+  # Gradle proxy config (~/.gradle/gradle.properties)
+  mkdir -p "${JVM_HOME_PREFIX}/.gradle"
+  cat > "${JVM_HOME_PREFIX}/.gradle/gradle.properties" << GRADLE_EOF
+systemProp.http.proxyHost=${PROXY_HOST}
+systemProp.http.proxyPort=${PROXY_PORT}
+systemProp.https.proxyHost=${PROXY_HOST}
+systemProp.https.proxyPort=${PROXY_PORT}
+GRADLE_EOF
+  chown awfuser:awfuser "${JVM_HOME_PREFIX}/.gradle/gradle.properties" 2>/dev/null || true
+  echo "[entrypoint] ✓ Created Gradle proxy config (${JVM_HOME_PREFIX}/.gradle/gradle.properties)"
+
+  # sbt/JVM proxy config via JAVA_TOOL_OPTIONS
+  # This covers sbt and any JVM tool that reads standard system properties
+  export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Dhttp.proxyHost=${PROXY_HOST} -Dhttp.proxyPort=${PROXY_PORT} -Dhttps.proxyHost=${PROXY_HOST} -Dhttps.proxyPort=${PROXY_PORT}"
+  echo "[entrypoint] ✓ Set JAVA_TOOL_OPTIONS with proxy flags"
+fi
+
 # Print proxy environment
 echo "[entrypoint] Proxy configuration:"
 echo "[entrypoint]   HTTP_PROXY=$HTTP_PROXY"
