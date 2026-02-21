@@ -34,17 +34,26 @@ The minimum Node.js version is specified in `package.json` under `engines.node: 
 
 ### GitHub Actions Runners
 
-The firewall is tested on GitHub Actions runners with the following configurations:
+| Runner | Architecture | Status | Notes |
+|--------|-------------|--------|-------|
+| `ubuntu-latest` | x86_64 | ✅ Fully Supported | Currently Ubuntu 24.04. Primary CI runner. |
+| `ubuntu-24.04` | x86_64 | ✅ Fully Supported | Explicit Ubuntu 24.04 (Noble). |
+| `ubuntu-22.04` | x86_64 | ✅ Fully Supported | Ubuntu 22.04 (Jammy) LTS. |
+| `ubuntu-24.04-arm` | arm64 | ✅ Fully Supported | Linux ARM64. Docker, AWF, and MCP Gateway all work. |
+| `macos-latest` | arm64 | ❌ Not Supported | macOS runners are VMs without nested virtualization — Docker cannot run. See below. |
+| `macos-*` (any) | arm64/x86_64 | ❌ Not Supported | Same limitation as above. |
+| `windows-*` | x86_64 | ❌ Not Supported | AWF requires Linux iptables and Docker with Linux containers. |
 
-- `ubuntu-latest` (currently Ubuntu 24.04)
-- `ubuntu-22.04`
+### Why macOS runners are not supported
+
+GitHub-hosted macOS runners are themselves virtual machines (`Apple M1 (Virtual)`) that do not support nested virtualization. AWF requires Docker for the Squid proxy container, agent container, and MCP Gateway — all of which need a Linux VM on macOS. Docker Desktop, colima (with both `vz` and `qemu` VM types), and Apple's `container` tool were all tested and none can provide Docker on these runners. The root cause error is: `Virtualization is not available on this hardware`.
 
 ### Architecture
 
 | Architecture | Status | Notes |
 |--------------|--------|-------|
 | x86_64 (amd64) | ✅ Fully Supported | Primary development platform |
-| arm64 (aarch64) | ⚠️ May Work | Not actively tested |
+| arm64 (aarch64) | ✅ Fully Supported | Tested on `ubuntu-24.04-arm` GitHub Actions runners |
 
 ## CI Test Matrix
 
