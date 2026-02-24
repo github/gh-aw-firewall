@@ -162,6 +162,98 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
   fi
 fi
 
+# Pre-seed JVM build tool proxy configuration
+# Java build tools (Maven, Gradle, sbt) do not honor HTTP_PROXY/HTTPS_PROXY env vars
+# and need explicit proxy configuration files
+if [ -n "$HTTP_PROXY" ]; then
+  # Determine proxy host and port for JVM tools.
+  # Prefer SQUID_PROXY_HOST/SQUID_PROXY_PORT (set by docker-manager.ts) over parsing HTTP_PROXY,
+  # since HTTP_PROXY parsing is brittle (doesn't handle https://, credentials, IPv6, etc.)
+  if [ -n "$SQUID_PROXY_HOST" ] && [ -n "$SQUID_PROXY_PORT" ]; then
+    PROXY_HOST="$SQUID_PROXY_HOST"
+    PROXY_PORT="$SQUID_PROXY_PORT"
+  else
+    # Fallback: extract from HTTP_PROXY (format: http://HOST:PORT)
+    PROXY_HOST="${HTTP_PROXY#http://}"
+    PROXY_HOST="${PROXY_HOST#https://}"
+    PROXY_HOST="${PROXY_HOST#*@}"       # strip credentials if present
+    PROXY_PORT="${PROXY_HOST##*:}"      # extract port after last colon
+    PROXY_HOST="${PROXY_HOST%:*}"       # strip port
+    PROXY_PORT="${PROXY_PORT:-3128}"    # default port
+  fi
+
+  # Determine path prefix for config files (chroot-aware, same pattern as .claude.json)
+  if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
+    JVM_HOME_PREFIX="/host${HOME}"
+  else
+    JVM_HOME_PREFIX="${HOME}"
+  fi
+
+  echo "[entrypoint] Pre-seeding JVM build tool proxy configuration (${PROXY_HOST}:${PROXY_PORT})..."
+
+  # Maven proxy config (~/.m2/settings.xml)
+  # Only create if the file does not already exist, to avoid clobbering user-provided settings
+  mkdir -p "${JVM_HOME_PREFIX}/.m2"
+  if [ ! -f "${JVM_HOME_PREFIX}/.m2/settings.xml" ]; then
+    cat > "${JVM_HOME_PREFIX}/.m2/settings.xml" << MAVEN_EOF
+<settings>
+  <proxies>
+    <proxy>
+      <id>awf-http</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>${PROXY_HOST}</host>
+      <port>${PROXY_PORT}</port>
+    </proxy>
+    <proxy>
+      <id>awf-https</id>
+      <active>true</active>
+      <protocol>https</protocol>
+      <host>${PROXY_HOST}</host>
+      <port>${PROXY_PORT}</port>
+    </proxy>
+  </proxies>
+</settings>
+MAVEN_EOF
+    chown awfuser:awfuser "${JVM_HOME_PREFIX}/.m2/settings.xml" 2>/dev/null || true
+    echo "[entrypoint] ✓ Created Maven proxy config (${JVM_HOME_PREFIX}/.m2/settings.xml)"
+  else
+    echo "[entrypoint] ✓ Maven settings.xml already exists, skipping proxy config creation"
+  fi
+
+  # Gradle proxy config (~/.gradle/gradle.properties)
+  # Only create if the file does not already exist, to avoid clobbering user-provided settings
+  # (e.g., org.gradle.jvmargs, build cache settings, private repo credentials)
+  mkdir -p "${JVM_HOME_PREFIX}/.gradle"
+  if [ ! -f "${JVM_HOME_PREFIX}/.gradle/gradle.properties" ]; then
+    cat > "${JVM_HOME_PREFIX}/.gradle/gradle.properties" << GRADLE_EOF
+systemProp.http.proxyHost=${PROXY_HOST}
+systemProp.http.proxyPort=${PROXY_PORT}
+systemProp.https.proxyHost=${PROXY_HOST}
+systemProp.https.proxyPort=${PROXY_PORT}
+GRADLE_EOF
+    chown awfuser:awfuser "${JVM_HOME_PREFIX}/.gradle/gradle.properties" 2>/dev/null || true
+    echo "[entrypoint] ✓ Created Gradle proxy config (${JVM_HOME_PREFIX}/.gradle/gradle.properties)"
+  else
+    echo "[entrypoint] ✓ Gradle gradle.properties already exists, skipping proxy config creation"
+  fi
+
+  # sbt/JVM proxy config via JAVA_TOOL_OPTIONS
+  # This covers sbt and any JVM tool that reads standard system properties
+  # Also set nonProxyHosts from NO_PROXY to prevent JVM tools from proxying localhost traffic
+  NON_PROXY_RAW="${NO_PROXY:-${no_proxy:-}}"
+  JVM_PROXY_FLAGS="-Dhttp.proxyHost=${PROXY_HOST} -Dhttp.proxyPort=${PROXY_PORT} -Dhttps.proxyHost=${PROXY_HOST} -Dhttps.proxyPort=${PROXY_PORT}"
+  if [ -n "$NON_PROXY_RAW" ]; then
+    # Convert comma-separated NO_PROXY to Java's pipe-separated nonProxyHosts format
+    NON_PROXY_HOSTS=$(printf '%s' "$NON_PROXY_RAW" | tr ',' '|' | tr -d ' ')
+    JVM_PROXY_FLAGS="${JVM_PROXY_FLAGS} -Dhttp.nonProxyHosts=${NON_PROXY_HOSTS} -Dhttps.nonProxyHosts=${NON_PROXY_HOSTS}"
+    echo "[entrypoint] ✓ Set JAVA_TOOL_OPTIONS with proxy and nonProxyHosts flags"
+  else
+    echo "[entrypoint] ✓ Set JAVA_TOOL_OPTIONS with proxy flags"
+  fi
+  export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} ${JVM_PROXY_FLAGS}"
+fi
+
 # Print proxy environment
 echo "[entrypoint] Proxy configuration:"
 echo "[entrypoint]   HTTP_PROXY=$HTTP_PROXY"
