@@ -23,19 +23,19 @@ Each GitHub Actions runner is an isolated virtual machine. The runner VM provide
 
 - Process and memory isolation from other tenants
 - Dedicated kernel and filesystem
-- Network namespace separation
+- Network isolation from other tenants/VMs
 
 Adding a microVM inside this VM would create **nested virtualization** — a VM inside a VM — with minimal additional security benefit for network-only filtering.
 
-### Docker is pre-installed on every runner
-
-Docker is available out of the box on all GitHub-hosted runner images. No setup step, no custom runner configuration, no feature flags.
+### MicroVMs require KVM access
 
 MicroVM runtimes (Firecracker, Cloud Hypervisor) require:
 
 - KVM access (`/dev/kvm`), which standard GitHub-hosted runners don't expose
 - Custom kernel images and rootfs preparation
 - Additional orchestration tooling
+
+Docker, by contrast, is pre-installed on GitHub-hosted Ubuntu runners and requires no additional setup.
 
 ### Fast startup
 
@@ -54,32 +54,15 @@ For a firewall that wraps every AI agent invocation, these seconds compound acro
 The agent needs full access to the repository checkout and tool configurations (`.claude.json`, `.npm`, `.cargo`, etc.). Docker provides this through bind mounts:
 
 ```yaml
+# Simplified example: AWF selectively mounts the workspace and specific paths,
+# not the entire host filesystem.
 volumes:
-  - /host-filesystem:/host:ro
-  - writable-home:/host/home/runner:rw
+  - ${GITHUB_WORKSPACE}:/workspace:rw
+  - ~/.npm:/host/home/runner/.npm:rw
+  - ~/.cargo:/host/home/runner/.cargo:rw
 ```
 
-MicroVM filesystem sharing requires virtio-fs or 9p, which are slower and add configuration complexity for read-write overlay semantics.
-
-### Composability with Docker Compose
-
-The two-container topology (Squid proxy + agent) is expressed declaratively in a single Docker Compose file:
-
-```
-┌──────────────────────────────────┐
-│  Docker Compose (awf-net)        │
-│  ┌────────────────────────────┐  │
-│  │  Squid Proxy (172.30.0.10) │  │
-│  └────────────────────────────┘  │
-│           ▲                       │
-│  ┌────────┼───────────────────┐  │
-│  │  Agent (172.30.0.20)       │  │
-│  │  iptables DNAT → Squid     │  │
-│  └────────────────────────────┘  │
-└──────────────────────────────────┘
-```
-
-Equivalent microVM networking would require manual tap device and bridge setup, adding significant operational complexity.
+See [selective mounting](./selective-mounting.md) for the full mount strategy. MicroVM filesystem sharing requires virtio-fs or 9p, which are slower and add configuration complexity for read-write overlay semantics.
 
 ## How Docker's weaker isolation is mitigated
 
@@ -98,10 +81,10 @@ Without `NET_ADMIN`, agent code cannot modify iptables rules to bypass the proxy
 
 ### Transparent traffic interception
 
-All HTTP (port 80) and HTTPS (port 443) traffic is redirected to Squid via iptables DNAT rules in the NAT table. This is transparent to the agent — no `HTTP_PROXY` environment variable needed, no application-level proxy configuration required.
+All HTTP (port 80) and HTTPS (port 443) traffic is redirected to Squid via iptables DNAT rules in the NAT table. This is transparent to the agent — routing is enforced even if applications ignore any `HTTP_PROXY`/`HTTPS_PROXY` environment variables.
 
 :::tip
-Because interception happens at the kernel level (iptables), the agent cannot bypass it from userspace without `NET_ADMIN`.
+AWF sets `HTTP_PROXY`/`HTTPS_PROXY` in the container for compatibility and defense-in-depth, but kernel-level iptables DNAT enforces routing regardless. The agent cannot bypass this from userspace without `NET_ADMIN`.
 :::
 
 ### DNS restriction
@@ -118,7 +101,7 @@ On bare metal or shared infrastructure without an outer VM, Docker alone would n
 
 ## When microVMs would be the right choice
 
-MicroVMs (Firecracker, Kata Containers, gVisor) provide stronger isolation at the cost of complexity and performance. They would be appropriate when:
+MicroVMs (Firecracker, Kata Containers) provide stronger isolation at the cost of complexity and performance. Other sandboxing runtimes like gVisor (a userspace kernel) can also harden isolation without full VM overhead. These approaches would be appropriate when:
 
 - **Running untrusted binaries** that might attempt kernel exploits
 - **Multi-tenant isolation** on shared bare-metal infrastructure
@@ -133,7 +116,6 @@ MicroVMs (Firecracker, Kata Containers, gVisor) provide stronger isolation at th
 | Available on GitHub Actions runners | Yes | No (needs KVM) |
 | Startup overhead | ~1-2s | ~3-10s |
 | Filesystem sharing | Bind mounts (fast) | virtio-fs/9p (slower) |
-| Multi-container orchestration | Docker Compose | Manual networking |
 | Isolation strength | Namespace (+ outer VM) | Hardware boundary |
 | Operational complexity | Low | High |
 
