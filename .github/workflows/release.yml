@@ -299,11 +299,27 @@ jobs:
           output-file: agent-act-sbom.spdx.json
 
       - name: Attest SBOM for Agent-Act image
+        continue-on-error: true  # Don't block release if Rekor is unavailable
         run: |
-          cosign attest --yes \
-            --predicate agent-act-sbom.spdx.json \
-            --type spdxjson \
-            ghcr.io/${{ github.repository }}/agent-act@${{ steps.build_agent_act.outputs.digest }}
+          # Retry with exponential backoff - agent-act's large image size
+          # can cause OIDC token expiry or Rekor timeouts
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if cosign attest --yes \
+              --predicate agent-act-sbom.spdx.json \
+              --type spdxjson \
+              ghcr.io/${{ github.repository }}/agent-act@${{ steps.build_agent_act.outputs.digest }}; then
+              echo "SBOM attestation succeeded on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep_time=$((30 * attempt))
+              echo "Attempt $attempt failed, retrying in ${sleep_time}s..."
+              sleep "$sleep_time"
+            fi
+          done
+          echo "::warning::SBOM attestation for agent-act failed after 3 attempts (Rekor may be unavailable)"
+          exit 1
 
   release:
     name: Create Release
