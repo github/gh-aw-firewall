@@ -17,13 +17,15 @@ For full system isolation (untrusted binary execution, kernel-level threats), a 
 
 ## Why Docker
 
-### GitHub Actions runners are already VMs
+### GitHub-hosted Actions runners are already VMs
 
-Each GitHub Actions runner is an isolated virtual machine. The runner VM provides:
+Each GitHub-hosted Actions runner is an isolated virtual machine. The runner VM provides:
 
 - Process and memory isolation from other tenants
 - Dedicated kernel and filesystem
 - Network isolation from other tenants/VMs
+
+Self-hosted runners, by contrast, may run on bare metal, in containers, or in other VM environments. This document focuses on GitHub-hosted runners.
 
 Adding a microVM inside this VM would create **nested virtualization** — a VM inside a VM — with minimal additional security benefit for network-only filtering.
 
@@ -43,9 +45,9 @@ Container startup time directly impacts every workflow run:
 
 | Approach | Typical startup | Notes |
 |----------|----------------|-------|
-| Docker container | ~1-2s | Image pull cached across runs |
+| Docker container | ~1-2s | Base image often pre-cached on runner; pulls may be cached within a job |
 | Firecracker microVM | ~3-5s | Kernel boot + rootfs mount |
-| Kata Container | ~5-10s | Full VM boot with guest kernel |
+| Kata Containers | ~5-10s | Full VM boot with guest kernel |
 
 For a firewall that wraps every AI agent invocation, these seconds compound across workflow steps.
 
@@ -58,8 +60,8 @@ The agent needs full access to the repository checkout and tool configurations (
 # not the entire host filesystem.
 volumes:
   - ${GITHUB_WORKSPACE}:/workspace:rw
-  - ~/.npm:/host/home/runner/.npm:rw
-  - ~/.cargo:/host/home/runner/.cargo:rw
+  - ${HOME}/.npm:/host${HOME}/.npm:rw
+  - ${HOME}/.cargo:/host${HOME}/.cargo:rw
 ```
 
 See [selective mounting](./selective-mounting.md) for the full mount strategy. MicroVM filesystem sharing requires virtio-fs or 9p, which are slower and add configuration complexity for read-write overlay semantics.
@@ -70,14 +72,14 @@ Docker provides namespace isolation, not a hardware boundary. The firewall compe
 
 ### Capability dropping
 
-The agent container starts with `NET_ADMIN` to configure iptables rules, then **drops the capability** before executing user commands:
+The agent container starts with elevated capabilities (`NET_ADMIN`, `SYS_CHROOT`, `SYS_ADMIN`) to configure iptables rules and set up the chroot environment. All elevated capabilities are **dropped** before executing user commands:
 
 ```bash
-# In entrypoint.sh
-exec capsh --drop=cap_net_admin -- -c "$USER_COMMAND"
+# Pseudocode from entrypoint.sh — actual caps determined by CAPS_TO_DROP
+exec capsh --drop="$CAPS_TO_DROP" -- -c "$USER_COMMAND"
 ```
 
-Without `NET_ADMIN`, agent code cannot modify iptables rules to bypass the proxy.
+Without these capabilities, agent code cannot modify iptables rules or escape the chroot to bypass the proxy.
 
 ### Transparent traffic interception
 
@@ -89,7 +91,7 @@ AWF sets `HTTP_PROXY`/`HTTPS_PROXY` in the container for compatibility and defen
 
 ### DNS restriction
 
-DNS traffic is restricted to whitelisted servers only (default: Google DNS `8.8.8.8`, `8.8.4.4`). This prevents DNS-based data exfiltration where an agent encodes data in DNS queries to an attacker-controlled nameserver.
+DNS traffic from the sandbox is restricted to a small set of whitelisted DNS servers. By default, iptables only allows DNS to Google DNS (`8.8.8.8`, `8.8.4.4`) and to Docker's embedded DNS at `127.0.0.11` (used for container name resolution). The allowlist can be overridden via the `--dns-servers` flag (`AWF_DNS_SERVERS`). This prevents DNS-based data exfiltration where an agent encodes data in DNS queries to an attacker-controlled nameserver.
 
 ### Outer VM boundary
 
