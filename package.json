@@ -1,6 +1,6 @@
 {
   "name": "@github/agentic-workflow-firewall",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "Network firewall for agentic workflows with domain whitelisting",
   "main": "dist/cli.js",
   "bin": {
