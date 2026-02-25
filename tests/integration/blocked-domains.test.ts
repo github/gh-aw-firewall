@@ -250,16 +250,20 @@ describe('Block Domains Deny-List (--block-domains)', () => {
 
   test('should handle multiple blocked domains', async () => {
     const result = await runner.runWithSudo(
-      'bash -c "curl -f --max-time 10 https://api.github.com/zen 2>&1; echo exit=$?"',
+      'bash -c "' +
+        'curl -f --max-time 10 https://api.github.com/zen 2>&1; api_exit=$?; ' +
+        'curl -f --max-time 10 https://raw.githubusercontent.com 2>&1; raw_exit=$?; ' +
+        'echo api_exit=$api_exit raw_exit=$raw_exit"',
       {
-        allowDomains: ['github.com'],
+        allowDomains: ['github.com', 'githubusercontent.com'],
         blockDomains: ['api.github.com', 'raw.githubusercontent.com'],
         logLevel: 'debug',
         timeout: 60000,
       }
     );
-    expect(result.stdout).toContain('exit=');
-    expect(result.stdout).not.toContain('exit=0');
+    // Both blocked domains should fail even though their parent domains are allowed
+    expect(result.stdout).not.toContain('api_exit=0');
+    expect(result.stdout).not.toContain('raw_exit=0');
   }, 120000);
 
   test('should show blocked domains in debug output', async () => {
