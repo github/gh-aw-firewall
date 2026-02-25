@@ -5,6 +5,7 @@ type ExecaReturnValue = execa.ExecaReturnValue<string>;
 
 export interface AwfOptions {
   allowDomains?: string[];
+  blockDomains?: string[];
   keepContainers?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   buildLocal?: boolean;
@@ -50,6 +51,11 @@ export class AwfRunner {
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {
       args.push('--allow-domains', options.allowDomains.join(','));
+    }
+
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
     }
 
     // Add other flags
@@ -204,6 +210,11 @@ export class AwfRunner {
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {
       args.push('--allow-domains', options.allowDomains.join(','));
+    }
+
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
     }
 
     // Add other flags
