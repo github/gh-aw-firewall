@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig, hasRateLimitOptions } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1410,6 +1410,27 @@ describe('cli', () => {
       expect(result.enabled).toBe(false);
       expect(result.warnings).toEqual([]);
       expect(result.debugMessages).toEqual([]);
+    });
+  });
+
+  describe('hasRateLimitOptions', () => {
+    it('should return false when no rate limit options set', () => {
+      expect(hasRateLimitOptions({})).toBe(false);
+    });
+    it('should return true when rateLimitRpm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRpm: '30' })).toBe(true);
+    });
+    it('should return true when rateLimitRph is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRph: '500' })).toBe(true);
+    });
+    it('should return true when rateLimitBytesPm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitBytesPm: '1000000' })).toBe(true);
+    });
+    it('should return true when rateLimit is false (--no-rate-limit)', () => {
+      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
+    });
+    it('should return false when rateLimit is true', () => {
+      expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
     });
   });
 
