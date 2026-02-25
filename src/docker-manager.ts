@@ -363,7 +363,15 @@ export function generateDockerCompose(
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
 
-  // When host access is enabled, bypass the proxy for the host gateway IPs.
+  // Always set NO_PROXY to prevent HTTP clients from proxying localhost traffic through Squid.
+  // Without this, test frameworks that start local servers (e.g., go/echo, python/uvicorn,
+  // deno/fresh) get 403 errors because Squid rejects requests to localhost (not in allowed domains).
+  // Include the agent's own container IP because test frameworks often bind to 0.0.0.0 and
+  // test clients may connect via the container's non-loopback IP (e.g., 172.30.0.20).
+  environment.NO_PROXY = `localhost,127.0.0.1,::1,0.0.0.0,${networkConfig.squidIp},${networkConfig.agentIp}`;
+  environment.no_proxy = environment.NO_PROXY;
+
+  // When host access is enabled, also bypass the proxy for the host gateway IPs.
   // MCP Streamable HTTP (SSE) traffic through Squid crashes it (comm.cc:1583),
   // so MCP gateway traffic must go directly to the host, not through Squid.
   if (config.enableHostAccess) {
@@ -371,18 +379,14 @@ export function generateDockerCompose(
     const subnetBase = networkConfig.subnet.split('/')[0]; // e.g. "172.30.0.0"
     const parts = subnetBase.split('.');
     const networkGatewayIp = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
-    environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.squidIp},host.docker.internal,${networkGatewayIp}`;
+    environment.NO_PROXY += `,host.docker.internal,${networkGatewayIp}`;
     environment.no_proxy = environment.NO_PROXY;
   }
 
   // When API proxy is enabled, bypass HTTP_PROXY for the api-proxy IP
   // so the agent can reach the sidecar directly without going through Squid
   if (config.enableApiProxy && networkConfig.proxyIp) {
-    if (environment.NO_PROXY) {
-      environment.NO_PROXY += `,${networkConfig.proxyIp}`;
-    } else {
-      environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.proxyIp}`;
-    }
+    environment.NO_PROXY += `,${networkConfig.proxyIp}`;
     environment.no_proxy = environment.NO_PROXY;
   }
 
@@ -445,6 +449,18 @@ export function generateDockerCompose(
   // Additional environment variables from --env flags (these override everything)
   if (config.additionalEnv) {
     Object.assign(environment, config.additionalEnv);
+  }
+
+  // Normalize NO_PROXY / no_proxy after additionalEnv is applied.
+  // If --env overrides one casing but not the other, HTTP clients that prefer the
+  // other casing (e.g., Go uses NO_PROXY, Python requests uses no_proxy) would
+  // still route through Squid. Sync them with NO_PROXY taking precedence.
+  if (environment.NO_PROXY !== environment.no_proxy) {
+    if (config.additionalEnv?.NO_PROXY) {
+      environment.no_proxy = environment.NO_PROXY;
+    } else if (config.additionalEnv?.no_proxy) {
+      environment.NO_PROXY = environment.no_proxy;
+    }
   }
 
   // Pass DNS servers to container for setup-iptables.sh and entrypoint.sh

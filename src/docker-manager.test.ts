@@ -1194,6 +1194,59 @@ describe('docker-manager', () => {
       });
     });
 
+    describe('NO_PROXY baseline', () => {
+      it('should always set NO_PROXY with localhost entries', () => {
+        // Default config without enableHostAccess or enableApiProxy
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toContain('localhost');
+        expect(env.NO_PROXY).toContain('127.0.0.1');
+        expect(env.NO_PROXY).toContain('::1');
+        expect(env.NO_PROXY).toContain('0.0.0.0');
+        expect(env.no_proxy).toBe(env.NO_PROXY);
+      });
+
+      it('should include agent IP in NO_PROXY', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toContain('172.30.0.20');
+      });
+
+      it('should append host.docker.internal to NO_PROXY when host access enabled', () => {
+        const configWithHost = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(configWithHost, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        // Should have both baseline AND host access entries
+        expect(env.NO_PROXY).toContain('localhost');
+        expect(env.NO_PROXY).toContain('host.docker.internal');
+      });
+
+      it('should sync no_proxy when --env overrides NO_PROXY', () => {
+        const configWithEnv = {
+          ...mockConfig,
+          additionalEnv: { NO_PROXY: 'custom.local,127.0.0.1' },
+        };
+        const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toBe('custom.local,127.0.0.1');
+        expect(env.no_proxy).toBe(env.NO_PROXY);
+      });
+
+      it('should sync NO_PROXY when --env overrides no_proxy', () => {
+        const configWithEnv = {
+          ...mockConfig,
+          additionalEnv: { no_proxy: 'custom.local,127.0.0.1' },
+        };
+        const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.no_proxy).toBe('custom.local,127.0.0.1');
+        expect(env.NO_PROXY).toBe(env.no_proxy);
+      });
+    });
+
     describe('allowHostPorts option', () => {
       it('should set AWF_ALLOW_HOST_PORTS when allowHostPorts is specified', () => {
         const config = { ...mockConfig, enableHostAccess: true, allowHostPorts: '8080,3000' };
