@@ -20,6 +20,10 @@ export interface AwfOptions {
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
   allowFullFilesystemAccess?: boolean; // Allow full filesystem access (disables selective mounting security)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
+  rateLimitRpm?: number; // Requests per minute per provider
+  rateLimitRph?: number; // Requests per hour per provider
+  rateLimitBytesPm?: number; // Request bytes per minute per provider
+  noRateLimit?: boolean; // Disable rate limiting
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
 }
@@ -116,6 +120,20 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add rate limit flags
+    if (options.rateLimitRpm !== undefined) {
+      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
+    }
+    if (options.rateLimitRph !== undefined) {
+      args.push('--rate-limit-rph', String(options.rateLimitRph));
+    }
+    if (options.rateLimitBytesPm !== undefined) {
+      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.noRateLimit) {
+      args.push('--no-rate-limit');
     }
 
     // Add --env-all flag
@@ -287,6 +305,20 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add rate limit flags
+    if (options.rateLimitRpm !== undefined) {
+      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
+    }
+    if (options.rateLimitRph !== undefined) {
+      args.push('--rate-limit-rph', String(options.rateLimitRph));
+    }
+    if (options.rateLimitBytesPm !== undefined) {
+      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.noRateLimit) {
+      args.push('--no-rate-limit');
     }
 
     // Add --env-all flag
