@@ -129,6 +129,7 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
 
     // Add --env-all flag
     if (options.envAll) {
@@ -308,6 +309,7 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
 
     // Add --env-all flag
     if (options.envAll) {
