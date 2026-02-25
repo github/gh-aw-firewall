@@ -354,8 +354,10 @@ describe('Chroot Package Manager Support', () => {
   describe('Package Installation', () => {
     test('should install a Python package via pip and verify import', async () => {
       const result = await runner.runWithSudo(
-        'pip3 install --target /tmp/pip-test requests 2>&1 && ' +
-        'PYTHONPATH=/tmp/pip-test python3 -c "import requests; print(requests.__version__)"',
+        'PIPDIR=$(mktemp -d) && ' +
+        'pip3 install --no-cache-dir --target $PIPDIR requests 2>&1 && ' +
+        'PYTHONPATH=$PIPDIR python3 -c "import requests; print(requests.__version__)" && ' +
+        'rm -rf $PIPDIR',
         {
           allowDomains: ['pypi.org', 'files.pythonhosted.org'],
           logLevel: 'debug',
@@ -364,15 +366,17 @@ describe('Chroot Package Manager Support', () => {
       );
 
       expect(result).toSucceed();
-      // The last line of output should be the version string
-      expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
+      const lines = result.stdout.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const lastLine = lines[lines.length - 1] || '';
+      expect(lastLine).toMatch(/^\d+\.\d+\.\d+$/);
     }, 180000);
 
     test('should install an npm package and verify require', async () => {
       const result = await runner.runWithSudo(
-        'cd /tmp && mkdir -p npm-test && cd npm-test && npm init -y 2>&1 && ' +
+        'NPMDIR=$(mktemp -d) && cd $NPMDIR && npm init -y 2>&1 && ' +
         'npm install chalk@4 2>&1 && ' +
-        'node -e "require(\'/tmp/npm-test/node_modules/chalk\')" && echo "npm_install_ok"',
+        'NODE_PATH=$NPMDIR/node_modules node -e "require(\'chalk\')" && echo "npm_install_ok" && ' +
+        'rm -rf $NPMDIR',
         {
           allowDomains: ['registry.npmjs.org'],
           logLevel: 'debug',
@@ -387,11 +391,12 @@ describe('Chroot Package Manager Support', () => {
     test('should build a Rust project with a dependency via cargo', async () => {
       const result = await runner.runWithSudo(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
+        'CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse ' +
         'cargo init --name awftest 2>&1 && ' +
-        // Add a small dependency (cfg-if is tiny with no transitive deps)
         'echo \'cfg-if = "1"\' >> Cargo.toml && ' +
-        'cargo build 2>&1 && echo "cargo_build_ok" && ' +
-        'rm -rf $TESTDIR',
+        'CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse ' +
+        'cargo build 2>&1 && echo "cargo_build_ok"; ' +
+        'EC=$?; rm -rf $TESTDIR; exit $EC',
         {
           allowDomains: ['crates.io', 'static.crates.io', 'index.crates.io'],
           logLevel: 'debug',
