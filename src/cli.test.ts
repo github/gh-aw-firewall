@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1410,6 +1410,53 @@ describe('cli', () => {
       expect(result.enabled).toBe(false);
       expect(result.warnings).toEqual([]);
       expect(result.debugMessages).toEqual([]);
+    });
+  });
+
+  describe('buildRateLimitConfig', () => {
+    it('should return defaults when no options provided', () => {
+      const r = buildRateLimitConfig({});
+      expect('config' in r).toBe(true);
+      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 60, rph: 1000, bytesPm: 52428800 }); }
+    });
+    it('should disable with rateLimit=false', () => {
+      const r = buildRateLimitConfig({ rateLimit: false });
+      if ('config' in r) { expect(r.config.enabled).toBe(false); }
+    });
+    it('should parse custom RPM', () => {
+      const r = buildRateLimitConfig({ rateLimitRpm: '30' });
+      if ('config' in r) { expect(r.config.rpm).toBe(30); }
+    });
+    it('should parse custom RPH', () => {
+      const r = buildRateLimitConfig({ rateLimitRph: '500' });
+      if ('config' in r) { expect(r.config.rph).toBe(500); }
+    });
+    it('should parse custom bytes-pm', () => {
+      const r = buildRateLimitConfig({ rateLimitBytesPm: '1000000' });
+      if ('config' in r) { expect(r.config.bytesPm).toBe(1000000); }
+    });
+    it('should error on negative RPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitRpm: '-5' })).toBe(true);
+    });
+    it('should error on zero RPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitRpm: '0' })).toBe(true);
+    });
+    it('should error on non-integer RPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitRpm: 'abc' })).toBe(true);
+    });
+    it('should error on negative RPH', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitRph: '-1' })).toBe(true);
+    });
+    it('should error on negative bytes-pm', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitBytesPm: '-100' })).toBe(true);
+    });
+    it('should ignore custom values when disabled', () => {
+      const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '999' });
+      if ('config' in r) { expect(r.config.rpm).toBe(60); }
+    });
+    it('should accept all custom values', () => {
+      const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });
+      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 10, rph: 100, bytesPm: 5000000 }); }
     });
   });
 });

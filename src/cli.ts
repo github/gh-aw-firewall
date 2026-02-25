@@ -296,6 +296,37 @@ export function validateApiProxyConfig(
 }
 
 /**
+ * Builds a RateLimitConfig from parsed CLI options.
+ */
+export function buildRateLimitConfig(options: {
+  rateLimit?: boolean;
+  rateLimitRpm?: string;
+  rateLimitRph?: string;
+  rateLimitBytesPm?: string;
+}): { config: RateLimitConfig } | { error: string } {
+  const rateLimitDisabled = options.rateLimit === false;
+  const config: RateLimitConfig = { enabled: !rateLimitDisabled, rpm: 60, rph: 1000, bytesPm: 52428800 };
+  if (!rateLimitDisabled) {
+    if (options.rateLimitRpm !== undefined) {
+      const rpm = parseInt(options.rateLimitRpm, 10);
+      if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
+      config.rpm = rpm;
+    }
+    if (options.rateLimitRph !== undefined) {
+      const rph = parseInt(options.rateLimitRph, 10);
+      if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
+      config.rph = rph;
+    }
+    if (options.rateLimitBytesPm !== undefined) {
+      const bytesPm = parseInt(options.rateLimitBytesPm, 10);
+      if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
+      config.bytesPm = bytesPm;
+    }
+  }
+  return { config };
+}
+
+/**
  * Result of validating flag combinations
  */
 export interface FlagValidationResult {
@@ -1002,45 +1033,13 @@ program
 
     // Build rate limit config when API proxy is enabled
     if (config.enableApiProxy) {
-      // --no-rate-limit flag: commander stores as `options.rateLimit === false`
-      const rateLimitDisabled = options.rateLimit === false;
-
-      const rateLimitConfig: RateLimitConfig = {
-        enabled: !rateLimitDisabled,
-        rpm: 60,
-        rph: 1000,
-        bytesPm: 52428800,
-      };
-
-      if (!rateLimitDisabled) {
-        if (options.rateLimitRpm !== undefined) {
-          const rpm = parseInt(options.rateLimitRpm, 10);
-          if (isNaN(rpm) || rpm <= 0) {
-            logger.error('❌ --rate-limit-rpm must be a positive integer');
-            process.exit(1);
-          }
-          rateLimitConfig.rpm = rpm;
-        }
-        if (options.rateLimitRph !== undefined) {
-          const rph = parseInt(options.rateLimitRph, 10);
-          if (isNaN(rph) || rph <= 0) {
-            logger.error('❌ --rate-limit-rph must be a positive integer');
-            process.exit(1);
-          }
-          rateLimitConfig.rph = rph;
-        }
-        if (options.rateLimitBytesPm !== undefined) {
-          const bytesPm = parseInt(options.rateLimitBytesPm, 10);
-          if (isNaN(bytesPm) || bytesPm <= 0) {
-            logger.error('❌ --rate-limit-bytes-pm must be a positive integer');
-            process.exit(1);
-          }
-          rateLimitConfig.bytesPm = bytesPm;
-        }
+      const rateLimitResult = buildRateLimitConfig(options);
+      if ('error' in rateLimitResult) {
+        logger.error(`❌ ${rateLimitResult.error}`);
+        process.exit(1);
       }
-
-      config.rateLimitConfig = rateLimitConfig;
-      logger.debug(`Rate limiting: enabled=${rateLimitConfig.enabled}, rpm=${rateLimitConfig.rpm}, rph=${rateLimitConfig.rph}, bytesPm=${rateLimitConfig.bytesPm}`);
+      config.rateLimitConfig = rateLimitResult.config;
+      logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}`);
     }
 
     // Warn if --env-all is used
