@@ -35,14 +35,14 @@ jobs:
           docker build -t awf-agent:${{ github.sha }} ./containers/agent
 
       - name: Run Trivy vulnerability scanner (table output)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: 'awf-agent:${{ github.sha }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner (SARIF output)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: 'awf-agent:${{ github.sha }}'
           format: 'sarif'
@@ -70,14 +70,14 @@ jobs:
           docker build -t awf-squid:${{ github.sha }} ./containers/squid
 
       - name: Run Trivy vulnerability scanner (table output)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: 'awf-squid:${{ github.sha }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner (SARIF output)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
           image-ref: 'awf-squid:${{ github.sha }}'
           format: 'sarif'
