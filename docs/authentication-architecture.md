@@ -6,7 +6,7 @@ description: How AWF isolates LLM API tokens using a multi-container credential 
 AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains the complete authentication flow, token isolation mechanisms, and network routing for both OpenAI/Codex and Anthropic/Claude APIs.
 
 :::note
-Both OpenAI/Codex and Anthropic/Claude use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and both providers route through the same Squid proxy for domain filtering. The only differences are the port numbers (10000 for OpenAI, 10001 for Anthropic) and authentication header formats (`Authorization: Bearer` vs `x-api-key`).
+All providers use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and all providers route through the same Squid proxy for domain filtering. The only differences are the port numbers (10000 for OpenAI, 10001 for Anthropic, 10002 for GitHub Copilot, 10004 for OpenCode) and authentication header formats (`Authorization: Bearer` vs `x-api-key`). OpenCode uses port 10004 (separate from Anthropic's 10001) for per-engine rate limiting and metrics isolation, even though both route to `api.anthropic.com`.
 :::
 
 ## Architecture components

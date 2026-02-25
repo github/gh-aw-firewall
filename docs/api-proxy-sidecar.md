@@ -183,6 +183,7 @@ These environment variables are recognized by:
 - GitHub Copilot CLI (`@github/copilot`)
 - Codex CLI
 - Claude Code CLI
+- OpenCode CLI
 
 :::tip
 You don't need to change any agent code. The SDKs automatically read `*_BASE_URL` environment variables and redirect API calls through the proxy.
@@ -277,7 +278,7 @@ sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 
 **Recommended domain whitelist**:
 - `api.openai.com` — for OpenAI/Codex
-- `api.anthropic.com` — for Anthropic/Claude
+- `api.anthropic.com` — for Anthropic/Claude and OpenCode
 
 ### Container configuration
 
