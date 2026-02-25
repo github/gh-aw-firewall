@@ -72,7 +72,11 @@ if (!proxyAgent) {
 function checkRateLimit(req, res, provider, requestBytes) {
   const check = limiter.check(provider, requestBytes);
   if (!check.allowed) {
-    const requestId = req.headers['x-request-id'] || generateRequestId();
+    const clientRequestId = req.headers['x-request-id'];
+    const requestId = (typeof clientRequestId === 'string' &&
+      clientRequestId.length <= 128 &&
+      /^[\w\-\.]+$/.test(clientRequestId))
+      ? clientRequestId : generateRequestId();
     const limitLabels = { rpm: 'requests per minute', rph: 'requests per hour', bytes_pm: 'bytes per minute' };
     const windowLabel = limitLabels[check.limitType] || check.limitType;
 
@@ -111,8 +115,14 @@ function checkRateLimit(req, res, provider, requestBytes) {
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
  */
+/** Validate that a request ID is safe (alphanumeric, dashes, dots, max 128 chars). */
+function isValidRequestId(id) {
+  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
+}
+
 function proxyRequest(req, res, targetHost, injectHeaders, provider) {
-  const requestId = req.headers['x-request-id'] || generateRequestId();
+  const clientRequestId = req.headers['x-request-id'];
+  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
 
   // Propagate request ID back to the client and forward to upstream
@@ -356,7 +366,8 @@ const HEALTH_PORT = 10000;
 if (OPENAI_API_KEY) {
   const server = http.createServer((req, res) => {
     if (handleManagementEndpoint(req, res)) return;
-    if (checkRateLimit(req, res, 'openai', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'openai', contentLength)) return;
 
     proxyRequest(req, res, 'api.openai.com', {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -389,7 +400,8 @@ if (ANTHROPIC_API_KEY) {
       return;
     }
 
-    if (checkRateLimit(req, res, 'anthropic', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'anthropic', contentLength)) return;
 
     // Only set anthropic-version as default; preserve agent-provided version
     const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
@@ -415,7 +427,8 @@ if (COPILOT_GITHUB_TOKEN) {
       return;
     }
 
-    if (checkRateLimit(req, res, 'copilot', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
     proxyRequest(req, res, 'api.githubcopilot.com', {
       'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,

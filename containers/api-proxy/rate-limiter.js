@@ -83,19 +83,15 @@ function recordInWindow(win, now, size, value) {
 }
 
 /**
- * Get the sliding window estimate of the current rate.
+ * Get the current count in the sliding window.
  *
- * Uses the formula: current_window_count + previous_window_weight * previous_total
- * where previous_window_weight = (slot_duration - elapsed_in_current_slot) / slot_duration
- *
- * This is a simplified but effective approach: we use the total across
- * all current-window slots plus a weighted fraction of the oldest expired slot's
- * contribution to approximate the true sliding window.
+ * After advancing the window to zero out stale slots, returns the
+ * sum of all active slot counts.
  *
  * @param {object} win - Window object
  * @param {number} now - Current time in the slot's unit
  * @param {number} size - Window size
- * @returns {number} Estimated count in the window
+ * @returns {number} Count of events in the current window
  */
 function getWindowCount(win, now, size) {
   advanceWindow(win, now, size);
@@ -180,8 +176,8 @@ class RateLimiter {
       // Check RPM (requests per minute)
       const rpmCount = getWindowCount(state.rpmWindow, nowSec, MINUTE_SLOTS);
       if (rpmCount >= this.rpm) {
-        const resetAt = (nowSec + 1) + (MINUTE_SLOTS - 1);
         const retryAfter = Math.max(1, MINUTE_SLOTS - (nowSec % MINUTE_SLOTS));
+        const resetAt = nowSec + retryAfter;
         return {
           allowed: false,
           limitType: 'rpm',
@@ -314,9 +310,13 @@ class RateLimiter {
  * @returns {RateLimiter}
  */
 function create() {
-  const rpm = parseInt(process.env.AWF_RATE_LIMIT_RPM, 10) || DEFAULT_RPM;
-  const rph = parseInt(process.env.AWF_RATE_LIMIT_RPH, 10) || DEFAULT_RPH;
-  const bytesPm = parseInt(process.env.AWF_RATE_LIMIT_BYTES_PM, 10) || DEFAULT_BYTES_PM;
+  const rawRpm = parseInt(process.env.AWF_RATE_LIMIT_RPM, 10);
+  const rawRph = parseInt(process.env.AWF_RATE_LIMIT_RPH, 10);
+  const rawBytesPm = parseInt(process.env.AWF_RATE_LIMIT_BYTES_PM, 10);
+
+  const rpm = (Number.isFinite(rawRpm) && rawRpm > 0) ? rawRpm : DEFAULT_RPM;
+  const rph = (Number.isFinite(rawRph) && rawRph > 0) ? rawRph : DEFAULT_RPH;
+  const bytesPm = (Number.isFinite(rawBytesPm) && rawBytesPm > 0) ? rawBytesPm : DEFAULT_BYTES_PM;
   const enabled = process.env.AWF_RATE_LIMIT_ENABLED !== 'false';
 
   return new RateLimiter({ rpm, rph, bytesPm, enabled });

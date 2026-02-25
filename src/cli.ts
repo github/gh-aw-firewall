@@ -1042,6 +1042,18 @@ program
       logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}`);
     }
 
+    // Error if rate limit flags are used without --enable-api-proxy
+    if (!config.enableApiProxy) {
+      const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
+        options.rateLimitRph !== undefined ||
+        options.rateLimitBytesPm !== undefined ||
+        options.rateLimit === false;
+      if (hasRateLimitFlags) {
+        logger.error('Rate limit flags require --enable-api-proxy');
+        process.exit(1);
+      }
+    }
+
     // Warn if --env-all is used
     if (config.envAll) {
       logger.warn('⚠️  Using --env-all: All host environment variables will be passed to container');

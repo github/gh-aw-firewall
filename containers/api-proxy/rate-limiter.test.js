@@ -59,6 +59,36 @@ describe('rate-limiter', () => {
       expect(limiter.enabled).toBe(false);
     });
 
+    it('should use defaults for negative env var values', () => {
+      process.env.AWF_RATE_LIMIT_RPM = '-5';
+      process.env.AWF_RATE_LIMIT_RPH = '-100';
+      process.env.AWF_RATE_LIMIT_BYTES_PM = '-1024';
+      const limiter = create();
+      expect(limiter.rpm).toBe(60);
+      expect(limiter.rph).toBe(1000);
+      expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
+    });
+
+    it('should use defaults for zero env var values', () => {
+      process.env.AWF_RATE_LIMIT_RPM = '0';
+      process.env.AWF_RATE_LIMIT_RPH = '0';
+      process.env.AWF_RATE_LIMIT_BYTES_PM = '0';
+      const limiter = create();
+      expect(limiter.rpm).toBe(60);
+      expect(limiter.rph).toBe(1000);
+      expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
+    });
+
+    it('should use defaults for non-numeric env var values', () => {
+      process.env.AWF_RATE_LIMIT_RPM = 'abc';
+      process.env.AWF_RATE_LIMIT_RPH = 'xyz';
+      process.env.AWF_RATE_LIMIT_BYTES_PM = '';
+      const limiter = create();
+      expect(limiter.rpm).toBe(60);
+      expect(limiter.rph).toBe(1000);
+      expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
+    });
+
     it('should use defaults when env vars are not set', () => {
       delete process.env.AWF_RATE_LIMIT_RPM;
       delete process.env.AWF_RATE_LIMIT_RPH;
