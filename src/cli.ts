@@ -327,6 +327,27 @@ export function buildRateLimitConfig(options: {
 }
 
 /**
+ * Validates that rate-limit flags are not used without --enable-api-proxy.
+ */
+export function validateRateLimitFlags(enableApiProxy: boolean, options: {
+  rateLimit?: boolean;
+  rateLimitRpm?: string;
+  rateLimitRph?: string;
+  rateLimitBytesPm?: string;
+}): FlagValidationResult {
+  if (!enableApiProxy) {
+    const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
+      options.rateLimitRph !== undefined ||
+      options.rateLimitBytesPm !== undefined ||
+      options.rateLimit === false;
+    if (hasRateLimitFlags) {
+      return { valid: false, error: 'Rate limit flags require --enable-api-proxy' };
+    }
+  }
+  return { valid: true };
+}
+
+/**
  * Result of validating flag combinations
  */
 export interface FlagValidationResult {
@@ -1043,15 +1064,10 @@ program
     }
 
     // Error if rate limit flags are used without --enable-api-proxy
-    if (!config.enableApiProxy) {
-      const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
-        options.rateLimitRph !== undefined ||
-        options.rateLimitBytesPm !== undefined ||
-        options.rateLimit === false;
-      if (hasRateLimitFlags) {
-        logger.error('Rate limit flags require --enable-api-proxy');
-        process.exit(1);
-      }
+    const rateLimitFlagValidation = validateRateLimitFlags(config.enableApiProxy ?? false, options);
+    if (!rateLimitFlagValidation.valid) {
+      logger.error(rateLimitFlagValidation.error!);
+      process.exit(1);
     }
 
     // Warn if --env-all is used

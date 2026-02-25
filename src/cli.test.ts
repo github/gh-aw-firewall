@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1457,6 +1457,33 @@ describe('cli', () => {
     it('should accept all custom values', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });
       if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 10, rph: 100, bytesPm: 5000000 }); }
+    });
+  });
+
+  describe('validateRateLimitFlags', () => {
+    it('should pass when api proxy is enabled', () => {
+      expect(validateRateLimitFlags(true, { rateLimitRpm: '30' })).toEqual({ valid: true });
+    });
+    it('should pass when no rate limit flags used', () => {
+      expect(validateRateLimitFlags(false, {})).toEqual({ valid: true });
+    });
+    it('should fail when --rate-limit-rpm used without api proxy', () => {
+      const r = validateRateLimitFlags(false, { rateLimitRpm: '30' });
+      expect(r.valid).toBe(false);
+      expect(r.error).toContain('--enable-api-proxy');
+    });
+    it('should fail when --rate-limit-rph used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimitRph: '100' }).valid).toBe(false);
+    });
+    it('should fail when --rate-limit-bytes-pm used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimitBytesPm: '1000' }).valid).toBe(false);
+    });
+    it('should fail when --no-rate-limit used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimit: false }).valid).toBe(false);
+    });
+    it('should pass when all flags used with api proxy enabled', () => {
+      const r = validateRateLimitFlags(true, { rateLimitRpm: '10', rateLimitRph: '100', rateLimit: false });
+      expect(r.valid).toBe(true);
     });
   });
 });
