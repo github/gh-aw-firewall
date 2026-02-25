@@ -27,7 +27,8 @@ USER apiproxy
 # 10000 - OpenAI API proxy (also serves as health check endpoint)
 # 10001 - Anthropic API proxy
 # 10002 - GitHub Copilot API proxy
-EXPOSE 10000 10001 10002
+# 10004 - OpenCode API proxy (routes to Anthropic)
+EXPOSE 10000 10001 10002 10004
 
 # Redirect stdout/stderr to log file for persistence
 # Use shell form to enable redirection and tee for both file and console
