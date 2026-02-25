@@ -56,10 +56,11 @@ if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -F OUTPUT 2>/dev/null || true
 fi
 
-# Allow localhost traffic (for stdio MCP servers)
+# Allow localhost traffic (for stdio MCP servers and test frameworks)
 echo "[iptables] Allow localhost traffic..."
 iptables -t nat -A OUTPUT -o lo -j RETURN
 iptables -t nat -A OUTPUT -d 127.0.0.0/8 -j RETURN
+iptables -t nat -A OUTPUT -d 0.0.0.0 -j RETURN
 if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -A OUTPUT -o lo -j RETURN
   ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN
