@@ -82,7 +82,6 @@ interface AwfOptions {
   tty?: boolean;
   dnsServers?: string[];
   allowHostPorts?: string;
-  allowFullFilesystemAccess?: boolean;
   enableApiProxy?: boolean;
 }
 ```

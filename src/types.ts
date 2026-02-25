@@ -257,51 +257,11 @@ export interface WrapperConfig {
    *
    * When specified, selective mounting is used (only essential directories + custom mounts).
    * When not specified, selective mounting is still used by default for security.
-   * Use --allow-full-filesystem-access to opt into blanket mounting.
    *
    * @example ['/workspace:/workspace:ro', '/data:/data:rw']
    */
   volumeMounts?: string[];
 
-  /**
-   * Allow full filesystem access (blanket /:/host:rw mount)
-   *
-   * **SECURITY WARNING**: This flag disables AWF's security protection against
-   * credential exfiltration via prompt injection attacks. It mounts the entire
-   * host filesystem with read-write access, exposing ALL files including:
-   * - Docker Hub tokens (~/.docker/config.json)
-   * - GitHub CLI tokens (~/.config/gh/hosts.yml)
-   * - NPM tokens (~/.npmrc)
-   * - Rust crates.io tokens (~/.cargo/credentials)
-   * - PHP Composer tokens (~/.composer/auth.json)
-   * - And any other sensitive files on the host
-   *
-   * **Default behavior (false)**: Selective mounting is used, which only mounts:
-   * - User home directory (for workspace access)
-   *   - In GitHub Actions, the workspace directory ($GITHUB_WORKSPACE) is typically a
-   *     subdirectory of $HOME and is therefore accessible via this home directory mount
-   * - Essential directories (/tmp, ~/.copilot/logs)
-   * - Credential files are hidden by mounting /dev/null over them
-   *
-   * **Only enable this if**:
-   * - You need access to files outside the standard directories
-   * - You cannot use --volume-mount to specify needed directories
-   * - You understand and accept the security risks
-   *
-   * @default false
-   * @example
-   * ```bash
-   * # Avoid this - use selective mounting instead
-   * awf --allow-full-filesystem-access --allow-domains github.com -- curl https://api.github.com
-   *
-   * # Preferred - use selective mounting (default)
-   * awf --allow-domains github.com -- curl https://api.github.com
-   *
-   * # If you need specific directories, mount them explicitly
-   * awf --volume-mount /data:/data:ro --allow-domains github.com -- curl https://api.github.com
-   * ```
-   */
-  allowFullFilesystemAccess?: boolean;
 
   /**
    * Working directory inside the agent execution container

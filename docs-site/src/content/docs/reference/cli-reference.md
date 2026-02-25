@@ -42,7 +42,6 @@ awf [options] -- <command>
 | `--enable-host-access` | flag | `false` | Enable access to host services via host.docker.internal |
 | `--allow-host-ports <ports>` | string | `80,443` | Ports to allow when using --enable-host-access |
 | `--agent-image <value>` | string | `default` | Agent container image (default, act, or custom) |
-| `--allow-full-filesystem-access` | flag | `false` | ⚠️ Mount entire host filesystem with read-write access |
 | `-V, --version` | flag | — | Display version |
 | `-h, --help` | flag | — | Display help |
 
@@ -364,31 +363,6 @@ Custom images are validated against approved patterns to prevent supply chain at
 
 **See also:** [Agent Images Reference](/gh-aw-firewall/reference/agent-images/)
 
-### `--allow-full-filesystem-access`
-
-:::danger[⚠️ SECURITY WARNING]
-This flag **DISABLES selective mounting security** and mounts the entire host filesystem with **read-write access**. This exposes **ALL** credential files including:
-
-- Docker Hub tokens (`~/.docker/config.json`)
-- GitHub CLI tokens (`~/.config/gh/hosts.yml`)
-- NPM, Cargo, Composer credentials
-- SSH keys, GPG keys, and other sensitive files
-
-**Only use this flag if:**
-1. You are running trusted code that you have fully reviewed
-2. You understand the security implications
-3. You cannot use `--mount` to selectively mount needed directories
-:::
-
-```bash
-# ⚠️ Use with extreme caution
-sudo awf --allow-full-filesystem-access \
-  --allow-domains github.com \
-  -- trusted-command
-```
-
-**Alternatives:**
-- Use `--mount` to selectively mount only needed directories (recommended)
 
 ## Exit Codes
 

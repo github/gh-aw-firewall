@@ -178,8 +178,6 @@ The API proxy sidecar is the core credential isolation mechanism. In production 
 | **Chroot mode debug logs** | Verifies chroot-specific credential hiding log messages. |
 | **Chroot bypass prevention** | Critical security test: verifies credentials hidden at direct `$HOME` path (not just `/host` path). Previously a bypass vulnerability. |
 | **Chroot GitHub CLI tokens hidden at direct path** | Same bypass prevention for `hosts.yml`. |
-| **Full filesystem access security warnings** | With `--allow-full-filesystem-access`, verifies security warnings are displayed. |
-| **Full access: Docker config NOT hidden** | With full access flag, verifies the real Docker config is accessible (not hidden). |
 | **Simulated exfiltration: base64 encoding** | Runs `cat ... | base64` on hidden credential file. Gets empty output. |
 | **Multiple encoding attempts** | Runs `cat ... | base64 | xxd -p` pipeline. Still gets empty output. |
 | **Grep for tokens finds nothing** | Greps for `oauth_token`, `_authToken`, `auth:` patterns. Finds nothing. |
@@ -194,7 +192,6 @@ This is a critical security layer. In real agentic workflows:
 - A prompt injection attack could instruct the agent to read credential files
 - Credential hiding prevents exfiltration of Docker Hub tokens, GitHub CLI tokens, NPM auth tokens
 - The MCP logs hiding prevents reading log files that might contain sensitive operation details
-- The `--allow-full-filesystem-access` flag is a conscious security trade-off for trusted workloads
 
 ### Gaps and Missing Coverage
 

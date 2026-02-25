@@ -43,12 +43,6 @@ Options:
                                like PATH) (default: false)
   -v, --mount <path:path>      Volume mount (can be specified multiple times). Format:
                                host_path:container_path[:ro|rw]
-  --allow-full-filesystem-access  ⚠️  SECURITY WARNING: Mount entire host filesystem with read-write access.
-                               This DISABLES selective mounting security and exposes ALL files including:
-                               - Docker Hub tokens (~/.docker/config.json)
-                               - GitHub CLI tokens (~/.config/gh/hosts.yml)
-                               - NPM, Cargo, Composer credentials
-                               Only use if you cannot use --mount for specific directories. (default: false)
   --container-workdir <dir>    Working directory inside the container (should match GITHUB_WORKSPACE
                                for path consistency)
   --dns-servers <servers>      Comma-separated list of trusted DNS servers. DNS traffic is ONLY
