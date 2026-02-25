@@ -17,7 +17,7 @@
 'use strict';
 
 // ── Defaults ────────────────────────────────────────────────────────────
-const DEFAULT_RPM = 180;
+const DEFAULT_RPM = 600;
 const DEFAULT_RPH = 1000;
 const DEFAULT_BYTES_PM = 50 * 1024 * 1024; // 50 MB
 
@@ -149,7 +149,7 @@ class ProviderState {
 class RateLimiter {
   /**
    * @param {object} config
-   * @param {number} [config.rpm=180] - Max requests per minute
+   * @param {number} [config.rpm=600] - Max requests per minute
    * @param {number} [config.rph=1000] - Max requests per hour
    * @param {number} [config.bytesPm=52428800] - Max bytes per minute (50 MB)
    * @param {boolean} [config.enabled=true] - Whether rate limiting is active
@@ -347,7 +347,7 @@ class RateLimiter {
  * - AWF_RATE_LIMIT_RPM (default: 60)
  * - AWF_RATE_LIMIT_RPH (default: 1000)
  * - AWF_RATE_LIMIT_BYTES_PM (default: 52428800)
- * - AWF_RATE_LIMIT_ENABLED (default: "true")
+ * - AWF_RATE_LIMIT_ENABLED (default: "false" — rate limiting is opt-in)
  *
  * @returns {RateLimiter}
  */
@@ -359,7 +359,7 @@ function create() {
   const rpm = (Number.isFinite(rawRpm) && rawRpm > 0) ? rawRpm : DEFAULT_RPM;
   const rph = (Number.isFinite(rawRph) && rawRph > 0) ? rawRph : DEFAULT_RPH;
   const bytesPm = (Number.isFinite(rawBytesPm) && rawBytesPm > 0) ? rawBytesPm : DEFAULT_BYTES_PM;
-  const enabled = process.env.AWF_RATE_LIMIT_ENABLED !== 'false';
+  const enabled = process.env.AWF_RATE_LIMIT_ENABLED === 'true';
 
   return new RateLimiter({ rpm, rph, bytesPm, enabled });
 }

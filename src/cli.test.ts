@@ -1417,23 +1417,23 @@ describe('cli', () => {
     it('should return defaults when no options provided', () => {
       const r = buildRateLimitConfig({});
       expect('config' in r).toBe(true);
-      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 180, rph: 1000, bytesPm: 52428800 }); }
+      if ('config' in r) { expect(r.config).toEqual({ enabled: false, rpm: 0, rph: 0, bytesPm: 0 }); }
     });
-    it('should disable with rateLimit=false', () => {
-      const r = buildRateLimitConfig({ rateLimit: false });
+    it('should disable with rateLimit=false even if limits provided', () => {
+      const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '30' });
       if ('config' in r) { expect(r.config.enabled).toBe(false); }
     });
-    it('should parse custom RPM', () => {
+    it('should enable and parse custom RPM', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '30' });
-      if ('config' in r) { expect(r.config.rpm).toBe(30); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.rpm).toBe(30); }
     });
-    it('should parse custom RPH', () => {
+    it('should enable and parse custom RPH', () => {
       const r = buildRateLimitConfig({ rateLimitRph: '500' });
-      if ('config' in r) { expect(r.config.rph).toBe(500); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.rph).toBe(500); }
     });
-    it('should parse custom bytes-pm', () => {
+    it('should enable and parse custom bytes-pm', () => {
       const r = buildRateLimitConfig({ rateLimitBytesPm: '1000000' });
-      if ('config' in r) { expect(r.config.bytesPm).toBe(1000000); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.bytesPm).toBe(1000000); }
     });
     it('should error on negative RPM', () => {
       expect('error' in buildRateLimitConfig({ rateLimitRpm: '-5' })).toBe(true);
@@ -1450,9 +1450,9 @@ describe('cli', () => {
     it('should error on negative bytes-pm', () => {
       expect('error' in buildRateLimitConfig({ rateLimitBytesPm: '-100' })).toBe(true);
     });
-    it('should ignore custom values when disabled', () => {
+    it('should ignore custom values when disabled via --no-rate-limit', () => {
       const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '999' });
-      if ('config' in r) { expect(r.config.rpm).toBe(180); }
+      if ('config' in r) { expect(r.config.enabled).toBe(false); expect(r.config.rpm).toBe(0); }
     });
     it('should accept all custom values', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });

@@ -304,25 +304,39 @@ export function buildRateLimitConfig(options: {
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
 }): { config: RateLimitConfig } | { error: string } {
-  const rateLimitDisabled = options.rateLimit === false;
-  const config: RateLimitConfig = { enabled: !rateLimitDisabled, rpm: 180, rph: 1000, bytesPm: 52428800 };
-  if (!rateLimitDisabled) {
-    if (options.rateLimitRpm !== undefined) {
-      const rpm = parseInt(options.rateLimitRpm, 10);
-      if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
-      config.rpm = rpm;
-    }
-    if (options.rateLimitRph !== undefined) {
-      const rph = parseInt(options.rateLimitRph, 10);
-      if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
-      config.rph = rph;
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      const bytesPm = parseInt(options.rateLimitBytesPm, 10);
-      if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
-      config.bytesPm = bytesPm;
-    }
+  // --no-rate-limit explicitly disables (even if other flags are set)
+  if (options.rateLimit === false) {
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
   }
+
+  // Rate limiting is opt-in: disabled unless at least one --rate-limit-* flag is provided
+  const hasAnyLimit = options.rateLimitRpm !== undefined ||
+    options.rateLimitRph !== undefined ||
+    options.rateLimitBytesPm !== undefined;
+
+  if (!hasAnyLimit) {
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
+  }
+
+  // Defaults for any limit not explicitly set
+  const config: RateLimitConfig = { enabled: true, rpm: 600, rph: 10000, bytesPm: 52428800 };
+
+  if (options.rateLimitRpm !== undefined) {
+    const rpm = parseInt(options.rateLimitRpm, 10);
+    if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
+    config.rpm = rpm;
+  }
+  if (options.rateLimitRph !== undefined) {
+    const rph = parseInt(options.rateLimitRph, 10);
+    if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
+    config.rph = rph;
+  }
+  if (options.rateLimitBytesPm !== undefined) {
+    const bytesPm = parseInt(options.rateLimitBytesPm, 10);
+    if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
+    config.bytesPm = bytesPm;
+  }
+
   return { config };
 }
 
@@ -772,19 +786,19 @@ program
   )
   .option(
     '--rate-limit-rpm <n>',
-    'Requests per minute per provider (default: 180, requires --enable-api-proxy)',
+    'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
   .option(
     '--rate-limit-rph <n>',
-    'Requests per hour per provider (default: 1000, requires --enable-api-proxy)',
+    'Enable rate limiting: max requests per hour per provider (requires --enable-api-proxy)',
   )
   .option(
     '--rate-limit-bytes-pm <n>',
-    'Request bytes per minute per provider (default: 52428800 = 50MB, requires --enable-api-proxy)',
+    'Enable rate limiting: max request bytes per minute per provider (requires --enable-api-proxy)',
   )
   .option(
     '--no-rate-limit',
-    'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
+    'Explicitly disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {

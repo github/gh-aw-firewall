@@ -6,7 +6,7 @@ describe('rate-limiter', () => {
   describe('constructor', () => {
     it('should use defaults when no config provided', () => {
       const limiter = new RateLimiter();
-      expect(limiter.rpm).toBe(180);
+      expect(limiter.rpm).toBe(600);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
       expect(limiter.enabled).toBe(true);
@@ -46,6 +46,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPM = '30';
       process.env.AWF_RATE_LIMIT_RPH = '500';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '10485760';
+      process.env.AWF_RATE_LIMIT_ENABLED = 'true';
       const limiter = create();
       expect(limiter.rpm).toBe(30);
       expect(limiter.rph).toBe(500);
@@ -64,7 +65,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = '-100';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '-1024';
       const limiter = create();
-      expect(limiter.rpm).toBe(180);
+      expect(limiter.rpm).toBe(600);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
@@ -74,7 +75,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = '0';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '0';
       const limiter = create();
-      expect(limiter.rpm).toBe(180);
+      expect(limiter.rpm).toBe(600);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
@@ -84,21 +85,21 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = 'xyz';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '';
       const limiter = create();
-      expect(limiter.rpm).toBe(180);
+      expect(limiter.rpm).toBe(600);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
 
-    it('should use defaults when env vars are not set', () => {
+    it('should default to disabled when env vars are not set', () => {
       delete process.env.AWF_RATE_LIMIT_RPM;
       delete process.env.AWF_RATE_LIMIT_RPH;
       delete process.env.AWF_RATE_LIMIT_BYTES_PM;
       delete process.env.AWF_RATE_LIMIT_ENABLED;
       const limiter = create();
-      expect(limiter.rpm).toBe(180);
+      expect(limiter.rpm).toBe(600);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
-      expect(limiter.enabled).toBe(true);
+      expect(limiter.enabled).toBe(false);
     });
   });
 
