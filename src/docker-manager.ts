@@ -1352,7 +1352,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent'], {
+    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'], {
       reject: false,
     });
   } catch {

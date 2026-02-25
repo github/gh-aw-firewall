@@ -2134,7 +2134,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['rm', '-f', 'awf-squid', 'awf-agent'],
+        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'],
         { reject: false }
       );
     });

@@ -12,7 +12,7 @@ echo "==========================================="
 
 # First, explicitly remove containers by name (handles orphaned containers)
 echo "Removing awf containers by name..."
-docker rm -f awf-squid awf-agent 2>/dev/null || true
+docker rm -f awf-squid awf-agent awf-api-proxy 2>/dev/null || true
 
 # Cleanup diagnostic test containers
 echo "Stopping docker compose services..."
