@@ -258,6 +258,30 @@ if (COPILOT_GITHUB_TOKEN) {
     console.log('[API Proxy] GitHub Copilot proxy listening on port 10002');
   });
 }
+
+// OpenCode API proxy (port 10004) — routes to Anthropic (default BYOK provider)
+if (ANTHROPIC_API_KEY) {
+  const opencodeServer = http.createServer((req, res) => {
+    if (req.url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'healthy', service: 'opencode-proxy' }));
+      return;
+    }
+
+    console.log(`[OpenCode Proxy] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.url)}`);
+    console.log(`[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY`);
+    const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+    if (!req.headers['anthropic-version']) {
+      anthropicHeaders['anthropic-version'] = '2023-06-01';
+    }
+    proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders);
+  });
+
+  opencodeServer.listen(10004, '0.0.0.0', () => {
+    console.log('[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic)');
+  });
+}
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('[API Proxy] Received SIGTERM, shutting down gracefully...');

@@ -443,11 +443,12 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   ]);
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
-  // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot).
+  // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot, OpenCode).
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   if (apiProxyIp) {
-    const minPort = Math.min(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
-    const maxPort = Math.max(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
+    const allPorts = Object.values(API_PROXY_PORTS);
+    const minPort = Math.min(...allPorts);
+    const maxPort = Math.max(...allPorts);
     logger.debug(`Allowing traffic to API proxy sidecar at ${apiProxyIp}:${minPort}-${maxPort}`);
     await execa('iptables', [
       '-t', 'filter', '-A', CHAIN_NAME,
