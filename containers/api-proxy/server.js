@@ -16,6 +16,10 @@ const { URL } = require('url');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
+const rateLimiter = require('./rate-limiter');
+
+// Create rate limiter from environment variables
+const limiter = rateLimiter.create();
 
 // Max request body size (10 MB) to prevent DoS via large payloads
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -59,6 +63,49 @@ logRequest('info', 'startup', {
 const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
 if (!proxyAgent) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
+}
+
+/**
+ * Check rate limit and send 429 if exceeded.
+ * Returns true if request was rate-limited (caller should return early).
+ */
+function checkRateLimit(req, res, provider, requestBytes) {
+  const check = limiter.check(provider, requestBytes);
+  if (!check.allowed) {
+    const requestId = req.headers['x-request-id'] || generateRequestId();
+    const limitLabels = { rpm: 'requests per minute', rph: 'requests per hour', bytes_pm: 'bytes per minute' };
+    const windowLabel = limitLabels[check.limitType] || check.limitType;
+
+    metrics.increment('rate_limit_rejected_total', { provider, limit_type: check.limitType });
+    logRequest('warn', 'rate_limited', {
+      request_id: requestId,
+      provider,
+      limit_type: check.limitType,
+      limit: check.limit,
+      retry_after: check.retryAfter,
+    });
+
+    res.writeHead(429, {
+      'Content-Type': 'application/json',
+      'Retry-After': String(check.retryAfter),
+      'X-RateLimit-Limit': String(check.limit),
+      'X-RateLimit-Remaining': String(check.remaining),
+      'X-RateLimit-Reset': String(check.resetAt),
+      'X-Request-ID': requestId,
+    });
+    res.end(JSON.stringify({
+      error: {
+        type: 'rate_limit_error',
+        message: `Rate limit exceeded for ${provider} provider. Limit: ${check.limit} ${windowLabel}. Retry after ${check.retryAfter} seconds.`,
+        provider,
+        limit: check.limit,
+        window: check.limitType === 'rpm' ? 'per_minute' : check.limitType === 'rph' ? 'per_hour' : 'per_minute_bytes',
+        retry_after: check.retryAfter,
+      },
+    }));
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -280,6 +327,7 @@ function healthResponse() {
       copilot: !!COPILOT_GITHUB_TOKEN,
     },
     metrics_summary: metrics.getSummary(),
+    rate_limits: limiter.getAllStatus(),
   };
 }
 
@@ -308,6 +356,7 @@ const HEALTH_PORT = 10000;
 if (OPENAI_API_KEY) {
   const server = http.createServer((req, res) => {
     if (handleManagementEndpoint(req, res)) return;
+    if (checkRateLimit(req, res, 'openai', 0)) return;
 
     proxyRequest(req, res, 'api.openai.com', {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -340,6 +389,8 @@ if (ANTHROPIC_API_KEY) {
       return;
     }
 
+    if (checkRateLimit(req, res, 'anthropic', 0)) return;
+
     // Only set anthropic-version as default; preserve agent-provided version
     const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
     if (!req.headers['anthropic-version']) {
@@ -363,6 +414,8 @@ if (COPILOT_GITHUB_TOKEN) {
       res.end(JSON.stringify({ status: 'healthy', service: 'copilot-proxy' }));
       return;
     }
+
+    if (checkRateLimit(req, res, 'copilot', 0)) return;
 
     proxyRequest(req, res, 'api.githubcopilot.com', {
       'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,

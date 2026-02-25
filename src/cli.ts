@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { isIPv6 } from 'net';
-import { WrapperConfig, LogLevel } from './types';
+import { WrapperConfig, LogLevel, RateLimitConfig } from './types';
 import { logger } from './logger';
 import {
   writeConfigs,
@@ -718,6 +718,22 @@ program
     '                                   Supports OpenAI (Codex) and Anthropic (Claude) APIs.',
     false
   )
+  .option(
+    '--rate-limit-rpm <n>',
+    'Requests per minute per provider (default: 60, requires --enable-api-proxy)',
+  )
+  .option(
+    '--rate-limit-rph <n>',
+    'Requests per hour per provider (default: 1000, requires --enable-api-proxy)',
+  )
+  .option(
+    '--rate-limit-bytes-pm <n>',
+    'Request bytes per minute per provider (default: 52428800 = 50MB, requires --enable-api-proxy)',
+  )
+  .option(
+    '--no-rate-limit',
+    'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
     // Require -- separator for passing command arguments
@@ -983,6 +999,49 @@ program
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
     };
+
+    // Build rate limit config when API proxy is enabled
+    if (config.enableApiProxy) {
+      // --no-rate-limit flag: commander stores as `options.rateLimit === false`
+      const rateLimitDisabled = options.rateLimit === false;
+
+      const rateLimitConfig: RateLimitConfig = {
+        enabled: !rateLimitDisabled,
+        rpm: 60,
+        rph: 1000,
+        bytesPm: 52428800,
+      };
+
+      if (!rateLimitDisabled) {
+        if (options.rateLimitRpm !== undefined) {
+          const rpm = parseInt(options.rateLimitRpm, 10);
+          if (isNaN(rpm) || rpm <= 0) {
+            logger.error('❌ --rate-limit-rpm must be a positive integer');
+            process.exit(1);
+          }
+          rateLimitConfig.rpm = rpm;
+        }
+        if (options.rateLimitRph !== undefined) {
+          const rph = parseInt(options.rateLimitRph, 10);
+          if (isNaN(rph) || rph <= 0) {
+            logger.error('❌ --rate-limit-rph must be a positive integer');
+            process.exit(1);
+          }
+          rateLimitConfig.rph = rph;
+        }
+        if (options.rateLimitBytesPm !== undefined) {
+          const bytesPm = parseInt(options.rateLimitBytesPm, 10);
+          if (isNaN(bytesPm) || bytesPm <= 0) {
+            logger.error('❌ --rate-limit-bytes-pm must be a positive integer');
+            process.exit(1);
+          }
+          rateLimitConfig.bytesPm = bytesPm;
+        }
+      }
+
+      config.rateLimitConfig = rateLimitConfig;
+      logger.debug(`Rate limiting: enabled=${rateLimitConfig.enabled}, rpm=${rateLimitConfig.rpm}, rph=${rateLimitConfig.rph}, bytesPm=${rateLimitConfig.bytesPm}`);
+    }
 
     // Warn if --env-all is used
     if (config.envAll) {

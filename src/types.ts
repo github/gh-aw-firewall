@@ -427,6 +427,16 @@ export interface WrapperConfig {
   enableApiProxy?: boolean;
 
   /**
+   * Rate limiting configuration for the API proxy sidecar
+   *
+   * Controls per-provider rate limits enforced by the API proxy before
+   * requests are forwarded to upstream LLM APIs.
+   *
+   * @see RateLimitConfig
+   */
+  rateLimitConfig?: RateLimitConfig;
+
+  /**
    * OpenAI API key for Codex (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this key is injected into the Node.js sidecar
@@ -475,6 +485,23 @@ export interface WrapperConfig {
  * - 'error' (3): Shows only errors
  */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Rate limiting configuration for the API proxy sidecar
+ *
+ * Controls per-provider rate limits enforced before requests reach upstream APIs.
+ * All providers share the same limits but have independent counters.
+ */
+export interface RateLimitConfig {
+  /** Whether rate limiting is enabled (default: true) */
+  enabled: boolean;
+  /** Max requests per minute per provider (default: 60) */
+  rpm: number;
+  /** Max requests per hour per provider (default: 1000) */
+  rph: number;
+  /** Max request bytes per minute per provider (default: 52428800 = 50 MB) */
+  bytesPm: number;
+}
 
 /**
  * Configuration for the Squid proxy server
