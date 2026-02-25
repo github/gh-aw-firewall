@@ -1784,6 +1784,46 @@ describe('docker-manager', () => {
           }
         }
       });
+
+      it('should set AWF_RATE_LIMIT env vars when rateLimitConfig is provided', () => {
+        const configWithRateLimit = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          rateLimitConfig: { enabled: true, rpm: 30, rph: 500, bytesPm: 10485760 },
+        };
+        const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBe('true');
+        expect(env.AWF_RATE_LIMIT_RPM).toBe('30');
+        expect(env.AWF_RATE_LIMIT_RPH).toBe('500');
+        expect(env.AWF_RATE_LIMIT_BYTES_PM).toBe('10485760');
+      });
+
+      it('should set AWF_RATE_LIMIT_ENABLED=false when rate limiting is disabled', () => {
+        const configWithRateLimit = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          rateLimitConfig: { enabled: false, rpm: 60, rph: 1000, bytesPm: 52428800 },
+        };
+        const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBe('false');
+      });
+
+      it('should not set rate limit env vars when rateLimitConfig is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_RPM).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_RPH).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
+      });
     });
   });
 
