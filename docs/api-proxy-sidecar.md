@@ -14,7 +14,7 @@ For a deep dive into how AWF handles authentication tokens and credential isolat
 When enabled, the API proxy sidecar:
 - **Isolates credentials**: API keys are never exposed to the agent container
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
-- **Dual provider support**: Supports both OpenAI (Codex) and Anthropic (Claude) APIs
+- **Multi-provider support**: Supports OpenAI (Codex), Anthropic (Claude), GitHub Copilot, and OpenCode APIs
 - **Transparent proxying**: Agent code uses standard SDK environment variables
 - **Squid routing**: All traffic routes through Squid to respect domain whitelisting
 
@@ -41,15 +41,15 @@ When enabled, the API proxy sidecar:
 └─────────┼─────────────────────────────────────┘
           │ (Domain whitelist enforced)
           ↓
-  api.openai.com or api.anthropic.com
+  api.openai.com or api.anthropic.com (also via port 10004 for OpenCode)
 ```
 
 **Traffic flow:**
-1. Agent makes a request to `172.30.0.30:10000` (OpenAI) or `172.30.0.30:10001` (Anthropic)
+1. Agent makes a request to `172.30.0.30:10000` (OpenAI), `172.30.0.30:10001` (Anthropic), or `172.30.0.30:10004` (OpenCode)
 2. API proxy strips any client-supplied auth headers and injects the real credentials
 3. API proxy routes the request through Squid via `HTTP_PROXY`/`HTTPS_PROXY`
 4. Squid enforces the domain whitelist (only allowed domains pass)
-5. Request reaches `api.openai.com` or `api.anthropic.com`
+5. Request reaches `api.openai.com` or `api.anthropic.com` (OpenCode also routes to `api.anthropic.com`)
 
 ## Usage
 
@@ -89,6 +89,22 @@ sudo awf --enable-api-proxy \
 ```
 
 The agent container automatically uses `http://172.30.0.30:10001` as the Anthropic base URL.
+
+### OpenCode example
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+sudo awf --enable-api-proxy \
+  --allow-domains api.anthropic.com \
+  -- opencode "write a hello world function"
+```
+
+OpenCode routes through port 10004, which proxies to `api.anthropic.com` using the same `ANTHROPIC_API_KEY`.
+
+:::note
+OpenCode uses a separate proxy port (10004) from Claude Code (10001) to enable per-engine rate limiting and metrics isolation, even though both currently route to the Anthropic API.
+:::
 
 ### Both providers
 
@@ -233,6 +249,7 @@ The Node.js proxy automatically:
 - **Injects** the correct authentication headers:
   - **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
   - **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (if not already set by the client)
+  - **OpenCode**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (same as Anthropic, on port 10004)
 
 :::caution
 The proxy enforces a 10 MB request body size limit to prevent denial-of-service via large payloads.
@@ -268,7 +285,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10004 (OpenCode)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ### Health check
@@ -328,7 +345,7 @@ docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 
 ## Limitations
 
-- Only supports OpenAI and Anthropic APIs
+- Supports OpenAI, Anthropic, GitHub Copilot, and OpenCode APIs (no other LLM providers)
 - Keys must be set as environment variables (not file-based)
 - No support for Azure OpenAI endpoints
 - No request/response logging (by design, for security)
