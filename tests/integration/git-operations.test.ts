@@ -162,7 +162,7 @@ describe('Git Operations', () => {
 
       const result = await runner.runWithSudo(
         withGitAuth(
-          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-clone && ls /tmp/auth-clone`
+          `TMPDIR=$(mktemp -d) && git clone --depth 1 https://github.com/${TEST_REPO}.git $TMPDIR/repo && ls $TMPDIR/repo`
         ),
         {
           allowDomains: ['github.com'],
@@ -183,8 +183,8 @@ describe('Git Operations', () => {
 
       const result = await runner.runWithSudo(
         withGitAuth(
-          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-fetch && ` +
-          `cd /tmp/auth-fetch && git fetch origin`
+          `TMPDIR=$(mktemp -d) && git clone --depth 1 https://github.com/${TEST_REPO}.git $TMPDIR/repo && ` +
+          `cd $TMPDIR/repo && git fetch origin`
         ),
         {
           allowDomains: ['github.com'],
@@ -207,8 +207,8 @@ describe('Git Operations', () => {
       // Clone, create branch, commit, push, then delete the remote branch
       const result = await runner.runWithSudo(
         withGitAuth(
-          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-push && ` +
-          `cd /tmp/auth-push && ` +
+          `TMPDIR=$(mktemp -d) && git clone --depth 1 https://github.com/${TEST_REPO}.git $TMPDIR/repo && ` +
+          `cd $TMPDIR/repo && ` +
           `git checkout -b ${branchName} && ` +
           `echo "awf-test-$(date +%s)" > awf-test-file.txt && ` +
           `git add awf-test-file.txt && ` +

@@ -87,13 +87,19 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include X-RateLimit headers in responses', async () => {
-    // Make a single request and check for rate limit headers
+    // Use RPM=1 and make 2 requests — the second triggers 429 which always has rate limit headers
+    const script = [
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
+    ].join(' && ');
+
     const result = await runner.runWithSudo(
-      `bash -c "curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{\"model\":\"test\"}'"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
         buildLocal: true,
+        rateLimitRpm: 1,
         logLevel: 'debug',
         timeout: 120000,
         env: {
@@ -103,10 +109,10 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    // Even non-429 responses from rate-limited requests should have rate limit headers.
-    // When rate limit IS triggered (429), headers are always present.
-    // For a single request at default limits, we might get the upstream response
-    // which won't have these headers. So use a low RPM and make 2 requests.
+    const lower = result.stdout.toLowerCase();
+    expect(lower).toContain('x-ratelimit-limit');
+    expect(lower).toContain('x-ratelimit-remaining');
+    expect(lower).toContain('x-ratelimit-reset');
   }, 180000);
 
   test('should include X-RateLimit headers in 429 response', async () => {
