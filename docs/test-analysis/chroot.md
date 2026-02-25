@@ -283,7 +283,6 @@ The agent container mounts the host filesystem at `/host`, then calls `chroot /h
 
 5. **No large output test** - No test for commands producing large stdout/stderr, which could test buffer handling.
 
-6. **No `--allow-full-filesystem-access` test** - The escape hatch flag is never tested in chroot integration tests.
 
 7. **No credential hiding test** - The selective mounting hides credential files via `/dev/null` overlays, but no test verifies that `cat ~/.docker/config.json` or `cat ~/.ssh/id_rsa` returns empty/fails.
 
@@ -419,7 +418,6 @@ Without the dynamic proc mount:
 
 3. **No cleanup verification** - `entrypoint.sh` has extensive cleanup logic (resolv.conf restoration, hosts file cleanup, script file deletion). None of this is tested.
 
-4. **Missing `--allow-full-filesystem-access` tests** - The escape hatch that mounts `/:/host:rw` instead of selective mounts is never tested.
 
 5. **No `--mount` custom volume test** - Custom volume mounts passed via `--mount` flag are never tested in chroot context.
 

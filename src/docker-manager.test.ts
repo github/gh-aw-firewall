@@ -549,35 +549,7 @@ describe('docker-manager', () => {
       expect(volumes.some((v: string) => v.includes('/dev/null'))).toBe(true);
     });
 
-    it('should use blanket mount when allowFullFilesystemAccess is true', () => {
-      const configWithFullAccess = {
-        ...mockConfig,
-        allowFullFilesystemAccess: true,
-      };
-      const result = generateDockerCompose(configWithFullAccess, mockNetworkConfig);
-      const agent = result.services.agent;
-      const volumes = agent.volumes as string[];
 
-      // Should include blanket /:/host:rw mount
-      expect(volumes).toContain('/:/host:rw');
-      // Docker socket should still be hidden for security even with full filesystem access
-      expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
-      // But credential files should NOT be hidden (user opted in to full access)
-      expect(volumes.some((v: string) => v.includes('/dev/null') && v.includes('.docker/config.json'))).toBe(false);
-    });
-
-    it('should use blanket mount when allowFullFilesystemAccess is true', () => {
-      const configWithFullAccess = {
-        ...mockConfig,
-        allowFullFilesystemAccess: true,
-      };
-      const result = generateDockerCompose(configWithFullAccess, mockNetworkConfig);
-      const agent = result.services.agent;
-      const volumes = agent.volumes as string[];
-
-      // Should include blanket /:/host:rw mount
-      expect(volumes).toContain('/:/host:rw');
-    });
 
     it('should use selective mounts by default', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);

@@ -17,7 +17,6 @@ export interface AwfOptions {
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
-  allowFullFilesystemAccess?: boolean; // Allow full filesystem access (disables selective mounting security)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
 }
 
@@ -98,11 +97,6 @@ export class AwfRunner {
     // Add allow-host-ports
     if (options.allowHostPorts) {
       args.push('--allow-host-ports', options.allowHostPorts);
-    }
-
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
     }
 
     // Add enable-api-proxy flag
@@ -252,11 +246,6 @@ export class AwfRunner {
     // Add allow-host-ports
     if (options.allowHostPorts) {
       args.push('--allow-host-ports', options.allowHostPorts);
-    }
-
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
     }
 
     // Add enable-api-proxy flag

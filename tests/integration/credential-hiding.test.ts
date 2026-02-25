@@ -227,53 +227,6 @@ describe('Credential Hiding Security', () => {
     }, 120000);
   });
 
-  describe('Full Filesystem Access Flag (--allow-full-filesystem-access)', () => {
-    test('Test 10: Full filesystem access shows security warnings', async () => {
-      const result = await runner.runWithSudo(
-        'echo "test"',
-        {
-          allowDomains: ['github.com'],
-          logLevel: 'debug',
-          timeout: 60000,
-          allowFullFilesystemAccess: true,
-        }
-      );
-
-      expect(result).toSucceed();
-
-      // Check for multiple security warning messages
-      expect(result.stderr).toMatch(/⚠️.*SECURITY WARNING/i);
-      expect(result.stderr).toMatch(/entire host filesystem.*mounted|Full filesystem access/i);
-    }, 120000);
-
-    test('Test 11: With full access, Docker config is NOT hidden', async () => {
-      const homeDir = os.homedir();
-      const dockerConfig = `${homeDir}/.docker/config.json`;
-
-      // First check if file exists on host
-      const fileExists = fs.existsSync(dockerConfig);
-
-      if (fileExists) {
-        const result = await runner.runWithSudo(
-          `wc -c ${dockerConfig} 2>&1 | grep -v "^\\[" | head -1`,
-          {
-            allowDomains: ['github.com'],
-            logLevel: 'debug',
-            timeout: 60000,
-            allowFullFilesystemAccess: true,
-          }
-        );
-
-        expect(result).toSucceed();
-        // With full access, file size should match real file (not 0 bytes from /dev/null)
-        const realSize = fs.statSync(dockerConfig).size;
-        const output = result.stdout.trim();
-        if (output && realSize > 0) {
-          expect(output).toContain(realSize.toString());
-        }
-      }
-    }, 120000);
-  });
 
   describe('Security Verification', () => {
     test('Test 12: Simulated exfiltration attack gets empty data', async () => {
