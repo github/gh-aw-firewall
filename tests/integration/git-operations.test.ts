@@ -140,4 +140,94 @@ describe('Git Operations', () => {
       expect(result).toSucceed();
     }, 180000);
   });
+
+  describe('Authenticated Git Operations', () => {
+    const hasToken = !!process.env.GITHUB_TOKEN;
+    const TEST_REPO = 'Mossaka/gh-aw-firewall-test-node';
+
+    // Helper to build a bash command that configures git credentials, then runs the given commands
+    const withGitAuth = (commands: string): string =>
+      `bash -c 'git config --global user.email "awf-test@github.com" && ` +
+      `git config --global user.name "AWF Test" && ` +
+      `git config --global credential.helper "!f() { echo username=x-access-token; echo password=\\$GITHUB_TOKEN; }; f" && ` +
+      `${commands}'`;
+
+    const skipReason = 'GITHUB_TOKEN not available';
+
+    test('should clone with authentication', async () => {
+      if (!hasToken) {
+        console.log(`Skipping: ${skipReason}`);
+        return;
+      }
+
+      const result = await runner.runWithSudo(
+        withGitAuth(
+          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-clone && ls /tmp/auth-clone`
+        ),
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toMatch(/package\.json|README/);
+    }, 180000);
+
+    test('should fetch after authenticated clone', async () => {
+      if (!hasToken) {
+        console.log(`Skipping: ${skipReason}`);
+        return;
+      }
+
+      const result = await runner.runWithSudo(
+        withGitAuth(
+          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-fetch && ` +
+          `cd /tmp/auth-fetch && git fetch origin`
+        ),
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+    }, 180000);
+
+    test('should push to remote and clean up temp branch', async () => {
+      if (!hasToken) {
+        console.log(`Skipping: ${skipReason}`);
+        return;
+      }
+
+      const branchName = `test/awf-push-${Date.now()}`;
+
+      // Clone, create branch, commit, push, then delete the remote branch
+      const result = await runner.runWithSudo(
+        withGitAuth(
+          `git clone --depth 1 https://github.com/${TEST_REPO}.git /tmp/auth-push && ` +
+          `cd /tmp/auth-push && ` +
+          `git checkout -b ${branchName} && ` +
+          `echo "awf-test-$(date +%s)" > awf-test-file.txt && ` +
+          `git add awf-test-file.txt && ` +
+          `git commit -m "test: awf push test" && ` +
+          `git push origin ${branchName} && ` +
+          `echo "PUSH_SUCCESS" && ` +
+          `git push origin --delete ${branchName} && ` +
+          `echo "CLEANUP_SUCCESS"`
+        ),
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 180000,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('PUSH_SUCCESS');
+      expect(result.stdout).toContain('CLEANUP_SUCCESS');
+    }, 240000);
+  });
 });
