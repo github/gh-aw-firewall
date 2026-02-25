@@ -349,4 +349,58 @@ describe('Chroot Package Manager Support', () => {
       expect(result.stdout).toContain('module test');
     }, 120000);
   });
+
+  // ---------- Package Installation ----------
+  describe('Package Installation', () => {
+    test('should install a Python package via pip and verify import', async () => {
+      const result = await runner.runWithSudo(
+        'pip3 install --target /tmp/pip-test requests 2>&1 && ' +
+        'PYTHONPATH=/tmp/pip-test python3 -c "import requests; print(requests.__version__)"',
+        {
+          allowDomains: ['pypi.org', 'files.pythonhosted.org'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+      // The last line of output should be the version string
+      expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
+    }, 180000);
+
+    test('should install an npm package and verify require', async () => {
+      const result = await runner.runWithSudo(
+        'cd /tmp && mkdir -p npm-test && cd npm-test && npm init -y 2>&1 && ' +
+        'npm install chalk@4 2>&1 && ' +
+        'node -e "require(\'/tmp/npm-test/node_modules/chalk\')" && echo "npm_install_ok"',
+        {
+          allowDomains: ['registry.npmjs.org'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('npm_install_ok');
+    }, 180000);
+
+    test('should build a Rust project with a dependency via cargo', async () => {
+      const result = await runner.runWithSudo(
+        'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
+        'cargo init --name awftest 2>&1 && ' +
+        // Add a small dependency (cfg-if is tiny with no transitive deps)
+        'echo \'cfg-if = "1"\' >> Cargo.toml && ' +
+        'cargo build 2>&1 && echo "cargo_build_ok" && ' +
+        'rm -rf $TESTDIR',
+        {
+          allowDomains: ['crates.io', 'static.crates.io', 'index.crates.io'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('cargo_build_ok');
+    }, 180000);
+  });
 });
