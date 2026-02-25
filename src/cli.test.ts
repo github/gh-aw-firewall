@@ -350,8 +350,8 @@ describe('cli', () => {
         .option('--build-local', 'Build locally', false)
         .option('--env-all', 'Pass all env vars', false);
 
-      // Parse empty args to get defaults
-      program.parse(['node', 'awf'], { from: 'user' });
+      // Parse empty args to get defaults (from: 'node' treats argv[0] as node, argv[1] as script)
+      program.parse(['node', 'awf'], { from: 'node' });
       const opts = program.opts();
 
       expect(opts.logLevel).toBe('info');
