@@ -305,7 +305,7 @@ export function buildRateLimitConfig(options: {
   rateLimitBytesPm?: string;
 }): { config: RateLimitConfig } | { error: string } {
   const rateLimitDisabled = options.rateLimit === false;
-  const config: RateLimitConfig = { enabled: !rateLimitDisabled, rpm: 60, rph: 1000, bytesPm: 52428800 };
+  const config: RateLimitConfig = { enabled: !rateLimitDisabled, rpm: 180, rph: 1000, bytesPm: 52428800 };
   if (!rateLimitDisabled) {
     if (options.rateLimitRpm !== undefined) {
       const rpm = parseInt(options.rateLimitRpm, 10);
@@ -772,7 +772,7 @@ program
   )
   .option(
     '--rate-limit-rpm <n>',
-    'Requests per minute per provider (default: 60, requires --enable-api-proxy)',
+    'Requests per minute per provider (default: 180, requires --enable-api-proxy)',
   )
   .option(
     '--rate-limit-rph <n>',

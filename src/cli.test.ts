@@ -1417,7 +1417,7 @@ describe('cli', () => {
     it('should return defaults when no options provided', () => {
       const r = buildRateLimitConfig({});
       expect('config' in r).toBe(true);
-      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 60, rph: 1000, bytesPm: 52428800 }); }
+      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 180, rph: 1000, bytesPm: 52428800 }); }
     });
     it('should disable with rateLimit=false', () => {
       const r = buildRateLimitConfig({ rateLimit: false });
@@ -1452,7 +1452,7 @@ describe('cli', () => {
     });
     it('should ignore custom values when disabled', () => {
       const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '999' });
-      if ('config' in r) { expect(r.config.rpm).toBe(60); }
+      if ('config' in r) { expect(r.config.rpm).toBe(180); }
     });
     it('should accept all custom values', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });

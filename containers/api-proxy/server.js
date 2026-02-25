@@ -163,6 +163,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
 
   // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
+    if (errored) return; // Prevent double handling
+    errored = true;
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
     metrics.increment('requests_errors_total', { provider });
@@ -185,9 +187,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
   const chunks = [];
   let totalBytes = 0;
   let rejected = false;
+  let errored = false;
 
   req.on('data', chunk => {
-    if (rejected) return;
+    if (rejected || errored) return;
     totalBytes += chunk.length;
     if (totalBytes > MAX_BODY_SIZE) {
       rejected = true;
@@ -214,7 +217,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
   });
 
   req.on('end', () => {
-    if (rejected) return;
+    if (rejected || errored) return;
     const body = Buffer.concat(chunks);
     const requestBytes = body.length;
 

@@ -6,7 +6,7 @@ describe('rate-limiter', () => {
   describe('constructor', () => {
     it('should use defaults when no config provided', () => {
       const limiter = new RateLimiter();
-      expect(limiter.rpm).toBe(60);
+      expect(limiter.rpm).toBe(180);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
       expect(limiter.enabled).toBe(true);
@@ -64,7 +64,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = '-100';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '-1024';
       const limiter = create();
-      expect(limiter.rpm).toBe(60);
+      expect(limiter.rpm).toBe(180);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
@@ -74,7 +74,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = '0';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '0';
       const limiter = create();
-      expect(limiter.rpm).toBe(60);
+      expect(limiter.rpm).toBe(180);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
@@ -84,7 +84,7 @@ describe('rate-limiter', () => {
       process.env.AWF_RATE_LIMIT_RPH = 'xyz';
       process.env.AWF_RATE_LIMIT_BYTES_PM = '';
       const limiter = create();
-      expect(limiter.rpm).toBe(60);
+      expect(limiter.rpm).toBe(180);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
     });
@@ -95,7 +95,7 @@ describe('rate-limiter', () => {
       delete process.env.AWF_RATE_LIMIT_BYTES_PM;
       delete process.env.AWF_RATE_LIMIT_ENABLED;
       const limiter = create();
-      expect(limiter.rpm).toBe(60);
+      expect(limiter.rpm).toBe(180);
       expect(limiter.rph).toBe(1000);
       expect(limiter.bytesPm).toBe(50 * 1024 * 1024);
       expect(limiter.enabled).toBe(true);

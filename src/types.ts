@@ -495,7 +495,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface RateLimitConfig {
   /** Whether rate limiting is enabled (default: true) */
   enabled: boolean;
-  /** Max requests per minute per provider (default: 60) */
+  /** Max requests per minute per provider (default: 180) */
   rpm: number;
   /** Max requests per hour per provider (default: 1000) */
   rph: number;
