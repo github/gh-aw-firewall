@@ -25,8 +25,8 @@ The repo has three tiers of testing:
 |------|------|-------|---------|
 | **Unit** | Jest (src/*.test.ts) | 19 files | Fast feedback on individual modules |
 | **Integration** | Jest (tests/integration/*.test.ts) | 26 files | End-to-end AWF container execution |
-| **Smoke/Build-Test** | gh-aw compiled workflows (.lock.yml) | 13 workflows | Real AI agent execution inside AWF sandbox |
-| **CI** | Hand-written GitHub Actions (.yml) | 12 workflows | Build, lint, type-check, security, coverage |
+| **Smoke/Build-Test** | gh-aw compiled workflows (.lock.yml) | 28 workflows | Real AI agent execution inside AWF sandbox |
+| **CI** | Hand-written GitHub Actions (.yml) | 15 workflows | Build, lint, type-check, security, coverage |
 
 ---
 

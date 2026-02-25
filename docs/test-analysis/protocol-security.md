@@ -470,7 +470,7 @@ Error handling is critical for production reliability:
 3. **Real-world attack simulation**: The credential hiding tests simulate actual exfiltration attacks (base64, xxd, grep patterns).
 4. **Custom matchers**: The `toSucceed()`, `toFail()`, `toExitWithCode()` matchers provide clear, readable assertions.
 5. **Bypass prevention**: Tests specifically cover the chroot bypass vulnerability (Test 8) that was previously discovered and fixed.
-6. **Comprehensive API proxy coverage**: Tests cover all three API providers (OpenAI, Anthropic, Copilot) and verify credential isolation.
+6. **Broad API proxy coverage**: Tests cover all three API providers (OpenAI, Anthropic, Copilot) for healthchecks and env wiring; end-to-end request routing and credential isolation are currently verified in depth only for Anthropic.
 
 ### Systemic Gaps
 

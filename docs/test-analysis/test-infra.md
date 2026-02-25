@@ -392,7 +392,7 @@ After `gh-aw compile` generates `.lock.yml` workflow files, this script transfor
 | Remove `depth: 1` shallow clone | Full checkout needed |
 | Replace `--image-tag X --skip-pull` with `--build-local` | Use locally-built container images |
 
-Processes 30+ workflow files across smoke tests, build tests, and agentic workflows. Ensures CI tests use the current source code rather than stale published images.
+Processes 29 workflow files (5 smoke, 8 build-test, 13 agentic, 3 secret-digger) across the suite. Note: the script currently expects `.github/workflows/smoke-gemini.lock.yml`; if that workflow does not exist, either add it or update the script to keep the expected workflow list in sync. Ensures CI tests use the current source code rather than stale published images.
 
 ---
 

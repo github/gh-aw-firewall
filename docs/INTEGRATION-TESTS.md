@@ -1,6 +1,6 @@
 # Integration Tests Coverage Guide
 
-A comprehensive guide to what the gh-aw-firewall integration tests cover, what they don't cover, and how they relate to real-world usage in GitHub Agentic Workflows.
+A reference guide to what the gh-aw-firewall integration tests cover and how they relate to real-world usage in GitHub Agentic Workflows.
 
 **Last updated:** February 2026
 
@@ -25,8 +25,8 @@ The test suite is organized in three tiers:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Smoke Tests (5 workflows)                          │
-│  Real AI agents (Claude, Copilot, Codex, Gemini)    │
+│  Smoke Tests (4 workflows)                          │
+│  Smoke workflows (Claude, Copilot, Codex, Chroot)   │
 │  running inside AWF sandbox                         │
 ├─────────────────────────────────────────────────────┤
 │  Build-Test Workflows (8 workflows)                 │
@@ -46,17 +46,17 @@ The test suite is organized in three tiers:
 
 | Category | Files | Approx Tests | CI Workflow |
 |----------|-------|-------------|-------------|
-| Domain/Network | 6 | 50 | **None** (not run in CI!) |
+| Domain/Network | 6 | 50 | None |
 | Chroot | 5 | 70 | `test-chroot.yml` (4 jobs) |
-| Protocol/Security | 8 | 100 | **None** (not run in CI!) |
-| Container/Ops | 7 | 45 | **None** (not run in CI!) |
+| Protocol/Security | 8 | 100 | None |
+| Container/Ops | 7 | 45 | None |
 | Unit Tests | 19 | ~200 | `test-coverage.yml` |
-| Smoke Tests | 5 | N/A | Per-workflow (scheduled + PR) |
+| Smoke Tests | 4 | N/A | Per-workflow (scheduled + PR) |
 | Build-Test | 8 | N/A | Per-workflow (PR + dispatch) |
 
 ---
 
-## What's Well Covered
+## What's Covered
 
 ### 1. Chroot Filesystem Isolation (Strong)
 
@@ -88,7 +88,6 @@ Real AI agents running through the full AWF pipeline:
 - **Claude**: GitHub MCP, Playwright browser automation, file I/O, bash tools
 - **Copilot**: Same + web-fetch, agentic-workflows tools
 - **Codex**: GH CLI safe inputs, Tavily web search, discussion interactions
-- **Gemini**: Same feature set as Codex, different engine path
 
 ### 4. Multi-Language Build-Test (Strong)
 
@@ -100,86 +99,6 @@ Real AI agents running through the full AWF pipeline:
 ### 5. Exit Code Propagation (Good)
 
 15 tests covering exit codes 0-255, command exit codes, pipeline behavior. Critical for CI/CD integration where non-zero = failure.
-
----
-
-## Critical Gaps
-
-### Gap 1: Most Integration Tests Don't Run in CI
-
-**Severity: Critical**
-
-The `test-integration.yml` workflow is actually just a TypeScript type-check. It does **not** run the integration test suite. This means 20+ integration test files covering domains, DNS, environment variables, exit codes, error handling, network security, credentials, and protocols have **no CI pipeline**.
-
-Only the 5 chroot test files run in CI (via `test-chroot.yml`).
-
-**Impact**: Regressions in domain filtering, credential hiding, exit code propagation, and network security would go undetected until someone runs tests locally.
-
-### Gap 2: `--block-domains` Completely Untested
-
-**Severity: Critical**
-
-The `--block-domains` CLI flag (deny-list on top of allow-list) has zero integration tests. The `blocked-domains.test.ts` file is a misnomer — it only tests allow-list behavior. The `AwfRunner` test fixture doesn't even expose a `blockDomains` option.
-
-**Impact**: If `--block-domains` breaks, no test catches it.
-
-### Gap 3: `--env-all` Never Tested
-
-**Severity: Critical**
-
-The `--env-all` flag is the **primary production mode** — used by `gh-aw`'s `BuildAWFArgs()` to pass all GitHub Actions environment variables into the container. The `environment-variables.test.ts` file header mentions it, but no test uses `envAll: true`.
-
-**Impact**: The most common production invocation pattern has zero test coverage.
-
-### Gap 4: DNS Restriction Enforcement Untested
-
-**Severity: High**
-
-The `--dns-servers` flag restricts DNS traffic to whitelisted resolvers (preventing DNS-based exfiltration). While `dns-servers.test.ts` exists, no test verifies that queries to **non-whitelisted** DNS servers are actually blocked. All tests use the default or explicitly whitelisted servers.
-
-**Impact**: DNS exfiltration prevention — a key security feature — is unverified.
-
-### Gap 5: No Package Installation Tests
-
-**Severity: High**
-
-Package manager tests (in `chroot-package-managers.test.ts`) only **query** registries (`pip index versions`, `npm view`, `cargo search`, `gem search`) but never **install** packages (`pip install`, `npm install`, `cargo add`). This is the most common real-world operation.
-
-The build-test workflows partially compensate (they run `npm install`, `cargo build`, etc.) but these are AI-agent-driven and non-deterministic.
-
-**Impact**: A regression in package installation through the proxy would not be caught by deterministic tests.
-
-### Gap 6: `git push` and Authenticated Git Untested
-
-**Severity: High**
-
-`git-operations.test.ts` tests clone, ls-remote, and config but **not** `git push` (the most important write operation in agentic workflows) or any authenticated git operation. Every production workflow uses authenticated git to push branches and create PRs.
-
-**Impact**: If authenticated git push breaks through the proxy, no test catches it.
-
-### Gap 7: No Localhost HTTP Request Tests
-
-**Severity: High**
-
-`localhost-access.test.ts` verifies configuration (iptables rules, Squid ACLs) but never makes an actual HTTP request to localhost. MCP servers run on localhost inside the container — a real request test is needed.
-
-### Gap 8: Docker Warning Tests Entirely Skipped
-
-**Severity: Medium**
-
-`docker-warning.test.ts` is wrapped in `describe.skip` with a stale TODO about a build issue. These 5 tests provide zero coverage.
-
-### Gap 9: Fragile Timing Dependencies
-
-**Severity: Medium**
-
-Token-unset tests rely on `sleep 7` to wait for the 5-second unsetting delay. Log-command tests use `if (existsSync())` guards that silently pass when logs aren't created. These patterns mask real failures and cause flakiness.
-
-### Gap 10: No SSL Bump Integration Tests
-
-**Severity: Medium**
-
-The `--ssl-bump` feature is configured in the CLI but has zero integration tests. This feature enables HTTPS content inspection and is important for some security-sensitive deployments.
 
 ---
 
@@ -222,7 +141,7 @@ Container security scan           ❌      ❌         ✅    ❌      ❌
 Dependency audit                  ❌      ❌         ✅    ❌      ❌
 
 * ⚠️ = Tests exist but have significant gaps (see detailed docs)
-** = Tests exist but are skip'd
+** = Tests exist but are skipped
 ```
 
 ---
@@ -246,51 +165,6 @@ Dependency audit                  ❌      ❌         ✅    ❌      ❌
 5. No retry logic for flaky network tests
 
 See [test-infra.md](test-analysis/test-infra.md) for full infrastructure analysis.
-
----
-
-## Recommended Priority Actions
-
-### P0: Run Integration Tests in CI
-
-Create a CI workflow that actually runs the non-chroot integration tests. Currently, ~150 tests across 20+ files have no CI pipeline.
-
-### P1: Add `--block-domains` Tests
-
-Add `blockDomains` support to `AwfRunner` and write tests for the deny-list feature:
-- Block specific subdomain while allowing parent
-- Block takes precedence over allow
-- Wildcard blocking patterns
-
-### P1: Add `--env-all` Tests
-
-Add tests using `envAll: true` to verify:
-- All host env vars pass through
-- Sensitive tokens are properly filtered
-- Proxy env vars (HTTP_PROXY, HTTPS_PROXY) are set correctly
-
-### P1: Add DNS Restriction Enforcement Test
-
-Test that DNS queries to non-whitelisted servers are actually blocked:
-```
-dig @1.2.3.4 example.com  # Should fail with non-whitelisted DNS
-```
-
-### P2: Add Package Installation Tests
-
-Test actual `pip install`, `npm install`, `cargo add` through the proxy instead of just registry queries.
-
-### P2: Add `git push` with Authentication Test
-
-Test authenticated git push through the proxy — the most critical write operation in agentic workflows.
-
-### P2: Enable or Remove Skipped Docker Warning Tests
-
-Either fix the build issue or remove the dead `describe.skip` block.
-
-### P3: Fix Fragile Timing Dependencies
-
-Replace `sleep 7` in token-unset tests with signal-file synchronization. Replace `if (existsSync())` guards with hard assertions.
 
 ---
 
