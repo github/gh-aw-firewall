@@ -451,6 +451,18 @@ export function generateDockerCompose(
     Object.assign(environment, config.additionalEnv);
   }
 
+  // Normalize NO_PROXY / no_proxy after additionalEnv is applied.
+  // If --env overrides one casing but not the other, HTTP clients that prefer the
+  // other casing (e.g., Go uses NO_PROXY, Python requests uses no_proxy) would
+  // still route through Squid. Sync them with NO_PROXY taking precedence.
+  if (environment.NO_PROXY !== environment.no_proxy) {
+    if (config.additionalEnv?.NO_PROXY) {
+      environment.no_proxy = environment.NO_PROXY;
+    } else if (config.additionalEnv?.no_proxy) {
+      environment.NO_PROXY = environment.no_proxy;
+    }
+  }
+
   // Pass DNS servers to container for setup-iptables.sh and entrypoint.sh
   const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
   environment.AWF_DNS_SERVERS = dnsServers.join(',');
