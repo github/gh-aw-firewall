@@ -1,8 +1,8 @@
 /**
- * API Proxy Sidecar Integration Tests
+ * API Proxy Integration Tests (Unified Architecture)
  *
- * Tests that the --enable-api-proxy flag correctly starts the API proxy sidecar
- * and routes requests through Squid.
+ * Tests that the --enable-api-proxy flag correctly starts the auth proxy
+ * inside the unified Squid container and routes requests through Squid.
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />
@@ -11,10 +11,10 @@ import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
 
-// The API proxy sidecar is at this fixed IP on the awf-net network
-const API_PROXY_IP = '172.30.0.30';
+// The auth proxy now runs inside the Squid container at this IP
+const API_PROXY_IP = '172.30.0.10';
 
-describe('API Proxy Sidecar', () => {
+describe('API Proxy (Unified Architecture)', () => {
   let runner: AwfRunner;
 
   beforeAll(async () => {
@@ -26,7 +26,7 @@ describe('API Proxy Sidecar', () => {
     await cleanup(false);
   });
 
-  test('should start api-proxy sidecar with Anthropic key and pass healthcheck', async () => {
+  test('should start auth proxy with Anthropic key and pass healthcheck', async () => {
     const result = await runner.runWithSudo(
       `curl -s http://${API_PROXY_IP}:10001/health`,
       {
@@ -46,7 +46,7 @@ describe('API Proxy Sidecar', () => {
     expect(result.stdout).toContain('anthropic-proxy');
   }, 180000);
 
-  test('should start api-proxy sidecar with OpenAI key and pass healthcheck', async () => {
+  test('should start auth proxy with OpenAI key and pass healthcheck', async () => {
     const result = await runner.runWithSudo(
       `curl -s http://${API_PROXY_IP}:10000/health`,
       {
@@ -173,7 +173,7 @@ describe('API Proxy Sidecar', () => {
     expect(result.stdout).toContain('anthropic-proxy');
   }, 180000);
 
-  test('should start api-proxy sidecar with Copilot key and pass healthcheck', async () => {
+  test('should start auth proxy with Copilot key and pass healthcheck', async () => {
     const result = await runner.runWithSudo(
       `curl -s http://${API_PROXY_IP}:10002/health`,
       {

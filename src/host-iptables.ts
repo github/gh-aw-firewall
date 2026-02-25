@@ -60,7 +60,6 @@ export async function ensureFirewallNetwork(): Promise<{
   subnet: string;
   squidIp: string;
   agentIp: string;
-  proxyIp: string;
 }> {
   logger.debug(`Ensuring firewall network '${NETWORK_NAME}' exists...`);
 
@@ -93,7 +92,6 @@ export async function ensureFirewallNetwork(): Promise<{
     subnet: NETWORK_SUBNET,
     squidIp: '172.30.0.10',
     agentIp: '172.30.0.20',
-    proxyIp: '172.30.0.30',
   };
 }
 
@@ -161,7 +159,7 @@ async function setupIpv6Chain(bridgeName: string): Promise<void> {
  * @param squidPort - Port number of the Squid proxy
  * @param dnsServers - Array of trusted DNS server IP addresses (DNS traffic is ONLY allowed to these servers)
  */
-export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string): Promise<void> {
+export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyEnabled?: boolean): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
 
   // Get the bridge interface name
@@ -442,16 +440,16 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     '-j', 'ACCEPT',
   ]);
 
-  // 5b. Allow traffic to API proxy sidecar (when enabled)
-  // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot).
-  // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
-  if (apiProxyIp) {
+  // 5b. Allow traffic to API auth proxy ports (when enabled)
+  // The auth proxy is embedded in the Squid container, so allow ports 10000-10002 to Squid IP.
+  // The auth proxy routes through Squid internally, so domain whitelisting is still enforced.
+  if (apiProxyEnabled) {
     const minPort = Math.min(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
     const maxPort = Math.max(API_PROXY_PORTS.OPENAI, API_PROXY_PORTS.ANTHROPIC, API_PROXY_PORTS.COPILOT);
-    logger.debug(`Allowing traffic to API proxy sidecar at ${apiProxyIp}:${minPort}-${maxPort}`);
+    logger.debug(`Allowing traffic to API auth proxy at ${squidIp}:${minPort}-${maxPort}`);
     await execa('iptables', [
       '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'tcp', '-d', apiProxyIp, '--dport', `${minPort}:${maxPort}`,
+      '-p', 'tcp', '-d', squidIp, '--dport', `${minPort}:${maxPort}`,
       '-j', 'ACCEPT',
     ]);
   }

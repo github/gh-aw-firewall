@@ -290,7 +290,36 @@ export function generateDockerCompose(
       'AUDIT_WRITE',  // No audit log writing
       'SETFCAP',      // No setting file capabilities
     ],
+    // Security hardening: prevent privilege escalation and set resource limits
+    security_opt: ['no-new-privileges:true'],
+    mem_limit: '1g',        // Squid (~512m) + Node.js auth proxy (~512m)
+    memswap_limit: '1g',    // No swap
+    pids_limit: 200,        // Squid + Node.js processes
+    cpu_shares: 1024,       // Default CPU share
   };
+
+  // When API proxy is enabled, add API keys and auth proxy config to the Squid container
+  // The auth proxy Node.js server runs alongside Squid in the same container
+  if (config.enableApiProxy) {
+    // Pass API keys as environment variables to the unified Squid container
+    squidService.environment = {
+      ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
+      ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
+      ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
+    };
+
+    // Mount API proxy log directory
+    squidVolumes.push(`${apiProxyLogsPath}:/var/log/api-proxy:rw`);
+
+    // Update healthcheck to verify both Squid AND the auth proxy are running
+    squidService.healthcheck = {
+      test: ['CMD-SHELL', `nc -z localhost 3128 && curl -sf http://localhost:${API_PROXY_HEALTH_PORT}/health`],
+      interval: '5s',
+      timeout: '3s',
+      retries: 5,
+      start_period: '10s',
+    };
+  }
 
   // Only enable host.docker.internal when explicitly requested via --enable-host-access
   // This allows containers to reach services on the host machine (e.g., MCP gateways)
@@ -327,7 +356,7 @@ export function generateDockerCompose(
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment
-  // (they are held securely in the api-proxy sidecar instead)
+  // (they are held securely in the unified proxy container instead)
   if (config.enableApiProxy) {
     EXCLUDED_ENV_VARS.add('OPENAI_API_KEY');
     EXCLUDED_ENV_VARS.add('OPENAI_KEY');
@@ -375,13 +404,14 @@ export function generateDockerCompose(
     environment.no_proxy = environment.NO_PROXY;
   }
 
-  // When API proxy is enabled, bypass HTTP_PROXY for the api-proxy IP
-  // so the agent can reach the sidecar directly without going through Squid
-  if (config.enableApiProxy && networkConfig.proxyIp) {
+  // When API proxy is enabled, bypass HTTP_PROXY for the Squid IP
+  // so the agent can reach the auth proxy ports (10000-10002) directly
+  // The auth proxy is now embedded in the Squid container at the same IP
+  if (config.enableApiProxy) {
     if (environment.NO_PROXY) {
-      environment.NO_PROXY += `,${networkConfig.proxyIp}`;
+      environment.NO_PROXY += `,${networkConfig.squidIp}`;
     } else {
-      environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.proxyIp}`;
+      environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.squidIp}`;
     }
     environment.no_proxy = environment.NO_PROXY;
   }
@@ -432,7 +462,7 @@ export function generateDockerCompose(
     if (process.env.GH_TOKEN) environment.GH_TOKEN = process.env.GH_TOKEN;
     if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) environment.GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
     // API keys for LLM providers — skip when api-proxy is enabled
-    // (the sidecar holds the keys; the agent uses *_BASE_URL instead)
+    // (the unified proxy holds the keys; the agent uses *_BASE_URL instead)
     if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
     if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -952,85 +982,25 @@ export function generateDockerCompose(
     agentService.image = agentImage;
   }
 
-  // API Proxy sidecar service (Node.js) - optionally deployed
+  // Build services map (2 containers: squid-proxy + agent)
   const services: Record<string, any> = {
     'squid-proxy': squidService,
     'agent': agentService,
   };
 
-  // Add Node.js API proxy sidecar if enabled
-  if (config.enableApiProxy && networkConfig.proxyIp) {
-    const proxyService: any = {
-      container_name: 'awf-api-proxy',
-      networks: {
-        'awf-net': {
-          ipv4_address: networkConfig.proxyIp,
-        },
-      },
-      volumes: [
-        // Mount log directory for api-proxy logs
-        `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
-      ],
-      environment: {
-        // Pass API keys securely to sidecar (not visible to agent)
-        ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
-        ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
-        ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
-        // Route through Squid to respect domain whitelisting
-        HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
-        HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
-      },
-      healthcheck: {
-        test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
-        interval: '5s',
-        timeout: '3s',
-        retries: 5,
-        start_period: '5s',
-      },
-      // Security hardening: Drop all capabilities
-      cap_drop: ['ALL'],
-      security_opt: [
-        'no-new-privileges:true',
-      ],
-      // Resource limits to prevent DoS attacks
-      mem_limit: '512m',
-      memswap_limit: '512m',
-      pids_limit: 100,
-      cpu_shares: 512,
-    };
-
-    // Use GHCR image or build locally
-    if (useGHCR) {
-      proxyService.image = `${registry}/api-proxy:${tag}`;
-    } else {
-      proxyService.build = {
-        context: path.join(projectRoot, 'containers/api-proxy'),
-        dockerfile: 'Dockerfile',
-      };
-    }
-
-    services['api-proxy'] = proxyService;
-
-    // Update agent dependencies to wait for api-proxy
-    agentService.depends_on['api-proxy'] = {
-      condition: 'service_healthy',
-    };
-
-    // Set environment variables in agent to use the proxy
-    // AWF_API_PROXY_IP is used by setup-iptables.sh to allow agent→api-proxy traffic
-    // Use IP address instead of hostname for BASE_URLs since Docker DNS may not resolve
-    // container names in chroot mode
-    environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
+  // Set agent environment variables for API proxy (auth proxy embedded in Squid container)
+  // Use squidIp instead of separate proxyIp since auth proxy runs inside Squid container
+  if (config.enableApiProxy) {
     if (config.openaiApiKey) {
-      environment.OPENAI_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`;
-      logger.debug(`OpenAI API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`);
+      environment.OPENAI_BASE_URL = `http://${networkConfig.squidIp}:${API_PROXY_PORTS.OPENAI}/v1`;
+      logger.debug(`OpenAI API will be proxied through unified proxy at http://${networkConfig.squidIp}:${API_PROXY_PORTS.OPENAI}/v1`);
     }
     if (config.anthropicApiKey) {
-      environment.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`;
-      logger.debug(`Anthropic API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`);
+      environment.ANTHROPIC_BASE_URL = `http://${networkConfig.squidIp}:${API_PROXY_PORTS.ANTHROPIC}`;
+      logger.debug(`Anthropic API will be proxied through unified proxy at http://${networkConfig.squidIp}:${API_PROXY_PORTS.ANTHROPIC}`);
 
       // Set placeholder token for Claude Code CLI compatibility
-      // Real authentication happens via ANTHROPIC_BASE_URL pointing to api-proxy
+      // Real authentication happens via ANTHROPIC_BASE_URL pointing to unified proxy
       environment.ANTHROPIC_AUTH_TOKEN = 'placeholder-token-for-credential-isolation';
       logger.debug('ANTHROPIC_AUTH_TOKEN set to placeholder value for credential isolation');
 
@@ -1040,11 +1010,11 @@ export function generateDockerCompose(
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
     }
     if (config.copilotGithubToken) {
-      environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
-      logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
+      environment.COPILOT_API_URL = `http://${networkConfig.squidIp}:${API_PROXY_PORTS.COPILOT}`;
+      logger.debug(`GitHub Copilot API will be proxied through unified proxy at http://${networkConfig.squidIp}:${API_PROXY_PORTS.COPILOT}`);
 
       // Set placeholder token for GitHub Copilot CLI compatibility
-      // Real authentication happens via COPILOT_API_URL pointing to api-proxy
+      // Real authentication happens via COPILOT_API_URL pointing to unified proxy
       environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
       logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
 
@@ -1052,8 +1022,8 @@ export function generateDockerCompose(
       // to prevent override by host environment variable
     }
 
-    logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');
-    logger.info('API proxy will route through Squid to respect domain whitelisting');
+    logger.info('API proxy enabled - API keys held securely in unified proxy container');
+    logger.info('Auth proxy routes through Squid to respect domain whitelisting');
   }
 
   return {
@@ -1103,9 +1073,9 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   logger.debug(`Squid logs directory created at: ${squidLogsDir}`);
 
   // Create api-proxy logs directory for persistence
+  // The auth proxy now runs inside the Squid container but still writes logs separately
   // If proxyLogsDir is specified, write to sibling directory (timeout-safe)
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
-  // Note: API proxy runs as user 'apiproxy' (non-root)
   const apiProxyLogsDir = config.proxyLogsDir
     ? path.join(path.dirname(config.proxyLogsDir), 'api-proxy-logs')
     : path.join(config.workDir, 'api-proxy-logs');
@@ -1169,13 +1139,13 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   }
 
   // Use fixed network configuration (network is created by host-iptables.ts)
+  // Note: proxyIp (172.30.0.30) is no longer used - auth proxy is now embedded in the Squid container
   const networkConfig = {
     subnet: '172.30.0.0/24',
     squidIp: '172.30.0.10',
     agentIp: '172.30.0.20',
-    proxyIp: '172.30.0.30',  // Envoy API proxy sidecar
   };
-  logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
+  logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp})`);
 
 
   // Copy seccomp profile to work directory for container security
@@ -1327,9 +1297,10 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 
   // Force remove any existing containers with these names to avoid conflicts
   // This handles orphaned containers from failed/interrupted previous runs
+  // Note: awf-api-proxy is included for backward compatibility with older versions
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent'], {
+    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'], {
       reject: false,
     });
   } catch {

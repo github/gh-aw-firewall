@@ -36,7 +36,6 @@ describe('host-iptables', () => {
         subnet: '172.30.0.0/24',
         squidIp: '172.30.0.10',
         agentIp: '172.30.0.20',
-        proxyIp: '172.30.0.30',
       });
 
       // Should only check if network exists, not create it
@@ -61,7 +60,6 @@ describe('host-iptables', () => {
         subnet: '172.30.0.0/24',
         squidIp: '172.30.0.10',
         agentIp: '172.30.0.20',
-        proxyIp: '172.30.0.30',
       });
 
       expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net']);

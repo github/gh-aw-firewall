@@ -138,12 +138,8 @@ fi
 echo "[iptables] Allow traffic to Squid proxy (${SQUID_IP}:${SQUID_PORT})..."
 iptables -t nat -A OUTPUT -d "$SQUID_IP" -j RETURN
 
-# Allow traffic to API proxy sidecar (when enabled)
-# AWF_API_PROXY_IP is set by docker-manager.ts when --enable-api-proxy is used
-if [ -n "$AWF_API_PROXY_IP" ]; then
-  echo "[iptables] Allow traffic to API proxy sidecar (${AWF_API_PROXY_IP})..."
-  iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
-fi
+# Note: API auth proxy traffic to Squid IP on ports 10000-10002 is already allowed
+# by the rule above (iptables -t nat -A OUTPUT -d "$SQUID_IP" -j RETURN)
 
 # Bypass Squid for host.docker.internal when host access is enabled.
 # MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
@@ -281,10 +277,8 @@ iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
 # Allow traffic to Squid proxy (after NAT redirection)
 iptables -A OUTPUT -p tcp -d "$SQUID_IP" -j ACCEPT
 
-# Allow traffic to API proxy sidecar (when enabled)
-if [ -n "$AWF_API_PROXY_IP" ]; then
-  iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
-fi
+# Note: API auth proxy traffic to Squid IP on ports 10000-10002 is already allowed
+# by the rule above (iptables -A OUTPUT -p tcp -d "$SQUID_IP" -j ACCEPT)
 
 # Drop all other TCP traffic (default deny policy)
 # This ensures that only explicitly allowed ports can be accessed
