@@ -5,6 +5,7 @@ type ExecaReturnValue = execa.ExecaReturnValue<string>;
 
 export interface AwfOptions {
   allowDomains?: string[];
+  blockDomains?: string[];
   keepContainers?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   buildLocal?: boolean;
@@ -17,12 +18,14 @@ export interface AwfOptions {
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
-  allowFullFilesystemAccess?: boolean; // Allow full filesystem access (disables selective mounting security)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
   noRateLimit?: boolean; // Disable rate limiting
+
+  envAll?: boolean; // Pass all host environment variables to container (--env-all)
+  cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
 }
 
 export interface AwfResult {
@@ -54,6 +57,11 @@ export class AwfRunner {
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {
       args.push('--allow-domains', options.allowDomains.join(','));
+    }
+
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
     }
 
     // Add other flags
@@ -104,11 +112,6 @@ export class AwfRunner {
       args.push('--allow-host-ports', options.allowHostPorts);
     }
 
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
-    }
-
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
@@ -126,6 +129,17 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
@@ -224,6 +238,11 @@ export class AwfRunner {
       args.push('--allow-domains', options.allowDomains.join(','));
     }
 
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
+    }
+
     // Add other flags
     if (options.keepContainers) {
       args.push('--keep-containers');
@@ -272,11 +291,6 @@ export class AwfRunner {
       args.push('--allow-host-ports', options.allowHostPorts);
     }
 
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
-    }
-
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
@@ -294,6 +308,17 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
