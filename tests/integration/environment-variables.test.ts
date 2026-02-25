@@ -159,4 +159,117 @@ describe('Environment Variable Handling', () => {
     expect(result).toSucceed();
     expect(result.stdout).toContain('12345');
   }, 120000);
+
+  describe('--env-all flag', () => {
+    test('should pass host environment variables into container', async () => {
+      const result = await runner.runWithSudo(
+        'echo $AWF_TEST_CUSTOM_VAR',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+          env: {
+            AWF_TEST_CUSTOM_VAR: 'env_all_works',
+          },
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('env_all_works');
+    }, 120000);
+
+    test('should set proxy environment variables inside container', async () => {
+      const result = await runner.runWithSudo(
+        'bash -c "echo HTTP_PROXY=$HTTP_PROXY && echo HTTPS_PROXY=$HTTPS_PROXY"',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toMatch(/HTTP_PROXY=http:\/\/172\.30\.0\.10:3128/);
+      expect(result.stdout).toMatch(/HTTPS_PROXY=http:\/\/172\.30\.0\.10:3128/);
+    }, 120000);
+
+    test('should set JAVA_TOOL_OPTIONS with JVM proxy properties', async () => {
+      const result = await runner.runWithSudo(
+        'bash -c "echo $JAVA_TOOL_OPTIONS"',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('-Dhttp.proxyHost=');
+      expect(result.stdout).toContain('-Dhttp.proxyPort=');
+      expect(result.stdout).toContain('-Dhttps.proxyHost=');
+      expect(result.stdout).toContain('-Dhttps.proxyPort=');
+    }, 120000);
+
+    test('should work together with explicit -e flags', async () => {
+      const result = await runner.runWithSudo(
+        'bash -c "echo HOST_VAR=$AWF_TEST_HOST_VAR && echo CLI_VAR=$AWF_TEST_CLI_VAR"',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+          env: {
+            AWF_TEST_HOST_VAR: 'from_host',
+          },
+          cliEnv: {
+            AWF_TEST_CLI_VAR: 'from_cli_flag',
+          },
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('HOST_VAR=from_host');
+      expect(result.stdout).toContain('CLI_VAR=from_cli_flag');
+    }, 120000);
+
+    test('explicit -e should override --env-all for same variable', async () => {
+      const result = await runner.runWithSudo(
+        'echo $AWF_TEST_OVERRIDE_VAR',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+          env: {
+            AWF_TEST_OVERRIDE_VAR: 'original_value',
+          },
+          cliEnv: {
+            AWF_TEST_OVERRIDE_VAR: 'overridden_value',
+          },
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('overridden_value');
+      expect(result.stdout).not.toContain('original_value');
+    }, 120000);
+
+    test('should exclude system variables like PATH from passthrough', async () => {
+      const result = await runner.runWithSudo(
+        'echo $PATH',
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+          envAll: true,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('/usr/local/bin');
+    }, 120000);
+  });
 });

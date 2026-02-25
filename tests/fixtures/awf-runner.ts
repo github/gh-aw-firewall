@@ -19,6 +19,8 @@ export interface AwfOptions {
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
   allowFullFilesystemAccess?: boolean; // Allow full filesystem access (disables selective mounting security)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
+  envAll?: boolean; // Pass all host environment variables to container (--env-all)
+  cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
 }
 
 export interface AwfResult {
@@ -108,6 +110,18 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
@@ -262,6 +276,18 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
