@@ -260,6 +260,9 @@ if (COPILOT_GITHUB_TOKEN) {
 }
 
 // OpenCode API proxy (port 10004) — routes to Anthropic (default BYOK provider)
+// OpenCode gets a separate port from Claude (10001) for per-engine rate limiting,
+// metrics isolation, and future provider routing (OpenCode is BYOK and may route
+// to different providers in the future based on model prefix).
 if (ANTHROPIC_API_KEY) {
   const opencodeServer = http.createServer((req, res) => {
     if (req.url === '/health' && req.method === 'GET') {
@@ -268,8 +271,10 @@ if (ANTHROPIC_API_KEY) {
       return;
     }
 
-    console.log(`[OpenCode Proxy] ${sanitizeForLog(req.method)} ${sanitizeForLog(req.url)}`);
-    console.log(`[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY`);
+    const logMethod = sanitizeForLog(req.method);
+    const logUrl = sanitizeForLog(req.url);
+    console.log(`[OpenCode Proxy] ${logMethod} ${logUrl}`);
+    console.log('[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY');
     const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
     if (!req.headers['anthropic-version']) {
       anthropicHeaders['anthropic-version'] = '2023-06-01';
