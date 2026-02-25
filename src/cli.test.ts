@@ -351,7 +351,7 @@ describe('cli', () => {
         .option('--env-all', 'Pass all env vars', false);
 
       // Parse empty args to get defaults
-      program.parse(['node', 'awf'], { from: 'user' });
+      program.parse([], { from: 'user' });
       const opts = program.opts();
 
       expect(opts.logLevel).toBe('info');

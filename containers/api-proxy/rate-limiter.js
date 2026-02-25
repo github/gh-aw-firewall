@@ -1,13 +1,13 @@
 /**
- * Sliding Window Counter Rate Limiter for AWF API Proxy.
+ * Rolling Window Rate Limiter for AWF API Proxy.
  *
  * Provides per-provider rate limiting with three limit types:
  * - RPM: requests per minute (1-second granularity, 60 slots)
  * - RPH: requests per hour (1-minute granularity, 60 slots)
  * - Bytes/min: request bytes per minute (1-second granularity, 60 slots)
  *
- * Algorithm: sliding window counter — counts in the current window plus a
- * weighted portion of the previous window based on elapsed time.
+ * Algorithm: fixed-bucket rolling window — divides each window into fixed-size
+ * slots and sums counts across all slots in the current window.
  *
  * Memory-bounded: fixed-size arrays per provider, old windows overwritten.
  * Fail-open: any internal error allows the request through.

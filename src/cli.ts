@@ -1051,6 +1051,8 @@ program
       }
       config.rateLimitConfig = rateLimitResult.config;
       logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}`);
+    } else if (options.rateLimitRpm || options.rateLimitRph || options.rateLimitBytesPm || options.rateLimit === false) {
+      logger.warn('⚠️  Rate limit options ignored: --enable-api-proxy is not set');
     }
 
     // Warn if --env-all is used

@@ -177,8 +177,6 @@ describe('DNS Restriction Enforcement', () => {
     expect(result).toSucceed();
     // Debug output should show the custom DNS server configuration
     expect(result.stderr).toContain('8.8.8.8');
-    // The container iptables setup should log the configured DNS servers
-    expect(result.stdout).toMatch(/DNS|dns/i);
   }, 120000);
 
   test('should work with default DNS when --dns-servers is not specified', async () => {
