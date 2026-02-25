@@ -26,6 +26,36 @@ describe('API Proxy Rate Limiting', () => {
     await cleanup(false);
   });
 
+  test('should not rate limit by default (no --rate-limit-* flags)', async () => {
+    // Without any rate-limit flags, rate limiting is disabled — all requests should pass
+    const script = [
+      'ALL_OK=true',
+      'for i in 1 2 3 4 5 6 7 8 9 10; do',
+      `  CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}")`,
+      '  if [ "$CODE" = "429" ]; then ALL_OK=false; fi',
+      'done',
+      'if [ "$ALL_OK" = "true" ]; then echo "NO_RATE_LIMITS"; else echo "GOT_429"; fi',
+    ].join('\n');
+
+    const result = await runner.runWithSudo(
+      `bash -c '${script}'`,
+      {
+        allowDomains: ['api.anthropic.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        // No rateLimitRpm, rateLimitRph, or rateLimitBytesPm — unlimited by default
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          ANTHROPIC_API_KEY: 'sk-ant-fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain('NO_RATE_LIMITS');
+  }, 180000);
+
   test('should return 429 when rate limit is exceeded', async () => {
     // Set RPM=2, then make 4 rapid requests — at least one should get 429
     const script = [
