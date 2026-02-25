@@ -5,6 +5,7 @@ type ExecaReturnValue = execa.ExecaReturnValue<string>;
 
 export interface AwfOptions {
   allowDomains?: string[];
+  blockDomains?: string[];
   keepContainers?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   buildLocal?: boolean;
@@ -23,6 +24,8 @@ export interface AwfOptions {
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
   noRateLimit?: boolean; // Disable rate limiting
+  envAll?: boolean; // Pass all host environment variables to container (--env-all)
+  cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
 }
 
 export interface AwfResult {
@@ -54,6 +57,11 @@ export class AwfRunner {
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {
       args.push('--allow-domains', options.allowDomains.join(','));
+    }
+
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
     }
 
     // Add other flags
@@ -126,6 +134,18 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
@@ -224,6 +244,11 @@ export class AwfRunner {
       args.push('--allow-domains', options.allowDomains.join(','));
     }
 
+    // Add block-domains
+    if (options.blockDomains && options.blockDomains.length > 0) {
+      args.push('--block-domains', options.blockDomains.join(','));
+    }
+
     // Add other flags
     if (options.keepContainers) {
       args.push('--keep-containers');
@@ -294,6 +319,18 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
