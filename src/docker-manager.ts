@@ -995,6 +995,13 @@ export function generateDockerCompose(
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        // Rate limiting configuration
+        ...(config.rateLimitConfig && {
+          AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),
+          AWF_RATE_LIMIT_RPM: String(config.rateLimitConfig.rpm),
+          AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
+          AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
+        }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
