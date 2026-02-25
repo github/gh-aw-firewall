@@ -258,6 +258,7 @@ describe('Environment Variable Handling', () => {
     }, 120000);
 
     test('should exclude system variables like PATH from passthrough', async () => {
+      const sentinel = '/tmp/awf-sentinel-path-marker';
       const result = await runner.runWithSudo(
         'echo $PATH',
         {
@@ -265,11 +266,18 @@ describe('Environment Variable Handling', () => {
           logLevel: 'debug',
           timeout: 60000,
           envAll: true,
+          env: {
+            // Prepend sentinel to host PATH so sudo/node still work
+            PATH: `${sentinel}:${process.env.PATH}`,
+          },
         }
       );
 
       expect(result).toSucceed();
+      // Container PATH should include its own default entries
       expect(result.stdout).toContain('/usr/local/bin');
+      // Host PATH sentinel must NOT leak into the container
+      expect(result.stdout).not.toContain(sentinel);
     }, 120000);
   });
 });
