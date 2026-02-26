@@ -17,6 +17,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
+const { createTokenExtractor } = require('./token-extractor');
 
 // Create rate limiter from environment variables
 const limiter = rateLimiter.create();
@@ -319,7 +320,36 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
       // Copy response headers and add X-Request-ID
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
       res.writeHead(proxyRes.statusCode, resHeaders);
-      proxyRes.pipe(res);
+
+      // Extract token counts from response (best-effort, fail-open)
+      const resContentType = proxyRes.headers['content-type'] || '';
+      const resContentEncoding = proxyRes.headers['content-encoding'] || '';
+      const tokenExtractor = createTokenExtractor({
+        provider,
+        contentType: resContentType,
+        contentEncoding: resContentEncoding,
+      });
+
+      tokenExtractor.on('tokens', (tokens) => {
+        if (tokens.input > 0) {
+          metrics.increment('tokens_input_total', { provider }, tokens.input);
+        }
+        if (tokens.output > 0) {
+          metrics.increment('tokens_output_total', { provider }, tokens.output);
+        }
+        if (tokens.total > 0 && typeof limiter.recordTokens === 'function') {
+          limiter.recordTokens(provider, tokens.total);
+        }
+        logRequest('info', 'tokens_recorded', {
+          request_id: requestId,
+          provider,
+          input_tokens: tokens.input,
+          output_tokens: tokens.output,
+          total_tokens: tokens.total,
+        });
+      });
+
+      proxyRes.pipe(tokenExtractor).pipe(res);
     });
 
     proxyReq.on('error', (err) => {
