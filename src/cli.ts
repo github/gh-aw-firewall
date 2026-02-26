@@ -785,6 +785,12 @@ program
     false
   )
   .option(
+    '--copilot-api-target <host>',
+    'Target hostname for GitHub Copilot API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.githubcopilot.com. Useful for GHES deployments.\n' +
+    '                                   Can also be set via COPILOT_API_TARGET env var.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1064,6 +1070,7 @@ program
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
+      copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
     };
 
     // Build rate limit config when API proxy is enabled
