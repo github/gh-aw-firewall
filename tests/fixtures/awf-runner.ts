@@ -23,13 +23,8 @@ export interface AwfOptions {
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
   noRateLimit?: boolean; // Disable rate limiting
-
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
-  rateLimitRpm?: number; // Requests per minute per provider
-  rateLimitRph?: number; // Requests per hour per provider
-  rateLimitBytesPm?: number; // Request bytes per minute per provider
-  noRateLimit?: boolean; // Disable rate limiting
 }
 
 export interface AwfResult {
