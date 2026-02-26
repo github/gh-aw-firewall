@@ -18,7 +18,6 @@ export interface AwfOptions {
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
-  allowFullFilesystemAccess?: boolean; // Allow full filesystem access (disables selective mounting security)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
@@ -112,11 +111,6 @@ export class AwfRunner {
       args.push('--allow-host-ports', options.allowHostPorts);
     }
 
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
-    }
-
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
@@ -146,6 +140,20 @@ export class AwfRunner {
       for (const [key, value] of Object.entries(options.cliEnv)) {
         args.push('-e', `${key}=${value}`);
       }
+    }
+
+    // Add rate limit flags
+    if (options.rateLimitRpm !== undefined) {
+      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
+    }
+    if (options.rateLimitRph !== undefined) {
+      args.push('--rate-limit-rph', String(options.rateLimitRph));
+    }
+    if (options.rateLimitBytesPm !== undefined) {
+      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.noRateLimit) {
+      args.push('--no-rate-limit');
     }
 
     // Add -- separator before command
@@ -297,11 +305,6 @@ export class AwfRunner {
       args.push('--allow-host-ports', options.allowHostPorts);
     }
 
-    // Add allow-full-filesystem-access flag
-    if (options.allowFullFilesystemAccess) {
-      args.push('--allow-full-filesystem-access');
-    }
-
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
@@ -331,6 +334,20 @@ export class AwfRunner {
       for (const [key, value] of Object.entries(options.cliEnv)) {
         args.push('-e', `${key}=${value}`);
       }
+    }
+
+    // Add rate limit flags
+    if (options.rateLimitRpm !== undefined) {
+      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
+    }
+    if (options.rateLimitRph !== undefined) {
+      args.push('--rate-limit-rph', String(options.rateLimitRph));
+    }
+    if (options.rateLimitBytesPm !== undefined) {
+      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.noRateLimit) {
+      args.push('--no-rate-limit');
     }
 
     // Add -- separator before command

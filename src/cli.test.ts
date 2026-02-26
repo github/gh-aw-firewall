@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig, hasRateLimitOptions } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1422,48 +1422,27 @@ describe('cli', () => {
     });
   });
 
-  describe('hasRateLimitOptions', () => {
-    it('should return false when no rate limit options set', () => {
-      expect(hasRateLimitOptions({})).toBe(false);
-    });
-    it('should return true when rateLimitRpm is set', () => {
-      expect(hasRateLimitOptions({ rateLimitRpm: '30' })).toBe(true);
-    });
-    it('should return true when rateLimitRph is set', () => {
-      expect(hasRateLimitOptions({ rateLimitRph: '500' })).toBe(true);
-    });
-    it('should return true when rateLimitBytesPm is set', () => {
-      expect(hasRateLimitOptions({ rateLimitBytesPm: '1000000' })).toBe(true);
-    });
-    it('should return true when rateLimit is false (--no-rate-limit)', () => {
-      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
-    });
-    it('should return false when rateLimit is true', () => {
-      expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
-    });
-  });
-
   describe('buildRateLimitConfig', () => {
     it('should return defaults when no options provided', () => {
       const r = buildRateLimitConfig({});
       expect('config' in r).toBe(true);
-      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 60, rph: 1000, bytesPm: 52428800 }); }
+      if ('config' in r) { expect(r.config).toEqual({ enabled: false, rpm: 0, rph: 0, bytesPm: 0 }); }
     });
-    it('should disable with rateLimit=false', () => {
-      const r = buildRateLimitConfig({ rateLimit: false });
+    it('should disable with rateLimit=false even if limits provided', () => {
+      const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '30' });
       if ('config' in r) { expect(r.config.enabled).toBe(false); }
     });
-    it('should parse custom RPM', () => {
+    it('should enable and parse custom RPM', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '30' });
-      if ('config' in r) { expect(r.config.rpm).toBe(30); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.rpm).toBe(30); }
     });
-    it('should parse custom RPH', () => {
+    it('should enable and parse custom RPH', () => {
       const r = buildRateLimitConfig({ rateLimitRph: '500' });
-      if ('config' in r) { expect(r.config.rph).toBe(500); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.rph).toBe(500); }
     });
-    it('should parse custom bytes-pm', () => {
+    it('should enable and parse custom bytes-pm', () => {
       const r = buildRateLimitConfig({ rateLimitBytesPm: '1000000' });
-      if ('config' in r) { expect(r.config.bytesPm).toBe(1000000); }
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.bytesPm).toBe(1000000); }
     });
     it('should error on negative RPM', () => {
       expect('error' in buildRateLimitConfig({ rateLimitRpm: '-5' })).toBe(true);
@@ -1480,13 +1459,40 @@ describe('cli', () => {
     it('should error on negative bytes-pm', () => {
       expect('error' in buildRateLimitConfig({ rateLimitBytesPm: '-100' })).toBe(true);
     });
-    it('should ignore custom values when disabled', () => {
+    it('should ignore custom values when disabled via --no-rate-limit', () => {
       const r = buildRateLimitConfig({ rateLimit: false, rateLimitRpm: '999' });
-      if ('config' in r) { expect(r.config.rpm).toBe(60); }
+      if ('config' in r) { expect(r.config.enabled).toBe(false); expect(r.config.rpm).toBe(0); }
     });
     it('should accept all custom values', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });
       if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 10, rph: 100, bytesPm: 5000000 }); }
+    });
+  });
+
+  describe('validateRateLimitFlags', () => {
+    it('should pass when api proxy is enabled', () => {
+      expect(validateRateLimitFlags(true, { rateLimitRpm: '30' })).toEqual({ valid: true });
+    });
+    it('should pass when no rate limit flags used', () => {
+      expect(validateRateLimitFlags(false, {})).toEqual({ valid: true });
+    });
+    it('should fail when --rate-limit-rpm used without api proxy', () => {
+      const r = validateRateLimitFlags(false, { rateLimitRpm: '30' });
+      expect(r.valid).toBe(false);
+      expect(r.error).toContain('--enable-api-proxy');
+    });
+    it('should fail when --rate-limit-rph used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimitRph: '100' }).valid).toBe(false);
+    });
+    it('should fail when --rate-limit-bytes-pm used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimitBytesPm: '1000' }).valid).toBe(false);
+    });
+    it('should fail when --no-rate-limit used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimit: false }).valid).toBe(false);
+    });
+    it('should pass when all flags used with api proxy enabled', () => {
+      const r = validateRateLimitFlags(true, { rateLimitRpm: '10', rateLimitRph: '100', rateLimit: false });
+      expect(r.valid).toBe(true);
     });
   });
 });

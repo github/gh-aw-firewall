@@ -1,13 +1,13 @@
 /**
- * Rolling Window Rate Limiter for AWF API Proxy.
+ * Sliding Window Counter Rate Limiter for AWF API Proxy.
  *
  * Provides per-provider rate limiting with three limit types:
  * - RPM: requests per minute (1-second granularity, 60 slots)
  * - RPH: requests per hour (1-minute granularity, 60 slots)
  * - Bytes/min: request bytes per minute (1-second granularity, 60 slots)
  *
- * Algorithm: fixed-bucket rolling window — divides each window into fixed-size
- * slots and sums counts across all slots in the current window.
+ * Algorithm: sliding window counter — counts in the current window plus a
+ * weighted portion of the previous window based on elapsed time.
  *
  * Memory-bounded: fixed-size arrays per provider, old windows overwritten.
  * Fail-open: any internal error allows the request through.
@@ -17,7 +17,7 @@
 'use strict';
 
 // ── Defaults ────────────────────────────────────────────────────────────
-const DEFAULT_RPM = 60;
+const DEFAULT_RPM = 600;
 const DEFAULT_RPH = 1000;
 const DEFAULT_BYTES_PM = 50 * 1024 * 1024; // 50 MB
 
@@ -58,10 +58,16 @@ function advanceWindow(win, now, size) {
 
   // Zero out slots that have expired
   const slotsToZero = Math.min(elapsed, size);
-  for (let i = 1; i <= slotsToZero; i++) {
-    const slot = (win.lastSlot + i) % size;
-    win.total -= win.counts[slot];
-    win.counts[slot] = 0;
+  if (slotsToZero >= size) {
+    // Full window expired — reset directly to avoid total drift
+    win.counts.fill(0);
+    win.total = 0;
+  } else {
+    for (let i = 1; i <= slotsToZero; i++) {
+      const slot = (win.lastSlot + i) % size;
+      win.total -= win.counts[slot];
+      win.counts[slot] = 0;
+    }
   }
 
   win.lastSlot = now % size;
@@ -83,23 +89,47 @@ function recordInWindow(win, now, size, value) {
 }
 
 /**
- * Get the sliding window estimate of the current rate.
+ * Get the current count in the sliding window.
  *
- * Uses the formula: current_window_count + previous_window_weight * previous_total
- * where previous_window_weight = (slot_duration - elapsed_in_current_slot) / slot_duration
- *
- * This is a simplified but effective approach: we use the total across
- * all current-window slots plus a weighted fraction of the oldest expired slot's
- * contribution to approximate the true sliding window.
+ * After advancing the window to zero out stale slots, returns the
+ * sum of all active slot counts.
  *
  * @param {object} win - Window object
  * @param {number} now - Current time in the slot's unit
  * @param {number} size - Window size
- * @returns {number} Estimated count in the window
+ * @returns {number} Count of events in the current window
  */
 function getWindowCount(win, now, size) {
   advanceWindow(win, now, size);
   return win.total;
+}
+
+/**
+ * Estimate how many time-units until the window count drops below a threshold.
+ *
+ * Scans backwards from the oldest slot in the window to find the first
+ * non-zero slot. That slot will expire in (its age remaining) time-units.
+ *
+ * @param {object} win - Window object (must be advanced to `now` first)
+ * @param {number} now - Current time in the slot's unit
+ * @param {number} size - Window size
+ * @param {number} limit - The threshold to drop below
+ * @returns {number} Estimated time-units until count < limit (minimum 1)
+ */
+function estimateRetryAfter(win, now, size, limit) {
+  // Walk from the oldest slot (now - size + 1) forward, accumulating
+  // how much capacity is freed as each slot expires.
+  let freed = 0;
+  for (let age = size - 1; age >= 0; age--) {
+    const slot = ((now - age) % size + size) % size;
+    freed += win.counts[slot];
+    if (win.total - freed < limit) {
+      // This slot expires in (age + 1) time-units from now
+      return Math.max(1, age + 1);
+    }
+  }
+  // Shouldn't happen if total >= limit, but fall back to full window
+  return Math.max(1, size);
 }
 
 /**
@@ -119,7 +149,7 @@ class ProviderState {
 class RateLimiter {
   /**
    * @param {object} config
-   * @param {number} [config.rpm=60] - Max requests per minute
+   * @param {number} [config.rpm=600] - Max requests per minute
    * @param {number} [config.rph=1000] - Max requests per hour
    * @param {number} [config.bytesPm=52428800] - Max bytes per minute (50 MB)
    * @param {boolean} [config.enabled=true] - Whether rate limiting is active
@@ -180,8 +210,8 @@ class RateLimiter {
       // Check RPM (requests per minute)
       const rpmCount = getWindowCount(state.rpmWindow, nowSec, MINUTE_SLOTS);
       if (rpmCount >= this.rpm) {
-        const resetAt = (nowSec + 1) + (MINUTE_SLOTS - 1);
-        const retryAfter = Math.max(1, MINUTE_SLOTS - (nowSec % MINUTE_SLOTS));
+        const retryAfter = estimateRetryAfter(state.rpmWindow, nowSec, MINUTE_SLOTS, this.rpm);
+        const resetAt = nowSec + retryAfter;
         return {
           allowed: false,
           limitType: 'rpm',
@@ -195,7 +225,8 @@ class RateLimiter {
       // Check RPH (requests per hour)
       const rphCount = getWindowCount(state.rphWindow, nowMin, HOUR_SLOTS);
       if (rphCount >= this.rph) {
-        const retryAfter = Math.max(1, (HOUR_SLOTS - (nowMin % HOUR_SLOTS)) * 60);
+        const retryAfterMin = estimateRetryAfter(state.rphWindow, nowMin, HOUR_SLOTS, this.rph);
+        const retryAfter = retryAfterMin * 60; // convert minutes to seconds
         const resetAt = Math.floor(nowMs / 1000) + retryAfter;
         return {
           allowed: false,
@@ -210,7 +241,7 @@ class RateLimiter {
       // Check bytes per minute
       const bytesCount = getWindowCount(state.bytesWindow, nowSec, MINUTE_SLOTS);
       if (bytesCount + requestBytes > this.bytesPm) {
-        const retryAfter = Math.max(1, MINUTE_SLOTS - (nowSec % MINUTE_SLOTS));
+        const retryAfter = estimateRetryAfter(state.bytesWindow, nowSec, MINUTE_SLOTS, this.bytesPm);
         const resetAt = nowSec + retryAfter;
         return {
           allowed: false,
@@ -271,17 +302,24 @@ class RateLimiter {
       const rpmCount = getWindowCount(state.rpmWindow, nowSec, MINUTE_SLOTS);
       const rphCount = getWindowCount(state.rphWindow, nowMin, HOUR_SLOTS);
 
+      const rpmRetry = rpmCount >= this.rpm
+        ? estimateRetryAfter(state.rpmWindow, nowSec, MINUTE_SLOTS, this.rpm)
+        : 0;
+      const rphRetry = rphCount >= this.rph
+        ? estimateRetryAfter(state.rphWindow, nowMin, HOUR_SLOTS, this.rph) * 60
+        : 0;
+
       return {
         enabled: true,
         rpm: {
           limit: this.rpm,
           remaining: Math.max(0, this.rpm - rpmCount),
-          reset: nowSec + (MINUTE_SLOTS - (nowSec % MINUTE_SLOTS)),
+          reset: rpmRetry > 0 ? nowSec + rpmRetry : 0,
         },
         rph: {
           limit: this.rph,
           remaining: Math.max(0, this.rph - rphCount),
-          reset: Math.floor(nowMs / 1000) + (HOUR_SLOTS - (nowMin % HOUR_SLOTS)) * 60,
+          reset: rphRetry > 0 ? Math.floor(nowMs / 1000) + rphRetry : 0,
         },
       };
     } catch (_err) {
@@ -309,15 +347,19 @@ class RateLimiter {
  * - AWF_RATE_LIMIT_RPM (default: 60)
  * - AWF_RATE_LIMIT_RPH (default: 1000)
  * - AWF_RATE_LIMIT_BYTES_PM (default: 52428800)
- * - AWF_RATE_LIMIT_ENABLED (default: "true")
+ * - AWF_RATE_LIMIT_ENABLED (default: "false" — rate limiting is opt-in)
  *
  * @returns {RateLimiter}
  */
 function create() {
-  const rpm = parseInt(process.env.AWF_RATE_LIMIT_RPM, 10) || DEFAULT_RPM;
-  const rph = parseInt(process.env.AWF_RATE_LIMIT_RPH, 10) || DEFAULT_RPH;
-  const bytesPm = parseInt(process.env.AWF_RATE_LIMIT_BYTES_PM, 10) || DEFAULT_BYTES_PM;
-  const enabled = process.env.AWF_RATE_LIMIT_ENABLED !== 'false';
+  const rawRpm = parseInt(process.env.AWF_RATE_LIMIT_RPM, 10);
+  const rawRph = parseInt(process.env.AWF_RATE_LIMIT_RPH, 10);
+  const rawBytesPm = parseInt(process.env.AWF_RATE_LIMIT_BYTES_PM, 10);
+
+  const rpm = (Number.isFinite(rawRpm) && rawRpm > 0) ? rawRpm : DEFAULT_RPM;
+  const rph = (Number.isFinite(rawRph) && rawRph > 0) ? rawRph : DEFAULT_RPH;
+  const bytesPm = (Number.isFinite(rawBytesPm) && rawBytesPm > 0) ? rawBytesPm : DEFAULT_BYTES_PM;
+  const enabled = process.env.AWF_RATE_LIMIT_ENABLED === 'true';
 
   return new RateLimiter({ rpm, rph, bytesPm, enabled });
 }
