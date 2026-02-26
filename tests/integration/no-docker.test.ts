@@ -15,6 +15,10 @@
  *
  * Known Issue: Building locally may fail due to NodeSource repository issues.
  * If tests fail with "docker found" errors, the images need to be rebuilt and published.
+ *
+ * NOTE: docker-warning.test.ts was removed as redundant — the Docker stub-script
+ * approach was superseded by removing docker-cli entirely. This file covers the
+ * Docker removal behavior (command not found, no socket, graceful failure).
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />

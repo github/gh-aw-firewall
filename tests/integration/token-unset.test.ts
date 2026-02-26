@@ -26,17 +26,21 @@ describe('Token Unsetting from Entrypoint Environ', () => {
   test('should unset GITHUB_TOKEN from /proc/1/environ after agent starts', async () => {
     const testToken = 'ghp_test_token_12345678901234567890';
 
-    // Command that checks /proc/1/environ after sleeping to allow token unsetting
+    // Command that polls /proc/1/environ until token is cleared (retry loop)
     const command = `
-      # Wait for entrypoint to unset tokens (5 second delay + 2 second buffer)
-      sleep 7
+      # Poll /proc/1/environ until GITHUB_TOKEN is cleared (up to 15 seconds)
+      for i in $(seq 1 15); do
+        if ! cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN="; then
+          echo "SUCCESS: GITHUB_TOKEN cleared from /proc/1/environ"
+          break
+        fi
+        sleep 1
+      done
 
-      # Check if GITHUB_TOKEN is still in /proc/1/environ
+      # Final check - fail if still present after retries
       if cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN="; then
-        echo "ERROR: GITHUB_TOKEN still in /proc/1/environ"
+        echo "ERROR: GITHUB_TOKEN still in /proc/1/environ after 15 seconds"
         exit 1
-      else
-        echo "SUCCESS: GITHUB_TOKEN cleared from /proc/1/environ"
       fi
 
       # Verify agent can still read the token (cached by one-shot-token library)
@@ -66,13 +70,18 @@ describe('Token Unsetting from Entrypoint Environ', () => {
     const testToken = 'sk-test_openai_key_1234567890';
 
     const command = `
-      sleep 7
+      # Poll /proc/1/environ until OPENAI_API_KEY is cleared (up to 15 seconds)
+      for i in $(seq 1 15); do
+        if ! cat /proc/1/environ | tr "\\0" "\\n" | grep -q "OPENAI_API_KEY="; then
+          echo "SUCCESS: OPENAI_API_KEY cleared from /proc/1/environ"
+          break
+        fi
+        sleep 1
+      done
 
       if cat /proc/1/environ | tr "\\0" "\\n" | grep -q "OPENAI_API_KEY="; then
-        echo "ERROR: OPENAI_API_KEY still in /proc/1/environ"
+        echo "ERROR: OPENAI_API_KEY still in /proc/1/environ after 15 seconds"
         exit 1
-      else
-        echo "SUCCESS: OPENAI_API_KEY cleared from /proc/1/environ"
       fi
 
       if [ -n "$OPENAI_API_KEY" ]; then
@@ -101,13 +110,18 @@ describe('Token Unsetting from Entrypoint Environ', () => {
     const testToken = 'sk-ant-test_key_1234567890';
 
     const command = `
-      sleep 7
+      # Poll /proc/1/environ until ANTHROPIC_API_KEY is cleared (up to 15 seconds)
+      for i in $(seq 1 15); do
+        if ! cat /proc/1/environ | tr "\\0" "\\n" | grep -q "ANTHROPIC_API_KEY="; then
+          echo "SUCCESS: ANTHROPIC_API_KEY cleared from /proc/1/environ"
+          break
+        fi
+        sleep 1
+      done
 
       if cat /proc/1/environ | tr "\\0" "\\n" | grep -q "ANTHROPIC_API_KEY="; then
-        echo "ERROR: ANTHROPIC_API_KEY still in /proc/1/environ"
+        echo "ERROR: ANTHROPIC_API_KEY still in /proc/1/environ after 15 seconds"
         exit 1
-      else
-        echo "SUCCESS: ANTHROPIC_API_KEY cleared from /proc/1/environ"
       fi
 
       if [ -n "$ANTHROPIC_API_KEY" ]; then
@@ -134,9 +148,19 @@ describe('Token Unsetting from Entrypoint Environ', () => {
 
   test('should unset multiple tokens simultaneously', async () => {
     const command = `
-      sleep 7
+      # Poll /proc/1/environ until all tokens are cleared (up to 15 seconds)
+      for i in $(seq 1 15); do
+        TOKENS_FOUND=0
+        cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN=" && TOKENS_FOUND=$((TOKENS_FOUND + 1))
+        cat /proc/1/environ | tr "\\0" "\\n" | grep -q "OPENAI_API_KEY=" && TOKENS_FOUND=$((TOKENS_FOUND + 1))
+        cat /proc/1/environ | tr "\\0" "\\n" | grep -q "ANTHROPIC_API_KEY=" && TOKENS_FOUND=$((TOKENS_FOUND + 1))
+        if [ $TOKENS_FOUND -eq 0 ]; then
+          break
+        fi
+        sleep 1
+      done
 
-      # Check all three tokens
+      # Final check - fail if any still present
       TOKENS_FOUND=0
 
       if cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN="; then
@@ -187,10 +211,16 @@ describe('Token Unsetting from Entrypoint Environ', () => {
 
   test('should work in non-chroot mode', async () => {
     const command = `
-      sleep 7
+      # Poll /proc/1/environ until GITHUB_TOKEN is cleared (up to 15 seconds)
+      for i in $(seq 1 15); do
+        if ! cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN="; then
+          break
+        fi
+        sleep 1
+      done
 
       if cat /proc/1/environ | tr "\\0" "\\n" | grep -q "GITHUB_TOKEN="; then
-        echo "ERROR: GITHUB_TOKEN still in /proc/1/environ"
+        echo "ERROR: GITHUB_TOKEN still in /proc/1/environ after 15 seconds"
         exit 1
       else
         echo "SUCCESS: GITHUB_TOKEN cleared from /proc/1/environ in non-chroot mode"

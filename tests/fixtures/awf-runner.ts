@@ -142,20 +142,6 @@ export class AwfRunner {
       }
     }
 
-    // Add rate limit flags
-    if (options.rateLimitRpm !== undefined) {
-      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
-    }
-    if (options.rateLimitRph !== undefined) {
-      args.push('--rate-limit-rph', String(options.rateLimitRph));
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
-    }
-    if (options.noRateLimit) {
-      args.push('--no-rate-limit');
-    }
-
     // Add -- separator before command
     args.push('--');
 
@@ -334,20 +320,6 @@ export class AwfRunner {
       for (const [key, value] of Object.entries(options.cliEnv)) {
         args.push('-e', `${key}=${value}`);
       }
-    }
-
-    // Add rate limit flags
-    if (options.rateLimitRpm !== undefined) {
-      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
-    }
-    if (options.rateLimitRph !== undefined) {
-      args.push('--rate-limit-rph', String(options.rateLimitRph));
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
-    }
-    if (options.noRateLimit) {
-      args.push('--no-rate-limit');
     }
 
     // Add -- separator before command
