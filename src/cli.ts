@@ -304,26 +304,61 @@ export function buildRateLimitConfig(options: {
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
 }): { config: RateLimitConfig } | { error: string } {
-  const rateLimitDisabled = options.rateLimit === false;
-  const config: RateLimitConfig = { enabled: !rateLimitDisabled, rpm: 60, rph: 1000, bytesPm: 52428800 };
-  if (!rateLimitDisabled) {
-    if (options.rateLimitRpm !== undefined) {
-      const rpm = parseInt(options.rateLimitRpm, 10);
-      if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
-      config.rpm = rpm;
-    }
-    if (options.rateLimitRph !== undefined) {
-      const rph = parseInt(options.rateLimitRph, 10);
-      if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
-      config.rph = rph;
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      const bytesPm = parseInt(options.rateLimitBytesPm, 10);
-      if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
-      config.bytesPm = bytesPm;
+  // --no-rate-limit explicitly disables (even if other flags are set)
+  if (options.rateLimit === false) {
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
+  }
+
+  // Rate limiting is opt-in: disabled unless at least one --rate-limit-* flag is provided
+  const hasAnyLimit = options.rateLimitRpm !== undefined ||
+    options.rateLimitRph !== undefined ||
+    options.rateLimitBytesPm !== undefined;
+
+  if (!hasAnyLimit) {
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
+  }
+
+  // Defaults for any limit not explicitly set
+  const config: RateLimitConfig = { enabled: true, rpm: 600, rph: 10000, bytesPm: 52428800 };
+
+  if (options.rateLimitRpm !== undefined) {
+    const rpm = parseInt(options.rateLimitRpm, 10);
+    if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
+    config.rpm = rpm;
+  }
+  if (options.rateLimitRph !== undefined) {
+    const rph = parseInt(options.rateLimitRph, 10);
+    if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
+    config.rph = rph;
+  }
+  if (options.rateLimitBytesPm !== undefined) {
+    const bytesPm = parseInt(options.rateLimitBytesPm, 10);
+    if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
+    config.bytesPm = bytesPm;
+  }
+
+  return { config };
+}
+
+/**
+ * Validates that rate-limit flags are not used without --enable-api-proxy.
+ */
+export function validateRateLimitFlags(enableApiProxy: boolean, options: {
+  rateLimit?: boolean;
+  rateLimitRpm?: string;
+  rateLimitRph?: string;
+  rateLimitBytesPm?: string;
+}): FlagValidationResult {
+  if (!enableApiProxy) {
+    const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
+      options.rateLimitRph !== undefined ||
+      options.rateLimitBytesPm !== undefined ||
+      options.rateLimit === false;
+    if (hasRateLimitFlags) {
+      return { valid: false, error: 'Rate limit flags require --enable-api-proxy' };
     }
   }
-  return { config };
+  return { valid: true };
 }
 
 /**
@@ -707,16 +742,6 @@ program
     []
   )
   .option(
-    '--allow-full-filesystem-access',
-    '⚠️  SECURITY WARNING: Mount entire host filesystem with read-write access.\n' +
-    '                                   This DISABLES selective mounting security and exposes ALL files including:\n' +
-    '                                   - Docker Hub tokens (~/.docker/config.json)\n' +
-    '                                   - GitHub CLI tokens (~/.config/gh/hosts.yml)\n' +
-    '                                   - NPM, Cargo, Composer credentials\n' +
-    '                                   Only use if you cannot use --mount for specific directories.',
-    false
-  )
-  .option(
     '--container-workdir <dir>',
     'Working directory inside the container (should match GITHUB_WORKSPACE for path consistency)'
   )
@@ -760,20 +785,26 @@ program
     false
   )
   .option(
+    '--copilot-api-target <host>',
+    'Target hostname for GitHub Copilot API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.githubcopilot.com. Useful for GHES deployments.\n' +
+    '                                   Can also be set via COPILOT_API_TARGET env var.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
-    'Requests per minute per provider (default: 60, requires --enable-api-proxy)',
+    'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
   .option(
     '--rate-limit-rph <n>',
-    'Requests per hour per provider (default: 1000, requires --enable-api-proxy)',
+    'Enable rate limiting: max requests per hour per provider (requires --enable-api-proxy)',
   )
   .option(
     '--rate-limit-bytes-pm <n>',
-    'Request bytes per minute per provider (default: 52428800 = 50MB, requires --enable-api-proxy)',
+    'Enable rate limiting: max request bytes per minute per provider (requires --enable-api-proxy)',
   )
   .option(
     '--no-rate-limit',
-    'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
+    'Explicitly disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
@@ -1028,7 +1059,6 @@ program
       additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
       envAll: options.envAll,
       volumeMounts,
-      allowFullFilesystemAccess: options.allowFullFilesystemAccess,
       containerWorkDir: options.containerWorkdir,
       dnsServers,
       proxyLogsDir: options.proxyLogsDir,
@@ -1040,6 +1070,7 @@ program
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
+      copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
     };
 
     // Build rate limit config when API proxy is enabled
@@ -1051,6 +1082,13 @@ program
       }
       config.rateLimitConfig = rateLimitResult.config;
       logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}`);
+    }
+
+    // Error if rate limit flags are used without --enable-api-proxy
+    const rateLimitFlagValidation = validateRateLimitFlags(config.enableApiProxy ?? false, options);
+    if (!rateLimitFlagValidation.valid) {
+      logger.error(rateLimitFlagValidation.error!);
+      process.exit(1);
     }
 
     // Warn if --env-all is used

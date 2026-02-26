@@ -35,6 +35,9 @@ Required (at least one):
 - `OPENAI_API_KEY` - OpenAI API key for authentication
 - `ANTHROPIC_API_KEY` - Anthropic API key for authentication
 
+Optional:
+- `COPILOT_API_TARGET` - Target hostname for GitHub Copilot API requests (default: `api.githubcopilot.com`). Useful for GHES deployments.
+
 Set by AWF:
 - `HTTP_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
 - `HTTPS_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
