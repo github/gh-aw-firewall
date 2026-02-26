@@ -25,10 +25,6 @@ export interface AwfOptions {
   noRateLimit?: boolean; // Disable rate limiting
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
-  rateLimitRpm?: number; // Requests per minute per provider
-  rateLimitRph?: number; // Requests per hour per provider
-  rateLimitBytesPm?: number; // Request bytes per minute per provider
-  noRateLimit?: boolean; // Disable rate limiting
 }
 
 export interface AwfResult {
@@ -144,20 +140,6 @@ export class AwfRunner {
       for (const [key, value] of Object.entries(options.cliEnv)) {
         args.push('-e', `${key}=${value}`);
       }
-    }
-
-    // Add rate limit flags
-    if (options.rateLimitRpm !== undefined) {
-      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
-    }
-    if (options.rateLimitRph !== undefined) {
-      args.push('--rate-limit-rph', String(options.rateLimitRph));
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
-    }
-    if (options.noRateLimit) {
-      args.push('--no-rate-limit');
     }
 
     // Add -- separator before command
@@ -338,20 +320,6 @@ export class AwfRunner {
       for (const [key, value] of Object.entries(options.cliEnv)) {
         args.push('-e', `${key}=${value}`);
       }
-    }
-
-    // Add rate limit flags
-    if (options.rateLimitRpm !== undefined) {
-      args.push('--rate-limit-rpm', String(options.rateLimitRpm));
-    }
-    if (options.rateLimitRph !== undefined) {
-      args.push('--rate-limit-rph', String(options.rateLimitRph));
-    }
-    if (options.rateLimitBytesPm !== undefined) {
-      args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
-    }
-    if (options.noRateLimit) {
-      args.push('--no-rate-limit');
     }
 
     // Add -- separator before command
