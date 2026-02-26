@@ -1824,6 +1824,40 @@ describe('docker-manager', () => {
         expect(env.AWF_RATE_LIMIT_RPH).toBeUndefined();
         expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
       });
+
+      it('should pass GITHUB_SERVER_URL to api-proxy when set in host environment', () => {
+        const origServerUrl = process.env.GITHUB_SERVER_URL;
+        try {
+          process.env.GITHUB_SERVER_URL = 'https://github.mycompany.com';
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghp_test' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.GITHUB_SERVER_URL).toBe('https://github.mycompany.com');
+        } finally {
+          if (origServerUrl !== undefined) {
+            process.env.GITHUB_SERVER_URL = origServerUrl;
+          } else {
+            delete process.env.GITHUB_SERVER_URL;
+          }
+        }
+      });
+
+      it('should not set GITHUB_SERVER_URL in api-proxy when not set in host environment', () => {
+        const origServerUrl = process.env.GITHUB_SERVER_URL;
+        try {
+          delete process.env.GITHUB_SERVER_URL;
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghp_test' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.GITHUB_SERVER_URL).toBeUndefined();
+        } finally {
+          if (origServerUrl !== undefined) {
+            process.env.GITHUB_SERVER_URL = origServerUrl;
+          }
+        }
+      });
     });
   });
 

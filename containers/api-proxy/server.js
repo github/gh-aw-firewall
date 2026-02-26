@@ -46,6 +46,31 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 
+/**
+ * Derive the Copilot API hostname from GITHUB_SERVER_URL.
+ * - For github.com (or unset): returns 'api.githubcopilot.com'
+ * - For GitHub Enterprise Server (GHES): returns the hostname from GITHUB_SERVER_URL
+ *   (GHES serves the Copilot API at the same hostname as the GitHub server)
+ */
+function getCopilotApiHost() {
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  if (!serverUrl || serverUrl === 'https://github.com') {
+    return 'api.githubcopilot.com';
+  }
+  try {
+    return new URL(serverUrl).hostname;
+  } catch (err) {
+    logRequest('warn', 'startup', {
+      message: `Invalid GITHUB_SERVER_URL value, falling back to api.githubcopilot.com`,
+      github_server_url: serverUrl,
+      error: String(err),
+    });
+    return 'api.githubcopilot.com';
+  }
+}
+
+const COPILOT_API_HOST = getCopilotApiHost();
+
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 
@@ -57,6 +82,7 @@ logRequest('info', 'startup', {
     anthropic: !!ANTHROPIC_API_KEY,
     copilot: !!COPILOT_GITHUB_TOKEN,
   },
+  copilot_api_host: COPILOT_API_HOST,
 });
 
 // Create proxy agent for routing through Squid
@@ -433,13 +459,13 @@ if (COPILOT_GITHUB_TOKEN) {
     const contentLength = parseInt(req.headers['content-length'], 10) || 0;
     if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
-    proxyRequest(req, res, 'api.githubcopilot.com', {
+    proxyRequest(req, res, COPILOT_API_HOST, {
       'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
     }, 'copilot');
   });
 
   copilotServer.listen(10002, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
+    logRequest('info', 'server_start', { message: `GitHub Copilot proxy listening on port 10002 (-> ${COPILOT_API_HOST})` });
   });
 }
 
