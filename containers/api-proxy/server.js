@@ -60,6 +60,14 @@ function deriveCopilotApiTarget() {
     try {
       const hostname = new URL(serverUrl).hostname;
       if (hostname !== 'github.com') {
+        // For GitHub Enterprise Cloud with data residency (*.ghe.com),
+        // derive the API endpoint as api.SUBDOMAIN.ghe.com
+        // Example: mycompany.ghe.com -> api.mycompany.ghe.com
+        if (hostname.endsWith('.ghe.com')) {
+          const subdomain = hostname.replace('.ghe.com', '');
+          return `api.${subdomain}.ghe.com`;
+        }
+        // For other enterprise hosts (GHES), use the generic enterprise endpoint
         return 'api.enterprise.githubcopilot.com';
       }
     } catch {
