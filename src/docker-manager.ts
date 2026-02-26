@@ -444,6 +444,9 @@ export function generateDockerCompose(
     if (process.env.USER) environment.USER = process.env.USER;
     if (process.env.TERM) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+    // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
+    if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
+    if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
   }
 
   // Additional environment variables from --env flags (these override everything)
@@ -977,6 +980,10 @@ export function generateDockerCompose(
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
         ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
+        // Configurable Copilot API target (for GHES/GHEC support)
+        ...(config.copilotApiTarget && { COPILOT_API_TARGET: config.copilotApiTarget }),
+        // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
+        ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
@@ -1050,6 +1057,9 @@ export function generateDockerCompose(
     if (config.copilotGithubToken) {
       environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
       logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
+      if (config.copilotApiTarget) {
+        logger.debug(`Copilot API target overridden to: ${config.copilotApiTarget}`);
+      }
 
       // Set placeholder token for GitHub Copilot CLI compatibility
       // Real authentication happens via COPILOT_API_URL pointing to api-proxy

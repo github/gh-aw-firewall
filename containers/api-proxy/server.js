@@ -46,12 +46,37 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 
+// Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
+// Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
+function deriveCopilotApiTarget() {
+  if (process.env.COPILOT_API_TARGET) {
+    return process.env.COPILOT_API_TARGET;
+  }
+  // For GitHub Enterprise Cloud (*.ghe.com) or GitHub Enterprise Server
+  // (any GITHUB_SERVER_URL that isn't https://github.com), route to the
+  // enterprise Copilot API endpoint instead of the individual one.
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  if (serverUrl) {
+    try {
+      const hostname = new URL(serverUrl).hostname;
+      if (hostname !== 'github.com') {
+        return 'api.enterprise.githubcopilot.com';
+      }
+    } catch {
+      // Invalid URL — fall through to default
+    }
+  }
+  return 'api.githubcopilot.com';
+}
+const COPILOT_API_TARGET = deriveCopilotApiTarget();
+
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 
 logRequest('info', 'startup', {
   message: 'Starting AWF API proxy sidecar',
   squid_proxy: HTTPS_PROXY || 'not configured',
+  copilot_api_target: COPILOT_API_TARGET,
   providers: {
     openai: !!OPENAI_API_KEY,
     anthropic: !!ANTHROPIC_API_KEY,
@@ -72,7 +97,11 @@ if (!proxyAgent) {
 function checkRateLimit(req, res, provider, requestBytes) {
   const check = limiter.check(provider, requestBytes);
   if (!check.allowed) {
-    const requestId = req.headers['x-request-id'] || generateRequestId();
+    const clientRequestId = req.headers['x-request-id'];
+    const requestId = (typeof clientRequestId === 'string' &&
+      clientRequestId.length <= 128 &&
+      /^[\w\-\.]+$/.test(clientRequestId))
+      ? clientRequestId : generateRequestId();
     const limitLabels = { rpm: 'requests per minute', rph: 'requests per hour', bytes_pm: 'bytes per minute' };
     const windowLabel = limitLabels[check.limitType] || check.limitType;
 
@@ -111,8 +140,14 @@ function checkRateLimit(req, res, provider, requestBytes) {
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
  */
+/** Validate that a request ID is safe (alphanumeric, dashes, dots, max 128 chars). */
+function isValidRequestId(id) {
+  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
+}
+
 function proxyRequest(req, res, targetHost, injectHeaders, provider) {
-  const requestId = req.headers['x-request-id'] || generateRequestId();
+  const clientRequestId = req.headers['x-request-id'];
+  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
 
   // Propagate request ID back to the client and forward to upstream
@@ -153,6 +188,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
 
   // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
+    if (errored) return; // Prevent double handling
+    errored = true;
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
     metrics.increment('requests_errors_total', { provider });
@@ -175,9 +212,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
   const chunks = [];
   let totalBytes = 0;
   let rejected = false;
+  let errored = false;
 
   req.on('data', chunk => {
-    if (rejected) return;
+    if (rejected || errored) return;
     totalBytes += chunk.length;
     if (totalBytes > MAX_BODY_SIZE) {
       rejected = true;
@@ -204,7 +242,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
   });
 
   req.on('end', () => {
-    if (rejected) return;
+    if (rejected || errored) return;
     const body = Buffer.concat(chunks);
     const requestBytes = body.length;
 
@@ -356,7 +394,8 @@ const HEALTH_PORT = 10000;
 if (OPENAI_API_KEY) {
   const server = http.createServer((req, res) => {
     if (handleManagementEndpoint(req, res)) return;
-    if (checkRateLimit(req, res, 'openai', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'openai', contentLength)) return;
 
     proxyRequest(req, res, 'api.openai.com', {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -389,7 +428,8 @@ if (ANTHROPIC_API_KEY) {
       return;
     }
 
-    if (checkRateLimit(req, res, 'anthropic', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'anthropic', contentLength)) return;
 
     // Only set anthropic-version as default; preserve agent-provided version
     const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
@@ -415,9 +455,10 @@ if (COPILOT_GITHUB_TOKEN) {
       return;
     }
 
-    if (checkRateLimit(req, res, 'copilot', 0)) return;
+    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+    if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
-    proxyRequest(req, res, 'api.githubcopilot.com', {
+    proxyRequest(req, res, COPILOT_API_TARGET, {
       'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
     }, 'copilot');
   });

@@ -472,6 +472,28 @@ export interface WrapperConfig {
    * @default undefined
    */
   copilotGithubToken?: string;
+
+  /**
+   * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
+   * as `COPILOT_API_TARGET`. The proxy will forward Copilot API requests to this host
+   * instead of the default `api.githubcopilot.com`.
+   *
+   * Useful for GitHub Enterprise Server (GHES) deployments where the Copilot API
+   * endpoint differs from the public default.
+   *
+   * Can be set via:
+   * - CLI flag: `--copilot-api-target <host>`
+   * - Environment variable: `COPILOT_API_TARGET`
+   *
+   * @default 'api.githubcopilot.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --copilot-api-target api.github.mycompany.com -- command
+   * ```
+   */
+  copilotApiTarget?: string;
 }
 
 /**
@@ -495,7 +517,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface RateLimitConfig {
   /** Whether rate limiting is enabled (default: true) */
   enabled: boolean;
-  /** Max requests per minute per provider (default: 60) */
+  /** Max requests per minute per provider (default: 600 when enabled) */
   rpm: number;
   /** Max requests per hour per provider (default: 1000) */
   rph: number;
