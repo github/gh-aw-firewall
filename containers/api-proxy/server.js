@@ -46,12 +46,37 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 
+// Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
+// Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
+function deriveCopilotApiTarget() {
+  if (process.env.COPILOT_API_TARGET) {
+    return process.env.COPILOT_API_TARGET;
+  }
+  // For GitHub Enterprise Cloud (*.ghe.com) or GitHub Enterprise Server
+  // (any GITHUB_SERVER_URL that isn't https://github.com), route to the
+  // enterprise Copilot API endpoint instead of the individual one.
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  if (serverUrl) {
+    try {
+      const hostname = new URL(serverUrl).hostname;
+      if (hostname !== 'github.com') {
+        return 'api.enterprise.githubcopilot.com';
+      }
+    } catch {
+      // Invalid URL — fall through to default
+    }
+  }
+  return 'api.githubcopilot.com';
+}
+const COPILOT_API_TARGET = deriveCopilotApiTarget();
+
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 
 logRequest('info', 'startup', {
   message: 'Starting AWF API proxy sidecar',
   squid_proxy: HTTPS_PROXY || 'not configured',
+  copilot_api_target: COPILOT_API_TARGET,
   providers: {
     openai: !!OPENAI_API_KEY,
     anthropic: !!ANTHROPIC_API_KEY,
@@ -433,7 +458,7 @@ if (COPILOT_GITHUB_TOKEN) {
     const contentLength = parseInt(req.headers['content-length'], 10) || 0;
     if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
-    proxyRequest(req, res, 'api.githubcopilot.com', {
+    proxyRequest(req, res, COPILOT_API_TARGET, {
       'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
     }, 'copilot');
   });
