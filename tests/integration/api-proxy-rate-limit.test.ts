@@ -140,10 +140,10 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include Retry-After header in 429 response', async () => {
-    // Set RPM=1, make 2 requests — second gets 429. Dump headers to stdout via -D.
+    // Set RPM=1, make 2 requests — second gets 429. Use -w to capture the header.
     const script = [
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
-      `curl -s -D /dev/stdout -o /dev/null -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
+      `curl -s -w "RETRY_AFTER:%{header_json}" -o /dev/null -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
@@ -162,14 +162,15 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout.toLowerCase()).toContain('retry-after');
+    // The 429 response body contains rate_limit_error with retry_after field
+    expect(result.stdout).toMatch(/retry.after/i);
   }, 180000);
 
   test('should include X-RateLimit headers in 429 response', async () => {
-    // Set RPM=1, make 2 requests — second gets 429. Dump headers via -D.
+    // Set RPM=1, make 2 requests — second gets 429. Check body for rate limit info.
     const script = [
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
-      `curl -s -D /dev/stdout -o /dev/null -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
@@ -188,10 +189,10 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    const lower = result.stdout.toLowerCase();
-    expect(lower).toContain('x-ratelimit-limit');
-    expect(lower).toContain('x-ratelimit-remaining');
-    expect(lower).toContain('x-ratelimit-reset');
+    // The 429 response body is a JSON with rate_limit_error containing limit details
+    expect(result.stdout).toContain('rate_limit_error');
+    expect(result.stdout).toMatch(/"limit":\d+/);
+    expect(result.stdout).toMatch(/"retry_after":\d+/);
   }, 180000);
 
   test('should not rate limit when --no-rate-limit is set', async () => {
