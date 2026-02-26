@@ -876,13 +876,17 @@ export function generateDockerCompose(
       'SYS_RAWIO',    // Prevents raw I/O access
       'MKNOD',        // Prevents device node creation
     ],
-    // Apply seccomp profile and no-new-privileges to restrict dangerous syscalls and prevent privilege escalation
+    // Security hardening via Docker's built-in default seccomp profile (allowlist-based, SCMP_ACT_ERRNO default).
+    // Docker's default profile blocks ~44 dangerous syscall families while allowing standard container operations.
+    // Dangerous syscalls like mount/chroot are conditionally allowed based on capabilities (CAP_SYS_ADMIN,
+    // CAP_SYS_CHROOT), which are irrevocably dropped via capsh before user code runs.
+    // ptrace/process_vm_readv/process_vm_writev are blocked by cap_drop: SYS_PTRACE above.
+    // no-new-privileges prevents SUID/SGID privilege escalation.
     // AppArmor is set to unconfined to allow mounting procfs at /host/proc
     // (Docker's default AppArmor profile blocks mount). This is safe because SYS_ADMIN is
     // dropped via capsh before user code runs, so user code cannot mount anything.
     security_opt: [
       'no-new-privileges:true',
-      `seccomp=${config.workDir}/seccomp-profile.json`,
       'apparmor:unconfined',
     ],
     // Resource limits to prevent DoS attacks (conservative defaults)
@@ -1195,25 +1199,6 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 
-
-  // Copy seccomp profile to work directory for container security
-  const seccompSourcePath = path.join(__dirname, '..', 'containers', 'agent', 'seccomp-profile.json');
-  const seccompDestPath = path.join(config.workDir, 'seccomp-profile.json');
-  if (fs.existsSync(seccompSourcePath)) {
-    fs.copyFileSync(seccompSourcePath, seccompDestPath);
-    logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
-  } else {
-    // If running from dist, try relative to dist
-    const altSeccompPath = path.join(__dirname, '..', '..', 'containers', 'agent', 'seccomp-profile.json');
-    if (fs.existsSync(altSeccompPath)) {
-      fs.copyFileSync(altSeccompPath, seccompDestPath);
-      logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
-    } else {
-      const message = `Seccomp profile not found at ${seccompSourcePath} or ${altSeccompPath}. Container security hardening requires the seccomp profile.`;
-      logger.error(message);
-      throw new Error(message);
-    }
-  }
 
   // Generate SSL Bump certificates if enabled
   let sslConfig: SslConfig | undefined;
