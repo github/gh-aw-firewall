@@ -14,6 +14,64 @@ import { cleanup } from '../fixtures/cleanup';
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
 
+/**
+ * Extract the last JSON object from stdout.
+ *
+ * When --build-local is used, Docker build output is mixed into stdout before
+ * the actual command output. This helper finds the last complete top-level
+ * JSON object in the output so that JSON.parse works reliably.
+ */
+function extractLastJson(stdout: string): unknown {
+  // Find the last '{' that starts a top-level JSON object
+  let depth = 0;
+  let jsonEnd = -1;
+  let jsonStart = -1;
+
+  // Scan backwards from end to find the last complete JSON object
+  for (let i = stdout.length - 1; i >= 0; i--) {
+    const ch = stdout[i];
+    if (ch === '}') {
+      if (depth === 0) jsonEnd = i;
+      depth++;
+    } else if (ch === '{') {
+      depth--;
+      if (depth === 0) {
+        jsonStart = i;
+        break;
+      }
+    }
+  }
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error(`No JSON object found in stdout (length=${stdout.length}): ${stdout.slice(-200)}`);
+  }
+
+  return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
+}
+
+/**
+ * Extract the HTTP response section from stdout when curl -i is used.
+ *
+ * Docker build output appears before the HTTP response. This finds the last
+ * HTTP response block (starting with "HTTP/") in stdout.
+ */
+function extractHttpResponse(stdout: string): string {
+  // Find the last occurrence of an HTTP status line
+  const httpPattern = /HTTP\/[\d.]+ \d+/g;
+  let lastMatch: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = httpPattern.exec(stdout)) !== null) {
+    lastMatch = match;
+  }
+
+  if (lastMatch) {
+    return stdout.slice(lastMatch.index);
+  }
+
+  // Fallback: return the whole stdout
+  return stdout;
+}
+
 describe('API Proxy Observability', () => {
   let runner: AwfRunner;
 
@@ -176,10 +234,13 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    const lower = result.stdout.toLowerCase();
+    // Extract only the HTTP response portion to avoid Docker build output pollution
+    const httpResponse = extractHttpResponse(result.stdout);
+    const lower = httpResponse.toLowerCase();
     expect(lower).toContain('x-request-id');
-    // The injected ID should NOT appear — proxy should have generated a UUID instead
-    expect(result.stdout).not.toContain('<script>');
+    // The injected ID should NOT appear in the HTTP response —
+    // proxy should have generated a UUID instead
+    expect(httpResponse).not.toContain('<script>');
   }, 180000);
 
   test('should show active_requests gauge at 0 after request completes', async () => {
@@ -207,8 +268,8 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Parse the metrics JSON and check active_requests
-    const metricsJson = JSON.parse(result.stdout);
+    // Extract JSON from stdout (Docker build output may precede it)
+    const metricsJson = extractLastJson(result.stdout) as any;
     const activeRequests = metricsJson.gauges?.active_requests || {};
     // All provider gauges should be 0 or absent
     for (const count of Object.values(activeRequests)) {
@@ -239,7 +300,8 @@ describe('API Proxy Observability', () => {
     expect(result).toSucceed();
     // Histogram should have request_duration_ms entries with count > 0
     expect(result.stdout).toContain('request_duration_ms');
-    const metricsJson = JSON.parse(result.stdout);
+    // Extract JSON from stdout (Docker build output may precede it)
+    const metricsJson = extractLastJson(result.stdout) as any;
     const durationHist = metricsJson.histograms?.request_duration_ms;
     expect(durationHist).toBeDefined();
     // At least one provider should have a count > 0

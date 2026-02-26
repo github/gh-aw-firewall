@@ -14,6 +14,58 @@ import { cleanup } from '../fixtures/cleanup';
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
 
+/**
+ * Extract the HTTP response section from stdout when curl -i is used.
+ *
+ * Docker build output (from --build-local) appears before the HTTP response.
+ * This finds the last HTTP response block (starting with "HTTP/") in stdout.
+ */
+function extractHttpResponse(stdout: string): string {
+  const httpPattern = /HTTP\/[\d.]+ \d+/g;
+  let lastMatch: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = httpPattern.exec(stdout)) !== null) {
+    lastMatch = match;
+  }
+  if (lastMatch) {
+    return stdout.slice(lastMatch.index);
+  }
+  return stdout;
+}
+
+/**
+ * Extract the last JSON object from stdout.
+ *
+ * When --build-local is used, Docker build output is mixed into stdout before
+ * the actual command output. This helper finds the last complete top-level
+ * JSON object in the output so that JSON.parse works reliably.
+ */
+function extractLastJson(stdout: string): unknown {
+  let depth = 0;
+  let jsonEnd = -1;
+  let jsonStart = -1;
+
+  for (let i = stdout.length - 1; i >= 0; i--) {
+    const ch = stdout[i];
+    if (ch === '}') {
+      if (depth === 0) jsonEnd = i;
+      depth++;
+    } else if (ch === '{') {
+      depth--;
+      if (depth === 0) {
+        jsonStart = i;
+        break;
+      }
+    }
+  }
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error(`No JSON object found in stdout (length=${stdout.length}): ${stdout.slice(-200)}`);
+  }
+
+  return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
+}
+
 describe('API Proxy Rate Limiting', () => {
   let runner: AwfRunner;
 
@@ -112,8 +164,10 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
+    // Extract only the HTTP response to avoid Docker build output pollution
+    const httpResponse = extractHttpResponse(result.stdout);
     // Response should include retry-after header (case insensitive)
-    expect(result.stdout.toLowerCase()).toContain('retry-after');
+    expect(httpResponse.toLowerCase()).toContain('retry-after');
   }, 180000);
 
   test('should include X-RateLimit headers in 429 response', async () => {
@@ -139,7 +193,9 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    const lower = result.stdout.toLowerCase();
+    // Extract only the HTTP response to avoid Docker build output pollution
+    const httpResponse = extractHttpResponse(result.stdout);
+    const lower = httpResponse.toLowerCase();
     expect(lower).toContain('x-ratelimit-limit');
     expect(lower).toContain('x-ratelimit-remaining');
     expect(lower).toContain('x-ratelimit-reset');
@@ -200,10 +256,13 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
+    // Extract the JSON health response (Docker build output may precede it)
+    const healthJson = extractLastJson(result.stdout) as any;
     // The health response should show rate_limits with the configured RPM limit
-    expect(result.stdout).toContain('"rate_limits"');
-    // The limit value of 5 should appear in the response
-    expect(result.stdout).toContain('"limit":5');
+    expect(healthJson).toHaveProperty('rate_limits');
+    // The RPM limit value of 5 should appear in the rate_limits
+    const healthStr = JSON.stringify(healthJson);
+    expect(healthStr).toContain('"limit":5');
   }, 180000);
 
   test('should show rate limit metrics in /metrics after rate limiting occurs', async () => {
@@ -233,7 +292,10 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
+    // Extract the JSON metrics response (Docker build output may precede it)
+    const metricsJson = extractLastJson(result.stdout) as any;
     // Metrics should include rate_limit_rejected_total counter
-    expect(result.stdout).toContain('rate_limit_rejected_total');
+    const metricsStr = JSON.stringify(metricsJson);
+    expect(metricsStr).toContain('rate_limit_rejected_total');
   }, 180000);
 });
