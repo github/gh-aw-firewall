@@ -372,6 +372,19 @@ export interface FlagValidationResult {
 }
 
 /**
+ * Checks if any rate limit options are set in the CLI options.
+ * Used to warn when rate limit flags are provided without --enable-api-proxy.
+ */
+export function hasRateLimitOptions(options: {
+  rateLimitRpm?: string;
+  rateLimitRph?: string;
+  rateLimitBytesPm?: string;
+  rateLimit?: boolean;
+}): boolean {
+  return !!(options.rateLimitRpm || options.rateLimitRph || options.rateLimitBytesPm || options.rateLimit === false);
+}
+
+/**
  * Validates that --skip-pull is not used with --build-local
  * @param skipPull - Whether --skip-pull flag was provided
  * @param buildLocal - Whether --build-local flag was provided

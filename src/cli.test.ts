@@ -1396,13 +1396,22 @@ describe('cli', () => {
       expect(result.debugMessages[0]).toContain('Anthropic');
     });
 
-    it('should detect both keys', () => {
-      const result = validateApiProxyConfig(true, true, true);
+    it('should detect Copilot key', () => {
+      const result = validateApiProxyConfig(true, false, false, true);
       expect(result.enabled).toBe(true);
       expect(result.warnings).toEqual([]);
-      expect(result.debugMessages).toHaveLength(2);
+      expect(result.debugMessages).toHaveLength(1);
+      expect(result.debugMessages[0]).toContain('Copilot');
+    });
+
+    it('should detect all three keys', () => {
+      const result = validateApiProxyConfig(true, true, true, true);
+      expect(result.enabled).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.debugMessages).toHaveLength(3);
       expect(result.debugMessages[0]).toContain('OpenAI');
       expect(result.debugMessages[1]).toContain('Anthropic');
+      expect(result.debugMessages[2]).toContain('Copilot');
     });
 
     it('should not warn when disabled even with keys', () => {
