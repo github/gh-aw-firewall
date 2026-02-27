@@ -10,7 +10,6 @@ const workflowPaths = [
   path.join(repoRoot, '.github/workflows/smoke-claude.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-chroot.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-gemini.lock.yml'),
   // Build test workflows
   path.join(repoRoot, '.github/workflows/build-test-node.lock.yml'),
   path.join(repoRoot, '.github/workflows/build-test-go.lock.yml'),
