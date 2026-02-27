@@ -26,6 +26,7 @@ safe-outputs:
   create-discussion:
     title-prefix: "[Security Review] "
     category: "general"
+    expires: 2d
 timeout-minutes: 45
 ---
 

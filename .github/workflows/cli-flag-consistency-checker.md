@@ -15,6 +15,7 @@ safe-outputs:
   create-discussion:
     title-prefix: "[CLI Flag Review] "
     category: "general"
+    expires: 2d
 timeout-minutes: 15
 ---
 

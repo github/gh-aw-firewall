@@ -62,6 +62,7 @@ network:
 safe-outputs:
   create-issue:
     title-prefix: "🏥 CI Failure"
+    expires: 3d
   add-comment:
     max: 1
 
