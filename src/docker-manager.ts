@@ -230,7 +230,8 @@ export interface SslConfig {
 export function generateDockerCompose(
   config: WrapperConfig,
   networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string },
-  sslConfig?: SslConfig
+  sslConfig?: SslConfig,
+  squidConfigContent?: string
 ): DockerComposeConfig {
   const projectRoot = path.join(__dirname, '..');
 
@@ -249,8 +250,12 @@ export function generateDockerCompose(
     : path.join(config.workDir, 'api-proxy-logs');
 
   // Build Squid volumes list
+  // Note: squid.conf is NOT bind-mounted. Instead, it's passed as a base64-encoded
+  // environment variable (AWF_SQUID_CONFIG_B64) and decoded by the entrypoint override.
+  // This supports Docker-in-Docker (DinD) environments where the Docker daemon runs
+  // in a separate container and cannot access files on the host filesystem.
+  // See: https://github.com/github/gh-aw/issues/18385
   const squidVolumes = [
-    `${config.workDir}/squid.conf:/etc/squid/squid.conf:ro`,
     `${squidLogsPath}:/var/log/squid:rw`,
   ];
 
@@ -291,6 +296,29 @@ export function generateDockerCompose(
       'SETFCAP',      // No setting file capabilities
     ],
   };
+
+  // Inject squid.conf via environment variable instead of bind mount.
+  // In Docker-in-Docker (DinD) environments, the Docker daemon runs in a separate
+  // container and cannot access files on the host filesystem. Bind-mounting
+  // squid.conf fails because the daemon creates a directory at the missing path.
+  // Passing the config as a base64-encoded env var works universally because
+  // env vars are part of the container spec sent via the Docker API.
+  if (squidConfigContent) {
+    const configB64 = Buffer.from(squidConfigContent).toString('base64');
+    squidService.environment = {
+      ...squidService.environment,
+      AWF_SQUID_CONFIG_B64: configB64,
+    };
+    // Override entrypoint to decode the config before starting squid.
+    // The original entrypoint (/usr/local/bin/entrypoint.sh) is called after decoding.
+    // Use $$ to escape $ for Docker Compose variable interpolation.
+    // Docker Compose interprets $VAR as variable substitution in YAML values;
+    // $$ produces a literal $ that the shell inside the container will expand.
+    squidService.entrypoint = [
+      '/bin/bash', '-c',
+      'echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && exec /usr/local/bin/entrypoint.sh',
+    ];
+  }
 
   // Only enable host.docker.internal when explicitly requested via --enable-host-access
   // This allows containers to reach services on the host machine (e.g., MCP gateways)
@@ -1260,9 +1288,11 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Write Docker Compose config
   // Uses mode 0o600 (owner-only read/write) because this file contains sensitive
   // environment variables (tokens, API keys) in plaintext
-  const dockerCompose = generateDockerCompose(config, networkConfig, sslConfig);
+  const dockerCompose = generateDockerCompose(config, networkConfig, sslConfig, squidConfig);
   const dockerComposePath = path.join(config.workDir, 'docker-compose.yml');
-  fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose), { mode: 0o600 });
+  // lineWidth: -1 disables line wrapping to prevent base64-encoded values
+  // (like AWF_SQUID_CONFIG_B64) from being split across multiple lines
+  fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose, { lineWidth: -1 }), { mode: 0o600 });
   logger.debug(`Docker Compose config written to: ${dockerComposePath}`);
 }
 
