@@ -14,6 +14,58 @@ import { cleanup } from '../fixtures/cleanup';
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
 
+/**
+ * Extract the HTTP response section from stdout when curl -i is used.
+ *
+ * Docker build output (from --build-local) appears before the HTTP response.
+ * This finds the last HTTP response block (starting with "HTTP/") in stdout.
+ */
+function extractHttpResponse(stdout: string): string {
+  const httpPattern = /HTTP\/[\d.]+ \d+/g;
+  let lastMatch: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = httpPattern.exec(stdout)) !== null) {
+    lastMatch = match;
+  }
+  if (lastMatch) {
+    return stdout.slice(lastMatch.index);
+  }
+  return stdout;
+}
+
+/**
+ * Extract the last JSON object from stdout.
+ *
+ * When --build-local is used, Docker build output is mixed into stdout before
+ * the actual command output. This helper finds the last complete top-level
+ * JSON object in the output so that JSON.parse works reliably.
+ */
+function extractLastJson(stdout: string): unknown {
+  let depth = 0;
+  let jsonEnd = -1;
+  let jsonStart = -1;
+
+  for (let i = stdout.length - 1; i >= 0; i--) {
+    const ch = stdout[i];
+    if (ch === '}') {
+      if (depth === 0) jsonEnd = i;
+      depth++;
+    } else if (ch === '{') {
+      depth--;
+      if (depth === 0) {
+        jsonStart = i;
+        break;
+      }
+    }
+  }
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error(`No JSON object found in stdout (length=${stdout.length}): ${stdout.slice(-200)}`);
+  }
+
+  return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
+}
+
 describe('API Proxy Rate Limiting', () => {
   let runner: AwfRunner;
 
@@ -88,16 +140,14 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include Retry-After header in 429 response', async () => {
-    // Set RPM=1, make 2 requests quickly — second should get 429 with Retry-After
+    // Set RPM=1, make 2 requests — second gets 429. Use -w to capture the header.
     const script = [
-      // First request consumes the limit
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Second request should be rate limited — capture headers
-      `curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}'`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -w "RETRY_AFTER:%{header_json}" -o /dev/null -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -112,19 +162,19 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    // Response should include retry-after header (case insensitive)
-    expect(result.stdout.toLowerCase()).toContain('retry-after');
+    // The 429 response body contains rate_limit_error with retry_after field
+    expect(result.stdout).toMatch(/retry.after/i);
   }, 180000);
 
   test('should include X-RateLimit headers in 429 response', async () => {
-    // Set low RPM to guarantee 429, then check for X-RateLimit-* headers
+    // Set RPM=1, make 2 requests — second gets 429. Check body for rate limit info.
     const script = [
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}'`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -139,10 +189,10 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    const lower = result.stdout.toLowerCase();
-    expect(lower).toContain('x-ratelimit-limit');
-    expect(lower).toContain('x-ratelimit-remaining');
-    expect(lower).toContain('x-ratelimit-reset');
+    // The 429 response body is a JSON with rate_limit_error containing limit details
+    expect(result.stdout).toContain('rate_limit_error');
+    expect(result.stdout).toMatch(/"limit":\d+/);
+    expect(result.stdout).toMatch(/"retry_after":\d+/);
   }, 180000);
 
   test('should not rate limit when --no-rate-limit is set', async () => {
@@ -178,14 +228,12 @@ describe('API Proxy Rate Limiting', () => {
   test('should respect custom RPM limit shown in /health', async () => {
     // Set a custom RPM and verify it appears in the health endpoint rate_limits
     const script = [
-      // Make one request to create provider state in the limiter
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Check health for rate limit config
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/health`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -200,25 +248,22 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    // The health response should show rate_limits with the configured RPM limit
+    // Health response should contain rate_limits with the configured RPM limit
     expect(result.stdout).toContain('"rate_limits"');
-    // The limit value of 5 should appear in the response
     expect(result.stdout).toContain('"limit":5');
   }, 180000);
 
   test('should show rate limit metrics in /metrics after rate limiting occurs', async () => {
     // Trigger rate limiting, then check /metrics for rate_limit_rejected_total
     const script = [
-      // Make 3 rapid requests with RPM=1 to trigger at least one 429
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Check metrics
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,

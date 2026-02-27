@@ -1790,7 +1790,7 @@ describe('docker-manager', () => {
           ...mockConfig,
           enableApiProxy: true,
           openaiApiKey: 'sk-test-key',
-          rateLimitConfig: { enabled: true, rpm: 30, rph: 500, bytesPm: 10485760 },
+          rateLimitConfig: { enabled: true, rpm: 30, rph: 500, bytesPm: 10485760, tpm: 0 },
         };
         const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
@@ -1806,7 +1806,7 @@ describe('docker-manager', () => {
           ...mockConfig,
           enableApiProxy: true,
           openaiApiKey: 'sk-test-key',
-          rateLimitConfig: { enabled: false, rpm: 60, rph: 1000, bytesPm: 52428800 },
+          rateLimitConfig: { enabled: false, rpm: 60, rph: 1000, bytesPm: 52428800, tpm: 0 },
         };
         const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
