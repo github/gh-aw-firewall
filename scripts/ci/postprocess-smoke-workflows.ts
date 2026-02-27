@@ -24,14 +24,12 @@ const workflowPaths = [
   // a container image built from the current source)
   path.join(repoRoot, '.github/workflows/security-guard.lock.yml'),
   path.join(repoRoot, '.github/workflows/security-review.lock.yml'),
-  path.join(repoRoot, '.github/workflows/ci-cd-gaps-assessment.lock.yml'),
   path.join(repoRoot, '.github/workflows/ci-doctor.lock.yml'),
   path.join(repoRoot, '.github/workflows/cli-flag-consistency-checker.lock.yml'),
   path.join(repoRoot, '.github/workflows/dependency-security-monitor.lock.yml'),
   path.join(repoRoot, '.github/workflows/doc-maintainer.lock.yml'),
   path.join(repoRoot, '.github/workflows/issue-duplication-detector.lock.yml'),
   path.join(repoRoot, '.github/workflows/issue-monster.lock.yml'),
-  path.join(repoRoot, '.github/workflows/pelis-agent-factory-advisor.lock.yml'),
   path.join(repoRoot, '.github/workflows/plan.lock.yml'),
   path.join(repoRoot, '.github/workflows/test-coverage-improver.lock.yml'),
   path.join(repoRoot, '.github/workflows/update-release-notes.lock.yml'),
@@ -94,6 +92,14 @@ const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
 // instead of pre-built GHCR images that may be stale.
 const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
+// Add --skip-cleanup after sudo -E awf to skip container shutdown in CI
+// (saves ~10 seconds per run since containers are cleaned up when runner terminates)
+// Match patterns:
+// - sudo -E awf --<flag> ... (with any flags after awf except --skip-cleanup which may already exist)
+// - sudo -E awf "$command" (when command is directly after awf)
+// Strategy: Insert --skip-cleanup right after "awf " if not already present
+const awfCleanupRegex = /sudo -E awf (?!.*--skip-cleanup)/g;
+
 for (const workflowPath of workflowPaths) {
   let content = fs.readFileSync(workflowPath, 'utf-8');
   let modified = false;
@@ -137,6 +143,14 @@ for (const workflowPath of workflowPaths) {
     content = content.replace(imageTagRegex, '--build-local');
     modified = true;
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+  }
+
+  // Add --skip-cleanup to all awf invocations (saves ~10s per run in CI)
+  const awfCleanupMatches = content.match(awfCleanupRegex);
+  if (awfCleanupMatches) {
+    content = content.replace(awfCleanupRegex, 'sudo -E awf --skip-cleanup ');
+    modified = true;
+    console.log(`  Added --skip-cleanup to ${awfCleanupMatches.length} awf invocation(s)`);
   }
 
   if (modified) {
