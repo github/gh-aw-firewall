@@ -1467,6 +1467,24 @@ describe('cli', () => {
       const r = buildRateLimitConfig({ rateLimitRpm: '10', rateLimitRph: '100', rateLimitBytesPm: '5000000' });
       if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 10, rph: 100, bytesPm: 5000000, tpm: 0 }); }
     });
+    it('should enable rate limiting with only TPM flag', () => {
+      const r = buildRateLimitConfig({ rateLimitTpm: '50000' });
+      expect('config' in r).toBe(true);
+      if ('config' in r) { expect(r.config.enabled).toBe(true); expect(r.config.tpm).toBe(50000); }
+    });
+    it('should error on negative TPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitTpm: '-1' })).toBe(true);
+    });
+    it('should error on zero TPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitTpm: '0' })).toBe(true);
+    });
+    it('should error on non-integer TPM', () => {
+      expect('error' in buildRateLimitConfig({ rateLimitTpm: 'abc' })).toBe(true);
+    });
+    it('should accept TPM with RPM together', () => {
+      const r = buildRateLimitConfig({ rateLimitRpm: '100', rateLimitTpm: '10000' });
+      if ('config' in r) { expect(r.config).toEqual({ enabled: true, rpm: 100, rph: 10000, bytesPm: 52428800, tpm: 10000 }); }
+    });
   });
 
   describe('validateRateLimitFlags', () => {
@@ -1489,6 +1507,9 @@ describe('cli', () => {
     });
     it('should fail when --no-rate-limit used without api proxy', () => {
       expect(validateRateLimitFlags(false, { rateLimit: false }).valid).toBe(false);
+    });
+    it('should fail when --rate-limit-tpm used without api proxy', () => {
+      expect(validateRateLimitFlags(false, { rateLimitTpm: '10000' }).valid).toBe(false);
     });
     it('should pass when all flags used with api proxy enabled', () => {
       const r = validateRateLimitFlags(true, { rateLimitRpm: '10', rateLimitRph: '100', rateLimit: false });
