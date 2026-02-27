@@ -697,6 +697,11 @@ program
     false
   )
   .option(
+    '--skip-cleanup',
+    'Skip all cleanup (containers, iptables, work dir) - useful in CI where runner terminates anyway',
+    false
+  )
+  .option(
     '--tty',
     'Allocate a pseudo-TTY for the container (required for interactive tools like Claude Code)',
     false
@@ -1062,6 +1067,7 @@ program
       agentCommand,
       logLevel,
       keepContainers: options.keepContainers,
+      skipCleanup: options.skipCleanup,
       tty: options.tty || false,
       workDir: options.workDir,
       buildLocal: options.buildLocal,
@@ -1178,6 +1184,12 @@ program
     const performCleanup = async (signal?: string) => {
       if (signal) {
         logger.info(`Received ${signal}, cleaning up...`);
+      }
+
+      // Skip all cleanup if requested (useful in CI where runner terminates anyway)
+      if (config.skipCleanup) {
+        logger.info('Skipping cleanup (--skip-cleanup enabled)');
+        return;
       }
 
       if (containersStarted) {
