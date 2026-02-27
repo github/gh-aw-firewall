@@ -31,11 +31,12 @@ safe-outputs:
     title-prefix: "[Security] "
     labels: [security, dependencies]
     max: 10
-    expires: 30
+    expires: 3d
   create-pull-request:
     title-prefix: "[Deps] "
     labels: [dependencies, automated]
     draft: true
+    expires: 7d
   add-comment:
     max: 5
     target: "*"
