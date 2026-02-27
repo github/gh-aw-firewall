@@ -395,6 +395,13 @@ function handleManagementEndpoint(req, res) {
   return false;
 }
 
+// Export for testing
+module.exports = {
+  deriveCopilotApiTarget,
+};
+
+// Only start servers if this file is run directly (not required for tests)
+if (require.main === module) {
 // Health port is always 10000 — this is what Docker healthcheck hits
 const HEALTH_PORT = 10000;
 
@@ -514,3 +521,5 @@ process.on('SIGINT', () => {
   logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
   process.exit(0);
 });
+
+} // End of if (require.main === module)
