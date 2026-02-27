@@ -986,8 +986,9 @@ describe('docker-manager', () => {
         'MKNOD',
       ]);
 
-      // Verify seccomp profile is configured
-      expect(agent.security_opt).toContain('seccomp=/tmp/awf-test/seccomp-profile.json');
+      // Verify Docker's built-in default seccomp profile is used (allowlist-based, SCMP_ACT_ERRNO default)
+      // No custom seccomp profile - Docker applies its default which blocks ~44 dangerous syscall families
+      expect(agent.security_opt).not.toContainEqual(expect.stringContaining('seccomp='));
 
       // Verify no-new-privileges is enabled to prevent privilege escalation
       expect(agent.security_opt).toContain('no-new-privileges:true');
@@ -1851,11 +1852,11 @@ describe('docker-manager', () => {
         workDir: newWorkDir,
       };
 
-      // writeConfigs may succeed if seccomp profile is found, or fail if not
+      // writeConfigs may succeed or fail depending on SSL/other config
       try {
         await writeConfigs(config);
       } catch {
-        // Expected to fail if seccomp profile not found, but directories should still be created
+        // Expected to fail in test environment, but directories should still be created
       }
 
       // Verify work directory was created
@@ -1938,7 +1939,7 @@ describe('docker-manager', () => {
         // May fail after writing configs
       }
 
-      // Verify squid.conf was created (it's created before seccomp check)
+      // Verify squid.conf was created
       const squidConfPath = path.join(testDir, 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const content = fs.readFileSync(squidConfPath, 'utf-8');
@@ -1984,7 +1985,7 @@ describe('docker-manager', () => {
       try {
         await writeConfigs(config);
       } catch {
-        // May fail if seccomp profile not found
+        // May fail in test environment
       }
 
       // Verify directory was created with restricted permissions
