@@ -1458,6 +1458,55 @@ describe('docker-manager', () => {
         // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
         expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
       });
+
+      it('should add tmpfs mounts for ghAwSetupDir when specified', () => {
+        const configWithSetupDir = {
+          ...mockConfig,
+          ghAwSetupDir: '/home/runner/setup-gh-aw',
+        };
+        const result = generateDockerCompose(configWithSetupDir, mockNetworkConfig);
+        const agent = result.services.agent;
+        const tmpfs = agent.tmpfs as string[];
+
+        // Should have 7 mounts (5 base + 2 for ghAwSetupDir)
+        expect(tmpfs).toHaveLength(7);
+        // Check ghAwSetupDir mounts exist
+        expect(tmpfs.some((t: string) => t.startsWith('/home/runner/setup-gh-aw:'))).toBe(true);
+        expect(tmpfs.some((t: string) => t.startsWith('/host/home/runner/setup-gh-aw:'))).toBe(true);
+      });
+
+      it('should add healthcheck to verify all tmpfs mounts are empty', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+
+        // Agent should always have healthcheck
+        expect(agent.healthcheck).toBeDefined();
+        expect(agent.healthcheck?.test).toBeDefined();
+        expect(agent.healthcheck?.test[0]).toBe('CMD-SHELL');
+        // Check that the healthcheck verifies base paths (mcp-logs and workDir) are empty
+        expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain('/host/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);
+        expect(agent.healthcheck?.test[1]).toContain(`/host${mockConfig.workDir}`);
+        expect(agent.healthcheck?.test[1]).toContain('ls -A');
+      });
+
+      it('should include ghAwSetupDir paths in healthcheck when specified', () => {
+        const configWithSetupDir = {
+          ...mockConfig,
+          ghAwSetupDir: '/home/runner/setup-gh-aw',
+        };
+        const result = generateDockerCompose(configWithSetupDir, mockNetworkConfig);
+        const agent = result.services.agent;
+
+        // Agent should have healthcheck with all paths
+        expect(agent.healthcheck).toBeDefined();
+        expect(agent.healthcheck?.test[1]).toContain('/home/runner/setup-gh-aw');
+        expect(agent.healthcheck?.test[1]).toContain('/host/home/runner/setup-gh-aw');
+        // Should also contain base paths
+        expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);
+      });
     });
 
     describe('API proxy sidecar', () => {

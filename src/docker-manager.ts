@@ -813,6 +813,47 @@ export function generateDockerCompose(
 
   logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
 
+  // Create tmpfs mounts array
+  // SECURITY: Hide sensitive directories from agent using tmpfs overlays (empty in-memory filesystems)
+  //
+  // 1. MCP logs: tmpfs over /tmp/gh-aw/mcp-logs prevents the agent from reading
+  //    MCP server logs inside the container. The host can still write to its own
+  //    /tmp/gh-aw/mcp-logs directory since tmpfs only affects the container's view.
+  //
+  // 2. WorkDir: tmpfs over workDir (e.g., /tmp/awf-<timestamp>) prevents the agent
+  //    from reading docker-compose.yml which contains environment variables (tokens,
+  //    API keys) in plaintext. Without this overlay, code inside the container could
+  //    extract secrets via: cat /tmp/awf-*/docker-compose.yml
+  //    Note: volume mounts of workDir subdirectories (agent-logs, squid-logs, etc.)
+  //    are mapped to different container paths (e.g., ~/.copilot/logs, /var/log/squid)
+  //    so they are unaffected by the tmpfs overlay on workDir.
+  //
+  // Hide both normal and /host-prefixed paths since /tmp is mounted at both
+  // /tmp and /host/tmp in chroot mode (which is always on)
+  //
+  // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
+  // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
+  // (used by python/black's blackd server and other tools) require a writable /dev/shm.
+  // A tmpfs overlay at /host/dev/shm provides a writable, isolated in-memory filesystem.
+  // Security: Docker containers use their own IPC namespace (no --ipc=host), so shared
+  // memory is fully isolated from the host and other containers. Size is capped at 64MB
+  // (Docker's default). noexec and nosuid flags restrict abuse vectors.
+  const tmpfsMounts = [
+    '/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
+    '/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
+    `${config.workDir}:rw,noexec,nosuid,size=1m`,
+    `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
+    '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
+  ];
+
+  // Add tmpfs mount for GH_AW_SETUP_DIR if specified
+  // This hides the setup directory from the agent container even though parent dirs are mounted
+  if (config.ghAwSetupDir) {
+    logger.debug(`Adding tmpfs mount to hide ${config.ghAwSetupDir} from agent container`);
+    tmpfsMounts.push(`${config.ghAwSetupDir}:rw,noexec,nosuid,size=1m`);
+    tmpfsMounts.push(`/host${config.ghAwSetupDir}:rw,noexec,nosuid,size=1m`);
+  }
+
   // Agent service configuration
   const agentService: any = {
     container_name: 'awf-agent',
@@ -825,37 +866,7 @@ export function generateDockerCompose(
     dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
     volumes: agentVolumes,
     environment,
-    // SECURITY: Hide sensitive directories from agent using tmpfs overlays (empty in-memory filesystems)
-    //
-    // 1. MCP logs: tmpfs over /tmp/gh-aw/mcp-logs prevents the agent from reading
-    //    MCP server logs inside the container. The host can still write to its own
-    //    /tmp/gh-aw/mcp-logs directory since tmpfs only affects the container's view.
-    //
-    // 2. WorkDir: tmpfs over workDir (e.g., /tmp/awf-<timestamp>) prevents the agent
-    //    from reading docker-compose.yml which contains environment variables (tokens,
-    //    API keys) in plaintext. Without this overlay, code inside the container could
-    //    extract secrets via: cat /tmp/awf-*/docker-compose.yml
-    //    Note: volume mounts of workDir subdirectories (agent-logs, squid-logs, etc.)
-    //    are mapped to different container paths (e.g., ~/.copilot/logs, /var/log/squid)
-    //    so they are unaffected by the tmpfs overlay on workDir.
-    //
-    // Hide both normal and /host-prefixed paths since /tmp is mounted at both
-    // /tmp and /host/tmp in chroot mode (which is always on)
-    //
-    // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
-    // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
-    // (used by python/black's blackd server and other tools) require a writable /dev/shm.
-    // A tmpfs overlay at /host/dev/shm provides a writable, isolated in-memory filesystem.
-    // Security: Docker containers use their own IPC namespace (no --ipc=host), so shared
-    // memory is fully isolated from the host and other containers. Size is capped at 64MB
-    // (Docker's default). noexec and nosuid flags restrict abuse vectors.
-    tmpfs: [
-      '/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
-      '/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
-      `${config.workDir}:rw,noexec,nosuid,size=1m`,
-      `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
-      '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
-    ],
+    tmpfs: tmpfsMounts,
     depends_on: {
       'squid-proxy': {
         condition: 'service_healthy',
@@ -895,6 +906,40 @@ export function generateDockerCompose(
     // Escape $ with $$ for Docker Compose variable interpolation
     command: ['/bin/bash', '-c', config.agentCommand.replace(/\$/g, '$$$$')],
   };
+
+  // Add healthcheck to verify all tmpfs mounts that should be empty are working correctly
+  // This validates the tmpfs overlays are functioning properly as a security measure
+  const pathsToCheck: string[] = [
+    '/tmp/gh-aw/mcp-logs',
+    '/host/tmp/gh-aw/mcp-logs',
+    config.workDir,
+    `/host${config.workDir}`,
+  ];
+
+  // Add GH_AW_SETUP_DIR paths if configured
+  if (config.ghAwSetupDir) {
+    pathsToCheck.push(config.ghAwSetupDir);
+    pathsToCheck.push(`/host${config.ghAwSetupDir}`);
+  }
+
+  // Build healthcheck command to verify all paths are empty
+  // Each path check: [ -z "$(ls -A path 2>/dev/null)" ]
+  // Join with && to ensure all paths are empty
+  const healthCheckConditions = pathsToCheck
+    .map(path => `[ -z "$$(ls -A ${path} 2>/dev/null)" ]`)
+    .join(' && ');
+
+  agentService.healthcheck = {
+    test: [
+      'CMD-SHELL',
+      `${healthCheckConditions} || exit 1`,
+    ],
+    interval: '5s',
+    timeout: '3s',
+    retries: 3,
+    start_period: '5s',
+  };
+  logger.debug(`Added healthcheck to verify ${pathsToCheck.length} tmpfs mount(s) are empty`);
 
   // Set working directory if specified (overrides Dockerfile WORKDIR)
   if (config.containerWorkDir) {
