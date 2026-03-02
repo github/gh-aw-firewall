@@ -936,7 +936,7 @@ export function generateDockerCompose(
     ],
     interval: '5s',
     timeout: '3s',
-    retries: 3,
+    retries: 0, // Only check once during startup (start_period)
     start_period: '5s',
   };
   logger.debug(`Added healthcheck to verify ${pathsToCheck.length} tmpfs mount(s) are empty`);
