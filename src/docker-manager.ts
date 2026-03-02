@@ -907,6 +907,25 @@ export function generateDockerCompose(
     command: ['/bin/bash', '-c', config.agentCommand.replace(/\$/g, '$$$$')],
   };
 
+  // Add healthcheck to verify GH_AW_SETUP_DIR is empty (tmpfs mount is working)
+  if (config.ghAwSetupDir) {
+    const setupDir = config.ghAwSetupDir;
+    agentService.healthcheck = {
+      test: [
+        'CMD-SHELL',
+        // Check both regular and /host paths are empty
+        // Use [ -z "$(ls -A path 2>/dev/null)" ] to check if directory is empty
+        // The tmpfs mount should make it appear empty even if files exist on host
+        `[ -z "$$(ls -A ${setupDir} 2>/dev/null)" ] && [ -z "$$(ls -A /host${setupDir} 2>/dev/null)" ] || exit 1`,
+      ],
+      interval: '5s',
+      timeout: '3s',
+      retries: 3,
+      start_period: '5s',
+    };
+    logger.debug(`Added healthcheck to verify ${setupDir} is empty (tmpfs mount working)`);
+  }
+
   // Set working directory if specified (overrides Dockerfile WORKDIR)
   if (config.containerWorkDir) {
     agentService.working_dir = config.containerWorkDir;
