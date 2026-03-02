@@ -907,24 +907,39 @@ export function generateDockerCompose(
     command: ['/bin/bash', '-c', config.agentCommand.replace(/\$/g, '$$$$')],
   };
 
-  // Add healthcheck to verify GH_AW_SETUP_DIR is empty (tmpfs mount is working)
+  // Add healthcheck to verify all tmpfs mounts that should be empty are working correctly
+  // This validates the tmpfs overlays are functioning properly as a security measure
+  const pathsToCheck: string[] = [
+    '/tmp/gh-aw/mcp-logs',
+    '/host/tmp/gh-aw/mcp-logs',
+    config.workDir,
+    `/host${config.workDir}`,
+  ];
+
+  // Add GH_AW_SETUP_DIR paths if configured
   if (config.ghAwSetupDir) {
-    const setupDir = config.ghAwSetupDir;
-    agentService.healthcheck = {
-      test: [
-        'CMD-SHELL',
-        // Check both regular and /host paths are empty
-        // Use [ -z "$(ls -A path 2>/dev/null)" ] to check if directory is empty
-        // The tmpfs mount should make it appear empty even if files exist on host
-        `[ -z "$$(ls -A ${setupDir} 2>/dev/null)" ] && [ -z "$$(ls -A /host${setupDir} 2>/dev/null)" ] || exit 1`,
-      ],
-      interval: '5s',
-      timeout: '3s',
-      retries: 3,
-      start_period: '5s',
-    };
-    logger.debug(`Added healthcheck to verify ${setupDir} is empty (tmpfs mount working)`);
+    pathsToCheck.push(config.ghAwSetupDir);
+    pathsToCheck.push(`/host${config.ghAwSetupDir}`);
   }
+
+  // Build healthcheck command to verify all paths are empty
+  // Each path check: [ -z "$(ls -A path 2>/dev/null)" ]
+  // Join with && to ensure all paths are empty
+  const healthCheckConditions = pathsToCheck
+    .map(path => `[ -z "$$(ls -A ${path} 2>/dev/null)" ]`)
+    .join(' && ');
+
+  agentService.healthcheck = {
+    test: [
+      'CMD-SHELL',
+      `${healthCheckConditions} || exit 1`,
+    ],
+    interval: '5s',
+    timeout: '3s',
+    retries: 3,
+    start_period: '5s',
+  };
+  logger.debug(`Added healthcheck to verify ${pathsToCheck.length} tmpfs mount(s) are empty`);
 
   // Set working directory if specified (overrides Dockerfile WORKDIR)
   if (config.containerWorkDir) {

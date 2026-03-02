@@ -1475,7 +1475,23 @@ describe('docker-manager', () => {
         expect(tmpfs.some((t: string) => t.startsWith('/host/home/runner/setup-gh-aw:'))).toBe(true);
       });
 
-      it('should add healthcheck to verify ghAwSetupDir is empty', () => {
+      it('should add healthcheck to verify all tmpfs mounts are empty', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+
+        // Agent should always have healthcheck
+        expect(agent.healthcheck).toBeDefined();
+        expect(agent.healthcheck?.test).toBeDefined();
+        expect(agent.healthcheck?.test[0]).toBe('CMD-SHELL');
+        // Check that the healthcheck verifies base paths (mcp-logs and workDir) are empty
+        expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain('/host/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);
+        expect(agent.healthcheck?.test[1]).toContain(`/host${mockConfig.workDir}`);
+        expect(agent.healthcheck?.test[1]).toContain('ls -A');
+      });
+
+      it('should include ghAwSetupDir paths in healthcheck when specified', () => {
         const configWithSetupDir = {
           ...mockConfig,
           ghAwSetupDir: '/home/runner/setup-gh-aw',
@@ -1483,22 +1499,13 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithSetupDir, mockNetworkConfig);
         const agent = result.services.agent;
 
-        // Agent should have healthcheck
+        // Agent should have healthcheck with all paths
         expect(agent.healthcheck).toBeDefined();
-        expect(agent.healthcheck?.test).toBeDefined();
-        expect(agent.healthcheck?.test[0]).toBe('CMD-SHELL');
-        // Check that the healthcheck verifies both paths are empty
         expect(agent.healthcheck?.test[1]).toContain('/home/runner/setup-gh-aw');
         expect(agent.healthcheck?.test[1]).toContain('/host/home/runner/setup-gh-aw');
-        expect(agent.healthcheck?.test[1]).toContain('ls -A');
-      });
-
-      it('should not add healthcheck when ghAwSetupDir is not specified', () => {
-        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-        const agent = result.services.agent;
-
-        // Agent should not have healthcheck
-        expect(agent.healthcheck).toBeUndefined();
+        // Should also contain base paths
+        expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);
       });
     });
 
