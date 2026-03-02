@@ -310,116 +310,115 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   }
 
   // Add IPv6 DNS server rules using ip6tables
-  if (ipv6DnsServers.length > 0) {
-    // Check if ip6tables is available before setting up IPv6 rules
-    const ip6tablesAvailable = await isIp6tablesAvailable();
-    if (!ip6tablesAvailable) {
-      logger.warn('ip6tables is not available, IPv6 DNS servers will not be configured at the host level');
-      logger.warn('  IPv6 traffic may not be properly filtered');
-    } else {
-      // Set up IPv6 chain if we have IPv6 DNS servers
-      await setupIpv6Chain(bridgeName);
+  // SECURITY: Always set up IPv6 chain when ip6tables is available, regardless of DNS config.
+  // This prevents IPv6 from becoming an unfiltered bypass path in dual-stack environments.
+  const ip6tablesAvailable = await isIp6tablesAvailable();
+  if (!ip6tablesAvailable) {
+    logger.warn('ip6tables is not available, IPv6 traffic will not be filtered at the host level');
+    logger.warn('  IPv6 traffic may bypass firewall rules in dual-stack Docker environments');
+  } else {
+    // Set up IPv6 chain unconditionally to enforce default-deny policy
+    await setupIpv6Chain(bridgeName);
 
-      // IPv6 chain needs to mirror IPv4 chain's comprehensive filtering
-      // This prevents IPv6 from becoming an unfiltered bypass path
+    // IPv6 chain needs to mirror IPv4 chain's comprehensive filtering
+    // This prevents IPv6 from becoming an unfiltered bypass path
 
-      // Note: Squid proxy rule is omitted for IPv6 since Squid runs on IPv4 only
+    // Note: Squid proxy rule is omitted for IPv6 since Squid runs on IPv4 only
 
-      // 1. Allow established and related connections (return traffic)
+    // 1. Allow established and related connections (return traffic)
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED',
+      '-j', 'ACCEPT',
+    ]);
+
+    // 2. Allow localhost/loopback traffic
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-o', 'lo',
+      '-j', 'ACCEPT',
+    ]);
+
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-d', '::1/128',
+      '-j', 'ACCEPT',
+    ]);
+
+    // 3. Allow essential ICMPv6 (required for IPv6 functionality)
+    // This includes: destination unreachable, packet too big, time exceeded,
+    // echo request/reply, and Neighbor Discovery Protocol (NDP)
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-p', 'ipv6-icmp',
+      '-j', 'ACCEPT',
+    ]);
+
+    // 4. Allow DNS ONLY to specified trusted IPv6 DNS servers
+    for (const dnsServer of ipv6DnsServers) {
+      // Log DNS queries first (LOG doesn't terminate processing)
       await execa('ip6tables', [
         '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED',
+        '-p', 'udp', '-d', dnsServer, '--dport', '53',
+        '-j', 'LOG', '--log-prefix', '[FW_DNS_QUERY] ', '--log-level', '4',
+      ]);
+
+      await execa('ip6tables', [
+        '-t', 'filter', '-A', CHAIN_NAME_V6,
+        '-p', 'udp', '-d', dnsServer, '--dport', '53',
         '-j', 'ACCEPT',
       ]);
 
-      // 2. Allow localhost/loopback traffic
       await execa('ip6tables', [
         '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-o', 'lo',
+        '-p', 'tcp', '-d', dnsServer, '--dport', '53',
+        '-j', 'LOG', '--log-prefix', '[FW_DNS_QUERY] ', '--log-level', '4',
+      ]);
+
+      await execa('ip6tables', [
+        '-t', 'filter', '-A', CHAIN_NAME_V6,
+        '-p', 'tcp', '-d', dnsServer, '--dport', '53',
         '-j', 'ACCEPT',
-      ]);
-
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-d', '::1/128',
-        '-j', 'ACCEPT',
-      ]);
-
-      // 3. Allow essential ICMPv6 (required for IPv6 functionality)
-      // This includes: destination unreachable, packet too big, time exceeded,
-      // echo request/reply, and Neighbor Discovery Protocol (NDP)
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-p', 'ipv6-icmp',
-        '-j', 'ACCEPT',
-      ]);
-
-      // 4. Allow DNS ONLY to specified trusted IPv6 DNS servers
-      for (const dnsServer of ipv6DnsServers) {
-        // Log DNS queries first (LOG doesn't terminate processing)
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'udp', '-d', dnsServer, '--dport', '53',
-          '-j', 'LOG', '--log-prefix', '[FW_DNS_QUERY] ', '--log-level', '4',
-        ]);
-
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'udp', '-d', dnsServer, '--dport', '53',
-          '-j', 'ACCEPT',
-        ]);
-
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'tcp', '-d', dnsServer, '--dport', '53',
-          '-j', 'LOG', '--log-prefix', '[FW_DNS_QUERY] ', '--log-level', '4',
-        ]);
-
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'tcp', '-d', dnsServer, '--dport', '53',
-          '-j', 'ACCEPT',
-        ]);
-      }
-
-      // 5. Block IPv6 multicast and link-local traffic
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-d', 'ff00::/8',  // IPv6 multicast range
-        '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
-      ]);
-
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-d', 'fe80::/10',  // IPv6 link-local range
-        '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
-      ]);
-
-      // 6. Block all other IPv6 UDP traffic (DNS to whitelisted servers already allowed above)
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-p', 'udp',
-        '-j', 'LOG', '--log-prefix', '[FW_BLOCKED_UDP6] ', '--log-level', '4',
-      ]);
-
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-p', 'udp',
-        '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
-      ]);
-
-      // 7. Default deny all other IPv6 traffic (including TCP)
-      // This prevents IPv6 from being an unfiltered bypass path
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-j', 'LOG', '--log-prefix', '[FW_BLOCKED_OTHER6] ', '--log-level', '4',
-      ]);
-
-      await execa('ip6tables', [
-        '-t', 'filter', '-A', CHAIN_NAME_V6,
-        '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
       ]);
     }
+
+    // 5. Block IPv6 multicast and link-local traffic
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-d', 'ff00::/8',  // IPv6 multicast range
+      '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
+    ]);
+
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-d', 'fe80::/10',  // IPv6 link-local range
+      '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
+    ]);
+
+    // 6. Block all other IPv6 UDP traffic (DNS to whitelisted servers already allowed above)
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-p', 'udp',
+      '-j', 'LOG', '--log-prefix', '[FW_BLOCKED_UDP6] ', '--log-level', '4',
+    ]);
+
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-p', 'udp',
+      '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
+    ]);
+
+    // 7. Default deny all other IPv6 traffic (including TCP)
+    // This prevents IPv6 from being an unfiltered bypass path
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-j', 'LOG', '--log-prefix', '[FW_BLOCKED_OTHER6] ', '--log-level', '4',
+    ]);
+
+    await execa('ip6tables', [
+      '-t', 'filter', '-A', CHAIN_NAME_V6,
+      '-j', 'REJECT', '--reject-with', 'icmp6-port-unreachable',
+    ]);
   }
 
   // Also allow DNS to Docker's embedded DNS server (127.0.0.11) for container name resolution

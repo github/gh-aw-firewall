@@ -53,6 +53,41 @@
       "action": "SCMP_ACT_ERRNO",
       "errnoRet": 1,
       "comment": "Block unmounting filesystems - mount is allowed for procfs but unmount is not needed"
+    },
+    {
+      "names": [
+        "unshare",
+        "setns",
+        "clone3"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "comment": "Block namespace manipulation - potential container escape vectors"
+    },
+    {
+      "names": [
+        "bpf",
+        "perf_event_open"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "comment": "Block eBPF and performance monitoring - can leak kernel addresses and enable escapes"
+    },
+    {
+      "names": [
+        "userfaultfd"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "comment": "Block userfaultfd - used in several CVE-based container escapes"
+    },
+    {
+      "names": [
+        "kcmp"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "comment": "Block cross-process file descriptor comparison"
     }
   ]
 }
