@@ -804,6 +804,12 @@ program
     '                                   Can also be set via COPILOT_API_TARGET env var.',
   )
   .option(
+    '--gh-aw-setup-dir <path>',
+    'Path to gh-aw setup directory to hide from the agent container via tmpfs.\n' +
+    '                                   Defaults to /home/runner/setup-gh-aw.\n' +
+    '                                   Can also be set via GH_AW_SETUP_DIR env var.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1084,6 +1090,7 @@ program
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
+      ghAwSetupDir: options.ghAwSetupDir || process.env.GH_AW_SETUP_DIR || '/home/runner/setup-gh-aw',
     };
 
     // Build rate limit config when API proxy is enabled

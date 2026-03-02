@@ -251,6 +251,7 @@ describe('docker-manager', () => {
       buildLocal: false,
       imageRegistry: 'ghcr.io/github/gh-aw-firewall',
       imageTag: 'latest',
+      ghAwSetupDir: '/home/runner/setup-gh-aw',
     };
 
     const mockNetworkConfig = {
@@ -1443,18 +1444,20 @@ describe('docker-manager', () => {
         }
       });
 
-      it('should include exactly 5 tmpfs mounts (mcp-logs + workDir both normal and /host, plus /host/dev/shm)', () => {
+      it('should include exactly 7 tmpfs mounts (mcp-logs + workDir + ghAwSetupDir all normal and /host, plus /host/dev/shm)', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         const agent = result.services.agent;
         const tmpfs = agent.tmpfs as string[];
 
-        expect(tmpfs).toHaveLength(5);
+        expect(tmpfs).toHaveLength(7);
         // Normal paths
         expect(tmpfs.some((t: string) => t.includes('/tmp/gh-aw/mcp-logs:'))).toBe(true);
         expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
+        expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.ghAwSetupDir}:`))).toBe(true);
         // /host-prefixed paths (chroot always on)
         expect(tmpfs.some((t: string) => t.includes('/host/tmp/gh-aw/mcp-logs:'))).toBe(true);
         expect(tmpfs.some((t: string) => t.startsWith(`/host${mockConfig.workDir}:`))).toBe(true);
+        expect(tmpfs.some((t: string) => t.startsWith(`/host${mockConfig.ghAwSetupDir}:`))).toBe(true);
         // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
         expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
       });

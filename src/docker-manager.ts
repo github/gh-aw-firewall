@@ -839,6 +839,10 @@ export function generateDockerCompose(
     //    are mapped to different container paths (e.g., ~/.copilot/logs, /var/log/squid)
     //    so they are unaffected by the tmpfs overlay on workDir.
     //
+    // 3. GH-AW Setup Directory: tmpfs over ghAwSetupDir (default: /home/runner/setup-gh-aw)
+    //    prevents the agent from accessing gh-aw installation files, even though the parent
+    //    directory (/home/runner) is mounted.
+    //
     // Hide both normal and /host-prefixed paths since /tmp is mounted at both
     // /tmp and /host/tmp in chroot mode (which is always on)
     //
@@ -854,6 +858,8 @@ export function generateDockerCompose(
       '/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
       `${config.workDir}:rw,noexec,nosuid,size=1m`,
       `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
+      `${config.ghAwSetupDir}:rw,noexec,nosuid,size=1m`,
+      `/host${config.ghAwSetupDir}:rw,noexec,nosuid,size=1m`,
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],
     depends_on: {

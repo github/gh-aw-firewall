@@ -494,6 +494,28 @@ export interface WrapperConfig {
    * ```
    */
   copilotApiTarget?: string;
+
+  /**
+   * Path to gh-aw setup directory to hide from the agent container
+   *
+   * This directory is mounted with a tmpfs overlay to prevent the agent
+   * from accessing sensitive gh-aw installation files, even though its
+   * parent directory (/home/runner) is mounted.
+   *
+   * The tmpfs overlay is applied at both the normal path and the /host-prefixed
+   * path (for chroot mode compatibility).
+   *
+   * Can be set via:
+   * - CLI flag: `--gh-aw-setup-dir <path>`
+   * - Environment variable: `GH_AW_SETUP_DIR`
+   *
+   * @default '/home/runner/setup-gh-aw'
+   * @example
+   * ```bash
+   * awf --gh-aw-setup-dir /home/runner/custom-gh-aw -- command
+   * ```
+   */
+  ghAwSetupDir?: string;
 }
 
 /**
