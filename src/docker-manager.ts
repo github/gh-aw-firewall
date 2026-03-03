@@ -1425,9 +1425,16 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       composeArgs.push('--pull', 'never');
       logger.debug('Using --pull never (skip-pull mode)');
     }
+    // Redirect Docker Compose stdout to stderr so it doesn't pollute the
+    // agent command's stdout. Docker Compose outputs build progress and
+    // container creation status to stdout, which would be captured by test
+    // runners and break assertions that check for agent command output.
+    // All AWF informational output goes to stderr (via logger), so this
+    // keeps the output consistent. Users still see progress in their terminal.
     await execa('docker', composeArgs, {
       cwd: workDir,
-      stdio: 'inherit',
+      stdout: process.stderr,
+      stderr: 'inherit',
     });
     logger.success('Containers started successfully');
   } catch (error) {
@@ -1581,7 +1588,8 @@ export async function stopContainers(workDir: string, keepContainers: boolean): 
   try {
     await execa('docker', ['compose', 'down', '-v'], {
       cwd: workDir,
-      stdio: 'inherit',
+      stdout: process.stderr,
+      stderr: 'inherit',
     });
     logger.success('Containers stopped successfully');
   } catch (error) {
