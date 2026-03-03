@@ -993,6 +993,7 @@ export function generateDockerCompose(
           AWF_RATE_LIMIT_RPM: String(config.rateLimitConfig.rpm),
           AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
           AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
+          AWF_RATE_LIMIT_TPM: String(config.rateLimitConfig.tpm),
         }),
       },
       healthcheck: {

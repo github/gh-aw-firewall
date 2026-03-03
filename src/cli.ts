@@ -303,23 +303,25 @@ export function buildRateLimitConfig(options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
+  rateLimitTpm?: string;
 }): { config: RateLimitConfig } | { error: string } {
   // --no-rate-limit explicitly disables (even if other flags are set)
   if (options.rateLimit === false) {
-    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0, tpm: 0 } };
   }
 
   // Rate limiting is opt-in: disabled unless at least one --rate-limit-* flag is provided
   const hasAnyLimit = options.rateLimitRpm !== undefined ||
     options.rateLimitRph !== undefined ||
-    options.rateLimitBytesPm !== undefined;
+    options.rateLimitBytesPm !== undefined ||
+    options.rateLimitTpm !== undefined;
 
   if (!hasAnyLimit) {
-    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
+    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0, tpm: 0 } };
   }
 
   // Defaults for any limit not explicitly set
-  const config: RateLimitConfig = { enabled: true, rpm: 600, rph: 10000, bytesPm: 52428800 };
+  const config: RateLimitConfig = { enabled: true, rpm: 600, rph: 10000, bytesPm: 52428800, tpm: 0 };
 
   if (options.rateLimitRpm !== undefined) {
     const rpm = parseInt(options.rateLimitRpm, 10);
@@ -336,6 +338,11 @@ export function buildRateLimitConfig(options: {
     if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
     config.bytesPm = bytesPm;
   }
+  if (options.rateLimitTpm !== undefined) {
+    const tpm = parseInt(options.rateLimitTpm, 10);
+    if (isNaN(tpm) || tpm <= 0) return { error: '--rate-limit-tpm must be a positive integer' };
+    config.tpm = tpm;
+  }
 
   return { config };
 }
@@ -348,11 +355,13 @@ export function validateRateLimitFlags(enableApiProxy: boolean, options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
+  rateLimitTpm?: string;
 }): FlagValidationResult {
   if (!enableApiProxy) {
     const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
       options.rateLimitRph !== undefined ||
       options.rateLimitBytesPm !== undefined ||
+      options.rateLimitTpm !== undefined ||
       options.rateLimit === false;
     if (hasRateLimitFlags) {
       return { valid: false, error: 'Rate limit flags require --enable-api-proxy' };
@@ -816,6 +825,10 @@ program
     'Enable rate limiting: max request bytes per minute per provider (requires --enable-api-proxy)',
   )
   .option(
+    '--rate-limit-tpm <n>',
+    'Enable rate limiting: max tokens per minute per provider (requires --enable-api-proxy)',
+  )
+  .option(
     '--no-rate-limit',
     'Explicitly disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
@@ -1094,7 +1107,7 @@ program
         process.exit(1);
       }
       config.rateLimitConfig = rateLimitResult.config;
-      logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}`);
+      logger.debug(`Rate limiting: enabled=${rateLimitResult.config.enabled}, rpm=${rateLimitResult.config.rpm}, rph=${rateLimitResult.config.rph}, bytesPm=${rateLimitResult.config.bytesPm}, tpm=${rateLimitResult.config.tpm}`);
     }
 
     // Error if rate limit flags are used without --enable-api-proxy

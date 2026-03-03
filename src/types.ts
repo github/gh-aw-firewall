@@ -523,6 +523,8 @@ export interface RateLimitConfig {
   rph: number;
   /** Max request bytes per minute per provider (default: 52428800 = 50 MB) */
   bytesPm: number;
+  /** Max tokens per minute per provider (default: 0 = unlimited/disabled) */
+  tpm: number;
 }
 
 /**

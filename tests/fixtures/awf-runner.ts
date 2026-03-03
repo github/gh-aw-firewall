@@ -22,6 +22,7 @@ export interface AwfOptions {
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
+  rateLimitTpm?: number; // Tokens per minute per provider
   noRateLimit?: boolean; // Disable rate limiting
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
@@ -125,6 +126,9 @@ export class AwfRunner {
     }
     if (options.rateLimitBytesPm !== undefined) {
       args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.rateLimitTpm !== undefined) {
+      args.push('--rate-limit-tpm', String(options.rateLimitTpm));
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
@@ -305,6 +309,9 @@ export class AwfRunner {
     }
     if (options.rateLimitBytesPm !== undefined) {
       args.push('--rate-limit-bytes-pm', String(options.rateLimitBytesPm));
+    }
+    if (options.rateLimitTpm !== undefined) {
+      args.push('--rate-limit-tpm', String(options.rateLimitTpm));
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
