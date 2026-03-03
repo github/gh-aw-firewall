@@ -2140,7 +2140,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2153,7 +2153,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2166,7 +2166,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d', '--pull', 'never'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2179,7 +2179,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2234,7 +2234,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
