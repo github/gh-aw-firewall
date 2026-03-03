@@ -1485,10 +1485,11 @@ describe('docker-manager', () => {
         expect(agent.healthcheck?.test[0]).toBe('CMD-SHELL');
         // Check that the healthcheck verifies base paths (mcp-logs and workDir) are empty
         expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
-        expect(agent.healthcheck?.test[1]).toContain('/host/tmp/gh-aw/mcp-logs');
         expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);
-        expect(agent.healthcheck?.test[1]).toContain(`/host${mockConfig.workDir}`);
         expect(agent.healthcheck?.test[1]).toContain('ls -A');
+        // Should NOT include host paths since they contain files at startup time
+        expect(agent.healthcheck?.test[1]).not.toContain('/host/tmp/gh-aw/mcp-logs');
+        expect(agent.healthcheck?.test[1]).not.toContain(`/host${mockConfig.workDir}`);
       });
 
       it('should include ghAwSetupDir paths in healthcheck when specified', () => {
@@ -1502,7 +1503,8 @@ describe('docker-manager', () => {
         // Agent should have healthcheck with all paths
         expect(agent.healthcheck).toBeDefined();
         expect(agent.healthcheck?.test[1]).toContain('/home/runner/setup-gh-aw');
-        expect(agent.healthcheck?.test[1]).toContain('/host/home/runner/setup-gh-aw');
+        // Should NOT include host path since it may contain files at startup time
+        expect(agent.healthcheck?.test[1]).not.toContain('/host/home/runner/setup-gh-aw');
         // Should also contain base paths
         expect(agent.healthcheck?.test[1]).toContain('/tmp/gh-aw/mcp-logs');
         expect(agent.healthcheck?.test[1]).toContain(mockConfig.workDir);

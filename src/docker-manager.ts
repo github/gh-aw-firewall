@@ -909,17 +909,16 @@ export function generateDockerCompose(
 
   // Add healthcheck to verify all tmpfs mounts that should be empty are working correctly
   // This validates the tmpfs overlays are functioning properly as a security measure
+  // Only check container-visible paths (not host paths via /host) since the workDir
+  // and mcp-logs directories on the host contain files before the container starts.
   const pathsToCheck: string[] = [
     '/tmp/gh-aw/mcp-logs',
-    '/host/tmp/gh-aw/mcp-logs',
     config.workDir,
-    `/host${config.workDir}`,
   ];
 
-  // Add GH_AW_SETUP_DIR paths if configured
+  // Add GH_AW_SETUP_DIR path if configured
   if (config.ghAwSetupDir) {
     pathsToCheck.push(config.ghAwSetupDir);
-    pathsToCheck.push(`/host${config.ghAwSetupDir}`);
   }
 
   // Build healthcheck command to verify all paths are empty
