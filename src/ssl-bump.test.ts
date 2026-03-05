@@ -194,6 +194,20 @@ describe('SSL Bump', () => {
         expect.arrayContaining(['-t', 'tmpfs', 'tmpfs']),
       );
     });
+
+    it('should handle non-Error throw from OpenSSL command', async () => {
+      mockExeca.mockImplementation((cmd: string) => {
+        if (cmd === 'mount') {
+          return Promise.reject(new Error('mount not available'));
+        }
+        // Reject with a string instead of an Error object
+        return Promise.reject('unexpected string rejection');
+      });
+
+      await expect(generateSessionCa({ workDir: tempDir })).rejects.toThrow(
+        'Failed to generate SSL Bump CA: unexpected string rejection'
+      );
+    });
   });
 
   describe('initSslDb', () => {
@@ -252,6 +266,54 @@ describe('SSL Bump', () => {
       const result = await initSslDb(tempDir);
 
       expect(result).toBe(sslDbPath);
+    });
+
+    it('should silently catch EEXIST when index.txt already exists', async () => {
+      // Pre-create the directory structure and files
+      const sslDbPath = path.join(tempDir, 'ssl_db');
+      fs.mkdirSync(path.join(sslDbPath, 'certs'), { recursive: true });
+      fs.writeFileSync(path.join(sslDbPath, 'index.txt'), 'existing');
+      fs.writeFileSync(path.join(sslDbPath, 'size'), '42\n');
+
+      // Should not throw — EEXIST is silently caught by the 'wx' flag handler
+      const result = await initSslDb(tempDir);
+      expect(result).toBe(sslDbPath);
+
+      // Verify existing content was preserved (not overwritten)
+      expect(fs.readFileSync(path.join(sslDbPath, 'index.txt'), 'utf-8')).toBe('existing');
+      expect(fs.readFileSync(path.join(sslDbPath, 'size'), 'utf-8')).toBe('42\n');
+    });
+
+    it('should re-throw non-EEXIST errors from writeFileSync', async () => {
+      // Create ssl_db directory, then make it read-only so writeFileSync fails with EACCES
+      const sslDbPath = path.join(tempDir, 'ssl_db');
+      fs.mkdirSync(path.join(sslDbPath, 'certs'), { recursive: true });
+      // Make ssl_db read-only so index.txt creation fails with EACCES
+      fs.chmodSync(sslDbPath, 0o555);
+
+      try {
+        await expect(initSslDb(tempDir)).rejects.toThrow(/EACCES/);
+      } finally {
+        // Restore permissions for cleanup
+        fs.chmodSync(sslDbPath, 0o700);
+      }
+    });
+
+    it('should re-throw non-EEXIST errors from size file writeFileSync', async () => {
+      // Create full structure with index.txt, then make dir read-only
+      // so only the size file creation fails
+      const sslDbPath = path.join(tempDir, 'ssl_db');
+      fs.mkdirSync(path.join(sslDbPath, 'certs'), { recursive: true });
+      // Pre-create index.txt so it hits EEXIST (silently caught), then
+      // size file creation will fail because dir is read-only
+      fs.writeFileSync(path.join(sslDbPath, 'index.txt'), '');
+      fs.chmodSync(sslDbPath, 0o555);
+
+      try {
+        await expect(initSslDb(tempDir)).rejects.toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(sslDbPath, 0o700);
+      }
     });
   });
 
