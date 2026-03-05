@@ -167,10 +167,9 @@ export async function generateSessionCa(config: SslBumpConfig): Promise<CaFiles>
   const { workDir, commonName = 'AWF Session CA', validityDays = 1 } = config;
 
   // Create ssl directory in workDir, backed by tmpfs when possible
+  // Use recursive:true which is a no-op if the directory already exists (avoids TOCTOU)
   const sslDir = path.join(workDir, 'ssl');
-  if (!fs.existsSync(sslDir)) {
-    fs.mkdirSync(sslDir, { recursive: true, mode: 0o700 });
-  }
+  fs.mkdirSync(sslDir, { recursive: true, mode: 0o700 });
 
   // Attempt to mount tmpfs so keys never touch disk
   const usingTmpfs = await mountSslTmpfs(sslDir);
@@ -254,24 +253,24 @@ export async function initSslDb(workDir: string): Promise<string> {
   const indexPath = path.join(sslDbPath, 'index.txt');
   const sizePath = path.join(sslDbPath, 'size');
 
-  // Create the database structure
-  if (!fs.existsSync(sslDbPath)) {
-    fs.mkdirSync(sslDbPath, { recursive: true, mode: 0o700 });
-  }
+  // Create the database structure (recursive:true is a no-op if dir exists, avoids TOCTOU)
+  fs.mkdirSync(sslDbPath, { recursive: true, mode: 0o700 });
 
   // Create certs subdirectory
-  if (!fs.existsSync(certsPath)) {
-    fs.mkdirSync(certsPath, { mode: 0o700 });
+  fs.mkdirSync(certsPath, { recursive: true, mode: 0o700 });
+
+  // Create index.txt atomically — 'wx' flag (O_WRONLY|O_CREAT|O_EXCL) fails if file exists
+  try {
+    fs.writeFileSync(indexPath, '', { mode: 0o600, flag: 'wx' });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 
-  // Create index.txt (empty file for certificate index)
-  if (!fs.existsSync(indexPath)) {
-    fs.writeFileSync(indexPath, '', { mode: 0o600 });
-  }
-
-  // Create size file (tracks current DB size, starts at 0)
-  if (!fs.existsSync(sizePath)) {
-    fs.writeFileSync(sizePath, '0\n', { mode: 0o600 });
+  // Create size file atomically
+  try {
+    fs.writeFileSync(sizePath, '0\n', { mode: 0o600, flag: 'wx' });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 
   logger.debug(`SSL certificate database initialized at: ${sslDbPath}`);
