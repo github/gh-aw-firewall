@@ -263,107 +263,26 @@ These are gh-aw agentic workflows compiled from `.md` source files into `.lock.y
 
 These are agentic workflows that clone external test repositories and run real build/test commands through the AWF sandbox. They validate that AWF's network filtering allows language-specific package managers to function correctly.
 
-All build-test workflows share a common pattern:
+All build tests are combined into a single `build-test.lock.yml` workflow:
 - **Engine**: `copilot`
 - **Triggers**: PR (opened/synchronize/reopened), manual dispatch
 - **Tools**: bash, github (with GH_AW_GITHUB_MCP_SERVER_TOKEN)
 - **MCP**: ghcr.io/github/gh-aw-mcpg container
-- **Safe outputs**: add-comment, add-labels
-- **Error handling**: `safeoutputs-missing_tool` on clone failure, table-based reporting
+- **Safe outputs**: add-comment (single combined table), add-labels (`build-test`)
+- **Error handling**: Per-ecosystem failure tracking, table-based reporting
 - **Test repos**: `Mossaka/gh-aw-firewall-test-{language}`
 
-### 13. `build-test-bun.lock.yml` — Build Test Bun
+### 13. `build-test.lock.yml` — Build Test Suite
 
 | Attribute | Value |
 |-----------|-------|
-| **What it tests** | Install Bun from bun.sh, clone test-bun repo, run `bun install && bun test` on elysia and hono projects |
-| **Network** | defaults, github, node, bun.sh |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates AWF allows Bun runtime installation and package fetching |
-| **Gaps** | Bun installed via curl (no version pinning). Only 2 projects tested. |
-| **Integration test relationship** | Extends beyond integration tests — no integration test covers Bun specifically |
-
-### 14. `build-test-cpp.lock.yml` — Build Test C++
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-cpp repo, run CMake + Make on fmt and json (nlohmann) libraries |
-| **Network** | defaults, github |
-| **Timeout** | 30 minutes |
-| **Real-world mapping** | Validates C++ projects with no external network dependencies build inside AWF |
-| **Gaps** | No package manager (vcpkg/conan) testing. Build-only, no test execution. |
-| **Integration test relationship** | No integration test equivalent |
-
-### 15. `build-test-deno.lock.yml` — Build Test Deno
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Install Deno from deno.land, clone test-deno repo, run `deno test` on oak and std |
-| **Network** | defaults, github, node, deno.land, jsr.io, dl.deno.land |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates AWF allows Deno installation and JSR/deno.land package fetching |
-| **Gaps** | No version pinning for Deno install. Only 2 projects. |
-| **Integration test relationship** | No integration test equivalent |
-
-### 16. `build-test-dotnet.lock.yml` — Build Test .NET
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-dotnet repo, `dotnet restore && dotnet build && dotnet run` on hello-world and json-parse |
-| **Runtime** | dotnet 8.0 |
-| **Network** | defaults, github, dotnet |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates NuGet package restoration and .NET build through AWF proxy |
-| **Gaps** | Very simple projects. No `dotnet test` execution. |
-| **Integration test relationship** | Complements `chroot-package-managers.test.ts` which tests `dotnet --version` but not actual NuGet restore |
-
-### 17. `build-test-go.lock.yml` — Build Test Go
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-go repo, `go mod download && go test ./...` on color, env, uuid projects |
-| **Runtime** | go 1.22 |
-| **Network** | defaults, github, go |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates Go module proxy access and test execution through AWF |
-| **Gaps** | Small projects with few dependencies. No CGO testing. |
-| **Integration test relationship** | Complements `chroot-package-managers.test.ts` which tests `go mod download` but on a minimal project |
-
-### 18. `build-test-java.lock.yml` — Build Test Java
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-java repo, configure Maven proxy via `~/.m2/settings.xml`, `mvn compile && mvn test` on gson and caffeine |
-| **Runtime** | java 21 |
-| **Network** | defaults, github, java |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates Maven proxy configuration workaround (Maven ignores JAVA_TOOL_OPTIONS proxy settings) |
-| **Gaps** | Only Maven tested. No Gradle testing. Maven proxy config requires manual `settings.xml` — error-prone for users. |
-| **Integration test relationship** | Extends `chroot-package-managers.test.ts` which doesn't test Maven dependency download |
-
-### 19. `build-test-node.lock.yml` — Build Test Node.js
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-node repo, `npm install && npm test` on clsx, execa, p-limit |
-| **Runtime** | node 20 |
-| **Network** | defaults, github, node |
-| **Timeout** | 15 minutes |
-| **Real-world mapping** | Validates npm registry access through AWF proxy |
-| **Gaps** | Only npm tested, no yarn/pnpm. Small packages only. |
-| **Integration test relationship** | Complements `chroot-package-managers.test.ts` which tests `npm install` on a minimal package |
-
-### 20. `build-test-rust.lock.yml` — Build Test Rust
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Clone test-rust repo, `cargo build && cargo test` on fd and zoxide |
-| **Runtime** | rust stable |
-| **Network** | defaults, github, rust, crates.io |
-| **Timeout** | 30 minutes |
-| **Real-world mapping** | Validates crates.io access and Cargo build/test through AWF proxy. Longer timeout for compilation. |
-| **Gaps** | Only 2 projects. No nightly Rust testing. |
-| **Integration test relationship** | Complements `chroot-package-managers.test.ts` which tests `cargo build` on a minimal project |
+| **What it tests** | All 8 ecosystems in a single workflow: Bun (elysia, hono), C++ (fmt, json), Deno (oak, std), .NET (hello-world, json-parse), Go (color, env, uuid), Java (gson, caffeine), Node.js (clsx, execa, p-limit), Rust (fd, zoxide) |
+| **Runtimes** | node 20, go 1.22, rust stable, java 21, dotnet 8.0 |
+| **Network** | defaults, github, node, go, rust, crates.io, java, dotnet, bun.sh, deno.land, jsr.io, dl.deno.land |
+| **Timeout** | 45 minutes |
+| **Real-world mapping** | Validates AWF allows language-specific package managers, runtime installations, and build/test execution across all supported ecosystems |
+| **Gaps** | No Python/Ruby build-tests. Maven proxy requires manual `settings.xml` workaround. No Gradle, yarn/pnpm, vcpkg/conan, or nightly Rust testing. |
+| **Integration test relationship** | Complements `chroot-package-managers.test.ts` with real-world projects |
 
 ---
 
@@ -460,7 +379,7 @@ All build-test workflows share a common pattern:
 | `test-examples.yml` | `blocked-domains.test.ts`, `wildcard-patterns.test.ts` | **Indirect** — examples test similar scenarios (domain allow/block) |
 | `test-coverage.yml` | All `src/*.test.ts` unit tests | **Direct** — runs unit test suite with coverage |
 | `smoke-chroot.lock.yml` | `chroot-languages.test.ts` | **Overlapping** — both test runtime version matching, different approaches |
-| `build-test-*.lock.yml` | `chroot-package-managers.test.ts` | **Complementary** — build-tests use real projects; integration uses minimal packages |
+| `build-test.lock.yml` | `chroot-package-managers.test.ts` | **Complementary** — build-test uses real projects; integration uses minimal packages |
 | `smoke-{claude,copilot,codex,gemini}.lock.yml` | None | **Unique** — only place that tests actual AI agents through AWF |
 | `test-action.yml` | None | **Unique** — only place that tests the setup action |
 | `build.yml` | None | **Prerequisite** — validates build on Node 20+22 |
@@ -491,7 +410,7 @@ All build-test workflows share a common pattern:
 
 6. **Missing Ruby build-test** — Ruby gem installation through AWF proxy has no build-test workflow.
 
-7. **Maven proxy workaround not tested in integration** — The `~/.m2/settings.xml` workaround is only documented in build-test-java.md, not validated by integration tests.
+7. **Maven proxy workaround not tested in integration** — The `~/.m2/settings.xml` workaround is only documented in build-test.md, not validated by integration tests.
 
 8. **No load/performance testing** — No tests for concurrent connections, large file transfers, or many-domain allowlists.
 
