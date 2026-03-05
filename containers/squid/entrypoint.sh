@@ -19,5 +19,8 @@ if [ -d "/var/spool/squid_ssl_db" ]; then
   echo "[squid-entrypoint] SSL certificate database ready"
 fi
 
-# Start Squid
-exec squid -N -d 1
+# Ensure Squid config directory and run directory are writable by proxy
+chown -R proxy:proxy /etc/squid /var/run/squid /var/spool/squid 2>/dev/null || true
+
+# Drop to proxy user and start Squid
+exec gosu proxy squid -N -d 1
