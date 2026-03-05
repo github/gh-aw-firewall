@@ -1336,6 +1336,180 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
 }
 
 /**
+ * Creates Docker named volumes and populates them with config files.
+ * Used in DinD mode where file bind mounts don't work because the Docker
+ * daemon can't see the runner's filesystem.
+ *
+ * Must be called AFTER writeConfigs() so that config files exist on disk.
+ */
+export async function createConfigVolumes(config: WrapperConfig): Promise<void> {
+  const { workDir } = config;
+  logger.info('DinD mode: Creating config volumes...');
+
+  const squidConfigVol = configVolumeName(workDir, 'squid-config');
+  const squidLogsVol = configVolumeName(workDir, 'squid-logs');
+  const agentConfigVol = configVolumeName(workDir, 'agent-config');
+  const agentLogsVol = configVolumeName(workDir, 'agent-logs');
+
+  const volumeNames = [squidConfigVol, squidLogsVol, agentConfigVol, agentLogsVol];
+  if (config.enableApiProxy) {
+    volumeNames.push(configVolumeName(workDir, 'api-proxy-logs'));
+  }
+
+  for (const vol of volumeNames) {
+    await execa('docker', ['volume', 'create', vol]);
+    logger.debug(`Created volume: ${vol}`);
+  }
+
+  // Helper: populate a volume via a temporary container + docker cp
+  const initContainerName = 'awf-vol-init';
+
+  const populateVolume = async (volumeName: string, files: Array<{ src: string; dest: string }>) => {
+    await execa('docker', ['rm', '-f', initContainerName], { reject: false });
+    await execa('docker', ['create', '--name', initContainerName, '-v', `${volumeName}:/config`, 'busybox']);
+
+    for (const file of files) {
+      await execa('docker', ['cp', file.src, `${initContainerName}:/config/${file.dest}`]);
+      logger.debug(`Copied ${file.src} -> ${volumeName}:/config/${file.dest}`);
+    }
+
+    await execa('docker', ['rm', initContainerName]);
+  };
+
+  // Populate squid config volume with squid.conf and optional SSL files
+  const squidFiles: Array<{ src: string; dest: string }> = [
+    { src: path.join(workDir, 'squid.conf'), dest: 'squid.conf' },
+  ];
+
+  // Check for SSL Bump cert/key files in workDir (written by generateSessionCa)
+  const sslCaDir = path.join(workDir, 'ssl-ca');
+  if (fs.existsSync(sslCaDir)) {
+    const certPath = path.join(sslCaDir, 'ca.pem');
+    const keyPath = path.join(sslCaDir, 'ca-key.pem');
+    if (fs.existsSync(certPath)) {
+      squidFiles.push({ src: certPath, dest: 'ssl-ca.crt' });
+    }
+    if (fs.existsSync(keyPath)) {
+      squidFiles.push({ src: keyPath, dest: 'ssl-ca.key' });
+    }
+  }
+
+  await populateVolume(squidConfigVol, squidFiles);
+
+  // Populate agent config volume with seccomp profile and chroot hosts
+  const agentFiles: Array<{ src: string; dest: string }> = [
+    { src: path.join(workDir, 'seccomp-profile.json'), dest: 'seccomp-profile.json' },
+  ];
+
+  // Find the chroot hosts file (written to a mkdtemp dir under workDir by generateDockerCompose)
+  try {
+    const entries = fs.readdirSync(workDir);
+    for (const entry of entries) {
+      if (entry.startsWith('chroot-')) {
+        const hostsPath = path.join(workDir, entry, 'hosts');
+        if (fs.existsSync(hostsPath)) {
+          agentFiles.push({ src: hostsPath, dest: 'hosts' });
+          break;
+        }
+      }
+    }
+  } catch {
+    logger.debug('Could not scan for chroot hosts file');
+  }
+
+  await populateVolume(agentConfigVol, agentFiles);
+
+  // Set correct permissions on squid log volume (Squid runs as proxy user UID 13)
+  await execa('docker', ['run', '--rm', '-v', `${squidLogsVol}:/logs`, 'busybox', 'chmod', '777', '/logs']);
+  logger.debug(`Set permissions on ${squidLogsVol}`);
+
+  logger.info('DinD mode: Config volumes created and populated');
+}
+
+/**
+ * Retrieves logs from Docker named volumes back to the local filesystem.
+ * In DinD mode, log directories are named volumes (not bind mounts), so
+ * we need to docker cp them back for log analysis (checkSquidLogs) and preservation.
+ *
+ * Must be called AFTER containers stop but BEFORE volume cleanup.
+ */
+export async function retrieveLogsFromVolumes(config: WrapperConfig): Promise<void> {
+  const { workDir } = config;
+  logger.debug('DinD mode: Retrieving logs from volumes...');
+
+  const readerName = 'awf-logs-reader';
+
+  const retrieveFromVolume = async (volumeName: string, destDir: string) => {
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true, mode: 0o777 });
+    }
+
+    await execa('docker', ['rm', '-f', readerName], { reject: false });
+    await execa('docker', ['create', '--name', readerName, '-v', `${volumeName}:/logs`, 'busybox']);
+
+    try {
+      await execa('docker', ['cp', `${readerName}:/logs/.`, destDir]);
+      logger.debug(`Retrieved logs from ${volumeName} -> ${destDir}`);
+    } catch (err) {
+      logger.debug(`Could not retrieve logs from ${volumeName}: ${err}`);
+    }
+
+    await execa('docker', ['rm', readerName], { reject: false });
+  };
+
+  // Retrieve squid logs
+  const squidLogsVol = configVolumeName(workDir, 'squid-logs');
+  const squidLogsDir = config.proxyLogsDir || path.join(workDir, 'squid-logs');
+  await retrieveFromVolume(squidLogsVol, squidLogsDir);
+
+  // Retrieve agent logs
+  const agentLogsVol = configVolumeName(workDir, 'agent-logs');
+  const agentLogsDir = path.join(workDir, 'agent-logs');
+  await retrieveFromVolume(agentLogsVol, agentLogsDir);
+
+  // Retrieve api-proxy logs if applicable
+  if (config.enableApiProxy) {
+    const apiProxyLogsVol = configVolumeName(workDir, 'api-proxy-logs');
+    const apiProxyLogsDir = config.proxyLogsDir
+      ? path.join(path.dirname(config.proxyLogsDir), 'api-proxy-logs')
+      : path.join(workDir, 'api-proxy-logs');
+    await retrieveFromVolume(apiProxyLogsVol, apiProxyLogsDir);
+  }
+
+  // Fix permissions so logs are readable by the host user
+  try {
+    execa.sync('chmod', ['-R', 'a+rX', squidLogsDir]);
+  } catch {
+    // ignore permission errors
+  }
+
+  logger.debug('DinD mode: Logs retrieved from volumes');
+}
+
+/**
+ * Removes all named volumes created for a DinD session.
+ * Uses reject: false since volumes may not exist (e.g., if creation failed).
+ */
+export async function removeConfigVolumes(workDir: string): Promise<void> {
+  logger.debug('DinD mode: Removing config volumes...');
+
+  const volumeNames = [
+    configVolumeName(workDir, 'squid-config'),
+    configVolumeName(workDir, 'squid-logs'),
+    configVolumeName(workDir, 'agent-config'),
+    configVolumeName(workDir, 'agent-logs'),
+    configVolumeName(workDir, 'api-proxy-logs'),
+  ];
+
+  for (const vol of volumeNames) {
+    await execa('docker', ['volume', 'rm', vol], { reject: false });
+    logger.debug(`Removed volume: ${vol}`);
+  }
+
+  logger.debug('DinD mode: Config volumes removed');
+}
+
+/**
  * Checks Squid logs for access denials to provide better error context
  * @param workDir - Working directory containing configs
  * @param proxyLogsDir - Optional custom directory where proxy logs are written

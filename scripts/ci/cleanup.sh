@@ -12,7 +12,7 @@ echo "==========================================="
 
 # First, explicitly remove containers by name (handles orphaned containers)
 echo "Removing awf containers by name..."
-docker rm -f awf-squid awf-agent awf-api-proxy 2>/dev/null || true
+docker rm -f awf-squid awf-agent awf-api-proxy awf-vol-init awf-logs-reader 2>/dev/null || true
 
 # Cleanup diagnostic test containers
 echo "Stopping docker compose services..."
@@ -46,6 +46,10 @@ docker container prune -f
 # Optionally prune networks to fix "Pool overlaps" errors
 echo "Pruning unused networks..."
 docker network prune -f
+
+# Remove AWF Docker volumes (DinD mode creates named volumes)
+echo "Removing AWF Docker volumes..."
+docker volume ls --filter name=awf- -q | xargs -r docker volume rm 2>/dev/null || true
 
 # Remove temporary work directories
 echo "Removing temporary work directories..."
