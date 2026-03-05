@@ -670,7 +670,7 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('acl allowed_domains dstdomain');
-      expect(result).not.toContain('dstdom_regex');
+      expect(result).not.toContain('acl allowed_domains_regex dstdom_regex');
       expect(result).toContain('http_access deny !allowed_domains');
       expect(result).not.toContain('allowed_domains_regex');
     });
@@ -1195,6 +1195,66 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('http_port 3128');
       expect(result).not.toContain('https_port');
     });
+  });
+});
+
+describe('Direct IP bypass protection', () => {
+  const defaultPort = 3128;
+
+  it('should include IPv4 deny ACL in generated config', () => {
+    const config: SquidConfig = {
+      domains: ['github.com'],
+      port: defaultPort,
+    };
+    const result = generateSquidConfig(config);
+    expect(result).toContain('acl dst_ipv4 dstdom_regex');
+    expect(result).toContain('http_access deny dst_ipv4');
+  });
+
+  it('should include IPv6 deny ACL in generated config', () => {
+    const config: SquidConfig = {
+      domains: ['github.com'],
+      port: defaultPort,
+    };
+    const result = generateSquidConfig(config);
+    expect(result).toContain('acl dst_ipv6 dstdom_regex');
+    expect(result).toContain('http_access deny dst_ipv6');
+  });
+
+  it('should place IP deny rules before domain allow/deny rules', () => {
+    const config: SquidConfig = {
+      domains: ['github.com'],
+      port: defaultPort,
+    };
+    const result = generateSquidConfig(config);
+    const ipv4DenyPos = result.indexOf('http_access deny dst_ipv4');
+    const domainDenyPos = result.indexOf('http_access deny !allowed_domains');
+    expect(ipv4DenyPos).toBeGreaterThan(-1);
+    expect(domainDenyPos).toBeGreaterThan(-1);
+    expect(ipv4DenyPos).toBeLessThan(domainDenyPos);
+  });
+
+  it('should include IP deny rules even with no domains configured', () => {
+    const config: SquidConfig = {
+      domains: [],
+      port: defaultPort,
+    };
+    const result = generateSquidConfig(config);
+    expect(result).toContain('http_access deny dst_ipv4');
+    expect(result).toContain('http_access deny dst_ipv6');
+  });
+
+  it('should include IP deny rules in SSL Bump mode', () => {
+    const config: SquidConfig = {
+      domains: ['github.com'],
+      port: defaultPort,
+      sslBump: true,
+      caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
+      sslDbPath: '/tmp/ssl_db',
+    };
+    const result = generateSquidConfig(config);
+    expect(result).toContain('http_access deny dst_ipv4');
+    expect(result).toContain('http_access deny dst_ipv6');
   });
 });
 
