@@ -13,7 +13,11 @@ import {
   runAgentCommand,
   stopContainers,
   cleanup,
+  createConfigVolumes,
+  retrieveLogsFromVolumes,
+  removeConfigVolumes,
 } from './docker-manager';
+import { isDinDEnvironment } from './dind-detect';
 import {
   ensureFirewallNetwork,
   setupHostIptables,
@@ -1170,6 +1174,14 @@ program
     }
     logger.debug(`DNS servers: ${dnsServers.join(', ')}`);
 
+    // Detect DinD environment before starting the workflow
+    config.isDinD = await isDinDEnvironment();
+    if (config.isDinD) {
+      logger.info('DinD environment detected: using Docker volume-based config delivery');
+    } else {
+      logger.debug('Native Docker environment: using bind mount config delivery');
+    }
+
     let exitCode = 0;
     let containersStarted = false;
     let hostIptablesSetup = false;
@@ -1189,6 +1201,10 @@ program
       }
 
       if (!config.keepContainers) {
+        // In DinD mode, remove named volumes after log retrieval
+        if (config.isDinD) {
+          await removeConfigVolumes(config.workDir);
+        }
         await cleanup(config.workDir, false, config.proxyLogsDir);
         // Note: We don't remove the firewall network here since it can be reused
         // across multiple runs. Cleanup script will handle removal if needed.
@@ -1222,6 +1238,8 @@ program
           writeConfigs,
           startContainers,
           runAgentCommand,
+          createConfigVolumes,
+          retrieveLogsFromVolumes,
         },
         {
           logger,

@@ -10,6 +10,8 @@ export interface WorkflowDependencies {
     allowedDomains: string[],
     proxyLogsDir?: string
   ) => Promise<{ exitCode: number }>;
+  createConfigVolumes?: (config: WrapperConfig) => Promise<void>;
+  retrieveLogsFromVolumes?: (config: WrapperConfig) => Promise<void>;
 }
 
 export interface WorkflowCallbacks {
@@ -53,12 +55,22 @@ export async function runMainWorkflow(
   logger.info('Generating configuration files...');
   await dependencies.writeConfigs(config);
 
+  // Step 1.5: In DinD mode, create and populate named volumes with config files
+  if (config.isDinD && dependencies.createConfigVolumes) {
+    await dependencies.createConfigVolumes(config);
+  }
+
   // Step 2: Start containers
   await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull);
   onContainersStarted?.();
 
   // Step 3: Wait for agent to complete
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir);
+
+  // Step 3.5: In DinD mode, retrieve logs from named volumes before cleanup
+  if (config.isDinD && dependencies.retrieveLogsFromVolumes) {
+    await dependencies.retrieveLogsFromVolumes(config);
+  }
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
   await performCleanup();
