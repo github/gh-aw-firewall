@@ -2008,11 +2008,11 @@ describe('docker-manager', () => {
         // May fail after writing configs
       }
 
-      // Verify squid.conf has restricted permissions
+      // Verify squid.conf is readable by proxy user (0o644) for non-root Squid
       const squidConfPath = path.join(testDir, 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const stats = fs.statSync(squidConfPath);
-        expect((stats.mode & 0o777).toString(8)).toBe('600');
+        expect((stats.mode & 0o777).toString(8)).toBe('644');
       }
 
       // Verify docker-compose.yml has restricted permissions

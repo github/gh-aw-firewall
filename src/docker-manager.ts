@@ -1254,7 +1254,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     allowHostPorts: config.allowHostPorts,
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
-  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o600 });
+  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
   logger.debug(`Squid config written to: ${squidConfigPath}`);
 
   // Write Docker Compose config
