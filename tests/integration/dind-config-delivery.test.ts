@@ -11,10 +11,10 @@
  * - The docker:dind image must be pullable
  * - Tests require sudo for iptables manipulation
  *
- * Known issue: The seccomp profile delivery doesn't work in DinD mode yet.
- * Docker's security_opt reads the seccomp file from the daemon's filesystem,
- * not from container volumes. Tests are marked as .skip until the seccomp
- * delivery is fixed for DinD environments.
+ * Known limitation: Full end-to-end DinD tests (Config Delivery suite) are
+ * skipped because chroot mode is incompatible with DinD - the /host filesystem
+ * in DinD doesn't have the required binaries (capsh, etc.). The DinD Detection
+ * suite validates that detection and volume setup work correctly.
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />
@@ -110,14 +110,13 @@ async function cleanupDindResources(): Promise<void> {
   }
 }
 
-// Skip: seccomp profile delivery in DinD not yet implemented.
-// Docker reads security_opt seccomp profile from the daemon filesystem,
-// not from container volumes. Remove .skip when seccomp delivery is fixed.
+// Skip: chroot mode is incompatible with DinD because /host in the DinD
+// container doesn't have required host binaries (capsh, etc.). Enable these
+// tests once AWF supports non-chroot mode in DinD environments.
 describe.skip('DinD Config Delivery', () => {
   let runner: AwfRunner;
 
   beforeAll(async () => {
-    // Check if Docker is available
     try {
       await execa('docker', ['info'], { timeout: 5000 });
     } catch {
@@ -151,7 +150,6 @@ describe.skip('DinD Config Delivery', () => {
     );
 
     expect(result).toSucceed();
-    // Verify DinD detection message in logs
     expect(result.stderr).toMatch(/DinD environment detected/i);
   }, TEST_TIMEOUT);
 
@@ -169,9 +167,7 @@ describe.skip('DinD Config Delivery', () => {
       }
     );
 
-    // github.com is not in the allowlist, should be blocked
     expect(result).toFail();
-    // Verify it failed due to domain blocking, not a startup error
     expect(result.stderr).toMatch(/DinD environment detected/i);
     expect(result.stderr).not.toMatch(/Failed to start containers/i);
   }, TEST_TIMEOUT);
@@ -201,7 +197,8 @@ describe('DinD Detection', () => {
 
   test('should detect DinD environment when DOCKER_HOST is tcp://', async () => {
     // Run AWF with DOCKER_HOST pointing to DinD - it should detect DinD mode.
-    // The command itself may fail (seccomp issue), but we verify DinD detection in stderr.
+    // The command may fail (chroot incompatibility), but DinD detection and
+    // volume setup should work correctly.
     const result = await runner.runWithSudo(
       'echo hello',
       {
@@ -215,14 +212,11 @@ describe('DinD Detection', () => {
       }
     );
 
-    // DinD should be detected regardless of whether the full flow succeeds
     expect(result.stderr).toMatch(/DinD environment detected/i);
-    // Should use volume-based config delivery
     expect(result.stderr).toMatch(/DinD mode: Creating config volumes/i);
   }, TEST_TIMEOUT);
 
   test('should not detect DinD in native Docker environment', async () => {
-    // Run AWF without DOCKER_HOST - should use native Docker
     const result = await runner.runWithSudo(
       'echo hello',
       {
@@ -234,7 +228,6 @@ describe('DinD Detection', () => {
     );
 
     expect(result).toSucceed();
-    // Should NOT see DinD detection message
     expect(result.stderr).not.toMatch(/DinD environment detected/i);
   }, 180000);
 });

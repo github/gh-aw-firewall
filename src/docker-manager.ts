@@ -923,9 +923,13 @@ export function generateDockerCompose(
     // AppArmor is set to unconfined to allow mounting procfs at /host/proc
     // (Docker's default AppArmor profile blocks mount). This is safe because SYS_ADMIN is
     // dropped via capsh before user code runs, so user code cannot mount anything.
+    // In DinD mode, the custom seccomp profile is omitted because Docker reads it from the
+    // daemon's filesystem before the container starts, and volume-mounted paths aren't
+    // accessible at that point. Docker's default seccomp profile provides sufficient
+    // restriction, and DinD environments (e.g., ARC runners) have pod-level security context.
     security_opt: [
       'no-new-privileges:true',
-      `seccomp=${isDinD ? '/awf-config/seccomp-profile.json' : `${config.workDir}/seccomp-profile.json`}`,
+      ...(isDinD ? [] : [`seccomp=${config.workDir}/seccomp-profile.json`]),
       'apparmor:unconfined',
     ],
     // Resource limits to prevent DoS attacks (conservative defaults)
