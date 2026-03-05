@@ -99,12 +99,12 @@ describe('Credential Hiding Security', () => {
       expect(output).not.toContain('npm_');
     }, 120000);
 
-    test('Test 4: Credential files are mounted from /dev/null', async () => {
+    test('Test 4: Original 3 credential files are mounted from /dev/null', async () => {
       const homeDir = os.homedir();
 
-      // Check multiple credential files in one command
+      // Check the originally-tested credential files in one command
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${homeDir}/.docker/config.json ${homeDir}/.npmrc ${homeDir}/.config/gh/hosts.yml; do if [ -f "$f" ]; then wc -c "$f"; fi; done' 2>&1 | grep -v "^\\["`,
+        `sh -c 'for f in ${homeDir}/.docker/config.json ${homeDir}/.npmrc ${homeDir}/.config/gh/hosts.yml; do wc -c "$f" 2>/dev/null; done' 2>&1 | grep -v "^\\["`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -227,6 +227,92 @@ describe('Credential Hiding Security', () => {
     }, 120000);
   });
 
+
+  describe('All 14 Credential Paths Coverage', () => {
+    // These tests cover the 11 credential paths not tested by Tests 1-4 above.
+    // Each path is hidden via /dev/null mount and should return empty content.
+
+    const untestedPaths = [
+      { name: 'SSH id_rsa', path: '.ssh/id_rsa' },
+      { name: 'SSH id_ed25519', path: '.ssh/id_ed25519' },
+      { name: 'SSH id_ecdsa', path: '.ssh/id_ecdsa' },
+      { name: 'SSH id_dsa', path: '.ssh/id_dsa' },
+      { name: 'AWS credentials', path: '.aws/credentials' },
+      { name: 'AWS config', path: '.aws/config' },
+      { name: 'Kube config', path: '.kube/config' },
+      { name: 'Azure credentials', path: '.azure/credentials' },
+      { name: 'GCloud credentials.db', path: '.config/gcloud/credentials.db' },
+      { name: 'Cargo credentials', path: '.cargo/credentials' },
+      { name: 'Composer auth.json', path: '.composer/auth.json' },
+    ];
+
+    test('All untested credential files are hidden at direct home path (0 bytes)', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
+
+      // Check all credential files in a single container run for efficiency.
+      // wc -c reports byte count; /dev/null-mounted files should be 0 bytes.
+      const result = await runner.runWithSudo(
+        `sh -c 'for f in ${paths}; do wc -c "$f" 2>/dev/null; done' 2>&1 | grep -v "^\\["`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      const lines = result.stdout.split('\n').filter(l => l.match(/^\s*\d+/));
+      // Each file should be 0 bytes (hidden via /dev/null)
+      lines.forEach(line => {
+        const size = parseInt(line.trim().split(/\s+/)[0]);
+        expect(size).toBe(0);
+      });
+      // Verify we checked all 11 files
+      expect(lines.length).toBe(untestedPaths.length);
+    }, 120000);
+
+    test('All untested credential files are hidden at /host path (0 bytes)', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `/host${homeDir}/${p.path}`).join(' ');
+
+      const result = await runner.runWithSudo(
+        `sh -c 'for f in ${paths}; do wc -c "$f" 2>/dev/null; done' 2>&1 | grep -v "^\\["`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      const lines = result.stdout.split('\n').filter(l => l.match(/^\s*\d+/));
+      lines.forEach(line => {
+        const size = parseInt(line.trim().split(/\s+/)[0]);
+        expect(size).toBe(0);
+      });
+      expect(lines.length).toBe(untestedPaths.length);
+    }, 120000);
+
+    test('cat on each untested credential file returns empty content', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
+
+      // cat all files and concatenate output - should be empty
+      const result = await runner.runWithSudo(
+        `sh -c 'for f in ${paths}; do cat "$f" 2>/dev/null; done' 2>&1 | grep -v "^\\["`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      // All content should be empty (no credential data leaked)
+      expect(result.stdout.trim()).toBe('');
+    }, 120000);
+  });
 
   describe('Security Verification', () => {
     test('Test 12: Simulated exfiltration attack gets empty data', async () => {
