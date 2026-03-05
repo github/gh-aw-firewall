@@ -80,8 +80,7 @@
   "pkg": {
     "scripts": "dist/**/*.js",
     "assets": [
-      "node_modules/chalk/**/*",
-      "containers/agent/seccomp-profile.json"
+      "node_modules/chalk/**/*"
     ],
     "targets": [
       "node18-linux-x64",
