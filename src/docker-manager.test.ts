@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, configVolumeName } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2485,6 +2485,158 @@ describe('docker-manager', () => {
 
       // Should not throw
       await expect(cleanup(nonExistentDir, false)).resolves.not.toThrow();
+    });
+  });
+
+  describe('configVolumeName', () => {
+    it('extracts timestamp from standard workDir path', () => {
+      expect(configVolumeName('/tmp/awf-1772022652973', 'squid-config')).toBe('awf-squid-config-1772022652973');
+    });
+
+    it('works with different suffixes', () => {
+      expect(configVolumeName('/tmp/awf-123', 'squid-logs')).toBe('awf-squid-logs-123');
+      expect(configVolumeName('/tmp/awf-123', 'agent-config')).toBe('awf-agent-config-123');
+      expect(configVolumeName('/tmp/awf-123', 'agent-logs')).toBe('awf-agent-logs-123');
+    });
+
+    it('falls back to Date.now() if workDir has no awf- pattern', () => {
+      const before = Date.now();
+      const name = configVolumeName('/tmp/other-dir', 'squid-config');
+      const after = Date.now();
+
+      expect(name).toMatch(/^awf-squid-config-\d+$/);
+      const ts = parseInt(name.split('-').pop()!, 10);
+      expect(ts).toBeGreaterThanOrEqual(before);
+      expect(ts).toBeLessThanOrEqual(after);
+    });
+  });
+
+  describe('generateDockerCompose - DinD mode', () => {
+    const dindConfig: WrapperConfig = {
+      allowedDomains: ['github.com'],
+      agentCommand: 'echo "test"',
+      logLevel: 'info',
+      keepContainers: false,
+      workDir: '/tmp/awf-1234567890',
+      buildLocal: true,
+      isDinD: true,
+    };
+
+    const mockNetworkConfig = {
+      subnet: '172.30.0.0/24',
+      squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20',
+    };
+
+    beforeEach(() => {
+      fs.mkdirSync(dindConfig.workDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(dindConfig.workDir, { recursive: true, force: true });
+    });
+
+    it('should use named volume for squid config instead of bind mount', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const squidVolumes = result.services['squid-proxy'].volumes!;
+
+      expect(squidVolumes).toContainEqual('awf-squid-config-1234567890:/etc/squid:ro');
+      // Should NOT have the file bind mount
+      const hasBindMount = squidVolumes.some(
+        (v: string) => v.includes('squid.conf:/etc/squid/squid.conf')
+      );
+      expect(hasBindMount).toBe(false);
+    });
+
+    it('should use named volume for squid logs instead of bind mount', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const squidVolumes = result.services['squid-proxy'].volumes!;
+
+      expect(squidVolumes).toContainEqual('awf-squid-logs-1234567890:/var/log/squid:rw');
+      // Should NOT have the directory bind mount
+      const hasBindMount = squidVolumes.some(
+        (v: string) => v.includes('/squid-logs:/var/log/squid')
+      );
+      expect(hasBindMount).toBe(false);
+    });
+
+    it('should use named volume for agent config (hosts + seccomp)', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const agentVolumes = result.services['agent'].volumes!;
+
+      expect(agentVolumes).toContainEqual('awf-agent-config-1234567890:/awf-config:ro');
+      // Should NOT have the chroot hosts file bind mount
+      const hasHostsBindMount = agentVolumes.some(
+        (v: string) => v.includes('/host/etc/hosts:ro') && v.includes('chroot-')
+      );
+      expect(hasHostsBindMount).toBe(false);
+    });
+
+    it('should reference seccomp profile from /awf-config volume path', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const securityOpt = result.services['agent'].security_opt!;
+
+      expect(securityOpt).toContainEqual('seccomp=/awf-config/seccomp-profile.json');
+      // Should NOT reference the host filesystem path
+      const hasHostPath = securityOpt.some(
+        (s: string) => s.includes('/tmp/awf-1234567890/seccomp-profile.json')
+      );
+      expect(hasHostPath).toBe(false);
+    });
+
+    it('should use named volume for agent logs', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const agentVolumes = result.services['agent'].volumes!;
+
+      const hasNamedLogVol = agentVolumes.some(
+        (v: string) => v.startsWith('awf-agent-logs-1234567890:') && v.includes('.copilot/logs')
+      );
+      expect(hasNamedLogVol).toBe(true);
+
+      // Should NOT have the directory bind mount for agent logs
+      const hasBindMount = agentVolumes.some(
+        (v: string) => v.includes('/tmp/awf-1234567890/agent-logs:')
+      );
+      expect(hasBindMount).toBe(false);
+    });
+
+    it('should declare all named volumes as external in top-level volumes section', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+
+      expect(result.volumes).toBeDefined();
+      expect(result.volumes!['awf-squid-config-1234567890']).toEqual({ external: true });
+      expect(result.volumes!['awf-squid-logs-1234567890']).toEqual({ external: true });
+      expect(result.volumes!['awf-agent-config-1234567890']).toEqual({ external: true });
+      expect(result.volumes!['awf-agent-logs-1234567890']).toEqual({ external: true });
+    });
+
+    it('should not declare squid-ssl-db volume when SSL is not enabled', () => {
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+
+      const hasSSLVol = Object.keys(result.volumes || {}).some(k => k.includes('squid-ssl-db'));
+      expect(hasSSLVol).toBe(false);
+    });
+
+    it('should not include top-level volumes section when isDinD is false', () => {
+      const nonDindConfig = { ...dindConfig, isDinD: false };
+      const result = generateDockerCompose(nonDindConfig, mockNetworkConfig);
+
+      expect(result.volumes).toBeUndefined();
+    });
+
+    it('should still use file bind mounts when isDinD is false (no regression)', () => {
+      const nonDindConfig = { ...dindConfig, isDinD: false };
+      const result = generateDockerCompose(nonDindConfig, mockNetworkConfig);
+
+      const squidVolumes = result.services['squid-proxy'].volumes!;
+      expect(squidVolumes).toContainEqual(
+        expect.stringContaining('squid.conf:/etc/squid/squid.conf:ro')
+      );
+
+      const securityOpt = result.services['agent'].security_opt!;
+      expect(securityOpt).toContainEqual(
+        `seccomp=/tmp/awf-1234567890/seccomp-profile.json`
+      );
     });
   });
 });

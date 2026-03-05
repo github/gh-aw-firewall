@@ -11,6 +11,18 @@ import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns } from './ssl-b
 const SQUID_PORT = 3128;
 
 /**
+ * Generates a deterministic named volume name for DinD mode.
+ * Extracts the timestamp from the workDir path (e.g., /tmp/awf-1772022652973 → 1772022652973)
+ * to create unique, predictable volume names.
+ * @internal Exported for testing
+ */
+export function configVolumeName(workDir: string, suffix: string): string {
+  const match = workDir.match(/awf-(\d+)/);
+  const id = match ? match[1] : Date.now().toString();
+  return `awf-${suffix}-${id}`;
+}
+
+/**
  * Base image for the 'act' preset when building locally.
  * Uses catthehacker's GitHub Actions parity image.
  */
@@ -248,18 +260,41 @@ export function generateDockerCompose(
     ? path.join(path.dirname(config.proxyLogsDir), 'api-proxy-logs')
     : path.join(config.workDir, 'api-proxy-logs');
 
-  // Build Squid volumes list
-  const squidVolumes = [
-    `${config.workDir}/squid.conf:/etc/squid/squid.conf:ro`,
-    `${squidLogsPath}:/var/log/squid:rw`,
-  ];
+  // DinD mode flag: when true, use named volumes instead of file bind mounts
+  const isDinD = config.isDinD || false;
 
-  // Add SSL-related volumes if SSL Bump is enabled
-  if (sslConfig) {
-    squidVolumes.push(`${sslConfig.caFiles.certPath}:${sslConfig.caFiles.certPath}:ro`);
-    squidVolumes.push(`${sslConfig.caFiles.keyPath}:${sslConfig.caFiles.keyPath}:ro`);
-    // Mount SSL database at /var/spool/squid_ssl_db (Squid's expected location)
-    squidVolumes.push(`${sslConfig.sslDbPath}:/var/spool/squid_ssl_db:rw`);
+  // Build Squid volumes list
+  // In DinD mode, file bind mounts are replaced with named Docker volumes
+  // because the Docker daemon cannot see the client's filesystem.
+  const squidVolumes: string[] = [];
+
+  if (isDinD) {
+    // Named volume for squid config (squid.conf + optional SSL certs)
+    const squidConfigVol = configVolumeName(config.workDir, 'squid-config');
+    squidVolumes.push(`${squidConfigVol}:/etc/squid:ro`);
+    // Named volume for squid logs
+    const squidLogsVol = configVolumeName(config.workDir, 'squid-logs');
+    squidVolumes.push(`${squidLogsVol}:/var/log/squid:rw`);
+
+    if (sslConfig) {
+      // SSL cert/key are delivered inside the squid-config volume by createConfigVolumes()
+      // Mount SSL database as a named volume
+      const sslDbVol = configVolumeName(config.workDir, 'squid-ssl-db');
+      squidVolumes.push(`${sslDbVol}:/var/spool/squid_ssl_db:rw`);
+    }
+  } else {
+    squidVolumes.push(
+      `${config.workDir}/squid.conf:/etc/squid/squid.conf:ro`,
+      `${squidLogsPath}:/var/log/squid:rw`,
+    );
+
+    // Add SSL-related volumes if SSL Bump is enabled
+    if (sslConfig) {
+      squidVolumes.push(`${sslConfig.caFiles.certPath}:${sslConfig.caFiles.certPath}:ro`);
+      squidVolumes.push(`${sslConfig.caFiles.keyPath}:${sslConfig.caFiles.keyPath}:ro`);
+      // Mount SSL database at /var/spool/squid_ssl_db (Squid's expected location)
+      squidVolumes.push(`${sslConfig.sslDbPath}:/var/spool/squid_ssl_db:rw`);
+    }
   }
 
   // Squid service configuration
@@ -508,7 +543,9 @@ export function generateDockerCompose(
     // This prevents access to ~/.docker/, ~/.config/gh/, ~/.npmrc, etc.
     `${workspaceDir}:${workspaceDir}:rw`,
     // Mount agent logs directory to workDir for persistence
-    `${config.workDir}/agent-logs:${effectiveHome}/.copilot/logs:rw`,
+    ...(isDinD
+      ? [`${configVolumeName(config.workDir, 'agent-logs')}:${effectiveHome}/.copilot/logs:rw`]
+      : [`${config.workDir}/agent-logs:${effectiveHome}/.copilot/logs:rw`]),
   ];
 
   // Volume mounts for chroot /host to work properly with host binaries
@@ -676,7 +713,13 @@ export function generateDockerCompose(
     const chrootHostsDir = fs.mkdtempSync(path.join(config.workDir, 'chroot-'));
     const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
     fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
-    agentVolumes.push(`${chrootHostsPath}:/host/etc/hosts:ro`);
+    if (isDinD) {
+      // In DinD mode, hosts file is delivered via agent-config volume.
+      // The createConfigVolumes() function copies the hosts file into this volume.
+      agentVolumes.push(`${configVolumeName(config.workDir, 'agent-config')}:/awf-config:ro`);
+    } else {
+      agentVolumes.push(`${chrootHostsPath}:/host/etc/hosts:ro`);
+    }
 
     // SECURITY: Hide Docker socket to prevent firewall bypass via 'docker run'
     // An attacker could otherwise spawn a new container without network restrictions
@@ -882,7 +925,7 @@ export function generateDockerCompose(
     // dropped via capsh before user code runs, so user code cannot mount anything.
     security_opt: [
       'no-new-privileges:true',
-      `seccomp=${config.workDir}/seccomp-profile.json`,
+      `seccomp=${isDinD ? '/awf-config/seccomp-profile.json' : `${config.workDir}/seccomp-profile.json`}`,
       'apparmor:unconfined',
     ],
     // Resource limits to prevent DoS attacks (conservative defaults)
@@ -973,7 +1016,9 @@ export function generateDockerCompose(
       },
       volumes: [
         // Mount log directory for api-proxy logs
-        `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
+        isDinD
+          ? `${configVolumeName(config.workDir, 'api-proxy-logs')}:/var/log/api-proxy:rw`
+          : `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
       ],
       environment: {
         // Pass API keys securely to sidecar (not visible to agent)
@@ -1074,7 +1119,7 @@ export function generateDockerCompose(
     logger.info('API proxy will route through Squid to respect domain whitelisting');
   }
 
-  return {
+  const composeConfig: DockerComposeConfig = {
     services,
     networks: {
       'awf-net': {
@@ -1082,6 +1127,30 @@ export function generateDockerCompose(
       },
     },
   };
+
+  // In DinD mode, declare all named volumes as external
+  // (they are created by createConfigVolumes() before docker compose up)
+  if (isDinD) {
+    const volumes: Record<string, Record<string, unknown>> = {};
+    const volSuffixes = ['squid-config', 'squid-logs', 'agent-config', 'agent-logs'];
+
+    if (config.enableApiProxy) {
+      volSuffixes.push('api-proxy-logs');
+    }
+
+    if (sslConfig) {
+      volSuffixes.push('squid-ssl-db');
+    }
+
+    for (const suffix of volSuffixes) {
+      volumes[configVolumeName(config.workDir, suffix)] = { external: true };
+    }
+
+    composeConfig.volumes = volumes;
+    logger.debug(`DinD mode: declared ${Object.keys(volumes).length} external named volumes`);
+  }
+
+  return composeConfig;
 }
 
 /**
