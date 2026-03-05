@@ -10,6 +10,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractLastJson, extractCommandOutput } from '../fixtures/stdout-helpers';
 
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
@@ -176,10 +177,12 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    const lower = result.stdout.toLowerCase();
+    // Extract just the command output (strip Docker build noise)
+    const cmdOutput = extractCommandOutput(result.stdout);
+    const lower = cmdOutput.toLowerCase();
     expect(lower).toContain('x-request-id');
-    // The injected ID should NOT appear — proxy should have generated a UUID instead
-    expect(result.stdout).not.toContain('<script>');
+    // The injected ID should NOT appear in the actual response — proxy should have generated a UUID instead
+    expect(cmdOutput).not.toContain('<script>');
   }, 180000);
 
   test('should show active_requests gauge at 0 after request completes', async () => {
@@ -207,8 +210,9 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Parse the metrics JSON and check active_requests
-    const metricsJson = JSON.parse(result.stdout);
+    // Parse the metrics JSON (extract from stdout which may contain Docker build output)
+    const metricsJson = extractLastJson(result.stdout);
+    expect(metricsJson).not.toBeNull();
     const activeRequests = metricsJson.gauges?.active_requests || {};
     // All provider gauges should be 0 or absent
     for (const count of Object.values(activeRequests)) {
@@ -237,9 +241,11 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Histogram should have request_duration_ms entries with count > 0
-    expect(result.stdout).toContain('request_duration_ms');
-    const metricsJson = JSON.parse(result.stdout);
+    // Parse the metrics JSON (extract from stdout which may contain Docker build output)
+    const cmdOutput = extractCommandOutput(result.stdout);
+    expect(cmdOutput).toContain('request_duration_ms');
+    const metricsJson = extractLastJson(result.stdout);
+    expect(metricsJson).not.toBeNull();
     const durationHist = metricsJson.histograms?.request_duration_ms;
     expect(durationHist).toBeDefined();
     // At least one provider should have a count > 0

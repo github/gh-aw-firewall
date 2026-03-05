@@ -529,9 +529,9 @@ describe('docker-manager', () => {
       // Should NOT include blanket /:/host:rw mount
       expect(volumes).not.toContain('/:/host:rw');
 
-      // Should include custom mounts
-      expect(volumes).toContain('/workspace:/workspace:ro');
-      expect(volumes).toContain('/data:/data:rw');
+      // Should include custom mounts (prefixed with /host for chroot visibility)
+      expect(volumes).toContain('/workspace:/host/workspace:ro');
+      expect(volumes).toContain('/data:/host/data:rw');
 
       // Should still include essential mounts
       expect(volumes).toContain('/tmp:/tmp:rw');

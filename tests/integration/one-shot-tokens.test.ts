@@ -196,8 +196,11 @@ describe('One-Shot Token Protection', () => {
           timeout: 60000,
           buildLocal: true,
           env: {
-            NORMAL_VAR: 'not_a_token',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
+          },
+          // Use cliEnv to explicitly pass NORMAL_VAR to the container via -e flag
+          cliEnv: {
+            NORMAL_VAR: 'not_a_token',
           },
         }
       );
@@ -214,18 +217,19 @@ describe('One-Shot Token Protection', () => {
     test('should return cached value on subsequent getenv() calls in same process', async () => {
       // Use Python to call getenv() directly (not through shell)
       // This tests that the LD_PRELOAD library caches values for same-process reads
-      const pythonScript = `
+      // Use heredoc to avoid shell quoting issues with Python single quotes and parentheses
+      const testScript = `
+python3 << 'PYEOF'
 import os
-# First call to os.getenv calls C's getenv() - caches and clears from environ
-first = os.getenv('GITHUB_TOKEN', '')
-# Second call returns the cached value
-second = os.getenv('GITHUB_TOKEN', '')
+first = os.getenv("GITHUB_TOKEN", "")
+second = os.getenv("GITHUB_TOKEN", "")
 print(f"First: [{first}]")
 print(f"Second: [{second}]")
+PYEOF
       `.trim();
 
       const result = await runner.runWithSudo(
-        `python3 -c '${pythonScript}'`,
+        testScript,
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
@@ -248,27 +252,24 @@ print(f"Second: [{second}]")
     test('should clear token from /proc/self/environ while caching for getenv()', async () => {
       // Verify that the token is removed from the environ array
       // but still accessible via getenv() (from cache)
-      const pythonScript = `
+      // Use heredoc to avoid shell quoting issues with Python single quotes and parentheses
+      const testScript = `
+python3 << 'PYEOF'
 import os
 import ctypes
 
-# First access caches and clears from environ
-first = os.getenv('GITHUB_TOKEN', '')
-
-# Check if token is still in os.environ (reflects C environ array)
-# After unsetenv, it should be gone from the environ array
-in_environ = 'GITHUB_TOKEN' in os.environ
-
-# But getenv() should still return cached value
-second = os.getenv('GITHUB_TOKEN', '')
+first = os.getenv("GITHUB_TOKEN", "")
+in_environ = "GITHUB_TOKEN" in os.environ
+second = os.getenv("GITHUB_TOKEN", "")
 
 print(f"First getenv: [{first}]")
 print(f"In os.environ: [{in_environ}]")
 print(f"Second getenv: [{second}]")
+PYEOF
       `.trim();
 
       const result = await runner.runWithSudo(
-        `python3 -c '${pythonScript}'`,
+        testScript,
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
@@ -350,16 +351,19 @@ print(f"Second getenv: [{second}]")
     }, 120000);
 
     test('should return cached value on subsequent getenv() in chroot mode', async () => {
-      const pythonScript = `
+      // Use heredoc to avoid shell quoting issues with Python single quotes
+      const testScript = `
+python3 << 'PYEOF'
 import os
-first = os.getenv('GITHUB_TOKEN', '')
-second = os.getenv('GITHUB_TOKEN', '')
+first = os.getenv("GITHUB_TOKEN", "")
+second = os.getenv("GITHUB_TOKEN", "")
 print(f"First: [{first}]")
 print(f"Second: [{second}]")
+PYEOF
       `.trim();
 
       const result = await runner.runWithSudo(
-        `python3 -c '${pythonScript}'`,
+        testScript,
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
@@ -396,8 +400,11 @@ print(f"Second: [{second}]")
           timeout: 60000,
           buildLocal: true,
           env: {
-            NORMAL_VAR: 'chroot_not_a_token',
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
+          },
+          // Use cliEnv to explicitly pass NORMAL_VAR to the container via -e flag
+          cliEnv: {
+            NORMAL_VAR: 'chroot_not_a_token',
           },
         }
       );

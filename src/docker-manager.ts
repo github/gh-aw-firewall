@@ -440,13 +440,20 @@ export function generateDockerCompose(
     if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
     if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    // COPILOT_GITHUB_TOKEN is handled separately - gets placeholder when api-proxy enabled
+    // COPILOT_GITHUB_TOKEN — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
+    // it gets a placeholder value set earlier (line ~362) for credential isolation
+    if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
     if (process.env.USER) environment.USER = process.env.USER;
     if (process.env.TERM) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
     // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
     if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
     if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
+  }
+
+  // Forward one-shot-token debug flag if set (used for testing/debugging)
+  if (process.env.AWF_ONE_SHOT_TOKEN_DEBUG) {
+    environment.AWF_ONE_SHOT_TOKEN_DEBUG = process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
   }
 
   // Additional environment variables from --env flags (these override everything)
@@ -741,10 +748,29 @@ export function generateDockerCompose(
   // ================================================================
 
   // Add custom volume mounts if specified
+  // In chroot mode (always enabled), the container does `chroot /host`, so paths
+  // like /data become invisible. We need to prefix the container path with /host
+  // so that after chroot, /host/data becomes /data from the user's perspective.
   if (config.volumeMounts && config.volumeMounts.length > 0) {
     logger.debug(`Adding ${config.volumeMounts.length} custom volume mount(s)`);
     config.volumeMounts.forEach(mount => {
-      agentVolumes.push(mount);
+      // Parse mount format: host_path:container_path[:mode]
+      const parts = mount.split(':');
+      if (parts.length >= 2) {
+        const hostPath = parts[0];
+        const containerPath = parts[1];
+        const mode = parts[2] || '';
+        // Prefix container path with /host for chroot visibility
+        const chrootContainerPath = `/host${containerPath}`;
+        const transformedMount = mode
+          ? `${hostPath}:${chrootContainerPath}:${mode}`
+          : `${hostPath}:${chrootContainerPath}`;
+        logger.debug(`Adding custom volume mount: ${mount} -> ${transformedMount} (chroot-adjusted)`);
+        agentVolumes.push(transformedMount);
+      } else {
+        // Fallback: add as-is if format is unexpected
+        agentVolumes.push(mount);
+      }
     });
   }
 
