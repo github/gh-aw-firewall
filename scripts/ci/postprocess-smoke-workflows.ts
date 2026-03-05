@@ -152,6 +152,15 @@ for (const workflowPath of workflowPaths) {
     );
   }
 
+  // Inject --skip-cleanup after 'sudo -E awf' to skip cleanup in CI (saves ~10s)
+  const skipCleanupRegex = /sudo -E awf(?! .*--skip-cleanup)/g;
+  const skipCleanupMatches = content.match(skipCleanupRegex);
+  if (skipCleanupMatches) {
+    content = content.replace(skipCleanupRegex, 'sudo -E awf --skip-cleanup');
+    modified = true;
+    console.log(`  Injected --skip-cleanup into ${skipCleanupMatches.length} awf invocation(s)`);
+  }
+
   if (modified) {
     fs.writeFileSync(workflowPath, content);
     console.log(`Updated ${workflowPath}`);
