@@ -177,12 +177,10 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Extract just the command output (strip Docker build noise)
-    const cmdOutput = extractCommandOutput(result.stdout);
-    const lower = cmdOutput.toLowerCase();
-    expect(lower).toContain('x-request-id');
-    // The injected ID should NOT appear in the actual response — proxy should have generated a UUID instead
-    expect(cmdOutput).not.toContain('<script>');
+    // The proxy should reject the invalid X-Request-ID and generate a UUID instead.
+    // Look for a UUID pattern in the x-request-id response header.
+    const uuidPattern = /x-request-id:\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    expect(result.stdout.toLowerCase()).toMatch(uuidPattern);
   }, 180000);
 
   test('should show active_requests gauge at 0 after request completes', async () => {
