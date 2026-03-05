@@ -494,6 +494,20 @@ export interface WrapperConfig {
    * ```
    */
   copilotApiTarget?: string;
+
+  /**
+   * Whether the Docker daemon is running in a Docker-in-Docker (DinD) environment
+   *
+   * When true, file bind mounts are replaced with named Docker volumes because
+   * the Docker daemon cannot see the client's filesystem. Config files are
+   * delivered via `docker volume create` + `docker cp`, and logs are retrieved
+   * from named volumes after container execution.
+   *
+   * Automatically detected by the DinD detection module.
+   *
+   * @default false
+   */
+  isDinD?: boolean;
 }
 
 /**
