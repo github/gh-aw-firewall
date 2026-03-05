@@ -549,6 +549,35 @@ describe('docker-manager', () => {
       expect(volumes.some((v: string) => v.includes('/dev/null'))).toBe(true);
     });
 
+    it('should handle malformed volume mount without colon as fallback', () => {
+      const configWithBadMount = {
+        ...mockConfig,
+        volumeMounts: ['no-colon-here']
+      };
+      const result = generateDockerCompose(configWithBadMount, mockNetworkConfig);
+      const agent = result.services.agent;
+      const volumes = agent.volumes as string[];
+      // Malformed mount should be added as-is (fallback)
+      expect(volumes).toContain('no-colon-here');
+    });
+
+    it('should forward COPILOT_GITHUB_TOKEN when api-proxy is disabled', () => {
+      process.env.COPILOT_GITHUB_TOKEN = 'ghp_test_token';
+      const configNoProxy = { ...mockConfig, enableApiProxy: false };
+      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghp_test_token');
+      delete process.env.COPILOT_GITHUB_TOKEN;
+    });
+
+    it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
+      process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.AWF_ONE_SHOT_TOKEN_DEBUG).toBe('1');
+      delete process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
+    });
+
 
 
     it('should use selective mounts by default', () => {
