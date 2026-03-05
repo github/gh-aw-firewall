@@ -6,7 +6,7 @@ import execa from 'execa';
 import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from './types';
 import { logger } from './logger';
 import { generateSquidConfig } from './squid-config';
-import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns } from './ssl-bump';
+import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 
 const SQUID_PORT = 3128;
 
@@ -1616,6 +1616,15 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             logger.debug('Could not preserve squid logs:', error);
           }
         }
+      }
+
+      // Securely wipe SSL key material before deleting workDir
+      cleanupSslKeyMaterial(workDir);
+
+      // Unmount tmpfs if it was used for SSL keys (data destroyed on unmount)
+      const sslDir = path.join(workDir, 'ssl');
+      if (fs.existsSync(sslDir)) {
+        await unmountSslTmpfs(sslDir);
       }
 
       // Clean up workDir
