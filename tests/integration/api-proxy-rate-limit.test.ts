@@ -89,18 +89,13 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include Retry-After header in 429 response', async () => {
-    // Set RPM=1, make 2 requests quickly — second should get 429 with Retry-After
-    // Use -D /dev/stderr to dump headers to stderr (more reliable than -i with Docker build noise)
-    // Also capture the response body which should contain rate_limit_error with retry_after
     const script = [
-      // First request consumes the limit
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Second request should be rate limited — capture body (which has retry_after field)
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}'`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -121,15 +116,13 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include X-RateLimit headers in 429 response', async () => {
-    // Set low RPM to guarantee 429, then check for rate limit info in response body
-    // Note: curl -i headers get mixed with Docker build output, so we check the JSON body instead
     const script = [
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}'`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -184,16 +177,13 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should respect custom RPM limit shown in /health', async () => {
-    // Set a custom RPM and verify it appears in the health endpoint rate_limits
     const script = [
-      // Make one request to create provider state in the limiter
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Check health for rate limit config
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/health`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -218,18 +208,15 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should show rate limit metrics in /metrics after rate limiting occurs', async () => {
-    // Trigger rate limiting, then check /metrics for rate_limit_rejected_total
     const script = [
-      // Make 3 rapid requests with RPM=1 to trigger at least one 429
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d '{"model":"test"}' > /dev/null`,
-      // Check metrics
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
