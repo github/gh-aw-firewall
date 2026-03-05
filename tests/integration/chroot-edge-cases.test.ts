@@ -169,6 +169,69 @@ describe('Chroot Edge Cases', () => {
     });
   });
 
+  // ---------- Batch: Container escape vector tests ----------
+  describe('Container Escape Prevention (batched)', () => {
+    let batch: BatchResults;
+
+    beforeAll(async () => {
+      batch = await runBatch(runner, [
+        // pivot_root - blocked in seccomp profile
+        { name: 'pivot_root', command: 'mkdir -p /tmp/newroot /tmp/putold && pivot_root /tmp/newroot /tmp/putold 2>&1 || unshare --mount pivot_root /tmp/newroot /tmp/putold 2>&1' },
+        // mount after capability drop - mount syscall allowed in seccomp but CAP_SYS_ADMIN should be dropped
+        { name: 'mount_tmpfs', command: 'mount -t tmpfs tmpfs /tmp/test-mount-$$ 2>&1' },
+        // unshare namespace creation - requires CAP_SYS_ADMIN
+        { name: 'unshare_mount', command: 'unshare --mount /bin/true 2>&1' },
+        // nsenter - requires CAP_SYS_ADMIN
+        { name: 'nsenter', command: 'nsenter --mount --target 1 /bin/true 2>&1' },
+        // umount - blocked in seccomp profile
+        { name: 'umount', command: 'umount /tmp 2>&1' },
+        // setuid escalation - no-new-privileges should prevent
+        { name: 'no_new_privs', command: 'cat /proc/self/status | grep NoNewPrivs 2>&1' },
+      ], {
+        allowDomains: ['localhost'],
+        logLevel: 'debug',
+        timeout: 120000,
+      });
+    }, 180000);
+
+    test('should block pivot_root syscall', () => {
+      const r = batch.get('pivot_root');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stdout).toMatch(/operation not permitted|permission denied|invalid argument|no such file/i);
+    });
+
+    test('should block mount after capability drop', () => {
+      const r = batch.get('mount_tmpfs');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stdout).toMatch(/operation not permitted|permission denied/i);
+    });
+
+    test('should block unshare namespace creation', () => {
+      const r = batch.get('unshare_mount');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stdout).toMatch(/operation not permitted|permission denied|cannot change root/i);
+    });
+
+    test('should block nsenter', () => {
+      const r = batch.get('nsenter');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stdout).toMatch(/operation not permitted|permission denied|no such file/i);
+    });
+
+    test('should block umount/umount2', () => {
+      const r = batch.get('umount');
+      expect(r.exitCode).not.toBe(0);
+      expect(r.stdout).toMatch(/operation not permitted|permission denied|not permitted/i);
+    });
+
+    test('should have no-new-privileges set', () => {
+      const r = batch.get('no_new_privs');
+      expect(r.exitCode).toBe(0);
+      // NoNewPrivs: 1 means no-new-privileges is enforced
+      expect(r.stdout).toMatch(/NoNewPrivs:\s*1/);
+    });
+  });
+
   // ---------- Individual: Working directory tests (different containerWorkDir options) ----------
   describe('Working Directory Handling', () => {
     test('should respect container-workdir in chroot mode', async () => {
