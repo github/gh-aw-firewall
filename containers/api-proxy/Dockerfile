@@ -30,6 +30,6 @@ USER apiproxy
 # 10004 - OpenCode API proxy (routes to Anthropic)
 EXPOSE 10000 10001 10002 10004
 
-# Redirect stdout/stderr to log file for persistence
-# Use shell form to enable redirection and tee for both file and console
-CMD node server.js 2>&1 | tee -a /var/log/api-proxy/api-proxy.log
+# Use exec form so Node.js is PID 1 and receives SIGTERM directly
+# Docker captures stdout/stderr automatically, no need for manual log redirection
+CMD ["node", "server.js"]

@@ -132,6 +132,23 @@ export interface WrapperConfig {
   keepContainers: boolean;
 
   /**
+   * Whether to skip cleanup when the process exits
+   *
+   * When true:
+   * - Containers are not stopped (left running or stopped by Docker daemon)
+   * - Host iptables rules are not cleaned up
+   * - Work directory is not deleted
+   * - Useful in CI environments where the runner will terminate anyway,
+   *   saving ~10 seconds of shutdown time
+   *
+   * This is a stronger version of keepContainers that also skips all cleanup
+   * operations, not just container removal.
+   *
+   * @default false
+   */
+  skipCleanup?: boolean;
+
+  /**
    * Whether to allocate a pseudo-TTY for the agent execution container
    *
    * When true:
