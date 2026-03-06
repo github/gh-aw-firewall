@@ -101,6 +101,41 @@ sudo awf --enable-api-proxy \
   -- your-multi-llm-tool
 ```
 
+### GitHub Enterprise Cloud (*.ghe.com) configuration
+
+For GitHub Enterprise Cloud with data residency (e.g., `mycompany.ghe.com`), the API proxy automatically derives the correct Copilot API endpoint:
+
+```bash
+export COPILOT_GITHUB_TOKEN="your-token"
+export GITHUB_SERVER_URL="https://mycompany.ghe.com"
+
+sudo -E awf --enable-api-proxy \
+  --allow-domains '*.mycompany.ghe.com' \
+  -- npx @github/copilot --prompt "your prompt"
+```
+
+**How it works:**
+- The api-proxy reads `GITHUB_SERVER_URL` and extracts the subdomain
+- For `*.ghe.com` domains, it automatically routes to `api.SUBDOMAIN.ghe.com`
+- Example: `mycompany.ghe.com` → `api.mycompany.ghe.com`
+- For other enterprise hosts (GHES), it routes to `api.enterprise.githubcopilot.com`
+
+**Domain matching:**
+- `*.mycompany.ghe.com` matches all subdomains (e.g., `api.mycompany.ghe.com`, `github.mycompany.ghe.com`)
+- Add additional domains only if your workflow needs to access other services (e.g., `mycompany.ghe.com` for the base domain)
+
+**Important:** Use `sudo -E` to preserve the `GITHUB_SERVER_URL` environment variable when running awf.
+
+You can also explicitly set the Copilot API target:
+
+```bash
+export COPILOT_API_TARGET="api.mycompany.ghe.com"
+sudo -E awf --enable-api-proxy \
+  --copilot-api-target api.mycompany.ghe.com \
+  --allow-domains '*.mycompany.ghe.com' \
+  -- npx @github/copilot --prompt "your prompt"
+```
+
 ## Environment variables
 
 AWF manages environment variables differently across the three containers (squid, api-proxy, agent) to ensure secure credential isolation.
@@ -123,6 +158,8 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `OPENAI_API_KEY` | Real API key | `--enable-api-proxy` and env set | OpenAI API key (injected into requests) |
 | `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
 | `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token (injected into requests) |
+| `COPILOT_API_TARGET` | Target hostname | `--copilot-api-target` flag or host env `COPILOT_API_TARGET` | Override Copilot API endpoint (default: auto-derived) |
+| `GITHUB_SERVER_URL` | GitHub server URL | Passed from host env | Auto-derives Copilot API endpoint for enterprise (*.ghe.com → api.SUBDOMAIN.ghe.com) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 

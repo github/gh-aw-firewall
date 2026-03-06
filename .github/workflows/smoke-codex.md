@@ -72,6 +72,8 @@ post-steps:
       echo "Safe output validation passed"
 ---
 
+> **⚡ EXECUTE NOW:** Run all steps 1–8 below and call `add_comment` on this pull request with results. This is a mandatory smoke test execution—not documentation to read.
+
 # Smoke Test: Codex Engine Validation
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
