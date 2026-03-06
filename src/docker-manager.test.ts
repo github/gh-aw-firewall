@@ -477,10 +477,27 @@ describe('docker-manager', () => {
       const squid = result.services['squid-proxy'];
 
       expect(squid.container_name).toBe('awf-squid');
-      expect(squid.volumes).toContain('/tmp/awf-test/squid.conf:/etc/squid/squid.conf:ro');
+      // squid.conf is NOT bind-mounted; it's injected via AWF_SQUID_CONFIG_B64 env var
+      expect(squid.volumes).not.toContainEqual(expect.stringContaining('squid.conf'));
       expect(squid.volumes).toContain('/tmp/awf-test/squid-logs:/var/log/squid:rw');
       expect(squid.healthcheck).toBeDefined();
       expect(squid.ports).toContain('3128:3128');
+    });
+
+    it('should inject squid config via base64 env var when content is provided', () => {
+      const squidConfig = 'http_port 3128\nacl allowed_domains dstdomain .github.com\n';
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, squidConfig);
+      const squid = result.services['squid-proxy'] as any;
+
+      // Should have AWF_SQUID_CONFIG_B64 env var with base64-encoded config
+      expect(squid.environment.AWF_SQUID_CONFIG_B64).toBe(
+        Buffer.from(squidConfig).toString('base64')
+      );
+
+      // Should override entrypoint to decode config before starting squid
+      expect(squid.entrypoint).toBeDefined();
+      expect(squid.entrypoint[2]).toContain('base64 -d > /etc/squid/squid.conf');
+      expect(squid.entrypoint[2]).toContain('entrypoint.sh');
     });
 
     it('should configure agent container with proxy settings', () => {
@@ -2123,7 +2140,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2136,7 +2153,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2149,7 +2166,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d', '--pull', 'never'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2162,7 +2179,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
@@ -2217,7 +2234,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v'],
-        { cwd: testDir, stdio: 'inherit' }
+        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });
 
