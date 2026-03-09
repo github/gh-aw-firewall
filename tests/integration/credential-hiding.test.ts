@@ -20,6 +20,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractCommandOutput } from '../fixtures/stdout-helpers';
 import * as fs from 'fs';
 import * as os from 'os';
 
@@ -55,7 +56,8 @@ describe('Credential Hiding Security', () => {
       // Command should succeed (file is "readable" but empty)
       expect(result).toSucceed();
       // Output should be empty (no credential data leaked)
-      const output = result.stdout.trim();
+      // Use extractCommandOutput to strip entrypoint/iptables setup noise from stdout
+      const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
 
@@ -73,7 +75,7 @@ describe('Credential Hiding Security', () => {
       );
 
       expect(result).toSucceed();
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       // Should be empty (no oauth_token visible)
       expect(output).not.toContain('oauth_token');
       expect(output).not.toContain('gho_');
@@ -93,7 +95,7 @@ describe('Credential Hiding Security', () => {
       );
 
       expect(result).toSucceed();
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       // Should not contain auth tokens
       expect(output).not.toContain('_authToken');
       expect(output).not.toContain('npm_');
@@ -114,7 +116,8 @@ describe('Credential Hiding Security', () => {
 
       expect(result).toSucceed();
       // All files should show 0 bytes (empty, from /dev/null)
-      const lines = result.stdout.split('\n').filter(l => l.match(/^\s*\d+/));
+      const cleanOutput = extractCommandOutput(result.stdout);
+      const lines = cleanOutput.split('\n').filter(l => l.match(/^\s*\d+/));
       lines.forEach(line => {
         const size = parseInt(line.trim().split(/\s+/)[0]);
         expect(size).toBe(0); // Each file should be 0 bytes
@@ -153,12 +156,13 @@ describe('Credential Hiding Security', () => {
 
       // May succeed with empty content or fail with "No such file" (both indicate hiding)
       if (result.success) {
-        const output = result.stdout.trim();
+        const output = extractCommandOutput(result.stdout).trim();
         // Should be empty (no credential data)
         expect(output).toBe('');
       } else {
         // File not found is also acceptable (credential is hidden)
-        expect(result.stderr).toMatch(/No such file|cannot access/i);
+        const allOutput = `${result.stdout}\n${result.stderr}`;
+        expect(allOutput).toMatch(/No such file|cannot access/i);
       }
     }, 120000);
 
@@ -173,8 +177,9 @@ describe('Credential Hiding Security', () => {
       );
 
       expect(result).toSucceed();
-      // Check debug logs for chroot credential hiding messages
-      expect(result.stderr).toMatch(/Chroot mode.*[Hh]iding credential|Hidden.*credential.*chroot/i);
+      // Check debug logs for credential hiding at /host paths (chroot mode)
+      // AWF CLI logs these messages to stderr
+      expect(result.stderr).toMatch(/Hiding credential files at \/host|Hidden.*credential.*\/host/i);
     }, 120000);
 
     test('Test 8: Chroot mode ALSO hides credentials at direct home path (bypass prevention)', async () => {
@@ -201,7 +206,7 @@ describe('Credential Hiding Security', () => {
       // Command should succeed (file is "readable" but empty)
       expect(result).toSucceed();
       // Output should be empty (no credential data leaked via direct home mount)
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
 
@@ -222,7 +227,7 @@ describe('Credential Hiding Security', () => {
 
       expect(result).toSucceed();
       // Output should be empty (no credential data leaked via direct home mount)
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
   });
@@ -247,7 +252,7 @@ describe('Credential Hiding Security', () => {
       expect(result).toSucceed();
       // Attack succeeds but gets empty content (credential is hidden)
       // Base64 of empty string is empty
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
 
@@ -268,7 +273,7 @@ describe('Credential Hiding Security', () => {
 
       expect(result).toSucceed();
       // Even with multiple encoding, attacker gets empty data
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
 
@@ -287,7 +292,7 @@ describe('Credential Hiding Security', () => {
 
       // grep exits with code 1 when no matches found, which is expected
       // But the files are readable (no permission errors)
-      const output = result.stdout.trim();
+      const output = extractCommandOutput(result.stdout).trim();
       // Should not find any auth tokens
       expect(output).not.toContain('oauth_token');
       expect(output).not.toContain('_authToken');

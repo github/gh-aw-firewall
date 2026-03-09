@@ -13,6 +13,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractCommandOutput } from '../fixtures/stdout-helpers';
 
 describe('Environment Variable Handling', () => {
   let runner: AwfRunner;
@@ -33,7 +34,8 @@ describe('Environment Variable Handling', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
-        env: {
+        // Use cliEnv to pass vars via AWF's -e flag into the container
+        cliEnv: {
           TEST_VAR: 'hello_world',
         },
       }
@@ -50,7 +52,7 @@ describe('Environment Variable Handling', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
-        env: {
+        cliEnv: {
           VAR1: 'one',
           VAR2: 'two',
           VAR3: 'three',
@@ -71,7 +73,7 @@ describe('Environment Variable Handling', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
-        env: {
+        cliEnv: {
           SPECIAL_VAR: 'value with spaces',
         },
       }
@@ -88,7 +90,7 @@ describe('Environment Variable Handling', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
-        env: {
+        cliEnv: {
           EMPTY_VAR: '',
         },
       }
@@ -150,7 +152,7 @@ describe('Environment Variable Handling', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
-        env: {
+        cliEnv: {
           NUM_VAR: '12345',
         },
       }
@@ -274,10 +276,12 @@ describe('Environment Variable Handling', () => {
       );
 
       expect(result).toSucceed();
+      // Use extractCommandOutput to get clean command output (strip entrypoint noise)
+      const cleanOutput = extractCommandOutput(result.stdout);
       // Container PATH should include its own default entries
-      expect(result.stdout).toContain('/usr/local/bin');
+      expect(cleanOutput).toContain('/usr/local/bin');
       // Host PATH sentinel must NOT leak into the container
-      expect(result.stdout).not.toContain(sentinel);
+      expect(cleanOutput).not.toContain(sentinel);
     }, 120000);
   });
 });

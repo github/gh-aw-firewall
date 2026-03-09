@@ -79,7 +79,8 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('First read: [ghp_test_token_12345]');
       expect(result.stdout).toContain('Second read: [ghp_test_token_12345]');
       // Verify the one-shot-token library logged the token access with value preview
-      expect(result.stderr).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
+      // Container stderr (where the C library writes) is captured via docker logs in result.stdout
+      expect(result.stdout).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
     }, 120000);
 
     test('should cache COPILOT_GITHUB_TOKEN and clear from environment', async () => {
@@ -107,7 +108,7 @@ describe('One-Shot Token Protection', () => {
       expect(result).toSucceed();
       expect(result.stdout).toContain('First read: [copilot_test_token_67890]');
       expect(result.stdout).toContain('Second read: [copilot_test_token_67890]');
-      expect(result.stderr).toContain('[one-shot-token] Token COPILOT_GITHUB_TOKEN accessed and cached (value: copi...)');
+      expect(result.stdout).toContain('[one-shot-token] Token COPILOT_GITHUB_TOKEN accessed and cached (value: copi...)');
     }, 120000);
 
     test('should cache OPENAI_API_KEY and clear from environment', async () => {
@@ -135,7 +136,7 @@ describe('One-Shot Token Protection', () => {
       expect(result).toSucceed();
       expect(result.stdout).toContain('First read: [sk-test-openai-key]');
       expect(result.stdout).toContain('Second read: [sk-test-openai-key]');
-      expect(result.stderr).toContain('[one-shot-token] Token OPENAI_API_KEY accessed and cached (value: sk-t...)');
+      expect(result.stdout).toContain('[one-shot-token] Token OPENAI_API_KEY accessed and cached (value: sk-t...)');
     }, 120000);
 
     test('should handle multiple different tokens independently', async () => {
@@ -211,7 +212,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('Second: [not_a_token]');
       expect(result.stdout).toContain('Third: [not_a_token]');
       // No one-shot-token log message for non-sensitive vars
-      expect(result.stderr).not.toContain('[one-shot-token] Token NORMAL_VAR');
+      expect(result.stdout).not.toContain('[one-shot-token] Token NORMAL_VAR');
     }, 120000);
 
     test('should return cached value on subsequent getenv() calls in same process', async () => {
@@ -246,7 +247,7 @@ PYEOF
       // Both reads should succeed (second read returns cached value)
       expect(result.stdout).toContain('First: [ghp_python_test_token]');
       expect(result.stdout).toContain('Second: [ghp_python_test_token]');
-      expect(result.stderr).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
+      expect(result.stdout).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
     }, 120000);
 
     test('should clear token from /proc/self/environ while caching for getenv()', async () => {
@@ -316,10 +317,10 @@ PYEOF
       expect(result).toSucceed();
       expect(result.stdout).toContain('First read: [ghp_chroot_token_12345]');
       expect(result.stdout).toContain('Second read: [ghp_chroot_token_12345]');
-      // Verify the library was copied to the chroot
-      expect(result.stderr).toContain('One-shot token library copied to chroot');
+      // Verify the library was copied to the chroot (entrypoint output is in stdout via docker logs)
+      expect(result.stdout).toContain('One-shot token library copied to chroot');
       // Verify the one-shot-token library logged the token access with value preview
-      expect(result.stderr).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
+      expect(result.stdout).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
     }, 120000);
 
     test('should cache COPILOT_GITHUB_TOKEN in chroot mode', async () => {
@@ -347,7 +348,7 @@ PYEOF
       expect(result).toSucceed();
       expect(result.stdout).toContain('First read: [copilot_chroot_token_67890]');
       expect(result.stdout).toContain('Second read: [copilot_chroot_token_67890]');
-      expect(result.stderr).toContain('[one-shot-token] Token COPILOT_GITHUB_TOKEN accessed and cached (value: copi...)');
+      expect(result.stdout).toContain('[one-shot-token] Token COPILOT_GITHUB_TOKEN accessed and cached (value: copi...)');
     }, 120000);
 
     test('should return cached value on subsequent getenv() in chroot mode', async () => {
@@ -379,7 +380,7 @@ PYEOF
       expect(result).toSucceed();
       expect(result.stdout).toContain('First: [ghp_chroot_python_token]');
       expect(result.stdout).toContain('Second: [ghp_chroot_python_token]');
-      expect(result.stderr).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
+      expect(result.stdout).toContain('[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: ghp_...)');
     }, 120000);
 
     test('should not interfere with non-sensitive variables in chroot mode', async () => {
@@ -413,7 +414,7 @@ PYEOF
       expect(result.stdout).toContain('First: [chroot_not_a_token]');
       expect(result.stdout).toContain('Second: [chroot_not_a_token]');
       expect(result.stdout).toContain('Third: [chroot_not_a_token]');
-      expect(result.stderr).not.toContain('[one-shot-token] Token NORMAL_VAR');
+      expect(result.stdout).not.toContain('[one-shot-token] Token NORMAL_VAR');
     }, 120000);
 
     test('should handle multiple different tokens independently in chroot mode', async () => {

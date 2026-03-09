@@ -46,6 +46,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 30000,
+      buildLocal: true, // Build from source to ensure docker-cli is removed (PR #205)
     });
 
     // Should fail because docker-cli is not installed
@@ -58,6 +59,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 30000,
+      buildLocal: true,
     });
 
     // Should fail because docker command doesn't exist
@@ -72,6 +74,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 30000,
+      buildLocal: true,
     });
 
     // Should fail because docker-compose is not installed
@@ -86,6 +89,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 30000,
+        buildLocal: true,
       }
     );
 

@@ -12,6 +12,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractCommandOutput } from '../fixtures/stdout-helpers';
 
 describe('Container Working Directory', () => {
   let runner: AwfRunner;
@@ -27,7 +28,7 @@ describe('Container Working Directory', () => {
     await cleanup(false);
   });
 
-  test('should use default working directory /workspace when --container-workdir not specified', async () => {
+  test('should use default working directory (user home in chroot mode)', async () => {
     const result = await runner.runWithSudo('pwd', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
@@ -35,8 +36,11 @@ describe('Container Working Directory', () => {
     });
 
     expect(result).toSucceed();
-    // Default WORKDIR in Dockerfile is /workspace
-    expect(result.stdout.trim()).toContain('/workspace');
+    // In chroot mode (always enabled), default working directory is the user's home
+    // (e.g., /home/runner on CI, /root locally). The Dockerfile's WORKDIR /workspace
+    // doesn't apply after chroot into /host.
+    const cleanOutput = extractCommandOutput(result.stdout).trim();
+    expect(cleanOutput).toMatch(/\/home\/|\/root/);
   }, 120000);
 
   test('should use custom working directory when --container-workdir is specified', async () => {

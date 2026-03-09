@@ -60,28 +60,39 @@ export function extractLastJson(output: string): any | null {
 export function extractCommandOutput(output: string): string {
   const lines = output.split('\n');
 
-  // Find the last line that looks like Docker build output
-  let lastBuildLine = -1;
+  // Find the last line that looks like Docker build output or container setup noise.
+  // Container setup noise includes entrypoint messages, iptables setup, health checks,
+  // and iptables rule dump lines that appear before the actual user command output.
+  let lastNoiseLine = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (
-      line.startsWith('#') && /^#\d+/.test(line) || // Docker buildkit steps
-      line.startsWith('=>') || // Docker buildkit arrows
+      // Docker buildkit output
+      (line.startsWith('#') && /^#\d+/.test(line)) ||
+      line.startsWith('=>') ||
       line.startsWith('DONE') ||
       line.startsWith('CACHED') ||
-      line.match(/^\[[\d/]+\]/) || // Docker build step progress
+      line.match(/^\[[\d/]+\]/) ||
       line.startsWith('Sending build context') ||
       line.startsWith('Successfully built') ||
-      line.startsWith('Successfully tagged')
+      line.startsWith('Successfully tagged') ||
+      // Container entrypoint/setup messages
+      line.startsWith('[entrypoint]') ||
+      line.startsWith('[iptables]') ||
+      line.startsWith('[health-check]') ||
+      // iptables table dump lines (Chain, pkts/bytes header, rule lines)
+      line.startsWith('Chain ') ||
+      line.match(/^\s*pkts\s+bytes\s+target/) ||
+      line.match(/^\s*\d+\s+\d+\s+(RETURN|DNAT|DROP|ACCEPT|REJECT|LOG)\b/)
     ) {
-      lastBuildLine = i;
+      lastNoiseLine = i;
     }
   }
 
-  if (lastBuildLine === -1) {
-    return output; // No Docker build output detected
+  if (lastNoiseLine === -1) {
+    return output; // No noise detected
   }
 
-  // Return everything after the last build line
-  return lines.slice(lastBuildLine + 1).join('\n').trim();
+  // Return everything after the last noise line
+  return lines.slice(lastNoiseLine + 1).join('\n').trim();
 }
