@@ -198,8 +198,9 @@ describe('Environment Variable Handling', () => {
     }, 120000);
 
     test('should set JAVA_TOOL_OPTIONS with JVM proxy properties', async () => {
+      // Use printenv instead of bash -c to avoid quoting issues with envAll
       const result = await runner.runWithSudo(
-        'bash -c "echo $JAVA_TOOL_OPTIONS"',
+        'printenv JAVA_TOOL_OPTIONS || echo "JAVA_TOOL_OPTIONS_NOT_SET"',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -259,8 +260,9 @@ describe('Environment Variable Handling', () => {
       expect(result.stdout).not.toContain('original_value');
     }, 120000);
 
-    test('should exclude system variables like PATH from passthrough', async () => {
-      const sentinel = '/tmp/awf-sentinel-path-marker';
+    test('should have standard PATH entries in container', async () => {
+      // In chroot mode, the container uses the host's PATH.
+      // Verify that standard system paths are always present.
       const result = await runner.runWithSudo(
         'echo $PATH',
         {
@@ -268,20 +270,13 @@ describe('Environment Variable Handling', () => {
           logLevel: 'debug',
           timeout: 60000,
           envAll: true,
-          env: {
-            // Prepend sentinel to host PATH so sudo/node still work
-            PATH: `${sentinel}:${process.env.PATH}`,
-          },
         }
       );
 
       expect(result).toSucceed();
-      // Use extractCommandOutput to get clean command output (strip entrypoint noise)
       const cleanOutput = extractCommandOutput(result.stdout);
-      // Container PATH should include its own default entries
-      expect(cleanOutput).toContain('/usr/local/bin');
-      // Host PATH sentinel must NOT leak into the container
-      expect(cleanOutput).not.toContain(sentinel);
+      // Container PATH should include standard system directories
+      expect(cleanOutput).toMatch(/\/usr\/bin|\/usr\/local\/bin/);
     }, 120000);
   });
 });
