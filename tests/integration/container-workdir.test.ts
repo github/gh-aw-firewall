@@ -2,7 +2,7 @@
  * Container Working Directory Tests
  *
  * These tests verify the --container-workdir CLI option:
- * - Default working directory is /workspace
+ * - Default working directory is user's home (chroot mode uses host $HOME)
  * - Custom working directory can be set via CLI
  * - Commands execute from the specified working directory
  */
