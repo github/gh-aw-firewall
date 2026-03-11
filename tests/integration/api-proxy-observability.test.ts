@@ -10,6 +10,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractLastJson, extractCommandOutput } from '../fixtures/stdout-helpers';
 
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
@@ -132,7 +133,7 @@ describe('API Proxy Observability', () => {
   test('should return X-Request-ID header in proxy responses', async () => {
     // Make a request to the Anthropic proxy and check for x-request-id in response headers
     const result = await runner.runWithSudo(
-      `bash -c "curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{\"model\":\"test\"}'"`,
+      `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -154,13 +155,13 @@ describe('API Proxy Observability', () => {
     // Make a request to the Anthropic proxy, then check /metrics for non-zero counts
     const script = [
       // First, make an API request to generate metrics
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{"model":"test"}' > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       // Then fetch metrics
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -180,7 +181,7 @@ describe('API Proxy Observability', () => {
 
   test('should include rate_limits in /health when rate limiting is active', async () => {
     const result = await runner.runWithSudo(
-      `bash -c "curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{\"model\":\"test\"}' > /dev/null && curl -s http://${API_PROXY_IP}:10000/health"`,
+      `bash -c 'curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null && curl -s http://${API_PROXY_IP}:10000/health'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -200,7 +201,7 @@ describe('API Proxy Observability', () => {
 
   test('should preserve custom X-Request-ID when valid', async () => {
     const result = await runner.runWithSudo(
-      `bash -c "curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -H 'X-Request-ID: my-custom-trace-abc123' -d '{\"model\":\"test\"}'"`,
+      `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -H "X-Request-ID: my-custom-trace-abc123" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -220,7 +221,7 @@ describe('API Proxy Observability', () => {
 
   test('should reject invalid X-Request-ID and generate a new one', async () => {
     const result = await runner.runWithSudo(
-      `bash -c "curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -H 'X-Request-ID: <script>alert(1)</script>' -d '{\"model\":\"test\"}'"`,
+      `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -H "X-Request-ID: <script>alert(1)</script>" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -234,19 +235,16 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Extract only the HTTP response portion to avoid Docker build output pollution
-    const httpResponse = extractHttpResponse(result.stdout);
-    const lower = httpResponse.toLowerCase();
-    expect(lower).toContain('x-request-id');
-    // The injected ID should NOT appear in the HTTP response —
-    // proxy should have generated a UUID instead
-    expect(httpResponse).not.toContain('<script>');
+    // The proxy should reject the invalid X-Request-ID and generate a UUID instead.
+    // Look for a UUID pattern in the x-request-id response header.
+    const uuidPattern = /x-request-id:\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    expect(result.stdout.toLowerCase()).toMatch(uuidPattern);
   }, 180000);
 
   test('should show active_requests gauge at 0 after request completes', async () => {
     const script = [
       // Make a request and wait for it to complete
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{"model":"test"}' > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       // Small delay to ensure metrics are recorded
       'sleep 1',
       // Check metrics — active_requests should be 0
@@ -254,7 +252,7 @@ describe('API Proxy Observability', () => {
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -268,8 +266,9 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Extract JSON from stdout (Docker build output may precede it)
-    const metricsJson = extractLastJson(result.stdout) as any;
+    // Parse the metrics JSON (extract from stdout which may contain Docker build output)
+    const metricsJson = extractLastJson(result.stdout);
+    expect(metricsJson).not.toBeNull();
     const activeRequests = metricsJson.gauges?.active_requests || {};
     // All provider gauges should be 0 or absent
     for (const count of Object.values(activeRequests)) {
@@ -279,12 +278,12 @@ describe('API Proxy Observability', () => {
 
   test('should record latency histogram entries after requests', async () => {
     const script = [
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{"model":"test"}' > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
     const result = await runner.runWithSudo(
-      `bash -c "${script}"`,
+      `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
         enableApiProxy: true,
@@ -298,10 +297,11 @@ describe('API Proxy Observability', () => {
     );
 
     expect(result).toSucceed();
-    // Histogram should have request_duration_ms entries with count > 0
-    expect(result.stdout).toContain('request_duration_ms');
-    // Extract JSON from stdout (Docker build output may precede it)
-    const metricsJson = extractLastJson(result.stdout) as any;
+    // Parse the metrics JSON (extract from stdout which may contain Docker build output)
+    const cmdOutput = extractCommandOutput(result.stdout);
+    expect(cmdOutput).toContain('request_duration_ms');
+    const metricsJson = extractLastJson(result.stdout);
+    expect(metricsJson).not.toBeNull();
     const durationHist = metricsJson.histograms?.request_duration_ms;
     expect(durationHist).toBeDefined();
     // At least one provider should have a count > 0

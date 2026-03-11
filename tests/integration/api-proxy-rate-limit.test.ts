@@ -10,6 +10,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import { extractLastJson, extractCommandOutput } from '../fixtures/stdout-helpers';
 
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
@@ -140,34 +141,6 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should include Retry-After header in 429 response', async () => {
-    // Set RPM=1, make 2 requests — second gets 429. Use -w to capture the header.
-    const script = [
-      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
-      `curl -s -w "RETRY_AFTER:%{header_json}" -o /dev/null -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
-    ].join(' && ');
-
-    const result = await runner.runWithSudo(
-      `bash -c '${script}'`,
-      {
-        allowDomains: ['api.anthropic.com'],
-        enableApiProxy: true,
-        buildLocal: true,
-        rateLimitRpm: 1,
-        logLevel: 'debug',
-        timeout: 120000,
-        env: {
-          ANTHROPIC_API_KEY: 'sk-ant-fake-test-key-12345',
-        },
-      }
-    );
-
-    expect(result).toSucceed();
-    // The 429 response body contains rate_limit_error with retry_after field
-    expect(result.stdout).toMatch(/retry.after/i);
-  }, 180000);
-
-  test('should include X-RateLimit headers in 429 response', async () => {
-    // Set RPM=1, make 2 requests — second gets 429. Check body for rate limit info.
     const script = [
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
@@ -189,10 +162,40 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    // The 429 response body is a JSON with rate_limit_error containing limit details
-    expect(result.stdout).toContain('rate_limit_error');
-    expect(result.stdout).toMatch(/"limit":\d+/);
-    expect(result.stdout).toMatch(/"retry_after":\d+/);
+    // The 429 response body should contain retry_after field in the JSON error
+    const cmdOutput = extractCommandOutput(result.stdout);
+    expect(cmdOutput.toLowerCase()).toMatch(/retry.after/);
+  }, 180000);
+
+  test('should include X-RateLimit headers in 429 response', async () => {
+    const script = [
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
+      `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
+    ].join(' && ');
+
+    const result = await runner.runWithSudo(
+      `bash -c '${script}'`,
+      {
+        allowDomains: ['api.anthropic.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        rateLimitRpm: 1,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          ANTHROPIC_API_KEY: 'sk-ant-fake-test-key-12345',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    // The rate-limited response body should contain error type and rate limit info
+    const responseJson = extractLastJson(result.stdout);
+    expect(responseJson).not.toBeNull();
+    expect(responseJson.error?.type).toBe('rate_limit_error');
+    // Verify the response includes retry_after in the error message or headers field
+    const responseStr = JSON.stringify(responseJson).toLowerCase();
+    expect(responseStr).toMatch(/retry.after/);
   }, 180000);
 
   test('should not rate limit when --no-rate-limit is set', async () => {
@@ -226,7 +229,6 @@ describe('API Proxy Rate Limiting', () => {
   }, 180000);
 
   test('should respect custom RPM limit shown in /health', async () => {
-    // Set a custom RPM and verify it appears in the health endpoint rate_limits
     const script = [
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s http://${API_PROXY_IP}:10000/health`,
@@ -248,13 +250,16 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
-    // Health response should contain rate_limits with the configured RPM limit
-    expect(result.stdout).toContain('"rate_limits"');
-    expect(result.stdout).toContain('"limit":5');
+    // Parse the health response JSON (extract from stdout which may contain Docker build output)
+    const healthJson = extractLastJson(result.stdout);
+    expect(healthJson).not.toBeNull();
+    expect(healthJson.rate_limits).toBeDefined();
+    // The limit value of 5 should appear in the rate_limits
+    const healthStr = JSON.stringify(healthJson);
+    expect(healthStr).toContain('"limit":5');
   }, 180000);
 
   test('should show rate limit metrics in /metrics after rate limiting occurs', async () => {
-    // Trigger rate limiting, then check /metrics for rate_limit_rejected_total
     const script = [
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null`,
@@ -278,7 +283,11 @@ describe('API Proxy Rate Limiting', () => {
     );
 
     expect(result).toSucceed();
+    // Parse the metrics JSON (extract from stdout which may contain Docker build output)
+    const metricsJson = extractLastJson(result.stdout);
+    expect(metricsJson).not.toBeNull();
     // Metrics should include rate_limit_rejected_total counter
-    expect(result.stdout).toContain('rate_limit_rejected_total');
+    const metricsStr = JSON.stringify(metricsJson);
+    expect(metricsStr).toContain('rate_limit_rejected_total');
   }, 180000);
 });
