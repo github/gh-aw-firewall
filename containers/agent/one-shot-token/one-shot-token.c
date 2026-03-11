@@ -404,15 +404,29 @@ char *secure_getenv(const char *name) {
         return getenv(name);
     }
 
+    /* Skip interception during recursive calls (e.g., fprintf -> secure_getenv) */
+    if (in_getenv) {
+        return real_secure_getenv(name);
+    }
+    in_getenv = 1;
+
+    /* Initialize token list on first call (thread-safe) */
+    pthread_mutex_lock(&token_mutex);
+    if (!tokens_initialized) {
+        init_token_list();
+    }
+
+    /* Get token index while holding mutex to avoid race with initialization */
     int token_idx = get_token_index(name);
 
-    /* Not a sensitive token - pass through to real secure_getenv */
+    /* Not a sensitive token - release mutex and pass through */
     if (token_idx < 0) {
+        pthread_mutex_unlock(&token_mutex);
+        in_getenv = 0;
         return real_secure_getenv(name);
     }
 
-    /* Sensitive token - handle cached access with secure_getenv semantics */
-    pthread_mutex_lock(&token_mutex);
+    /* Sensitive token - handle cached access with secure_getenv semantics (mutex already held) */
 
     char *result = NULL;
 
@@ -445,6 +459,7 @@ char *secure_getenv(const char *name) {
     }
 
     pthread_mutex_unlock(&token_mutex);
+    in_getenv = 0;
 
     return result;
 }
