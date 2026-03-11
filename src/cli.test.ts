@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1783,4 +1783,40 @@ describe('cli', () => {
     });
   });
 
+  describe('parseAgentTimeout', () => {
+    it('should parse a valid positive integer', () => {
+      const result = parseAgentTimeout('30');
+      expect(result).toEqual({ minutes: 30 });
+    });
+
+    it('should parse single minute timeout', () => {
+      const result = parseAgentTimeout('1');
+      expect(result).toEqual({ minutes: 1 });
+    });
+
+    it('should return error for zero', () => {
+      const result = parseAgentTimeout('0');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for negative value', () => {
+      const result = parseAgentTimeout('-5');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for non-numeric string', () => {
+      const result = parseAgentTimeout('abc');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for empty string', () => {
+      const result = parseAgentTimeout('');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should parse large timeout values', () => {
+      const result = parseAgentTimeout('1440');
+      expect(result).toEqual({ minutes: 1440 });
+    });
+  });
 });

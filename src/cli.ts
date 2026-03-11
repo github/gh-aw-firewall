@@ -510,6 +510,19 @@ export function parseMemoryLimit(input: string): { value: string; error?: undefi
 }
 
 /**
+ * Parses and validates the --agent-timeout option
+ * @param value - The raw string value from the CLI option
+ * @returns The parsed timeout in minutes, or an error
+ */
+export function parseAgentTimeout(value: string): { minutes: number } | { error: string } {
+  const timeoutMinutes = parseInt(value, 10);
+  if (isNaN(timeoutMinutes) || timeoutMinutes <= 0) {
+    return { error: '--agent-timeout must be a positive integer (minutes)' };
+  }
+  return { minutes: timeoutMinutes };
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -1316,13 +1329,13 @@ program
 
     // Parse and validate --agent-timeout
     if (options.agentTimeout !== undefined) {
-      const timeoutMinutes = parseInt(options.agentTimeout, 10);
-      if (isNaN(timeoutMinutes) || timeoutMinutes <= 0) {
-        logger.error('--agent-timeout must be a positive integer (minutes)');
+      const result = parseAgentTimeout(options.agentTimeout);
+      if ('error' in result) {
+        logger.error(result.error);
         process.exit(1);
       }
-      config.agentTimeout = timeoutMinutes;
-      logger.info(`Agent timeout set to ${timeoutMinutes} minutes`);
+      config.agentTimeout = result.minutes;
+      logger.info(`Agent timeout set to ${result.minutes} minutes`);
     }
 
     // Build rate limit config when API proxy is enabled
