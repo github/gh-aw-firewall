@@ -428,6 +428,35 @@ SSL Bump requires intercepting HTTPS traffic:
 
 For more details, see [SSL Bump documentation](ssl-bump.md).
 
+## API Proxy Sidecar
+
+The `--enable-api-proxy` flag deploys a Node.js proxy sidecar that securely holds LLM API credentials and automatically injects authentication headers. This keeps API keys isolated from the agent container.
+
+```bash
+# Enable the API proxy sidecar (reads keys from environment)
+sudo awf \
+  --allow-domains api.openai.com,api.anthropic.com \
+  --enable-api-proxy \
+  -- your-agent-command
+```
+
+When enabled, the proxy:
+- Isolates API keys from the agent container (keys never enter the agent environment)
+- Automatically injects Bearer tokens for OpenAI and Anthropic APIs
+- Routes all traffic through Squid to respect domain whitelisting
+
+Rate limiting is available with the API proxy:
+```bash
+sudo awf \
+  --allow-domains api.openai.com \
+  --enable-api-proxy \
+  --rate-limit-rpm 60 \
+  --rate-limit-rph 1000 \
+  -- your-agent-command
+```
+
+For detailed architecture, credential flow, and configuration, see [API Proxy Sidecar](api-proxy-sidecar.md).
+
 ## Agent Image
 
 The `--agent-image` flag controls which agent container image to use. It supports two presets for quick startup, or custom base images for advanced use cases.
@@ -605,12 +634,16 @@ sudo awf --skip-pull --allow-domains github.com -- your-command
 **Using Specific Versions:**
 ```bash
 # Pre-download specific version
-docker pull ghcr.io/github/gh-aw-firewall/squid:v0.13.0
-docker pull ghcr.io/github/gh-aw-firewall/agent:v0.13.0
+docker pull ghcr.io/github/gh-aw-firewall/squid:latest
+docker pull ghcr.io/github/gh-aw-firewall/agent:latest
 
-# Tag as latest for awf to use
-docker tag ghcr.io/github/gh-aw-firewall/squid:v0.13.0 ghcr.io/github/gh-aw-firewall/squid:latest
-docker tag ghcr.io/github/gh-aw-firewall/agent:v0.13.0 ghcr.io/github/gh-aw-firewall/agent:latest
+# Or pin to a specific version
+docker pull ghcr.io/github/gh-aw-firewall/squid:v0.16.2
+docker pull ghcr.io/github/gh-aw-firewall/agent:v0.16.2
+
+# Tag a specific version as latest for awf to use
+docker tag ghcr.io/github/gh-aw-firewall/squid:v0.16.2 ghcr.io/github/gh-aw-firewall/squid:latest
+docker tag ghcr.io/github/gh-aw-firewall/agent:v0.16.2 ghcr.io/github/gh-aw-firewall/agent:latest
 
 # Use with --skip-pull
 sudo awf --skip-pull --allow-domains github.com -- your-command
