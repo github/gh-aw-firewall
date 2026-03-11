@@ -648,6 +648,37 @@ sudo awf --env-all --allow-domains api.github.com \
 
 For detailed documentation including security considerations, volume mounts, and troubleshooting, see [Chroot Mode](chroot-mode.md).
 
+## Flag Combinations and Constraints
+
+Certain flags have validation constraints that produce errors if violated.
+
+### `--skip-pull` + `--build-local` = Error
+
+These flags are incompatible. `--skip-pull` uses pre-downloaded images without pulling, while `--build-local` builds images from source (which requires pulling base images).
+
+```bash
+# ❌ Error: incompatible flags
+sudo awf --skip-pull --build-local --allow-domains github.com -- your-command
+# Error: --skip-pull cannot be used with --build-local. Building images requires pulling base images from the registry.
+
+# ✅ Correct: use one or the other
+sudo awf --skip-pull --allow-domains github.com -- your-command
+sudo awf --build-local --allow-domains github.com -- your-command
+```
+
+### `--allow-host-ports` requires `--enable-host-access`
+
+The `--allow-host-ports` flag restricts which host ports are accessible, so it only makes sense when host access is enabled.
+
+```bash
+# ❌ Error: missing dependency flag
+sudo awf --allow-host-ports 3000,8080 --allow-domains github.com -- your-command
+# Error: --allow-host-ports requires --enable-host-access to be set
+
+# ✅ Correct: include --enable-host-access
+sudo awf --enable-host-access --allow-host-ports 3000,8080 --allow-domains github.com -- your-command
+```
+
 ## Limitations
 
 ### No Internationalized Domains
