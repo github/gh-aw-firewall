@@ -19,12 +19,12 @@ export interface AwfOptions {
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
-  envAll?: boolean; // Pass all host environment variables to container (--env-all)
-  cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
   noRateLimit?: boolean; // Disable rate limiting
+  envAll?: boolean; // Pass all host environment variables to container (--env-all)
+  cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
 }
 
 export interface AwfResult {
@@ -116,18 +116,6 @@ export class AwfRunner {
       args.push('--enable-api-proxy');
     }
 
-    // Add --env-all flag
-    if (options.envAll) {
-      args.push('--env-all');
-    }
-
-    // Add explicit -e KEY=VALUE flags
-    if (options.cliEnv) {
-      for (const [key, value] of Object.entries(options.cliEnv)) {
-        args.push('-e', `${key}=${value}`);
-      }
-    }
-
     // Add rate limit flags
     if (options.rateLimitRpm !== undefined) {
       args.push('--rate-limit-rpm', String(options.rateLimitRpm));
@@ -140,6 +128,18 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
@@ -296,18 +296,6 @@ export class AwfRunner {
       args.push('--enable-api-proxy');
     }
 
-    // Add --env-all flag
-    if (options.envAll) {
-      args.push('--env-all');
-    }
-
-    // Add explicit -e KEY=VALUE flags
-    if (options.cliEnv) {
-      for (const [key, value] of Object.entries(options.cliEnv)) {
-        args.push('-e', `${key}=${value}`);
-      }
-    }
-
     // Add rate limit flags
     if (options.rateLimitRpm !== undefined) {
       args.push('--rate-limit-rpm', String(options.rateLimitRpm));
@@ -320,6 +308,18 @@ export class AwfRunner {
     }
     if (options.noRateLimit) {
       args.push('--no-rate-limit');
+    }
+
+    // Add --env-all flag
+    if (options.envAll) {
+      args.push('--env-all');
+    }
+
+    // Add explicit -e KEY=VALUE flags
+    if (options.cliEnv) {
+      for (const [key, value] of Object.entries(options.cliEnv)) {
+        args.push('-e', `${key}=${value}`);
+      }
     }
 
     // Add -- separator before command
