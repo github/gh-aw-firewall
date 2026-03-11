@@ -2585,7 +2585,7 @@ describe('docker-manager', () => {
 
     it('should not move squid logs to /tmp when proxyLogsDir is specified', async () => {
       // proxyLogsDir must be OUTSIDE workDir since cleanup deletes workDir
-      const externalDir = path.join(os.tmpdir(), `awf-proxy-logs-test-${Date.now()}`);
+      const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-logs-test-'));
       const proxyLogsDir = path.join(externalDir, 'proxy-logs');
       fs.mkdirSync(proxyLogsDir, { recursive: true });
       fs.writeFileSync(path.join(proxyLogsDir, 'access.log'), 'proxy log content');
@@ -2602,7 +2602,7 @@ describe('docker-manager', () => {
 
     it('should chmod api-proxy-logs sibling when proxyLogsDir is specified', async () => {
       // proxyLogsDir must be OUTSIDE workDir since cleanup deletes workDir
-      const externalDir = path.join(os.tmpdir(), `awf-proxy-logs-test-${Date.now()}`);
+      const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-logs-test-'));
       const proxyLogsDir = path.join(externalDir, 'proxy-logs');
       const apiProxyLogsDir = path.join(externalDir, 'api-proxy-logs');
       fs.mkdirSync(proxyLogsDir, { recursive: true });
