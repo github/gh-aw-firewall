@@ -252,7 +252,7 @@ LD_PRELOAD=./one-shot-token.so ./test_getenv
 Expected output (with debug logging enabled):
 ```
 [one-shot-token] Initialized with 11 default token(s)
-[one-shot-token] Token GITHUB_TOKEN accessed and cached (value: test...)
+[one-shot-token] Token GITHUB_TOKEN accessed and cached (length: 16)
 [one-shot-token] INFO: Token GITHUB_TOKEN cleared from process environment
 First read: test-token-12345
 Second read: test-token-12345
@@ -283,11 +283,11 @@ LD_PRELOAD=./one-shot-token.so bash -c '
 Expected output (with debug logging enabled):
 ```
 [one-shot-token] Initialized with 2 custom token(s) from AWF_ONE_SHOT_TOKENS
-[one-shot-token] Token MY_API_KEY accessed and cached (value: secr...)
+[one-shot-token] Token MY_API_KEY accessed and cached (length: 16)
 [one-shot-token] INFO: Token MY_API_KEY cleared from process environment
 First MY_API_KEY: secret-value-123
 Second MY_API_KEY: secret-value-123
-[one-shot-token] Token SECRET_TOKEN accessed and cached (value: anot...)
+[one-shot-token] Token SECRET_TOKEN accessed and cached (length: 14)
 [one-shot-token] INFO: Token SECRET_TOKEN cleared from process environment
 First SECRET_TOKEN: another-secret
 Second SECRET_TOKEN: another-secret
