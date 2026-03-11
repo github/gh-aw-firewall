@@ -423,6 +423,23 @@ export function validateAllowHostPorts(
 }
 
 /**
+ * Parses and validates a Docker memory limit string.
+ * Valid formats: positive integer followed by b, k, m, or g (e.g., "2g", "512m", "4g").
+ */
+export function parseMemoryLimit(input: string): { value: string; error?: undefined } | { value?: undefined; error: string } {
+  const pattern = /^(\d+)([bkmg])$/i;
+  const match = input.match(pattern);
+  if (!match) {
+    return { error: `Invalid --memory-limit value "${input}". Expected format: <number><unit> (e.g., 2g, 512m, 4g)` };
+  }
+  const num = parseInt(match[1], 10);
+  if (num <= 0) {
+    return { error: `Invalid --memory-limit value "${input}". Memory limit must be a positive number.` };
+  }
+  return { value: input.toLowerCase() };
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -781,6 +798,11 @@ program
     'Working directory inside the container (should match GITHUB_WORKSPACE for path consistency)'
   )
   .option(
+    '--memory-limit <limit>',
+    'Memory limit for the agent container (e.g., 1g, 2g, 4g, 512m). Default: 2g',
+    '2g'
+  )
+  .option(
     '--dns-servers <servers>',
     'Comma-separated list of trusted DNS servers. DNS traffic is ONLY allowed to these servers (default: 8.8.8.8,8.8.4.4)',
     '8.8.8.8,8.8.4.4'
@@ -1067,6 +1089,13 @@ program
       logger.warn('⚠️  SSL Bump intercepts HTTPS traffic. Only use for trusted workloads.');
     }
 
+    // Validate memory limit
+    const memoryLimit = parseMemoryLimit(options.memoryLimit);
+    if (memoryLimit.error) {
+      logger.error(memoryLimit.error);
+      process.exit(1);
+    }
+
     // Validate agent image option
     const agentImageResult = processAgentImageOption(options.agentImage, options.buildLocal);
     if (agentImageResult.error) {
@@ -1096,6 +1125,7 @@ program
       volumeMounts,
       containerWorkDir: options.containerWorkdir,
       dnsServers,
+      memoryLimit: memoryLimit.value,
       proxyLogsDir: options.proxyLogsDir,
       enableHostAccess: options.enableHostAccess,
       allowHostPorts: options.allowHostPorts,

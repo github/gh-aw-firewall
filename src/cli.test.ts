@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1537,6 +1537,28 @@ describe('cli', () => {
       const result = validateAllowHostPorts('3000-3010,8000-8090', true);
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe('parseMemoryLimit', () => {
+    it('accepts valid memory limits', () => {
+      expect(parseMemoryLimit('2g')).toEqual({ value: '2g' });
+      expect(parseMemoryLimit('4g')).toEqual({ value: '4g' });
+      expect(parseMemoryLimit('512m')).toEqual({ value: '512m' });
+      expect(parseMemoryLimit('1024k')).toEqual({ value: '1024k' });
+      expect(parseMemoryLimit('8G')).toEqual({ value: '8g' });
+    });
+
+    it('rejects invalid formats', () => {
+      expect(parseMemoryLimit('abc')).toHaveProperty('error');
+      expect(parseMemoryLimit('-1g')).toHaveProperty('error');
+      expect(parseMemoryLimit('2x')).toHaveProperty('error');
+      expect(parseMemoryLimit('')).toHaveProperty('error');
+      expect(parseMemoryLimit('g')).toHaveProperty('error');
+    });
+
+    it('rejects zero', () => {
+      expect(parseMemoryLimit('0g')).toHaveProperty('error');
     });
   });
 });

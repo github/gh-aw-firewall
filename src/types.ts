@@ -293,6 +293,18 @@ export interface WrapperConfig {
   dnsServers?: string[];
 
   /**
+   * Memory limit for the agent execution container
+   *
+   * Accepts Docker memory format: a positive integer followed by a unit suffix
+   * (b, k, m, g). Controls the maximum amount of memory the container can use.
+   *
+   * @default '2g'
+   * @example '4g'
+   * @example '512m'
+   */
+  memoryLimit?: string;
+
+  /**
    * Custom directory for Squid proxy logs (written directly during runtime)
    *
    * When specified, Squid proxy logs (access.log, cache.log) are written
