@@ -8,6 +8,7 @@ on:
     # When adding new workflows, add them to this list to monitor for failures.
     workflows:
       - "Build Verification"
+      - "Chroot Integration Tests"
       - "CI/CD Pipelines and Integration Tests Gap Assessment"
       - "CodeQL"
       - "Container Security Scan"
@@ -16,6 +17,7 @@ on:
       - "Dependency Vulnerability Audit"
       - "Deploy Documentation"
       - "Examples Test"
+      - "Integration Tests"
       - "Issue Duplication Detector"
       - "Issue Monster"
       - "Lint"
@@ -24,7 +26,9 @@ on:
       - "PR Title Check"
       - "Release"
       - "Security Guard"
+      - "Smoke Chroot"
       - "Smoke Claude"
+      - "Smoke Codex"
       - "Smoke Copilot"
       - "Test Coverage"
       - "Test Setup Action"
