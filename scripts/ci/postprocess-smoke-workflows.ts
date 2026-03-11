@@ -10,15 +10,8 @@ const workflowPaths = [
   path.join(repoRoot, '.github/workflows/smoke-claude.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-chroot.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
-  // Build test workflows
-  path.join(repoRoot, '.github/workflows/build-test-node.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-go.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-rust.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-java.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-cpp.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-deno.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-bun.lock.yml'),
-  path.join(repoRoot, '.github/workflows/build-test-dotnet.lock.yml'),
+  // Build test workflow (combined)
+  path.join(repoRoot, '.github/workflows/build-test.lock.yml'),
   // Agentic workflows (use --image-tag/--skip-pull which must be replaced
   // with --build-local since chroot mode is now always-on and requires
   // a container image built from the current source)
