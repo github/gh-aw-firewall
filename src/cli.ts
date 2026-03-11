@@ -665,7 +665,7 @@ program
   .description('Network firewall for agentic workflows with domain whitelisting')
   .version(version)
   .option(
-    '--allow-domains <domains>',
+    '-d, --allow-domains <domains>',
     'Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:\n' +
     '                                   github.com         - exact domain + subdomains (HTTP & HTTPS)\n' +
     '                                   *.github.com       - any subdomain of github.com\n' +
@@ -692,7 +692,7 @@ program
     'info'
   )
   .option(
-    '--keep-containers',
+    '-k, --keep-containers',
     'Keep containers running after command exits',
     false
   )
@@ -707,7 +707,7 @@ program
     path.join(os.tmpdir(), `awf-${Date.now()}`)
   )
   .option(
-    '--build-local',
+    '-b, --build-local',
     'Build containers locally instead of using GHCR images',
     false
   )

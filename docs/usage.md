@@ -6,7 +6,7 @@
 sudo awf [options] -- <command>
 
 Options:
-  --allow-domains <domains>  Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:
+  -d, --allow-domains <domains>  Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:
                              - github.com: exact domain + subdomains (HTTP & HTTPS)
                              - *.github.com: any subdomain of github.com
                              - api-*.example.com: prefix wildcards
@@ -20,11 +20,11 @@ Options:
   --block-domains-file <path>  Path to file containing blocked domains (one per line or
                                comma-separated, supports # comments)
   --log-level <level>          Log level: debug, info, warn, error (default: info)
-  --keep-containers            Keep containers running after command exits (default: false)
+  -k, --keep-containers        Keep containers running after command exits (default: false)
   --tty                        Allocate a pseudo-TTY for the container (required for interactive
                                tools like Claude Code) (default: false)
   --work-dir <dir>             Working directory for temporary files
-  --build-local                Build containers locally instead of using GHCR images (default: false)
+  -b, --build-local            Build containers locally instead of using GHCR images (default: false)
   --agent-image <value>        Agent container image (default: "default")
                                Presets (pre-built, fast):
                                  default  - Minimal ubuntu:22.04 (~200MB)
