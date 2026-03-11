@@ -473,9 +473,9 @@ export function generateDockerCompose(
     }
   }
 
-  // Pass DNS servers to container for setup-iptables.sh and entrypoint.sh
-  const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
-  environment.AWF_DNS_SERVERS = dnsServers.join(',');
+  // DNS servers are configured via Docker's dns: field in docker-compose.yml (line ~824).
+  // Docker's embedded DNS (127.0.0.11) forwards to these upstream servers.
+  // No AWF_DNS_SERVERS env var needed - the container only uses Docker embedded DNS.
 
   // Pass allowed ports to container for setup-iptables.sh (if specified)
   if (config.allowHostPorts) {
@@ -847,7 +847,7 @@ export function generateDockerCompose(
         ipv4_address: networkConfig.agentIp,
       },
     },
-    dns: dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
+    dns: config.dnsServers || ['8.8.8.8', '8.8.4.4'], // Upstream DNS for Docker's embedded DNS (127.0.0.11)
     dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
     volumes: agentVolumes,
     environment,

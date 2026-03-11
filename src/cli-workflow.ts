@@ -2,7 +2,7 @@ import { WrapperConfig } from './types';
 
 export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
-  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string) => Promise<void>;
+  setupHostIptables: (squidIp: string, port: number, apiProxyIp?: string) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean) => Promise<void>;
   runAgentCommand: (
@@ -42,11 +42,10 @@ export async function runMainWorkflow(
   // Step 0: Setup host-level network and iptables
   logger.info('Setting up host-level firewall network and iptables rules...');
   const networkConfig = await dependencies.ensureFirewallNetwork();
-  const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
   // When API proxy is enabled, allow agent→sidecar traffic at the host level.
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
-  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp);
+  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, apiProxyIp);
   onHostIptablesSetup?.();
 
   // Step 1: Write configuration files

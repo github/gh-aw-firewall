@@ -1417,7 +1417,7 @@ describe('docker-manager', () => {
     });
 
     describe('dnsServers option', () => {
-      it('should use custom DNS servers when specified', () => {
+      it('should use custom DNS servers for Docker upstream DNS when specified', () => {
         const config: WrapperConfig = {
           ...mockConfig,
           dnsServers: ['1.1.1.1', '1.0.0.1'],
@@ -1426,17 +1426,20 @@ describe('docker-manager', () => {
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
 
+        // DNS servers configure Docker's embedded DNS upstream (127.0.0.11)
         expect(agent.dns).toEqual(['1.1.1.1', '1.0.0.1']);
-        expect(env.AWF_DNS_SERVERS).toBe('1.1.1.1,1.0.0.1');
+        // AWF_DNS_SERVERS is no longer passed - container uses Docker embedded DNS only
+        expect(env.AWF_DNS_SERVERS).toBeUndefined();
       });
 
-      it('should use default DNS servers when not specified', () => {
+      it('should use default DNS servers for Docker upstream DNS when not specified', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
 
         expect(agent.dns).toEqual(['8.8.8.8', '8.8.4.4']);
-        expect(env.AWF_DNS_SERVERS).toBe('8.8.8.8,8.8.4.4');
+        // AWF_DNS_SERVERS is no longer passed - container uses Docker embedded DNS only
+        expect(env.AWF_DNS_SERVERS).toBeUndefined();
       });
     });
 
