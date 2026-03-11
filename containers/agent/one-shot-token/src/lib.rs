@@ -232,19 +232,6 @@ fn is_sensitive_token(state: &TokenState, name: &str) -> bool {
     state.tokens.iter().any(|t| t == name)
 }
 
-/// Format token value for logging: show first 4 characters + "..."
-fn format_token_value(value: &str) -> String {
-    if value.is_empty() {
-        return "(empty)".to_string();
-    }
-
-    if value.len() <= 4 {
-        format!("{}...", value)
-    } else {
-        format!("{}...", &value[..4])
-    }
-}
-
 /// Check if a token still exists in the process environment
 ///
 /// This function verifies whether unsetenv() successfully cleared the token
@@ -381,8 +368,8 @@ unsafe fn handle_getenv_impl(
     if debug_enabled {
         let suffix = if via_secure { " (via secure_getenv)" } else { "" };
         eprintln!(
-            "[one-shot-token] Token {} accessed and cached (value: {}){}",
-            name_str, format_token_value(value_str), suffix
+            "[one-shot-token] Token {} accessed and cached (length: {}){}",
+            name_str, value_str.len(), suffix
         );
     }
 
@@ -446,12 +433,4 @@ mod tests {
         assert!(!state.initialized);
     }
 
-    #[test]
-    fn test_format_token_value() {
-        assert_eq!(format_token_value(""), "(empty)");
-        assert_eq!(format_token_value("ab"), "ab...");
-        assert_eq!(format_token_value("abcd"), "abcd...");
-        assert_eq!(format_token_value("abcde"), "abcd...");
-        assert_eq!(format_token_value("ghp_1234567890"), "ghp_...");
-    }
 }
