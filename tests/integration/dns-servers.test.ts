@@ -59,6 +59,7 @@ describe('DNS Server Configuration', () => {
       'nslookup github.com 1.1.1.1',
       {
         allowDomains: ['github.com'],
+        dnsServers: ['1.1.1.1'], // Must whitelist Cloudflare DNS or iptables blocks it
         logLevel: 'debug',
         timeout: 60000,
       }
