@@ -343,6 +343,9 @@ export function generateDockerCompose(
   const environment: Record<string, string> = {
     HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
     HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+    // Lowercase variants for tools that only check lowercase (e.g., Yarn 4/undici, Corepack)
+    http_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+    https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
     SQUID_PROXY_HOST: 'squid-proxy',
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
@@ -699,6 +702,10 @@ export function generateDockerCompose(
     agentVolumes.push(`${sslConfig.caFiles.certPath}:/usr/local/share/ca-certificates/awf-ca.crt:ro`);
     // Set environment variable to indicate SSL Bump is enabled
     environment.AWF_SSL_BUMP_ENABLED = 'true';
+    // Tell Node.js to trust the AWF session CA certificate.
+    // Without this, Node.js tools (Yarn 4, Corepack, npm) fail with EPROTO
+    // because Node.js uses its own CA bundle, not the system CA store.
+    environment.NODE_EXTRA_CA_CERTS = '/usr/local/share/ca-certificates/awf-ca.crt';
   }
 
   // SECURITY: Selective mounting to prevent credential exfiltration
@@ -1015,6 +1022,8 @@ export function generateDockerCompose(
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        http_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         // Rate limiting configuration
         ...(config.rateLimitConfig && {
           AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),

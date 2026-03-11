@@ -490,8 +490,47 @@ describe('docker-manager', () => {
 
       expect(env.HTTP_PROXY).toBe('http://172.30.0.10:3128');
       expect(env.HTTPS_PROXY).toBe('http://172.30.0.10:3128');
+      expect(env.http_proxy).toBe('http://172.30.0.10:3128');
+      expect(env.https_proxy).toBe('http://172.30.0.10:3128');
       expect(env.SQUID_PROXY_HOST).toBe('squid-proxy');
       expect(env.SQUID_PROXY_PORT).toBe('3128');
+    });
+
+    it('should set lowercase proxy env vars for Yarn 4 and Corepack compatibility', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      // Yarn 4 (undici), Corepack, and some Node.js HTTP clients only check lowercase
+      expect(env.http_proxy).toBe(env.HTTP_PROXY);
+      expect(env.https_proxy).toBe(env.HTTPS_PROXY);
+    });
+
+    it('should set NODE_EXTRA_CA_CERTS when SSL Bump is enabled', () => {
+      const sslBumpConfig = { ...mockConfig, sslBump: true };
+      const ssl = {
+        caFiles: {
+          certPath: '/tmp/awf-test/ssl/ca-cert.pem',
+          keyPath: '/tmp/awf-test/ssl/ca-key.pem',
+          derPath: '/tmp/awf-test/ssl/ca-cert.der',
+        },
+        sslDbPath: '/tmp/awf-test/ssl_db',
+      };
+      const result = generateDockerCompose(sslBumpConfig, mockNetworkConfig, ssl);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.NODE_EXTRA_CA_CERTS).toBe('/usr/local/share/ca-certificates/awf-ca.crt');
+      expect(env.AWF_SSL_BUMP_ENABLED).toBe('true');
+    });
+
+    it('should not set NODE_EXTRA_CA_CERTS when SSL Bump is disabled', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
+      expect(env.AWF_SSL_BUMP_ENABLED).toBeUndefined();
     });
 
     it('should set NO_COLOR=1 to disable ANSI color output from CLI tools', () => {

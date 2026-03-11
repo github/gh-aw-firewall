@@ -104,7 +104,11 @@ if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
   echo "[entrypoint] SSL Bump mode detected - updating CA certificates..."
   if [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
     update-ca-certificates 2>/dev/null
+    # Set NODE_EXTRA_CA_CERTS so Node.js tools (Yarn 4, Corepack, npm) trust the AWF CA.
+    # Node.js uses its own CA bundle, not the system CA store updated by update-ca-certificates.
+    export NODE_EXTRA_CA_CERTS="/usr/local/share/ca-certificates/awf-ca.crt"
     echo "[entrypoint] CA certificates updated for SSL Bump"
+    echo "[entrypoint] NODE_EXTRA_CA_CERTS set to $NODE_EXTRA_CA_CERTS"
     echo "[entrypoint] ⚠️  WARNING: HTTPS traffic will be intercepted for URL inspection"
   else
     echo "[entrypoint][WARN] SSL Bump enabled but CA certificate not found"
