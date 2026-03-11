@@ -63,6 +63,52 @@ describe('runMainWorkflow', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  it('passes agentTimeout to runAgentCommand', async () => {
+    const configWithTimeout: WrapperConfig = {
+      ...baseConfig,
+      agentTimeout: 30,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithTimeout, dependencies, { logger, performCleanup });
+
+    expect(dependencies.runAgentCommand).toHaveBeenCalledWith(
+      configWithTimeout.workDir,
+      configWithTimeout.allowedDomains,
+      undefined,
+      30
+    );
+  });
+
+  it('passes undefined agentTimeout when not set', async () => {
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup });
+
+    expect(dependencies.runAgentCommand).toHaveBeenCalledWith(
+      baseConfig.workDir,
+      baseConfig.allowedDomains,
+      undefined,
+      undefined
+    );
+  });
+
   it('logs warning with exit code when command fails', async () => {
     const callOrder: string[] = [];
     const dependencies: WorkflowDependencies = {
