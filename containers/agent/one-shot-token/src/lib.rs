@@ -198,6 +198,7 @@ fn init_token_list(state: &mut TokenState) {
                         );
                     }
                     state.initialized = true;
+                    clear_ld_preload(state.debug_enabled);
                     return;
                 }
 
@@ -225,6 +226,26 @@ fn init_token_list(state: &mut TokenState) {
         );
     }
     state.initialized = true;
+    clear_ld_preload(state.debug_enabled);
+}
+
+/// Unset LD_PRELOAD and LD_LIBRARY_PATH from the environment so child processes
+/// don't inherit them. The library is already loaded in this process's address space,
+/// so getenv interception continues to work. This fixes Deno 2.x's scoped --allow-run
+/// permissions which reject spawning subprocesses when LD_PRELOAD is set.
+/// See: https://github.com/github/gh-aw-firewall/issues/1001
+fn clear_ld_preload(debug_enabled: bool) {
+    // SAFETY: unsetenv is a standard POSIX function. We pass valid C strings.
+    unsafe {
+        let ld_preload = CString::new("LD_PRELOAD").unwrap();
+        libc::unsetenv(ld_preload.as_ptr());
+        let ld_library_path = CString::new("LD_LIBRARY_PATH").unwrap();
+        libc::unsetenv(ld_library_path.as_ptr());
+    }
+
+    if debug_enabled {
+        eprintln!("[one-shot-token] Cleared LD_PRELOAD and LD_LIBRARY_PATH from environment");
+    }
 }
 
 /// Check if a token name is sensitive
@@ -431,6 +452,32 @@ mod tests {
         assert!(state.tokens.is_empty());
         assert!(state.cache.is_empty());
         assert!(!state.initialized);
+    }
+
+    #[test]
+    fn test_clear_ld_preload_removes_env_vars() {
+        // Set LD_PRELOAD and LD_LIBRARY_PATH in the environment
+        unsafe {
+            let key = CString::new("LD_PRELOAD").unwrap();
+            let val = CString::new("/tmp/test.so").unwrap();
+            libc::setenv(key.as_ptr(), val.as_ptr(), 1);
+
+            let key2 = CString::new("LD_LIBRARY_PATH").unwrap();
+            let val2 = CString::new("/tmp/lib").unwrap();
+            libc::setenv(key2.as_ptr(), val2.as_ptr(), 1);
+        }
+
+        // Call clear_ld_preload
+        clear_ld_preload(false);
+
+        // Verify they were unset
+        unsafe {
+            let key = CString::new("LD_PRELOAD").unwrap();
+            assert!(call_real_getenv(key.as_ptr()).is_null());
+
+            let key2 = CString::new("LD_LIBRARY_PATH").unwrap();
+            assert!(call_real_getenv(key2.as_ptr()).is_null());
+        }
     }
 
 }
