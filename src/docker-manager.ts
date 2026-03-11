@@ -1024,6 +1024,9 @@ export function generateDockerCompose(
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         http_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        // Prevent curl health check from routing localhost through Squid
+        NO_PROXY: `localhost,127.0.0.1,::1`,
+        no_proxy: `localhost,127.0.0.1,::1`,
         // Rate limiting configuration
         ...(config.rateLimitConfig && {
           AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),
