@@ -1,0 +1,1 @@
+2026-03-05: Task 002 - Fix minimatch ReDoS vulnerability. Ran `npm audit fix` to update minimatch from 10.2.1 to 10.2.4 and ajv to patched version. Build, tests (821 passed), and lint all pass. npm audit shows 0 vulnerabilities. Branch: fix/002-minimatch-redos-vuln.

@@ -18,3 +18,9 @@ docs-site/dist/
 docs-site/.astro/
 docs-site/node_modules/
 reports/
+
+# CodeQL auto-generated symlink
+_codeql_detected_source_root
+
+# Design docs (working drafts, not checked in)
+design-docs/

@@ -1,6 +1,7 @@
 ---
 description: Smoke test workflow that validates the feature by testing host binary access and comparing versions
 on:
+  roles: all
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -10,7 +11,6 @@ on:
       - 'package.json'
       - '.github/workflows/smoke-chroot.md'
   reaction: "rocket"
-roles: all
 permissions:
   contents: read
   issues: read

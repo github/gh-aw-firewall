@@ -1,12 +1,12 @@
 ---
 description: Smoke test workflow that validates Codex engine functionality by testing AWF firewall capabilities
 on: 
+  roles: all
   schedule: every 12h
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
   reaction: "hooray"
-roles: all
 permissions:
   contents: read
   issues: read

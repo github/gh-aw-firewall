@@ -32,7 +32,9 @@ if has_ip6tables; then
   IP6TABLES_AVAILABLE=true
   echo "[iptables] ip6tables is available"
 else
-  echo "[iptables] WARNING: ip6tables is not available, IPv6 rules will be skipped"
+  echo "[iptables] WARNING: ip6tables is not available, disabling IPv6 via sysctl to prevent unfiltered bypass"
+  sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
+  sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
 fi
 
 # Get Squid proxy configuration from environment
@@ -56,13 +58,25 @@ if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -F OUTPUT 2>/dev/null || true
 fi
 
-# Allow localhost traffic (for stdio MCP servers)
+# Allow localhost traffic (for stdio MCP servers and test frameworks)
 echo "[iptables] Allow localhost traffic..."
 iptables -t nat -A OUTPUT -o lo -j RETURN
 iptables -t nat -A OUTPUT -d 127.0.0.0/8 -j RETURN
+iptables -t nat -A OUTPUT -d 0.0.0.0 -j RETURN
 if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -A OUTPUT -o lo -j RETURN
   ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN
+fi
+
+# Bypass Squid for traffic to the container's own IP.
+# Test frameworks often bind servers to 0.0.0.0 and connect via the non-loopback IP
+# (e.g., 172.30.0.20). Without this rule, the DNAT redirect rules catch self-directed
+# traffic and route it through Squid, which denies it with 403.
+AGENT_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / { split($2,a,"/"); print a[1]; exit }')
+if [ -n "$AGENT_IP" ] && is_valid_ipv4 "$AGENT_IP"; then
+  echo "[iptables] Bypass Squid for self-directed traffic (agent IP: ${AGENT_IP})..."
+  iptables -t nat -A OUTPUT -d "$AGENT_IP" -j RETURN
+  iptables -A OUTPUT -p tcp -d "$AGENT_IP" -j ACCEPT
 fi
 
 # Get DNS servers from environment (default to Google DNS)
