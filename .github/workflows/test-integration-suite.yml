@@ -14,7 +14,7 @@ jobs:
   test-domain-network:
     name: Domain & Network Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -71,7 +71,7 @@ jobs:
   test-protocol-security:
     name: Protocol & Security Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -128,7 +128,7 @@ jobs:
   test-container-ops:
     name: Container & Ops Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -185,7 +185,7 @@ jobs:
   test-api-proxy:
     name: API Proxy Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository

@@ -11,6 +11,17 @@ const NETWORK_SUBNET = '172.30.0.0/24';
 // Cache for ip6tables availability check (only checked once per run)
 let ip6tablesAvailableCache: boolean | null = null;
 
+// Track whether IPv6 was disabled via sysctl (so we can re-enable on cleanup)
+let ipv6DisabledViaSysctl = false;
+
+/**
+ * Resets internal IPv6 state (for testing only).
+ */
+export function _resetIpv6State(): void {
+  ip6tablesAvailableCache = null;
+  ipv6DisabledViaSysctl = false;
+}
+
 /**
  * Gets the bridge interface name for the firewall network
  */
@@ -49,6 +60,38 @@ async function isIp6tablesAvailable(): Promise<boolean> {
     logger.debug('ip6tables not available:', error);
     ip6tablesAvailableCache = false;
     return false;
+  }
+}
+
+/**
+ * Disables IPv6 via sysctl when ip6tables is unavailable.
+ * This prevents IPv6 from becoming an unfiltered bypass path.
+ */
+async function disableIpv6ViaSysctl(): Promise<void> {
+  try {
+    await execa('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']);
+    await execa('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=1']);
+    ipv6DisabledViaSysctl = true;
+    logger.info('IPv6 disabled via sysctl (ip6tables unavailable)');
+  } catch (error) {
+    logger.warn('Failed to disable IPv6 via sysctl:', error);
+  }
+}
+
+/**
+ * Re-enables IPv6 via sysctl if it was previously disabled.
+ */
+async function enableIpv6ViaSysctl(): Promise<void> {
+  if (!ipv6DisabledViaSysctl) {
+    return;
+  }
+  try {
+    await execa('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=0']);
+    await execa('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=0']);
+    ipv6DisabledViaSysctl = false;
+    logger.debug('IPv6 re-enabled via sysctl');
+  } catch (error) {
+    logger.debug('Failed to re-enable IPv6 via sysctl:', error);
   }
 }
 
@@ -309,13 +352,17 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     ]);
   }
 
+  // Check ip6tables availability and disable IPv6 if unavailable
+  const ip6tablesAvailable = await isIp6tablesAvailable();
+  if (!ip6tablesAvailable) {
+    logger.warn('ip6tables is not available, disabling IPv6 via sysctl to prevent unfiltered bypass');
+    await disableIpv6ViaSysctl();
+  }
+
   // Add IPv6 DNS server rules using ip6tables
   if (ipv6DnsServers.length > 0) {
-    // Check if ip6tables is available before setting up IPv6 rules
-    const ip6tablesAvailable = await isIp6tablesAvailable();
     if (!ip6tablesAvailable) {
-      logger.warn('ip6tables is not available, IPv6 DNS servers will not be configured at the host level');
-      logger.warn('  IPv6 traffic may not be properly filtered');
+      logger.warn('IPv6 DNS servers configured but ip6tables not available; IPv6 has been disabled');
     } else {
       // Set up IPv6 chain if we have IPv6 DNS servers
       await setupIpv6Chain(bridgeName);
@@ -614,6 +661,10 @@ export async function cleanupHostIptables(): Promise<void> {
     } else {
       logger.debug('ip6tables not available, skipping IPv6 cleanup');
     }
+
+    // Re-enable IPv6 if it was disabled via sysctl
+    await enableIpv6ViaSysctl();
+
     logger.debug('Host-level iptables rules cleaned up');
   } catch (error) {
     logger.debug('Error cleaning up iptables rules:', error);
