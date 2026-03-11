@@ -1521,6 +1521,32 @@ export function validateFormat(format: string, validFormats: string[]): void {
   }
 }
 
+// Predownload subcommand - pre-pull container images
+program
+  .command('predownload')
+  .description('Pre-download Docker images for offline use or faster startup')
+  .option(
+    '--image-registry <registry>',
+    'Container image registry',
+    'ghcr.io/github/gh-aw-firewall'
+  )
+  .option('--image-tag <tag>', 'Container image tag', 'latest')
+  .option(
+    '--agent-image <value>',
+    'Agent image preset (default, act) or custom image',
+    'default'
+  )
+  .option('--enable-api-proxy', 'Also download the API proxy image', false)
+  .action(async (options) => {
+    const { predownloadCommand } = await import('./commands/predownload');
+    await predownloadCommand({
+      imageRegistry: options.imageRegistry,
+      imageTag: options.imageTag,
+      agentImage: options.agentImage,
+      enableApiProxy: options.enableApiProxy,
+    });
+  });
+
 // Logs subcommand - view Squid proxy logs
 const logsCmd = program
   .command('logs')
