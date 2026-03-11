@@ -179,17 +179,6 @@ sudo awf \
   my-command
 ```
 
-### Full Filesystem Access (Not Recommended)
-
-```bash
-# ⚠️ Only use if absolutely necessary
-sudo awf --allow-full-filesystem-access --allow-domains github.com -- my-command
-
-# You'll see security warnings:
-# ⚠️  SECURITY WARNING: Full filesystem access enabled
-#    The entire host filesystem is mounted with read-write access
-#    This exposes sensitive credential files to potential prompt injection attacks
-```
 
 ## Comparison: Before vs After
 
@@ -289,7 +278,7 @@ docker inspect awf-agent --format '{{json .Mounts}}' | jq
 # - /tmp mounted
 # - $HOME mounted
 # - /dev/null mounted over credential files
-# - NO /:/host mount (unless --allow-full-filesystem-access used)
+# - NO /:/host mount
 ```
 
 ## Migration Guide
@@ -319,14 +308,11 @@ awf --allow-domains github.com -- cat /etc/custom/config.json
 
 # ✓ New: Use explicit mount
 awf --mount /etc/custom:/etc/custom:ro --allow-domains github.com -- cat /etc/custom/config.json
-
-# Or as last resort (not recommended):
-awf --allow-full-filesystem-access --allow-domains github.com -- cat /etc/custom/config.json
 ```
 
 ## Security Best Practices
 
-1. **Default to selective mounting** - Never use `--allow-full-filesystem-access` unless absolutely necessary
+1. **Default to selective mounting** - The default behavior provides the best security
 
 2. **Use read-only mounts** - When using `--mount`, prefer `:ro` for directories that don't need writes:
    ```bash

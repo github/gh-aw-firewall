@@ -1,4 +1,4 @@
-import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork } from './host-iptables';
+import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, _resetIpv6State } from './host-iptables';
 import execa from 'execa';
 
 // Mock execa
@@ -19,6 +19,7 @@ jest.mock('./logger', () => ({
 describe('host-iptables', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    _resetIpv6State();
   });
 
   describe('ensureFirewallNetwork', () => {
@@ -490,6 +491,48 @@ describe('host-iptables', () => {
       ]);
     });
 
+    it('should disable IPv6 via sysctl when ip6tables unavailable', async () => {
+      // Make ip6tables unavailable
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // iptables -L DOCKER-USER permission check
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // chain existence check (doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      // All subsequent calls succeed (except ip6tables)
+      mockedExeca.mockImplementation(((cmd: string, _args: string[]) => {
+        if (cmd === 'ip6tables') {
+          return Promise.reject(new Error('ip6tables not found'));
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
+
+      // Verify sysctl was called to disable IPv6
+      expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']);
+      expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=1']);
+    });
+
+    it('should not disable IPv6 via sysctl when ip6tables is available', async () => {
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // Mock iptables -L DOCKER-USER (permission check)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // Mock chain existence check (doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
+
+      // Verify sysctl was NOT called to disable IPv6
+      expect(mockedExeca).not.toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']);
+      expect(mockedExeca).not.toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=1']);
+    });
+
     it('should not create IPv6 chain when no IPv6 DNS servers', async () => {
       mockedExeca
         // Mock getNetworkBridgeName
@@ -539,6 +582,39 @@ describe('host-iptables', () => {
       // Verify IPv6 chain cleanup operations
       expect(mockedExeca).toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-F', 'FW_WRAPPER_V6'], { reject: false });
       expect(mockedExeca).toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-X', 'FW_WRAPPER_V6'], { reject: false });
+    });
+
+    it('should re-enable IPv6 via sysctl on cleanup if it was disabled', async () => {
+      // First, simulate setup that disabled IPv6
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      // Make ip6tables unavailable to trigger sysctl disable
+      mockedExeca.mockImplementation(((cmd: string) => {
+        if (cmd === 'ip6tables') {
+          return Promise.reject(new Error('ip6tables not found'));
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8']);
+
+      // Now run cleanup
+      jest.clearAllMocks();
+      mockedExeca.mockImplementation(((cmd: string) => {
+        if (cmd === 'ip6tables') {
+          return Promise.reject(new Error('ip6tables not found'));
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      await cleanupHostIptables();
+
+      // Verify IPv6 was re-enabled via sysctl
+      expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=0']);
+      expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=0']);
     });
 
     it('should not throw on errors (best-effort cleanup)', async () => {

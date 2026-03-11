@@ -56,3 +56,9 @@ jobs:
           
           echo "Build verification successful"
           ls -la dist/
+
+      - name: Run API proxy unit tests
+        run: |
+          cd containers/api-proxy
+          npm ci
+          npm test
