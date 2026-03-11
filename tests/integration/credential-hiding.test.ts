@@ -292,8 +292,10 @@ describe('Credential Hiding Security', () => {
       // Check all credential files in a single container run for efficiency.
       // wc -c reports byte count; /dev/null-mounted files should be 0 bytes.
       // Use '|| true' to prevent failures when files don't exist
+      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
+      // character special devices, not regular files
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${paths}; do if [ -f "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -317,8 +319,10 @@ describe('Credential Hiding Security', () => {
       const homeDir = os.homedir();
       const paths = untestedPaths.map(p => `/host${homeDir}/${p.path}`).join(' ');
 
+      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
+      // character special devices, not regular files
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${paths}; do if [ -f "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -341,8 +345,10 @@ describe('Credential Hiding Security', () => {
       const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
 
       // cat all files and concatenate output - should be empty
+      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
+      // character special devices, not regular files
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${paths}; do if [ -f "$f" ]; then cat "$f"; fi; done 2>&1 || true'`,
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then cat "$f"; fi; done 2>&1 || true'`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
