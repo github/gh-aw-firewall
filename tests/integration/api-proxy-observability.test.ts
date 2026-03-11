@@ -15,63 +15,6 @@ import { extractLastJson, extractCommandOutput } from '../fixtures/stdout-helper
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
 
-/**
- * Extract the last JSON object from stdout.
- *
- * When --build-local is used, Docker build output is mixed into stdout before
- * the actual command output. This helper finds the last complete top-level
- * JSON object in the output so that JSON.parse works reliably.
- */
-function extractLastJson(stdout: string): unknown {
-  // Find the last '{' that starts a top-level JSON object
-  let depth = 0;
-  let jsonEnd = -1;
-  let jsonStart = -1;
-
-  // Scan backwards from end to find the last complete JSON object
-  for (let i = stdout.length - 1; i >= 0; i--) {
-    const ch = stdout[i];
-    if (ch === '}') {
-      if (depth === 0) jsonEnd = i;
-      depth++;
-    } else if (ch === '{') {
-      depth--;
-      if (depth === 0) {
-        jsonStart = i;
-        break;
-      }
-    }
-  }
-
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error(`No JSON object found in stdout (length=${stdout.length}): ${stdout.slice(-200)}`);
-  }
-
-  return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
-}
-
-/**
- * Extract the HTTP response section from stdout when curl -i is used.
- *
- * Docker build output appears before the HTTP response. This finds the last
- * HTTP response block (starting with "HTTP/") in stdout.
- */
-function extractHttpResponse(stdout: string): string {
-  // Find the last occurrence of an HTTP status line
-  const httpPattern = /HTTP\/[\d.]+ \d+/g;
-  let lastMatch: RegExpExecArray | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = httpPattern.exec(stdout)) !== null) {
-    lastMatch = match;
-  }
-
-  if (lastMatch) {
-    return stdout.slice(lastMatch.index);
-  }
-
-  // Fallback: return the whole stdout
-  return stdout;
-}
 
 describe('API Proxy Observability', () => {
   let runner: AwfRunner;

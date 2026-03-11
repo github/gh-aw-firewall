@@ -34,39 +34,6 @@ function extractHttpResponse(stdout: string): string {
   return stdout;
 }
 
-/**
- * Extract the last JSON object from stdout.
- *
- * When --build-local is used, Docker build output is mixed into stdout before
- * the actual command output. This helper finds the last complete top-level
- * JSON object in the output so that JSON.parse works reliably.
- */
-function extractLastJson(stdout: string): unknown {
-  let depth = 0;
-  let jsonEnd = -1;
-  let jsonStart = -1;
-
-  for (let i = stdout.length - 1; i >= 0; i--) {
-    const ch = stdout[i];
-    if (ch === '}') {
-      if (depth === 0) jsonEnd = i;
-      depth++;
-    } else if (ch === '{') {
-      depth--;
-      if (depth === 0) {
-        jsonStart = i;
-        break;
-      }
-    }
-  }
-
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error(`No JSON object found in stdout (length=${stdout.length}): ${stdout.slice(-200)}`);
-  }
-
-  return JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
-}
-
 describe('API Proxy Rate Limiting', () => {
   let runner: AwfRunner;
 
