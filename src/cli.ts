@@ -848,6 +848,20 @@ program
     '                                   Can also be set via COPILOT_API_TARGET env var.',
   )
   .option(
+    '--openai-api-target <host>',
+    'Target hostname for OpenAI API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.openai.com. Useful for internal LLM routers\n' +
+    '                                   or Azure OpenAI / OpenAI-compatible endpoints.\n' +
+    '                                   Can also be set via OPENAI_API_TARGET env var.',
+  )
+  .option(
+    '--anthropic-api-target <host>',
+    'Target hostname for Anthropic API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.anthropic.com. Useful for internal LLM routers\n' +
+    '                                   or Anthropic-compatible endpoints.\n' +
+    '                                   Can also be set via ANTHROPIC_API_TARGET env var.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1136,6 +1150,8 @@ program
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
+      openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
+      anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
     };
 
     // Build rate limit config when API proxy is enabled

@@ -101,6 +101,39 @@ sudo awf --enable-api-proxy \
   -- your-multi-llm-tool
 ```
 
+### Custom/internal LLM endpoints
+
+Use `--openai-api-target` or `--anthropic-api-target` to route requests to a custom endpoint (e.g., an internal LLM router, Azure OpenAI, or any OpenAI/Anthropic-compatible API) instead of the public defaults.
+
+```bash
+# Route OpenAI/Codex requests to an internal LLM router
+export OPENAI_API_KEY="your-internal-key"
+
+sudo awf --enable-api-proxy \
+  --openai-api-target llm-router.internal.example.com \
+  --allow-domains llm-router.internal.example.com \
+  -- npx @openai/codex exec "do something"
+```
+
+```bash
+# Route Anthropic/Claude requests to an internal LLM router
+export ANTHROPIC_API_KEY="your-internal-key"
+
+sudo awf --enable-api-proxy \
+  --anthropic-api-target llm-router.internal.example.com \
+  --allow-domains llm-router.internal.example.com \
+  -- claude-code "do something"
+```
+
+The target value accepts:
+- A plain hostname: `llm-router.internal.example.com`
+- A `host:port` pair: `llm-router.internal.example.com:8443`
+- A full URL (scheme + host): `https://llm-router.internal.example.com/v1`
+
+Both flags can also be set via environment variables:
+- `OPENAI_API_TARGET` — equivalent to `--openai-api-target`
+- `ANTHROPIC_API_TARGET` — equivalent to `--anthropic-api-target`
+
 ## Environment variables
 
 AWF manages environment variables differently across the three containers (squid, api-proxy, agent) to ensure secure credential isolation.
@@ -123,6 +156,9 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `OPENAI_API_KEY` | Real API key | `--enable-api-proxy` and env set | OpenAI API key (injected into requests) |
 | `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
 | `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token (injected into requests) |
+| `OPENAI_API_TARGET` | Hostname or host:port | `--openai-api-target` or env set | Custom upstream for OpenAI requests (default: `api.openai.com`) |
+| `ANTHROPIC_API_TARGET` | Hostname or host:port | `--anthropic-api-target` or env set | Custom upstream for Anthropic requests (default: `api.anthropic.com`) |
+| `COPILOT_API_TARGET` | Hostname | `--copilot-api-target` or env set | Custom upstream for Copilot requests (default: `api.githubcopilot.com`) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 
@@ -328,9 +364,8 @@ docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 
 ## Limitations
 
-- Only supports OpenAI and Anthropic APIs
+- Only supports OpenAI, Anthropic, and GitHub Copilot APIs
 - Keys must be set as environment variables (not file-based)
-- No support for Azure OpenAI endpoints
 - No request/response logging (by design, for security)
 
 ## Related documentation

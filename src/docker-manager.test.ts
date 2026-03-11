@@ -1893,6 +1893,54 @@ describe('docker-manager', () => {
         expect(env.AWF_RATE_LIMIT_RPH).toBeUndefined();
         expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
       });
+
+      it('should pass OPENAI_API_TARGET to api-proxy when openaiApiTarget is set', () => {
+        const configWithTarget = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiTarget: 'llm-router.internal.example.com' };
+        const result = generateDockerCompose(configWithTarget, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_API_TARGET).toBe('llm-router.internal.example.com');
+      });
+
+      it('should not pass OPENAI_API_TARGET to api-proxy when openaiApiTarget is not set', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_API_TARGET).toBeUndefined();
+      });
+
+      it('should pass ANTHROPIC_API_TARGET to api-proxy when anthropicApiTarget is set', () => {
+        const configWithTarget = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key', anthropicApiTarget: 'llm-router.internal.example.com' };
+        const result = generateDockerCompose(configWithTarget, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.ANTHROPIC_API_TARGET).toBe('llm-router.internal.example.com');
+      });
+
+      it('should not pass ANTHROPIC_API_TARGET to api-proxy when anthropicApiTarget is not set', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.ANTHROPIC_API_TARGET).toBeUndefined();
+      });
+
+      it('should pass both OPENAI_API_TARGET and ANTHROPIC_API_TARGET when both are set', () => {
+        const configWithTargets = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          anthropicApiKey: 'sk-ant-test-key',
+          openaiApiTarget: 'openai-router.internal.example.com',
+          anthropicApiTarget: 'anthropic-router.internal.example.com',
+        };
+        const result = generateDockerCompose(configWithTargets, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_API_TARGET).toBe('openai-router.internal.example.com');
+        expect(env.ANTHROPIC_API_TARGET).toBe('anthropic-router.internal.example.com');
+      });
     });
   });
 

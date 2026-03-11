@@ -46,6 +46,54 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 
+/**
+ * Parse an API target value that may be a raw hostname, host:port, or full URL.
+ * Returns { hostname, port } where port is undefined if not specified.
+ * Logs a warning and falls back to the default hostname if the value is invalid.
+ */
+function parseApiTarget(envVar, rawValue, defaultHostname) {
+  if (!rawValue) return { hostname: defaultHostname, port: undefined };
+
+  // If it looks like a full URL (has a scheme), parse it as a URL
+  if (rawValue.includes('://')) {
+    try {
+      const parsed = new URL(rawValue);
+      return { hostname: parsed.hostname, port: parsed.port || undefined };
+    } catch {
+      logRequest('warn', 'startup', { message: `${envVar}: invalid URL "${rawValue}", falling back to ${defaultHostname}` });
+      return { hostname: defaultHostname, port: undefined };
+    }
+  }
+
+  // host:port form
+  const colonIdx = rawValue.lastIndexOf(':');
+  if (colonIdx > 0) {
+    const hostname = rawValue.slice(0, colonIdx);
+    const portStr = rawValue.slice(colonIdx + 1);
+    const port = parseInt(portStr, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      logRequest('warn', 'startup', { message: `${envVar}: invalid port in "${rawValue}", falling back to ${defaultHostname}` });
+      return { hostname: defaultHostname, port: undefined };
+    }
+    return { hostname, port: String(port) };
+  }
+
+  // Plain hostname
+  return { hostname: rawValue, port: undefined };
+}
+
+// Configurable OpenAI API target (supports internal LLM routers / Azure OpenAI)
+// Priority: OPENAI_API_TARGET env var > default. Accepts hostname, host:port, or full URL.
+const _openaiTarget = parseApiTarget('OPENAI_API_TARGET', process.env.OPENAI_API_TARGET, 'api.openai.com');
+const OPENAI_API_TARGET = _openaiTarget.hostname;
+const OPENAI_API_PORT = _openaiTarget.port;
+
+// Configurable Anthropic API target (supports internal LLM routers)
+// Priority: ANTHROPIC_API_TARGET env var > default. Accepts hostname, host:port, or full URL.
+const _anthropicTarget = parseApiTarget('ANTHROPIC_API_TARGET', process.env.ANTHROPIC_API_TARGET, 'api.anthropic.com');
+const ANTHROPIC_API_TARGET = _anthropicTarget.hostname;
+const ANTHROPIC_API_PORT = _anthropicTarget.port;
+
 // Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
 // Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
 function deriveCopilotApiTarget() {
@@ -76,6 +124,8 @@ const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 logRequest('info', 'startup', {
   message: 'Starting AWF API proxy sidecar',
   squid_proxy: HTTPS_PROXY || 'not configured',
+  openai_api_target: OPENAI_API_PORT ? `${OPENAI_API_TARGET}:${OPENAI_API_PORT}` : OPENAI_API_TARGET,
+  anthropic_api_target: ANTHROPIC_API_PORT ? `${ANTHROPIC_API_TARGET}:${ANTHROPIC_API_PORT}` : ANTHROPIC_API_TARGET,
   copilot_api_target: COPILOT_API_TARGET,
   providers: {
     openai: !!OPENAI_API_KEY,
@@ -145,7 +195,7 @@ function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
 }
 
-function proxyRequest(req, res, targetHost, injectHeaders, provider) {
+function proxyRequest(req, res, targetHost, injectHeaders, provider, targetPort) {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
@@ -183,8 +233,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
     return;
   }
 
-  // Build target URL
-  const targetUrl = new URL(req.url, `https://${targetHost}`);
+  // Build target URL — include port if explicitly specified (e.g. for host:port targets)
+  const targetBase = targetPort ? `https://${targetHost}:${targetPort}` : `https://${targetHost}`;
+  const targetUrl = new URL(req.url, targetBase);
 
   // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
@@ -397,9 +448,9 @@ if (OPENAI_API_KEY) {
     const contentLength = parseInt(req.headers['content-length'], 10) || 0;
     if (checkRateLimit(req, res, 'openai', contentLength)) return;
 
-    proxyRequest(req, res, 'api.openai.com', {
+    proxyRequest(req, res, OPENAI_API_TARGET, {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    }, 'openai');
+    }, 'openai', OPENAI_API_PORT);
   });
 
   server.listen(HEALTH_PORT, '0.0.0.0', () => {
@@ -436,7 +487,7 @@ if (ANTHROPIC_API_KEY) {
     if (!req.headers['anthropic-version']) {
       anthropicHeaders['anthropic-version'] = '2023-06-01';
     }
-    proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders, 'anthropic');
+    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_PORT);
   });
 
   server.listen(10001, '0.0.0.0', () => {
@@ -488,7 +539,7 @@ if (ANTHROPIC_API_KEY) {
     if (!req.headers['anthropic-version']) {
       anthropicHeaders['anthropic-version'] = '2023-06-01';
     }
-    proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders);
+    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'opencode', ANTHROPIC_API_PORT);
   });
 
   opencodeServer.listen(10004, '0.0.0.0', () => {
