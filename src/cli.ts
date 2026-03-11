@@ -1521,6 +1521,22 @@ export function validateFormat(format: string, validFormats: string[]): void {
   }
 }
 
+// Predownload action handler - exported for testing
+export async function handlePredownloadAction(options: {
+  imageRegistry: string;
+  imageTag: string;
+  agentImage: string;
+  enableApiProxy: boolean;
+}): Promise<void> {
+  const { predownloadCommand } = await import('./commands/predownload');
+  await predownloadCommand({
+    imageRegistry: options.imageRegistry,
+    imageTag: options.imageTag,
+    agentImage: options.agentImage,
+    enableApiProxy: options.enableApiProxy,
+  });
+}
+
 // Predownload subcommand - pre-pull container images
 program
   .command('predownload')
@@ -1537,15 +1553,7 @@ program
     'default'
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
-  .action(async (options) => {
-    const { predownloadCommand } = await import('./commands/predownload');
-    await predownloadCommand({
-      imageRegistry: options.imageRegistry,
-      imageTag: options.imageTag,
-      agentImage: options.agentImage,
-      enableApiProxy: options.enableApiProxy,
-    });
-  });
+  .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs
 const logsCmd = program

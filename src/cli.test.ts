@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1879,6 +1879,30 @@ describe('cli', () => {
     it('should format term without description', () => {
       const result = formatItem('--flag', '', 20, 2, 2, 80);
       expect(result).toBe('  --flag');
+    });
+  });
+
+  describe('handlePredownloadAction', () => {
+    it('should delegate to predownloadCommand with correct options', async () => {
+      // Mock the predownload module that handlePredownloadAction dynamically imports
+      const mockPredownloadCommand = jest.fn().mockResolvedValue(undefined);
+      jest.mock('./commands/predownload', () => ({
+        predownloadCommand: mockPredownloadCommand,
+      }));
+
+      await handlePredownloadAction({
+        imageRegistry: 'ghcr.io/test',
+        imageTag: 'v1.0',
+        agentImage: 'default',
+        enableApiProxy: false,
+      });
+
+      expect(mockPredownloadCommand).toHaveBeenCalledWith({
+        imageRegistry: 'ghcr.io/test',
+        imageTag: 'v1.0',
+        agentImage: 'default',
+        enableApiProxy: false,
+      });
     });
   });
 });
