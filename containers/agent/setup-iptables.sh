@@ -32,7 +32,9 @@ if has_ip6tables; then
   IP6TABLES_AVAILABLE=true
   echo "[iptables] ip6tables is available"
 else
-  echo "[iptables] WARNING: ip6tables is not available, IPv6 rules will be skipped"
+  echo "[iptables] WARNING: ip6tables is not available, disabling IPv6 via sysctl to prevent unfiltered bypass"
+  sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
+  sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
 fi
 
 # Get Squid proxy configuration from environment
@@ -56,10 +58,11 @@ if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -F OUTPUT 2>/dev/null || true
 fi
 
-# Allow localhost traffic (for stdio MCP servers)
+# Allow localhost traffic (for stdio MCP servers and test frameworks)
 echo "[iptables] Allow localhost traffic..."
 iptables -t nat -A OUTPUT -o lo -j RETURN
 iptables -t nat -A OUTPUT -d 127.0.0.0/8 -j RETURN
+iptables -t nat -A OUTPUT -d 0.0.0.0 -j RETURN
 if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -A OUTPUT -o lo -j RETURN
   ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN

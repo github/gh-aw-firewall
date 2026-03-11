@@ -132,8 +132,10 @@ describe('Error Handling', () => {
     }, 120000);
 
     test('should handle division by zero in bash', async () => {
+      // Use expr for division to avoid bash arithmetic expansion in outer shell.
+      // bash $((1/0)) fails during expansion before || can catch it.
       const result = await runner.runWithSudo(
-        'bash -c "echo $((1/0))" 2>&1 || echo "division error caught"',
+        'expr 1 / 0 2>&1 || echo "division error caught"',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',

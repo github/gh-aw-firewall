@@ -4,10 +4,14 @@
   "description": "API proxy sidecar for AWF - routes LLM API requests through Squid while injecting authentication headers",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest --verbose --ci"
   },
   "dependencies": {
     "https-proxy-agent": "^7.0.6"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
   },
   "engines": {
     "node": ">=18.0.0"

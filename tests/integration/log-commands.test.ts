@@ -43,18 +43,21 @@ describe('Log Commands', () => {
     expect(result).toSucceed();
 
     // Check that logs were created
-    if (result.workDir) {
-      const squidLogPath = path.join(result.workDir, 'squid-logs', 'access.log');
-
-      // Logs may not be immediately available due to buffering
-      // Wait a moment for logs to be flushed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (fs.existsSync(squidLogPath)) {
-        const logContent = fs.readFileSync(squidLogPath, 'utf-8');
-        expect(logContent.length).toBeGreaterThan(0);
-      }
+    // workDir extraction depends on parsing stderr logs, which may not always work
+    // (e.g., sudo may buffer/redirect stderr differently in CI)
+    if (!result.workDir) {
+      console.warn('WARN: workDir not extracted from stderr — skipping log file assertions');
+      return;
     }
+    const squidLogPath = path.join(result.workDir, 'squid-logs', 'access.log');
+
+    // Logs may not be immediately available due to buffering
+    // Wait a moment for logs to be flushed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    expect(fs.existsSync(squidLogPath)).toBe(true);
+    const logContent = fs.readFileSync(squidLogPath, 'utf-8');
+    expect(logContent.length).toBeGreaterThan(0);
 
     // Cleanup after test
     await cleanup(false);
@@ -72,27 +75,27 @@ describe('Log Commands', () => {
     );
 
     // First curl should succeed, second should fail
-    if (result.workDir) {
-      const squidLogPath = path.join(result.workDir, 'squid-logs', 'access.log');
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (fs.existsSync(squidLogPath)) {
-        const logContent = fs.readFileSync(squidLogPath, 'utf-8');
-        const parser = createLogParser();
-        const entries = parser.parseSquidLog(logContent);
-
-        // Should have at least one entry
-        if (entries.length > 0) {
-          // Verify entry structure
-          const entry = entries[0];
-          expect(entry).toHaveProperty('timestamp');
-          expect(entry).toHaveProperty('host');
-          expect(entry).toHaveProperty('statusCode');
-          expect(entry).toHaveProperty('decision');
-        }
-      }
+    if (!result.workDir) {
+      console.warn('WARN: workDir not extracted from stderr — skipping log file assertions');
+      return;
     }
+    const squidLogPath2 = path.join(result.workDir, 'squid-logs', 'access.log');
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    expect(fs.existsSync(squidLogPath2)).toBe(true);
+    const logContent = fs.readFileSync(squidLogPath2, 'utf-8');
+    const parser = createLogParser();
+    const entries = parser.parseSquidLog(logContent);
+
+    // Should have at least one entry
+    expect(entries.length).toBeGreaterThan(0);
+    // Verify entry structure
+    const entry = entries[0];
+    expect(entry).toHaveProperty('timestamp');
+    expect(entry).toHaveProperty('host');
+    expect(entry).toHaveProperty('statusCode');
+    expect(entry).toHaveProperty('decision');
 
     await cleanup(false);
   }, 120000);
@@ -108,27 +111,28 @@ describe('Log Commands', () => {
       }
     );
 
-    if (result.workDir) {
-      const squidLogPath = path.join(result.workDir, 'squid-logs', 'access.log');
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      if (fs.existsSync(squidLogPath)) {
-        const logContent = fs.readFileSync(squidLogPath, 'utf-8');
-        const parser = createLogParser();
-        const entries = parser.parseSquidLog(logContent);
-
-        // Filter by decision
-        const allowed = parser.filterByDecision(entries, 'allowed');
-        const blocked = parser.filterByDecision(entries, 'blocked');
-
-        // We should have at least one allowed (github.com) and one blocked (example.com)
-        // Note: Log parsing depends on timing and buffering
-        if (entries.length > 0) {
-          expect(allowed.length + blocked.length).toBeGreaterThanOrEqual(1);
-        }
-      }
+    if (!result.workDir) {
+      console.warn('WARN: workDir not extracted from stderr — skipping log file assertions');
+      return;
     }
+    const squidLogPath3 = path.join(result.workDir, 'squid-logs', 'access.log');
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    expect(fs.existsSync(squidLogPath3)).toBe(true);
+    const logContent3 = fs.readFileSync(squidLogPath3, 'utf-8');
+    const parser3 = createLogParser();
+    const entries3 = parser3.parseSquidLog(logContent3);
+
+    // Should have at least one entry
+    expect(entries3.length).toBeGreaterThan(0);
+
+    // Filter by decision
+    const allowed = parser3.filterByDecision(entries3, 'allowed');
+    const blocked = parser3.filterByDecision(entries3, 'blocked');
+
+    // We should have at least one allowed (github.com) and one blocked (example.com)
+    expect(allowed.length + blocked.length).toBeGreaterThanOrEqual(1);
 
     await cleanup(false);
   }, 180000);

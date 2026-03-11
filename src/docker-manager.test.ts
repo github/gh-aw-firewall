@@ -529,9 +529,9 @@ describe('docker-manager', () => {
       // Should NOT include blanket /:/host:rw mount
       expect(volumes).not.toContain('/:/host:rw');
 
-      // Should include custom mounts
-      expect(volumes).toContain('/workspace:/workspace:ro');
-      expect(volumes).toContain('/data:/data:rw');
+      // Should include custom mounts (prefixed with /host for chroot visibility)
+      expect(volumes).toContain('/workspace:/host/workspace:ro');
+      expect(volumes).toContain('/data:/host/data:rw');
 
       // Should still include essential mounts
       expect(volumes).toContain('/tmp:/tmp:rw');
@@ -549,35 +549,36 @@ describe('docker-manager', () => {
       expect(volumes.some((v: string) => v.includes('/dev/null'))).toBe(true);
     });
 
-    it('should use blanket mount when allowFullFilesystemAccess is true', () => {
-      const configWithFullAccess = {
+    it('should handle malformed volume mount without colon as fallback', () => {
+      const configWithBadMount = {
         ...mockConfig,
-        allowFullFilesystemAccess: true,
+        volumeMounts: ['no-colon-here']
       };
-      const result = generateDockerCompose(configWithFullAccess, mockNetworkConfig);
+      const result = generateDockerCompose(configWithBadMount, mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
-
-      // Should include blanket /:/host:rw mount
-      expect(volumes).toContain('/:/host:rw');
-      // Docker socket should still be hidden for security even with full filesystem access
-      expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
-      // But credential files should NOT be hidden (user opted in to full access)
-      expect(volumes.some((v: string) => v.includes('/dev/null') && v.includes('.docker/config.json'))).toBe(false);
+      // Malformed mount should be added as-is (fallback)
+      expect(volumes).toContain('no-colon-here');
     });
 
-    it('should use blanket mount when allowFullFilesystemAccess is true', () => {
-      const configWithFullAccess = {
-        ...mockConfig,
-        allowFullFilesystemAccess: true,
-      };
-      const result = generateDockerCompose(configWithFullAccess, mockNetworkConfig);
-      const agent = result.services.agent;
-      const volumes = agent.volumes as string[];
-
-      // Should include blanket /:/host:rw mount
-      expect(volumes).toContain('/:/host:rw');
+    it('should forward COPILOT_GITHUB_TOKEN when api-proxy is disabled', () => {
+      process.env.COPILOT_GITHUB_TOKEN = 'ghp_test_token';
+      const configNoProxy = { ...mockConfig, enableApiProxy: false };
+      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghp_test_token');
+      delete process.env.COPILOT_GITHUB_TOKEN;
     });
+
+    it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
+      process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.AWF_ONE_SHOT_TOKEN_DEBUG).toBe('1');
+      delete process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
+    });
+
+
 
     it('should use selective mounts by default', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
@@ -1194,6 +1195,59 @@ describe('docker-manager', () => {
       });
     });
 
+    describe('NO_PROXY baseline', () => {
+      it('should always set NO_PROXY with localhost entries', () => {
+        // Default config without enableHostAccess or enableApiProxy
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toContain('localhost');
+        expect(env.NO_PROXY).toContain('127.0.0.1');
+        expect(env.NO_PROXY).toContain('::1');
+        expect(env.NO_PROXY).toContain('0.0.0.0');
+        expect(env.no_proxy).toBe(env.NO_PROXY);
+      });
+
+      it('should include agent IP in NO_PROXY', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toContain('172.30.0.20');
+      });
+
+      it('should append host.docker.internal to NO_PROXY when host access enabled', () => {
+        const configWithHost = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(configWithHost, mockNetworkConfig);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        // Should have both baseline AND host access entries
+        expect(env.NO_PROXY).toContain('localhost');
+        expect(env.NO_PROXY).toContain('host.docker.internal');
+      });
+
+      it('should sync no_proxy when --env overrides NO_PROXY', () => {
+        const configWithEnv = {
+          ...mockConfig,
+          additionalEnv: { NO_PROXY: 'custom.local,127.0.0.1' },
+        };
+        const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toBe('custom.local,127.0.0.1');
+        expect(env.no_proxy).toBe(env.NO_PROXY);
+      });
+
+      it('should sync NO_PROXY when --env overrides no_proxy', () => {
+        const configWithEnv = {
+          ...mockConfig,
+          additionalEnv: { no_proxy: 'custom.local,127.0.0.1' },
+        };
+        const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.no_proxy).toBe('custom.local,127.0.0.1');
+        expect(env.NO_PROXY).toBe(env.no_proxy);
+      });
+    });
+
     describe('allowHostPorts option', () => {
       it('should set AWF_ALLOW_HOST_PORTS when allowHostPorts is specified', () => {
         const config = { ...mockConfig, enableHostAccess: true, allowHostPorts: '8080,3000' };
@@ -1759,6 +1813,46 @@ describe('docker-manager', () => {
           }
         }
       });
+
+      it('should set AWF_RATE_LIMIT env vars when rateLimitConfig is provided', () => {
+        const configWithRateLimit = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          rateLimitConfig: { enabled: true, rpm: 30, rph: 500, bytesPm: 10485760 },
+        };
+        const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBe('true');
+        expect(env.AWF_RATE_LIMIT_RPM).toBe('30');
+        expect(env.AWF_RATE_LIMIT_RPH).toBe('500');
+        expect(env.AWF_RATE_LIMIT_BYTES_PM).toBe('10485760');
+      });
+
+      it('should set AWF_RATE_LIMIT_ENABLED=false when rate limiting is disabled', () => {
+        const configWithRateLimit = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          rateLimitConfig: { enabled: false, rpm: 60, rph: 1000, bytesPm: 52428800 },
+        };
+        const result = generateDockerCompose(configWithRateLimit, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBe('false');
+      });
+
+      it('should not set rate limit env vars when rateLimitConfig is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_RATE_LIMIT_ENABLED).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_RPM).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_RPH).toBeUndefined();
+        expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
+      });
     });
   });
 
@@ -1943,11 +2037,11 @@ describe('docker-manager', () => {
         // May fail after writing configs
       }
 
-      // Verify squid.conf has restricted permissions
+      // Verify squid.conf is readable by proxy user (0o644) for non-root Squid
       const squidConfPath = path.join(testDir, 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const stats = fs.statSync(squidConfPath);
-        expect((stats.mode & 0o777).toString(8)).toBe('600');
+        expect((stats.mode & 0o777).toString(8)).toBe('644');
       }
 
       // Verify docker-compose.yml has restricted permissions
@@ -2041,7 +2135,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['rm', '-f', 'awf-squid', 'awf-agent'],
+        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'],
         { reject: false }
       );
     });

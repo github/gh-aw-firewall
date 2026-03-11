@@ -32,6 +32,13 @@ export const API_PROXY_PORTS = {
    * @see containers/api-proxy/server.js
    */
   COPILOT: 10002,
+
+  /**
+   * OpenCode API proxy port (routes to Anthropic by default)
+   * OpenCode is BYOK — defaults to Anthropic as the primary provider
+   * @see containers/api-proxy/server.js
+   */
+  OPENCODE: 10004,
 } as const;
 
 /**
@@ -250,51 +257,11 @@ export interface WrapperConfig {
    *
    * When specified, selective mounting is used (only essential directories + custom mounts).
    * When not specified, selective mounting is still used by default for security.
-   * Use --allow-full-filesystem-access to opt into blanket mounting.
    *
    * @example ['/workspace:/workspace:ro', '/data:/data:rw']
    */
   volumeMounts?: string[];
 
-  /**
-   * Allow full filesystem access (blanket /:/host:rw mount)
-   *
-   * **SECURITY WARNING**: This flag disables AWF's security protection against
-   * credential exfiltration via prompt injection attacks. It mounts the entire
-   * host filesystem with read-write access, exposing ALL files including:
-   * - Docker Hub tokens (~/.docker/config.json)
-   * - GitHub CLI tokens (~/.config/gh/hosts.yml)
-   * - NPM tokens (~/.npmrc)
-   * - Rust crates.io tokens (~/.cargo/credentials)
-   * - PHP Composer tokens (~/.composer/auth.json)
-   * - And any other sensitive files on the host
-   *
-   * **Default behavior (false)**: Selective mounting is used, which only mounts:
-   * - User home directory (for workspace access)
-   *   - In GitHub Actions, the workspace directory ($GITHUB_WORKSPACE) is typically a
-   *     subdirectory of $HOME and is therefore accessible via this home directory mount
-   * - Essential directories (/tmp, ~/.copilot/logs)
-   * - Credential files are hidden by mounting /dev/null over them
-   *
-   * **Only enable this if**:
-   * - You need access to files outside the standard directories
-   * - You cannot use --volume-mount to specify needed directories
-   * - You understand and accept the security risks
-   *
-   * @default false
-   * @example
-   * ```bash
-   * # Avoid this - use selective mounting instead
-   * awf --allow-full-filesystem-access --allow-domains github.com -- curl https://api.github.com
-   *
-   * # Preferred - use selective mounting (default)
-   * awf --allow-domains github.com -- curl https://api.github.com
-   *
-   * # If you need specific directories, mount them explicitly
-   * awf --volume-mount /data:/data:ro --allow-domains github.com -- curl https://api.github.com
-   * ```
-   */
-  allowFullFilesystemAccess?: boolean;
 
   /**
    * Working directory inside the agent execution container
@@ -432,6 +399,7 @@ export interface WrapperConfig {
    * - http://api-proxy:10000 - OpenAI API proxy (for Codex) {@link API_PROXY_PORTS.OPENAI}
    * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
    * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
+   * - http://api-proxy:10004 - OpenCode API proxy (routes to Anthropic) {@link API_PROXY_PORTS.OPENCODE}
    *
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
@@ -457,6 +425,16 @@ export interface WrapperConfig {
    * @see API_PROXY_PORTS for port configuration
    */
   enableApiProxy?: boolean;
+
+  /**
+   * Rate limiting configuration for the API proxy sidecar
+   *
+   * Controls per-provider rate limits enforced by the API proxy before
+   * requests are forwarded to upstream LLM APIs.
+   *
+   * @see RateLimitConfig
+   */
+  rateLimitConfig?: RateLimitConfig;
 
   /**
    * OpenAI API key for Codex (used by API proxy sidecar)
@@ -494,6 +472,28 @@ export interface WrapperConfig {
    * @default undefined
    */
   copilotGithubToken?: string;
+
+  /**
+   * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
+   * as `COPILOT_API_TARGET`. The proxy will forward Copilot API requests to this host
+   * instead of the default `api.githubcopilot.com`.
+   *
+   * Useful for GitHub Enterprise Server (GHES) deployments where the Copilot API
+   * endpoint differs from the public default.
+   *
+   * Can be set via:
+   * - CLI flag: `--copilot-api-target <host>`
+   * - Environment variable: `COPILOT_API_TARGET`
+   *
+   * @default 'api.githubcopilot.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --copilot-api-target api.github.mycompany.com -- command
+   * ```
+   */
+  copilotApiTarget?: string;
 }
 
 /**
@@ -507,6 +507,23 @@ export interface WrapperConfig {
  * - 'error' (3): Shows only errors
  */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Rate limiting configuration for the API proxy sidecar
+ *
+ * Controls per-provider rate limits enforced before requests reach upstream APIs.
+ * All providers share the same limits but have independent counters.
+ */
+export interface RateLimitConfig {
+  /** Whether rate limiting is enabled (default: true) */
+  enabled: boolean;
+  /** Max requests per minute per provider (default: 600 when enabled) */
+  rpm: number;
+  /** Max requests per hour per provider (default: 1000) */
+  rph: number;
+  /** Max request bytes per minute per provider (default: 52428800 = 50 MB) */
+  bytesPm: number;
+}
 
 /**
  * Configuration for the Squid proxy server

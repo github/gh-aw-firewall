@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import execa from 'execa';
-import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
+import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial } from './ssl-bump';
 
 // Pattern constant for the safer URL character class (matches the implementation)
 const URL_CHAR_PATTERN = '[^\\s]*';
@@ -17,6 +17,10 @@ const mockExeca = execa as unknown as jest.Mock;
 beforeEach(() => {
   mockExeca.mockReset();
   mockExeca.mockImplementation((cmd: string, args: string[]) => {
+    if (cmd === 'mount' || cmd === 'umount') {
+      // tmpfs mount/unmount - fail gracefully in tests (no root privileges)
+      return Promise.reject(new Error('mount not available in test'));
+    }
     if (cmd === 'openssl') {
       if (args[0] === 'version') {
         return Promise.resolve({ stdout: 'OpenSSL 3.0.0 7 Sep 2021' });
@@ -169,12 +173,25 @@ describe('SSL Bump', () => {
     });
 
     it('should throw error when OpenSSL command fails', async () => {
-      mockExeca.mockImplementationOnce(() => {
+      mockExeca.mockImplementation((cmd: string) => {
+        if (cmd === 'mount') {
+          return Promise.reject(new Error('mount not available'));
+        }
         return Promise.reject(new Error('OpenSSL not found'));
       });
 
       await expect(generateSessionCa({ workDir: tempDir })).rejects.toThrow(
         'Failed to generate SSL Bump CA: OpenSSL not found'
+      );
+    });
+
+    it('should attempt tmpfs mount for ssl directory', async () => {
+      await generateSessionCa({ workDir: tempDir });
+
+      // Verify mount was attempted
+      expect(mockExeca).toHaveBeenCalledWith(
+        'mount',
+        expect.arrayContaining(['-t', 'tmpfs', 'tmpfs']),
       );
     });
   });
@@ -251,6 +268,88 @@ describe('SSL Bump', () => {
 
       const result = await isOpenSslAvailable();
       expect(result).toBe(false);
+    });
+  });
+
+  describe('secureWipeFile', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipe-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('should overwrite and delete a file', () => {
+      const filePath = path.join(tempDir, 'secret.key');
+      fs.writeFileSync(filePath, 'SECRET KEY DATA');
+
+      secureWipeFile(filePath);
+
+      expect(fs.existsSync(filePath)).toBe(false);
+    });
+
+    it('should handle non-existent files gracefully', () => {
+      const filePath = path.join(tempDir, 'nonexistent.key');
+      expect(() => secureWipeFile(filePath)).not.toThrow();
+    });
+
+    it('should handle empty files', () => {
+      const filePath = path.join(tempDir, 'empty.key');
+      fs.writeFileSync(filePath, '');
+
+      secureWipeFile(filePath);
+
+      expect(fs.existsSync(filePath)).toBe(false);
+    });
+  });
+
+  describe('cleanupSslKeyMaterial', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ssl-cleanup-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('should wipe all SSL files', () => {
+      const sslDir = path.join(tempDir, 'ssl');
+      fs.mkdirSync(sslDir, { mode: 0o700 });
+      fs.writeFileSync(path.join(sslDir, 'ca-key.pem'), 'PRIVATE KEY');
+      fs.writeFileSync(path.join(sslDir, 'ca-cert.pem'), 'CERTIFICATE');
+      fs.writeFileSync(path.join(sslDir, 'ca-cert.der'), 'DER CERT');
+
+      cleanupSslKeyMaterial(tempDir);
+
+      expect(fs.existsSync(path.join(sslDir, 'ca-key.pem'))).toBe(false);
+      expect(fs.existsSync(path.join(sslDir, 'ca-cert.pem'))).toBe(false);
+      expect(fs.existsSync(path.join(sslDir, 'ca-cert.der'))).toBe(false);
+    });
+
+    it('should wipe ssl_db certificate files', () => {
+      const sslDir = path.join(tempDir, 'ssl');
+      fs.mkdirSync(sslDir, { mode: 0o700 });
+      fs.writeFileSync(path.join(sslDir, 'ca-key.pem'), 'KEY');
+
+      const sslDbDir = path.join(tempDir, 'ssl_db');
+      const certsDir = path.join(sslDbDir, 'certs');
+      fs.mkdirSync(certsDir, { recursive: true });
+      fs.writeFileSync(path.join(certsDir, 'cert1.pem'), 'CERT1');
+      fs.writeFileSync(path.join(certsDir, 'cert2.pem'), 'CERT2');
+
+      cleanupSslKeyMaterial(tempDir);
+
+      expect(fs.existsSync(path.join(certsDir, 'cert1.pem'))).toBe(false);
+      expect(fs.existsSync(path.join(certsDir, 'cert2.pem'))).toBe(false);
+    });
+
+    it('should handle missing ssl directory gracefully', () => {
+      expect(() => cleanupSslKeyMaterial(tempDir)).not.toThrow();
     });
   });
 });

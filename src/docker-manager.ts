@@ -6,7 +6,7 @@ import execa from 'execa';
 import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from './types';
 import { logger } from './logger';
 import { generateSquidConfig } from './squid-config';
-import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns } from './ssl-bump';
+import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 
 const SQUID_PORT = 3128;
 
@@ -363,7 +363,15 @@ export function generateDockerCompose(
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
 
-  // When host access is enabled, bypass the proxy for the host gateway IPs.
+  // Always set NO_PROXY to prevent HTTP clients from proxying localhost traffic through Squid.
+  // Without this, test frameworks that start local servers (e.g., go/echo, python/uvicorn,
+  // deno/fresh) get 403 errors because Squid rejects requests to localhost (not in allowed domains).
+  // Include the agent's own container IP because test frameworks often bind to 0.0.0.0 and
+  // test clients may connect via the container's non-loopback IP (e.g., 172.30.0.20).
+  environment.NO_PROXY = `localhost,127.0.0.1,::1,0.0.0.0,${networkConfig.squidIp},${networkConfig.agentIp}`;
+  environment.no_proxy = environment.NO_PROXY;
+
+  // When host access is enabled, also bypass the proxy for the host gateway IPs.
   // MCP Streamable HTTP (SSE) traffic through Squid crashes it (comm.cc:1583),
   // so MCP gateway traffic must go directly to the host, not through Squid.
   if (config.enableHostAccess) {
@@ -371,18 +379,14 @@ export function generateDockerCompose(
     const subnetBase = networkConfig.subnet.split('/')[0]; // e.g. "172.30.0.0"
     const parts = subnetBase.split('.');
     const networkGatewayIp = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
-    environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.squidIp},host.docker.internal,${networkGatewayIp}`;
+    environment.NO_PROXY += `,host.docker.internal,${networkGatewayIp}`;
     environment.no_proxy = environment.NO_PROXY;
   }
 
   // When API proxy is enabled, bypass HTTP_PROXY for the api-proxy IP
   // so the agent can reach the sidecar directly without going through Squid
   if (config.enableApiProxy && networkConfig.proxyIp) {
-    if (environment.NO_PROXY) {
-      environment.NO_PROXY += `,${networkConfig.proxyIp}`;
-    } else {
-      environment.NO_PROXY = `localhost,127.0.0.1,${networkConfig.proxyIp}`;
-    }
+    environment.NO_PROXY += `,${networkConfig.proxyIp}`;
     environment.no_proxy = environment.NO_PROXY;
   }
 
@@ -436,15 +440,37 @@ export function generateDockerCompose(
     if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
     if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    // COPILOT_GITHUB_TOKEN is handled separately - gets placeholder when api-proxy enabled
+    // COPILOT_GITHUB_TOKEN — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
+    // it gets a placeholder value set earlier (line ~362) for credential isolation
+    if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
     if (process.env.USER) environment.USER = process.env.USER;
     if (process.env.TERM) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+    // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
+    if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
+    if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
+  }
+
+  // Forward one-shot-token debug flag if set (used for testing/debugging)
+  if (process.env.AWF_ONE_SHOT_TOKEN_DEBUG) {
+    environment.AWF_ONE_SHOT_TOKEN_DEBUG = process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
   }
 
   // Additional environment variables from --env flags (these override everything)
   if (config.additionalEnv) {
     Object.assign(environment, config.additionalEnv);
+  }
+
+  // Normalize NO_PROXY / no_proxy after additionalEnv is applied.
+  // If --env overrides one casing but not the other, HTTP clients that prefer the
+  // other casing (e.g., Go uses NO_PROXY, Python requests uses no_proxy) would
+  // still route through Squid. Sync them with NO_PROXY taking precedence.
+  if (environment.NO_PROXY !== environment.no_proxy) {
+    if (config.additionalEnv?.NO_PROXY) {
+      environment.no_proxy = environment.NO_PROXY;
+    } else if (config.additionalEnv?.no_proxy) {
+      environment.NO_PROXY = environment.no_proxy;
+    }
   }
 
   // Pass DNS servers to container for setup-iptables.sh and entrypoint.sh
@@ -706,8 +732,7 @@ export function generateDockerCompose(
   // 1. Mount ONLY the workspace directory ($GITHUB_WORKSPACE or cwd)
   // 2. Mount ~/.copilot/logs separately for Copilot CLI logging
   // 3. Hide credential files by mounting /dev/null over them (defense-in-depth)
-  // 4. Provide escape hatch (--allow-full-filesystem-access) for edge cases
-  // 5. Allow users to add specific mounts via --mount flag
+  // 4. Allow users to add specific mounts via --mount flag
   //
   // This ensures that credential files in $HOME are never mounted, making them
   // inaccessible even if prompt injection succeeds.
@@ -723,91 +748,96 @@ export function generateDockerCompose(
   // ================================================================
 
   // Add custom volume mounts if specified
+  // In chroot mode (always enabled), the container does `chroot /host`, so paths
+  // like /data become invisible. We need to prefix the container path with /host
+  // so that after chroot, /host/data becomes /data from the user's perspective.
   if (config.volumeMounts && config.volumeMounts.length > 0) {
     logger.debug(`Adding ${config.volumeMounts.length} custom volume mount(s)`);
     config.volumeMounts.forEach(mount => {
-      agentVolumes.push(mount);
+      // Parse mount format: host_path:container_path[:mode]
+      const parts = mount.split(':');
+      if (parts.length >= 2) {
+        const hostPath = parts[0];
+        const containerPath = parts[1];
+        const mode = parts[2] || '';
+        // Prefix container path with /host for chroot visibility
+        const chrootContainerPath = `/host${containerPath}`;
+        const transformedMount = mode
+          ? `${hostPath}:${chrootContainerPath}:${mode}`
+          : `${hostPath}:${chrootContainerPath}`;
+        logger.debug(`Adding custom volume mount: ${mount} -> ${transformedMount} (chroot-adjusted)`);
+        agentVolumes.push(transformedMount);
+      } else {
+        // Fallback: add as-is if format is unexpected
+        agentVolumes.push(mount);
+      }
     });
   }
 
-  // Apply security policy: selective mounting vs full filesystem access
-  if (config.allowFullFilesystemAccess) {
-    // User explicitly opted into full filesystem access - log security warning
-    logger.warn('⚠️  SECURITY WARNING: Full filesystem access enabled');
-    logger.warn('   The entire host filesystem is mounted with read-write access');
-    logger.warn('   This exposes sensitive credential files to potential prompt injection attacks');
-    logger.warn('   Consider using selective mounting (default) or --volume-mount for specific directories');
+  // Default: Selective mounting for security against credential exfiltration
+  // This provides protection against prompt injection attacks
+  logger.debug('Using selective mounting for security (credential files hidden)');
 
-    // Add blanket mount for full filesystem access
-    agentVolumes.unshift('/:/host:rw');
-  } else {
-    // Default: Selective mounting for security against credential exfiltration
-    // This provides protection against prompt injection attacks
-    logger.debug('Using selective mounting for security (credential files hidden)');
+  // SECURITY: Hide credential files by mounting /dev/null over them
+  // This prevents prompt-injected commands from reading sensitive tokens
+  // even if the attacker knows the file paths
+  //
+  // The home directory is mounted at both $HOME and /host$HOME.
+  // We must hide credentials at BOTH paths to prevent bypass attacks.
+  const credentialFiles = [
+    `${effectiveHome}/.docker/config.json`,       // Docker Hub tokens
+    `${effectiveHome}/.npmrc`,                    // NPM registry tokens
+    `${effectiveHome}/.cargo/credentials`,        // Rust crates.io tokens
+    `${effectiveHome}/.composer/auth.json`,       // PHP Composer tokens
+    `${effectiveHome}/.config/gh/hosts.yml`,      // GitHub CLI OAuth tokens
+    // SSH private keys (CRITICAL - server access, git operations)
+    `${effectiveHome}/.ssh/id_rsa`,
+    `${effectiveHome}/.ssh/id_ed25519`,
+    `${effectiveHome}/.ssh/id_ecdsa`,
+    `${effectiveHome}/.ssh/id_dsa`,
+    // Cloud provider credentials (CRITICAL - infrastructure access)
+    `${effectiveHome}/.aws/credentials`,
+    `${effectiveHome}/.aws/config`,
+    `${effectiveHome}/.kube/config`,
+    `${effectiveHome}/.azure/credentials`,
+    `${effectiveHome}/.config/gcloud/credentials.db`,
+  ];
 
-    // SECURITY: Hide credential files by mounting /dev/null over them
-    // This prevents prompt-injected commands from reading sensitive tokens
-    // even if the attacker knows the file paths
-    //
-    // The home directory is mounted at both $HOME and /host$HOME.
-    // We must hide credentials at BOTH paths to prevent bypass attacks.
-    const credentialFiles = [
-      `${effectiveHome}/.docker/config.json`,       // Docker Hub tokens
-      `${effectiveHome}/.npmrc`,                    // NPM registry tokens
-      `${effectiveHome}/.cargo/credentials`,        // Rust crates.io tokens
-      `${effectiveHome}/.composer/auth.json`,       // PHP Composer tokens
-      `${effectiveHome}/.config/gh/hosts.yml`,      // GitHub CLI OAuth tokens
-      // SSH private keys (CRITICAL - server access, git operations)
-      `${effectiveHome}/.ssh/id_rsa`,
-      `${effectiveHome}/.ssh/id_ed25519`,
-      `${effectiveHome}/.ssh/id_ecdsa`,
-      `${effectiveHome}/.ssh/id_dsa`,
-      // Cloud provider credentials (CRITICAL - infrastructure access)
-      `${effectiveHome}/.aws/credentials`,
-      `${effectiveHome}/.aws/config`,
-      `${effectiveHome}/.kube/config`,
-      `${effectiveHome}/.azure/credentials`,
-      `${effectiveHome}/.config/gcloud/credentials.db`,
-    ];
+  credentialFiles.forEach(credFile => {
+    agentVolumes.push(`/dev/null:${credFile}:ro`);
+  });
 
-    credentialFiles.forEach(credFile => {
-      agentVolumes.push(`/dev/null:${credFile}:ro`);
-    });
-
-    logger.debug(`Hidden ${credentialFiles.length} credential file(s) via /dev/null mounts`);
-  }
+  logger.debug(`Hidden ${credentialFiles.length} credential file(s) via /dev/null mounts`);
 
   // Also hide credentials at /host paths (chroot mounts home at /host$HOME too)
-  if (!config.allowFullFilesystemAccess) {
-    logger.debug('Hiding credential files at /host paths');
+  logger.debug('Hiding credential files at /host paths');
 
-    // Note: In chroot mode, effectiveHome === getRealUserHome() (see line 433),
-    // so we reuse effectiveHome here instead of calling getRealUserHome() again.
-    const chrootCredentialFiles = [
-      `/dev/null:/host${effectiveHome}/.docker/config.json:ro`,
-      `/dev/null:/host${effectiveHome}/.npmrc:ro`,
-      `/dev/null:/host${effectiveHome}/.cargo/credentials:ro`,
-      `/dev/null:/host${effectiveHome}/.composer/auth.json:ro`,
-      `/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`,
-      // SSH private keys (CRITICAL - server access, git operations)
-      `/dev/null:/host${effectiveHome}/.ssh/id_rsa:ro`,
-      `/dev/null:/host${effectiveHome}/.ssh/id_ed25519:ro`,
-      `/dev/null:/host${effectiveHome}/.ssh/id_ecdsa:ro`,
-      `/dev/null:/host${effectiveHome}/.ssh/id_dsa:ro`,
-      // Cloud provider credentials (CRITICAL - infrastructure access)
-      `/dev/null:/host${effectiveHome}/.aws/credentials:ro`,
-      `/dev/null:/host${effectiveHome}/.aws/config:ro`,
-      `/dev/null:/host${effectiveHome}/.kube/config:ro`,
-      `/dev/null:/host${effectiveHome}/.azure/credentials:ro`,
-      `/dev/null:/host${effectiveHome}/.config/gcloud/credentials.db:ro`,
-    ];
+  // Note: In chroot mode, effectiveHome === getRealUserHome() (see line 433),
+  // so we reuse effectiveHome here instead of calling getRealUserHome() again.
+  const chrootCredentialFiles = [
+    `/dev/null:/host${effectiveHome}/.docker/config.json:ro`,
+    `/dev/null:/host${effectiveHome}/.npmrc:ro`,
+    `/dev/null:/host${effectiveHome}/.cargo/credentials:ro`,
+    `/dev/null:/host${effectiveHome}/.composer/auth.json:ro`,
+    `/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`,
+    // SSH private keys (CRITICAL - server access, git operations)
+    `/dev/null:/host${effectiveHome}/.ssh/id_rsa:ro`,
+    `/dev/null:/host${effectiveHome}/.ssh/id_ed25519:ro`,
+    `/dev/null:/host${effectiveHome}/.ssh/id_ecdsa:ro`,
+    `/dev/null:/host${effectiveHome}/.ssh/id_dsa:ro`,
+    // Cloud provider credentials (CRITICAL - infrastructure access)
+    `/dev/null:/host${effectiveHome}/.aws/credentials:ro`,
+    `/dev/null:/host${effectiveHome}/.aws/config:ro`,
+    `/dev/null:/host${effectiveHome}/.kube/config:ro`,
+    `/dev/null:/host${effectiveHome}/.azure/credentials:ro`,
+    `/dev/null:/host${effectiveHome}/.config/gcloud/credentials.db:ro`,
+  ];
 
-    chrootCredentialFiles.forEach(mount => {
-      agentVolumes.push(mount);
-    });
+  chrootCredentialFiles.forEach(mount => {
+    agentVolumes.push(mount);
+  });
 
-    logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
-  }
+  logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
 
   // Agent service configuration
   const agentService: any = {
@@ -976,9 +1006,20 @@ export function generateDockerCompose(
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
         ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
+        // Configurable Copilot API target (for GHES/GHEC support)
+        ...(config.copilotApiTarget && { COPILOT_API_TARGET: config.copilotApiTarget }),
+        // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
+        ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        // Rate limiting configuration
+        ...(config.rateLimitConfig && {
+          AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),
+          AWF_RATE_LIMIT_RPM: String(config.rateLimitConfig.rpm),
+          AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
+          AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
+        }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
@@ -1042,6 +1083,9 @@ export function generateDockerCompose(
     if (config.copilotGithubToken) {
       environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
       logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
+      if (config.copilotApiTarget) {
+        logger.debug(`Copilot API target overridden to: ${config.copilotApiTarget}`);
+      }
 
       // Set placeholder token for GitHub Copilot CLI compatibility
       // Real authentication happens via COPILOT_API_URL pointing to api-proxy
@@ -1236,7 +1280,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     allowHostPorts: config.allowHostPorts,
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
-  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o600 });
+  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
   logger.debug(`Squid config written to: ${squidConfigPath}`);
 
   // Write Docker Compose config
@@ -1329,7 +1373,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent'], {
+    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'], {
       reject: false,
     });
   } catch {
@@ -1598,6 +1642,15 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             logger.debug('Could not preserve squid logs:', error);
           }
         }
+      }
+
+      // Securely wipe SSL key material before deleting workDir
+      cleanupSslKeyMaterial(workDir);
+
+      // Unmount tmpfs if it was used for SSL keys (data destroyed on unmount)
+      const sslDir = path.join(workDir, 'ssl');
+      if (fs.existsSync(sslDir)) {
+        await unmountSslTmpfs(sslDir);
       }
 
       // Clean up workDir
