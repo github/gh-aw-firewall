@@ -25,6 +25,7 @@ export interface AwfOptions {
   noRateLimit?: boolean; // Disable rate limiting
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
+  skipPull?: boolean; // Use local images without pulling from registry (--skip-pull)
 }
 
 export interface AwfResult {
@@ -74,6 +75,10 @@ export class AwfRunner {
 
     if (options.buildLocal) {
       args.push('--build-local');
+    }
+
+    if (options.skipPull) {
+      args.push('--skip-pull');
     }
 
     if (options.imageRegistry) {
@@ -254,6 +259,10 @@ export class AwfRunner {
 
     if (options.buildLocal) {
       args.push('--build-local');
+    }
+
+    if (options.skipPull) {
+      args.push('--skip-pull');
     }
 
     if (options.imageRegistry) {
