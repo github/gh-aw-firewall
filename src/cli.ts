@@ -729,7 +729,10 @@ program
   )
   .option(
     '--image-tag <tag>',
-    'Container image tag',
+    'Container image tag (applies to both squid and agent images)\n' +
+    '                                   Image name varies by --agent-image preset:\n' +
+    '                                     default → agent:<tag>\n' +
+    '                                     act     → agent-act:<tag>',
     'latest'
   )
   .option(
