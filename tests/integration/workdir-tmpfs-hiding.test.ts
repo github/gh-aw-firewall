@@ -8,11 +8,11 @@
  * Security Threat Model:
  * - docker-compose.yml in the workDir contains every env var passed to the container
  * - Without tmpfs overlay, an agent could read secrets via:
- *   cat /tmp/awf-*/docker-compose.yml (normal path)
- *   cat /host/tmp/awf-*/docker-compose.yml (chroot path)
+ *   cat /tmp/awf-{ts}/docker-compose.yml (normal path)
+ *   cat /host/tmp/awf-{ts}/docker-compose.yml (chroot path)
  *
  * Security Mitigation:
- * - tmpfs is mounted over both ${workDir} and /host${workDir}
+ * - tmpfs is mounted over both workDir and /host/workDir
  * - This makes the directory appear empty to the agent
  * - Subdirectory volume mounts (agent-logs, squid-logs) are unaffected
  *
