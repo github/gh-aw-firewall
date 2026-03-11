@@ -227,6 +227,138 @@ describe('Credential Hiding Security', () => {
     }, 120000);
   });
 
+  describe('All 14 Credential Paths Coverage', () => {
+    // These tests cover the 11 credential paths not tested by Tests 1-4 above.
+    // Each path is hidden via /dev/null mount and should return empty content.
+
+    const untestedPaths = [
+      { name: 'SSH id_rsa', path: '.ssh/id_rsa' },
+      { name: 'SSH id_ed25519', path: '.ssh/id_ed25519' },
+      { name: 'SSH id_ecdsa', path: '.ssh/id_ecdsa' },
+      { name: 'SSH id_dsa', path: '.ssh/id_dsa' },
+      { name: 'AWS credentials', path: '.aws/credentials' },
+      { name: 'AWS config', path: '.aws/config' },
+      { name: 'Kube config', path: '.kube/config' },
+      { name: 'Azure credentials', path: '.azure/credentials' },
+      { name: 'GCloud credentials.db', path: '.config/gcloud/credentials.db' },
+      { name: 'Cargo credentials', path: '.cargo/credentials' },
+      { name: 'Composer auth.json', path: '.composer/auth.json' },
+    ];
+
+    // Track files we create so we only clean up what we added
+    const createdFiles: string[] = [];
+    const createdDirs: string[] = [];
+
+    beforeAll(() => {
+      // Create dummy credential files on the host so AWF will mount /dev/null over them.
+      // Without these files existing, AWF skips the /dev/null mount and the files
+      // simply don't exist inside the container.
+      const homeDir = os.homedir();
+      for (const p of untestedPaths) {
+        const fullPath = `${homeDir}/${p.path}`;
+        const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+        fs.mkdirSync(dir, { recursive: true });
+        if (!createdDirs.includes(dir)) {
+          createdDirs.push(dir);
+        }
+        try {
+          // Use 'wx' flag: atomic create-if-not-exists (avoids TOCTOU race)
+          fs.writeFileSync(fullPath, 'DUMMY_SECRET_VALUE', { flag: 'wx' });
+          createdFiles.push(fullPath);
+        } catch (err: unknown) {
+          // EEXIST means file already exists, which is fine
+          if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'EEXIST') {
+            throw err;
+          }
+        }
+      }
+    });
+
+    afterAll(() => {
+      // Clean up only the files/dirs we created
+      for (const f of createdFiles) {
+        try { fs.unlinkSync(f); } catch { /* ignore */ }
+      }
+      // Remove dirs in reverse order (deepest first)
+      for (const d of createdDirs.reverse()) {
+        try { fs.rmdirSync(d); } catch { /* ignore if not empty */ }
+      }
+    });
+
+    test('All untested credential files are hidden at direct home path (0 bytes)', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
+
+      // Check all credential files in a single container run for efficiency.
+      // wc -c reports byte count; /dev/null-mounted files should be 0 bytes.
+      // Use '|| true' to prevent failures when files don't exist
+      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
+      // character special devices, not regular files
+      const result = await runner.runWithSudo(
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      const cleanOutput = extractCommandOutput(result.stdout);
+      const lines = cleanOutput.split('\n').filter(l => l.match(/^\s*\d+/));
+      // Each file should be 0 bytes (hidden via /dev/null)
+      lines.forEach(line => {
+        const size = parseInt(line.trim().split(/\s+/)[0]);
+        expect(size).toBe(0);
+      });
+      // Verify we checked all 11 files
+      expect(lines.length).toBe(untestedPaths.length);
+    }, 120000);
+
+    test('All untested credential files are inaccessible at /host path (chroot prevents access)', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `/host${homeDir}/${p.path}`).join(' ');
+
+      // AWF always runs in chroot mode (chroot /host), so /host$HOME/... paths
+      // don't exist inside the container — they're already inside the chroot.
+      // This verifies that credentials can't be exfiltrated via /host prefix paths.
+      const result = await runner.runWithSudo(
+        `sh -c 'count=0; for f in ${paths}; do if [ -e "$f" ]; then count=$((count+1)); fi; done; echo "accessible: $count"'`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      const cleanOutput = extractCommandOutput(result.stdout);
+      // No files should be accessible at /host paths inside chroot
+      expect(cleanOutput).toContain('accessible: 0');
+    }, 120000);
+
+    test('cat on each untested credential file returns empty content', async () => {
+      const homeDir = os.homedir();
+      const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
+
+      // cat all files and concatenate output - should be empty
+      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
+      // character special devices, not regular files
+      const result = await runner.runWithSudo(
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then cat "$f"; fi; done 2>&1 || true'`,
+        {
+          allowDomains: ['github.com'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+      // All content should be empty (no credential data leaked)
+      const cleanOutput = extractCommandOutput(result.stdout).trim();
+      expect(cleanOutput).toBe('');
+    }, 120000);
+  });
 
   describe('Security Verification', () => {
     test('Test 12: Simulated exfiltration attack gets empty data', async () => {
