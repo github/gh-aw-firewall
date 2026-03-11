@@ -2564,6 +2564,52 @@ describe('docker-manager', () => {
       expect(result.exitCode).toBe(0);
       expect(result.blockedDomains).toEqual([]);
     });
+
+    it('should return exit code 124 when agent times out', async () => {
+      jest.useFakeTimers();
+
+      // Mock docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // Mock docker wait - never resolves (simulates long-running command)
+      mockExecaFn.mockReturnValueOnce(new Promise(() => {}));
+      // Mock docker stop
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      const resultPromise = runAgentCommand(testDir, ['github.com'], undefined, 1);
+
+      // Use advanceTimersByTimeAsync to flush microtasks between timer advances
+      // This handles the 60s timeout AND the subsequent 500ms log flush delay
+      await jest.advanceTimersByTimeAsync(60 * 1000 + 1000);
+
+      const result = await resultPromise;
+
+      expect(result.exitCode).toBe(124);
+      // Verify docker stop was called
+      expect(mockExecaFn).toHaveBeenCalledWith('docker', ['stop', '-t', '10', 'awf-agent'], { reject: false });
+
+      jest.useRealTimers();
+    });
+
+    it('should return normal exit code when agent completes before timeout', async () => {
+      jest.useFakeTimers();
+
+      // Mock docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // Mock docker wait - resolves immediately with exit code 0
+      mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
+
+      const resultPromise = runAgentCommand(testDir, ['github.com'], undefined, 30);
+
+      // Advance past the 500ms log flush delay
+      await jest.advanceTimersByTimeAsync(1000);
+
+      const result = await resultPromise;
+
+      expect(result.exitCode).toBe(0);
+      expect(result.blockedDomains).toEqual([]);
+
+      jest.useRealTimers();
+    });
   });
 
   describe('cleanup', () => {
