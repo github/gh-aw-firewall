@@ -256,14 +256,20 @@ describe('Credential Hiding Security', () => {
       const homeDir = os.homedir();
       for (const p of untestedPaths) {
         const fullPath = `${homeDir}/${p.path}`;
-        if (!fs.existsSync(fullPath)) {
-          const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-            createdDirs.push(dir);
-          }
-          fs.writeFileSync(fullPath, 'DUMMY_SECRET_VALUE');
+        const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+        fs.mkdirSync(dir, { recursive: true });
+        if (!createdDirs.includes(dir)) {
+          createdDirs.push(dir);
+        }
+        try {
+          // Use 'wx' flag: atomic create-if-not-exists (avoids TOCTOU race)
+          fs.writeFileSync(fullPath, 'DUMMY_SECRET_VALUE', { flag: 'wx' });
           createdFiles.push(fullPath);
+        } catch (err: unknown) {
+          // EEXIST means file already exists, which is fine
+          if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'EEXIST') {
+            throw err;
+          }
         }
       }
     });
