@@ -529,9 +529,9 @@ describe('docker-manager', () => {
       // Should NOT include blanket /:/host:rw mount
       expect(volumes).not.toContain('/:/host:rw');
 
-      // Should include custom mounts
-      expect(volumes).toContain('/workspace:/workspace:ro');
-      expect(volumes).toContain('/data:/data:rw');
+      // Should include custom mounts (prefixed with /host for chroot visibility)
+      expect(volumes).toContain('/workspace:/host/workspace:ro');
+      expect(volumes).toContain('/data:/host/data:rw');
 
       // Should still include essential mounts
       expect(volumes).toContain('/tmp:/tmp:rw');
@@ -547,6 +547,35 @@ describe('docker-manager', () => {
       expect(volumes).not.toContain('/:/host:rw');
       // Should include selective mounts with credential hiding
       expect(volumes.some((v: string) => v.includes('/dev/null'))).toBe(true);
+    });
+
+    it('should handle malformed volume mount without colon as fallback', () => {
+      const configWithBadMount = {
+        ...mockConfig,
+        volumeMounts: ['no-colon-here']
+      };
+      const result = generateDockerCompose(configWithBadMount, mockNetworkConfig);
+      const agent = result.services.agent;
+      const volumes = agent.volumes as string[];
+      // Malformed mount should be added as-is (fallback)
+      expect(volumes).toContain('no-colon-here');
+    });
+
+    it('should forward COPILOT_GITHUB_TOKEN when api-proxy is disabled', () => {
+      process.env.COPILOT_GITHUB_TOKEN = 'ghp_test_token';
+      const configNoProxy = { ...mockConfig, enableApiProxy: false };
+      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghp_test_token');
+      delete process.env.COPILOT_GITHUB_TOKEN;
+    });
+
+    it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
+      process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.AWF_ONE_SHOT_TOKEN_DEBUG).toBe('1');
+      delete process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
     });
 
 
@@ -2008,11 +2037,11 @@ describe('docker-manager', () => {
         // May fail after writing configs
       }
 
-      // Verify squid.conf has restricted permissions
+      // Verify squid.conf is readable by proxy user (0o644) for non-root Squid
       const squidConfPath = path.join(testDir, 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const stats = fs.statSync(squidConfPath);
-        expect((stats.mode & 0o777).toString(8)).toBe('600');
+        expect((stats.mode & 0o777).toString(8)).toBe('644');
       }
 
       // Verify docker-compose.yml has restricted permissions

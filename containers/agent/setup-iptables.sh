@@ -32,7 +32,9 @@ if has_ip6tables; then
   IP6TABLES_AVAILABLE=true
   echo "[iptables] ip6tables is available"
 else
-  echo "[iptables] WARNING: ip6tables is not available, IPv6 rules will be skipped"
+  echo "[iptables] WARNING: ip6tables is not available, disabling IPv6 via sysctl to prevent unfiltered bypass"
+  sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
+  sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
 fi
 
 # Get Squid proxy configuration from environment
