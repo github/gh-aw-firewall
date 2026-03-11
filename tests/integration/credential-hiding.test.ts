@@ -315,14 +315,15 @@ describe('Credential Hiding Security', () => {
       expect(lines.length).toBe(untestedPaths.length);
     }, 120000);
 
-    test('All untested credential files are hidden at /host path (0 bytes)', async () => {
+    test('All untested credential files are inaccessible at /host path (chroot prevents access)', async () => {
       const homeDir = os.homedir();
       const paths = untestedPaths.map(p => `/host${homeDir}/${p.path}`).join(' ');
 
-      // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
-      // character special devices, not regular files
+      // AWF always runs in chroot mode (chroot /host), so /host$HOME/... paths
+      // don't exist inside the container — they're already inside the chroot.
+      // This verifies that credentials can't be exfiltrated via /host prefix paths.
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
+        `sh -c 'count=0; for f in ${paths}; do if [ -e "$f" ]; then count=$((count+1)); fi; done; echo "accessible: $count"'`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -332,12 +333,8 @@ describe('Credential Hiding Security', () => {
 
       expect(result).toSucceed();
       const cleanOutput = extractCommandOutput(result.stdout);
-      const lines = cleanOutput.split('\n').filter(l => l.match(/^\s*\d+/));
-      lines.forEach(line => {
-        const size = parseInt(line.trim().split(/\s+/)[0]);
-        expect(size).toBe(0);
-      });
-      expect(lines.length).toBe(untestedPaths.length);
+      // No files should be accessible at /host paths inside chroot
+      expect(cleanOutput).toContain('accessible: 0');
     }, 120000);
 
     test('cat on each untested credential file returns empty content', async () => {
