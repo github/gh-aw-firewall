@@ -245,6 +245,40 @@ describe('Credential Hiding Security', () => {
       { name: 'Composer auth.json', path: '.composer/auth.json' },
     ];
 
+    // Track files we create so we only clean up what we added
+    const createdFiles: string[] = [];
+    const createdDirs: string[] = [];
+
+    beforeAll(() => {
+      // Create dummy credential files on the host so AWF will mount /dev/null over them.
+      // Without these files existing, AWF skips the /dev/null mount and the files
+      // simply don't exist inside the container.
+      const homeDir = os.homedir();
+      for (const p of untestedPaths) {
+        const fullPath = `${homeDir}/${p.path}`;
+        if (!fs.existsSync(fullPath)) {
+          const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+            createdDirs.push(dir);
+          }
+          fs.writeFileSync(fullPath, 'DUMMY_SECRET_VALUE');
+          createdFiles.push(fullPath);
+        }
+      }
+    });
+
+    afterAll(() => {
+      // Clean up only the files/dirs we created
+      for (const f of createdFiles) {
+        try { fs.unlinkSync(f); } catch { /* ignore */ }
+      }
+      // Remove dirs in reverse order (deepest first)
+      for (const d of createdDirs.reverse()) {
+        try { fs.rmdirSync(d); } catch { /* ignore if not empty */ }
+      }
+    });
+
     test('All untested credential files are hidden at direct home path (0 bytes)', async () => {
       const homeDir = os.homedir();
       const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
