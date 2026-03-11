@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1493,6 +1493,50 @@ describe('cli', () => {
     it('should pass when all flags used with api proxy enabled', () => {
       const r = validateRateLimitFlags(true, { rateLimitRpm: '10', rateLimitRph: '100', rateLimit: false });
       expect(r.valid).toBe(true);
+    });
+  });
+
+  describe('validateAllowHostPorts', () => {
+    it('should fail when --allow-host-ports is used without --enable-host-access', () => {
+      const result = validateAllowHostPorts('3000', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('--allow-host-ports requires --enable-host-access');
+    });
+
+    it('should fail when --allow-host-ports is used with enableHostAccess=false', () => {
+      const result = validateAllowHostPorts('8080', false);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('--allow-host-ports requires --enable-host-access');
+    });
+
+    it('should pass when --allow-host-ports is used with --enable-host-access', () => {
+      const result = validateAllowHostPorts('3000', true);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should pass when --allow-host-ports is not provided', () => {
+      const result = validateAllowHostPorts(undefined, undefined);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should pass when only --enable-host-access is set without ports', () => {
+      const result = validateAllowHostPorts(undefined, true);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should fail for port ranges without --enable-host-access', () => {
+      const result = validateAllowHostPorts('3000-3010,8080', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('--allow-host-ports requires --enable-host-access');
+    });
+
+    it('should pass for port ranges with --enable-host-access', () => {
+      const result = validateAllowHostPorts('3000-3010,8000-8090', true);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
   });
 });

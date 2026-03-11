@@ -404,6 +404,25 @@ export function validateSkipPullWithBuildLocal(
 }
 
 /**
+ * Validates that --allow-host-ports is only used with --enable-host-access
+ * @param allowHostPorts - The --allow-host-ports value (undefined if not provided)
+ * @param enableHostAccess - Whether --enable-host-access flag was provided
+ * @returns FlagValidationResult with validation status and error message
+ */
+export function validateAllowHostPorts(
+  allowHostPorts: string | undefined,
+  enableHostAccess: boolean | undefined
+): FlagValidationResult {
+  if (allowHostPorts && !enableHostAccess) {
+    return {
+      valid: false,
+      error: '--allow-host-ports requires --enable-host-access to be set',
+    };
+  }
+  return { valid: true };
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -1110,9 +1129,10 @@ program
       logger.warn('   This may expose sensitive credentials if logs or configs are shared');
     }
 
-    // Warn if --allow-host-ports is used without --enable-host-access
-    if (config.allowHostPorts && !config.enableHostAccess) {
-      logger.error('❌ --allow-host-ports requires --enable-host-access to be set');
+    // Validate --allow-host-ports requires --enable-host-access
+    const hostPortsValidation = validateAllowHostPorts(config.allowHostPorts, config.enableHostAccess);
+    if (!hostPortsValidation.valid) {
+      logger.error(`❌ ${hostPortsValidation.error}`);
       process.exit(1);
     }
 
