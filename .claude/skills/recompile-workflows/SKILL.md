@@ -42,13 +42,7 @@ This updates these lock files:
 - `smoke-copilot.lock.yml`
 - `smoke-claude.lock.yml`
 - `smoke-chroot.lock.yml`
-- `build-test-node.lock.yml`
-- `build-test-go.lock.yml`
-- `build-test-rust.lock.yml`
-- `build-test-java.lock.yml`
-- `build-test-cpp.lock.yml`
-- `build-test-deno.lock.yml`
-- `build-test-bun.lock.yml`
+- `build-test.lock.yml`
 
 ## Common Issues
 

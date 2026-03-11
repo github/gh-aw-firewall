@@ -533,6 +533,13 @@ acl localnet src fe80::/10
 
 ${portAclsAndRules}
 
+# Deny CONNECT to raw IP addresses (IPv4 and IPv6)
+# Prevents bypassing domain-based filtering via direct IP connections
+acl dst_ipv4 dstdom_regex ^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$
+acl dst_ipv6 dstdom_regex ^\\[?[0-9a-fA-F:]+\\]?$
+http_access deny dst_ipv4
+http_access deny dst_ipv6
+
 ${accessRulesSection}# Deny requests to unknown domains (not in allow-list)
 # This applies to all sources including localnet
 ${denyRule}
