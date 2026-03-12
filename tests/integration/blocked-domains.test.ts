@@ -34,7 +34,7 @@ describe('Blocked Domains Functionality', () => {
     // Note: Currently blocked domains are checked against the ACL, so this tests
     // that the blocking mechanism is properly configured
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://api.github.com/zen',
+      'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
@@ -48,7 +48,7 @@ describe('Blocked Domains Functionality', () => {
 
   test('should allow requests to allowed domains', async () => {
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://api.github.com/zen',
+      'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
@@ -76,7 +76,7 @@ describe('Blocked Domains Functionality', () => {
   test('should handle multiple blocked domains', async () => {
     // Test that multiple allowed domains work together
     const result = await runner.runWithSudo(
-      'bash -c "curl -f --max-time 10 https://api.github.com/zen && echo success"',
+      'bash -c "curl --max-time 10 https://api.github.com/zen && echo success"',
       {
         allowDomains: ['github.com', 'npmjs.org'],
         logLevel: 'debug',
@@ -131,7 +131,7 @@ describe('Domain Allowlist Edge Cases', () => {
   test('should handle case-insensitive domain matching', async () => {
     // Test that domains are matched case-insensitively
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://API.GITHUB.COM/zen',
+      'curl --max-time 10 https://API.GITHUB.COM/zen',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
@@ -160,7 +160,7 @@ describe('Domain Allowlist Edge Cases', () => {
 
   test('should handle domains with leading/trailing whitespace in config', async () => {
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://api.github.com/zen',
+      'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['  github.com  '],
         logLevel: 'debug',

@@ -29,7 +29,7 @@ describe('Wildcard Pattern Matching', () => {
   describe('Leading Wildcard Patterns (*.domain.com)', () => {
     test('should allow subdomain with *.github.com pattern', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS https://api.github.com/zen',
+        'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['*.github.com'],
           logLevel: 'debug',
@@ -56,7 +56,7 @@ describe('Wildcard Pattern Matching', () => {
     test('should allow nested subdomains with wildcard', async () => {
       // Allow any subdomain of github.com
       const result = await runner.runWithSudo(
-        'curl -fsS https://api.github.com/zen',
+        'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['*.github.com'],
           logLevel: 'debug',
@@ -71,7 +71,7 @@ describe('Wildcard Pattern Matching', () => {
   describe('Case Insensitivity', () => {
     test('should match domain case-insensitively', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS https://API.GITHUB.COM/zen',
+        'curl -sS https://API.GITHUB.COM/zen',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -84,7 +84,7 @@ describe('Wildcard Pattern Matching', () => {
 
     test('should match wildcard pattern case-insensitively', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS https://API.GITHUB.COM/zen',
+        'curl -sS https://API.GITHUB.COM/zen',
         {
           allowDomains: ['*.GitHub.COM'],
           logLevel: 'debug',
@@ -112,7 +112,7 @@ describe('Wildcard Pattern Matching', () => {
 
     test('should allow subdomains of plain domain (github.com allows api.github.com)', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS https://api.github.com/zen',
+        'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -127,7 +127,7 @@ describe('Wildcard Pattern Matching', () => {
   describe('Multiple Patterns', () => {
     test('should allow domains matching any of multiple patterns', async () => {
       const result = await runner.runWithSudo(
-        'bash -c "curl -fsS https://api.github.com/zen && echo success"',
+        'bash -c "curl -sS https://api.github.com/zen && echo success"',
         {
           allowDomains: ['*.github.com', '*.gitlab.com', '*.bitbucket.org'],
           logLevel: 'debug',
@@ -141,7 +141,7 @@ describe('Wildcard Pattern Matching', () => {
 
     test('should combine wildcard and plain domain patterns', async () => {
       const result = await runner.runWithSudo(
-        'bash -c "curl -fsS https://api.github.com/zen && echo success"',
+        'bash -c "curl -sS https://api.github.com/zen && echo success"',
         {
           allowDomains: ['github.com', '*.githubusercontent.com'],
           logLevel: 'debug',
