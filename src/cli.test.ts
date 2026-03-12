@@ -1818,6 +1818,21 @@ describe('cli', () => {
       const result = parseAgentTimeout('1440');
       expect(result).toEqual({ minutes: 1440 });
     });
+
+    it('should return error for value with trailing non-numeric characters', () => {
+      const result = parseAgentTimeout('30m');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for decimal value', () => {
+      const result = parseAgentTimeout('1.5');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for value with leading zero', () => {
+      const result = parseAgentTimeout('030');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
   });
 
   describe('applyAgentTimeout', () => {

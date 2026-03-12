@@ -515,10 +515,10 @@ export function parseMemoryLimit(input: string): { value: string; error?: undefi
  * @returns The parsed timeout in minutes, or an error
  */
 export function parseAgentTimeout(value: string): { minutes: number } | { error: string } {
-  const timeoutMinutes = parseInt(value, 10);
-  if (isNaN(timeoutMinutes) || timeoutMinutes <= 0) {
+  if (!/^[1-9]\d*$/.test(value)) {
     return { error: '--agent-timeout must be a positive integer (minutes)' };
   }
+  const timeoutMinutes = parseInt(value, 10);
   return { minutes: timeoutMinutes };
 }
 

@@ -1536,9 +1536,10 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
         exitCodeStr: result.stdout,
       }));
 
-      const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve =>
-        setTimeout(() => resolve({ type: 'timeout' }), timeoutMs)
-      );
+      let timeoutTimer: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
+        timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+      });
 
       const raceResult = await Promise.race([waitPromise, timeoutPromise]);
 
@@ -1548,6 +1549,8 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
         await execa('docker', ['stop', '-t', '10', 'awf-agent'], { reject: false });
         exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
       } else {
+        // Clear the timeout timer so it doesn't keep the event loop alive
+        clearTimeout(timeoutTimer!);
         exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
       }
     } else {
