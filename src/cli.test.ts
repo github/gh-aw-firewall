@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1566,6 +1566,7 @@ describe('cli', () => {
     it('should have correct default values', () => {
       expect(DEFAULT_OPENAI_API_TARGET).toBe('api.openai.com');
       expect(DEFAULT_ANTHROPIC_API_TARGET).toBe('api.anthropic.com');
+      expect(DEFAULT_COPILOT_API_TARGET).toBe('api.githubcopilot.com');
     });
   });
 
@@ -1729,6 +1730,45 @@ describe('cli', () => {
       // Default targets are not in 'github.com' allowed domains, but since they ARE the defaults,
       // validateApiTargetInAllowedDomains returns null for default==default check
       expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit warning for custom Copilot target not in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, copilotApiTarget: 'custom.copilot-router.internal' },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('--copilot-api-target=custom.copilot-router.internal');
+    });
+
+    it('should emit no warnings when custom Copilot target is in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, copilotApiTarget: 'copilot.example.com' },
+        ['example.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit warnings for all three custom targets when none are in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        {
+          enableApiProxy: true,
+          openaiApiTarget: 'openai.internal',
+          anthropicApiTarget: 'anthropic.internal',
+          copilotApiTarget: 'copilot.internal'
+        },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(3);
+      expect(warnings[0]).toContain('--openai-api-target=openai.internal');
+      expect(warnings[1]).toContain('--anthropic-api-target=anthropic.internal');
+      expect(warnings[2]).toContain('--copilot-api-target=copilot.internal');
     });
   });
 

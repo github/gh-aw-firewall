@@ -247,6 +247,8 @@ export function processAgentImageOption(
 export const DEFAULT_OPENAI_API_TARGET = 'api.openai.com';
 /** Default upstream hostname for Anthropic API requests in the api-proxy sidecar */
 export const DEFAULT_ANTHROPIC_API_TARGET = 'api.anthropic.com';
+/** Default upstream hostname for GitHub Copilot API requests in the api-proxy sidecar (when running on github.com) */
+export const DEFAULT_COPILOT_API_TARGET = 'api.githubcopilot.com';
 
 /**
  * Result of validating API proxy configuration
@@ -332,13 +334,13 @@ export function validateApiTargetInAllowedDomains(
 
 /**
  * Emits warnings for custom API proxy target hostnames that are not in the allowed domains list.
- * Checks both OpenAI and Anthropic targets when the API proxy is enabled.
+ * Checks OpenAI, Anthropic, and Copilot targets when the API proxy is enabled.
  * @param config - Partial wrapper config with API proxy settings
  * @param allowedDomains - The list of domains allowed through the firewall
  * @param warn - Function to emit a warning message
  */
 export function emitApiProxyTargetWarnings(
-  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string },
+  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string; copilotApiTarget?: string },
   allowedDomains: string[],
   warn: (msg: string) => void
 ): void {
@@ -362,6 +364,16 @@ export function emitApiProxyTargetWarnings(
   );
   if (anthropicTargetWarning) {
     warn(`⚠️  ${anthropicTargetWarning}`);
+  }
+
+  const copilotTargetWarning = validateApiTargetInAllowedDomains(
+    config.copilotApiTarget ?? DEFAULT_COPILOT_API_TARGET,
+    DEFAULT_COPILOT_API_TARGET,
+    '--copilot-api-target',
+    allowedDomains
+  );
+  if (copilotTargetWarning) {
+    warn(`⚠️  ${copilotTargetWarning}`);
   }
 }
 
