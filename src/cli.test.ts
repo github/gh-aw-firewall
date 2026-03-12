@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1823,4 +1823,102 @@ describe('cli', () => {
     });
   });
 
+  describe('parseAgentTimeout', () => {
+    it('should parse a valid positive integer', () => {
+      const result = parseAgentTimeout('30');
+      expect(result).toEqual({ minutes: 30 });
+    });
+
+    it('should parse single minute timeout', () => {
+      const result = parseAgentTimeout('1');
+      expect(result).toEqual({ minutes: 1 });
+    });
+
+    it('should return error for zero', () => {
+      const result = parseAgentTimeout('0');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for negative value', () => {
+      const result = parseAgentTimeout('-5');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for non-numeric string', () => {
+      const result = parseAgentTimeout('abc');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for empty string', () => {
+      const result = parseAgentTimeout('');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should parse large timeout values', () => {
+      const result = parseAgentTimeout('1440');
+      expect(result).toEqual({ minutes: 1440 });
+    });
+
+    it('should return error for value with trailing non-numeric characters', () => {
+      const result = parseAgentTimeout('30m');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for decimal value', () => {
+      const result = parseAgentTimeout('1.5');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+
+    it('should return error for value with leading zero', () => {
+      const result = parseAgentTimeout('030');
+      expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
+    });
+  });
+
+  describe('applyAgentTimeout', () => {
+    it('should do nothing when agentTimeout is undefined', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      applyAgentTimeout(undefined, config, logger);
+      expect(config.agentTimeout).toBeUndefined();
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should set agentTimeout on config for valid value', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      applyAgentTimeout('30', config, logger);
+      expect(config.agentTimeout).toBe(30);
+      expect(logger.info).toHaveBeenCalledWith('Agent timeout set to 30 minutes');
+    });
+
+    it('should call process.exit for invalid value', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      applyAgentTimeout('abc', config, logger);
+      expect(logger.error).toHaveBeenCalledWith('--agent-timeout must be a positive integer (minutes)');
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockRestore();
+    });
+  });
+
+  describe('formatItem', () => {
+    it('should format term with description when term fits within width', () => {
+      const result = formatItem('--flag', 'Description text', 20, 2, 2, 80);
+      expect(result).toBe('  --flag                Description text');
+    });
+
+    it('should wrap description to next line when term exceeds width', () => {
+      const result = formatItem('--very-long-flag-name-that-exceeds-width', 'Description', 10, 2, 2, 80);
+      expect(result).toContain('--very-long-flag-name-that-exceeds-width\n');
+      expect(result).toContain('Description');
+    });
+
+    it('should format term without description', () => {
+      const result = formatItem('--flag', '', 20, 2, 2, 80);
+      expect(result).toBe('  --flag');
+    });
+  });
 });

@@ -522,6 +522,38 @@ export function parseMemoryLimit(input: string): { value: string; error?: undefi
 }
 
 /**
+ * Parses and validates the --agent-timeout option
+ * @param value - The raw string value from the CLI option
+ * @returns The parsed timeout in minutes, or an error
+ */
+export function parseAgentTimeout(value: string): { minutes: number } | { error: string } {
+  if (!/^[1-9]\d*$/.test(value)) {
+    return { error: '--agent-timeout must be a positive integer (minutes)' };
+  }
+  const timeoutMinutes = parseInt(value, 10);
+  return { minutes: timeoutMinutes };
+}
+
+/**
+ * Applies the --agent-timeout option to the config if present.
+ * Exits with code 1 if the value is invalid.
+ */
+export function applyAgentTimeout(
+  agentTimeout: string | undefined,
+  config: WrapperConfig,
+  logger: { error: (msg: string) => void; info: (msg: string) => void }
+): void {
+  if (agentTimeout === undefined) return;
+  const result = parseAgentTimeout(agentTimeout);
+  if ('error' in result) {
+    logger.error(result.error);
+    process.exit(1);
+  }
+  config.agentTimeout = result.minutes;
+  logger.info(`Agent timeout set to ${result.minutes} minutes`);
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -1032,6 +1064,10 @@ program
     false
   )
   .option(
+    '--agent-timeout <minutes>',
+    'Maximum time in minutes for the agent command to run (default: no limit)',
+  )
+  .option(
     '--work-dir <dir>',
     'Working directory for temporary files',
     path.join(os.tmpdir(), `awf-${Date.now()}`)
@@ -1316,6 +1352,9 @@ program
       openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
     };
+
+    // Parse and validate --agent-timeout
+    applyAgentTimeout(options.agentTimeout, config, logger);
 
     // Build rate limit config when API proxy is enabled
     if (config.enableApiProxy) {

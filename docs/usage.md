@@ -21,6 +21,7 @@ Options:
                                comma-separated, supports # comments)
   --log-level <level>          Log level: debug, info, warn, error (default: info)
   -k, --keep-containers        Keep containers running after command exits (default: false)
+  --agent-timeout <minutes>    Maximum time in minutes for the agent command to run (default: no limit)
   --tty                        Allocate a pseudo-TTY for the container (required for interactive
                                tools like Claude Code) (default: false)
   --work-dir <dir>             Working directory for temporary files

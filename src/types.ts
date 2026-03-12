@@ -550,6 +550,22 @@ export interface WrapperConfig {
    * ```
    */
   anthropicApiTarget?: string;
+
+  /**
+   * Maximum time in minutes to allow the agent command to run
+   *
+   * When specified, the agent container is forcibly stopped after this many
+   * minutes. Useful for large projects where builds or tests may exceed
+   * default CI timeouts.
+   *
+   * When not specified, the agent runs indefinitely until the command completes
+   * or the process is externally terminated.
+   *
+   * @default undefined (no timeout)
+   * @example 30
+   * @example 45
+   */
+  agentTimeout?: number;
 }
 
 /**

@@ -1513,7 +1513,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 /**
  * Runs the agent command in the container and reports any blocked domains
  */
-export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string): Promise<{ exitCode: number; blockedDomains: string[] }> {
+export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number): Promise<{ exitCode: number; blockedDomains: string[] }> {
   logger.info('Executing agent command...');
 
   try {
@@ -1524,13 +1524,40 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       reject: false,
     });
 
-    // Wait for the container to exit (this will run concurrently with log streaming)
-    const { stdout: exitCodeStr } = await execa('docker', [
-      'wait',
-      'awf-agent',
-    ]);
+    let exitCode: number;
 
-    const exitCode = parseInt(exitCodeStr.trim(), 10);
+    if (agentTimeoutMinutes) {
+      const timeoutMs = agentTimeoutMinutes * 60 * 1000;
+      logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
+
+      // Race docker wait against a timeout
+      const waitPromise = execa('docker', ['wait', 'awf-agent']).then(result => ({
+        type: 'completed' as const,
+        exitCodeStr: result.stdout,
+      }));
+
+      let timeoutTimer: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
+        timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+      });
+
+      const raceResult = await Promise.race([waitPromise, timeoutPromise]);
+
+      if (raceResult.type === 'timeout') {
+        logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
+        // Stop the container gracefully (10 second grace period before SIGKILL)
+        await execa('docker', ['stop', '-t', '10', 'awf-agent'], { reject: false });
+        exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
+      } else {
+        // Clear the timeout timer so it doesn't keep the event loop alive
+        clearTimeout(timeoutTimer!);
+        exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
+      }
+    } else {
+      // No timeout - wait indefinitely
+      const { stdout: exitCodeStr } = await execa('docker', ['wait', 'awf-agent']);
+      exitCode = parseInt(exitCodeStr.trim(), 10);
+    }
 
     // Wait for the logs process to finish (it should exit automatically when container stops)
     await logsProcess;

@@ -8,7 +8,8 @@ export interface WorkflowDependencies {
   runAgentCommand: (
     workDir: string,
     allowedDomains: string[],
-    proxyLogsDir?: string
+    proxyLogsDir?: string,
+    agentTimeoutMinutes?: number
   ) => Promise<{ exitCode: number }>;
 }
 
@@ -58,7 +59,7 @@ export async function runMainWorkflow(
   onContainersStarted?.();
 
   // Step 3: Wait for agent to complete
-  const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir);
+  const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
   await performCleanup();
