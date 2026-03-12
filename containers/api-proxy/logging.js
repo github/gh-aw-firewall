@@ -19,12 +19,14 @@ function generateRequestId() {
 
 /**
  * Strip control characters and limit length for safe logging.
+ * Newline characters are removed to prevent log injection via line splitting.
  * @param {string} str
  * @param {number} [maxLen=200]
  * @returns {string}
  */
 function sanitizeForLog(str, maxLen = 200) {
   if (typeof str !== 'string') return '';
+  // Remove ASCII control characters, including CR and LF, then truncate
   // eslint-disable-next-line no-control-regex
   return str.replace(/[\x00-\x1f\x7f]/g, '').slice(0, maxLen);
 }

@@ -500,8 +500,14 @@ if (require.main === module) {
 
       const logMethod = sanitizeForLog(req.method);
       const logUrl = sanitizeForLog(req.url);
-      console.log(`[OpenCode Proxy] ${logMethod} ${logUrl}`);
-      console.log('[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY');
+      logRequest('info', 'opencode_proxy_request', {
+        message: '[OpenCode Proxy] Incoming request',
+        method: logMethod,
+        url: logUrl,
+      });
+      logRequest('info', 'opencode_proxy_header_injection', {
+        message: '[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY',
+      });
       const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
       if (!req.headers['anthropic-version']) {
         anthropicHeaders['anthropic-version'] = '2023-06-01';
