@@ -124,6 +124,7 @@ jobs:
 
       - name: Comment PR with coverage comparison
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

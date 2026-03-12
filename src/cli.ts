@@ -331,6 +331,41 @@ export function validateApiTargetInAllowedDomains(
 }
 
 /**
+ * Emits warnings for custom API proxy target hostnames that are not in the allowed domains list.
+ * Checks both OpenAI and Anthropic targets when the API proxy is enabled.
+ * @param config - Partial wrapper config with API proxy settings
+ * @param allowedDomains - The list of domains allowed through the firewall
+ * @param warn - Function to emit a warning message
+ */
+export function emitApiProxyTargetWarnings(
+  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string },
+  allowedDomains: string[],
+  warn: (msg: string) => void
+): void {
+  if (!config.enableApiProxy) return;
+
+  const openaiTargetWarning = validateApiTargetInAllowedDomains(
+    config.openaiApiTarget ?? DEFAULT_OPENAI_API_TARGET,
+    DEFAULT_OPENAI_API_TARGET,
+    '--openai-api-target',
+    allowedDomains
+  );
+  if (openaiTargetWarning) {
+    warn(`⚠️  ${openaiTargetWarning}`);
+  }
+
+  const anthropicTargetWarning = validateApiTargetInAllowedDomains(
+    config.anthropicApiTarget ?? DEFAULT_ANTHROPIC_API_TARGET,
+    DEFAULT_ANTHROPIC_API_TARGET,
+    '--anthropic-api-target',
+    allowedDomains
+  );
+  if (anthropicTargetWarning) {
+    warn(`⚠️  ${anthropicTargetWarning}`);
+  }
+}
+
+/**
  * Builds a RateLimitConfig from parsed CLI options.
  */
 export function buildRateLimitConfig(options: {
@@ -1261,26 +1296,7 @@ program
     }
 
     // Warn if custom API targets are not in --allow-domains
-    if (config.enableApiProxy) {
-      const openaiTargetWarning = validateApiTargetInAllowedDomains(
-        config.openaiApiTarget ?? DEFAULT_OPENAI_API_TARGET,
-        DEFAULT_OPENAI_API_TARGET,
-        '--openai-api-target',
-        allowedDomains
-      );
-      if (openaiTargetWarning) {
-        logger.warn(`⚠️  ${openaiTargetWarning}`);
-      }
-      const anthropicTargetWarning = validateApiTargetInAllowedDomains(
-        config.anthropicApiTarget ?? DEFAULT_ANTHROPIC_API_TARGET,
-        DEFAULT_ANTHROPIC_API_TARGET,
-        '--anthropic-api-target',
-        allowedDomains
-      );
-      if (anthropicTargetWarning) {
-        logger.warn(`⚠️  ${anthropicTargetWarning}`);
-      }
-    }
+    emitApiProxyTargetWarnings(config, allowedDomains, logger.warn.bind(logger));
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
