@@ -46,6 +46,10 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 
+// Configurable API target hosts (supports custom endpoints / internal LLM routers)
+const OPENAI_API_TARGET = process.env.OPENAI_API_TARGET || 'api.openai.com';
+const ANTHROPIC_API_TARGET = process.env.ANTHROPIC_API_TARGET || 'api.anthropic.com';
+
 // Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
 // Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
 function deriveCopilotApiTarget() {
@@ -76,7 +80,11 @@ const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 logRequest('info', 'startup', {
   message: 'Starting AWF API proxy sidecar',
   squid_proxy: HTTPS_PROXY || 'not configured',
-  copilot_api_target: COPILOT_API_TARGET,
+  api_targets: {
+    openai: OPENAI_API_TARGET,
+    anthropic: ANTHROPIC_API_TARGET,
+    copilot: COPILOT_API_TARGET,
+  },
   providers: {
     openai: !!OPENAI_API_KEY,
     anthropic: !!ANTHROPIC_API_KEY,
@@ -397,13 +405,13 @@ if (OPENAI_API_KEY) {
     const contentLength = parseInt(req.headers['content-length'], 10) || 0;
     if (checkRateLimit(req, res, 'openai', contentLength)) return;
 
-    proxyRequest(req, res, 'api.openai.com', {
+    proxyRequest(req, res, OPENAI_API_TARGET, {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
     }, 'openai');
   });
 
   server.listen(HEALTH_PORT, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}` });
+    logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
   });
 } else {
   // No OpenAI key — still need a health endpoint on port 10000 for Docker healthcheck
@@ -436,11 +444,11 @@ if (ANTHROPIC_API_KEY) {
     if (!req.headers['anthropic-version']) {
       anthropicHeaders['anthropic-version'] = '2023-06-01';
     }
-    proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders, 'anthropic');
+    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic');
   });
 
   server.listen(10001, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001' });
+    logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
   });
 }
 
@@ -488,11 +496,11 @@ if (ANTHROPIC_API_KEY) {
     if (!req.headers['anthropic-version']) {
       anthropicHeaders['anthropic-version'] = '2023-06-01';
     }
-    proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders);
+    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders);
   });
 
   opencodeServer.listen(10004, '0.0.0.0', () => {
-    console.log('[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic)');
+    console.log(`[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic at ${ANTHROPIC_API_TARGET})`);
   });
 }
 
