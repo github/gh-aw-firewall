@@ -347,7 +347,6 @@ describe('cli', () => {
       program
         .option('--log-level <level>', 'Log level', 'info')
         .option('--keep-containers', 'Keep containers', false)
-        .option('--skip-cleanup', 'Skip all cleanup', false)
         .option('--build-local', 'Build locally', false)
         .option('--env-all', 'Pass all env vars', false);
 
@@ -357,21 +356,8 @@ describe('cli', () => {
 
       expect(opts.logLevel).toBe('info');
       expect(opts.keepContainers).toBe(false);
-      expect(opts.skipCleanup).toBe(false);
       expect(opts.buildLocal).toBe(false);
       expect(opts.envAll).toBe(false);
-    });
-
-    it('should parse --skip-cleanup flag when provided', () => {
-      const program = new Command();
-
-      program
-        .option('--skip-cleanup', 'Skip all cleanup', false);
-
-      program.parse(['node', 'awf', '--skip-cleanup'], { from: 'node' });
-      const opts = program.opts();
-
-      expect(opts.skipCleanup).toBe(true);
     });
   });
 
@@ -1334,32 +1320,6 @@ describe('cli', () => {
     });
   });
 
-  describe('hasRateLimitOptions', () => {
-    it('should return false when no rate limit options are set', () => {
-      expect(hasRateLimitOptions({})).toBe(false);
-    });
-
-    it('should return true when rateLimitRpm is set', () => {
-      expect(hasRateLimitOptions({ rateLimitRpm: '100' })).toBe(true);
-    });
-
-    it('should return true when rateLimitRph is set', () => {
-      expect(hasRateLimitOptions({ rateLimitRph: '1000' })).toBe(true);
-    });
-
-    it('should return true when rateLimitBytesPm is set', () => {
-      expect(hasRateLimitOptions({ rateLimitBytesPm: '50000000' })).toBe(true);
-    });
-
-    it('should return true when rateLimit is explicitly false', () => {
-      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
-    });
-
-    it('should return false when rateLimit is true (default enabling)', () => {
-      expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
-    });
-  });
-
   describe('validateSkipPullWithBuildLocal', () => {
     it('should return valid when both flags are false', () => {
       const result = validateSkipPullWithBuildLocal(false, false);
@@ -2058,6 +2018,32 @@ describe('cli', () => {
         agentImage: 'default',
         enableApiProxy: false,
       });
+    });
+  });
+
+  describe('hasRateLimitOptions', () => {
+    it('returns false when no rate limit options are set', () => {
+      expect(hasRateLimitOptions({})).toBe(false);
+    });
+
+    it('returns true when rateLimitRpm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRpm: '100' })).toBe(true);
+    });
+
+    it('returns true when rateLimitRph is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRph: '1000' })).toBe(true);
+    });
+
+    it('returns true when rateLimitBytesPm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitBytesPm: '1048576' })).toBe(true);
+    });
+
+    it('returns true when rateLimit is explicitly false', () => {
+      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
+    });
+
+    it('returns false when rateLimit is true', () => {
+      expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
     });
   });
 });
