@@ -62,6 +62,18 @@ describe('predownload', () => {
         'ubuntu:22.04',
       ]);
     });
+
+    it('should reject custom image starting with dash', () => {
+      expect(() => resolveImages({ ...defaults, agentImage: '--help' })).toThrow(
+        'must not start with "-"',
+      );
+    });
+
+    it('should reject custom image containing whitespace', () => {
+      expect(() => resolveImages({ ...defaults, agentImage: 'ubuntu 22.04' })).toThrow(
+        'must not contain whitespace',
+      );
+    });
   });
 
   describe('predownloadCommand', () => {
@@ -104,49 +116,41 @@ describe('predownload', () => {
       );
     });
 
-    it('should exit with code 1 when a pull fails', async () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called');
-      });
+    it('should throw with exitCode 1 when a pull fails', async () => {
       execa
         .mockResolvedValueOnce({ stdout: '', stderr: '' })
         .mockRejectedValueOnce(new Error('pull failed'));
 
-      await expect(predownloadCommand(defaults)).rejects.toThrow(
-        'process.exit called',
-      );
-
-      expect(mockExit).toHaveBeenCalledWith(1);
-      mockExit.mockRestore();
+      try {
+        await predownloadCommand(defaults);
+        fail('Expected predownloadCommand to throw');
+      } catch (error) {
+        expect((error as Error).message).toBe('1 of 2 image(s) failed to pull');
+        expect((error as Error & { exitCode?: number }).exitCode).toBe(1);
+      }
     });
 
     it('should continue pulling remaining images after a failure', async () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called');
-      });
       execa.mockRejectedValueOnce(new Error('pull failed')).mockResolvedValueOnce({ stdout: '', stderr: '' });
 
       await expect(predownloadCommand(defaults)).rejects.toThrow(
-        'process.exit called',
+        '1 of 2 image(s) failed to pull',
       );
 
       // Both images should have been attempted
       expect(execa).toHaveBeenCalledTimes(2);
-      mockExit.mockRestore();
     });
 
     it('should handle non-Error rejection', async () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called');
-      });
       execa.mockRejectedValueOnce('string error').mockResolvedValueOnce({ stdout: '', stderr: '' });
 
-      await expect(predownloadCommand(defaults)).rejects.toThrow(
-        'process.exit called',
-      );
-
-      expect(mockExit).toHaveBeenCalledWith(1);
-      mockExit.mockRestore();
+      try {
+        await predownloadCommand(defaults);
+        fail('Expected predownloadCommand to throw');
+      } catch (error) {
+        expect((error as Error).message).toBe('1 of 2 image(s) failed to pull');
+        expect((error as Error & { exitCode?: number }).exitCode).toBe(1);
+      }
     });
   });
 });

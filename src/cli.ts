@@ -1529,12 +1529,17 @@ export async function handlePredownloadAction(options: {
   enableApiProxy: boolean;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
-  await predownloadCommand({
-    imageRegistry: options.imageRegistry,
-    imageTag: options.imageTag,
-    agentImage: options.agentImage,
-    enableApiProxy: options.enableApiProxy,
-  });
+  try {
+    await predownloadCommand({
+      imageRegistry: options.imageRegistry,
+      imageTag: options.imageTag,
+      agentImage: options.agentImage,
+      enableApiProxy: options.enableApiProxy,
+    });
+  } catch (error) {
+    const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
+    process.exit(exitCode);
+  }
 }
 
 // Predownload subcommand - pre-pull container images
@@ -1546,7 +1551,7 @@ program
     'Container image registry',
     'ghcr.io/github/gh-aw-firewall'
   )
-  .option('--image-tag <tag>', 'Container image tag', 'latest')
+  .option('--image-tag <tag>', 'Container image tag (applies to squid, agent, and api-proxy images)', 'latest')
   .option(
     '--agent-image <value>',
     'Agent image preset (default, act) or custom image',

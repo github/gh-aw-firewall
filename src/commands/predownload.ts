@@ -9,6 +9,19 @@ export interface PredownloadOptions {
 }
 
 /**
+ * Validates a custom Docker image reference.
+ * Rejects values that could be interpreted as Docker CLI flags or contain whitespace.
+ */
+function validateImageReference(image: string): void {
+  if (image.startsWith('-')) {
+    throw new Error(`Invalid image reference "${image}": must not start with "-"`);
+  }
+  if (/\s/.test(image)) {
+    throw new Error(`Invalid image reference "${image}": must not contain whitespace`);
+  }
+}
+
+/**
  * Resolves the list of image references to pull based on the given options.
  */
 export function resolveImages(options: PredownloadOptions): string[] {
@@ -24,7 +37,8 @@ export function resolveImages(options: PredownloadOptions): string[] {
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
     images.push(`${imageRegistry}/${imageName}:${imageTag}`);
   } else {
-    // Custom image - pull as-is
+    // Custom image - validate and pull as-is
+    validateImageReference(agentImage);
     images.push(agentImage);
   }
 
@@ -57,8 +71,11 @@ export async function predownloadCommand(options: PredownloadOptions): Promise<v
   }
 
   if (failed > 0) {
-    logger.error(`${failed} of ${images.length} image(s) failed to pull`);
-    process.exit(1);
+    const message = `${failed} of ${images.length} image(s) failed to pull`;
+    logger.error(message);
+    const error: Error & { exitCode?: number } = new Error(message);
+    error.exitCode = 1;
+    throw error;
   }
 
   logger.info(`All ${images.length} image(s) pre-downloaded successfully`);
