@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1817,6 +1817,35 @@ describe('cli', () => {
     it('should parse large timeout values', () => {
       const result = parseAgentTimeout('1440');
       expect(result).toEqual({ minutes: 1440 });
+    });
+  });
+
+  describe('applyAgentTimeout', () => {
+    it('should do nothing when agentTimeout is undefined', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      applyAgentTimeout(undefined, config, logger);
+      expect(config.agentTimeout).toBeUndefined();
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should set agentTimeout on config for valid value', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      applyAgentTimeout('30', config, logger);
+      expect(config.agentTimeout).toBe(30);
+      expect(logger.info).toHaveBeenCalledWith('Agent timeout set to 30 minutes');
+    });
+
+    it('should call process.exit for invalid value', () => {
+      const config: any = {};
+      const logger = { error: jest.fn(), info: jest.fn() };
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      applyAgentTimeout('abc', config, logger);
+      expect(logger.error).toHaveBeenCalledWith('--agent-timeout must be a positive integer (minutes)');
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockRestore();
     });
   });
 });

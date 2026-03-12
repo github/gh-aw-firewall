@@ -523,6 +523,25 @@ export function parseAgentTimeout(value: string): { minutes: number } | { error:
 }
 
 /**
+ * Applies the --agent-timeout option to the config if present.
+ * Exits with code 1 if the value is invalid.
+ */
+export function applyAgentTimeout(
+  agentTimeout: string | undefined,
+  config: WrapperConfig,
+  logger: { error: (msg: string) => void; info: (msg: string) => void }
+): void {
+  if (agentTimeout === undefined) return;
+  const result = parseAgentTimeout(agentTimeout);
+  if ('error' in result) {
+    logger.error(result.error);
+    process.exit(1);
+  }
+  config.agentTimeout = result.minutes;
+  logger.info(`Agent timeout set to ${result.minutes} minutes`);
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -1323,15 +1342,7 @@ program
     };
 
     // Parse and validate --agent-timeout
-    if (options.agentTimeout !== undefined) {
-      const result = parseAgentTimeout(options.agentTimeout);
-      if ('error' in result) {
-        logger.error(result.error);
-        process.exit(1);
-      }
-      config.agentTimeout = result.minutes;
-      logger.info(`Agent timeout set to ${result.minutes} minutes`);
-    }
+    applyAgentTimeout(options.agentTimeout, config, logger);
 
     // Build rate limit config when API proxy is enabled
     if (config.enableApiProxy) {
