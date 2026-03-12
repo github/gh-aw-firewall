@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/release.yml'
   schedule:
     # Run at 00:00 UTC every Monday
     - cron: '0 0 * * 1'

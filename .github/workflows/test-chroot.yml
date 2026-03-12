@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
