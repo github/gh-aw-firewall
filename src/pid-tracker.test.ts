@@ -538,7 +538,9 @@ describe('pid-tracker', () => {
         const pid = process.pid;
         const info = getProcessInfo(pid);
         expect(info).not.toBeNull();
-        expect(info!.comm).toContain('node');
+        // Modern Node.js (v17+) sets comm to 'MainThread' instead of 'node'
+        // via prctl(PR_SET_NAME); check cmdline instead, which reliably contains the node binary
+        expect(info!.cmdline).toContain('node');
       });
     }
   });

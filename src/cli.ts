@@ -243,6 +243,11 @@ export function processAgentImageOption(
   };
 }
 
+/** Default upstream hostname for OpenAI API requests in the api-proxy sidecar */
+export const DEFAULT_OPENAI_API_TARGET = 'api.openai.com';
+/** Default upstream hostname for Anthropic API requests in the api-proxy sidecar */
+export const DEFAULT_ANTHROPIC_API_TARGET = 'api.anthropic.com';
+
 /**
  * Result of validating API proxy configuration
  */
@@ -293,6 +298,71 @@ export function validateApiProxyConfig(
   }
 
   return { enabled: true, warnings, debugMessages };
+}
+
+/**
+ * Validates that a custom API proxy target hostname is covered by the allowed domains list.
+ * Returns a warning message if the target domain is not in allowed domains, otherwise null.
+ * @param targetHost - The custom target hostname (e.g. "custom.example.com")
+ * @param defaultHost - The default target hostname for this provider (e.g. "api.openai.com")
+ * @param flagName - The CLI flag name for use in the warning message (e.g. "--openai-api-target")
+ * @param allowedDomains - The list of domains allowed through the firewall
+ */
+export function validateApiTargetInAllowedDomains(
+  targetHost: string,
+  defaultHost: string,
+  flagName: string,
+  allowedDomains: string[]
+): string | null {
+  // No warning needed if using the default host
+  if (targetHost === defaultHost) return null;
+
+  // Check if the hostname or any of its parent domains is explicitly allowed
+  const isDomainAllowed = allowedDomains.some(d => {
+    const domain = d.startsWith('.') ? d.slice(1) : d;
+    return targetHost === domain || targetHost.endsWith('.' + domain);
+  });
+
+  if (!isDomainAllowed) {
+    return `${flagName}=${targetHost} is not in --allow-domains. Add "${targetHost}" to --allow-domains or outbound traffic to this host will be blocked by the firewall.`;
+  }
+
+  return null;
+}
+
+/**
+ * Emits warnings for custom API proxy target hostnames that are not in the allowed domains list.
+ * Checks both OpenAI and Anthropic targets when the API proxy is enabled.
+ * @param config - Partial wrapper config with API proxy settings
+ * @param allowedDomains - The list of domains allowed through the firewall
+ * @param warn - Function to emit a warning message
+ */
+export function emitApiProxyTargetWarnings(
+  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string },
+  allowedDomains: string[],
+  warn: (msg: string) => void
+): void {
+  if (!config.enableApiProxy) return;
+
+  const openaiTargetWarning = validateApiTargetInAllowedDomains(
+    config.openaiApiTarget ?? DEFAULT_OPENAI_API_TARGET,
+    DEFAULT_OPENAI_API_TARGET,
+    '--openai-api-target',
+    allowedDomains
+  );
+  if (openaiTargetWarning) {
+    warn(`⚠️  ${openaiTargetWarning}`);
+  }
+
+  const anthropicTargetWarning = validateApiTargetInAllowedDomains(
+    config.anthropicApiTarget ?? DEFAULT_ANTHROPIC_API_TARGET,
+    DEFAULT_ANTHROPIC_API_TARGET,
+    '--anthropic-api-target',
+    allowedDomains
+  );
+  if (anthropicTargetWarning) {
+    warn(`⚠️  ${anthropicTargetWarning}`);
+  }
 }
 
 /**
@@ -848,6 +918,20 @@ program
     '                                   Can also be set via COPILOT_API_TARGET env var.',
   )
   .option(
+    '--openai-api-target <host>',
+    'Target hostname for OpenAI API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.openai.com. Useful for custom OpenAI-compatible endpoints.\n' +
+    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
+    '                                   Can also be set via OPENAI_API_TARGET env var.',
+  )
+  .option(
+    '--anthropic-api-target <host>',
+    'Target hostname for Anthropic API requests in the api-proxy sidecar.\n' +
+    '                                   Defaults to api.anthropic.com. Useful for custom Anthropic-compatible endpoints.\n' +
+    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
+    '                                   Can also be set via ANTHROPIC_API_TARGET env var.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1136,6 +1220,8 @@ program
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
+      openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
+      anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
     };
 
     // Build rate limit config when API proxy is enabled
@@ -1208,6 +1294,9 @@ program
     for (const msg of apiProxyValidation.debugMessages) {
       logger.debug(msg);
     }
+
+    // Warn if custom API targets are not in --allow-domains
+    emitApiProxyTargetWarnings(config, allowedDomains, logger.warn.bind(logger));
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)

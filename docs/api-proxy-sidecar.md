@@ -262,6 +262,16 @@ sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 - `api.openai.com` — for OpenAI/Codex
 - `api.anthropic.com` — for Anthropic/Claude
 
+**Optional flags for custom upstream endpoints**:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--openai-api-target <host>` | `api.openai.com` | Custom upstream for OpenAI API requests (e.g. Azure OpenAI or an internal LLM router). Can also be set via `OPENAI_API_TARGET` env var. |
+| `--anthropic-api-target <host>` | `api.anthropic.com` | Custom upstream for Anthropic API requests (e.g. an internal Claude router). Can also be set via `ANTHROPIC_API_TARGET` env var. |
+| `--copilot-api-target <host>` | auto-derived | Custom upstream for GitHub Copilot API requests (useful for GHES). Can also be set via `COPILOT_API_TARGET` env var. |
+
+> **Important**: When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF will emit a warning if a custom target is set but not in the allowlist.
+
 ### Container configuration
 
 The sidecar container:

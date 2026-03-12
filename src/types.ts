@@ -506,6 +506,50 @@ export interface WrapperConfig {
    * ```
    */
   copilotApiTarget?: string;
+
+  /**
+   * Target hostname for OpenAI API requests (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
+   * as `OPENAI_API_TARGET`. The proxy will forward OpenAI API requests to this host
+   * instead of the default `api.openai.com`.
+   *
+   * Useful for custom OpenAI-compatible endpoints (e.g., Azure OpenAI, internal
+   * LLM routers, vLLM, TGI) where the API endpoint differs from the public default.
+   *
+   * Can be set via:
+   * - CLI flag: `--openai-api-target <host>`
+   * - Environment variable: `OPENAI_API_TARGET`
+   *
+   * @default 'api.openai.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --openai-api-target llm-router.internal.example.com -- command
+   * ```
+   */
+  openaiApiTarget?: string;
+
+  /**
+   * Target hostname for Anthropic API requests (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
+   * as `ANTHROPIC_API_TARGET`. The proxy will forward Anthropic API requests to this host
+   * instead of the default `api.anthropic.com`.
+   *
+   * Useful for custom Anthropic-compatible endpoints (e.g., internal LLM routers)
+   * where the API endpoint differs from the public default.
+   *
+   * Can be set via:
+   * - CLI flag: `--anthropic-api-target <host>`
+   * - Environment variable: `ANTHROPIC_API_TARGET`
+   *
+   * @default 'api.anthropic.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --anthropic-api-target llm-router.internal.example.com -- command
+   * ```
+   */
+  anthropicApiTarget?: string;
 }
 
 /**
