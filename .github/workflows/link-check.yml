@@ -1,0 +1,34 @@
+name: Link Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '.github/lychee.toml'
+  schedule:
+    # Run weekly on Wednesdays at 06:00 UTC
+    - cron: '0 6 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    name: Check Documentation Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@f81112d0d2814ded911bd23e3beaa9dda9093915 # v2.3.0
+        with:
+          args: >-
+            --config .github/lychee.toml
+            --no-progress
+            '**/*.md'
+          fail: true

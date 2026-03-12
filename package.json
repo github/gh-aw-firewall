@@ -18,6 +18,7 @@
     "test:coverage": "jest --coverage",
     "test:lint-rules": "node eslint-rules/no-unsafe-execa.test.js",
     "lint": "eslint src",
+    "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules' '#docs-site/node_modules' '#.specify' '#.claude'",
     "clean": "rm -rf dist",
     "prepare": "husky",
     "docs:dev": "cd docs-site && npm run dev",
@@ -66,6 +67,7 @@
     "globals": "^17.0.0",
     "husky": "^9.1.7",
     "jest": "^30.2.0",
+    "markdownlint-cli2": "^0.17.2",
     "ts-jest": "^29.4.6",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.0.0"

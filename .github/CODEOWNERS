@@ -1,0 +1,17 @@
+# CODEOWNERS — automatic reviewer assignment
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all PRs require review from maintainer
+* @Mossaka
+
+# Container definitions (security-sensitive)
+/containers/ @Mossaka
+
+# CI/CD workflows
+/.github/workflows/ @Mossaka
+
+# Documentation site
+/docs-site/ @Mossaka
+
+# Core source code
+/src/ @Mossaka

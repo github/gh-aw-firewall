@@ -1404,7 +1404,7 @@ Analyze the issue and provide feedback.
 Add a comment to the issue with your analysis.
 ```
 
-## Permission Patterns
+## Common Permission Patterns
 
 ### Read-Only Pattern
 ```yaml

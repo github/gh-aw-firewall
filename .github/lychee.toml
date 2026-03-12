@@ -1,0 +1,27 @@
+# Lychee link checker configuration
+# See: https://lychee.cli.rs/usage/config/
+
+# Exclude localhost and example URLs
+exclude = [
+  "^https?://localhost",
+  "^https?://127\\.0\\.0\\.1",
+  "^https?://172\\.",
+  "^https?://example\\.com",
+  "^https?://your-",
+  "^https?://grafana\\.internal",
+]
+
+# Accept 429 (rate limit) responses
+accept = [200, 429]
+
+# Timeout per request (seconds)
+timeout = 30
+
+# Max retries
+max_retries = 3
+
+# Max concurrent requests
+max_concurrency = 10
+
+# Don't check mail addresses
+exclude_mail = true
