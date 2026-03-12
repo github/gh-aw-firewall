@@ -1848,4 +1848,22 @@ describe('cli', () => {
       mockExit.mockRestore();
     });
   });
+
+  describe('formatItem', () => {
+    it('should format term with description when term fits within width', () => {
+      const result = formatItem('--flag', 'Description text', 20, 2, 2, 80);
+      expect(result).toBe('  --flag                Description text');
+    });
+
+    it('should wrap description to next line when term exceeds width', () => {
+      const result = formatItem('--very-long-flag-name-that-exceeds-width', 'Description', 10, 2, 2, 80);
+      expect(result).toContain('--very-long-flag-name-that-exceeds-width\n');
+      expect(result).toContain('Description');
+    });
+
+    it('should format term without description', () => {
+      const result = formatItem('--flag', '', 20, 2, 2, 80);
+      expect(result).toBe('  --flag');
+    });
+  });
 });
