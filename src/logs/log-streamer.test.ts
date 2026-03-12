@@ -8,10 +8,15 @@ import { LogFormatter } from './log-formatter';
 import { LogSource } from '../types';
 import execa from 'execa';
 import { Readable } from 'stream';
+import { trackPidForPortSync, isPidTrackingAvailable } from '../pid-tracker';
 
 // Mock external dependencies
 jest.mock('execa');
 jest.mock('fs');
+jest.mock('../pid-tracker', () => ({
+  trackPidForPortSync: jest.fn().mockReturnValue({ pid: -1, cmdline: '', comm: '', inode: 0 }),
+  isPidTrackingAvailable: jest.fn().mockReturnValue(true),
+}));
 jest.mock('../logger', () => ({
   logger: {
     debug: jest.fn(),
@@ -315,6 +320,102 @@ describe('log-streamer', () => {
       });
 
       expect(stdoutWriteSpy).toHaveBeenCalledWith('raw log line\n');
+    });
+  });
+
+  describe('streamLogs - withPid enrichment', () => {
+    it('should enrich parsed entries with PID info when withPid is true', async () => {
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs',
+      };
+      const formatter = new LogFormatter({ format: 'json' });
+
+      const logLine =
+        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+
+      mockedFs.existsSync.mockReturnValue(true);
+      mockedFs.readFileSync.mockReturnValue(logLine);
+
+      (trackPidForPortSync as jest.Mock).mockReturnValue({
+        pid: 1234,
+        cmdline: 'curl https://api.github.com',
+        comm: 'curl',
+        inode: 56789,
+      });
+
+      await streamLogs({
+        follow: false,
+        source,
+        formatter,
+        parse: true,
+        withPid: true,
+      });
+
+      expect(trackPidForPortSync).toHaveBeenCalledWith(39748);
+      expect(stdoutWriteSpy).toHaveBeenCalled();
+      const output = JSON.parse(stdoutWriteSpy.mock.calls[0][0]);
+      expect(output.pid).toBe(1234);
+      expect(output.comm).toBe('curl');
+    });
+
+    it('should not enrich when PID lookup returns -1', async () => {
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs',
+      };
+      const formatter = new LogFormatter({ format: 'json' });
+
+      const logLine =
+        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+
+      mockedFs.existsSync.mockReturnValue(true);
+      mockedFs.readFileSync.mockReturnValue(logLine);
+
+      (trackPidForPortSync as jest.Mock).mockReturnValue({
+        pid: -1,
+        cmdline: '',
+        comm: '',
+        inode: 0,
+      });
+
+      await streamLogs({
+        follow: false,
+        source,
+        formatter,
+        parse: true,
+        withPid: true,
+      });
+
+      expect(stdoutWriteSpy).toHaveBeenCalled();
+      const output = JSON.parse(stdoutWriteSpy.mock.calls[0][0]);
+      expect(output.pid).toBeUndefined();
+    });
+
+    it('should warn when PID tracking is not available', async () => {
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs',
+      };
+      const formatter = new LogFormatter({ format: 'raw' });
+
+      mockedFs.existsSync.mockReturnValue(true);
+      mockedFs.readFileSync.mockReturnValue('raw line');
+
+      (isPidTrackingAvailable as jest.Mock).mockReturnValue(false);
+
+      await streamLogs({
+        follow: false,
+        source,
+        formatter,
+        parse: false,
+        withPid: true,
+      });
+
+      const { logger } = jest.requireMock('../logger') as { logger: { warn: jest.Mock } };
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('PID tracking not available')
+      );
     });
   });
 });
