@@ -1533,6 +1533,45 @@ export function validateFormat(format: string, validFormats: string[]): void {
   }
 }
 
+// Predownload action handler - exported for testing
+export async function handlePredownloadAction(options: {
+  imageRegistry: string;
+  imageTag: string;
+  agentImage: string;
+  enableApiProxy: boolean;
+}): Promise<void> {
+  const { predownloadCommand } = await import('./commands/predownload');
+  try {
+    await predownloadCommand({
+      imageRegistry: options.imageRegistry,
+      imageTag: options.imageTag,
+      agentImage: options.agentImage,
+      enableApiProxy: options.enableApiProxy,
+    });
+  } catch (error) {
+    const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
+    process.exit(exitCode);
+  }
+}
+
+// Predownload subcommand - pre-pull container images
+program
+  .command('predownload')
+  .description('Pre-download Docker images for offline use or faster startup')
+  .option(
+    '--image-registry <registry>',
+    'Container image registry',
+    'ghcr.io/github/gh-aw-firewall'
+  )
+  .option('--image-tag <tag>', 'Container image tag (applies to squid, agent, and api-proxy images)', 'latest')
+  .option(
+    '--agent-image <value>',
+    'Agent image preset (default, act) or custom image',
+    'default'
+  )
+  .option('--enable-api-proxy', 'Also download the API proxy image', false)
+  .action(handlePredownloadAction);
+
 // Logs subcommand - view Squid proxy logs
 const logsCmd = program
   .command('logs')
