@@ -206,7 +206,7 @@ ${urlAclSection}${urlAccessRules}`;
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp } = config;
+  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers } = config;
 
   // Parse domains into plain domains and wildcard patterns
   // Note: parseDomainList extracts and preserves protocol info from prefixes (http://, https://)
@@ -567,8 +567,8 @@ http_access deny all
 # Disable caching
 cache deny all
 
-# DNS settings
-dns_nameservers 8.8.8.8 8.8.4.4
+# DNS settings - Squid resolves all domains for HTTP/HTTPS traffic
+dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : '8.8.8.8 8.8.4.4'}
 
 # Forwarded headers
 forwarded_for delete

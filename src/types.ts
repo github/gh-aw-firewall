@@ -749,6 +749,17 @@ export interface SquidConfig {
    * @example "3000-3010,8000-8090"
    */
   allowHostPorts?: string;
+
+  /**
+   * DNS servers for Squid to use for domain resolution
+   *
+   * In the simplified security model, Squid handles all DNS resolution
+   * for HTTP/HTTPS traffic. These servers are passed to Squid's
+   * dns_nameservers directive.
+   *
+   * @default ['8.8.8.8', '8.8.4.4']
+   */
+  dnsServers?: string[];
 }
 
 /**

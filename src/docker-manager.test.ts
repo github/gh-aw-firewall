@@ -1496,7 +1496,7 @@ describe('docker-manager', () => {
     });
 
     describe('dnsServers option', () => {
-      it('should use custom DNS servers when specified', () => {
+      it('should use custom DNS servers for Docker embedded DNS forwarding', () => {
         const config: WrapperConfig = {
           ...mockConfig,
           dnsServers: ['1.1.1.1', '1.0.0.1'],
@@ -1506,7 +1506,8 @@ describe('docker-manager', () => {
         const env = agent.environment as Record<string, string>;
 
         expect(agent.dns).toEqual(['1.1.1.1', '1.0.0.1']);
-        expect(env.AWF_DNS_SERVERS).toBe('1.1.1.1,1.0.0.1');
+        // AWF_DNS_SERVERS env var should NOT be set (simplified model)
+        expect(env.AWF_DNS_SERVERS).toBeUndefined();
       });
 
       it('should use default DNS servers when not specified', () => {
@@ -1515,7 +1516,8 @@ describe('docker-manager', () => {
         const env = agent.environment as Record<string, string>;
 
         expect(agent.dns).toEqual(['8.8.8.8', '8.8.4.4']);
-        expect(env.AWF_DNS_SERVERS).toBe('8.8.8.8,8.8.4.4');
+        // AWF_DNS_SERVERS env var should NOT be set (simplified model)
+        expect(env.AWF_DNS_SERVERS).toBeUndefined();
       });
     });
 
