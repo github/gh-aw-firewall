@@ -851,12 +851,14 @@ program
     '--openai-api-target <host>',
     'Target hostname for OpenAI API requests in the api-proxy sidecar.\n' +
     '                                   Defaults to api.openai.com. Useful for custom OpenAI-compatible endpoints.\n' +
+    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
     '                                   Can also be set via OPENAI_API_TARGET env var.',
   )
   .option(
     '--anthropic-api-target <host>',
     'Target hostname for Anthropic API requests in the api-proxy sidecar.\n' +
     '                                   Defaults to api.anthropic.com. Useful for custom Anthropic-compatible endpoints.\n' +
+    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
     '                                   Can also be set via ANTHROPIC_API_TARGET env var.',
   )
   .option(
