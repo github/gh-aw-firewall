@@ -506,6 +506,9 @@ ${sslBump ? '\n# SSL Bump mode enabled - HTTPS traffic will be intercepted for U
 # Disable pinger (ICMP) - requires NET_RAW capability which we don't have for security
 pinger_enable off
 
+# PID file location - use proxy-owned directory since container runs as non-root
+pid_filename /var/run/squid/squid.pid
+
 # Custom log format with detailed connection information
 # Format: timestamp client_ip:port dest_domain dest_ip:port protocol method status decision url user_agent
 # Note: For CONNECT requests (HTTPS), the domain is in the URL field

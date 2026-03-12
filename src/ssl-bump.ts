@@ -19,6 +19,21 @@ import execa from 'execa';
 import { logger } from './logger';
 
 /**
+ * Recursively chown a directory and its contents
+ */
+function chownRecursive(dirPath: string, uid: number, gid: number): void {
+  fs.chownSync(dirPath, uid, gid);
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      chownRecursive(fullPath, uid, gid);
+    } else {
+      fs.chownSync(fullPath, uid, gid);
+    }
+  }
+}
+
+/**
  * Configuration for SSL Bump CA generation
  */
 export interface SslBumpConfig {
@@ -271,6 +286,15 @@ export async function initSslDb(workDir: string): Promise<string> {
     fs.writeFileSync(sizePath, '0\n', { mode: 0o600, flag: 'wx' });
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+
+  // Chown to proxy user (uid=13, gid=13) so the non-root Squid container can access it
+  // Gracefully skip if not running as root (e.g., in unit tests)
+  try {
+    chownRecursive(sslDbPath, 13, 13);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EPERM') throw err;
+    logger.debug('Skipping SSL db chown (not running as root)');
   }
 
   logger.debug(`SSL certificate database initialized at: ${sslDbPath}`);

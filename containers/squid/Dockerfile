@@ -1,10 +1,9 @@
 FROM ubuntu/squid:latest
 
 # Install additional tools for debugging, healthcheck, and SSL Bump
-# gosu is used to drop from root to proxy user after permission setup
 # Retry logic handles transient 404s when Ubuntu archive supersedes package versions mid-build
 RUN set -eux; \
-    PKGS="curl dnsutils gosu net-tools netcat-openbsd openssl squid-openssl"; \
+    PKGS="curl dnsutils net-tools netcat-openbsd openssl squid-openssl"; \
     apt-get update && \
     apt-get install -y --only-upgrade gpgv && \
     ( apt-get install -y --no-install-recommends $PKGS || \
@@ -24,5 +23,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 EXPOSE 3128
 EXPOSE 3129
 
-# Use entrypoint to fix permissions before starting Squid
+# Run as non-root proxy user for security hardening
+# Permission setup is done at build time; mounted volumes must be pre-configured
+# by the host (docker-manager.ts sets correct ownership before starting containers)
+USER proxy
+
+# Use entrypoint to start Squid (runs as proxy user)
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

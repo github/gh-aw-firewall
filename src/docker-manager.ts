@@ -1189,11 +1189,19 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Otherwise, use workDir/squid-logs (will be moved to /tmp after cleanup)
   // Note: Squid runs as user 'proxy' (UID 13, GID 13 in ubuntu/squid image)
   // We need to make the directory writable by the proxy user
+  // Squid container runs as non-root 'proxy' user (UID 13, GID 13)
+  // Set ownership so proxy user can write logs without root privileges
+  const SQUID_PROXY_UID = 13;
+  const SQUID_PROXY_GID = 13;
   const squidLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
   if (!fs.existsSync(squidLogsDir)) {
-    fs.mkdirSync(squidLogsDir, { recursive: true, mode: 0o777 });
-    // Explicitly set permissions to 0o777 (not affected by umask)
-    fs.chmodSync(squidLogsDir, 0o777);
+    fs.mkdirSync(squidLogsDir, { recursive: true, mode: 0o755 });
+    try {
+      fs.chownSync(squidLogsDir, SQUID_PROXY_UID, SQUID_PROXY_GID);
+    } catch {
+      // Fallback to world-writable if chown fails (e.g., non-root context)
+      fs.chmodSync(squidLogsDir, 0o777);
+    }
   }
   logger.debug(`Squid logs directory created at: ${squidLogsDir}`);
 

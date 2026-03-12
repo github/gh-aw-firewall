@@ -1,29 +1,13 @@
 #!/bin/bash
 set -e
 
-# Fix permissions on mounted log directory
-# The directory is mounted from the host and may have wrong ownership
-chown -R proxy:proxy /var/log/squid
-chmod -R 755 /var/log/squid
+# This entrypoint runs as the non-root 'proxy' user (set by USER in Dockerfile).
+# All directory permissions are set at build time or by the host before container start.
 
-# Fix permissions on SSL certificate database if SSL Bump is enabled
-# The database is initialized on the host side by awf, but the permissions
-# need to be fixed for the proxy user inside the container.
+# Verify SSL certificate database permissions if SSL Bump is enabled
 if [ -d "/var/spool/squid_ssl_db" ]; then
-  echo "[squid-entrypoint] SSL Bump mode detected - fixing SSL database permissions..."
-
-  # Fix ownership for Squid (runs as proxy user)
-  chown -R proxy:proxy /var/spool/squid_ssl_db
-  chmod -R 700 /var/spool/squid_ssl_db
-
-  echo "[squid-entrypoint] SSL certificate database ready"
+  echo "[squid-entrypoint] SSL Bump mode detected - SSL database ready"
 fi
 
-# Ensure Squid config directory and run directory are writable by proxy
-chown -R proxy:proxy /etc/squid /var/run/squid /var/spool/squid 2>/dev/null || true
-
-# Ensure pid file is writable by proxy user (default: /run/squid.pid)
-touch /run/squid.pid && chown proxy:proxy /run/squid.pid
-
-# Drop to proxy user and start Squid
-exec gosu proxy squid -N -d 1
+# Start Squid directly (already running as proxy user via Dockerfile USER directive)
+exec squid -N -d 1
