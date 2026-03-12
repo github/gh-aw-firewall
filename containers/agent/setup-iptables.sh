@@ -45,10 +45,24 @@ if [ -z "$SQUID_IP" ]; then
 fi
 echo "[iptables] Squid IP resolved to: $SQUID_IP"
 
+# Save Docker's embedded DNS DNAT rules before flushing.
+# Docker sets up NAT rules to redirect 127.0.0.11:53 to its DNS proxy on a
+# random high port. Flushing the OUTPUT chain removes these, breaking DNS.
+DOCKER_DNS_RULES=$(iptables -t nat -S OUTPUT 2>/dev/null | grep "127.0.0.11" || true)
+
 # Clear existing NAT rules (both IPv4 and IPv6)
 iptables -t nat -F OUTPUT 2>/dev/null || true
 if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -F OUTPUT 2>/dev/null || true
+fi
+
+# Restore Docker's embedded DNS DNAT rules
+if [ -n "$DOCKER_DNS_RULES" ]; then
+  echo "[iptables] Restoring Docker embedded DNS rules..."
+  while IFS= read -r rule; do
+    # Convert -A (from -S output) to actual iptables command
+    iptables -t nat $rule 2>/dev/null || true
+  done <<< "$DOCKER_DNS_RULES"
 fi
 
 # Allow localhost traffic (for stdio MCP servers and test frameworks)
