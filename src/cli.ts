@@ -1037,11 +1037,6 @@ program
     'Maximum time in minutes for the agent command to run (default: no limit)',
   )
   .option(
-    '--tty',
-    'Allocate a pseudo-TTY for the container (required for interactive tools like Claude Code)',
-    false
-  )
-  .option(
     '--work-dir <dir>',
     'Working directory for temporary files',
     path.join(os.tmpdir(), `awf-${Date.now()}`)
