@@ -490,20 +490,20 @@ describe('docker-manager', () => {
 
       expect(env.HTTP_PROXY).toBe('http://172.30.0.10:3128');
       expect(env.HTTPS_PROXY).toBe('http://172.30.0.10:3128');
-      expect(env.http_proxy).toBe('http://172.30.0.10:3128');
       expect(env.https_proxy).toBe('http://172.30.0.10:3128');
       expect(env.SQUID_PROXY_HOST).toBe('squid-proxy');
       expect(env.SQUID_PROXY_PORT).toBe('3128');
     });
 
-    it('should set lowercase proxy env vars for Yarn 4 and Corepack compatibility', () => {
+    it('should set lowercase https_proxy for Yarn 4 and Corepack compatibility', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
       const env = agent.environment as Record<string, string>;
 
       // Yarn 4 (undici), Corepack, and some Node.js HTTP clients only check lowercase
-      expect(env.http_proxy).toBe(env.HTTP_PROXY);
       expect(env.https_proxy).toBe(env.HTTPS_PROXY);
+      // http_proxy is intentionally NOT set - see comment in docker-manager.ts
+      expect(env.http_proxy).toBeUndefined();
     });
 
     it('should set NODE_EXTRA_CA_CERTS when SSL Bump is enabled', () => {
