@@ -359,6 +359,88 @@ describe('host-iptables', () => {
       ]);
     });
 
+    it('should add API proxy sidecar rules when apiProxyIp is provided', async () => {
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // Mock iptables -L DOCKER-USER (permission check)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // Mock chain existence check (doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await setupHostIptables('172.30.0.10', 3128, '172.30.0.30');
+
+      // Verify API proxy sidecar rule was added with port range
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.30',
+      ]));
+    });
+
+    it('should throw error when bridge name is not found', async () => {
+      // Mock getNetworkBridgeName returning empty/null
+      mockedExeca.mockResolvedValueOnce({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      } as any);
+
+      await expect(setupHostIptables('172.30.0.10', 3128)).rejects.toThrow(
+        "Failed to get bridge name for network 'awf-net'"
+      );
+    });
+
+    it('should create DOCKER-USER chain when it does not exist', async () => {
+      const noChainError: any = new Error('No chain/target/match by that name');
+      noChainError.stderr = 'No chain/target/match by that name';
+
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // Mock iptables -L DOCKER-USER (chain doesn't exist)
+        .mockRejectedValueOnce(noChainError)
+        // Mock iptables -N DOCKER-USER (create chain)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // Mock chain existence check (FW_WRAPPER doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      // Mock all subsequent calls
+      mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await setupHostIptables('172.30.0.10', 3128);
+
+      // Verify DOCKER-USER chain was created
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', ['-t', 'filter', '-N', 'DOCKER-USER']);
+    });
+
+    it('should skip inserting DOCKER-USER jump rule if it already exists', async () => {
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // Mock iptables -L DOCKER-USER (permission check)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // Mock chain existence check (doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      // Default mock: all calls succeed, and DOCKER-USER listing includes bridge rule
+      mockedExeca.mockResolvedValue({
+        stdout: '1    FW_WRAPPER  all  --  -i fw-bridge  0.0.0.0/0            0.0.0.0/0',
+        stderr: '',
+        exitCode: 0,
+      } as any);
+
+      await setupHostIptables('172.30.0.10', 3128);
+
+      // Should NOT insert a new rule since it already exists
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-I', 'DOCKER-USER', '1',
+        '-i', 'fw-bridge',
+        '-j', 'FW_WRAPPER',
+      ]);
+    });
+
     it('should not create IPv6 chain (no DNS-specific rules in simplified model)', async () => {
       mockedExeca
         // Mock getNetworkBridgeName
@@ -485,6 +567,60 @@ describe('host-iptables', () => {
       // Verify IPv6 was re-enabled via sysctl
       expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=0']);
       expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=0']);
+    });
+
+    it('should clean up IPv6 rules from DOCKER-USER when ip6tables is available', async () => {
+      // Mock all calls to succeed (ip6tables available)
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        // getNetworkBridgeName
+        if (cmd === 'docker' && args[0] === 'network') {
+          return Promise.resolve({ stdout: 'fw-bridge', stderr: '', exitCode: 0 });
+        }
+        // ip6tables -L -n (availability check)
+        if (cmd === 'ip6tables' && args.includes('-L') && args.includes('-n') && !args.includes('--line-numbers')) {
+          return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+        }
+        // ip6tables DOCKER-USER listing with FW_WRAPPER_V6 reference
+        if (cmd === 'ip6tables' && args.includes('DOCKER-USER') && args.includes('--line-numbers')) {
+          return Promise.resolve({ stdout: '1    FW_WRAPPER_V6  all  --  *      *       ::/0                 ::/0\n', stderr: '', exitCode: 0 });
+        }
+        // iptables DOCKER-USER listing with FW_WRAPPER reference
+        if (cmd === 'iptables' && args.includes('DOCKER-USER') && args.includes('--line-numbers')) {
+          return Promise.resolve({ stdout: '1    FW_WRAPPER  all  --  -i fw-bridge  -o fw-bridge  0.0.0.0/0            0.0.0.0/0\n', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      await cleanupHostIptables();
+
+      // Verify IPv6 chain was flushed and deleted
+      expect(mockedExeca).toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-F', 'FW_WRAPPER_V6'], { reject: false });
+      expect(mockedExeca).toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-X', 'FW_WRAPPER_V6'], { reject: false });
+      // Verify IPv6 DOCKER-USER rule was removed
+      expect(mockedExeca).toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-D', 'DOCKER-USER', '1'], { reject: false });
+      // Verify IPv4 chain was also cleaned
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', ['-t', 'filter', '-F', 'FW_WRAPPER'], { reject: false });
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', ['-t', 'filter', '-X', 'FW_WRAPPER'], { reject: false });
+    });
+
+    it('should skip IPv6 cleanup when ip6tables is not available', async () => {
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker') {
+          return Promise.resolve({ stdout: 'fw-bridge', stderr: '', exitCode: 0 });
+        }
+        if (cmd === 'ip6tables') {
+          return Promise.reject(new Error('ip6tables not found'));
+        }
+        if (cmd === 'iptables' && args.includes('DOCKER-USER') && args.includes('--line-numbers')) {
+          return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      await cleanupHostIptables();
+
+      // Should NOT attempt ip6tables cleanup (except the availability check)
+      expect(mockedExeca).not.toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-F', 'FW_WRAPPER_V6'], { reject: false });
     });
 
     it('should not throw on errors (best-effort cleanup)', async () => {
