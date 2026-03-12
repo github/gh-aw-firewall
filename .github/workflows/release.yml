@@ -50,13 +50,35 @@ jobs:
       - name: Bump version
         id: bump
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # npm version creates a commit and tag (e.g., "v0.21.0")
+          # Derive current version from git tags (authoritative source),
+          # not package.json which may be stale on main since we can't
+          # push version-bump commits to protected branches.
+          LATEST_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -n1 || echo "v0.0.0")
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "Latest version from git tags: $LATEST_VERSION"
+
+          # Sync package.json to latest tag version before bumping
+          npm version "$LATEST_VERSION" --no-git-tag-version --allow-same-version
+
+          # Bump to next version
           npm version ${{ inputs.bump }} --no-git-tag-version
           VERSION=$(node -p "require('./package.json').version")
 
+          # Check if this tag already exists (idempotent retry support)
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists, reusing it"
+            echo "version=v$VERSION" >> $GITHUB_OUTPUT
+            echo "version_number=$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Create a commit with the bumped version and tag it.
+          # Only push the tag — branch protection prevents pushing to main.
+          # Downstream jobs checkout by tag, so they get the correct package.json.
           git add package.json package-lock.json
           git commit -m "$VERSION"
           git tag "v$VERSION"
