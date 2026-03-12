@@ -1925,6 +1925,22 @@ describe('docker-manager', () => {
         const env = proxy.environment as Record<string, string>;
         expect(env.ANTHROPIC_API_TARGET).toBeUndefined();
       });
+
+      it('should set COPILOT_API_TARGET in api-proxy when copilotApiTarget is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token', copilotApiTarget: 'api.copilot.internal' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_API_TARGET).toBe('api.copilot.internal');
+      });
+
+      it('should not set COPILOT_API_TARGET in api-proxy when copilotApiTarget is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_API_TARGET).toBeUndefined();
+      });
     });
   });
 
