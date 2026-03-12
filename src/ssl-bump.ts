@@ -21,7 +21,7 @@ import { logger } from './logger';
 /**
  * Recursively chown a directory and its contents
  */
-function chownRecursive(dirPath: string, uid: number, gid: number): void {
+export function chownRecursive(dirPath: string, uid: number, gid: number): void {
   fs.chownSync(dirPath, uid, gid);
   for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
     const fullPath = path.join(dirPath, entry.name);

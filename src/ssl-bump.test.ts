@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import execa from 'execa';
-import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial } from './ssl-bump';
+import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial, chownRecursive } from './ssl-bump';
 
 // Pattern constant for the safer URL character class (matches the implementation)
 const URL_CHAR_PATTERN = '[^\\s]*';
@@ -314,6 +314,47 @@ describe('SSL Bump', () => {
       } finally {
         fs.chmodSync(sslDbPath, 0o700);
       }
+    });
+
+    it('should gracefully handle EPERM from chown (non-root)', async () => {
+      // initSslDb calls chownRecursive(sslDbPath, 13, 13) internally.
+      // When not running as root, chownSync throws EPERM which is caught.
+      // This test verifies the EPERM path completes successfully.
+      const result = await initSslDb(tempDir);
+      expect(result).toBe(path.join(tempDir, 'ssl_db'));
+      // Verify the ssl_db was fully created despite chown failure
+      expect(fs.existsSync(path.join(result, 'certs'))).toBe(true);
+      expect(fs.existsSync(path.join(result, 'index.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(result, 'size'))).toBe(true);
+    });
+
+  });
+
+  describe('chownRecursive', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chown-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('should attempt to chown a directory and its contents', () => {
+      // Create directory structure
+      const subDir = path.join(tempDir, 'subdir');
+      fs.mkdirSync(subDir);
+      fs.writeFileSync(path.join(tempDir, 'file1.txt'), 'test');
+      fs.writeFileSync(path.join(subDir, 'file2.txt'), 'test');
+
+      // chownRecursive will throw EPERM when not root, but it should
+      // attempt to chown the root directory first
+      expect(() => chownRecursive(tempDir, 13, 13)).toThrow(/EPERM/);
+    });
+
+    it('should throw for non-existent directory', () => {
+      expect(() => chownRecursive('/tmp/nonexistent-chown-test', 13, 13)).toThrow();
     });
   });
 
