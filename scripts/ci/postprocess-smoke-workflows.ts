@@ -87,6 +87,14 @@ const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
 // instead of pre-built GHCR images that may be stale.
 const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
+// Remove the "Setup Scripts" step from update_cache_memory jobs.
+// This step downloads the private github/gh-aw action but is never used in
+// update_cache_memory (no subsequent steps reference /opt/gh-aw/actions/).
+// With permissions: {} on these jobs, downloading the private action fails
+// with 401 Unauthorized.
+const updateCacheSetupScriptRegex =
+  /^(\s+)- name: Setup Scripts\n\1  uses: github\/gh-aw\/actions\/setup@v[\d.]+\n\1  with:\n\1    destination: \/opt\/gh-aw\/actions\n(\1- name: Download cache-memory artifact)/gm;
+
 for (const workflowPath of workflowPaths) {
   let content = fs.readFileSync(workflowPath, 'utf-8');
   let modified = false;
@@ -130,6 +138,18 @@ for (const workflowPath of workflowPaths) {
     content = content.replace(imageTagRegex, '--build-local');
     modified = true;
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+  }
+
+  // Remove unused "Setup Scripts" step from update_cache_memory jobs.
+  // The step downloads a private action but is never used in these jobs,
+  // causing 401 Unauthorized failures when permissions: {} is set.
+  const updateCacheSetupMatches = content.match(updateCacheSetupScriptRegex);
+  if (updateCacheSetupMatches) {
+    content = content.replace(updateCacheSetupScriptRegex, '$2');
+    modified = true;
+    console.log(
+      `  Removed ${updateCacheSetupMatches.length} unused Setup Scripts step(s) from update_cache_memory`
+    );
   }
 
   if (modified) {
