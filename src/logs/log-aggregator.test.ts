@@ -311,7 +311,135 @@ describe('log-aggregator', () => {
     });
   });
 
+  describe('blocked domain aggregation', () => {
+    it('should correctly aggregate multiple blocked domains', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'evil.com', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: 'malware.io', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: 'evil.com', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.totalRequests).toBe(3);
+      expect(stats.allowedRequests).toBe(0);
+      expect(stats.deniedRequests).toBe(3);
+      expect(stats.uniqueDomains).toBe(2);
+      expect(stats.byDomain.get('evil.com')).toEqual({
+        domain: 'evil.com',
+        allowed: 0,
+        denied: 2,
+        total: 2,
+      });
+      expect(stats.byDomain.get('malware.io')).toEqual({
+        domain: 'malware.io',
+        allowed: 0,
+        denied: 1,
+        total: 1,
+      });
+    });
+
+    it('should correctly aggregate mixed allowed and denied for same domain', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'github.com', isAllowed: true }),
+        createLogEntry({ domain: 'github.com', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: 'github.com', isAllowed: true }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.byDomain.get('github.com')).toEqual({
+        domain: 'github.com',
+        allowed: 2,
+        denied: 1,
+        total: 3,
+      });
+    });
+
+    it('should handle only denied entries with no allowed entries', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'blocked1.com', isAllowed: false }),
+        createLogEntry({ domain: 'blocked2.com', isAllowed: false }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.totalRequests).toBe(2);
+      expect(stats.allowedRequests).toBe(0);
+      expect(stats.deniedRequests).toBe(2);
+      expect(stats.uniqueDomains).toBe(2);
+    });
+  });
+
   describe('loadAndAggregate', () => {
+    it('should correctly detect blocked domains from real log lines', async () => {
+      const mockLogContent = [
+        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
+        '1761074375.123 172.30.0.20:39749 evil.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE evil.com:443 "curl/7.81.0"',
+        '1761074376.456 172.30.0.20:39750 malware.io:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE malware.io:443 "python-requests/2.28"',
+        '1761074377.789 172.30.0.20:39751 npmjs.org:443 104.16.0.0:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT npmjs.org:443 "-"',
+        '1761074378.012 172.30.0.20:39752 evil.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE evil.com:443 "curl/7.81.0"',
+      ].join('\n');
+
+      mockedFs.existsSync.mockReturnValue(true);
+      mockedFs.readFileSync.mockReturnValue(mockLogContent);
+
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs-blocked-test',
+      };
+
+      const stats = await loadAndAggregate(source);
+
+      expect(stats.totalRequests).toBe(5);
+      expect(stats.allowedRequests).toBe(2);
+      expect(stats.deniedRequests).toBe(3);
+      expect(stats.uniqueDomains).toBe(4);
+
+      // Verify blocked domains are correctly identified
+      const evilStats = stats.byDomain.get('evil.com');
+      expect(evilStats).toBeDefined();
+      expect(evilStats!.denied).toBe(2);
+      expect(evilStats!.allowed).toBe(0);
+
+      const malwareStats = stats.byDomain.get('malware.io');
+      expect(malwareStats).toBeDefined();
+      expect(malwareStats!.denied).toBe(1);
+      expect(malwareStats!.allowed).toBe(0);
+
+      // Verify allowed domains
+      const githubStats = stats.byDomain.get('api.github.com');
+      expect(githubStats).toBeDefined();
+      expect(githubStats!.allowed).toBe(1);
+      expect(githubStats!.denied).toBe(0);
+    });
+
+    it('should detect blocked HTTP domains from real log lines', async () => {
+      const mockLogContent = [
+        '1761074374.646 172.30.0.20:39748 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/ "-"',
+        '1761074375.123 172.30.0.20:39749 blocked.com:80 -:- 1.1 GET 403 TCP_DENIED:HIER_NONE http://blocked.com/exfil "-"',
+      ].join('\n');
+
+      mockedFs.existsSync.mockReturnValue(true);
+      mockedFs.readFileSync.mockReturnValue(mockLogContent);
+
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs-http-blocked',
+      };
+
+      const stats = await loadAndAggregate(source);
+
+      expect(stats.totalRequests).toBe(2);
+      expect(stats.allowedRequests).toBe(1);
+      expect(stats.deniedRequests).toBe(1);
+
+      const blockedStats = stats.byDomain.get('blocked.com');
+      expect(blockedStats).toBeDefined();
+      expect(blockedStats!.denied).toBe(1);
+      expect(blockedStats!.allowed).toBe(0);
+    });
+
     it('should load and aggregate logs in one call', async () => {
       const mockLogContent = [
         '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',

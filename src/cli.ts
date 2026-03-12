@@ -776,34 +776,251 @@ export function parseVolumeMounts(mounts: string[]): ParseVolumeMountsResult | P
   return { success: true, mounts: result };
 }
 
-const program = new Command();
+export function formatItem(
+  term: string,
+  description: string,
+  termWidth: number,
+  indent: number,
+  sep: number,
+  _helpWidth: number
+): string {
+  const indentStr = ' '.repeat(indent);
+  const fullWidth = termWidth + sep;
+  if (description) {
+    if (term.length < fullWidth - sep) {
+      return `${indentStr}${term.padEnd(fullWidth)}${description}`;
+    }
+    return `${indentStr}${term}\n${' '.repeat(indent + fullWidth)}${description}`;
+  }
+  return `${indentStr}${term}`;
+}
+
+export const program = new Command();
+
+// Option group markers used by the custom help formatter to insert section headers.
+// Each key is the long flag name of the first option in a group.
+const optionGroupHeaders: Record<string, string> = {
+  'allow-domains': 'Domain Filtering:',
+  'build-local': 'Image Management:',
+  'env': 'Container Configuration:',
+  'dns-servers': 'Network & Security:',
+  'enable-api-proxy': 'API Proxy:',
+  'log-level': 'Logging & Debug:',
+};
 
 program
   .name('awf')
   .description('Network firewall for agentic workflows with domain whitelisting')
   .version(version)
+  .configureHelp({
+    formatHelp(cmd, helper): string {
+      const termWidth = helper.padWidth(cmd, helper);
+      const helpWidth = (helper as unknown as { helpWidth?: number }).helpWidth ?? 80;
+      const itemIndent = 2;
+      const itemSep = 2;
+
+      const output: string[] = [];
+
+      // Usage line
+      const usage = helper.commandUsage(cmd);
+      output.push(`Usage: ${usage}`);
+
+      const desc = helper.commandDescription(cmd);
+      if (desc) {
+        output.push('');
+        output.push(desc);
+      }
+
+      // Arguments
+      const args = helper.visibleArguments(cmd);
+      if (args.length > 0) {
+        output.push('');
+        output.push('Arguments:');
+        for (const arg of args) {
+          const term = helper.argumentTerm(arg);
+          const argDesc = helper.argumentDescription(arg);
+          output.push(formatItem(term, argDesc, termWidth, itemIndent, itemSep, helpWidth));
+        }
+      }
+
+      // Options with group headers
+      const options = helper.visibleOptions(cmd);
+      if (options.length > 0) {
+        output.push('');
+        output.push('Options:');
+        for (const opt of options) {
+          const flags = helper.optionTerm(opt);
+          const optDesc = helper.optionDescription(opt);
+          const longFlag = opt.long?.replace(/^--/, '');
+          if (longFlag && optionGroupHeaders[longFlag]) {
+            output.push('');
+            output.push(`  ${optionGroupHeaders[longFlag]}`);
+          }
+          output.push(formatItem(flags, optDesc, termWidth, itemIndent + 2, itemSep, helpWidth));
+        }
+      }
+
+      return output.join('\n') + '\n';
+    }
+  })
+
+  // -- Domain Filtering --
   .option(
     '-d, --allow-domains <domains>',
     'Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:\n' +
-    '                                   github.com         - exact domain + subdomains (HTTP & HTTPS)\n' +
-    '                                   *.github.com       - any subdomain of github.com\n' +
-    '                                   api-*.example.com  - api-* subdomains\n' +
-    '                                   https://secure.com - HTTPS only\n' +
-    '                                   http://legacy.com  - HTTP only\n' +
-    '                                   localhost          - auto-configure for local testing (Playwright, etc.)'
+    '                                       github.com         - exact domain + subdomains (HTTP & HTTPS)\n' +
+    '                                       *.github.com       - any subdomain of github.com\n' +
+    '                                       api-*.example.com  - api-* subdomains\n' +
+    '                                       https://secure.com - HTTPS only\n' +
+    '                                       http://legacy.com  - HTTP only\n' +
+    '                                       localhost          - auto-configure for local testing (Playwright, etc.)'
   )
   .option(
     '--allow-domains-file <path>',
-    'Path to file containing allowed domains (one per line or comma-separated, supports # comments)'
+    'Path to file with allowed domains (one per line, supports # comments)'
   )
   .option(
     '--block-domains <domains>',
-    'Comma-separated list of blocked domains (takes precedence over allowed domains). Supports wildcards.'
+    'Comma-separated blocked domains (overrides allow list). Supports wildcards.'
   )
   .option(
     '--block-domains-file <path>',
-    'Path to file containing blocked domains (one per line or comma-separated, supports # comments)'
+    'Path to file with blocked domains (one per line, supports # comments)'
   )
+  .option(
+    '--ssl-bump',
+    'Enable SSL Bump for HTTPS content inspection (allows URL path filtering)',
+    false
+  )
+  .option(
+    '--allow-urls <urls>',
+    'Comma-separated allowed URL patterns for HTTPS (requires --ssl-bump).\n' +
+    '                                       Supports wildcards: https://github.com/myorg/*'
+  )
+
+  // -- Image Management --
+  .option(
+    '-b, --build-local',
+    'Build containers locally instead of using GHCR images',
+    false
+  )
+  .option(
+    '--agent-image <value>',
+    'Agent container image (default: "default")\n' +
+    '                                       Presets (pre-built, fast):\n' +
+    '                                         default  - Minimal ubuntu:22.04 (~200MB)\n' +
+    '                                         act      - GitHub Actions parity (~2GB)\n' +
+    '                                       Custom base images (requires --build-local):\n' +
+    '                                         ubuntu:XX.XX\n' +
+    '                                         ghcr.io/catthehacker/ubuntu:runner-XX.XX\n' +
+    '                                         ghcr.io/catthehacker/ubuntu:full-XX.XX'
+  )
+  .option(
+    '--image-registry <registry>',
+    'Container image registry',
+    'ghcr.io/github/gh-aw-firewall'
+  )
+  .option(
+    '--image-tag <tag>',
+    'Container image tag (applies to both squid and agent images)\n' +
+    '                                       Image name varies by --agent-image preset:\n' +
+    '                                         default → agent:<tag>\n' +
+    '                                         act     → agent-act:<tag>',
+    'latest'
+  )
+  .option(
+    '--skip-pull',
+    'Use local images without pulling from registry (requires pre-downloaded images)',
+    false
+  )
+
+  // -- Container Configuration --
+  .option(
+    '-e, --env <KEY=VALUE>',
+    'Environment variable for the container (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+    []
+  )
+  .option(
+    '--env-all',
+    'Pass all host environment variables to container (excludes system vars like PATH)',
+    false
+  )
+  .option(
+    '-v, --mount <host_path:container_path[:mode]>',
+    'Volume mount (repeatable). Format: host_path:container_path[:ro|rw]',
+    (value: string, previous: string[] = []) => [...previous, value],
+    []
+  )
+  .option(
+    '--container-workdir <dir>',
+    'Working directory inside the container'
+  )
+  .option(
+    '--memory-limit <limit>',
+    'Memory limit for the agent container (e.g., 1g, 2g, 4g, 512m). Default: 2g',
+    '2g'
+  )
+  .option(
+    '--tty',
+    'Allocate a pseudo-TTY (required for interactive tools like Claude Code)',
+    false
+  )
+
+  // -- Network & Security --
+  .option(
+    '--dns-servers <servers>',
+    'Comma-separated trusted DNS servers',
+    '8.8.8.8,8.8.4.4'
+  )
+  .option(
+    '--enable-host-access',
+    'Enable access to host services via host.docker.internal',
+    false
+  )
+  .option(
+    '--allow-host-ports <ports>',
+    'Ports/ranges to allow with --enable-host-access (default: 80,443).\n' +
+    '                                       Example: 3000,8080 or 3000-3010,8000-8090'
+  )
+
+  // -- API Proxy --
+  .option(
+    '--enable-api-proxy',
+    'Enable API proxy sidecar for secure credential injection.\n' +
+    '                                       Supports OpenAI (Codex) and Anthropic (Claude) APIs.',
+    false
+  )
+  .option(
+    '--copilot-api-target <host>',
+    'Target hostname for Copilot API requests (default: api.githubcopilot.com)',
+  )
+  .option(
+    '--openai-api-target <host>',
+    'Target hostname for OpenAI API requests (default: api.openai.com)',
+  )
+  .option(
+    '--anthropic-api-target <host>',
+    'Target hostname for Anthropic API requests (default: api.anthropic.com)',
+  )
+  .option(
+    '--rate-limit-rpm <n>',
+    'Max requests per minute per provider (requires --enable-api-proxy)',
+  )
+  .option(
+    '--rate-limit-rph <n>',
+    'Max requests per hour per provider (requires --enable-api-proxy)',
+  )
+  .option(
+    '--rate-limit-bytes-pm <n>',
+    'Max request bytes per minute per provider (requires --enable-api-proxy)',
+  )
+  .option(
+    '--no-rate-limit',
+    'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
+  )
+
+  // -- Logging & Debug --
   .option(
     '--log-level <level>',
     'Log level: debug, info, warn, error',
@@ -815,149 +1032,13 @@ program
     false
   )
   .option(
-    '--tty',
-    'Allocate a pseudo-TTY for the container (required for interactive tools like Claude Code)',
-    false
-  )
-  .option(
     '--work-dir <dir>',
     'Working directory for temporary files',
     path.join(os.tmpdir(), `awf-${Date.now()}`)
   )
   .option(
-    '-b, --build-local',
-    'Build containers locally instead of using GHCR images',
-    false
-  )
-  .option(
-    '--agent-image <value>',
-    'Agent container image (default: "default")\n' +
-    '                                   Presets (pre-built, fast):\n' +
-    '                                     default  - Minimal ubuntu:22.04 (~200MB)\n' +
-    '                                     act      - GitHub Actions parity (~2GB)\n' +
-    '                                   Custom base images (requires --build-local):\n' +
-    '                                     ubuntu:XX.XX\n' +
-    '                                     ghcr.io/catthehacker/ubuntu:runner-XX.XX\n' +
-    '                                     ghcr.io/catthehacker/ubuntu:full-XX.XX'
-  )
-  .option(
-    '--image-registry <registry>',
-    'Container image registry',
-    'ghcr.io/github/gh-aw-firewall'
-  )
-  .option(
-    '--image-tag <tag>',
-    'Container image tag (applies to both squid and agent images)\n' +
-    '                                   Image name varies by --agent-image preset:\n' +
-    '                                     default → agent:<tag>\n' +
-    '                                     act     → agent-act:<tag>',
-    'latest'
-  )
-  .option(
-    '--skip-pull',
-    'Use local images without pulling from registry (requires images to be pre-downloaded)',
-    false
-  )
-  .option(
-    '-e, --env <KEY=VALUE>',
-    'Additional environment variables to pass to container (can be specified multiple times)',
-    (value, previous: string[] = []) => [...previous, value],
-    []
-  )
-  .option(
-    '--env-all',
-    'Pass all host environment variables to container (excludes system vars like PATH)',
-    false
-  )
-  .option(
-    '-v, --mount <host_path:container_path[:mode]>',
-    'Volume mount (can be specified multiple times). Format: host_path:container_path[:ro|rw]',
-    (value, previous: string[] = []) => [...previous, value],
-    []
-  )
-  .option(
-    '--container-workdir <dir>',
-    'Working directory inside the container (should match GITHUB_WORKSPACE for path consistency)'
-  )
-  .option(
-    '--memory-limit <limit>',
-    'Memory limit for the agent container (e.g., 1g, 2g, 4g, 512m). Default: 2g',
-    '2g'
-  )
-  .option(
-    '--dns-servers <servers>',
-    'Comma-separated list of trusted DNS servers. DNS traffic is ONLY allowed to these servers (default: 8.8.8.8,8.8.4.4)',
-    '8.8.8.8,8.8.4.4'
-  )
-  .option(
     '--proxy-logs-dir <path>',
-    'Directory to save Squid proxy logs to (writes access.log directly to this directory)'
-  )
-  .option(
-    '--enable-host-access',
-    'Enable access to host services via host.docker.internal. ' +
-    'Security warning: When combined with --allow-domains host.docker.internal, ' +
-    'containers can access ANY service on the host machine.',
-    false
-  )
-  .option(
-    '--allow-host-ports <ports>',
-    'Comma-separated list of ports or port ranges to allow when using --enable-host-access. ' +
-    'By default, only ports 80 and 443 are allowed. ' +
-    'Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or --allow-host-ports 3000-3010,8000-8090'
-  )
-  .option(
-    '--ssl-bump',
-    'Enable SSL Bump for HTTPS content inspection (allows URL path filtering for HTTPS)',
-    false
-  )
-  .option(
-    '--allow-urls <urls>',
-    'Comma-separated list of allowed URL patterns for HTTPS (requires --ssl-bump).\n' +
-    '                                   Supports wildcards: https://github.com/myorg/*'
-  )
-  .option(
-    '--enable-api-proxy',
-    'Enable API proxy sidecar for holding authentication credentials.\n' +
-    '                                   Deploys a Node.js proxy that injects API keys securely.\n' +
-    '                                   Supports OpenAI (Codex) and Anthropic (Claude) APIs.',
-    false
-  )
-  .option(
-    '--copilot-api-target <host>',
-    'Target hostname for GitHub Copilot API requests in the api-proxy sidecar.\n' +
-    '                                   Defaults to api.githubcopilot.com. Useful for GHES deployments.\n' +
-    '                                   Can also be set via COPILOT_API_TARGET env var.',
-  )
-  .option(
-    '--openai-api-target <host>',
-    'Target hostname for OpenAI API requests in the api-proxy sidecar.\n' +
-    '                                   Defaults to api.openai.com. Useful for custom OpenAI-compatible endpoints.\n' +
-    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
-    '                                   Can also be set via OPENAI_API_TARGET env var.',
-  )
-  .option(
-    '--anthropic-api-target <host>',
-    'Target hostname for Anthropic API requests in the api-proxy sidecar.\n' +
-    '                                   Defaults to api.anthropic.com. Useful for custom Anthropic-compatible endpoints.\n' +
-    '                                   When using a custom domain, you must also add it to --allow-domains so the firewall permits outbound traffic.\n' +
-    '                                   Can also be set via ANTHROPIC_API_TARGET env var.',
-  )
-  .option(
-    '--rate-limit-rpm <n>',
-    'Enable rate limiting: max requests per minute per provider (requires --enable-api-proxy)',
-  )
-  .option(
-    '--rate-limit-rph <n>',
-    'Enable rate limiting: max requests per hour per provider (requires --enable-api-proxy)',
-  )
-  .option(
-    '--rate-limit-bytes-pm <n>',
-    'Enable rate limiting: max request bytes per minute per provider (requires --enable-api-proxy)',
-  )
-  .option(
-    '--no-rate-limit',
-    'Explicitly disable rate limiting in the API proxy (requires --enable-api-proxy)',
+    'Directory to save Squid proxy access.log'
   )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {

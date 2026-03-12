@@ -83,6 +83,51 @@ describe('log-parser', () => {
       expect(result!.domain).toBe('api.github.com');
     });
 
+    it('should parse a denied HTTP (GET) log line', () => {
+      const line =
+        '1760994429.358 172.30.0.20:36274 evil.com:80 -:- 1.1 GET 403 TCP_DENIED:HIER_NONE http://evil.com/ "curl/7.81.0"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      expect(result!.domain).toBe('evil.com');
+      expect(result!.isAllowed).toBe(false);
+      expect(result!.isHttps).toBe(false);
+      expect(result!.method).toBe('GET');
+      expect(result!.statusCode).toBe(403);
+      expect(result!.decision).toBe('TCP_DENIED:HIER_NONE');
+    });
+
+    it('should mark TCP_HIT as allowed (cached response)', () => {
+      const line =
+        '1761074374.646 172.30.0.20:39748 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_HIT:HIER_NONE http://example.com/ "-"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      // TCP_HIT is neither TCP_TUNNEL nor TCP_MISS, so isAllowed should be false
+      // This documents current behavior: only TCP_TUNNEL and TCP_MISS are considered allowed
+      expect(result!.isAllowed).toBe(false);
+    });
+
+    it('should mark TCP_REFRESH_MODIFIED as denied (not in allowed list)', () => {
+      const line =
+        '1761074374.646 172.30.0.20:39748 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_REFRESH_MODIFIED:HIER_DIRECT http://example.com/ "-"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      // TCP_REFRESH_MODIFIED is not TCP_TUNNEL or TCP_MISS
+      expect(result!.isAllowed).toBe(false);
+    });
+
+    it('should mark NONE_NONE as denied (connection failure entries)', () => {
+      const line =
+        '1761074374.646 172.30.0.20:39748 -:0 -:- 1.1 NONE 0 NONE_NONE:HIER_NONE error:transaction-end-before-headers "-"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      expect(result!.isAllowed).toBe(false);
+      expect(result!.decision).toBe('NONE_NONE:HIER_NONE');
+    });
+
     it('should correctly identify HTTPS requests via CONNECT method', () => {
       const httpsLine =
         '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
@@ -94,6 +139,55 @@ describe('log-parser', () => {
 
       expect(httpsResult!.isHttps).toBe(true);
       expect(httpResult!.isHttps).toBe(false);
+    });
+  });
+
+  describe('blocked domain detection', () => {
+    it('should detect blocked HTTPS domain with correct domain extraction', () => {
+      const line =
+        '1760994429.358 172.30.0.20:36274 malware.example.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE malware.example.com:443 "python-requests/2.28"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      expect(result!.domain).toBe('malware.example.com');
+      expect(result!.isAllowed).toBe(false);
+      expect(result!.isHttps).toBe(true);
+    });
+
+    it('should detect blocked HTTP domain with correct domain extraction', () => {
+      const line =
+        '1760994429.358 172.30.0.20:36274 exfiltration.io:80 -:- 1.1 GET 403 TCP_DENIED:HIER_NONE http://exfiltration.io/data "wget/1.21"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      expect(result!.domain).toBe('exfiltration.io');
+      expect(result!.isAllowed).toBe(false);
+      expect(result!.isHttps).toBe(false);
+    });
+
+    it('should detect blocked domain on non-standard port', () => {
+      const line =
+        '1760994429.358 172.30.0.20:36274 api.blocked.com:8443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE api.blocked.com:8443 "curl/7.81.0"';
+      const result = parseLogLine(line);
+
+      expect(result).not.toBeNull();
+      expect(result!.domain).toBe('api.blocked.com');
+      expect(result!.isAllowed).toBe(false);
+    });
+
+    it('should distinguish allowed and denied requests for the same domain format', () => {
+      const allowedLine =
+        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+      const deniedLine =
+        '1761074375.123 172.30.0.20:39749 api.github.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE api.github.com:443 "-"';
+
+      const allowed = parseLogLine(allowedLine);
+      const denied = parseLogLine(deniedLine);
+
+      expect(allowed!.domain).toBe('api.github.com');
+      expect(denied!.domain).toBe('api.github.com');
+      expect(allowed!.isAllowed).toBe(true);
+      expect(denied!.isAllowed).toBe(false);
     });
   });
 

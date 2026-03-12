@@ -1772,4 +1772,55 @@ describe('cli', () => {
     });
   });
 
+  describe('formatItem', () => {
+    it('should format item with description on same line when term fits', () => {
+      const result = formatItem('-v', 'verbose output', 20, 2, 2, 80);
+      expect(result).toBe('  -v                    verbose output');
+    });
+
+    it('should format item with description on next line when term is long', () => {
+      const result = formatItem('--very-long-option-name-here', 'desc', 10, 2, 2, 80);
+      expect(result).toContain('--very-long-option-name-here');
+      expect(result).toContain('\n');
+      expect(result).toContain('desc');
+    });
+
+    it('should format item without description', () => {
+      const result = formatItem('--flag', '', 20, 2, 2, 80);
+      expect(result).toBe('  --flag');
+    });
+  });
+
+  describe('help text formatting', () => {
+    it('should include section headers in help output', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Domain Filtering:');
+      expect(help).toContain('Image Management:');
+      expect(help).toContain('Container Configuration:');
+      expect(help).toContain('Network & Security:');
+      expect(help).toContain('API Proxy:');
+      expect(help).toContain('Logging & Debug:');
+    });
+
+    it('should include usage line', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Usage: awf');
+    });
+
+    it('should include program description', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Network firewall for agentic workflows');
+    });
+
+    it('should include arguments section', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Arguments:');
+    });
+
+    it('should include options section', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Options:');
+    });
+  });
+
 });
