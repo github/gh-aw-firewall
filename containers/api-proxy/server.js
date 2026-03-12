@@ -56,14 +56,22 @@ function deriveCopilotApiTarget() {
   if (process.env.COPILOT_API_TARGET) {
     return process.env.COPILOT_API_TARGET;
   }
-  // For GitHub Enterprise Cloud (*.ghe.com) or GitHub Enterprise Server
-  // (any GITHUB_SERVER_URL that isn't https://github.com), route to the
-  // enterprise Copilot API endpoint instead of the individual one.
+  // Auto-derive from GITHUB_SERVER_URL:
+  // - GitHub Enterprise Cloud (*.ghe.com) → api.<subdomain>.ghe.com
+  // - GitHub Enterprise Server (non-github.com, non-ghe.com) → api.enterprise.githubcopilot.com
+  // - github.com → api.githubcopilot.com
   const serverUrl = process.env.GITHUB_SERVER_URL;
   if (serverUrl) {
     try {
       const hostname = new URL(serverUrl).hostname;
       if (hostname !== 'github.com') {
+        // Check if this is a GHEC tenant (*.ghe.com)
+        if (hostname.endsWith('.ghe.com')) {
+          // Extract subdomain: mycompany.ghe.com → mycompany
+          const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
+          return `api.${subdomain}.ghe.com`;
+        }
+        // GHES (any other non-github.com hostname)
         return 'api.enterprise.githubcopilot.com';
       }
     } catch {
@@ -395,122 +403,128 @@ function handleManagementEndpoint(req, res) {
   return false;
 }
 
-// Health port is always 10000 — this is what Docker healthcheck hits
-const HEALTH_PORT = 10000;
+// Only start the server if this file is run directly (not imported for testing)
+if (require.main === module) {
+  // Health port is always 10000 — this is what Docker healthcheck hits
+  const HEALTH_PORT = 10000;
 
-// OpenAI API proxy (port 10000)
-if (OPENAI_API_KEY) {
-  const server = http.createServer((req, res) => {
-    if (handleManagementEndpoint(req, res)) return;
-    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-    if (checkRateLimit(req, res, 'openai', contentLength)) return;
+  // OpenAI API proxy (port 10000)
+  if (OPENAI_API_KEY) {
+    const server = http.createServer((req, res) => {
+      if (handleManagementEndpoint(req, res)) return;
+      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+      if (checkRateLimit(req, res, 'openai', contentLength)) return;
 
-    proxyRequest(req, res, OPENAI_API_TARGET, {
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    }, 'openai');
+      proxyRequest(req, res, OPENAI_API_TARGET, {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      }, 'openai');
+    });
+
+    server.listen(HEALTH_PORT, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
+    });
+  } else {
+    // No OpenAI key — still need a health endpoint on port 10000 for Docker healthcheck
+    const server = http.createServer((req, res) => {
+      if (handleManagementEndpoint(req, res)) return;
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'OpenAI proxy not configured (no OPENAI_API_KEY)' }));
+    });
+
+    server.listen(HEALTH_PORT, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: `Health endpoint listening on port ${HEALTH_PORT} (OpenAI not configured)` });
+    });
+  }
+
+  // Anthropic API proxy (port 10001)
+  if (ANTHROPIC_API_KEY) {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'healthy', service: 'anthropic-proxy' }));
+        return;
+      }
+
+      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+      if (checkRateLimit(req, res, 'anthropic', contentLength)) return;
+
+      // Only set anthropic-version as default; preserve agent-provided version
+      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+      if (!req.headers['anthropic-version']) {
+        anthropicHeaders['anthropic-version'] = '2023-06-01';
+      }
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic');
+    });
+
+    server.listen(10001, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
+    });
+  }
+
+
+  // GitHub Copilot API proxy (port 10002)
+  if (COPILOT_GITHUB_TOKEN) {
+    const copilotServer = http.createServer((req, res) => {
+      // Health check endpoint
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'healthy', service: 'copilot-proxy' }));
+        return;
+      }
+
+      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+      if (checkRateLimit(req, res, 'copilot', contentLength)) return;
+
+      proxyRequest(req, res, COPILOT_API_TARGET, {
+        'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+      }, 'copilot');
+    });
+
+    copilotServer.listen(10002, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
+    });
+  }
+
+  // OpenCode API proxy (port 10004) — routes to Anthropic (default BYOK provider)
+  // OpenCode gets a separate port from Claude (10001) for per-engine rate limiting,
+  // metrics isolation, and future provider routing (OpenCode is BYOK and may route
+  // to different providers in the future based on model prefix).
+  if (ANTHROPIC_API_KEY) {
+    const opencodeServer = http.createServer((req, res) => {
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'healthy', service: 'opencode-proxy' }));
+        return;
+      }
+
+      const logMethod = sanitizeForLog(req.method);
+      const logUrl = sanitizeForLog(req.url);
+      console.log(`[OpenCode Proxy] ${logMethod} ${logUrl}`);
+      console.log('[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY');
+      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+      if (!req.headers['anthropic-version']) {
+        anthropicHeaders['anthropic-version'] = '2023-06-01';
+      }
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders);
+    });
+
+    opencodeServer.listen(10004, '0.0.0.0', () => {
+      console.log(`[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic at ${ANTHROPIC_API_TARGET})`);
+    });
+  }
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
+    process.exit(0);
   });
 
-  server.listen(HEALTH_PORT, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
-  });
-} else {
-  // No OpenAI key — still need a health endpoint on port 10000 for Docker healthcheck
-  const server = http.createServer((req, res) => {
-    if (handleManagementEndpoint(req, res)) return;
-
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'OpenAI proxy not configured (no OPENAI_API_KEY)' }));
-  });
-
-  server.listen(HEALTH_PORT, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: `Health endpoint listening on port ${HEALTH_PORT} (OpenAI not configured)` });
+  process.on('SIGINT', () => {
+    logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
+    process.exit(0);
   });
 }
 
-// Anthropic API proxy (port 10001)
-if (ANTHROPIC_API_KEY) {
-  const server = http.createServer((req, res) => {
-    if (req.url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'healthy', service: 'anthropic-proxy' }));
-      return;
-    }
-
-    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-    if (checkRateLimit(req, res, 'anthropic', contentLength)) return;
-
-    // Only set anthropic-version as default; preserve agent-provided version
-    const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-    if (!req.headers['anthropic-version']) {
-      anthropicHeaders['anthropic-version'] = '2023-06-01';
-    }
-    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic');
-  });
-
-  server.listen(10001, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
-  });
-}
-
-
-// GitHub Copilot API proxy (port 10002)
-if (COPILOT_GITHUB_TOKEN) {
-  const copilotServer = http.createServer((req, res) => {
-    // Health check endpoint
-    if (req.url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'healthy', service: 'copilot-proxy' }));
-      return;
-    }
-
-    const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-    if (checkRateLimit(req, res, 'copilot', contentLength)) return;
-
-    proxyRequest(req, res, COPILOT_API_TARGET, {
-      'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
-    }, 'copilot');
-  });
-
-  copilotServer.listen(10002, '0.0.0.0', () => {
-    logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
-  });
-}
-
-// OpenCode API proxy (port 10004) — routes to Anthropic (default BYOK provider)
-// OpenCode gets a separate port from Claude (10001) for per-engine rate limiting,
-// metrics isolation, and future provider routing (OpenCode is BYOK and may route
-// to different providers in the future based on model prefix).
-if (ANTHROPIC_API_KEY) {
-  const opencodeServer = http.createServer((req, res) => {
-    if (req.url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'healthy', service: 'opencode-proxy' }));
-      return;
-    }
-
-    const logMethod = sanitizeForLog(req.method);
-    const logUrl = sanitizeForLog(req.url);
-    console.log(`[OpenCode Proxy] ${logMethod} ${logUrl}`);
-    console.log('[OpenCode Proxy] Injecting x-api-key header with ANTHROPIC_API_KEY');
-    const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-    if (!req.headers['anthropic-version']) {
-      anthropicHeaders['anthropic-version'] = '2023-06-01';
-    }
-    proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders);
-  });
-
-  opencodeServer.listen(10004, '0.0.0.0', () => {
-    console.log(`[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic at ${ANTHROPIC_API_TARGET})`);
-  });
-}
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
-  process.exit(0);
-});
+// Export for testing
+module.exports = { deriveCopilotApiTarget };
