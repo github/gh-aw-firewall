@@ -60,7 +60,7 @@ jobs:
           git add package.json package-lock.json
           git commit -m "$VERSION"
           git tag "v$VERSION"
-          git push origin HEAD --tags
+          git push origin "v$VERSION"
 
           echo "version=v$VERSION" >> $GITHUB_OUTPUT
           echo "version_number=$VERSION" >> $GITHUB_OUTPUT
