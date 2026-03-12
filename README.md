@@ -33,6 +33,7 @@ The `--` separator divides firewall options from the command to run.
 
 - [Quick start](docs/quickstart.md) — install, verify, and run your first command
 - [Usage guide](docs/usage.md) — CLI flags, domain allowlists, examples
+- [Enterprise configuration](docs/enterprise-configuration.md) — GitHub Enterprise Cloud and Server setup
 - [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
