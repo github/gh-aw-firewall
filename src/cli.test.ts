@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, emitApiProxyTargetWarnings } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1641,6 +1641,94 @@ describe('cli', () => {
         []
       );
       expect(result).toBeNull();
+    });
+  });
+
+  describe('emitApiProxyTargetWarnings', () => {
+    it('should emit no warnings when api proxy is disabled', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: false, openaiApiTarget: 'custom.example.com', anthropicApiTarget: 'custom2.example.com' },
+        ['other.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit no warnings when api proxy is not set', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        {},
+        ['other.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit no warnings when using default targets', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit warning for custom OpenAI target not in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, openaiApiTarget: 'custom.openai-router.internal' },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('--openai-api-target=custom.openai-router.internal');
+    });
+
+    it('should emit warning for custom Anthropic target not in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, anthropicApiTarget: 'custom.anthropic-router.internal' },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('--anthropic-api-target=custom.anthropic-router.internal');
+    });
+
+    it('should emit warnings for both custom targets when neither is in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, openaiApiTarget: 'openai.internal', anthropicApiTarget: 'anthropic.internal' },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toContain('--openai-api-target=openai.internal');
+      expect(warnings[1]).toContain('--anthropic-api-target=anthropic.internal');
+    });
+
+    it('should emit no warnings when custom targets are in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, openaiApiTarget: 'openai.example.com', anthropicApiTarget: 'anthropic.example.com' },
+        ['example.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should use default targets when openaiApiTarget and anthropicApiTarget are undefined', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, openaiApiTarget: undefined, anthropicApiTarget: undefined },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      // Default targets are not in 'github.com' allowed domains, but since they ARE the defaults,
+      // validateApiTargetInAllowedDomains returns null for default==default check
+      expect(warnings).toHaveLength(0);
     });
   });
 
