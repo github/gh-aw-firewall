@@ -1186,10 +1186,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@v0.47.0
-        with:
-          destination: /opt/gh-aw/actions
       - name: Download cache-memory artifact (default)
         id: download_cache_default
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
