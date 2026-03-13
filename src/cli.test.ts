@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1976,16 +1976,22 @@ describe('cli', () => {
     });
   });
 
-  describe('--ruleset-file option', () => {
-    it('should accumulate multiple ruleset files', () => {
+  describe('collectRulesetFile', () => {
+    it('should accumulate multiple values into an array', () => {
+      let result = collectRulesetFile('a.yml');
+      result = collectRulesetFile('b.yml', result);
+      expect(result).toEqual(['a.yml', 'b.yml']);
+    });
+
+    it('should default to empty array when no previous values', () => {
+      const result = collectRulesetFile('first.yml');
+      expect(result).toEqual(['first.yml']);
+    });
+
+    it('should work with Commander option parsing', () => {
       const testProgram = new Command();
       testProgram
-        .option(
-          '--ruleset-file <path>',
-          'YAML rule file for domain allowlisting (repeatable)',
-          (value: string, previous: string[] = []) => [...previous, value],
-          []
-        )
+        .option('--ruleset-file <path>', 'YAML rule file', collectRulesetFile, [])
         .action(() => {});
 
       testProgram.parse(['node', 'awf', '--ruleset-file', 'a.yml', '--ruleset-file', 'b.yml'], { from: 'node' });
@@ -1996,12 +2002,7 @@ describe('cli', () => {
     it('should default to empty array when not provided', () => {
       const testProgram = new Command();
       testProgram
-        .option(
-          '--ruleset-file <path>',
-          'YAML rule file for domain allowlisting (repeatable)',
-          (value: string, previous: string[] = []) => [...previous, value],
-          []
-        )
+        .option('--ruleset-file <path>', 'YAML rule file', collectRulesetFile, [])
         .action(() => {});
 
       testProgram.parse(['node', 'awf'], { from: 'node' });

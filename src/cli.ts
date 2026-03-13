@@ -458,6 +458,14 @@ export interface FlagValidationResult {
  * Checks if any rate limit options are set in the CLI options.
  * Used to warn when rate limit flags are provided without --enable-api-proxy.
  */
+/**
+ * Commander option accumulator for repeatable --ruleset-file flag.
+ * Collects multiple values into an array.
+ */
+export function collectRulesetFile(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
+}
+
 export function hasRateLimitOptions(options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
@@ -915,7 +923,7 @@ program
   .option(
     '--ruleset-file <path>',
     'YAML rule file for domain allowlisting (repeatable). Schema: version: 1, rules: [{domain, subdomains}]',
-    (value: string, previous: string[] = []) => [...previous, value],
+    collectRulesetFile,
     []
   )
   .option(
