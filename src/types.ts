@@ -132,18 +132,6 @@ export interface WrapperConfig {
   keepContainers: boolean;
 
   /**
-   * Whether to skip all cleanup (container stop, iptables cleanup, work dir removal)
-   *
-   * When true, the wrapper exits immediately after command execution without
-   * stopping containers, removing iptables rules, or cleaning up temporary files.
-   * Useful in CI environments where the runner terminates anyway and cleanup
-   * adds unnecessary latency (~10s for container shutdown).
-   *
-   * @default false
-   */
-  skipCleanup?: boolean;
-
-  /**
    * Whether to allocate a pseudo-TTY for the agent execution container
    *
    * When true:
