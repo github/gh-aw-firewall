@@ -143,10 +143,10 @@ describe('API Target Allowlist', () => {
       .split('\n')
       .find(line => line.includes('Allowed domains:'));
 
-    if (allowedDomainsLine) {
-      const domainCount = (allowedDomainsLine.match(/api\.custom\.com/g) || []).length;
-      expect(domainCount).toBe(1);
-    }
+    expect(allowedDomainsLine).toBeDefined();
+
+    const domainCount = ((allowedDomainsLine as string).match(/api\.custom\.com/g) || []).length;
+    expect(domainCount).toBe(1);
   }, 120000);
 
   test('should add multiple api-targets when multiple are specified', async () => {
