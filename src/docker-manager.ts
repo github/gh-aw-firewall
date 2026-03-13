@@ -1087,8 +1087,12 @@ export function generateDockerCompose(
     // NET_RAW is required by iptables for netfilter socket operations.
     cap_add: ['NET_ADMIN', 'NET_RAW'],
     cap_drop: ['ALL'],
+    // Override entrypoint to bypass the agent's entrypoint.sh, which contains an
+    // "init container wait" loop that would deadlock (the init container waiting for itself).
+    // The init container only needs to run setup-iptables.sh directly.
+    entrypoint: ['/bin/bash'],
     // Run setup-iptables.sh then signal readiness; log output to shared volume for diagnostics
-    command: ['/bin/bash', '-c', '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready'],
+    command: ['-c', '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready'],
     // Resource limits (init container exits quickly)
     mem_limit: '128m',
     pids_limit: 50,

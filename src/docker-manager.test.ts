@@ -1086,8 +1086,10 @@ describe('docker-manager', () => {
       expect(initService.depends_on).toEqual({
         'agent': { condition: 'service_healthy' },
       });
+      // Entrypoint is overridden to bypass agent's entrypoint.sh (which has init wait loop)
+      expect(initService.entrypoint).toEqual(['/bin/bash']);
       expect(initService.command).toEqual([
-        '/bin/bash', '-c',
+        '-c',
         '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready',
       ]);
       expect(initService.security_opt).toBeUndefined();
