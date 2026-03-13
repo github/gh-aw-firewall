@@ -44,13 +44,21 @@ SQUID_PORT="${SQUID_PROXY_PORT:-3128}"
 echo "[iptables] Squid proxy: ${SQUID_HOST}:${SQUID_PORT}"
 
 # Resolve Squid hostname to IP
-# Use awk's NR to get first line to avoid host binary dependency in chroot mode
-SQUID_IP=$(getent hosts "$SQUID_HOST" | awk 'NR==1 { print $1 }')
-if [ -z "$SQUID_IP" ]; then
-  echo "[iptables] ERROR: Could not resolve Squid proxy hostname: $SQUID_HOST"
-  exit 1
+# If SQUID_HOST is already a valid IPv4 address, use it directly (no DNS lookup needed).
+# This is important for the init container which passes a direct IP via SQUID_PROXY_HOST
+# because getent hosts with an IP does a reverse DNS lookup that fails in Docker.
+if is_valid_ipv4 "$SQUID_HOST"; then
+  SQUID_IP="$SQUID_HOST"
+  echo "[iptables] Squid host is already an IP address: $SQUID_IP"
+else
+  # Use awk's NR to get first line to avoid host binary dependency in chroot mode
+  SQUID_IP=$(getent hosts "$SQUID_HOST" | awk 'NR==1 { print $1 }')
+  if [ -z "$SQUID_IP" ]; then
+    echo "[iptables] ERROR: Could not resolve Squid proxy hostname: $SQUID_HOST"
+    exit 1
+  fi
+  echo "[iptables] Squid IP resolved to: $SQUID_IP"
 fi
-echo "[iptables] Squid IP resolved to: $SQUID_IP"
 
 # Clear existing NAT rules (both IPv4 and IPv6)
 iptables -t nat -F OUTPUT 2>/dev/null || true
