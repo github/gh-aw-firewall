@@ -38,6 +38,13 @@ jobs:
       - name: Install awf globally
         run: sudo npm link
 
+      - name: Build Docker images locally
+        run: |
+          # Build agent and squid images from source and tag as GHCR images
+          # so examples that use default GHCR images get the PR's code
+          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
+
       - name: Pre-test cleanup
         run: sudo ./scripts/ci/cleanup.sh
 
