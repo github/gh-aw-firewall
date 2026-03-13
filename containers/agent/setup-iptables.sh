@@ -271,10 +271,13 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
   iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
 fi
 
-# Drop all other TCP traffic (default deny policy)
-# This ensures that only explicitly allowed ports can be accessed
-echo "[iptables] Drop all non-redirected TCP traffic (default deny)..."
+# Drop all other TCP and UDP traffic (default deny policy)
+# TCP: ensures only explicitly allowed ports can be accessed
+# UDP: prevents DNS exfiltration by blocking direct queries to external DNS servers
+# (only Docker embedded DNS at 127.0.0.11 via localhost is allowed)
+echo "[iptables] Drop all non-allowed TCP and UDP traffic (default deny)..."
 iptables -A OUTPUT -p tcp -j DROP
+iptables -A OUTPUT -p udp -j DROP
 
 echo "[iptables] NAT rules applied successfully"
 echo "[iptables] Current IPv4 NAT OUTPUT rules:"
