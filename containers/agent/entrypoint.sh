@@ -125,6 +125,12 @@ INIT_ELAPSED=0
 while [ ! -f /tmp/awf-init/ready ]; do
   if [ "$INIT_ELAPSED" -ge "$INIT_TIMEOUT" ]; then
     echo "[entrypoint][ERROR] Timed out waiting for iptables init container after 30s"
+    if [ -f /tmp/awf-init/output.log ]; then
+      echo "[entrypoint] Init container output:"
+      cat /tmp/awf-init/output.log
+    else
+      echo "[entrypoint] No init container output log found"
+    fi
     exit 1
   fi
   sleep 0.1

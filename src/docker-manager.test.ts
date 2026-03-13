@@ -1080,7 +1080,7 @@ describe('docker-manager', () => {
 
       expect(initService).toBeDefined();
       expect(initService.container_name).toBe('awf-iptables-init');
-      expect(initService.cap_add).toEqual(['NET_ADMIN']);
+      expect(initService.cap_add).toEqual(['NET_ADMIN', 'NET_RAW']);
       expect(initService.cap_drop).toEqual(['ALL']);
       expect(initService.network_mode).toBe('service:agent');
       expect(initService.depends_on).toEqual({
@@ -1088,9 +1088,9 @@ describe('docker-manager', () => {
       });
       expect(initService.command).toEqual([
         '/bin/bash', '-c',
-        '/usr/local/bin/setup-iptables.sh && touch /tmp/awf-init/ready',
+        '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready',
       ]);
-      expect(initService.security_opt).toContain('no-new-privileges:true');
+      expect(initService.security_opt).toBeUndefined();
       expect(initService.restart).toBe('no');
     });
 

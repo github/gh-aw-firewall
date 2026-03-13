@@ -1083,12 +1083,12 @@ export function generateDockerCompose(
         condition: 'service_healthy',
       },
     },
-    // Only NET_ADMIN is needed for iptables setup
-    cap_add: ['NET_ADMIN'],
+    // NET_ADMIN is required for iptables rule manipulation.
+    // NET_RAW is required by iptables for netfilter socket operations.
+    cap_add: ['NET_ADMIN', 'NET_RAW'],
     cap_drop: ['ALL'],
-    security_opt: ['no-new-privileges:true'],
-    // Run setup-iptables.sh then signal readiness
-    command: ['/bin/bash', '-c', '/usr/local/bin/setup-iptables.sh && touch /tmp/awf-init/ready'],
+    // Run setup-iptables.sh then signal readiness; log output to shared volume for diagnostics
+    command: ['/bin/bash', '-c', '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready'],
     // Resource limits (init container exits quickly)
     mem_limit: '128m',
     pids_limit: 50,
