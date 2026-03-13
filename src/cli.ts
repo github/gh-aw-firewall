@@ -22,6 +22,7 @@ import {
 import { runMainWorkflow } from './cli-workflow';
 import { redactSecrets } from './redact-secrets';
 import { validateDomainOrPattern } from './domain-patterns';
+import { loadAndMergeDomains } from './rules';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -912,6 +913,12 @@ program
     'Path to file with allowed domains (one per line, supports # comments)'
   )
   .option(
+    '--ruleset-file <path>',
+    'YAML rule file for domain allowlisting (repeatable). Schema: version: 1, rules: [{domain, subdomains}]',
+    (value: string, previous: string[] = []) => [...previous, value],
+    []
+  )
+  .option(
     '--block-domains <domains>',
     'Comma-separated blocked domains (overrides allow list). Supports wildcards.'
   )
@@ -1143,6 +1150,16 @@ program
         allowedDomains.push(...fileDomainsArray);
       } catch (error) {
         logger.error(`Failed to read domains file: ${error instanceof Error ? error.message : error}`);
+        process.exit(1);
+      }
+    }
+
+    // Merge domains from --ruleset-file YAML files
+    if (options.rulesetFile && Array.isArray(options.rulesetFile) && options.rulesetFile.length > 0) {
+      try {
+        allowedDomains = loadAndMergeDomains(options.rulesetFile, allowedDomains);
+      } catch (error) {
+        logger.error(`Failed to load ruleset file: ${error instanceof Error ? error.message : error}`);
         process.exit(1);
       }
     }
