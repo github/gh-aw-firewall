@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1536,6 +1536,20 @@ describe('cli', () => {
     });
   });
 
+  describe('hasRateLimitOptions', () => {
+    it('should return false when no rate limit options set', () => {
+      expect(hasRateLimitOptions({})).toBe(false);
+    });
+
+    it('should return true when rateLimitRpm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRpm: '30' })).toBe(true);
+    });
+
+    it('should return true when rateLimit is explicitly false (--no-rate-limit)', () => {
+      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
+    });
+  });
+
   describe('validateAllowHostPorts', () => {
     it('should fail when --allow-host-ports is used without --enable-host-access', () => {
       const result = validateAllowHostPorts('3000', undefined);
@@ -1959,6 +1973,41 @@ describe('cli', () => {
     it('should format term without description', () => {
       const result = formatItem('--flag', '', 20, 2, 2, 80);
       expect(result).toBe('  --flag');
+    });
+  });
+
+  describe('collectRulesetFile', () => {
+    it('should accumulate multiple values into an array', () => {
+      let result = collectRulesetFile('a.yml');
+      result = collectRulesetFile('b.yml', result);
+      expect(result).toEqual(['a.yml', 'b.yml']);
+    });
+
+    it('should default to empty array when no previous values', () => {
+      const result = collectRulesetFile('first.yml');
+      expect(result).toEqual(['first.yml']);
+    });
+
+    it('should work with Commander option parsing', () => {
+      const testProgram = new Command();
+      testProgram
+        .option('--ruleset-file <path>', 'YAML rule file', collectRulesetFile, [])
+        .action(() => {});
+
+      testProgram.parse(['node', 'awf', '--ruleset-file', 'a.yml', '--ruleset-file', 'b.yml'], { from: 'node' });
+      const opts = testProgram.opts();
+      expect(opts.rulesetFile).toEqual(['a.yml', 'b.yml']);
+    });
+
+    it('should default to empty array when not provided', () => {
+      const testProgram = new Command();
+      testProgram
+        .option('--ruleset-file <path>', 'YAML rule file', collectRulesetFile, [])
+        .action(() => {});
+
+      testProgram.parse(['node', 'awf'], { from: 'node' });
+      const opts = testProgram.opts();
+      expect(opts.rulesetFile).toEqual([]);
     });
   });
 

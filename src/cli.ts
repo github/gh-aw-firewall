@@ -22,6 +22,7 @@ import {
 import { runMainWorkflow } from './cli-workflow';
 import { redactSecrets } from './redact-secrets';
 import { validateDomainOrPattern } from './domain-patterns';
+import { loadAndMergeDomains } from './rules';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -457,6 +458,14 @@ export interface FlagValidationResult {
  * Checks if any rate limit options are set in the CLI options.
  * Used to warn when rate limit flags are provided without --enable-api-proxy.
  */
+/**
+ * Commander option accumulator for repeatable --ruleset-file flag.
+ * Collects multiple values into an array.
+ */
+export function collectRulesetFile(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
+}
+
 export function hasRateLimitOptions(options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
@@ -912,6 +921,12 @@ program
     'Path to file with allowed domains (one per line, supports # comments)'
   )
   .option(
+    '--ruleset-file <path>',
+    'YAML rule file for domain allowlisting (repeatable). Schema: version: 1, rules: [{domain, subdomains}]',
+    collectRulesetFile,
+    []
+  )
+  .option(
     '--block-domains <domains>',
     'Comma-separated blocked domains (overrides allow list). Supports wildcards.'
   )
@@ -1143,6 +1158,16 @@ program
         allowedDomains.push(...fileDomainsArray);
       } catch (error) {
         logger.error(`Failed to read domains file: ${error instanceof Error ? error.message : error}`);
+        process.exit(1);
+      }
+    }
+
+    // Merge domains from --ruleset-file YAML files
+    if (options.rulesetFile && Array.isArray(options.rulesetFile) && options.rulesetFile.length > 0) {
+      try {
+        allowedDomains = loadAndMergeDomains(options.rulesetFile, allowedDomains);
+      } catch (error) {
+        logger.error(`Failed to load ruleset file: ${error instanceof Error ? error.message : error}`);
         process.exit(1);
       }
     }
