@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import execa from 'execa';
-import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial, chownRecursive } from './ssl-bump';
+import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial, chownRecursive, unmountSslTmpfs } from './ssl-bump';
 
 // Pattern constant for the safer URL character class (matches the implementation)
 const URL_CHAR_PATTERN = '[^\\s]*';
@@ -453,6 +453,19 @@ describe('SSL Bump', () => {
 
     it('should handle missing ssl directory gracefully', () => {
       expect(() => cleanupSslKeyMaterial(tempDir)).not.toThrow();
+    });
+  });
+
+  describe('unmountSslTmpfs', () => {
+    it('should call umount on the ssl directory', async () => {
+      mockExeca.mockResolvedValueOnce({ stdout: '', stderr: '' });
+      await unmountSslTmpfs('/tmp/test-ssl');
+      expect(mockExeca).toHaveBeenCalledWith('umount', ['/tmp/test-ssl']);
+    });
+
+    it('should handle umount failure gracefully', async () => {
+      mockExeca.mockRejectedValueOnce(new Error('not mounted'));
+      await expect(unmountSslTmpfs('/tmp/test-ssl')).resolves.not.toThrow();
     });
   });
 });
