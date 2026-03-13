@@ -115,8 +115,22 @@ if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
   fi
 fi
 
-# Setup iptables rules
-/usr/local/bin/setup-iptables.sh
+# Wait for iptables init container to complete setup
+# The awf-iptables-init container shares our network namespace and runs
+# setup-iptables.sh, then writes a ready signal file. This ensures the agent
+# container NEVER needs NET_ADMIN capability.
+echo "[entrypoint] Waiting for iptables initialization from init container..."
+INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
+INIT_ELAPSED=0
+while [ ! -f /tmp/awf-init/ready ]; do
+  if [ "$INIT_ELAPSED" -ge "$INIT_TIMEOUT" ]; then
+    echo "[entrypoint][ERROR] Timed out waiting for iptables init container after 30s"
+    exit 1
+  fi
+  sleep 0.1
+  INIT_ELAPSED=$((INIT_ELAPSED + 1))
+done
+echo "[entrypoint] iptables initialization complete"
 
 # Run API proxy health checks (verifies credential isolation and connectivity)
 # This must run AFTER iptables setup (which allows api-proxy traffic) but BEFORE user command
@@ -275,15 +289,19 @@ runuser -u awfuser -- git config --global --add safe.directory '*' 2>/dev/null |
 echo "[entrypoint] =================================="
 
 # Determine which capabilities to drop
-# - CAP_NET_ADMIN is always dropped (prevents iptables bypass)
+# - CAP_NET_ADMIN is NOT present (never granted to agent container - iptables setup
+#   is handled by the separate awf-iptables-init container)
 # - CAP_SYS_CHROOT is dropped when chroot mode is enabled (prevents user code from using chroot)
 # - CAP_SYS_ADMIN is dropped when chroot mode is enabled (was needed for mounting procfs)
 if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
-  CAPS_TO_DROP="cap_net_admin,cap_sys_chroot,cap_sys_admin"
-  echo "[entrypoint] Chroot mode enabled - dropping CAP_NET_ADMIN, CAP_SYS_CHROOT, and CAP_SYS_ADMIN"
+  CAPS_TO_DROP="cap_sys_chroot,cap_sys_admin"
+  echo "[entrypoint] Chroot mode enabled - dropping CAP_SYS_CHROOT and CAP_SYS_ADMIN"
 else
-  CAPS_TO_DROP="cap_net_admin"
-  echo "[entrypoint] Dropping CAP_NET_ADMIN capability"
+  # In non-chroot mode, no capabilities need to be dropped
+  # NET_ADMIN is never granted (init container handles iptables)
+  # SYS_CHROOT and SYS_ADMIN are only needed/dropped in chroot mode
+  CAPS_TO_DROP=""
+  echo "[entrypoint] No capabilities to drop (NET_ADMIN never granted to agent)"
 fi
 
 # Function to unset sensitive tokens from the entrypoint's environment
@@ -650,7 +668,12 @@ else
   # SECURITY: Run agent command in background, then unset tokens from parent shell
   # This prevents tokens from being accessible via /proc/1/environ after agent starts
   # The one-shot-token library caches tokens in the agent process, so agent can still read them
-  capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")" &
+  if [ -n "$CAPS_TO_DROP" ]; then
+    capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")" &
+  else
+    # No capabilities to drop - just switch to unprivileged user
+    gosu awfuser "$@" &
+  fi
   AGENT_PID=$!
 
   # Wait for agent to initialize and cache tokens (5 seconds)

@@ -727,11 +727,12 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
     });
 
-    it('should add SYS_CHROOT and SYS_ADMIN capabilities', () => {
+    it('should add SYS_CHROOT and SYS_ADMIN capabilities but NOT NET_ADMIN', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
 
-      expect(agent.cap_add).toContain('NET_ADMIN');
+      // NET_ADMIN is NOT on the agent - it's on the iptables-init container
+      expect(agent.cap_add).not.toContain('NET_ADMIN');
       expect(agent.cap_add).toContain('SYS_CHROOT');
       // SYS_ADMIN is needed to mount procfs at /host/proc for dynamic /proc/self/exe
       expect(agent.cap_add).toContain('SYS_ADMIN');
@@ -1062,14 +1063,35 @@ describe('docker-manager', () => {
       expect(depends['squid-proxy'].condition).toBe('service_healthy');
     });
 
-    it('should add NET_ADMIN capability to agent for iptables setup', () => {
-      // NET_ADMIN is required at container start for setup-iptables.sh
-      // The capability is dropped before user command execution via capsh
-      // (see containers/agent/entrypoint.sh)
+    it('should NOT add NET_ADMIN to agent (handled by iptables-init container)', () => {
+      // NET_ADMIN is NOT granted to the agent container.
+      // iptables setup is performed by the awf-iptables-init service which shares
+      // the agent's network namespace.
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
 
-      expect(agent.cap_add).toContain('NET_ADMIN');
+      expect(agent.cap_add).not.toContain('NET_ADMIN');
+    });
+
+    it('should add iptables-init service with NET_ADMIN capability', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const initService = result.services['iptables-init'] as any;
+
+      expect(initService).toBeDefined();
+      expect(initService.container_name).toBe('awf-iptables-init');
+      expect(initService.cap_add).toEqual(['NET_ADMIN']);
+      expect(initService.cap_drop).toEqual(['ALL']);
+      expect(initService.network_mode).toBe('service:agent');
+      expect(initService.depends_on).toEqual({
+        'agent': { condition: 'service_started' },
+      });
+      expect(initService.command).toEqual([
+        '/bin/bash', '-c',
+        '/usr/local/bin/setup-iptables.sh && touch /tmp/awf-init/ready',
+      ]);
+      expect(initService.security_opt).toContain('no-new-privileges:true');
+      expect(initService.restart).toBe('no');
     });
 
     it('should apply container hardening measures', () => {
@@ -1419,7 +1441,7 @@ describe('docker-manager', () => {
         expect(result.services.agent.working_dir).toBe('/custom/workdir');
         // Verify other config is still present
         expect(result.services.agent.container_name).toBe('awf-agent');
-        expect(result.services.agent.cap_add).toContain('NET_ADMIN');
+        expect(result.services.agent.cap_add).toContain('SYS_CHROOT');
       });
 
       it('should handle empty string containerWorkDir by not setting working_dir', () => {
@@ -2336,7 +2358,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-api-proxy'],
+        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy'],
         { reject: false }
       );
     });
