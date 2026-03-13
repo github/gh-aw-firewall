@@ -295,6 +295,12 @@ __attribute__((constructor))
 static void one_shot_token_init(void) {
     ensure_real_getenv();
     ensure_real_secure_getenv();
+    /* Initialize the token list eagerly - this runs before any threads are
+     * created, so there is no data race on sensitive_tokens[]/num_tokens.
+     * This avoids needing to lock the mutex on every getenv() call just to
+     * protect initialization, which would serialize multi-threaded programs
+     * like rustc that call getenv() from many threads during startup. */
+    init_token_list();
 }
 
 /* Check if a variable name is a sensitive token */
@@ -331,23 +337,18 @@ char *getenv(const char *name) {
     }
     in_getenv = 1;
 
-    /* Initialize token list on first call (thread-safe) */
-    pthread_mutex_lock(&token_mutex);
-    if (!tokens_initialized) {
-        init_token_list();
-    }
-
-    /* Get token index while holding mutex to avoid race with initialization */
+    /* Token list is initialized eagerly in constructor - no mutex needed here.
+     * get_token_index() only reads the immutable token list. */
     int token_idx = get_token_index(name);
 
-    /* Not a sensitive token - release mutex and pass through */
+    /* Not a sensitive token - pass through to real getenv */
     if (token_idx < 0) {
-        pthread_mutex_unlock(&token_mutex);
         in_getenv = 0;
         return real_getenv(name);
     }
 
-    /* Sensitive token - handle cached access (mutex already held) */
+    /* Sensitive token - lock mutex for cache access */
+    pthread_mutex_lock(&token_mutex);
     char *result = NULL;
 
     if (!token_accessed[token_idx]) {
@@ -410,24 +411,18 @@ char *secure_getenv(const char *name) {
     }
     in_getenv = 1;
 
-    /* Initialize token list on first call (thread-safe) */
-    pthread_mutex_lock(&token_mutex);
-    if (!tokens_initialized) {
-        init_token_list();
-    }
-
-    /* Get token index while holding mutex to avoid race with initialization */
+    /* Token list is initialized eagerly in constructor - no mutex needed here.
+     * get_token_index() only reads the immutable token list. */
     int token_idx = get_token_index(name);
 
-    /* Not a sensitive token - release mutex and pass through */
+    /* Not a sensitive token - pass through to real secure_getenv */
     if (token_idx < 0) {
-        pthread_mutex_unlock(&token_mutex);
         in_getenv = 0;
         return real_secure_getenv(name);
     }
 
-    /* Sensitive token - handle cached access with secure_getenv semantics (mutex already held) */
-
+    /* Sensitive token - lock mutex for cache access */
+    pthread_mutex_lock(&token_mutex);
     char *result = NULL;
 
     if (!token_accessed[token_idx]) {
