@@ -25,10 +25,10 @@ describe('API Target Allowlist', () => {
 
   test('should automatically add copilot-api-target to allowlist', async () => {
     const result = await runner.runWithSudo(
-      'curl -s https://api.acme.ghe.com',
+      'curl -s https://example.com',
       {
-        allowDomains: ['github.com'], // Note: NOT including api.acme.ghe.com
-        copilotApiTarget: 'api.acme.ghe.com',
+        allowDomains: ['github.com'], // Note: NOT including example.com
+        copilotApiTarget: 'example.com',
         enableApiProxy: true,
         buildLocal: true,
         logLevel: 'debug',
@@ -39,8 +39,8 @@ describe('API Target Allowlist', () => {
       }
     );
 
-    // Should succeed because api.acme.ghe.com was automatically added to allowlist
-    expect(result).toAllowDomain('api.acme.ghe.com');
+    // Should succeed because example.com was automatically added to allowlist
+    expect(result).toAllowDomain('example.com');
   }, 120000);
 
   test('should automatically add openai-api-target to allowlist', async () => {
@@ -65,10 +65,10 @@ describe('API Target Allowlist', () => {
 
   test('should automatically add anthropic-api-target to allowlist', async () => {
     const result = await runner.runWithSudo(
-      'curl -s https://custom.anthropic-router.internal',
+      'curl -s https://example.net',
       {
-        allowDomains: ['github.com'], // Note: NOT including custom.anthropic-router.internal
-        anthropicApiTarget: 'custom.anthropic-router.internal',
+        allowDomains: ['github.com'], // Note: NOT including example.net
+        anthropicApiTarget: 'example.net',
         enableApiProxy: true,
         buildLocal: true,
         logLevel: 'debug',
@@ -79,28 +79,28 @@ describe('API Target Allowlist', () => {
       }
     );
 
-    // Should succeed because custom.anthropic-router.internal was automatically added to allowlist
-    expect(result).toAllowDomain('custom.anthropic-router.internal');
+    // Should succeed because example.net was automatically added to allowlist
+    expect(result).toAllowDomain('example.net');
   }, 120000);
 
   test('should add api-target from environment variable to allowlist', async () => {
     const result = await runner.runWithSudo(
-      'curl -s https://api.env-test.ghe.com',
+      'curl -s https://example.org',
       {
-        allowDomains: ['github.com'], // Note: NOT including api.env-test.ghe.com
+        allowDomains: ['github.com'], // Note: NOT including example.org
         enableApiProxy: true,
         buildLocal: true,
         logLevel: 'debug',
         timeout: 60000,
         env: {
           COPILOT_GITHUB_TOKEN: 'fake-token-for-test',
-          COPILOT_API_TARGET: 'api.env-test.ghe.com', // Set via env var instead of flag
+          COPILOT_API_TARGET: 'example.org', // Set via env var instead of flag
         },
       }
     );
 
-    // Should succeed because api.env-test.ghe.com from env var was automatically added to allowlist
-    expect(result).toAllowDomain('api.env-test.ghe.com');
+    // Should succeed because example.org from env var was automatically added to allowlist
+    expect(result).toAllowDomain('example.org');
   }, 120000);
 
   test('should not add default api-targets to allowlist automatically', async () => {
