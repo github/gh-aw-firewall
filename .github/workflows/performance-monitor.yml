@@ -1,0 +1,132 @@
+name: Performance Monitor
+
+on:
+  schedule:
+    # Run weekly on Mondays at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Number of iterations per metric"
+        required: false
+        default: "5"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install AWF locally
+        run: |
+          sudo tee /usr/local/bin/awf > /dev/null <<'WRAPPER'
+          #!/bin/bash
+          exec node "${{ github.workspace }}/dist/cli.js" "$@"
+          WRAPPER
+          sudo chmod +x /usr/local/bin/awf
+
+      - name: Run benchmarks
+        id: benchmark
+        run: |
+          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>&1 || true
+          cat benchmark-results.json
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results.json
+          retention-days: 90
+
+      - name: Check for regressions
+        id: check
+        run: |
+          if [ ! -f benchmark-results.json ]; then
+            echo "No benchmark results found"
+            exit 1
+          fi
+
+          REGRESSIONS=$(jq -r '.regressions | length' benchmark-results.json)
+          echo "regression_count=$REGRESSIONS" >> "$GITHUB_OUTPUT"
+
+          if [ "$REGRESSIONS" -gt 0 ]; then
+            echo "## ⚠️ Performance Regressions Detected" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.regressions[]' benchmark-results.json | while read -r line; do
+              echo "- $line" >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "## ✅ All Metrics Within Thresholds" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Mean | Median | P95 | P99 | Target | Critical |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|------|--------|-----|-----|--------|----------|" >> "$GITHUB_STEP_SUMMARY"
+
+          jq -r '.results[] as $r | .thresholds[$r.metric] as $t |
+            "| \($r.metric) | \($r.mean)\($r.unit) | \($r.median)\($r.unit) | \($r.p95)\($r.unit) | \($r.p99)\($r.unit) | \($t.target // "N/A")\(if $t then $r.unit else "" end) | \($t.critical // "N/A")\(if $t then $r.unit else "" end) |"' \
+            benchmark-results.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create regression issue
+        if: steps.check.outputs.regression_count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('benchmark-results.json', 'utf-8'));
+
+            const body = [
+              `## Performance Regression Detected`,
+              ``,
+              `**Commit:** ${report.commitSha}`,
+              `**Timestamp:** ${report.timestamp}`,
+              `**Iterations:** ${report.iterations}`,
+              ``,
+              `### Regressions`,
+              ``,
+              ...report.regressions.map(r => `- ${r}`),
+              ``,
+              `### Full Results`,
+              ``,
+              `| Metric | Mean | Median | P95 | P99 |`,
+              `|--------|------|--------|-----|-----|`,
+              ...report.results.map(r =>
+                `| ${r.metric} | ${r.mean}${r.unit} | ${r.median}${r.unit} | ${r.p95}${r.unit} | ${r.p99}${r.unit} |`
+              ),
+              ``,
+              `<details><summary>Raw JSON</summary>`,
+              ``,
+              '```json',
+              JSON.stringify(report, null, 2),
+              '```',
+              `</details>`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Performance regression detected (${new Date().toISOString().split('T')[0]})`,
+              body,
+              labels: ['performance', 'needs-investigation'],
+            });
