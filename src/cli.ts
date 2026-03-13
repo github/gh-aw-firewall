@@ -1037,6 +1037,12 @@ program
     '                                       WARNING: allows firewall bypass via docker run',
     false
   )
+  .option(
+    '--enable-dlp',
+    'Enable DLP (Data Loss Prevention) scanning to block credential\n' +
+    '                                       exfiltration in outbound request URLs.',
+    false
+  )
 
   // -- API Proxy --
   .option(
@@ -1334,6 +1340,11 @@ program
       logger.warn('⚠️  SSL Bump intercepts HTTPS traffic. Only use for trusted workloads.');
     }
 
+    // Log DLP mode
+    if (options.enableDlp) {
+      logger.info('DLP scanning enabled - outbound requests will be scanned for credential patterns');
+    }
+
     // Validate memory limit
     const memoryLimit = parseMemoryLimit(options.memoryLimit);
     if (memoryLimit.error) {
@@ -1376,6 +1387,7 @@ program
       allowHostPorts: options.allowHostPorts,
       sslBump: options.sslBump,
       enableDind: options.enableDind,
+      enableDlp: options.enableDlp,
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
       openaiApiKey: process.env.OPENAI_API_KEY,
