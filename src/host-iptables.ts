@@ -288,6 +288,24 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   // and need to be allowed here. Only the configured upstream servers are permitted.
   const upstreamDns = dnsServers && dnsServers.length > 0 ? dnsServers : ['8.8.8.8', '8.8.4.4'];
   logger.debug(`Allowing DNS forwarding to upstream servers: ${upstreamDns.join(', ')}`);
+
+  // Create IPv6 chain if needed (only when IPv6 DNS servers are configured)
+  const hasIpv6Dns = upstreamDns.some(s => s.includes(':'));
+  if (hasIpv6Dns && ip6tablesAvailable) {
+    logger.debug(`Creating dedicated IPv6 chain '${CHAIN_NAME_V6}' for IPv6 DNS rules...`);
+    try {
+      const { exitCode: v6ChainExists } = await execa('ip6tables', ['-t', 'filter', '-L', CHAIN_NAME_V6, '-n'], { reject: false });
+      if (v6ChainExists === 0) {
+        logger.debug(`Chain '${CHAIN_NAME_V6}' already exists, cleaning up...`);
+        await execa('ip6tables', ['-t', 'filter', '-F', CHAIN_NAME_V6], { reject: false });
+        await execa('ip6tables', ['-t', 'filter', '-X', CHAIN_NAME_V6], { reject: false });
+      }
+    } catch (error) {
+      logger.debug('Error during IPv6 chain cleanup:', error);
+    }
+    await execa('ip6tables', ['-t', 'filter', '-N', CHAIN_NAME_V6]);
+  }
+
   for (const dnsServer of upstreamDns) {
     // IPv6 DNS servers must use ip6tables, IPv4 uses iptables
     const isV6 = dnsServer.includes(':');
