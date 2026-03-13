@@ -1065,8 +1065,11 @@ export function generateDockerCompose(
     ],
     environment: {
       // Pass through environment variables needed by setup-iptables.sh
-      AWF_SQUID_HOST: environment.AWF_SQUID_HOST || `${networkConfig.squidIp}`,
-      AWF_SQUID_PORT: String(SQUID_PORT),
+      // IMPORTANT: setup-iptables.sh reads SQUID_PROXY_HOST/PORT (not AWF_ prefixed).
+      // Use the direct IP address since the init container (network_mode: service:agent)
+      // may not have DNS resolution for compose service names.
+      SQUID_PROXY_HOST: `${networkConfig.squidIp}`,
+      SQUID_PROXY_PORT: String(SQUID_PORT),
       AWF_DNS_SERVERS: environment.AWF_DNS_SERVERS || '',
       AWF_BLOCKED_PORTS: environment.AWF_BLOCKED_PORTS || '',
       AWF_ENABLE_HOST_ACCESS: environment.AWF_ENABLE_HOST_ACCESS || '',
