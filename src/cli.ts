@@ -1021,6 +1021,10 @@ program
     '8.8.8.8,8.8.4.4'
   )
   .option(
+    '--dns-over-https [resolver-url]',
+    'Enable DNS-over-HTTPS via sidecar proxy (default: https://dns.google/dns-query)'
+  )
+  .option(
     '--enable-host-access',
     'Enable access to host services via host.docker.internal',
     false
@@ -1281,6 +1285,21 @@ program
       process.exit(1);
     }
 
+    // Parse and validate --dns-over-https
+    let dnsOverHttps: string | undefined;
+    if (options.dnsOverHttps !== undefined) {
+      // Commander sets the value to true when flag is used without argument
+      const resolvedUrl = options.dnsOverHttps === true
+        ? 'https://dns.google/dns-query'
+        : options.dnsOverHttps as string;
+      if (!resolvedUrl.startsWith('https://')) {
+        logger.error('--dns-over-https resolver URL must start with https://');
+        process.exit(1);
+      }
+      dnsOverHttps = resolvedUrl;
+      logger.info(`DNS-over-HTTPS enabled: ${dnsOverHttps}`);
+    }
+
     // Parse --allow-urls for SSL Bump mode
     let allowedUrls: string[] | undefined;
     if (options.allowUrls) {
@@ -1370,6 +1389,7 @@ program
       volumeMounts,
       containerWorkDir: options.containerWorkdir,
       dnsServers,
+      dnsOverHttps,
       memoryLimit: memoryLimit.value,
       proxyLogsDir: options.proxyLogsDir,
       enableHostAccess: options.enableHostAccess,

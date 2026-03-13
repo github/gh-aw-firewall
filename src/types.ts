@@ -293,6 +293,23 @@ export interface WrapperConfig {
   dnsServers?: string[];
 
   /**
+   * DNS-over-HTTPS resolver URL
+   *
+   * When specified, a DoH proxy sidecar is deployed that encrypts DNS queries
+   * over HTTPS, preventing DNS spoofing and interception. The agent container's
+   * DNS is routed through this proxy instead of using unencrypted UDP DNS.
+   *
+   * The DoH proxy runs as a separate container on the awf-net network and has
+   * direct HTTPS access to the DoH resolver (bypassing Squid).
+   *
+   * @default undefined (use traditional UDP DNS)
+   * @example 'https://dns.google/dns-query'
+   * @example 'https://cloudflare-dns.com/dns-query'
+   * @example 'https://1.1.1.1/dns-query'
+   */
+  dnsOverHttps?: string;
+
+  /**
    * Memory limit for the agent execution container
    *
    * Accepts Docker memory format: a positive integer followed by a unit suffix

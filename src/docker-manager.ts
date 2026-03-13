@@ -229,7 +229,7 @@ export interface SslConfig {
  */
 export function generateDockerCompose(
   config: WrapperConfig,
-  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string },
+  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string },
   sslConfig?: SslConfig,
   squidConfigContent?: string
 ): DockerComposeConfig {
@@ -511,6 +511,12 @@ export function generateDockerCompose(
   // Pass DNS servers to container for setup-iptables.sh and entrypoint.sh
   const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
   environment.AWF_DNS_SERVERS = dnsServers.join(',');
+
+  // When DoH is enabled, tell the agent container to route DNS through the DoH proxy
+  if (config.dnsOverHttps && networkConfig.dohProxyIp) {
+    environment.AWF_DOH_ENABLED = 'true';
+    environment.AWF_DOH_PROXY_IP = networkConfig.dohProxyIp;
+  }
 
   // Pass allowed ports to container for setup-iptables.sh (if specified)
   if (config.allowHostPorts) {
@@ -896,7 +902,10 @@ export function generateDockerCompose(
         ipv4_address: networkConfig.agentIp,
       },
     },
-    dns: dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
+    // When DoH is enabled, route DNS through the DoH proxy sidecar instead of external DNS
+    dns: config.dnsOverHttps && networkConfig.dohProxyIp
+      ? [networkConfig.dohProxyIp, '127.0.0.11']
+      : dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
     dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
     volumes: agentVolumes,
     environment,
@@ -1161,6 +1170,42 @@ export function generateDockerCompose(
     logger.info('API proxy will route through Squid to respect domain whitelisting');
   }
 
+  // Add DNS-over-HTTPS proxy sidecar if enabled
+  if (config.dnsOverHttps && networkConfig.dohProxyIp) {
+    const dohService: any = {
+      container_name: 'awf-doh-proxy',
+      image: 'cloudflare/cloudflared:latest',
+      networks: {
+        'awf-net': {
+          ipv4_address: networkConfig.dohProxyIp,
+        },
+      },
+      command: ['proxy-dns', '--address', '0.0.0.0', '--port', '53', '--upstream', config.dnsOverHttps],
+      healthcheck: {
+        test: ['CMD', 'nslookup', '-port=53', 'cloudflare.com', '127.0.0.1'],
+        interval: '5s',
+        timeout: '3s',
+        retries: 5,
+        start_period: '10s',
+      },
+      // Security hardening: Drop all capabilities
+      cap_drop: ['ALL'],
+      security_opt: ['no-new-privileges:true'],
+      mem_limit: '128m',
+      memswap_limit: '128m',
+      pids_limit: 50,
+    };
+
+    services['doh-proxy'] = dohService;
+
+    // Update agent dependencies to also wait for doh-proxy
+    agentService.depends_on['doh-proxy'] = {
+      condition: 'service_healthy',
+    };
+
+    logger.info(`DNS-over-HTTPS proxy sidecar enabled - DNS queries encrypted via ${config.dnsOverHttps}`);
+  }
+
   return {
     services,
     networks: {
@@ -1287,6 +1332,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     squidIp: '172.30.0.10',
     agentIp: '172.30.0.20',
     proxyIp: '172.30.0.30',  // Envoy API proxy sidecar
+    dohProxyIp: '172.30.0.40',  // DoH proxy sidecar
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 

@@ -2,7 +2,7 @@ import { WrapperConfig } from './types';
 
 export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
-  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string) => Promise<void>;
+  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean) => Promise<void>;
   runAgentCommand: (
@@ -47,7 +47,9 @@ export async function runMainWorkflow(
   // When API proxy is enabled, allow agent→sidecar traffic at the host level.
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
-  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp);
+  // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
+  const dohProxyIp = config.dnsOverHttps ? '172.30.0.40' : undefined;
+  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp);
   onHostIptablesSetup?.();
 
   // Step 1: Write configuration files

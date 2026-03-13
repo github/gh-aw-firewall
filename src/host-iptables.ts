@@ -204,7 +204,7 @@ async function setupIpv6Chain(bridgeName: string): Promise<void> {
  * @param squidPort - Port number of the Squid proxy
  * @param dnsServers - Array of trusted DNS server IP addresses (DNS traffic is ONLY allowed to these servers)
  */
-export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string): Promise<void> {
+export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
 
   // Get the bridge interface name
@@ -290,6 +290,16 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     '-s', squidIp,
     '-j', 'ACCEPT',
   ]);
+
+  // 1b. Allow HTTPS traffic FROM the DoH proxy (it needs to reach the DoH resolver directly)
+  if (dohProxyIp) {
+    logger.debug(`Allowing HTTPS traffic from DoH proxy at ${dohProxyIp}`);
+    await execa('iptables', [
+      '-t', 'filter', '-A', CHAIN_NAME,
+      '-s', dohProxyIp, '-p', 'tcp', '--dport', '443',
+      '-j', 'ACCEPT',
+    ]);
+  }
 
   // Note: API proxy sidecar (when enabled) does NOT get a firewall exemption.
   // It routes through Squid via HTTP_PROXY/HTTPS_PROXY environment variables,
@@ -488,6 +498,21 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     '-p', 'tcp', '-d', squidIp, '--dport', squidPort.toString(),
     '-j', 'ACCEPT',
   ]);
+
+  // 5a. Allow DNS traffic to DoH proxy sidecar (when enabled)
+  if (dohProxyIp) {
+    logger.debug(`Allowing DNS traffic to DoH proxy sidecar at ${dohProxyIp}:53`);
+    await execa('iptables', [
+      '-t', 'filter', '-A', CHAIN_NAME,
+      '-p', 'udp', '-d', dohProxyIp, '--dport', '53',
+      '-j', 'ACCEPT',
+    ]);
+    await execa('iptables', [
+      '-t', 'filter', '-A', CHAIN_NAME,
+      '-p', 'tcp', '-d', dohProxyIp, '--dport', '53',
+      '-j', 'ACCEPT',
+    ]);
+  }
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
   // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot, OpenCode).
