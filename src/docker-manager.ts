@@ -977,6 +977,17 @@ export function generateDockerCompose(
     cpu_shares: 1024,          // Default CPU share
     stdin_open: true,
     tty: config.tty || false, // Use --tty flag, default to false for clean logs
+    // Healthcheck ensures the agent process is alive and its PID is visible in /proc
+    // before the iptables-init container tries to join via network_mode: service:agent.
+    // Without this, there's a race where the init container tries to look up the agent's
+    // PID in /proc/PID/ns/net before the kernel has made it visible.
+    healthcheck: {
+      test: ['CMD-SHELL', 'true'],
+      interval: '1s',
+      timeout: '1s',
+      retries: 3,
+      start_period: '1s',
+    },
     // Escape $ with $$ for Docker Compose variable interpolation
     command: ['/bin/bash', '-c', config.agentCommand.replace(/\$/g, '$$$$')],
   };
@@ -1066,7 +1077,7 @@ export function generateDockerCompose(
     },
     depends_on: {
       'agent': {
-        condition: 'service_started',
+        condition: 'service_healthy',
       },
     },
     // Only NET_ADMIN is needed for iptables setup

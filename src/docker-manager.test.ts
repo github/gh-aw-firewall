@@ -1084,7 +1084,7 @@ describe('docker-manager', () => {
       expect(initService.cap_drop).toEqual(['ALL']);
       expect(initService.network_mode).toBe('service:agent');
       expect(initService.depends_on).toEqual({
-        'agent': { condition: 'service_started' },
+        'agent': { condition: 'service_healthy' },
       });
       expect(initService.command).toEqual([
         '/bin/bash', '-c',
