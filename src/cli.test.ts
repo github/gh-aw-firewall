@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -779,6 +779,32 @@ describe('cli', () => {
 
     it('should throw error if any server is invalid', () => {
       expect(() => parseDnsServers('8.8.8.8,invalid,1.1.1.1')).toThrow('Invalid DNS server IP address: invalid');
+    });
+  });
+
+  describe('parseDnsOverHttps', () => {
+    it('should return undefined when value is undefined', () => {
+      expect(parseDnsOverHttps(undefined)).toBeUndefined();
+    });
+
+    it('should return default Google resolver when value is true (flag without argument)', () => {
+      const result = parseDnsOverHttps(true);
+      expect(result).toEqual({ url: 'https://dns.google/dns-query' });
+    });
+
+    it('should return custom resolver URL when provided', () => {
+      const result = parseDnsOverHttps('https://cloudflare-dns.com/dns-query');
+      expect(result).toEqual({ url: 'https://cloudflare-dns.com/dns-query' });
+    });
+
+    it('should return error for non-https URL', () => {
+      const result = parseDnsOverHttps('http://dns.google/dns-query');
+      expect(result).toEqual({ error: '--dns-over-https resolver URL must start with https://' });
+    });
+
+    it('should return error for plain string without https prefix', () => {
+      const result = parseDnsOverHttps('dns.google');
+      expect(result).toEqual({ error: '--dns-over-https resolver URL must start with https://' });
     });
   });
 
