@@ -46,12 +46,19 @@ runs:
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
 
         REPO="github/gh-aw-firewall"
         BINARY_NAME="awf-linux-x64"
         INSTALL_DIR="${RUNNER_TEMP}/awf-bin"
+
+        # Build auth header for GitHub API to avoid rate limits
+        AUTH_HEADER=()
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+          AUTH_HEADER=(-H "Authorization: token ${GITHUB_TOKEN}")
+        fi
 
         # Create install directory
         mkdir -p "$INSTALL_DIR"
@@ -61,9 +68,9 @@ runs:
           echo "Fetching latest release version..."
           # Use jq if available, fallback to grep/sed
           if command -v jq &> /dev/null; then
-            VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+            VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
           else
-            VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           fi
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
             echo "::error::Failed to fetch latest version from GitHub API"
