@@ -143,8 +143,12 @@ describe('host-iptables', () => {
         '-j', 'ACCEPT',
       ]);
 
-      // Verify no DNS-specific rules (simplified model uses Docker embedded DNS)
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining(['--dport', '53']));
+      // Verify DNS forwarding rules for default upstream servers
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'udp', '-d', '8.8.8.8', '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
 
       // Verify traffic to Squid rule
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
@@ -441,7 +445,7 @@ describe('host-iptables', () => {
       ]);
     });
 
-    it('should not create IPv6 chain (no DNS-specific rules in simplified model)', async () => {
+    it('should not create IPv6 chain but should add DNS forwarding rules', async () => {
       mockedExeca
         // Mock getNetworkBridgeName
         .mockResolvedValueOnce({
@@ -468,9 +472,19 @@ describe('host-iptables', () => {
 
       await setupHostIptables('172.30.0.10', 3128);
 
-      // Verify no DNS-specific rules and no IPv6 chain
+      // Verify no IPv6 chain
       expect(mockedExeca).not.toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-N', 'FW_WRAPPER_V6']);
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining(['--dport', '53']));
+      // DNS forwarding rules should exist for default upstream servers (8.8.8.8, 8.8.4.4)
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'udp', '-d', '8.8.8.8', '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'udp', '-d', '8.8.4.4', '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
     });
 
     it('should disable IPv6 via sysctl when ip6tables unavailable', async () => {

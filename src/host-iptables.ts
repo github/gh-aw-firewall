@@ -143,13 +143,16 @@ export async function ensureFirewallNetwork(): Promise<{
  * Sets up host-level iptables rules using DOCKER-USER chain
  * This ensures ALL containers on the firewall network are subject to egress filtering.
  *
- * Simplified security model: only localhost and Squid proxy are allowed.
- * DNS resolution is handled by Docker's embedded DNS (127.0.0.11) which forwards
- * to upstream servers at the Docker daemon level, bypassing container iptables.
+ * Simplified security model: only localhost, Squid proxy, and DNS forwarding are allowed.
+ * Containers use Docker's embedded DNS (127.0.0.11) as their only nameserver.
+ * Docker's DNS proxy forwards queries to upstream servers configured via docker-compose dns: field.
+ * These forwarded queries traverse the Docker bridge and must be allowed in DOCKER-USER.
  * Squid resolves DNS internally for all HTTP/HTTPS traffic.
  *
  * @param squidIp - IP address of the Squid proxy
  * @param squidPort - Port number of the Squid proxy
+ * @param apiProxyIp - Optional IP address of the API proxy sidecar
+ * @param dnsServers - Upstream DNS servers that Docker embedded DNS forwards to
  */
 export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
@@ -279,10 +282,24 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     await disableIpv6ViaSysctl();
   }
 
-  // Note: No DNS-specific rules needed. Docker's embedded DNS (127.0.0.11) handles
-  // all name resolution. It forwards to upstream servers at the Docker daemon level,
-  // which bypasses container iptables entirely. Squid resolves DNS internally for
-  // all HTTP/HTTPS traffic.
+  // 4b. Allow DNS forwarding to upstream servers
+  // Docker's embedded DNS (127.0.0.11) proxies queries to upstream servers configured
+  // via docker-compose dns: field. These forwarded queries traverse the Docker bridge
+  // and need to be allowed here. Only the configured upstream servers are permitted.
+  const upstreamDns = dnsServers && dnsServers.length > 0 ? dnsServers : ['8.8.8.8', '8.8.4.4'];
+  logger.debug(`Allowing DNS forwarding to upstream servers: ${upstreamDns.join(', ')}`);
+  for (const dnsServer of upstreamDns) {
+    await execa('iptables', [
+      '-t', 'filter', '-A', CHAIN_NAME,
+      '-p', 'udp', '-d', dnsServer, '--dport', '53',
+      '-j', 'ACCEPT',
+    ]);
+    await execa('iptables', [
+      '-t', 'filter', '-A', CHAIN_NAME,
+      '-p', 'tcp', '-d', dnsServer, '--dport', '53',
+      '-j', 'ACCEPT',
+    ]);
+  }
 
   // 5. Allow traffic to Squid proxy
   await execa('iptables', [
