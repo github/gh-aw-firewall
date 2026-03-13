@@ -1259,6 +1259,18 @@ program
       apiTargets.push(process.env.ANTHROPIC_API_TARGET);
     }
 
+    // Merge any API target values into the allowedDomains list so that later
+    // checks/logs about "no allowed domains" see the final, expanded allowlist.
+    const normalizedApiTargets = apiTargets.filter((t) => typeof t === 'string' && t.trim().length > 0);
+    if (normalizedApiTargets.length > 0) {
+      for (const target of normalizedApiTargets) {
+        if (!allowedDomains.includes(target)) {
+          allowedDomains.push(target);
+        }
+      }
+      logger.debug(`Auto-added API target values to allowed domains: ${normalizedApiTargets.join(', ')}`);
+    }
+
     // Add API targets to allowedDomains if not already present
     for (const target of apiTargets) {
       if (target && !allowedDomains.includes(target)) {
