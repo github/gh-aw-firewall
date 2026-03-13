@@ -609,12 +609,12 @@ The firewall implements comprehensive logging at two levels:
 ### Key Files
 
 - `src/squid-config.ts` - Generates Squid config with custom `firewall_detailed` logformat
-- `containers/agent/setup-iptables.sh` - Configures iptables LOG rules for rejected traffic
+- `src/host-iptables.ts` - Configures host-level iptables LOG rules for rejected traffic
 - `src/squid-config.test.ts` - Tests for logging configuration
 
 ### Squid Log Format
 
-Custom format defined in `src/squid-config.ts:40`:
+Custom format defined in `src/squid-config.ts`:
 ```
 logformat firewall_detailed %ts.%03tu %>a:%>p %{Host}>h %<a:%<p %rv %rm %>Hs %Ss:%Sh %ru "%{User-Agent}>h"
 ```
@@ -633,12 +633,10 @@ Captures:
 
 ### iptables Logging
 
-Two LOG rules in `setup-iptables.sh`:
+Two LOG rules in `src/host-iptables.ts` (applied on the host via the DOCKER-USER chain):
 
-1. **Line 80** - `[FW_BLOCKED_UDP]` prefix for blocked UDP traffic
-2. **Line 95** - `[FW_BLOCKED_OTHER]` prefix for other blocked traffic
-
-Both use `--log-uid` flag to capture process UID.
+1. `[FW_BLOCKED_UDP]` prefix for blocked UDP traffic
+2. `[FW_BLOCKED_OTHER]` prefix for other blocked traffic
 
 ### Testing Logging
 
@@ -661,5 +659,4 @@ docker exec awf-squid cat /var/log/squid/access.log
 - Squid logs use Unix timestamps (convert with `date -d @TIMESTAMP`)
 - Decision codes: `TCP_DENIED:HIER_NONE` = blocked, `TCP_TUNNEL:HIER_DIRECT` = allowed
 - SNI is captured via CONNECT method for HTTPS (no SSL inspection)
-- iptables logs go to kernel buffer (view with `dmesg`)
-- PID not directly available (UID can be used for correlation)
+- iptables logs go to kernel buffer on the **host** (view with `sudo dmesg | grep FW_BLOCKED`)

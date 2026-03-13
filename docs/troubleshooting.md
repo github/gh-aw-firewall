@@ -234,14 +234,11 @@ sudo cat /tmp/squid-logs-<timestamp>/access.log
 
 ### Checking iptables Logs
 
-Blocked UDP and non-standard protocols are logged to kernel logs:
+Blocked UDP and non-standard protocols are logged to the **host** kernel log via the DOCKER-USER chain:
 
 ```bash
 # From host (requires sudo)
 sudo dmesg | grep FW_BLOCKED
-
-# From within container
-docker exec awf-agent dmesg | grep FW_BLOCKED
 ```
 
 ## Network Issues
