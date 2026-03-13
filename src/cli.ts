@@ -1236,6 +1236,37 @@ program
       }
     }
 
+    // Automatically add API target values to allowlist when specified
+    // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
+    // the target domain is automatically accessible through the firewall
+    const apiTargets: string[] = [];
+
+    if (options.copilotApiTarget) {
+      apiTargets.push(options.copilotApiTarget);
+    } else if (process.env.COPILOT_API_TARGET) {
+      apiTargets.push(process.env.COPILOT_API_TARGET);
+    }
+
+    if (options.openaiApiTarget) {
+      apiTargets.push(options.openaiApiTarget);
+    } else if (process.env.OPENAI_API_TARGET) {
+      apiTargets.push(process.env.OPENAI_API_TARGET);
+    }
+
+    if (options.anthropicApiTarget) {
+      apiTargets.push(options.anthropicApiTarget);
+    } else if (process.env.ANTHROPIC_API_TARGET) {
+      apiTargets.push(process.env.ANTHROPIC_API_TARGET);
+    }
+
+    // Add API targets to allowedDomains if not already present
+    for (const target of apiTargets) {
+      if (target && !allowedDomains.includes(target)) {
+        allowedDomains.push(target);
+        logger.debug(`Automatically added API target to allowlist: ${target}`);
+      }
+    }
+
     // Validate all domains and patterns
     for (const domain of allowedDomains) {
       try {
