@@ -676,7 +676,7 @@ describe('docker-manager', () => {
       expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
     });
 
-    it('should hide Docker socket', () => {
+    it('should hide Docker socket by default', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
@@ -684,6 +684,20 @@ describe('docker-manager', () => {
       // Docker socket should be hidden with /dev/null
       expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
       expect(volumes).toContain('/dev/null:/host/run/docker.sock:ro');
+    });
+
+    it('should expose Docker socket when enableDind is true', () => {
+      const dindConfig = { ...mockConfig, enableDind: true };
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const volumes = agent.volumes as string[];
+
+      // Docker socket should be mounted read-write, not hidden
+      expect(volumes).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+      expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+      // Should NOT have /dev/null mounts
+      expect(volumes).not.toContain('/dev/null:/host/var/run/docker.sock:ro');
+      expect(volumes).not.toContain('/dev/null:/host/run/docker.sock:ro');
     });
 
     it('should mount workspace directory under /host', () => {

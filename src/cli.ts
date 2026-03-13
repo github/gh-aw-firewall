@@ -1016,6 +1016,13 @@ program
     '                                       Example: 3000,8080 or 3000-3010,8000-8090'
   )
 
+  .option(
+    '--enable-dind',
+    'Enable Docker-in-Docker by exposing host Docker socket.\n' +
+    '                                       WARNING: allows firewall bypass via docker run',
+    false
+  )
+
   // -- API Proxy --
   .option(
     '--enable-api-proxy',
@@ -1343,6 +1350,7 @@ program
       enableHostAccess: options.enableHostAccess,
       allowHostPorts: options.allowHostPorts,
       sslBump: options.sslBump,
+      enableDind: options.enableDind,
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
       openaiApiKey: process.env.OPENAI_API_KEY,

@@ -387,6 +387,19 @@ export interface WrapperConfig {
   sslBump?: boolean;
 
   /**
+   * Enable Docker-in-Docker by exposing the host Docker socket
+   *
+   * When true, the host's Docker socket (/var/run/docker.sock) is mounted
+   * into the agent container, allowing the agent to run Docker commands.
+   *
+   * WARNING: This allows the agent to bypass firewall restrictions by
+   * spawning new containers without network restrictions.
+   *
+   * @default false
+   */
+  enableDind?: boolean;
+
+  /**
    * URL patterns to allow for HTTPS traffic (requires sslBump: true)
    *
    * When SSL Bump is enabled, these patterns are used to filter HTTPS

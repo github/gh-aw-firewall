@@ -720,13 +720,23 @@ export function generateDockerCompose(
     fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
     agentVolumes.push(`${chrootHostsPath}:/host/etc/hosts:ro`);
 
-    // SECURITY: Hide Docker socket to prevent firewall bypass via 'docker run'
-    // An attacker could otherwise spawn a new container without network restrictions
-    agentVolumes.push('/dev/null:/host/var/run/docker.sock:ro');
-    // Also hide /run/docker.sock (symlink on some systems)
-    agentVolumes.push('/dev/null:/host/run/docker.sock:ro');
-
-    logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket hidden');
+    // SECURITY: Docker socket access control
+    if (config.enableDind) {
+      logger.warn('Docker-in-Docker enabled: agent can run docker commands (firewall bypass possible)');
+      // Mount the real Docker socket into the chroot
+      const dockerSocketPath = '/var/run/docker.sock';
+      agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
+      // Also expose the /run/docker.sock symlink if it exists
+      agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
+      logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
+    } else {
+      // Hide Docker socket to prevent firewall bypass via 'docker run'
+      // An attacker could otherwise spawn a new container without network restrictions
+      agentVolumes.push('/dev/null:/host/var/run/docker.sock:ro');
+      // Also hide /run/docker.sock (symlink on some systems)
+      agentVolumes.push('/dev/null:/host/run/docker.sock:ro');
+      logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket hidden');
+    }
 
   // Add SSL CA certificate mount if SSL Bump is enabled
   // This allows the agent container to trust the dynamically-generated CA
