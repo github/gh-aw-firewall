@@ -45,6 +45,7 @@ export async function runMainWorkflow(
   const networkConfig = await dependencies.ensureFirewallNetwork();
   // When API proxy is enabled, allow agent→sidecar traffic at the host level.
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
+  const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
   const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
   // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
   const dohProxyIp = config.dnsOverHttps ? '172.30.0.40' : undefined;

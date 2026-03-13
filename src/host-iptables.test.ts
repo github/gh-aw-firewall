@@ -93,7 +93,7 @@ describe('host-iptables', () => {
         // Mock iptables -L DOCKER-USER (permission check)
         .mockRejectedValueOnce(permissionError);
 
-      await expect(setupHostIptables('172.30.0.10', 3128)).rejects.toThrow(
+      await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'])).rejects.toThrow(
         'Permission denied: iptables commands require root privileges'
       );
     });
@@ -124,7 +124,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify chain was created
       expect(mockedExeca).toHaveBeenCalledWith('iptables', ['-t', 'filter', '-N', 'FW_WRAPPER']);
@@ -208,7 +208,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Should delete reference from DOCKER-USER
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
@@ -256,7 +256,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify localhost rules
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
@@ -297,7 +297,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify multicast block
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
@@ -346,7 +346,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify UDP logging (all UDP, DNS to whitelisted servers is allowed earlier in chain)
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
@@ -374,7 +374,7 @@ describe('host-iptables', () => {
 
       mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await setupHostIptables('172.30.0.10', 3128, '172.30.0.30');
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], '172.30.0.30');
 
       // Verify API proxy sidecar rule was added with port range
       expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
@@ -391,7 +391,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await expect(setupHostIptables('172.30.0.10', 3128)).rejects.toThrow(
+      await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'])).rejects.toThrow(
         "Failed to get bridge name for network 'awf-net'"
       );
     });
@@ -413,7 +413,7 @@ describe('host-iptables', () => {
       // Mock all subsequent calls
       mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify DOCKER-USER chain was created
       expect(mockedExeca).toHaveBeenCalledWith('iptables', ['-t', 'filter', '-N', 'DOCKER-USER']);
@@ -435,7 +435,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Should NOT insert a new rule since it already exists
       expect(mockedExeca).not.toHaveBeenCalledWith('iptables', [
@@ -470,7 +470,7 @@ describe('host-iptables', () => {
         exitCode: 0,
       } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify no IPv6 chain
       expect(mockedExeca).not.toHaveBeenCalledWith('ip6tables', ['-t', 'filter', '-N', 'FW_WRAPPER_V6']);
@@ -504,7 +504,7 @@ describe('host-iptables', () => {
         return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
       }) as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify sysctl was called to disable IPv6
       expect(mockedExeca).toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']);
@@ -522,7 +522,7 @@ describe('host-iptables', () => {
 
       mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Verify sysctl was NOT called to disable IPv6
       expect(mockedExeca).not.toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']);
@@ -565,7 +565,7 @@ describe('host-iptables', () => {
         return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
       }) as any);
 
-      await setupHostIptables('172.30.0.10', 3128);
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
       // Now run cleanup
       jest.clearAllMocks();
