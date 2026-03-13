@@ -1347,6 +1347,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     urlPatterns,
     enableHostAccess: config.enableHostAccess,
     allowHostPorts: config.allowHostPorts,
+    enableDlp: config.enableDlp,
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
   fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });

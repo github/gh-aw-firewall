@@ -5,6 +5,7 @@ import {
   PlainDomainEntry,
   DomainPattern,
 } from './domain-patterns';
+import { generateDlpSquidConfig } from './dlp';
 
 /**
  * Ports that should never be allowed, even with --allow-host-ports
@@ -205,7 +206,7 @@ ${urlAclSection}${urlAccessRules}`;
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts } = config;
+  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp } = config;
 
   // Parse domains into plain domains and wildcard patterns
   // Note: parseDomainList extracts and preserves protocol info from prefixes (http://, https://)
@@ -430,6 +431,15 @@ export function generateSquidConfig(config: SquidConfig): string {
     portConfig = '';
   }
 
+  // Generate DLP section if enabled
+  let dlpAclSection = '';
+  let dlpAccessSection = '';
+  if (enableDlp) {
+    const dlp = generateDlpSquidConfig();
+    dlpAclSection = '\n' + dlp.aclLines.join('\n') + '\n';
+    dlpAccessSection = '\n' + dlp.accessRules.join('\n') + '\n';
+  }
+
   // Port ACLs and access rules
   // Build Safe_ports ACL with user-specified additional ports if provided
   let portAclsSection = `# Port ACLs
@@ -522,7 +532,7 @@ cache_log /var/log/squid/cache.log
 cache deny all
 
 ${aclSection}
-
+${dlpAclSection}
 # Port configuration
 ${portConfig}
 ${sslBumpSection}
@@ -542,7 +552,7 @@ acl dst_ipv4 dstdom_regex ^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$
 acl dst_ipv6 dstdom_regex ^\\[?[0-9a-fA-F:]+\\]?$
 http_access deny dst_ipv4
 http_access deny dst_ipv6
-
+${dlpAccessSection}
 ${accessRulesSection}# Deny requests to unknown domains (not in allow-list)
 # This applies to all sources including localnet
 ${denyRule}

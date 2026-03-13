@@ -565,6 +565,23 @@ export interface WrapperConfig {
   anthropicApiTarget?: string;
 
   /**
+   * Enable Data Loss Prevention (DLP) scanning
+   *
+   * When true, Squid proxy will block outgoing requests that contain
+   * credential-like patterns (API keys, tokens, secrets) in URLs.
+   * This protects against accidental credential exfiltration via
+   * query parameters, path segments, or encoded URL content.
+   *
+   * Detected patterns include: GitHub tokens (ghp_, gho_, ghs_, ghu_,
+   * github_pat_), OpenAI keys (sk-), Anthropic keys (sk-ant-),
+   * AWS access keys (AKIA), Google API keys (AIza), Slack tokens,
+   * and generic credential patterns.
+   *
+   * @default false
+   */
+  enableDlp?: boolean;
+
+  /**
    * Maximum time in minutes to allow the agent command to run
    *
    * When specified, the agent container is forcibly stopped after this many
@@ -682,6 +699,16 @@ export interface SquidConfig {
    * HTTPS traffic by URL path, not just domain.
    */
   urlPatterns?: string[];
+
+  /**
+   * Whether to enable DLP (Data Loss Prevention) scanning
+   *
+   * When true, Squid will block requests containing credential patterns
+   * (API keys, tokens, secrets) in URLs via url_regex ACLs.
+   *
+   * @default false
+   */
+  enableDlp?: boolean;
 
   /**
    * Whether to enable host access (allows non-standard ports)
