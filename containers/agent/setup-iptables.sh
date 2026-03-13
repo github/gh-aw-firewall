@@ -52,10 +52,28 @@ if [ -z "$SQUID_IP" ]; then
 fi
 echo "[iptables] Squid IP resolved to: $SQUID_IP"
 
+# Save Docker's embedded DNS DNAT rules before flushing.
+# Docker adds DNAT rules to redirect 127.0.0.11:53 to its internal DNS server
+# on a random high port. Flushing the NAT chain destroys these rules, breaking
+# DNS resolution via Docker embedded DNS.
+DOCKER_DNS_RULES=$(iptables-save -t nat 2>/dev/null | grep -- "-A OUTPUT.*127.0.0.11" || true)
+
 # Clear existing NAT rules (both IPv4 and IPv6)
 iptables -t nat -F OUTPUT 2>/dev/null || true
 if [ "$IP6TABLES_AVAILABLE" = true ]; then
   ip6tables -t nat -F OUTPUT 2>/dev/null || true
+fi
+
+# Restore Docker's embedded DNS DNAT rules (must come before localhost RETURN rules
+# so that DNS queries to 127.0.0.11:53 are properly redirected to Docker's DNS server)
+if [ -n "$DOCKER_DNS_RULES" ]; then
+  echo "[iptables] Restoring Docker embedded DNS DNAT rules..."
+  while IFS= read -r rule; do
+    if [ -n "$rule" ]; then
+      # iptables-save outputs rules like "-A OUTPUT -d 127.0.0.11/32 -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.11:XXXXX"
+      iptables -t nat $rule 2>/dev/null || true
+    fi
+  done <<< "$DOCKER_DNS_RULES"
 fi
 
 # Allow localhost traffic (for stdio MCP servers and test frameworks)
