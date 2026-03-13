@@ -113,13 +113,34 @@ if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
   # Allow return traffic to DoH proxy
   iptables -t nat -A OUTPUT -d "$AWF_DOH_PROXY_IP" -j RETURN
 else
-  # Simplified DNS model: No direct DNS from the container.
-  # Docker's embedded DNS at 127.0.0.11 handles all name resolution.
-  # It is already covered by the localhost RETURN rule above (127.0.0.0/8).
-  # Squid handles DNS resolution for all HTTP/HTTPS traffic internally.
-  # This prevents DNS-based data exfiltration since the container cannot
-  # query external DNS servers directly.
-  echo "[iptables] DNS: handled by Docker embedded DNS (127.0.0.11) via localhost rules"
+  # Simplified DNS model: Docker embedded DNS (127.0.0.11) handles all name resolution.
+  # The embedded DNS forwards to upstream servers configured via docker-compose dns: field.
+  # Docker's DNS forwarding may traverse the container's network namespace, so we must
+  # explicitly allow UDP/TCP port 53 to the configured upstream servers.
+  # Direct DNS queries to non-configured servers are blocked by the OUTPUT filter chain.
+  DNS_SERVERS="${AWF_DNS_SERVERS:-8.8.8.8,8.8.4.4}"
+  echo "[iptables] DNS: Docker embedded DNS forwards to upstream: $DNS_SERVERS"
+
+  # Allow DNS queries to configured upstream servers (needed for Docker DNS forwarding)
+  IFS=',' read -ra DNS_ARRAY <<< "$DNS_SERVERS"
+  for dns_server in "${DNS_ARRAY[@]}"; do
+    dns_server=$(echo "$dns_server" | tr -d ' ')
+    if [ -n "$dns_server" ]; then
+      if is_ipv6 "$dns_server"; then
+        if [ "$IP6TABLES_AVAILABLE" = true ]; then
+          ip6tables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
+          ip6tables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
+        fi
+      else
+        iptables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
+        iptables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
+      fi
+    fi
+  done
+
+  # Also allow DNS to Docker's embedded DNS server itself
+  iptables -t nat -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j RETURN
+  iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
 fi
 
 # Allow traffic to Squid proxy itself (prevent redirect loop)
@@ -256,11 +277,23 @@ echo "[iptables] Configuring OUTPUT filter chain rules..."
 # Allow localhost traffic (includes Docker embedded DNS at 127.0.0.11)
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Allow DNS queries to DoH proxy (when enabled)
-# In non-DoH mode, Docker embedded DNS at 127.0.0.11 is already covered by localhost ACCEPT above
+# Allow DNS to DoH proxy or configured upstream servers
 if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
   iptables -A OUTPUT -p udp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
   iptables -A OUTPUT -p tcp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
+else
+  # Allow DNS to configured upstream servers (needed for Docker DNS forwarding)
+  for dns_server in "${DNS_ARRAY[@]}"; do
+    dns_server=$(echo "$dns_server" | tr -d ' ')
+    if [ -n "$dns_server" ] && ! is_ipv6 "$dns_server"; then
+      iptables -A OUTPUT -p udp -d "$dns_server" --dport 53 -j ACCEPT
+      iptables -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j ACCEPT
+    fi
+  done
+
+  # Allow DNS to Docker's embedded DNS server
+  iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
+  iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
 fi
 
 # Allow traffic to Squid proxy (after NAT redirection)
@@ -273,8 +306,7 @@ fi
 
 # Drop all other TCP and UDP traffic (default deny policy)
 # TCP: ensures only explicitly allowed ports can be accessed
-# UDP: prevents DNS exfiltration by blocking direct queries to external DNS servers
-# (only Docker embedded DNS at 127.0.0.11 via localhost is allowed)
+# UDP: prevents DNS exfiltration by blocking direct queries to non-configured DNS servers
 echo "[iptables] Drop all non-allowed TCP and UDP traffic (default deny)..."
 iptables -A OUTPUT -p tcp -j DROP
 iptables -A OUTPUT -p udp -j DROP

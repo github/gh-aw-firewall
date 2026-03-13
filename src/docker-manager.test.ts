@@ -1506,8 +1506,8 @@ describe('docker-manager', () => {
         const env = agent.environment as Record<string, string>;
 
         expect(agent.dns).toEqual(['1.1.1.1', '1.0.0.1']);
-        // AWF_DNS_SERVERS env var should NOT be set (simplified model)
-        expect(env.AWF_DNS_SERVERS).toBeUndefined();
+        // AWF_DNS_SERVERS env var should be set for setup-iptables.sh DNS ACCEPT rules
+        expect(env.AWF_DNS_SERVERS).toBe('1.1.1.1,1.0.0.1');
       });
 
       it('should use default DNS servers when not specified', () => {
@@ -1516,8 +1516,8 @@ describe('docker-manager', () => {
         const env = agent.environment as Record<string, string>;
 
         expect(agent.dns).toEqual(['8.8.8.8', '8.8.4.4']);
-        // AWF_DNS_SERVERS env var should NOT be set (simplified model)
-        expect(env.AWF_DNS_SERVERS).toBeUndefined();
+        // AWF_DNS_SERVERS env var should be set for setup-iptables.sh DNS ACCEPT rules
+        expect(env.AWF_DNS_SERVERS).toBe('8.8.8.8,8.8.4.4');
       });
     });
 

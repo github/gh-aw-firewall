@@ -289,16 +289,33 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   const upstreamDns = dnsServers && dnsServers.length > 0 ? dnsServers : ['8.8.8.8', '8.8.4.4'];
   logger.debug(`Allowing DNS forwarding to upstream servers: ${upstreamDns.join(', ')}`);
   for (const dnsServer of upstreamDns) {
-    await execa('iptables', [
-      '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'udp', '-d', dnsServer, '--dport', '53',
-      '-j', 'ACCEPT',
-    ]);
-    await execa('iptables', [
-      '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'tcp', '-d', dnsServer, '--dport', '53',
-      '-j', 'ACCEPT',
-    ]);
+    // IPv6 DNS servers must use ip6tables, IPv4 uses iptables
+    const isV6 = dnsServer.includes(':');
+    if (isV6) {
+      if (ip6tablesAvailable) {
+        await execa('ip6tables', [
+          '-t', 'filter', '-A', CHAIN_NAME_V6,
+          '-p', 'udp', '-d', dnsServer, '--dport', '53',
+          '-j', 'ACCEPT',
+        ]);
+        await execa('ip6tables', [
+          '-t', 'filter', '-A', CHAIN_NAME_V6,
+          '-p', 'tcp', '-d', dnsServer, '--dport', '53',
+          '-j', 'ACCEPT',
+        ]);
+      }
+    } else {
+      await execa('iptables', [
+        '-t', 'filter', '-A', CHAIN_NAME,
+        '-p', 'udp', '-d', dnsServer, '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
+      await execa('iptables', [
+        '-t', 'filter', '-A', CHAIN_NAME,
+        '-p', 'tcp', '-d', dnsServer, '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
+    }
   }
 
   // 5. Allow traffic to Squid proxy

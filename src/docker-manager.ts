@@ -510,9 +510,9 @@ export function generateDockerCompose(
 
   // DNS servers for Docker embedded DNS forwarding (used in docker-compose dns: field)
   const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
-  // Note: AWF_DNS_SERVERS env var is no longer set. The container uses only Docker's
-  // embedded DNS (127.0.0.11), which forwards to upstream servers configured via the
-  // docker-compose dns: field. This prevents DNS-based data exfiltration.
+  // Pass DNS servers to container so setup-iptables.sh can allow Docker DNS forwarding
+  // to these upstream servers while blocking direct DNS to all other servers.
+  environment.AWF_DNS_SERVERS = dnsServers.join(',');
 
   // When DoH is enabled, tell the agent container to route DNS through the DoH proxy
   if (config.dnsOverHttps && networkConfig.dohProxyIp) {

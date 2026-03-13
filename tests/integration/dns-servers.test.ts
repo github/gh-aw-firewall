@@ -120,10 +120,11 @@ describe('DNS Exfiltration Prevention', () => {
     await cleanup(false);
   });
 
-  test('should block direct DNS queries to external servers (Google DNS)', async () => {
-    // Direct DNS to external servers should be blocked (prevents DNS exfiltration)
+  test('should block direct DNS queries to non-configured DNS servers (Quad9)', async () => {
+    // Direct DNS to non-configured servers should be blocked (prevents DNS exfiltration)
+    // Default upstream is 8.8.8.8/8.8.4.4, so 9.9.9.9 (Quad9) is not allowed
     const result = await runner.runWithSudo(
-      'nslookup example.com 8.8.8.8',
+      'nslookup example.com 9.9.9.9',
       {
         allowDomains: ['example.com'],
         logLevel: 'debug',
@@ -131,27 +132,12 @@ describe('DNS Exfiltration Prevention', () => {
       }
     );
 
-    // Direct DNS query to external server should fail
-    expect(result).toFail();
-  }, 120000);
-
-  test('should block direct DNS queries to Cloudflare DNS', async () => {
-    // Even with --dns-servers, direct queries from container to external DNS are blocked
-    const result = await runner.runWithSudo(
-      'nslookup example.com 1.1.1.1',
-      {
-        allowDomains: ['example.com'],
-        dnsServers: ['1.1.1.1'],
-        logLevel: 'debug',
-        timeout: 60000,
-      }
-    );
-
-    // Direct DNS query to external server should fail (iptables blocks it)
+    // Direct DNS query to non-configured server should fail
     expect(result).toFail();
   }, 120000);
 
   test('should block direct DNS queries to OpenDNS', async () => {
+    // OpenDNS (208.67.222.222) is not in the default upstream list
     const result = await runner.runWithSudo(
       'nslookup example.com 208.67.222.222',
       {
@@ -161,7 +147,22 @@ describe('DNS Exfiltration Prevention', () => {
       }
     );
 
-    // DNS query to any external server should fail
+    // DNS query to non-configured external server should fail
+    expect(result).toFail();
+  }, 120000);
+
+  test('should block direct DNS queries to Cloudflare when not configured', async () => {
+    // Cloudflare DNS (1.1.1.1) is not in the default upstream list (8.8.8.8/8.8.4.4)
+    const result = await runner.runWithSudo(
+      'nslookup example.com 1.1.1.1',
+      {
+        allowDomains: ['example.com'],
+        logLevel: 'debug',
+        timeout: 60000,
+      }
+    );
+
+    // Direct DNS query to non-configured server should fail
     expect(result).toFail();
   }, 120000);
 
