@@ -1052,6 +1052,15 @@ export function generateDockerCompose(
     agentService.image = agentImage;
   }
 
+  // Pre-set API proxy IP in environment before the init container definition.
+  // The init container's environment object captures values at definition time,
+  // so AWF_API_PROXY_IP must be set before the init container is defined.
+  // Without this, the init container gets an empty AWF_API_PROXY_IP and
+  // setup-iptables.sh never adds ACCEPT rules for the API proxy, blocking connectivity.
+  if (config.enableApiProxy && networkConfig.proxyIp) {
+    environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
+  }
+
   // SECURITY: iptables init container - sets up NAT rules in a separate container
   // that shares the agent's network namespace but NEVER gives NET_ADMIN to the agent.
   // This eliminates the window where the agent holds NET_ADMIN during startup.
