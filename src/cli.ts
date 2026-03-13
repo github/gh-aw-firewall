@@ -1273,9 +1273,16 @@ program
 
     // Add API targets to allowedDomains if not already present
     for (const target of apiTargets) {
-      if (target && !allowedDomains.includes(target)) {
-        allowedDomains.push(target);
-        logger.debug(`Automatically added API target to allowlist: ${target}`);
+      if (!target) {
+        continue;
+      }
+
+      // Ensure auto-added API targets are explicitly HTTPS to avoid over-broad HTTP+HTTPS allowlisting
+      const normalizedTarget = /^https?:\/\//.test(target) ? target : `https://${target}`;
+
+      if (!allowedDomains.includes(normalizedTarget)) {
+        allowedDomains.push(normalizedTarget);
+        logger.debug(`Automatically added API target to allowlist: ${normalizedTarget}`);
       }
     }
 
