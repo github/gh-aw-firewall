@@ -26,6 +26,9 @@ export interface AwfOptions {
   envAll?: boolean; // Pass all host environment variables to container (--env-all)
   cliEnv?: Record<string, string>; // Explicit -e KEY=VALUE flags passed to AWF CLI
   skipPull?: boolean; // Use local images without pulling from registry (--skip-pull)
+  copilotApiTarget?: string; // Custom Copilot API target (--copilot-api-target)
+  openaiApiTarget?: string; // Custom OpenAI API target (--openai-api-target)
+  anthropicApiTarget?: string; // Custom Anthropic API target (--anthropic-api-target)
 }
 
 export interface AwfResult {
@@ -119,6 +122,17 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add API target flags
+    if (options.copilotApiTarget) {
+      args.push('--copilot-api-target', options.copilotApiTarget);
+    }
+    if (options.openaiApiTarget) {
+      args.push('--openai-api-target', options.openaiApiTarget);
+    }
+    if (options.anthropicApiTarget) {
+      args.push('--anthropic-api-target', options.anthropicApiTarget);
     }
 
     // Add rate limit flags
@@ -303,6 +317,17 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add API target flags
+    if (options.copilotApiTarget) {
+      args.push('--copilot-api-target', options.copilotApiTarget);
+    }
+    if (options.openaiApiTarget) {
+      args.push('--openai-api-target', options.openaiApiTarget);
+    }
+    if (options.anthropicApiTarget) {
+      args.push('--anthropic-api-target', options.anthropicApiTarget);
     }
 
     // Add rate limit flags

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1809,6 +1809,135 @@ describe('cli', () => {
       expect(warnings[0]).toContain('--openai-api-target=openai.internal');
       expect(warnings[1]).toContain('--anthropic-api-target=anthropic.internal');
       expect(warnings[2]).toContain('--copilot-api-target=copilot.internal');
+    });
+  });
+
+  describe('resolveApiTargetsToAllowedDomains', () => {
+    it('should add copilot-api-target option to allowed domains', () => {
+      const domains: string[] = ['github.com'];
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);
+      expect(domains).toContain('custom.copilot.com');
+      expect(domains).toContain('https://custom.copilot.com');
+    });
+
+    it('should add openai-api-target option to allowed domains', () => {
+      const domains: string[] = ['github.com'];
+      resolveApiTargetsToAllowedDomains({ openaiApiTarget: 'custom.openai.com' }, domains);
+      expect(domains).toContain('custom.openai.com');
+      expect(domains).toContain('https://custom.openai.com');
+    });
+
+    it('should add anthropic-api-target option to allowed domains', () => {
+      const domains: string[] = ['github.com'];
+      resolveApiTargetsToAllowedDomains({ anthropicApiTarget: 'custom.anthropic.com' }, domains);
+      expect(domains).toContain('custom.anthropic.com');
+      expect(domains).toContain('https://custom.anthropic.com');
+    });
+
+    it('should prefer option flag over env var', () => {
+      const domains: string[] = [];
+      const env = { COPILOT_API_TARGET: 'env.copilot.com' };
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'flag.copilot.com' }, domains, env);
+      expect(domains).toContain('flag.copilot.com');
+      expect(domains).not.toContain('env.copilot.com');
+    });
+
+    it('should fall back to env var when option flag is not set', () => {
+      const domains: string[] = [];
+      const env = { COPILOT_API_TARGET: 'env.copilot.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('env.copilot.com');
+      expect(domains).toContain('https://env.copilot.com');
+    });
+
+    it('should read OPENAI_API_TARGET from env when flag not set', () => {
+      const domains: string[] = [];
+      const env = { OPENAI_API_TARGET: 'env.openai.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('env.openai.com');
+    });
+
+    it('should read ANTHROPIC_API_TARGET from env when flag not set', () => {
+      const domains: string[] = [];
+      const env = { ANTHROPIC_API_TARGET: 'env.anthropic.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('env.anthropic.com');
+    });
+
+    it('should not duplicate a domain already in the list', () => {
+      const domains: string[] = ['custom.copilot.com'];
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);
+      const count = domains.filter(d => d === 'custom.copilot.com').length;
+      expect(count).toBe(1);
+    });
+
+    it('should not duplicate the https:// form if already in the list', () => {
+      const domains: string[] = ['github.com', 'https://custom.copilot.com'];
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);
+      const count = domains.filter(d => d === 'https://custom.copilot.com').length;
+      expect(count).toBe(1);
+    });
+
+    it('should preserve an existing https:// prefix without doubling it', () => {
+      const domains: string[] = [];
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'https://custom.copilot.com' }, domains);
+      expect(domains).toContain('https://custom.copilot.com');
+      const count = domains.filter(d => d === 'https://custom.copilot.com').length;
+      expect(count).toBe(1);
+    });
+
+    it('should handle http:// prefix without adding another https://', () => {
+      const domains: string[] = [];
+      resolveApiTargetsToAllowedDomains({ openaiApiTarget: 'http://internal.openai.com' }, domains);
+      expect(domains).toContain('http://internal.openai.com');
+    });
+
+    it('should add all three targets when all are specified', () => {
+      const domains: string[] = [];
+      resolveApiTargetsToAllowedDomains(
+        {
+          copilotApiTarget: 'copilot.internal',
+          openaiApiTarget: 'openai.internal',
+          anthropicApiTarget: 'anthropic.internal',
+        },
+        domains
+      );
+      expect(domains).toContain('copilot.internal');
+      expect(domains).toContain('openai.internal');
+      expect(domains).toContain('anthropic.internal');
+    });
+
+    it('should call debug with auto-added domains', () => {
+      const domains: string[] = [];
+      const debugMessages: string[] = [];
+      resolveApiTargetsToAllowedDomains(
+        { copilotApiTarget: 'copilot.internal' },
+        domains,
+        {},
+        (msg) => debugMessages.push(msg)
+      );
+      expect(debugMessages.some(m => m.includes('copilot.internal'))).toBe(true);
+    });
+
+    it('should not call debug when no api targets are set', () => {
+      const domains: string[] = [];
+      const debugMessages: string[] = [];
+      resolveApiTargetsToAllowedDomains({}, domains, {}, (msg) => debugMessages.push(msg));
+      expect(debugMessages).toHaveLength(0);
+    });
+
+    it('should return the same allowedDomains array reference', () => {
+      const domains: string[] = [];
+      const returned = resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'x.com' }, domains);
+      expect(returned).toBe(domains);
+    });
+
+    it('should ignore empty env var values', () => {
+      const domains: string[] = [];
+      const env = { COPILOT_API_TARGET: '   ', OPENAI_API_TARGET: '' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      // Whitespace-only and empty values are filtered out
+      expect(domains).toHaveLength(0);
     });
   });
 

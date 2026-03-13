@@ -379,6 +379,72 @@ export function emitApiProxyTargetWarnings(
 }
 
 /**
+ * Resolves API target values from CLI options and environment variables, and merges them
+ * into the allowed domains list. Also ensures each target is present as an https:// URL.
+ * @param options - Partial options with API target flag values
+ * @param allowedDomains - The current list of allowed domains (mutated in place)
+ * @param env - Environment variables (defaults to process.env)
+ * @param debug - Optional debug logging function
+ * @returns The updated allowedDomains array (same reference, mutated)
+ */
+export function resolveApiTargetsToAllowedDomains(
+  options: {
+    copilotApiTarget?: string;
+    openaiApiTarget?: string;
+    anthropicApiTarget?: string;
+  },
+  allowedDomains: string[],
+  env: Record<string, string | undefined> = process.env,
+  debug: (msg: string) => void = () => {}
+): string[] {
+  const apiTargets: string[] = [];
+
+  if (options.copilotApiTarget) {
+    apiTargets.push(options.copilotApiTarget);
+  } else if (env['COPILOT_API_TARGET']) {
+    apiTargets.push(env['COPILOT_API_TARGET']);
+  }
+
+  if (options.openaiApiTarget) {
+    apiTargets.push(options.openaiApiTarget);
+  } else if (env['OPENAI_API_TARGET']) {
+    apiTargets.push(env['OPENAI_API_TARGET']);
+  }
+
+  if (options.anthropicApiTarget) {
+    apiTargets.push(options.anthropicApiTarget);
+  } else if (env['ANTHROPIC_API_TARGET']) {
+    apiTargets.push(env['ANTHROPIC_API_TARGET']);
+  }
+
+  // Merge raw target values into the allowedDomains list so that later
+  // checks/logs about "no allowed domains" see the final, expanded allowlist.
+  const normalizedApiTargets = apiTargets.filter((t) => typeof t === 'string' && t.trim().length > 0);
+  if (normalizedApiTargets.length > 0) {
+    for (const target of normalizedApiTargets) {
+      if (!allowedDomains.includes(target)) {
+        allowedDomains.push(target);
+      }
+    }
+    debug(`Auto-added API target values to allowed domains: ${normalizedApiTargets.join(', ')}`);
+  }
+
+  // Also ensure each target is present as an explicit https:// URL
+  for (const target of normalizedApiTargets) {
+
+    // Ensure auto-added API targets are explicitly HTTPS to avoid over-broad HTTP+HTTPS allowlisting
+    const normalizedTarget = /^https?:\/\//.test(target) ? target : `https://${target}`;
+
+    if (!allowedDomains.includes(normalizedTarget)) {
+      allowedDomains.push(normalizedTarget);
+      debug(`Automatically added API target to allowlist: ${normalizedTarget}`);
+    }
+  }
+
+  return allowedDomains;
+}
+
+/**
  * Builds a RateLimitConfig from parsed CLI options.
  */
 export function buildRateLimitConfig(options: {
@@ -1235,6 +1301,11 @@ program
         logger.info('   Use --allow-host-ports to customize the port list');
       }
     }
+
+    // Automatically add API target values to allowlist when specified
+    // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
+    // the target domain is automatically accessible through the firewall
+    resolveApiTargetsToAllowedDomains(options, allowedDomains, process.env, logger.debug.bind(logger));
 
     // Validate all domains and patterns
     for (const domain of allowedDomains) {
