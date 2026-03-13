@@ -36,11 +36,14 @@ jobs:
           npm ci
 
       - name: Build documentation
+        id: build
+        continue-on-error: true
         run: |
           cd docs-site
           npm run build
 
       - name: Upload preview artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: docs-preview-pr-${{ github.event.pull_request.number }}
@@ -52,19 +55,28 @@ jobs:
         with:
           script: |
             const artifactUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              '## 📄 Documentation Preview',
-              '',
-              `Documentation has been built for this PR.`,
-              '',
-              `**[Download preview artifact](${artifactUrl})**`,
-              '',
-              'To view locally:',
-              '1. Download the `docs-preview-pr-${{ github.event.pull_request.number }}` artifact from the workflow run',
-              '2. Unzip and open `index.html` in your browser',
-              '',
-              `_Built from commit ${context.sha.substring(0, 7)}_`,
-            ].join('\n');
+            const buildOutcome = '${{ steps.build.outcome }}';
+            const body = buildOutcome === 'success'
+              ? [
+                  '## Documentation Preview',
+                  '',
+                  `Documentation has been built for this PR.`,
+                  '',
+                  `**[Download preview artifact](${artifactUrl})**`,
+                  '',
+                  'To view locally:',
+                  '1. Download the `docs-preview-pr-${{ github.event.pull_request.number }}` artifact from the workflow run',
+                  '2. Unzip and open `index.html` in your browser',
+                  '',
+                  `_Built from commit ${context.sha.substring(0, 7)}_`,
+                ].join('\n')
+              : [
+                  '## Documentation Preview',
+                  '',
+                  `Documentation build failed for this PR. [View logs](${artifactUrl}).`,
+                  '',
+                  `_Built from commit ${context.sha.substring(0, 7)}_`,
+                ].join('\n');
 
             // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
