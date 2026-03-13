@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -347,6 +347,7 @@ describe('cli', () => {
       program
         .option('--log-level <level>', 'Log level', 'info')
         .option('--keep-containers', 'Keep containers', false)
+        .option('--skip-cleanup', 'Skip all cleanup', false)
         .option('--build-local', 'Build locally', false)
         .option('--env-all', 'Pass all env vars', false);
 
@@ -356,8 +357,21 @@ describe('cli', () => {
 
       expect(opts.logLevel).toBe('info');
       expect(opts.keepContainers).toBe(false);
+      expect(opts.skipCleanup).toBe(false);
       expect(opts.buildLocal).toBe(false);
       expect(opts.envAll).toBe(false);
+    });
+
+    it('should parse --skip-cleanup flag when provided', () => {
+      const program = new Command();
+
+      program
+        .option('--skip-cleanup', 'Skip all cleanup', false);
+
+      program.parse(['node', 'awf', '--skip-cleanup'], { from: 'node' });
+      const opts = program.opts();
+
+      expect(opts.skipCleanup).toBe(true);
     });
   });
 
@@ -1291,6 +1305,32 @@ describe('cli', () => {
         expect(result.localhostDetected).toBe(false);
         expect(result.allowedDomains).toEqual([]);
       });
+    });
+  });
+
+  describe('hasRateLimitOptions', () => {
+    it('should return false when no rate limit options are set', () => {
+      expect(hasRateLimitOptions({})).toBe(false);
+    });
+
+    it('should return true when rateLimitRpm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRpm: '100' })).toBe(true);
+    });
+
+    it('should return true when rateLimitRph is set', () => {
+      expect(hasRateLimitOptions({ rateLimitRph: '1000' })).toBe(true);
+    });
+
+    it('should return true when rateLimitBytesPm is set', () => {
+      expect(hasRateLimitOptions({ rateLimitBytesPm: '50000000' })).toBe(true);
+    });
+
+    it('should return true when rateLimit is explicitly false', () => {
+      expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
+    });
+
+    it('should return false when rateLimit is true (default enabling)', () => {
+      expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
     });
   });
 
