@@ -31,7 +31,7 @@ describe('Log Commands', () => {
 
   test('should generate logs during firewall operation', async () => {
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://api.github.com/zen',
+      'curl -sS --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
