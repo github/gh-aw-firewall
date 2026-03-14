@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2173,6 +2173,89 @@ describe('cli', () => {
 
     it('returns false when rateLimit is true', () => {
       expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
+    });
+  });
+
+  describe('extractGhesDomainsFromEngineApiTarget', () => {
+    it('should return empty array when ENGINE_API_TARGET is not set', () => {
+      const domains = extractGhesDomainsFromEngineApiTarget({});
+      expect(domains).toEqual([]);
+    });
+
+    it('should extract GHES domains from api.github.* format', () => {
+      const env = { ENGINE_API_TARGET: 'https://api.github.mycompany.com' };
+      const domains = extractGhesDomainsFromEngineApiTarget(env);
+      expect(domains).toContain('github.mycompany.com');
+      expect(domains).toContain('api.github.mycompany.com');
+      expect(domains).toContain('api.githubcopilot.com');
+      expect(domains).toContain('api.enterprise.githubcopilot.com');
+      expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+    });
+
+    it('should handle non-api.* hostnames', () => {
+      const env = { ENGINE_API_TARGET: 'https://github.mycompany.com' };
+      const domains = extractGhesDomainsFromEngineApiTarget(env);
+      expect(domains).toContain('github.mycompany.com');
+      expect(domains).toContain('api.githubcopilot.com');
+      expect(domains).toContain('api.enterprise.githubcopilot.com');
+      expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+    });
+
+    it('should handle invalid URL gracefully', () => {
+      const env = { ENGINE_API_TARGET: 'not-a-valid-url' };
+      const domains = extractGhesDomainsFromEngineApiTarget(env);
+      expect(domains).toEqual([]);
+    });
+
+    it('should always include Copilot API domains for GHES', () => {
+      const env = { ENGINE_API_TARGET: 'https://api.github.enterprise.local' };
+      const domains = extractGhesDomainsFromEngineApiTarget(env);
+      expect(domains).toContain('api.githubcopilot.com');
+      expect(domains).toContain('api.enterprise.githubcopilot.com');
+      expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+    });
+  });
+
+  describe('resolveApiTargetsToAllowedDomains with GHES', () => {
+    it('should auto-add GHES domains when ENGINE_API_TARGET is set', () => {
+      const domains: string[] = ['github.com'];
+      const env = { ENGINE_API_TARGET: 'https://api.github.mycompany.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('github.mycompany.com');
+      expect(domains).toContain('api.github.mycompany.com');
+      expect(domains).toContain('api.githubcopilot.com');
+      expect(domains).toContain('api.enterprise.githubcopilot.com');
+      expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+    });
+
+    it('should not duplicate GHES domains if already in allowlist', () => {
+      const domains: string[] = ['github.mycompany.com', 'api.githubcopilot.com'];
+      const env = { ENGINE_API_TARGET: 'https://api.github.mycompany.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      const ghesCount = domains.filter(d => d === 'github.mycompany.com').length;
+      const copilotCount = domains.filter(d => d === 'api.githubcopilot.com').length;
+      expect(ghesCount).toBe(1);
+      expect(copilotCount).toBe(1);
+    });
+
+    it('should combine GHES domains with API target domains', () => {
+      const domains: string[] = [];
+      const env = { ENGINE_API_TARGET: 'https://api.github.mycompany.com' };
+      resolveApiTargetsToAllowedDomains(
+        { copilotApiTarget: 'custom.copilot.com' },
+        domains,
+        env
+      );
+      // GHES domains
+      expect(domains).toContain('github.mycompany.com');
+      expect(domains).toContain('api.github.mycompany.com');
+      // Copilot API domains
+      expect(domains).toContain('api.githubcopilot.com');
+      expect(domains).toContain('api.enterprise.githubcopilot.com');
+      expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+      // Custom API target
+      expect(domains).toContain('custom.copilot.com');
+      expect(domains).toContain('https://custom.copilot.com');
     });
   });
 });
