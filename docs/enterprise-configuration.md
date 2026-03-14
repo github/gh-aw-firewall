@@ -137,6 +137,36 @@ When `GITHUB_SERVER_URL` is set to a non-github.com, non-ghe.com domain, AWF aut
 ```
 
 Like with GHEC, AWF automatically sets `GH_HOST=github.company.com` in the agent container, ensuring `gh` CLI commands target your GHES instance.
+### Auto-Population for GitHub Agentic Workflows
+
+**New in v0.24.0:** When running agentic workflows with `engine.api-target` set (via the `ENGINE_API_TARGET` environment variable), AWF automatically adds GHES domains to the firewall allowlist. You no longer need to manually specify these domains in `--allow-domains` or `GH_AW_ALLOWED_DOMAINS`.
+
+**Auto-added domains:**
+- The GHES base domain (e.g., `github.mycompany.com` from `https://api.github.mycompany.com`)
+- The GHES API subdomain (e.g., `api.github.mycompany.com`)
+- Copilot API domains required even on GHES:
+  - `api.githubcopilot.com`
+  - `api.enterprise.githubcopilot.com`
+  - `telemetry.enterprise.githubcopilot.com`
+
+**Example:**
+```bash
+# When ENGINE_API_TARGET=https://api.github.mycompany.com
+# AWF automatically adds these to the allowlist:
+# - github.mycompany.com
+# - api.github.mycompany.com
+# - api.githubcopilot.com
+# - api.enterprise.githubcopilot.com
+# - telemetry.enterprise.githubcopilot.com
+
+# Before (manual configuration):
+export ENGINE_API_TARGET="https://api.github.mycompany.com"
+export GH_AW_ALLOWED_DOMAINS="github.mycompany.com,api.github.mycompany.com,api.githubcopilot.com,api.enterprise.githubcopilot.com,telemetry.enterprise.githubcopilot.com"
+
+# After (automatic):
+export ENGINE_API_TARGET="https://api.github.mycompany.com"
+# No need to set GH_AW_ALLOWED_DOMAINS - domains are auto-populated!
+```
 
 ### Required Domains for GHES
 

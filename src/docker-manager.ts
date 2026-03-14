@@ -523,6 +523,13 @@ export function generateDockerCompose(
       environment.GH_HOST = ghHost;
       logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
     }
+    // GITHUB_API_URL — only pass when api-proxy is NOT enabled.
+    // On GHES, workflows set GITHUB_API_URL to the GHES API endpoint (e.g., https://api.ghes-host).
+    // When api-proxy is enabled, Copilot CLI must use COPILOT_API_URL (pointing to the proxy)
+    // instead of GITHUB_API_URL, because the proxy correctly routes Copilot API requests to
+    // api.enterprise.githubcopilot.com (not the GHES API which lacks Copilot endpoints).
+    // See: github/gh-aw#20875
+    if (process.env.GITHUB_API_URL && !config.enableApiProxy) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
   }
 
   // Forward one-shot-token debug flag if set (used for testing/debugging)

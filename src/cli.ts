@@ -379,6 +379,52 @@ export function emitApiProxyTargetWarnings(
 }
 
 /**
+ * Extracts GHES API domains from engine.api-target environment variable.
+ * When engine.api-target is set (indicating GHES), returns the GHES hostname,
+ * API subdomain, and required Copilot API domains.
+ *
+ * @param env - Environment variables (defaults to process.env)
+ * @returns Array of domains to auto-add to allowlist, or empty array if not GHES
+ */
+export function extractGhesDomainsFromEngineApiTarget(
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const engineApiTarget = env['ENGINE_API_TARGET'];
+  if (!engineApiTarget) {
+    return [];
+  }
+
+  const domains: string[] = [];
+
+  try {
+    // Parse the engine.api-target URL (e.g., https://api.github.mycompany.com)
+    const url = new URL(engineApiTarget);
+    const hostname = url.hostname;
+
+    // Extract the base GHES domain from api.github.<ghes-domain>
+    // For example: api.github.mycompany.com → github.mycompany.com
+    if (hostname.startsWith('api.')) {
+      const baseDomain = hostname.substring(4); // Remove 'api.' prefix
+      domains.push(baseDomain);
+      domains.push(hostname); // Also add the api subdomain itself
+    } else {
+      // If it doesn't start with 'api.', just add the hostname
+      domains.push(hostname);
+    }
+
+    // Add Copilot API domains (needed even on GHES since Copilot models run in GitHub's cloud)
+    domains.push('api.githubcopilot.com');
+    domains.push('api.enterprise.githubcopilot.com');
+    domains.push('telemetry.enterprise.githubcopilot.com');
+  } catch {
+    // Invalid URL format - skip GHES domain extraction
+    return [];
+  }
+
+  return domains;
+}
+
+/**
  * Resolves API target values from CLI options and environment variables, and merges them
  * into the allowed domains list. Also ensures each target is present as an https:// URL.
  * @param options - Partial options with API target flag values
@@ -415,6 +461,17 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push(options.anthropicApiTarget);
   } else if (env['ANTHROPIC_API_TARGET']) {
     apiTargets.push(env['ANTHROPIC_API_TARGET']);
+  }
+
+  // Auto-populate GHES domains when engine.api-target is set
+  const ghesDomains = extractGhesDomainsFromEngineApiTarget(env);
+  if (ghesDomains.length > 0) {
+    for (const domain of ghesDomains) {
+      if (!allowedDomains.includes(domain)) {
+        allowedDomains.push(domain);
+      }
+    }
+    debug(`Auto-added GHES domains from engine.api-target: ${ghesDomains.join(', ')}`);
   }
 
   // Merge raw target values into the allowedDomains list so that later
