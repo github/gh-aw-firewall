@@ -366,8 +366,31 @@ jobs:
           package-manager-cache: false
       - name: Install Codex
         run: npm install -g @openai/codex@latest
-      - name: Install AWF binary
-        run: bash /opt/gh-aw/actions/install_awf_binary.sh v0.24.1
+      - name: Install awf dependencies
+        run: npm ci
+      - name: Build awf
+        run: npm run build
+      - name: Install awf binary (local)
+        run: |
+          WORKSPACE_PATH="${GITHUB_WORKSPACE:-$(pwd)}"
+          NODE_BIN="$(command -v node)"
+          if [ ! -d "$WORKSPACE_PATH" ]; then
+            echo "Workspace path not found: $WORKSPACE_PATH"
+            exit 1
+          fi
+          if [ ! -x "$NODE_BIN" ]; then
+            echo "Node binary not found: $NODE_BIN"
+            exit 1
+          fi
+          if [ ! -d "/usr/local/bin" ]; then
+            echo "/usr/local/bin is missing"
+            exit 1
+          fi
+          sudo tee /usr/local/bin/awf > /dev/null <<EOF
+          #!/bin/bash
+          exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" "\$@"
+          EOF
+          sudo chmod +x /usr/local/bin/awf
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

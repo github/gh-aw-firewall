@@ -35,10 +35,10 @@ const workflowPaths = [
 ];
 
 // Matches the install step with captured indentation:
-// - "Install awf binary" step at any indent level
+// - "Install awf binary" or "Install AWF binary" step at any indent level
 // - run command invoking install_awf_binary.sh with a version
 const installStepRegex =
-  /^(\s*)- name: Install awf binary\n\1\s*run: bash \/opt\/gh-aw\/actions\/install_awf_binary\.sh v[0-9.]+\n/m;
+  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash \/opt\/gh-aw\/actions\/install_awf_binary\.sh v[0-9.]+\n/m;
 const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 
 function buildLocalInstallSteps(indent: string): string {
