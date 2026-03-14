@@ -250,4 +250,54 @@ describe('API Proxy Sidecar', () => {
     expect(result).toSucceed();
     expect(result.stdout).toContain('"copilot":true');
   }, 180000);
+
+  test('should exclude GITHUB_API_URL from agent when api-proxy is enabled (GHES fix)', async () => {
+    // On GHES, workflows set GITHUB_API_URL to the GHES API endpoint (e.g., https://api.ghes-host).
+    // When api-proxy is enabled, GITHUB_API_URL should NOT be passed to the agent container,
+    // because Copilot CLI would use it for Copilot API requests, which don't exist on GHES API.
+    // Instead, the agent should use COPILOT_API_URL pointing to the proxy, which correctly
+    // routes to api.enterprise.githubcopilot.com.
+    // See: github/gh-aw#20875
+    const result = await runner.runWithSudo(
+      'bash -c "if [ -z \\"$GITHUB_API_URL\\" ]; then echo GITHUB_API_URL_NOT_SET; else echo GITHUB_API_URL=$GITHUB_API_URL; fi"',
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: true,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          COPILOT_GITHUB_TOKEN: 'ghp_fake-test-token-12345',
+          // Simulate GHES workflow passing GITHUB_API_URL
+          GITHUB_API_URL: 'https://api.ghes-host.example.com',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    // GITHUB_API_URL should NOT be set in agent container when api-proxy is enabled
+    expect(result.stdout).toContain('GITHUB_API_URL_NOT_SET');
+    // COPILOT_API_URL should point to the proxy instead
+    expect(result.stdout).toContain(`COPILOT_API_URL=http://${API_PROXY_IP}:10002`);
+  }, 180000);
+
+  test('should pass GITHUB_API_URL to agent when api-proxy is NOT enabled', async () => {
+    // When api-proxy is disabled, GITHUB_API_URL should be passed through normally
+    const result = await runner.runWithSudo(
+      'bash -c "echo GITHUB_API_URL=$GITHUB_API_URL"',
+      {
+        allowDomains: ['api.githubcopilot.com'],
+        enableApiProxy: false,
+        buildLocal: true,
+        logLevel: 'debug',
+        timeout: 120000,
+        env: {
+          GITHUB_API_URL: 'https://api.github.com',
+        },
+      }
+    );
+
+    expect(result).toSucceed();
+    expect(result.stdout).toContain('GITHUB_API_URL=https://api.github.com');
+  }, 180000);
 });
