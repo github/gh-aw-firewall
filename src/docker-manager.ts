@@ -117,6 +117,36 @@ export function getRealUserHome(): string {
 }
 
 /**
+ * Extracts the hostname from GITHUB_SERVER_URL to set GH_HOST for gh CLI.
+ * Returns the hostname if GITHUB_SERVER_URL points to a non-github.com instance,
+ * or null if it points to github.com (no GH_HOST needed).
+ * @param serverUrl - The GITHUB_SERVER_URL environment variable value
+ * @returns The hostname to use for GH_HOST, or null if not needed
+ * @internal Exported for testing
+ */
+export function extractGhHostFromServerUrl(serverUrl: string | undefined): string | null {
+  if (!serverUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(serverUrl);
+    const hostname = url.hostname;
+
+    // If pointing to public GitHub, no GH_HOST needed
+    if (hostname === 'github.com') {
+      return null;
+    }
+
+    // For GHES/GHEC instances, return the hostname
+    return hostname;
+  } catch {
+    // Invalid URL, return null
+    return null;
+  }
+}
+
+/**
  * Gets existing Docker network subnets to avoid conflicts
  */
 async function getExistingDockerSubnets(): Promise<string[]> {
@@ -484,6 +514,15 @@ export function generateDockerCompose(
     // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
     if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
     if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
+
+    // Auto-inject GH_HOST when GITHUB_SERVER_URL points to a GHES/GHEC instance
+    // This ensures gh CLI inside the agent container targets the correct GitHub instance
+    // instead of defaulting to github.com
+    const ghHost = extractGhHostFromServerUrl(process.env.GITHUB_SERVER_URL);
+    if (ghHost) {
+      environment.GH_HOST = ghHost;
+      logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
+    }
   }
 
   // Forward one-shot-token debug flag if set (used for testing/debugging)

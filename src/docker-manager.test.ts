@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -232,6 +232,48 @@ describe('docker-manager', () => {
       // With getuid undefined, uid is undefined (falsy), so it attempts passwd lookup
       // Should find root's home directory from /etc/passwd
       expect(getRealUserHome()).toBe('/root');
+    });
+  });
+
+  describe('extractGhHostFromServerUrl', () => {
+    it('should return null for undefined GITHUB_SERVER_URL', () => {
+      expect(extractGhHostFromServerUrl(undefined)).toBeNull();
+    });
+
+    it('should return null for empty string GITHUB_SERVER_URL', () => {
+      expect(extractGhHostFromServerUrl('')).toBeNull();
+    });
+
+    it('should return null for github.com (public GitHub)', () => {
+      expect(extractGhHostFromServerUrl('https://github.com')).toBeNull();
+    });
+
+    it('should extract hostname for GHEC instance (*.ghe.com)', () => {
+      expect(extractGhHostFromServerUrl('https://acme.ghe.com')).toBe('acme.ghe.com');
+    });
+
+    it('should extract hostname for GHES instance', () => {
+      expect(extractGhHostFromServerUrl('https://github.company.com')).toBe('github.company.com');
+    });
+
+    it('should extract hostname for GHES instance with custom port', () => {
+      expect(extractGhHostFromServerUrl('https://github.internal:8443')).toBe('github.internal');
+    });
+
+    it('should handle GITHUB_SERVER_URL without trailing slash', () => {
+      expect(extractGhHostFromServerUrl('https://github.enterprise.local')).toBe('github.enterprise.local');
+    });
+
+    it('should handle GITHUB_SERVER_URL with trailing slash', () => {
+      expect(extractGhHostFromServerUrl('https://github.enterprise.local/')).toBe('github.enterprise.local');
+    });
+
+    it('should return null for invalid URL', () => {
+      expect(extractGhHostFromServerUrl('not-a-valid-url')).toBeNull();
+    });
+
+    it('should return null for malformed URL', () => {
+      expect(extractGhHostFromServerUrl('http://')).toBeNull();
     });
   });
 
