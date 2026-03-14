@@ -25,12 +25,11 @@ network:
     - defaults
     - github
     - playwright
+    - github.com
 tools:
   cache-memory: true
   github:
   playwright:
-    allowed_domains:
-      - github.com
   edit:
   bash:
     - "*"
@@ -92,12 +91,14 @@ post-steps:
 
 ## Output
 
-Add a **very brief** comment (max 5-10 lines) to the current pull request with:
-- PR titles only (no descriptions)
-- ✅ or ❌ for each test result
-- Overall status: PASS or FAIL
+**IMPORTANT: You must call `add_comment` tool TWICE:**
 
-Use the `add_comment` tool to add a **mystical oracle-themed comment** to the latest discussion (using the `discussion_number` you extracted in step 7) - be creative and use mystical language like "🔮 The ancient spirits stir..."
+1. Use the `add_comment` tool with `pull_request_number: ${{ github.event.pull_request.number }}` to add a **very brief** comment (max 5-10 lines) to the current pull request with:
+   - PR titles only (no descriptions)
+   - ✅ or ❌ for each test result
+   - Overall status: PASS or FAIL
+
+2. Use the `add_comment` tool with `discussion_number: <extracted_number>` to add a **mystical oracle-themed comment** to the latest discussion (using the `discussion_number` you extracted in step 7) - be creative and use mystical language like "🔮 The ancient spirits stir..."
 
 If all tests pass:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
