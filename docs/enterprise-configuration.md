@@ -24,6 +24,17 @@ When `GITHUB_SERVER_URL` is set to a `*.ghe.com` domain, AWF automatically deriv
 2. Detects that the hostname ends with `.ghe.com`
 3. Extracts the subdomain (e.g., `acme` from `acme.ghe.com`)
 4. Routes Copilot API traffic to `api.<subdomain>.ghe.com`
+5. **Auto-injects `GH_HOST` environment variable** in the agent container so the `gh` CLI targets your GHEC instance
+
+**GH_HOST Auto-Injection:**
+
+AWF automatically sets the `GH_HOST` environment variable inside the agent container when `GITHUB_SERVER_URL` points to a non-github.com instance. This ensures that the GitHub CLI (`gh`) commands inside the container automatically target your GHEC/GHES instance instead of defaulting to public GitHub.
+
+- For `GITHUB_SERVER_URL=https://acme.ghe.com`, AWF sets `GH_HOST=acme.ghe.com`
+- For `GITHUB_SERVER_URL=https://github.company.com`, AWF sets `GH_HOST=github.company.com`
+- For `GITHUB_SERVER_URL=https://github.com` (or unset), `GH_HOST` is not set (uses public GitHub)
+
+No manual configuration required — this happens automatically.
 
 ### Required Domains for GHEC
 
@@ -122,7 +133,10 @@ When `GITHUB_SERVER_URL` is set to a non-github.com, non-ghe.com domain, AWF aut
 ```bash
 # Example: GITHUB_SERVER_URL=https://github.company.com
 # AWF automatically uses: api.enterprise.githubcopilot.com
+# AWF automatically sets: GH_HOST=github.company.com
 ```
+
+Like with GHEC, AWF automatically sets `GH_HOST=github.company.com` in the agent container, ensuring `gh` CLI commands target your GHES instance.
 
 ### Required Domains for GHES
 
