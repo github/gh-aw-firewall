@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2213,6 +2213,125 @@ describe('cli', () => {
       expect(domains).toContain('api.githubcopilot.com');
       expect(domains).toContain('api.enterprise.githubcopilot.com');
       expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
+    });
+  });
+
+  describe('extractGhecDomainsFromServerUrl', () => {
+    it('should return empty array when no env vars are set', () => {
+      const domains = extractGhecDomainsFromServerUrl({});
+      expect(domains).toEqual([]);
+    });
+
+    it('should return empty array when GITHUB_SERVER_URL is github.com', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://github.com' });
+      expect(domains).toEqual([]);
+    });
+
+    it('should return empty array for GHES (non-ghe.com) server URL', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://github.mycompany.com' });
+      expect(domains).toEqual([]);
+    });
+
+    it('should extract GHEC tenant domain and API subdomain from GITHUB_SERVER_URL', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://myorg.ghe.com' });
+      expect(domains).toContain('myorg.ghe.com');
+      expect(domains).toContain('api.myorg.ghe.com');
+      expect(domains).toHaveLength(2);
+    });
+
+    it('should handle GITHUB_SERVER_URL with trailing slash', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://myorg.ghe.com/' });
+      expect(domains).toContain('myorg.ghe.com');
+      expect(domains).toContain('api.myorg.ghe.com');
+    });
+
+    it('should handle GITHUB_SERVER_URL with path components', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://acme.ghe.com/some/path' });
+      expect(domains).toContain('acme.ghe.com');
+      expect(domains).toContain('api.acme.ghe.com');
+    });
+
+    it('should extract from GITHUB_API_URL for GHEC', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_API_URL: 'https://api.myorg.ghe.com' });
+      expect(domains).toContain('api.myorg.ghe.com');
+    });
+
+    it('should not add GITHUB_API_URL domain if already present from GITHUB_SERVER_URL', () => {
+      const domains = extractGhecDomainsFromServerUrl({
+        GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+        GITHUB_API_URL: 'https://api.myorg.ghe.com',
+      });
+      expect(domains).toContain('myorg.ghe.com');
+      expect(domains).toContain('api.myorg.ghe.com');
+      // api.myorg.ghe.com should appear only once
+      const apiCount = domains.filter(d => d === 'api.myorg.ghe.com').length;
+      expect(apiCount).toBe(1);
+    });
+
+    it('should return empty array when GITHUB_API_URL is api.github.com', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_API_URL: 'https://api.github.com' });
+      expect(domains).toEqual([]);
+    });
+
+    it('should ignore non-ghe.com GITHUB_API_URL', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_API_URL: 'https://api.github.mycompany.com' });
+      expect(domains).toEqual([]);
+    });
+
+    it('should handle invalid GITHUB_SERVER_URL gracefully', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'not-a-valid-url' });
+      expect(domains).toEqual([]);
+    });
+
+    it('should handle invalid GITHUB_API_URL gracefully', () => {
+      const domains = extractGhecDomainsFromServerUrl({ GITHUB_API_URL: 'not-a-valid-url' });
+      expect(domains).toEqual([]);
+    });
+  });
+
+  describe('resolveApiTargetsToAllowedDomains with GHEC', () => {
+    it('should auto-add GHEC domains when GITHUB_SERVER_URL is a ghe.com tenant', () => {
+      const domains: string[] = [];
+      const env = { GITHUB_SERVER_URL: 'https://myorg.ghe.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('myorg.ghe.com');
+      expect(domains).toContain('api.myorg.ghe.com');
+    });
+
+    it('should not duplicate GHEC domains if already in allowlist', () => {
+      const domains: string[] = ['myorg.ghe.com', 'api.myorg.ghe.com'];
+      const env = { GITHUB_SERVER_URL: 'https://myorg.ghe.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      const tenantCount = domains.filter(d => d === 'myorg.ghe.com').length;
+      const apiCount = domains.filter(d => d === 'api.myorg.ghe.com').length;
+      expect(tenantCount).toBe(1);
+      expect(apiCount).toBe(1);
+    });
+
+    it('should not add GHEC domains for public github.com', () => {
+      const initialLength = 0;
+      const domains: string[] = [];
+      const env = { GITHUB_SERVER_URL: 'https://github.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      // github.com itself should NOT be auto-added just from GITHUB_SERVER_URL
+      expect(domains).not.toContain('github.com');
+      expect(domains).not.toContain('api.github.com');
+      expect(domains).toHaveLength(initialLength);
+    });
+
+    it('should auto-add GHEC domain from GITHUB_API_URL', () => {
+      const domains: string[] = [];
+      const env = { GITHUB_API_URL: 'https://api.myorg.ghe.com' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('api.myorg.ghe.com');
+    });
+
+    it('should combine GHEC domains with explicit API target', () => {
+      const domains: string[] = [];
+      const env = { GITHUB_SERVER_URL: 'https://company.ghe.com' };
+      resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'api.company.ghe.com' }, domains, env);
+      expect(domains).toContain('company.ghe.com');
+      expect(domains).toContain('api.company.ghe.com');
     });
   });
 

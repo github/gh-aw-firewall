@@ -379,6 +379,53 @@ export function emitApiProxyTargetWarnings(
 }
 
 /**
+ * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
+ * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname
+ * and its API subdomain so they can be auto-added to the firewall allowlist.
+ *
+ * @param env - Environment variables (defaults to process.env)
+ * @returns Array of domains to auto-add to allowlist, or empty array if not GHEC
+ */
+export function extractGhecDomainsFromServerUrl(
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const domains: string[] = [];
+
+  // Extract from GITHUB_SERVER_URL (e.g., https://company.ghe.com)
+  const serverUrl = env['GITHUB_SERVER_URL'];
+  if (serverUrl) {
+    try {
+      const hostname = new URL(serverUrl).hostname;
+      if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
+        // GHEC tenant: add the tenant domain and its API subdomain
+        // e.g., company.ghe.com → company.ghe.com + api.company.ghe.com
+        domains.push(hostname);
+        domains.push(`api.${hostname}`);
+      }
+    } catch {
+      // Invalid URL — skip
+    }
+  }
+
+  // Extract from GITHUB_API_URL (e.g., https://api.company.ghe.com)
+  const apiUrl = env['GITHUB_API_URL'];
+  if (apiUrl) {
+    try {
+      const hostname = new URL(apiUrl).hostname;
+      if (hostname !== 'api.github.com' && hostname.endsWith('.ghe.com')) {
+        if (!domains.includes(hostname)) {
+          domains.push(hostname);
+        }
+      }
+    } catch {
+      // Invalid URL — skip
+    }
+  }
+
+  return domains;
+}
+
+/**
  * Extracts GHES API domains from engine.api-target environment variable.
  * When engine.api-target is set (indicating GHES), returns the GHES hostname,
  * API subdomain, and required Copilot API domains.
@@ -461,6 +508,17 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push(options.anthropicApiTarget);
   } else if (env['ANTHROPIC_API_TARGET']) {
     apiTargets.push(env['ANTHROPIC_API_TARGET']);
+  }
+
+  // Auto-populate GHEC domains when GITHUB_SERVER_URL points to a *.ghe.com tenant
+  const ghecDomains = extractGhecDomainsFromServerUrl(env);
+  if (ghecDomains.length > 0) {
+    for (const domain of ghecDomains) {
+      if (!allowedDomains.includes(domain)) {
+        allowedDomains.push(domain);
+      }
+    }
+    debug(`Auto-added GHEC domains from GITHUB_SERVER_URL/GITHUB_API_URL: ${ghecDomains.join(', ')}`);
   }
 
   // Auto-populate GHES domains when engine.api-target is set
