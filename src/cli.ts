@@ -380,11 +380,13 @@ export function emitApiProxyTargetWarnings(
 
 /**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
- * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname
- * and its API subdomain so they can be auto-added to the firewall allowlist.
+ * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
+ * its API subdomain, the Copilot API subdomain, and the Copilot telemetry subdomain so they
+ * can be auto-added to the firewall allowlist.
  *
  * @param env - Environment variables (defaults to process.env)
- * @returns Array of domains to auto-add to allowlist, or empty array if not GHEC
+ * @returns Array of GHEC-related domains (tenant, api.*, copilot-api.*, copilot-telemetry-service.*)
+ *          to auto-add to the allowlist, or an empty array if not GHEC
  */
 export function extractGhecDomainsFromServerUrl(
   env: Record<string, string | undefined> = process.env
@@ -397,10 +399,14 @@ export function extractGhecDomainsFromServerUrl(
     try {
       const hostname = new URL(serverUrl).hostname;
       if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
-        // GHEC tenant: add the tenant domain and its API subdomain
+        // GHEC tenant with data residency: add the tenant domain, API subdomain,
+        // Copilot inference subdomain, and Copilot telemetry subdomain.
         // e.g., company.ghe.com → company.ghe.com + api.company.ghe.com
+        //        + copilot-api.company.ghe.com + copilot-telemetry-service.company.ghe.com
         domains.push(hostname);
         domains.push(`api.${hostname}`);
+        domains.push(`copilot-api.${hostname}`);
+        domains.push(`copilot-telemetry-service.${hostname}`);
       }
     } catch {
       // Invalid URL — skip

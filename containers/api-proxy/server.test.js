@@ -46,24 +46,24 @@ describe('deriveCopilotApiTarget', () => {
   });
 
   describe('GitHub Enterprise Cloud (*.ghe.com)', () => {
-    it('should derive api.<subdomain>.ghe.com for GHEC tenants', () => {
+    it('should derive copilot-api.<subdomain>.ghe.com for GHEC tenants', () => {
       process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
-      expect(deriveCopilotApiTarget()).toBe('api.mycompany.ghe.com');
+      expect(deriveCopilotApiTarget()).toBe('copilot-api.mycompany.ghe.com');
     });
 
     it('should handle GHEC URLs with trailing slash', () => {
       process.env.GITHUB_SERVER_URL = 'https://example.ghe.com/';
-      expect(deriveCopilotApiTarget()).toBe('api.example.ghe.com');
+      expect(deriveCopilotApiTarget()).toBe('copilot-api.example.ghe.com');
     });
 
     it('should handle GHEC URLs with path components', () => {
       process.env.GITHUB_SERVER_URL = 'https://acme.ghe.com/some/path';
-      expect(deriveCopilotApiTarget()).toBe('api.acme.ghe.com');
+      expect(deriveCopilotApiTarget()).toBe('copilot-api.acme.ghe.com');
     });
 
     it('should handle multi-part subdomain for GHEC', () => {
       process.env.GITHUB_SERVER_URL = 'https://dev.mycompany.ghe.com';
-      expect(deriveCopilotApiTarget()).toBe('api.dev.mycompany.ghe.com');
+      expect(deriveCopilotApiTarget()).toBe('copilot-api.dev.mycompany.ghe.com');
     });
   });
 
