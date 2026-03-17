@@ -1,19 +1,17 @@
 # Agentic Workflow Firewall
 
-A network firewall for agentic workflows. `awf` wraps any command in a Docker-based sandbox that enforces L7 (HTTP/HTTPS) domain whitelisting via [Squid proxy](https://www.squid-cache.org/), while giving the agent access to the host workspace, system binaries, and whitelisted home directories via selective bind mounts.
+A network firewall for agentic workflows that restricts outbound HTTP/HTTPS to an allowlist of domains.
 
 > [!TIP]
 > This project is a part of GitHub's explorations of [Agentic Workflows](https://github.com/github/gh-aw). For more background, check out the [project page](https://github.github.io/gh-aw/)! ✨
 
 ## How it works
 
-`awf` runs three Docker containers for each invocation:
+`awf` runs your command inside a Docker sandbox with three containers:
 
-- **Squid proxy** — enforces domain allowlist filtering; the agent's `HTTPS_PROXY`/`HTTP_PROXY` env vars route traffic through it, and iptables DNAT rules redirect any port 80/443 traffic that bypasses those env vars to Squid anyway
-- **Agent** — runs your command inside a chroot of the host filesystem, with network egress restricted to allowed domains only
-- **API proxy sidecar** *(optional, `--enable-api-proxy`)* — keeps LLM API keys (OpenAI, Anthropic, Copilot) outside the agent; the agent calls the sidecar without credentials and the sidecar injects the real key before forwarding through Squid
-
-The Squid proxy and agent containers are always required and start together. The API proxy sidecar is only started when explicitly enabled.
+- **Squid proxy** — filters outbound traffic by domain allowlist
+- **Agent** — runs your command; all HTTP/HTTPS is routed through Squid
+- **API proxy sidecar** *(optional)* — holds LLM API keys so they never reach the agent process
 
 ## Requirements
 
