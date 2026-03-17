@@ -1,16 +1,19 @@
 # Agentic Workflow Firewall
 
-A network firewall for agentic workflows with domain whitelisting. This tool provides L7 (HTTP/HTTPS) egress control using [Squid proxy](https://www.squid-cache.org/) and Docker containers, restricting network access to a whitelist of approved domains for AI agents and their MCP servers.
+A network firewall for agentic workflows. `awf` wraps any command in a Docker-based sandbox that enforces L7 (HTTP/HTTPS) domain whitelisting via [Squid proxy](https://www.squid-cache.org/), while giving the agent transparent access to the host filesystem.
 
 > [!TIP]
 > This project is a part of GitHub's explorations of [Agentic Workflows](https://github.com/github/gh-aw). For more background, check out the [project page](https://github.github.io/gh-aw/)! ✨
 
-## What it does
+## How it works
 
-- **L7 Domain Whitelisting**: Control HTTP/HTTPS traffic at the application layer
-- **Host-Level Enforcement**: Uses iptables DOCKER-USER chain to enforce firewall on ALL containers
-- **Chroot Mode**: Transparent access to host binaries (Python, Node.js, Go) while maintaining network isolation
-- **API Proxy Sidecar**: Optional Node.js-based proxy for secure LLM API credential management (OpenAI Codex, Anthropic Claude) that routes through Squid
+`awf` runs three Docker containers for each invocation:
+
+- **Squid proxy** — enforces domain allowlist filtering; all HTTP/HTTPS traffic is transparently redirected here via iptables DNAT
+- **Agent** — runs your command inside a chroot of the host filesystem, with network egress restricted to allowed domains only
+- **API proxy sidecar** *(optional, `--enable-api-proxy`)* — keeps LLM API keys (OpenAI, Anthropic, Copilot) outside the agent; the agent calls the sidecar without credentials and the sidecar injects the real key before forwarding through Squid
+
+The Squid proxy and agent containers are always required and start together. The API proxy sidecar is only started when explicitly enabled.
 
 ## Requirements
 
