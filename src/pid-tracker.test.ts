@@ -129,6 +129,24 @@ describe('pid-tracker', () => {
       );
       expect(entries).toHaveLength(0);
     });
+
+    it('should skip empty lines in the middle of content', () => {
+      const contentWithEmptyLines = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0CEA 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 123456 1 0000000000000000 100 0 0 10 0
+
+   1: 0100007F:01BB 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 789012 1 0000000000000000 100 0 0 10 0`;
+      const entries = parseNetTcp(contentWithEmptyLines);
+      expect(entries).toHaveLength(2);
+    });
+
+    it('should skip lines with fewer than 10 fields', () => {
+      const contentWithMalformedLine = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0CEA 00000000:0000 0A
+   1: 0100007F:01BB 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 789012 1 0000000000000000 100 0 0 10 0`;
+      const entries = parseNetTcp(contentWithMalformedLine);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].inode).toBe('789012');
+    });
   });
 
   describe('findInodeForPort', () => {
@@ -269,6 +287,30 @@ describe('pid-tracker', () => {
         const result = getProcessInfo(99999, mockProcPath);
         expect(result).toBeNull();
       });
+
+      it('should use unknown for cmdline when cmdline file is missing', () => {
+        // Create process with only comm file (no cmdline)
+        const pidDir = path.join(mockProcPath, '5555');
+        fs.mkdirSync(pidDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'comm'), 'node');
+
+        const result = getProcessInfo(5555, mockProcPath);
+        expect(result).not.toBeNull();
+        expect(result!.cmdline).toBe('unknown');
+        expect(result!.comm).toBe('node');
+      });
+
+      it('should use unknown for comm when comm file is missing', () => {
+        // Create process with only cmdline file (no comm)
+        const pidDir = path.join(mockProcPath, '5556');
+        fs.mkdirSync(pidDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'cmdline'), 'node\0server.js');
+
+        const result = getProcessInfo(5556, mockProcPath);
+        expect(result).not.toBeNull();
+        expect(result!.cmdline).toBe('node server.js');
+        expect(result!.comm).toBe('unknown');
+      });
     });
 
     describe('isPidTrackingAvailable', () => {
@@ -394,6 +436,43 @@ describe('pid-tracker', () => {
         expect(result).not.toBeNull();
         expect(result!.pid).toBe(2222);
         expect(result!.cmdline).toBe('curl https://api.github.com');
+      });
+
+      it('should return null when proc directory does not exist', () => {
+        const result = findProcessByInode('123456', '/nonexistent/proc/path/that/does/not/exist');
+        expect(result).toBeNull();
+      });
+
+      it('should use unknown cmdline when process has socket but no cmdline file', () => {
+        // Create a process with fd symlink but no cmdline file
+        const pidDir = path.join(mockProcPath, '7777');
+        fs.mkdirSync(pidDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'comm'), 'node');
+        const fdDir = path.join(pidDir, 'fd');
+        fs.mkdirSync(fdDir, { recursive: true });
+        fs.symlinkSync('socket:[777777]', path.join(fdDir, '3'));
+
+        const result = findProcessByInode('777777', mockProcPath);
+        expect(result).not.toBeNull();
+        expect(result!.pid).toBe(7777);
+        expect(result!.cmdline).toBe('unknown');
+        expect(result!.comm).toBe('node');
+      });
+
+      it('should use unknown comm when process has socket but no comm file', () => {
+        // Create a process with fd symlink and cmdline but no comm file
+        const pidDir = path.join(mockProcPath, '8888');
+        fs.mkdirSync(pidDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'cmdline'), 'node\0app.js');
+        const fdDir = path.join(pidDir, 'fd');
+        fs.mkdirSync(fdDir, { recursive: true });
+        fs.symlinkSync('socket:[888888]', path.join(fdDir, '3'));
+
+        const result = findProcessByInode('888888', mockProcPath);
+        expect(result).not.toBeNull();
+        expect(result!.pid).toBe(8888);
+        expect(result!.cmdline).toBe('node app.js');
+        expect(result!.comm).toBe('unknown');
       });
     });
 
