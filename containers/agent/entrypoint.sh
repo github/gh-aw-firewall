@@ -565,7 +565,7 @@ AWFEOF
   cat >> "/host${SCRIPT_FILE}" << 'AWFEOF'
 # npm global prefix: /usr is read-only in chroot, redirect global installs to $HOME
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-mkdir -p "$HOME/.npm-global/bin" 2>/dev/null || true
+mkdir -p "$HOME/.npm-global/bin" || echo "[awf] Warning: could not create npm global directory at $HOME/.npm-global/bin" >&2
 export PATH="$HOME/.npm-global/bin:$PATH"
 AWFEOF
 
