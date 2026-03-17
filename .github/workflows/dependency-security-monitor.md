@@ -178,7 +178,15 @@ For each identified safe update:
    ```
 4. If tests fail, revert the problematic update and document the issue
 
-### 3.3 Create a Single Pull Request
+### 3.3 Check for Existing Dependency Update PRs
+
+Before creating a new pull request, check if there is already an open dependency update PR:
+
+1. Search for open pull requests with the `[Deps]` title prefix
+2. If an existing open PR is found, **skip PR creation entirely** and note in the summary that updates were skipped because an existing PR is still open
+3. Only proceed to create a new PR if no existing open dependency update PR exists
+
+### 3.4 Create a Single Pull Request
 
 Bundle all successful safe updates into ONE pull request with:
 
