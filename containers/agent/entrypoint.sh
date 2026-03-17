@@ -558,6 +558,17 @@ AWFEOF
       echo "export GOROOT=\"${AWF_GOROOT}\"" >> "/host${SCRIPT_FILE}"
     fi
   fi
+
+  # Configure npm global prefix to a writable location inside chroot
+  # /usr is mounted read-only, so 'npm install -g' cannot write to /usr/local/lib/node_modules
+  # Redirect global installs to $HOME/.npm-global which is under the writable chroot home volume
+  cat >> "/host${SCRIPT_FILE}" << 'AWFEOF'
+# npm global prefix: /usr is read-only in chroot, redirect global installs to $HOME
+export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+mkdir -p "$HOME/.npm-global/bin" 2>/dev/null || true
+export PATH="$HOME/.npm-global/bin:$PATH"
+AWFEOF
+
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates
