@@ -380,11 +380,13 @@ export function emitApiProxyTargetWarnings(
 
 /**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
- * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname
- * and its API subdomain so they can be auto-added to the firewall allowlist.
+ * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
+ * its API subdomain, the Copilot API subdomain, and the Copilot telemetry subdomain so they
+ * can be auto-added to the firewall allowlist.
  *
  * @param env - Environment variables (defaults to process.env)
- * @returns Array of domains to auto-add to allowlist, or empty array if not GHEC
+ * @returns Array of GHEC-related domains (tenant, api.*, copilot-api.*, copilot-telemetry-service.*)
+ *          to auto-add to the allowlist, or an empty array if not GHEC
  */
 export function extractGhecDomainsFromServerUrl(
   env: Record<string, string | undefined> = process.env
