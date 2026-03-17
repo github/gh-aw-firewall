@@ -4,7 +4,7 @@ This file provides guidance to coding agent when working with code in this repos
 
 ## Project Overview
 
-`awf` (Agentic Workflow Firewall, package `@github/awf`) is a CLI that wraps any command in a sandboxed Docker network. It provides L7 (HTTP/HTTPS) egress control using Squid proxy, restricting network access to a whitelist of approved domains while giving the agent transparent access to the host filesystem via chroot.
+`awf` (Agentic Workflow Firewall, package `@github/awf`) is a CLI that wraps any command in a sandboxed Docker network. It provides L7 (HTTP/HTTPS) egress control using Squid proxy, restricting network access to a whitelist of approved domains while giving the agent access to the host workspace and selected system paths via chroot and selective bind mounts.
 
 ### Three Container Components
 
