@@ -2232,7 +2232,7 @@ describe('cli', () => {
       expect(domains).toEqual([]);
     });
 
-    it('should extract GHEC tenant domain and API subdomain from GITHUB_SERVER_URL', () => {
+    it('should extract GHEC tenant, API, Copilot API, and telemetry subdomains from GITHUB_SERVER_URL', () => {
       const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://myorg.ghe.com' });
       expect(domains).toContain('myorg.ghe.com');
       expect(domains).toContain('api.myorg.ghe.com');
