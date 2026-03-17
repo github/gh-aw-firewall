@@ -79,7 +79,7 @@ jobs:
           # GITHUB_SERVER_URL is automatically set by GitHub Actions
         run: |
           sudo -E awf \
-            --allow-domains ${{ github.server_url_hostname }},copilot-api.${{ github.server_url_hostname }},copilot-telemetry-service.${{ github.server_url_hostname }},raw.githubusercontent.com \
+            --allow-domains raw.githubusercontent.com \
             --enable-api-proxy \
             -- npx @github/copilot@latest --prompt "generate tests"
 ```
