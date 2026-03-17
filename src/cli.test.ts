@@ -2236,19 +2236,25 @@ describe('cli', () => {
       const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://myorg.ghe.com' });
       expect(domains).toContain('myorg.ghe.com');
       expect(domains).toContain('api.myorg.ghe.com');
-      expect(domains).toHaveLength(2);
+      expect(domains).toContain('copilot-api.myorg.ghe.com');
+      expect(domains).toContain('copilot-telemetry-service.myorg.ghe.com');
+      expect(domains).toHaveLength(4);
     });
 
     it('should handle GITHUB_SERVER_URL with trailing slash', () => {
       const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://myorg.ghe.com/' });
       expect(domains).toContain('myorg.ghe.com');
       expect(domains).toContain('api.myorg.ghe.com');
+      expect(domains).toContain('copilot-api.myorg.ghe.com');
+      expect(domains).toContain('copilot-telemetry-service.myorg.ghe.com');
     });
 
     it('should handle GITHUB_SERVER_URL with path components', () => {
       const domains = extractGhecDomainsFromServerUrl({ GITHUB_SERVER_URL: 'https://acme.ghe.com/some/path' });
       expect(domains).toContain('acme.ghe.com');
       expect(domains).toContain('api.acme.ghe.com');
+      expect(domains).toContain('copilot-api.acme.ghe.com');
+      expect(domains).toContain('copilot-telemetry-service.acme.ghe.com');
     });
 
     it('should extract from GITHUB_API_URL for GHEC', () => {
@@ -2296,6 +2302,8 @@ describe('cli', () => {
       resolveApiTargetsToAllowedDomains({}, domains, env);
       expect(domains).toContain('myorg.ghe.com');
       expect(domains).toContain('api.myorg.ghe.com');
+      expect(domains).toContain('copilot-api.myorg.ghe.com');
+      expect(domains).toContain('copilot-telemetry-service.myorg.ghe.com');
     });
 
     it('should not duplicate GHEC domains if already in allowlist', () => {

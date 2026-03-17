@@ -57,7 +57,8 @@ function deriveCopilotApiTarget() {
     return process.env.COPILOT_API_TARGET;
   }
   // Auto-derive from GITHUB_SERVER_URL:
-  // - GitHub Enterprise Cloud (*.ghe.com) → api.<subdomain>.ghe.com
+  // - GitHub Enterprise Cloud (*.ghe.com): Copilot inference/models/MCP are served at
+  //   copilot-api.<subdomain>.ghe.com (separate from the GitHub REST API at api.*)
   // - GitHub Enterprise Server (non-github.com, non-ghe.com) → api.enterprise.githubcopilot.com
   // - github.com → api.githubcopilot.com
   const serverUrl = process.env.GITHUB_SERVER_URL;
@@ -69,7 +70,9 @@ function deriveCopilotApiTarget() {
         if (hostname.endsWith('.ghe.com')) {
           // Extract subdomain: mycompany.ghe.com → mycompany
           const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
-          return `api.${subdomain}.ghe.com`;
+          // GHEC routes Copilot inference to copilot-api.<subdomain>.ghe.com,
+          // not to api.<subdomain>.ghe.com (which is the GitHub REST API)
+          return `copilot-api.${subdomain}.ghe.com`;
         }
         // GHES (any other non-github.com hostname)
         return 'api.enterprise.githubcopilot.com';

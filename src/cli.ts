@@ -397,10 +397,14 @@ export function extractGhecDomainsFromServerUrl(
     try {
       const hostname = new URL(serverUrl).hostname;
       if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
-        // GHEC tenant: add the tenant domain and its API subdomain
+        // GHEC tenant with data residency: add the tenant domain, API subdomain,
+        // Copilot inference subdomain, and Copilot telemetry subdomain.
         // e.g., company.ghe.com → company.ghe.com + api.company.ghe.com
+        //        + copilot-api.company.ghe.com + copilot-telemetry-service.company.ghe.com
         domains.push(hostname);
         domains.push(`api.${hostname}`);
+        domains.push(`copilot-api.${hostname}`);
+        domains.push(`copilot-telemetry-service.${hostname}`);
       }
     } catch {
       // Invalid URL — skip

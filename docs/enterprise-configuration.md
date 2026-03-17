@@ -16,14 +16,14 @@ When `GITHUB_SERVER_URL` is set to a `*.ghe.com` domain, AWF automatically deriv
 
 ```bash
 # Example: GITHUB_SERVER_URL=https://acme.ghe.com
-# AWF automatically uses: api.acme.ghe.com
+# AWF automatically uses: copilot-api.acme.ghe.com
 ```
 
 **How it works:**
 1. AWF reads `GITHUB_SERVER_URL` from your environment
 2. Detects that the hostname ends with `.ghe.com`
 3. Extracts the subdomain (e.g., `acme` from `acme.ghe.com`)
-4. Routes Copilot API traffic to `api.<subdomain>.ghe.com`
+4. Routes Copilot API traffic to `copilot-api.<subdomain>.ghe.com`
 5. **Auto-injects `GH_HOST` environment variable** in the agent container so the `gh` CLI targets your GHEC instance
 
 **GH_HOST Auto-Injection:**
@@ -45,15 +45,21 @@ export GITHUB_SERVER_URL="https://acme.ghe.com"
 export GITHUB_TOKEN="<your-copilot-cli-token>"
 
 sudo -E awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com,raw.githubusercontent.com \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com,copilot-telemetry-service.acme.ghe.com,raw.githubusercontent.com \
   --enable-api-proxy \
   -- npx @github/copilot@latest --prompt "your prompt here"
 ```
 
 **Domain breakdown:**
 - `acme.ghe.com` - Your GHEC tenant domain (git operations, web UI)
-- `api.acme.ghe.com` - Your tenant-specific Copilot API endpoint (automatically routed by AWF)
+- `api.acme.ghe.com` - GitHub REST API endpoint (AWF auto-adds this for `*.ghe.com` instances)
+- `copilot-api.acme.ghe.com` - Copilot inference, models, and MCP endpoint (AWF auto-adds this for `*.ghe.com` instances)
+- `copilot-telemetry-service.acme.ghe.com` - Copilot telemetry endpoint (AWF auto-adds this for `*.ghe.com` instances)
 - `raw.githubusercontent.com` - Raw content access (if using GitHub MCP server)
+
+:::note
+AWF automatically adds `api.<slug>.ghe.com`, `copilot-api.<slug>.ghe.com`, and `copilot-telemetry-service.<slug>.ghe.com` to the firewall allowlist when `GITHUB_SERVER_URL` points to a `*.ghe.com` domain. They are listed above for transparency; you do not need to include them manually.
+:::
 
 ### GitHub Actions (GHEC)
 
@@ -73,7 +79,7 @@ jobs:
           # GITHUB_SERVER_URL is automatically set by GitHub Actions
         run: |
           sudo -E awf \
-            --allow-domains ${{ github.server_url_hostname }},api.${{ github.server_url_hostname }},raw.githubusercontent.com \
+            --allow-domains ${{ github.server_url_hostname }},copilot-api.${{ github.server_url_hostname }},copilot-telemetry-service.${{ github.server_url_hostname }},raw.githubusercontent.com \
             --enable-api-proxy \
             -- npx @github/copilot@latest --prompt "generate tests"
 ```
@@ -114,7 +120,7 @@ export GITHUB_TOKEN="<your-copilot-cli-token>"
 export GITHUB_PERSONAL_ACCESS_TOKEN="<your-github-pat>"
 
 sudo -E awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com,raw.githubusercontent.com,registry.npmjs.org \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com,copilot-telemetry-service.acme.ghe.com,raw.githubusercontent.com,registry.npmjs.org \
   --enable-api-proxy \
   "npx @github/copilot@latest \
     --disable-builtin-mcps \
@@ -211,8 +217,8 @@ If automatic detection doesn't work for your setup, you can manually specify the
 ```bash
 # For GHEC with custom configuration
 sudo awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com \
-  --copilot-api-target api.acme.ghe.com \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com,copilot-telemetry-service.acme.ghe.com \
+  --copilot-api-target copilot-api.acme.ghe.com \
   --enable-api-proxy \
   -- your-command
 
@@ -231,7 +237,7 @@ The `--copilot-api-target` flag takes precedence over automatic detection.
 AWF determines the Copilot API endpoint in this order:
 
 1. **`--copilot-api-target` flag** (highest priority) - Manual override
-2. **`GITHUB_SERVER_URL` with `*.ghe.com`** - Automatic GHEC detection → `api.<subdomain>.ghe.com`
+2. **`GITHUB_SERVER_URL` with `*.ghe.com`** - Automatic GHEC detection → `copilot-api.<subdomain>.ghe.com`
 3. **`GITHUB_SERVER_URL` non-github.com** - Automatic GHES detection → `api.enterprise.githubcopilot.com`
 4. **Default** - Public GitHub → `api.githubcopilot.com`
 
@@ -252,7 +258,7 @@ Add `--keep-containers` to inspect the configuration:
 
 ```bash
 sudo -E awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com \
   --enable-api-proxy \
   --keep-containers \
   -- npx @github/copilot@latest --prompt "test"
@@ -265,7 +271,7 @@ sudo -E awf \
 docker logs awf-api-proxy | grep "Copilot proxy"
 
 # Expected for GHEC:
-# Copilot proxy listening on port 10002 (target: api.acme.ghe.com)
+# Copilot proxy listening on port 10002 (target: copilot-api.acme.ghe.com)
 
 # Expected for GHES:
 # Copilot proxy listening on port 10002 (target: api.enterprise.githubcopilot.com)
@@ -304,7 +310,7 @@ sudo cat /tmp/squid-logs-*/access.log | grep TCP_DENIED
 
 # Add the blocked domain to your allowlist
 sudo -E awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com,<blocked-domain> \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com,copilot-telemetry-service.acme.ghe.com,<blocked-domain> \
   --enable-api-proxy \
   -- your-command
 ```
@@ -366,7 +372,7 @@ docker pull ghcr.io/github/github-mcp-server:latest
 
 # 4. Run Copilot with AWF
 sudo -E awf \
-  --allow-domains acme.ghe.com,api.acme.ghe.com,raw.githubusercontent.com,registry.npmjs.org \
+  --allow-domains acme.ghe.com,copilot-api.acme.ghe.com,copilot-telemetry-service.acme.ghe.com,raw.githubusercontent.com,registry.npmjs.org \
   --enable-api-proxy \
   "npx @github/copilot@latest \
     --disable-builtin-mcps \
