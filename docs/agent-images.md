@@ -59,6 +59,7 @@ The `default` preset image (based on Ubuntu 22.04) includes the following pre-in
 | Node.js | v22.22.0 | — | Includes npm, npx |
 | npm | 10.9.4 | — | — |
 | npx | 10.9.4 | — | — |
+| Go | 1.24.1 | — | Includes `go` and `gofmt` |
 | Python | 3.10.12 | — | No pip installed by default |
 | git | 2.34.1 | `git` | Standard git client |
 | GitHub CLI | 2.4.0+dfsg1 | `gh-cli` | `gh` command for GitHub API |

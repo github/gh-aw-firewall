@@ -35,6 +35,22 @@ RUN set -eux; \
     fi && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Go from official tarball
+# Check if Go is already installed (common in runner images)
+ARG GO_VERSION=1.24.1
+RUN set -eux; \
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
+    if ! command -v go >/dev/null 2>&1; then \
+        curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz && \
+        tar -C /usr/local -xzf /tmp/go.tar.gz && \
+        rm /tmp/go.tar.gz && \
+        # Verify Go was installed correctly
+        /usr/local/go/bin/go version || (echo "ERROR: Go not installed correctly" && exit 1); \
+    fi
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/home/awfuser/go"
+ENV PATH="${GOPATH}/bin:${PATH}"
+
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
