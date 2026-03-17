@@ -9,7 +9,7 @@ A network firewall for agentic workflows. `awf` wraps any command in a Docker-ba
 
 `awf` runs three Docker containers for each invocation:
 
-- **Squid proxy** — enforces domain allowlist filtering; the agent's `HTTPS_PROXY`/`HTTP_PROXY` env vars route traffic through it, and iptables rules block any traffic that bypasses those env vars
+- **Squid proxy** — enforces domain allowlist filtering; the agent's `HTTPS_PROXY`/`HTTP_PROXY` env vars route traffic through it, and iptables DNAT rules redirect any port 80/443 traffic that bypasses those env vars to Squid anyway
 - **Agent** — runs your command inside a chroot of the host filesystem, with network egress restricted to allowed domains only
 - **API proxy sidecar** *(optional, `--enable-api-proxy`)* — keeps LLM API keys (OpenAI, Anthropic, Copilot) outside the agent; the agent calls the sidecar without credentials and the sidecar injects the real key before forwarding through Squid
 

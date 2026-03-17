@@ -19,14 +19,14 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Runs the user's command (e.g., `claude`, `copilot`, `curl`)
 - An iptables-init init container (`awf-iptables-init`) shares the agent's network namespace and runs `setup-iptables.sh` to redirect all port 80/443 traffic via DNAT to Squid before the user command starts
 - `entrypoint.sh` handles UID/GID mapping, DNS config, chroot to `/host`, and capability drop (`SYS_CHROOT`, `SYS_ADMIN` dropped before user code runs)
-- **Selective bind mounts** (not a blanket host FS mount): system binaries (`/usr`, `/bin`, `/lib`, `/opt`) read-only; workspace directory read-write; empty home volume with only whitelisted `$HOME` subdirs (`.cache`, `.config`, `.local`, `.claude`, `.cargo`, `.npm`, etc.); select `/etc` files (certs, passwd, hosts — not `/etc/shadow`)
+- **Selective bind mounts** (not a blanket host FS mount): system binaries (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev`) read-only; workspace and `/tmp` read-write; empty home volume with only whitelisted `$HOME` subdirs (`.cache`, `.config`, `.local`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.copilot`); select `/etc` files (SSL certs, `passwd`, `group`, `nsswitch.conf`, `ld.so.cache`, `alternatives`, `hosts` — not `/etc/shadow`)
 - Sensitive API keys are NOT present in the agent environment when `--enable-api-proxy` is active
 
 **3. API Proxy Sidecar (optional)** — `containers/api-proxy/`, IP `172.30.0.30`
 - Enabled via `--enable-api-proxy`; not started otherwise
 - Injects real API credentials (OpenAI, Anthropic, Copilot) that the agent never sees
-- Agent calls `http://172.30.0.30:10001` with no auth; sidecar adds the real key and forwards via Squid
-- Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10004 (OpenCode)
+- Agent calls the sidecar with no auth (e.g., `http://172.30.0.30:10001` for Anthropic); sidecar injects the real key and forwards via Squid
+- Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10004 (OpenCode) — these are discrete ports, not a contiguous range
 
 ### Documentation Files
 
@@ -221,18 +221,18 @@ The codebase follows a modular architecture with clear separation of concerns:
 
 **Agent Execution Container** (`containers/agent/`)
 - Based on `ubuntu:22.04`; can also use GitHub Actions parity image (`act` preset)
-- Selective bind mounts under `/host/`: system binaries (ro), workspace (rw), whitelisted `$HOME` subdirs (rw); NOT a blanket host FS mount — `/etc/shadow`, most of `/etc`, and non-whitelisted home dirs are excluded
+- Selective bind mounts under `/host/`: system binaries `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` (ro); workspace and `/tmp` (rw); whitelisted `$HOME` subdirs (rw); select `/etc` files — NOT a blanket host FS mount; `/etc/shadow`, unwhitelisted home dirs, and most of `/etc` are excluded
 - `entrypoint.sh` handles: UID/GID remapping → DNS config → SSL CA import → chroot to `/host` → capability drop → run user command as host user
 - **iptables init container** (`awf-iptables-init`): separate container sharing agent's network namespace via `network_mode: service:agent`. Runs `setup-iptables.sh` to configure NAT rules before user command starts. Agent waits for `/tmp/awf-init/ready` signal file.
 - Key iptables rules (in `setup-iptables.sh`):
   - Allow localhost (for stdio MCP servers) and DNS
   - Allow traffic to Squid proxy itself
-  - DNAT port 80 and 443 → Squid port 3128 (transparent proxy, no HTTP_PROXY env needed)
+  - DNAT port 80 and 443 → Squid port 3128 as a defense-in-depth fallback; `HTTP_PROXY` and `HTTPS_PROXY` are always set so proxy-aware tools use the forward proxy directly
   - Block dangerous ports (SSH 22, SMTP 25, databases, Redis, MongoDB)
 - `SYS_CHROOT` and `SYS_ADMIN` dropped via `capsh` before user code runs; `NET_ADMIN` never granted to agent (only to the iptables-init init container)
 
 **API Proxy Sidecar** (`containers/api-proxy/`) — *optional, requires `--enable-api-proxy`*
-- Node.js HTTP proxy at `172.30.0.30`; listens on ports 10000–10002, 10004
+- Node.js HTTP proxy at `172.30.0.30`; listens on ports 10000, 10001, 10002, 10004
 - Agent sends unauthenticated requests; sidecar injects the real API key before forwarding
 - All upstream traffic goes through Squid (`HTTP_PROXY` env set inside sidecar)
 - Agent container's `depends_on` adds `api-proxy: service_healthy` when enabled
