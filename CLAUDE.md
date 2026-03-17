@@ -19,6 +19,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Runs the user's command (e.g., `claude`, `copilot`, `curl`)
 - An iptables-init init container (`awf-iptables-init`) shares the agent's network namespace and runs `setup-iptables.sh` to redirect all port 80/443 traffic via DNAT to Squid before the user command starts
 - `entrypoint.sh` handles UID/GID mapping, DNS config, chroot to `/host`, and capability drop (`SYS_CHROOT`, `SYS_ADMIN` dropped before user code runs)
+- **Selective bind mounts** (not a blanket host FS mount): system binaries (`/usr`, `/bin`, `/lib`, `/opt`) read-only; workspace directory read-write; empty home volume with only whitelisted `$HOME` subdirs (`.cache`, `.config`, `.local`, `.claude`, `.cargo`, `.npm`, etc.); select `/etc` files (certs, passwd, hosts — not `/etc/shadow`)
 - Sensitive API keys are NOT present in the agent environment when `--enable-api-proxy` is active
 
 **3. API Proxy Sidecar (optional)** — `containers/api-proxy/`, IP `172.30.0.30`
@@ -220,7 +221,7 @@ The codebase follows a modular architecture with clear separation of concerns:
 
 **Agent Execution Container** (`containers/agent/`)
 - Based on `ubuntu:22.04`; can also use GitHub Actions parity image (`act` preset)
-- Mounts entire host filesystem at `/host` (read-only) + writable volume at `/host$HOME`
+- Selective bind mounts under `/host/`: system binaries (ro), workspace (rw), whitelisted `$HOME` subdirs (rw); NOT a blanket host FS mount — `/etc/shadow`, most of `/etc`, and non-whitelisted home dirs are excluded
 - `entrypoint.sh` handles: UID/GID remapping → DNS config → SSL CA import → chroot to `/host` → capability drop → run user command as host user
 - **iptables init container** (`awf-iptables-init`): separate container sharing agent's network namespace via `network_mode: service:agent`. Runs `setup-iptables.sh` to configure NAT rules before user command starts. Agent waits for `/tmp/awf-init/ready` signal file.
 - Key iptables rules (in `setup-iptables.sh`):

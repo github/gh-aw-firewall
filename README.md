@@ -1,6 +1,6 @@
 # Agentic Workflow Firewall
 
-A network firewall for agentic workflows. `awf` wraps any command in a Docker-based sandbox that enforces L7 (HTTP/HTTPS) domain whitelisting via [Squid proxy](https://www.squid-cache.org/), while giving the agent transparent access to the host filesystem.
+A network firewall for agentic workflows. `awf` wraps any command in a Docker-based sandbox that enforces L7 (HTTP/HTTPS) domain whitelisting via [Squid proxy](https://www.squid-cache.org/), while giving the agent access to the host workspace, system binaries, and whitelisted home directories via selective bind mounts.
 
 > [!TIP]
 > This project is a part of GitHub's explorations of [Agentic Workflows](https://github.com/github/gh-aw). For more background, check out the [project page](https://github.github.io/gh-aw/)! ✨
