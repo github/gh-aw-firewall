@@ -212,9 +212,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 - Based on `ubuntu/squid:latest`
 - Config passed via `AWF_SQUID_CONFIG_B64` env var (base64-encoded); entrypoint decodes to `/etc/squid/squid.conf`
   - **Why base64?** Docker-in-Docker: the Docker daemon cannot access host filesystem paths, so file bind mounts don't work. See memory notes on DinD issue.
-- Exposes port 3128 as a standard **forward proxy** (not intercept mode)
-- HTTPS reaches Squid via `HTTPS_PROXY`/`https_proxy` env vars (explicit `CONNECT` method)
-- HTTP reaches Squid via iptables DNAT — `http_proxy` (lowercase) is intentionally NOT set, because curl on Ubuntu 22.04 ignores uppercase `HTTP_PROXY` for HTTP (httpoxy mitigation); setting it would make Squid's 403 return exit code 0, breaking security tests
+- Exposes port 3128 as a standard **forward proxy** (not intercept/transparent mode)
+- **HTTPS**: reaches Squid via `HTTPS_PROXY`/`https_proxy` env vars → explicit `CONNECT` method. Tools that ignore proxy env vars will have their port 443 traffic DNAT'd to Squid, but the raw TLS ClientHello is rejected (Squid expects `CONNECT`), so the connection fails — still blocked, just with a TLS error instead of 403.
+- **HTTP**: `http_proxy` (lowercase) is intentionally NOT set. curl on Ubuntu 22.04 ignores uppercase `HTTP_PROXY` for HTTP (httpoxy mitigation), so HTTP falls through to iptables DNAT → Squid, which handles it fine. Setting `http_proxy` would make Squid's 403 page return exit code 0, breaking security test assertions.
 - Logs to shared volume `squid-logs:/var/log/squid`
 - **Network:** `awf-net` at `172.30.0.10`; allowed unrestricted outbound via iptables `-s 172.30.0.10 -j ACCEPT`
 
@@ -248,8 +248,9 @@ Docker Compose: Squid starts (healthcheck) → [API Proxy starts (optional)] →
     ↓
 User command executes in Agent container (chrooted to /host)
     ↓
-HTTPS traffic → HTTPS_PROXY env var → Squid:3128 (CONNECT) → domain ACL → allowed or blocked
-HTTP traffic  → iptables DNAT → Squid:3128 → domain ACL → allowed or 403
+HTTPS (proxy-aware tools)  → HTTPS_PROXY env var → Squid:3128 (CONNECT) → domain ACL → allowed or blocked
+HTTPS (proxy-unaware tools)→ iptables DNAT → Squid:3128 → TLS handshake rejected (connection error)
+HTTP                       → iptables DNAT → Squid:3128 → domain ACL → allowed or 403
 API calls (optional) → http://172.30.0.30:10001 → API Proxy injects key → Squid → upstream API
     ↓
 docker compose down -v + rm /tmp/awf-<ts>/
