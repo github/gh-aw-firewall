@@ -195,6 +195,19 @@ export class AwfRunner {
       throw error;
     }
 
+    // With reject: false, execa returns instead of throwing on timeout.
+    // Detect this case and return a proper timeout result.
+    if (result.timedOut) {
+      return {
+        exitCode: -1,
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
+        success: false,
+        timedOut: true,
+        workDir: this.extractWorkDir(result.stderr || ''),
+      };
+    }
+
     // Extract work directory from stderr logs
     const workDir = this.extractWorkDir(result.stderr || '');
 
@@ -387,6 +400,19 @@ export class AwfRunner {
         };
       }
       throw error;
+    }
+
+    // With reject: false, execa returns instead of throwing on timeout.
+    // Detect this case and return a proper timeout result.
+    if (result.timedOut) {
+      return {
+        exitCode: -1,
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
+        success: false,
+        timedOut: true,
+        workDir: this.extractWorkDir(result.stderr || ''),
+      };
     }
 
     const workDir = this.extractWorkDir(result.stderr || '');

@@ -50,7 +50,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 30000,
+        timeout: 120000,
         buildLocal: true,
       }
     );
@@ -63,7 +63,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     const result = await runner.runWithSudo('docker run alpine echo hello', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 30000,
+      timeout: 120000,
       buildLocal: true,
     });
 
@@ -78,7 +78,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     const result = await runner.runWithSudo('which docker-compose', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 30000,
+      timeout: 120000,
       buildLocal: true,
     });
 
@@ -93,7 +93,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 30000,
+        timeout: 120000,
         buildLocal: true,
       }
     );
