@@ -212,7 +212,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 - Based on `ubuntu/squid:latest`
 - Config passed via `AWF_SQUID_CONFIG_B64` env var (base64-encoded); entrypoint decodes to `/etc/squid/squid.conf`
   - **Why base64?** Docker-in-Docker: the Docker daemon cannot access host filesystem paths, so file bind mounts don't work. See memory notes on DinD issue.
-- Exposes port 3128 for proxy traffic (intercept mode — no HTTP_PROXY env var needed in agent)
+- Exposes port 3128 as a standard **forward proxy** (not intercept mode)
+- HTTPS reaches Squid via `HTTPS_PROXY`/`https_proxy` env vars (explicit `CONNECT` method)
+- HTTP reaches Squid via iptables DNAT — `http_proxy` (lowercase) is intentionally NOT set, because curl on Ubuntu 22.04 ignores uppercase `HTTP_PROXY` for HTTP (httpoxy mitigation); setting it would make Squid's 403 return exit code 0, breaking security tests
 - Logs to shared volume `squid-logs:/var/log/squid`
 - **Network:** `awf-net` at `172.30.0.10`; allowed unrestricted outbound via iptables `-s 172.30.0.10 -j ACCEPT`
 
@@ -246,7 +248,8 @@ Docker Compose: Squid starts (healthcheck) → [API Proxy starts (optional)] →
     ↓
 User command executes in Agent container (chrooted to /host)
     ↓
-HTTP/HTTPS traffic → iptables DNAT → Squid:3128 → domain ACL → allowed or 403
+HTTPS traffic → HTTPS_PROXY env var → Squid:3128 (CONNECT) → domain ACL → allowed or blocked
+HTTP traffic  → iptables DNAT → Squid:3128 → domain ACL → allowed or 403
 API calls (optional) → http://172.30.0.30:10001 → API Proxy injects key → Squid → upstream API
     ↓
 docker compose down -v + rm /tmp/awf-<ts>/
