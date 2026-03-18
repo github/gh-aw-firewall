@@ -1212,8 +1212,8 @@ program
   )
   .option(
     '--memory-limit <limit>',
-    'Memory limit for the agent container (e.g., 1g, 2g, 4g, 512m). Default: 2g',
-    '2g'
+    'Memory limit for the agent container (e.g., 4g, 6g, 8g, 512m). Default: 6g',
+    '6g'
   )
   .option(
     '--tty',

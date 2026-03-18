@@ -315,7 +315,7 @@ export interface WrapperConfig {
    * Accepts Docker memory format: a positive integer followed by a unit suffix
    * (b, k, m, g). Controls the maximum amount of memory the container can use.
    *
-   * @default '2g'
+   * @default '6g'
    * @example '4g'
    * @example '512m'
    */

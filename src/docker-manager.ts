@@ -1027,9 +1027,12 @@ export function generateDockerCompose(
       `seccomp=${config.workDir}/seccomp-profile.json`,
       'apparmor:unconfined',
     ],
-    // Resource limits to prevent DoS attacks (conservative defaults)
-    mem_limit: config.memoryLimit || '2g',
-    memswap_limit: config.memoryLimit || '2g',  // No swap (same as mem_limit)
+    // Resource limits to prevent DoS attacks
+    // Default 6g matches ~85% of GitHub Actions runner RAM (7GB),
+    // with swap unlimited so the kernel can use swap as a pressure valve
+    // instead of immediately OOM-killing the agent process.
+    mem_limit: config.memoryLimit || '6g',
+    memswap_limit: config.memoryLimit ? config.memoryLimit : '-1',  // Disable swap when user specifies limit
     pids_limit: 1000,          // Max 1000 processes
     cpu_shares: 1024,          // Default CPU share
     stdin_open: true,
