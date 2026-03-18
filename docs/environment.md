@@ -21,7 +21,7 @@ The following are always set/overridden: `PATH` (container values).
 
 Variables from `--env` flags override everything else.
 
-**Note:** As of v0.13.5, `HTTP_PROXY` and `HTTPS_PROXY` are no longer automatically set. Traffic is transparently redirected to Squid via iptables NAT rules. If needed, you can still set these manually with `--env HTTP_PROXY=...`
+**Proxy variables set automatically:** `HTTP_PROXY`, `HTTPS_PROXY`, and `https_proxy` are always set to point to the Squid proxy (`http://172.30.0.10:3128`). Note that lowercase `http_proxy` is intentionally **not** set — some curl builds on Ubuntu 22.04 ignore uppercase `HTTP_PROXY` for HTTP URLs (httpoxy mitigation), so HTTP traffic falls through to iptables DNAT interception instead. iptables DNAT serves as a defense-in-depth fallback for both HTTP and HTTPS.
 
 ## Security Warning: `--env-all`
 
@@ -32,9 +32,9 @@ Using `--env-all` passes all host environment variables to the container, which 
 3. **Unnecessary Access**: Extra variables increase attack surface (violates least privilege)
 4. **Accidental Sharing**: Easy to forget what's in your environment when sharing commands
 
-**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`, `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`
+**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
 
-**Proxy variables:** Host proxy settings are excluded to prevent conflicts with iptables-based traffic redirection. The firewall uses transparent proxying via iptables NAT rules instead of environment variable-based proxy configuration.
+**Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy` (and their lowercase/uppercase variants) from the host are ignored when using `--env-all` because the firewall always sets these to point to Squid. Host proxy settings cannot be passed through as they would conflict with the firewall's traffic routing.
 
 ## Best Practices
 
@@ -61,6 +61,11 @@ The following environment variables are set internally by the firewall and used 
 
 | Variable | Description | Example |
 |----------|-------------|---------|
+| `HTTP_PROXY` | Squid forward proxy for HTTP traffic | `http://172.30.0.10:3128` |
+| `HTTPS_PROXY` | Squid forward proxy for HTTPS traffic (explicit CONNECT) | `http://172.30.0.10:3128` |
+| `https_proxy` | Lowercase alias for tools that only check lowercase (e.g., Yarn 4, undici) | `http://172.30.0.10:3128` |
+| `SQUID_PROXY_HOST` | Squid proxy hostname (for tools needing host separately) | `squid-proxy` |
+| `SQUID_PROXY_PORT` | Squid proxy port | `3128` |
 | `AWF_DNS_SERVERS` | Comma-separated list of trusted DNS servers | `8.8.8.8,8.8.4.4` |
 | `AWF_CHROOT_ENABLED` | Whether chroot mode is enabled | `true` |
 | `AWF_HOST_PATH` | Host PATH passed to chroot environment | `/usr/local/bin:/usr/bin` |
@@ -94,8 +99,6 @@ When enabled, the library logs:
 - Environment cleanup confirmations
 
 **Note:** Debug output goes to stderr and does not interfere with command stdout. See `containers/agent/one-shot-token/README.md` for complete documentation.
-
-**Historical note:** Prior to v0.13.5, `HTTP_PROXY` and `HTTPS_PROXY` were set to point to Squid. These have been removed in favor of transparent iptables-based redirection, which is more reliable and avoids conflicts with tools that don't honor proxy environment variables.
 
 ## Troubleshooting
 
