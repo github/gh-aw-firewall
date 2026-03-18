@@ -543,8 +543,23 @@ AWFEOF
 # Set comprehensive PATH for host binaries
 # Include standard paths plus tool cache locations (GitHub Actions)
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-# Add tool cache paths if they exist (Python, Node, Go, etc.)
-[ -d "/opt/hostedtoolcache" ] && export PATH="/opt/hostedtoolcache/node/*/x64/bin:/opt/hostedtoolcache/Python/*/x64/bin:/opt/hostedtoolcache/go/*/x64/bin:$PATH"
+# Dynamically scan /opt/hostedtoolcache for all installed tool bin directories
+# This covers tools installed by any setup-* action (setup-ruby, setup-dart,
+# setup-python, setup-node, setup-go, setup-java, etc.)
+if [ -d "/opt/hostedtoolcache" ]; then
+  for tool_dir in /opt/hostedtoolcache/*/; do
+    for version_dir in "$tool_dir"*/; do
+      for arch_dir in "$version_dir"*/; do
+        if [ -d "${arch_dir}bin" ]; then
+          export PATH="${arch_dir}bin:$PATH"
+        elif [ -d "$arch_dir" ] && [ -x "$(find "$arch_dir" -maxdepth 0 -type d 2>/dev/null)" ]; then
+          # Some tools (e.g., Go) put binaries directly in the arch directory
+          export PATH="${arch_dir}:$PATH"
+        fi
+      done
+    done
+  done
+fi
 # Add user's local bin if it exists
 [ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
 # Add Cargo bin for Rust (common in development)

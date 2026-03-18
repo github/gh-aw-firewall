@@ -147,6 +147,67 @@ export function extractGhHostFromServerUrl(serverUrl: string | undefined): strin
 }
 
 /**
+ * Reads path entries from the $GITHUB_PATH file used by GitHub Actions.
+ *
+ * When setup-* actions (e.g., setup-ruby, setup-dart, setup-python) run before AWF,
+ * they add tool paths to the $GITHUB_PATH file. The Actions runner prepends these
+ * to $PATH for subsequent steps, but if `sudo` resets PATH (depending on sudoers
+ * configuration), those entries may be lost by the time AWF reads process.env.PATH.
+ *
+ * This function reads the $GITHUB_PATH file directly and returns any path entries
+ * found, so they can be merged into AWF_HOST_PATH regardless of sudo behavior.
+ *
+ * @returns Array of path entries from the $GITHUB_PATH file, or empty array if unavailable
+ * @internal Exported for testing
+ */
+export function readGitHubPathEntries(): string[] {
+  const githubPathFile = process.env.GITHUB_PATH;
+  if (!githubPathFile) {
+    return [];
+  }
+
+  try {
+    const content = fs.readFileSync(githubPathFile, 'utf-8');
+    return content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+  } catch {
+    // File doesn't exist or isn't readable — expected outside GitHub Actions
+    return [];
+  }
+}
+
+/**
+ * Merges path entries from the $GITHUB_PATH file into a PATH string.
+ * Entries from $GITHUB_PATH are prepended (they have higher priority, matching
+ * how the Actions runner processes them). Duplicate entries are removed.
+ *
+ * @param currentPath - The current PATH string (e.g., from process.env.PATH)
+ * @param githubPathEntries - Path entries read from the $GITHUB_PATH file
+ * @returns Merged PATH string with $GITHUB_PATH entries prepended
+ * @internal Exported for testing
+ */
+export function mergeGitHubPathEntries(currentPath: string, githubPathEntries: string[]): string {
+  if (githubPathEntries.length === 0) {
+    return currentPath;
+  }
+
+  const currentEntries = currentPath ? currentPath.split(':') : [];
+  const currentSet = new Set(currentEntries);
+
+  // Only add entries that aren't already in the current PATH
+  const newEntries = githubPathEntries.filter(entry => !currentSet.has(entry));
+
+  if (newEntries.length === 0) {
+    return currentPath;
+  }
+
+  // Prepend new entries (setup-* actions expect their paths to have priority)
+  return [...newEntries, ...currentEntries].join(':');
+}
+
+/**
  * Gets existing Docker network subnets to avoid conflicts
  */
 async function getExistingDockerSubnets(): Promise<string[]> {
@@ -456,9 +517,18 @@ export function generateDockerCompose(
   }
 
   // Pass the host's actual PATH and tool directories so the entrypoint can use them
-  // This ensures toolcache paths (Python, Node, Go, Rust, Java) are correctly resolved
+  // This ensures toolcache paths (Python, Node, Go, Rust, Java, Ruby, Dart, etc.) are correctly resolved
+  //
+  // Also merge paths from $GITHUB_PATH file. When setup-* actions (setup-ruby, setup-dart,
+  // setup-python, etc.) run before AWF, they write tool paths to this file. The Actions
+  // runner normally prepends these to $PATH, but sudo may reset PATH, losing them.
+  // Reading the file directly ensures these paths are always included.
   if (process.env.PATH) {
-    environment.AWF_HOST_PATH = process.env.PATH;
+    const githubPathEntries = readGitHubPathEntries();
+    environment.AWF_HOST_PATH = mergeGitHubPathEntries(process.env.PATH, githubPathEntries);
+    if (githubPathEntries.length > 0) {
+      logger.debug(`Merged ${githubPathEntries.length} path(s) from $GITHUB_PATH into AWF_HOST_PATH`);
+    }
   }
   // Go on GitHub Actions uses trimmed binaries that require GOROOT to be set
   // Pass GOROOT as AWF_GOROOT so entrypoint.sh can export it in the chroot script
