@@ -552,9 +552,6 @@ if [ -d "/opt/hostedtoolcache" ]; then
       for arch_dir in "$version_dir"*/; do
         if [ -d "${arch_dir}bin" ]; then
           export PATH="${arch_dir}bin:$PATH"
-        elif [ -d "$arch_dir" ] && [ -x "$(find "$arch_dir" -maxdepth 0 -type d 2>/dev/null)" ]; then
-          # Some tools (e.g., Go) put binaries directly in the arch directory
-          export PATH="${arch_dir}:$PATH"
         fi
       done
     done
