@@ -1271,8 +1271,16 @@ program
     'Target hostname for OpenAI API requests (default: api.openai.com)',
   )
   .option(
+    '--openai-api-base-path <path>',
+    'Base path prefix for OpenAI API requests (e.g. /serving-endpoints for Databricks)',
+  )
+  .option(
     '--anthropic-api-target <host>',
     'Target hostname for Anthropic API requests (default: api.anthropic.com)',
+  )
+  .option(
+    '--anthropic-api-base-path <path>',
+    'Base path prefix for Anthropic API requests (e.g. /anthropic)',
   )
   .option(
     '--rate-limit-rpm <n>',
@@ -1623,7 +1631,9 @@ program
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
       openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
+      openaiApiBasePath: options.openaiApiBasePath || process.env.OPENAI_API_BASE_PATH,
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
+      anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
     };
 
     // Parse and validate --agent-timeout

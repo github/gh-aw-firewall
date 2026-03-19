@@ -2,7 +2,7 @@
  * Tests for api-proxy server.js
  */
 
-const { deriveCopilotApiTarget } = require('./server');
+const { deriveCopilotApiTarget, normalizeBasePath } = require('./server');
 
 describe('deriveCopilotApiTarget', () => {
   let originalEnv;
@@ -120,5 +120,47 @@ describe('deriveCopilotApiTarget', () => {
       process.env.GITHUB_SERVER_URL = 'ht!tp://bad-url';
       expect(deriveCopilotApiTarget()).toBe('api.githubcopilot.com');
     });
+  });
+});
+
+describe('normalizeBasePath', () => {
+  it('should return empty string for undefined', () => {
+    expect(normalizeBasePath(undefined)).toBe('');
+  });
+
+  it('should return empty string for null', () => {
+    expect(normalizeBasePath(null)).toBe('');
+  });
+
+  it('should return empty string for empty string', () => {
+    expect(normalizeBasePath('')).toBe('');
+  });
+
+  it('should return empty string for whitespace-only string', () => {
+    expect(normalizeBasePath('   ')).toBe('');
+  });
+
+  it('should preserve a well-formed path', () => {
+    expect(normalizeBasePath('/serving-endpoints')).toBe('/serving-endpoints');
+  });
+
+  it('should add leading slash when missing', () => {
+    expect(normalizeBasePath('serving-endpoints')).toBe('/serving-endpoints');
+  });
+
+  it('should strip trailing slash', () => {
+    expect(normalizeBasePath('/serving-endpoints/')).toBe('/serving-endpoints');
+  });
+
+  it('should handle multi-segment paths', () => {
+    expect(normalizeBasePath('/openai/deployments/gpt-4')).toBe('/openai/deployments/gpt-4');
+  });
+
+  it('should normalize a path missing the leading slash and with trailing slash', () => {
+    expect(normalizeBasePath('openai/deployments/gpt-4/')).toBe('/openai/deployments/gpt-4');
+  });
+
+  it('should preserve a root-only path', () => {
+    expect(normalizeBasePath('/')).toBe('/');
   });
 });

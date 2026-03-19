@@ -560,6 +560,23 @@ export interface WrapperConfig {
   openaiApiTarget?: string;
 
   /**
+   * Base path prefix for OpenAI API requests (used by API proxy sidecar)
+   *
+   * When set, this path is prepended to every upstream request path so that
+   * endpoints which require a URL prefix (e.g. Databricks serving endpoints,
+   * Azure OpenAI deployments) work correctly.
+   *
+   * Can be set via:
+   * - CLI flag: `--openai-api-base-path <path>`
+   * - Environment variable: `OPENAI_API_BASE_PATH`
+   *
+   * @default ''
+   * @example '/serving-endpoints'
+   * @example '/openai/deployments/gpt-4'
+   */
+  openaiApiBasePath?: string;
+
+  /**
    * Target hostname for Anthropic API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
@@ -580,6 +597,21 @@ export interface WrapperConfig {
    * ```
    */
   anthropicApiTarget?: string;
+
+  /**
+   * Base path prefix for Anthropic API requests (used by API proxy sidecar)
+   *
+   * When set, this path is prepended to every upstream request path so that
+   * endpoints which require a URL prefix work correctly.
+   *
+   * Can be set via:
+   * - CLI flag: `--anthropic-api-base-path <path>`
+   * - Environment variable: `ANTHROPIC_API_BASE_PATH`
+   *
+   * @default ''
+   * @example '/anthropic'
+   */
+  anthropicApiBasePath?: string;
 
   /**
    * Enable Data Loss Prevention (DLP) scanning
