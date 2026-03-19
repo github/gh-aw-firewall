@@ -120,6 +120,12 @@ describe('docker-manager', () => {
       delete process.env.SUDO_UID;
       expect(getSafeHostUid()).toBe('1001');
     });
+
+    it('should return 1000 when SUDO_UID is not a valid number', () => {
+      process.getuid = () => 0; // Running as root
+      process.env.SUDO_UID = 'not-a-number';
+      expect(getSafeHostUid()).toBe('1000');
+    });
   });
 
   describe('getSafeHostGid', () => {
@@ -169,6 +175,12 @@ describe('docker-manager', () => {
       process.getgid = () => 1001;
       delete process.env.SUDO_GID;
       expect(getSafeHostGid()).toBe('1001');
+    });
+
+    it('should return 1000 when SUDO_GID is not a valid number', () => {
+      process.getgid = () => 0; // Running as root
+      process.env.SUDO_GID = 'not-a-number';
+      expect(getSafeHostGid()).toBe('1000');
     });
   });
 
@@ -795,15 +807,17 @@ describe('docker-manager', () => {
       expect(environment.AWF_CHROOT_ENABLED).toBe('true');
     });
 
-    it('should pass GOROOT, CARGO_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
+    it('should pass GOROOT, CARGO_HOME, RUSTUP_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
       const originalGoroot = process.env.GOROOT;
       const originalCargoHome = process.env.CARGO_HOME;
+      const originalRustupHome = process.env.RUSTUP_HOME;
       const originalJavaHome = process.env.JAVA_HOME;
       const originalDotnetRoot = process.env.DOTNET_ROOT;
       const originalBunInstall = process.env.BUN_INSTALL;
 
       process.env.GOROOT = '/usr/local/go';
       process.env.CARGO_HOME = '/home/user/.cargo';
+      process.env.RUSTUP_HOME = '/home/user/.rustup';
       process.env.JAVA_HOME = '/usr/lib/jvm/java-17';
       process.env.DOTNET_ROOT = '/usr/lib/dotnet';
       process.env.BUN_INSTALL = '/home/user/.bun';
@@ -815,6 +829,7 @@ describe('docker-manager', () => {
 
         expect(environment.AWF_GOROOT).toBe('/usr/local/go');
         expect(environment.AWF_CARGO_HOME).toBe('/home/user/.cargo');
+        expect(environment.AWF_RUSTUP_HOME).toBe('/home/user/.rustup');
         expect(environment.AWF_JAVA_HOME).toBe('/usr/lib/jvm/java-17');
         expect(environment.AWF_DOTNET_ROOT).toBe('/usr/lib/dotnet');
         expect(environment.AWF_BUN_INSTALL).toBe('/home/user/.bun');
@@ -829,6 +844,11 @@ describe('docker-manager', () => {
           process.env.CARGO_HOME = originalCargoHome;
         } else {
           delete process.env.CARGO_HOME;
+        }
+        if (originalRustupHome !== undefined) {
+          process.env.RUSTUP_HOME = originalRustupHome;
+        } else {
+          delete process.env.RUSTUP_HOME;
         }
         if (originalJavaHome !== undefined) {
           process.env.JAVA_HOME = originalJavaHome;
@@ -2048,6 +2068,22 @@ describe('docker-manager', () => {
         expect(env.OPENAI_API_TARGET).toBeUndefined();
       });
 
+      it('should set OPENAI_API_BASE_PATH in api-proxy when openaiApiBasePath is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiBasePath: '/serving-endpoints' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_API_BASE_PATH).toBe('/serving-endpoints');
+      });
+
+      it('should not set OPENAI_API_BASE_PATH in api-proxy when openaiApiBasePath is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_API_BASE_PATH).toBeUndefined();
+      });
+
       it('should set ANTHROPIC_API_TARGET in api-proxy when anthropicApiTarget is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key', anthropicApiTarget: 'custom.anthropic-router.internal' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
@@ -2062,6 +2098,22 @@ describe('docker-manager', () => {
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         expect(env.ANTHROPIC_API_TARGET).toBeUndefined();
+      });
+
+      it('should set ANTHROPIC_API_BASE_PATH in api-proxy when anthropicApiBasePath is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key', anthropicApiBasePath: '/anthropic' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.ANTHROPIC_API_BASE_PATH).toBe('/anthropic');
+      });
+
+      it('should not set ANTHROPIC_API_BASE_PATH in api-proxy when anthropicApiBasePath is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.ANTHROPIC_API_BASE_PATH).toBeUndefined();
       });
 
       it('should set COPILOT_API_TARGET in api-proxy when copilotApiTarget is provided', () => {
