@@ -73,6 +73,27 @@ function normalizeBasePath(rawPath) {
   return path;
 }
 
+/**
+ * Build the full upstream path by joining basePath, reqUrl's pathname, and query string.
+ *
+ * Examples:
+ *   buildUpstreamPath('/v1/chat/completions', 'api.openai.com', '')
+ *     → '/v1/chat/completions'
+ *   buildUpstreamPath('/v1/chat/completions', 'host.databricks.com', '/serving-endpoints')
+ *     → '/serving-endpoints/v1/chat/completions'
+ *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
+ *     → '/anthropic/v1/messages?stream=true'
+ *
+ * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @param {string} targetHost - The upstream hostname (used only to parse the URL)
+ * @param {string} basePath - Normalized base path prefix (e.g. '/serving-endpoints' or '')
+ * @returns {string} Full upstream path including query string
+ */
+function buildUpstreamPath(reqUrl, targetHost, basePath) {
+  const targetUrl = new URL(reqUrl, `https://${targetHost}`);
+  return basePath + targetUrl.pathname + targetUrl.search;
+}
+
 // Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
 const OPENAI_API_BASE_PATH = normalizeBasePath(process.env.OPENAI_API_BASE_PATH);
 const ANTHROPIC_API_BASE_PATH = normalizeBasePath(process.env.ANTHROPIC_API_BASE_PATH);
@@ -234,7 +255,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   }
 
   // Build target URL
-  const targetUrl = new URL(req.url, `https://${targetHost}`);
+  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
   // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
@@ -312,7 +333,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     const options = {
       hostname: targetHost,
       port: 443,
-      path: basePath + targetUrl.pathname + targetUrl.search,
+      path: upstreamPath,
       method: req.method,
       headers,
       agent: proxyAgent, // Route through Squid
@@ -567,4 +588,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { deriveCopilotApiTarget, normalizeBasePath };
+module.exports = { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath };
