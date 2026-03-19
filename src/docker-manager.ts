@@ -1201,7 +1201,9 @@ export function generateDockerCompose(
         // Configurable API targets (for GHES/GHEC / custom endpoints)
         ...(config.copilotApiTarget && { COPILOT_API_TARGET: config.copilotApiTarget }),
         ...(config.openaiApiTarget && { OPENAI_API_TARGET: config.openaiApiTarget }),
+        ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
         ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: config.anthropicApiTarget }),
+        ...(config.anthropicApiBasePath && { ANTHROPIC_API_BASE_PATH: config.anthropicApiBasePath }),
         // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
         ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
         // Route through Squid to respect domain whitelisting
@@ -1266,12 +1268,18 @@ export function generateDockerCompose(
       if (config.openaiApiTarget) {
         logger.debug(`OpenAI API target overridden to: ${config.openaiApiTarget}`);
       }
+      if (config.openaiApiBasePath) {
+        logger.debug(`OpenAI API base path set to: ${config.openaiApiBasePath}`);
+      }
     }
     if (config.anthropicApiKey) {
       environment.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`;
       logger.debug(`Anthropic API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`);
       if (config.anthropicApiTarget) {
         logger.debug(`Anthropic API target overridden to: ${config.anthropicApiTarget}`);
+      }
+      if (config.anthropicApiBasePath) {
+        logger.debug(`Anthropic API base path set to: ${config.anthropicApiBasePath}`);
       }
 
       // Set placeholder token for Claude Code CLI compatibility

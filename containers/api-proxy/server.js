@@ -50,6 +50,55 @@ const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
 const OPENAI_API_TARGET = process.env.OPENAI_API_TARGET || 'api.openai.com';
 const ANTHROPIC_API_TARGET = process.env.ANTHROPIC_API_TARGET || 'api.anthropic.com';
 
+/**
+ * Normalizes a base path for use as a URL path prefix.
+ * Ensures the path starts with '/' (if non-empty) and has no trailing '/'.
+ * Returns '' for empty, null, or undefined inputs.
+ *
+ * @param {string|undefined|null} rawPath - The raw path value from env or config
+ * @returns {string} Normalized path prefix (e.g. '/serving-endpoints') or ''
+ */
+function normalizeBasePath(rawPath) {
+  if (!rawPath) return '';
+  let path = rawPath.trim();
+  if (!path) return '';
+  // Ensure leading slash
+  if (!path.startsWith('/')) {
+    path = '/' + path;
+  }
+  // Strip trailing slash (but preserve a bare '/')
+  if (path !== '/' && path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+  return path;
+}
+
+/**
+ * Build the full upstream path by joining basePath, reqUrl's pathname, and query string.
+ *
+ * Examples:
+ *   buildUpstreamPath('/v1/chat/completions', 'api.openai.com', '')
+ *     → '/v1/chat/completions'
+ *   buildUpstreamPath('/v1/chat/completions', 'host.databricks.com', '/serving-endpoints')
+ *     → '/serving-endpoints/v1/chat/completions'
+ *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
+ *     → '/anthropic/v1/messages?stream=true'
+ *
+ * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @param {string} targetHost - The upstream hostname (used only to parse the URL)
+ * @param {string} basePath - Normalized base path prefix (e.g. '/serving-endpoints' or '')
+ * @returns {string} Full upstream path including query string
+ */
+function buildUpstreamPath(reqUrl, targetHost, basePath) {
+  const targetUrl = new URL(reqUrl, `https://${targetHost}`);
+  const prefix = basePath === '/' ? '' : basePath;
+  return prefix + targetUrl.pathname + targetUrl.search;
+}
+
+// Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
+const OPENAI_API_BASE_PATH = normalizeBasePath(process.env.OPENAI_API_BASE_PATH);
+const ANTHROPIC_API_BASE_PATH = normalizeBasePath(process.env.ANTHROPIC_API_BASE_PATH);
+
 // Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
 // Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
 function deriveCopilotApiTarget() {
@@ -95,6 +144,10 @@ logRequest('info', 'startup', {
     openai: OPENAI_API_TARGET,
     anthropic: ANTHROPIC_API_TARGET,
     copilot: COPILOT_API_TARGET,
+  },
+  api_base_paths: {
+    openai: OPENAI_API_BASE_PATH || '(none)',
+    anthropic: ANTHROPIC_API_BASE_PATH || '(none)',
   },
   providers: {
     openai: !!OPENAI_API_KEY,
@@ -164,7 +217,7 @@ function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
 }
 
-function proxyRequest(req, res, targetHost, injectHeaders, provider) {
+function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '') {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
@@ -203,7 +256,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
   }
 
   // Build target URL
-  const targetUrl = new URL(req.url, `https://${targetHost}`);
+  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
   // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
@@ -281,7 +334,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider) {
     const options = {
       hostname: targetHost,
       port: 443,
-      path: targetUrl.pathname + targetUrl.search,
+      path: upstreamPath,
       method: req.method,
       headers,
       agent: proxyAgent, // Route through Squid
@@ -420,7 +473,7 @@ if (require.main === module) {
 
       proxyRequest(req, res, OPENAI_API_TARGET, {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      }, 'openai');
+      }, 'openai', OPENAI_API_BASE_PATH);
     });
 
     server.listen(HEALTH_PORT, '0.0.0.0', () => {
@@ -457,7 +510,7 @@ if (require.main === module) {
       if (!req.headers['anthropic-version']) {
         anthropicHeaders['anthropic-version'] = '2023-06-01';
       }
-      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic');
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
     });
 
     server.listen(10001, '0.0.0.0', () => {
@@ -536,4 +589,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { deriveCopilotApiTarget };
+module.exports = { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath };
