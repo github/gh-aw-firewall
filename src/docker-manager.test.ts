@@ -538,6 +538,12 @@ describe('docker-manager', () => {
       expect(squid.ports).toContain('3128:3128');
     });
 
+    it('should set stop_grace_period on squid service', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const squid = result.services['squid-proxy'] as any;
+      expect(squid.stop_grace_period).toBe('2s');
+    });
+
     it('should inject squid config via base64 env var when content is provided', () => {
       const squidConfig = 'http_port 3128\nacl allowed_domains dstdomain .github.com\n';
       const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, squidConfig);
@@ -1787,6 +1793,13 @@ describe('docker-manager', () => {
         const proxy = result.services['api-proxy'];
         expect(proxy.cap_drop).toEqual(['ALL']);
         expect(proxy.security_opt).toContain('no-new-privileges:true');
+      });
+
+      it('should set stop_grace_period on api-proxy service', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'] as any;
+        expect(proxy.stop_grace_period).toBe('2s');
       });
 
       it('should set resource limits', () => {

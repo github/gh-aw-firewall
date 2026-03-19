@@ -606,6 +606,10 @@ client_lifetime 8 hours
 # Critical for SSE where server sends but client doesn't respond
 half_closed_clients on
 
+# shutdown_lifetime: Time to wait for active connections during shutdown
+# Set to 0 because this is an ephemeral proxy — no connection draining needed
+shutdown_lifetime 0 seconds
+
 # Debugging (can be enabled for troubleshooting)
 # debug_options ALL,1 33,2
 `;

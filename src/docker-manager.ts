@@ -325,6 +325,7 @@ export function generateDockerCompose(
       'AUDIT_WRITE',  // No audit log writing
       'SETFCAP',      // No setting file capabilities
     ],
+    stop_grace_period: '2s',
   };
 
   // Inject squid.conf via environment variable instead of bind mount.
@@ -1238,6 +1239,7 @@ export function generateDockerCompose(
       memswap_limit: '512m',
       pids_limit: 100,
       cpu_shares: 512,
+      stop_grace_period: '2s',
     };
 
     // Use GHCR image or build locally

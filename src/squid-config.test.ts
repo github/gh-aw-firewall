@@ -568,6 +568,15 @@ describe('generateSquidConfig', () => {
       const result = generateSquidConfig(config);
       expect(result).toContain('pconn_timeout 2 minutes');
     });
+
+    it('should include shutdown_lifetime 0 for fast shutdown', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain('shutdown_lifetime 0 seconds');
+    });
   });
 
   describe('Real-world Domain Patterns', () => {
