@@ -91,7 +91,8 @@ function normalizeBasePath(rawPath) {
  */
 function buildUpstreamPath(reqUrl, targetHost, basePath) {
   const targetUrl = new URL(reqUrl, `https://${targetHost}`);
-  return basePath + targetUrl.pathname + targetUrl.search;
+  const prefix = basePath === '/' ? '' : basePath;
+  return prefix + targetUrl.pathname + targetUrl.search;
 }
 
 // Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
