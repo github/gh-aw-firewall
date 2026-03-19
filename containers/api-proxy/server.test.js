@@ -260,7 +260,7 @@ describe('buildUpstreamPath', () => {
         .toBe('/serving-endpoints/v1/chat/completions');
     });
 
-    it('should preserve empty query string marker', () => {
+    it('should drop empty query string marker', () => {
       expect(buildUpstreamPath('/v1/chat/completions?', HOST, '/serving-endpoints'))
         .toBe('/serving-endpoints/v1/chat/completions');
     });
