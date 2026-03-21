@@ -288,18 +288,7 @@ All build tests are combined into a single `build-test.lock.yml` workflow:
 
 ## Security & Compliance Workflows
 
-### 21. `container-scan.yml` — Container Security Scan
-
-| Attribute | Value |
-|-----------|-------|
-| **What it tests** | Trivy vulnerability scanning of Agent and Squid container images |
-| **Triggers** | Push/PR to main (containers/** paths), weekly Sunday schedule, manual dispatch |
-| **Timeout** | 15 minutes per job |
-| **Real-world mapping** | Ensures container images don't ship with CRITICAL/HIGH CVEs |
-| **Gaps** | Only scans Agent and Squid, not api-proxy or agent-act. |
-| **Integration test relationship** | None — security scanning, not functional testing |
-
-### 22. `dependency-audit.yml` — Dependency Vulnerability Audit
+### 21. `dependency-audit.yml` — Dependency Vulnerability Audit
 
 | Attribute | Value |
 |-----------|-------|
@@ -394,7 +383,7 @@ All build tests are combined into a single `build-test.lock.yml` workflow:
 2. **Domain filtering** — Unit tests (domain-patterns), integration tests (blocked-domains, wildcard-patterns), examples
 3. **Multi-engine support** — Smoke tests cover Claude, Copilot, Codex, Gemini
 4. **Multi-language support** — Build-tests cover 8 languages (Bun, C++, Deno, .NET, Go, Java, Node, Rust)
-5. **Container security** — Trivy scans, cosign signing, SBOM attestation
+5. **Container security** — cosign signing, SBOM attestation
 
 ### Gaps Identified
 
