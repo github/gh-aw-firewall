@@ -1184,8 +1184,8 @@ describe('docker-manager', () => {
       expect(agent.security_opt).toContain('no-new-privileges:true');
 
       // Verify resource limits
-      expect(agent.mem_limit).toBe('2g');
-      expect(agent.memswap_limit).toBe('2g');
+      expect(agent.mem_limit).toBe('6g');
+      expect(agent.memswap_limit).toBe('-1');
       expect(agent.pids_limit).toBe(1000);
       expect(agent.cpu_shares).toBe(1024);
     });
