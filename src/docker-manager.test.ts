@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -3031,6 +3031,270 @@ describe('docker-manager', () => {
 
       // Should not throw
       await expect(cleanup(nonExistentDir, false)).resolves.not.toThrow();
+    });
+  });
+
+  describe('readGitHubPathEntries', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-github-path-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should return empty array when GITHUB_PATH is not set', () => {
+      const originalGithubPath = process.env.GITHUB_PATH;
+      delete process.env.GITHUB_PATH;
+
+      try {
+        const result = readGitHubPathEntries();
+        expect(result).toEqual([]);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        }
+      }
+    });
+
+    it('should return empty array when GITHUB_PATH file does not exist', () => {
+      const originalGithubPath = process.env.GITHUB_PATH;
+      process.env.GITHUB_PATH = '/nonexistent/path/to/github_path_file';
+
+      try {
+        const result = readGitHubPathEntries();
+        expect(result).toEqual([]);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+      }
+    });
+
+    it('should read path entries from GITHUB_PATH file', () => {
+      const pathFile = path.join(tmpDir, 'add_path');
+      fs.writeFileSync(pathFile, '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin\n/opt/hostedtoolcache/Python/3.12.0/x64/bin\n');
+
+      const originalGithubPath = process.env.GITHUB_PATH;
+      process.env.GITHUB_PATH = pathFile;
+
+      try {
+        const result = readGitHubPathEntries();
+        expect(result).toEqual([
+          '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin',
+          '/opt/hostedtoolcache/Python/3.12.0/x64/bin',
+        ]);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+      }
+    });
+
+    it('should handle empty lines and whitespace in GITHUB_PATH file', () => {
+      const pathFile = path.join(tmpDir, 'add_path');
+      fs.writeFileSync(pathFile, '  /opt/hostedtoolcache/Ruby/3.3.10/x64/bin  \n\n  \n/opt/dart-sdk/bin\n');
+
+      const originalGithubPath = process.env.GITHUB_PATH;
+      process.env.GITHUB_PATH = pathFile;
+
+      try {
+        const result = readGitHubPathEntries();
+        expect(result).toEqual([
+          '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin',
+          '/opt/dart-sdk/bin',
+        ]);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+      }
+    });
+
+    it('should handle empty GITHUB_PATH file', () => {
+      const pathFile = path.join(tmpDir, 'add_path');
+      fs.writeFileSync(pathFile, '');
+
+      const originalGithubPath = process.env.GITHUB_PATH;
+      process.env.GITHUB_PATH = pathFile;
+
+      try {
+        const result = readGitHubPathEntries();
+        expect(result).toEqual([]);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+      }
+    });
+  });
+
+  describe('mergeGitHubPathEntries', () => {
+    it('should return current PATH when no github path entries', () => {
+      const result = mergeGitHubPathEntries('/usr/bin:/usr/local/bin', []);
+      expect(result).toBe('/usr/bin:/usr/local/bin');
+    });
+
+    it('should prepend github path entries to current PATH', () => {
+      const result = mergeGitHubPathEntries(
+        '/usr/bin:/usr/local/bin',
+        ['/opt/hostedtoolcache/Ruby/3.3.10/x64/bin']
+      );
+      expect(result).toBe('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/usr/bin:/usr/local/bin');
+    });
+
+    it('should not duplicate entries already in PATH', () => {
+      const result = mergeGitHubPathEntries(
+        '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/usr/bin:/usr/local/bin',
+        ['/opt/hostedtoolcache/Ruby/3.3.10/x64/bin']
+      );
+      expect(result).toBe('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/usr/bin:/usr/local/bin');
+    });
+
+    it('should handle multiple new entries', () => {
+      const result = mergeGitHubPathEntries(
+        '/usr/bin',
+        ['/opt/hostedtoolcache/Ruby/3.3.10/x64/bin', '/opt/dart-sdk/bin']
+      );
+      expect(result).toBe('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/opt/dart-sdk/bin:/usr/bin');
+    });
+
+    it('should handle mix of new and existing entries', () => {
+      const result = mergeGitHubPathEntries(
+        '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/usr/bin',
+        ['/opt/hostedtoolcache/Ruby/3.3.10/x64/bin', '/opt/dart-sdk/bin']
+      );
+      expect(result).toBe('/opt/dart-sdk/bin:/opt/hostedtoolcache/Ruby/3.3.10/x64/bin:/usr/bin');
+    });
+
+    it('should handle empty current PATH', () => {
+      const result = mergeGitHubPathEntries(
+        '',
+        ['/opt/hostedtoolcache/Ruby/3.3.10/x64/bin']
+      );
+      expect(result).toBe('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin');
+    });
+  });
+
+  describe('generateDockerCompose - GITHUB_PATH integration', () => {
+    const mockConfig: WrapperConfig = {
+      allowedDomains: ['github.com'],
+      agentCommand: 'echo "test"',
+      logLevel: 'info',
+      keepContainers: false,
+      workDir: '/tmp/awf-github-path-test',
+      buildLocal: false,
+      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    };
+
+    const mockNetworkConfig = {
+      subnet: '172.30.0.0/24',
+      squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20',
+    };
+
+    beforeEach(() => {
+      fs.mkdirSync(mockConfig.workDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
+    });
+
+    it('should merge GITHUB_PATH entries into AWF_HOST_PATH', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gp-'));
+      const pathFile = path.join(tmpDir, 'add_path');
+      fs.writeFileSync(pathFile, '/opt/hostedtoolcache/Ruby/3.3.10/x64/bin\n');
+
+      const originalGithubPath = process.env.GITHUB_PATH;
+      const originalPath = process.env.PATH;
+      process.env.GITHUB_PATH = pathFile;
+      process.env.PATH = '/usr/local/bin:/usr/bin';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.AWF_HOST_PATH).toContain('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin');
+        expect(env.AWF_HOST_PATH).toContain('/usr/local/bin');
+        // Ruby path should be prepended
+        expect(env.AWF_HOST_PATH.indexOf('/opt/hostedtoolcache/Ruby/3.3.10/x64/bin'))
+          .toBeLessThan(env.AWF_HOST_PATH.indexOf('/usr/local/bin'));
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should not duplicate PATH entries from GITHUB_PATH', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gp-'));
+      const pathFile = path.join(tmpDir, 'add_path');
+      fs.writeFileSync(pathFile, '/usr/local/bin\n');
+
+      const originalGithubPath = process.env.GITHUB_PATH;
+      const originalPath = process.env.PATH;
+      process.env.GITHUB_PATH = pathFile;
+      process.env.PATH = '/usr/local/bin:/usr/bin';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // /usr/local/bin should appear exactly once
+        const occurrences = env.AWF_HOST_PATH.split(':').filter(p => p === '/usr/local/bin').length;
+        expect(occurrences).toBe(1);
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should work when GITHUB_PATH is not set', () => {
+      const originalGithubPath = process.env.GITHUB_PATH;
+      const originalPath = process.env.PATH;
+      delete process.env.GITHUB_PATH;
+      process.env.PATH = '/usr/local/bin:/usr/bin';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.AWF_HOST_PATH).toBe('/usr/local/bin:/usr/bin');
+      } finally {
+        if (originalGithubPath !== undefined) {
+          process.env.GITHUB_PATH = originalGithubPath;
+        } else {
+          delete process.env.GITHUB_PATH;
+        }
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        }
+      }
     });
   });
 });
