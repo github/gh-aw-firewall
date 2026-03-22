@@ -67,6 +67,25 @@ Options:
   --enable-api-proxy           Enable API proxy sidecar for holding authentication credentials.
                                Deploys a Node.js proxy that injects API keys securely.
                                Supports OpenAI (Codex) and Anthropic (Claude) APIs. (default: false)
+  --copilot-api-target <host>  Target hostname for Copilot API requests
+                               (default: api.githubcopilot.com)
+  --openai-api-target <host>   Target hostname for OpenAI API requests (default: api.openai.com)
+  --anthropic-api-target <host> Target hostname for Anthropic API requests
+                               (default: api.anthropic.com)
+  --rate-limit-rpm <n>         Max requests per minute per provider (requires --enable-api-proxy)
+  --rate-limit-rph <n>         Max requests per hour per provider (requires --enable-api-proxy)
+  --rate-limit-bytes-pm <n>    Max request bytes per minute per provider (requires --enable-api-proxy)
+  --no-rate-limit              Disable rate limiting in the API proxy (requires --enable-api-proxy)
+  --ruleset-file <path>        YAML rule file for domain allowlisting (repeatable).
+                               Schema: version: 1, rules: [{domain, subdomains}]
+  --dns-over-https [url]       Enable DNS-over-HTTPS via sidecar proxy
+                               (default: https://dns.google/dns-query)
+  --memory-limit <limit>       Memory limit for the agent container (default: 2g)
+                               Examples: 1g, 4g, 512m
+  --enable-dind                Enable Docker-in-Docker by exposing host Docker socket.
+                               WARNING: allows firewall bypass via docker run (default: false)
+  --enable-dlp                 Enable DLP (Data Loss Prevention) scanning to block credential
+                               exfiltration in outbound request URLs. (default: false)
   -V, --version                Output the version number
   -h, --help                   Display help for command
 
