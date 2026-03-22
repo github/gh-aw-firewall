@@ -388,6 +388,21 @@ describe('Chroot Package Manager Support', () => {
       expect(result.stdout).toContain('npm_install_ok');
     }, 180000);
 
+    test('should install a global npm package and run its binary', async () => {
+      const result = await runner.runWithSudo(
+        'npm install -g semver 2>&1 && ' +
+        'semver --help 2>&1 && echo "npm_global_install_ok"',
+        {
+          allowDomains: ['registry.npmjs.org'],
+          logLevel: 'debug',
+          timeout: 120000,
+        }
+      );
+
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('npm_global_install_ok');
+    }, 180000);
+
     test('should build a Rust project with a dependency via cargo', async () => {
       const result = await runner.runWithSudo(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
