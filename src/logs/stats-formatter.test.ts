@@ -9,6 +9,7 @@ import {
   formatStats,
 } from './stats-formatter';
 import { AggregatedStats, DomainStats } from './log-aggregator';
+import { RuleStats } from './audit-enricher';
 
 describe('stats-formatter', () => {
   describe('formatStatsJson', () => {
@@ -245,3 +246,51 @@ function createSampleStats(): AggregatedStats {
     timeRange: { start: 1000, end: 2000 },
   };
 }
+
+describe('byRule stats in formatters', () => {
+  const ruleStats: RuleStats[] = [
+    { ruleId: 'allow-both-plain', description: 'Allow domains', action: 'allow', hits: 8 },
+    { ruleId: 'deny-default', description: 'Default deny', action: 'deny', hits: 2 },
+  ];
+
+  function statsWithRules(): AggregatedStats {
+    return { ...createSampleStats(), byRule: ruleStats };
+  }
+
+  it('should include byRule in JSON output', () => {
+    const output = formatStatsJson(statsWithRules());
+    const parsed = JSON.parse(output);
+    expect(parsed.byRule).toBeDefined();
+    expect(parsed.byRule).toHaveLength(2);
+    expect(parsed.byRule[0].ruleId).toBe('allow-both-plain');
+  });
+
+  it('should not include byRule in JSON when absent', () => {
+    const output = formatStatsJson(createSampleStats());
+    const parsed = JSON.parse(output);
+    expect(parsed.byRule).toBeUndefined();
+  });
+
+  it('should include Policy Rules section in markdown', () => {
+    const output = formatStatsMarkdown(statsWithRules());
+    expect(output).toContain('Policy Rules');
+    expect(output).toContain('allow-both-plain');
+    expect(output).toContain('deny-default');
+  });
+
+  it('should not include Policy Rules in markdown when absent', () => {
+    const output = formatStatsMarkdown(createSampleStats());
+    expect(output).not.toContain('Policy Rules');
+  });
+
+  it('should include Policy Rules in pretty output', () => {
+    const output = formatStatsPretty(statsWithRules(), false);
+    expect(output).toContain('Policy Rules');
+    expect(output).toContain('allow-both-plain');
+  });
+
+  it('should not include Policy Rules in pretty when absent', () => {
+    const output = formatStatsPretty(createSampleStats(), false);
+    expect(output).not.toContain('Policy Rules');
+  });
+});

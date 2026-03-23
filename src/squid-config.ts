@@ -630,11 +630,16 @@ shutdown_lifetime 0 seconds
 }
 
 /**
- * Generates a structured policy manifest describing all firewall rules in effect.
+ * Generates a structured policy manifest describing all effective access-control rules.
  *
- * The manifest mirrors the http_access rule ordering in generateSquidConfig() so
- * that post-hoc log analysis can deterministically replay which rule matched each
- * request by evaluating rules in order and stopping at the first match.
+ * The manifest reflects the logical policy and overall evaluation order derived from
+ * generateSquidConfig(), but it is a higher-level representation rather than a literal
+ * list of Squid `http_access` directives. Some internal rules (negations, method
+ * constraints, localhost/localnet allowances) are abstracted into logical concepts.
+ *
+ * Port/method-based rules (deny-unsafe-ports, deny-dlp) have empty `domains` arrays
+ * because they can't be deterministically replayed from Squid log data alone — the
+ * enricher skips them and attributes those denials to "unknown".
  */
 export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
   const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers } = config;

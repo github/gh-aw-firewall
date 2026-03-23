@@ -85,25 +85,32 @@ function protocolMatches(rule: PolicyRule, isHttps: boolean): boolean {
 /**
  * Finds the first matching policy rule for a log entry by replaying
  * the http_access evaluation order.
+ *
+ * Only returns rules whose action is consistent with the observed decision
+ * (entry.isAllowed). Rules with empty domains (port/method-based rules like
+ * deny-unsafe-ports) cannot be deterministically replayed from log data alone,
+ * so they are skipped — the caller treats unmatched entries as "unknown".
  */
 function findMatchingRule(entry: ParsedLogEntry, rules: PolicyRule[]): PolicyRule | null {
+  const expectedAction: 'allow' | 'deny' = entry.isAllowed ? 'allow' : 'deny';
+
   for (const rule of rules) {
     if (!protocolMatches(rule, entry.isHttps)) continue;
 
-    // The default deny rule (aclName: "all") matches everything
-    if (rule.aclName === 'all') return rule;
-
-    // For deny rules with specific domains, match if domain is in the list
-    if (rule.action === 'deny' && domainMatchesRule(entry.domain, rule)) {
-      return rule;
+    // The default deny rule (aclName: "all") matches everything denied
+    if (rule.aclName === 'all') {
+      if (expectedAction === 'deny') return rule;
+      continue;
     }
 
-    // For allow rules, the Squid logic is:
-    // "http_access deny !allowed_domains" means: deny if NOT in allowed_domains
-    // So an allow rule matches if the domain IS in the list
-    if (rule.action === 'allow' && domainMatchesRule(entry.domain, rule)) {
-      return rule;
-    }
+    // Rules with no domains (port safety, DLP, etc.) can't be replayed
+    // from log data alone — skip to avoid misleading attribution
+    if (!rule.domains || rule.domains.length === 0) continue;
+
+    if (!domainMatchesRule(entry.domain, rule)) continue;
+
+    // Only attribute if the rule's action matches the observed outcome
+    if (rule.action === expectedAction) return rule;
   }
 
   return null;

@@ -316,7 +316,9 @@ fi
 # These ports are blocked by NAT RETURN + final DROP, but logging helps identify
 # what the agent tried to access
 echo "[iptables] Adding audit LOG rules for dangerous ports and default deny..."
-iptables -A OUTPUT -p tcp -m multiport --dports 22,23,25,110,143,445,1433,1521,3306,3389,5432,6379,27017,27018,28017 \
+# Build comma-separated list from the DANGEROUS_PORTS array to stay in sync
+DANGEROUS_PORTS_LIST="$(IFS=,; echo "${DANGEROUS_PORTS[*]}")"
+iptables -A OUTPUT -p tcp -m multiport --dports "$DANGEROUS_PORTS_LIST" \
   -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "[FW_BLOCKED_DANGEROUS_PORT] " --log-level 4 --log-uid
 
 # Drop all other TCP and UDP traffic (default deny policy)

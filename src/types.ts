@@ -830,7 +830,7 @@ export interface PolicyRule {
   order: number;
   /** Whether this rule allows or denies traffic */
   action: 'allow' | 'deny';
-  /** Squid ACL name (e.g., "allowed_domains", "blocked_domains_regex") */
+  /** Squid ACL name or expression (e.g., "allowed_domains", "!Safe_ports", "dst_ipv4"). Not always a single ACL name — may include negation or method constraints for port/method-based rules. */
   aclName: string;
   /** Protocol scope: 'http' (non-CONNECT), 'https' (CONNECT), or 'both' */
   protocol: 'http' | 'https' | 'both';
@@ -854,7 +854,13 @@ export interface PolicyManifest {
   generatedAt: string;
   /** Ordered list of http_access rules (evaluated first-to-last) */
   rules: PolicyRule[];
-  /** TCP ports blocked by iptables (not redirected to Squid) */
+  /**
+   * TCP ports treated as "dangerous" by the firewall policy.
+   *
+   * Derived from the Squid configuration (DANGEROUS_PORTS) used by the wrapper.
+   * Documents which ports are considered unsafe for direct proxying. May not be
+   * an exact reflection of the iptables rules installed in the agent container.
+   */
   dangerousPorts: number[];
   /** DNS servers configured for the agent */
   dnsServers: string[];

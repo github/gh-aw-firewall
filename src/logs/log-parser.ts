@@ -178,11 +178,41 @@ export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
     const decision = obj.decision || '';
     const isAllowed = decision.startsWith('TCP_TUNNEL') || decision.startsWith('TCP_MISS');
 
-    // Parse dest into IP and port
-    const destStr = obj.dest || '-:-';
-    const destParts = destStr.split(':');
-    const destIp = destParts[0] || '-';
-    const destPort = destParts[1] || '-';
+    // Parse dest into IP and port (handle IPv4, IPv6, and bracketed IPv6)
+    const rawDest = typeof obj.dest === 'string' ? obj.dest : '';
+    let destIp = '-';
+    let destPort = '-';
+
+    if (rawDest && rawDest !== '-:-') {
+      if (rawDest.startsWith('[')) {
+        // Bracketed IPv6, e.g. [2001:db8::1]:443
+        const closeBracket = rawDest.indexOf(']');
+        if (closeBracket !== -1) {
+          destIp = rawDest.slice(1, closeBracket) || '-';
+          const remainder = rawDest.slice(closeBracket + 1);
+          if (remainder.startsWith(':')) {
+            const portCandidate = remainder.slice(1);
+            if (/^\d+$/.test(portCandidate)) destPort = portCandidate;
+          }
+        } else {
+          destIp = rawDest;
+        }
+      } else {
+        // Use last colon as port separator (safe for IPv4 ip:port)
+        const lastColon = rawDest.lastIndexOf(':');
+        if (lastColon === -1) {
+          destIp = rawDest;
+        } else {
+          const portCandidate = rawDest.slice(lastColon + 1);
+          if (/^\d+$/.test(portCandidate)) {
+            destIp = rawDest.slice(0, lastColon) || '-';
+            destPort = portCandidate;
+          } else {
+            destIp = rawDest;
+          }
+        }
+      }
+    }
 
     // Extract domain
     const url = obj.url || '';

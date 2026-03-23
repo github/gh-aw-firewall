@@ -1438,7 +1438,10 @@ export function generateDockerCompose(
  * Replaces values of env vars that look like secrets (tokens, keys, passwords) with "[REDACTED]".
  */
 function redactDockerComposeSecrets(compose: DockerComposeConfig): DockerComposeConfig {
-  const sensitivePatterns = /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|_B64)$/i;
+  // Match env var names ending with sensitive suffixes, or known token patterns.
+  // Covers: *_KEY, *_TOKEN, *_SECRET, *_PASSWORD, *_CREDENTIAL, *_B64,
+  // plus GITHUB_PAT (used in AWF_ONE_SHOT_TOKENS) and *_AUTH patterns.
+  const sensitivePatterns = /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|_B64|_PAT|_AUTH)$/i;
   const redacted = JSON.parse(JSON.stringify(compose)) as DockerComposeConfig;
 
   for (const service of Object.values(redacted.services)) {
