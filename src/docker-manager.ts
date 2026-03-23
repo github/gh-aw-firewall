@@ -1838,7 +1838,7 @@ export async function stopContainers(workDir: string, keepContainers: boolean): 
   logger.info('Stopping containers...');
 
   try {
-    await execa('docker', ['compose', 'down', '-v'], {
+    await execa('docker', ['compose', 'down', '-v', '-t', '1'], {
       cwd: workDir,
       stdout: process.stderr,
       stderr: 'inherit',

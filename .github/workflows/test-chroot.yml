@@ -130,7 +130,8 @@ jobs:
     name: Test Chroot Package Managers
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: test-chroot-languages  # Run after language tests pass
+    # Package Manager tests install their own runtimes via setup actions
+    # and do not depend on the Languages job output
 
     steps:
       - name: Checkout repository

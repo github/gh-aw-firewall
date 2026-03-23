@@ -2678,7 +2678,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['compose', 'down', '-v'],
+        ['compose', 'down', '-v', '-t', '1'],
         { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
       );
     });

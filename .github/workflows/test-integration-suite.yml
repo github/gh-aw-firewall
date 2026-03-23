@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  test-domain-network:
-    name: Domain & Network Tests
+  test-domain:
+    name: Domain Tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -45,11 +45,68 @@ jobs:
           echo "=== Pre-test cleanup ==="
           ./scripts/ci/cleanup.sh || true
 
-      - name: Run domain & network tests
+      - name: Run domain tests
         run: |
-          echo "=== Running domain & network tests ==="
+          echo "=== Running domain tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns|ipv6|localhost-access|network-security)" \
+            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns|ghes-auto-populate)" \
+            --verbose
+        env:
+          JEST_TIMEOUT: 180000
+
+      - name: Post-test cleanup
+        if: always()
+        run: |
+          echo "=== Post-test cleanup ==="
+          ./scripts/ci/cleanup.sh || true
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Collecting failure logs ==="
+          docker ps -a || true
+          docker logs awf-squid 2>&1 || true
+          docker logs awf-agent 2>&1 || true
+          ls -la /tmp/awf-* 2>/dev/null || true
+          sudo cat /tmp/awf-*/squid-logs/access.log 2>/dev/null || true
+
+  test-network:
+    name: Network Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Build local containers
+        run: |
+          echo "=== Building local containers ==="
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
+          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+
+      - name: Pre-test cleanup
+        run: |
+          echo "=== Pre-test cleanup ==="
+          ./scripts/ci/cleanup.sh || true
+
+      - name: Run network tests
+        run: |
+          echo "=== Running network tests ==="
+          npm run test:integration -- \
+            --testPathPatterns="(ipv6|localhost-access|network-security)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
@@ -163,7 +220,7 @@ jobs:
         run: |
           echo "=== Running container & ops tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|log-commands|no-docker|volume-mounts)" \
+            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|log-commands|no-docker|volume-mounts|gh-host-injection|skip-pull|workdir-tmpfs-hiding)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
