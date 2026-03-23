@@ -1,0 +1,103 @@
+services:
+  squid-proxy:
+    container_name: awf-squid
+    networks:
+      awf-net:
+        ipv4_address: 172.30.0.10
+    volumes:
+      - /tmp/awf-1774290893689/squid-logs:/var/log/squid:rw
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "3128"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports:
+      - '3128:3128'
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - SYS_MODULE
+      - MKNOD
+      - AUDIT_WRITE
+      - SETFCAP
+    stop_grace_period: 2s
+    environment:
+      AWF_SQUID_CONFIG_B64: '[REDACTED]'
+    entrypoint:
+      - /bin/bash
+      - '-c'
+      - echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && exec /usr/local/bin/entrypoint.sh
+    build:
+      context: ./containers/squid
+      dockerfile: Dockerfile
+  agent:
+    container_name: awf-agent
+    networks:
+      awf-net:
+        ipv4_address: 172.30.0.20
+    dns: [8.8.8.8, 8.8.4.4]
+    dns_search: []
+    volumes:
+      - /tmp:/tmp:rw
+      - $WORKSPACE:$WORKSPACE:rw
+      - /tmp/awf-TIMESTAMP/agent-logs:$HOME/.copilot/logs:rw
+      - /tmp/awf-TIMESTAMP/init-signal:/tmp/awf-init:rw
+      - /usr:/host/usr:ro
+      - /bin:/host/bin:ro
+      - /sbin:/host/sbin:ro
+      - /lib:/host/lib:ro
+      - /lib64:/host/lib64:ro
+      # ... (selective bind mounts for system binaries, home dirs, etc.)
+    environment:
+      HTTP_PROXY: http://172.30.0.10:3128
+      HTTPS_PROXY: http://172.30.0.10:3128
+      https_proxy: http://172.30.0.10:3128
+      SQUID_PROXY_HOST: squid-proxy
+      SQUID_PROXY_PORT: '3128'
+      HOME: /home/runner
+      NO_COLOR: '1'
+      AWF_ONE_SHOT_TOKENS: COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,...
+      AWF_DNS_SERVERS: 8.8.8.8,8.8.4.4
+      AWF_CHROOT_ENABLED: 'true'
+      AWF_WORKDIR: /home/runner
+      AWF_USER_UID: '1000'
+      AWF_USER_GID: '1000'
+    depends_on:
+      squid-proxy:
+        condition: service_healthy
+    cap_add: [SYS_CHROOT, SYS_ADMIN]
+    cap_drop: [NET_RAW, SYS_PTRACE, SYS_MODULE, SYS_RAWIO, MKNOD]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=/tmp/awf-TIMESTAMP/seccomp-profile.json
+      - apparmor:unconfined
+    mem_limit: 6g
+    pids_limit: 1000
+    tty: false
+    command:
+      - /bin/bash
+      - '-c'
+      - 'curl -s https://api.github.com/zen; curl -s https://evil.example.com || true; sleep 2'
+  iptables-init:
+    container_name: awf-iptables-init
+    network_mode: service:agent
+    volumes:
+      - /tmp/awf-TIMESTAMP/init-signal:/tmp/awf-init:rw
+    environment:
+      SQUID_PROXY_HOST: 172.30.0.10
+      SQUID_PROXY_PORT: '3128'
+      AWF_DNS_SERVERS: 8.8.8.8,8.8.4.4
+    depends_on:
+      agent:
+        condition: service_healthy
+    cap_add: [NET_ADMIN, NET_RAW]
+    cap_drop: [ALL]
+    entrypoint: [/bin/bash]
+    command: ['-c', '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready']
+    mem_limit: 128m
+    restart: 'no'
+networks:
+  awf-net:
+    external: true
