@@ -71,7 +71,7 @@ jobs:
       title: ${{ steps.sanitized.outputs.title }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@v0.58.2
+        uses: github/gh-aw/actions/setup@v0.62.5
         with:
           destination: /opt/gh-aw/actions
       - name: Generate agentic run info
@@ -314,7 +314,7 @@ jobs:
       output_types: ${{ steps.collect_output.outputs.output_types }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@v0.58.2
+        uses: github/gh-aw/actions/setup@v0.62.5
         with:
           destination: /opt/gh-aw/actions
       - name: Checkout repository
@@ -327,7 +327,7 @@ jobs:
       - name: Create cache-memory directory
         run: bash /opt/gh-aw/actions/create_cache_memory_dir.sh
       - name: Restore cache-memory file share data
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           key: memory-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}
           path: /tmp/gh-aw/cache-memory
@@ -1270,7 +1270,7 @@ jobs:
       total_count: ${{ steps.missing_tool.outputs.total_count }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@v0.58.2
+        uses: github/gh-aw/actions/setup@v0.62.5
         with:
           destination: /opt/gh-aw/actions
       - name: Download agent output artifact
@@ -1382,7 +1382,7 @@ jobs:
       process_safe_outputs_temporary_id_map: ${{ steps.process_safe_outputs.outputs.temporary_id_map }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@v0.58.2
+        uses: github/gh-aw/actions/setup@v0.62.5
         with:
           destination: /opt/gh-aw/actions
       - name: Download agent output artifact
@@ -1448,7 +1448,7 @@ jobs:
           fi
       - name: Save cache-memory to cache (default)
         if: steps.check_cache_default.outputs.has_content == 'true'
-        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           key: memory-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}
           path: /tmp/gh-aw/cache-memory
