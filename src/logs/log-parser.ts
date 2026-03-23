@@ -157,3 +157,57 @@ export function extractPort(url: string, method: string): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Parses a single line from the JSONL audit log (audit.jsonl).
+ *
+ * Format: {"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+ *
+ * @param line - Raw JSONL line
+ * @returns Parsed log entry or null if parsing failed
+ */
+export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  try {
+    const obj = JSON.parse(trimmed);
+
+    const method = obj.method || '';
+    const isHttps = method === 'CONNECT';
+    const decision = obj.decision || '';
+    const isAllowed = decision.startsWith('TCP_TUNNEL') || decision.startsWith('TCP_MISS');
+
+    // Parse dest into IP and port
+    const destStr = obj.dest || '-:-';
+    const destParts = destStr.split(':');
+    const destIp = destParts[0] || '-';
+    const destPort = destParts[1] || '-';
+
+    // Extract domain
+    const url = obj.url || '';
+    const host = obj.host || '-';
+    const domain = extractDomain(url, host, method);
+
+    return {
+      timestamp: obj.ts || 0,
+      clientIp: obj.client || '-',
+      clientPort: '-', // Not in JSONL format
+      host,
+      destIp,
+      destPort,
+      protocol: '-', // Not in JSONL format
+      method,
+      statusCode: obj.status || 0,
+      decision,
+      url,
+      userAgent: '-', // Not in JSONL format (intentionally omitted)
+      domain,
+      isAllowed,
+      isHttps,
+    };
+  } catch {
+    // JSON parse failed — likely a line with unescaped characters
+    return null;
+  }
+}

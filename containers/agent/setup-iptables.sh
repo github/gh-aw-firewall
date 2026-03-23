@@ -312,11 +312,20 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
   iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
 fi
 
+# Log dangerous port access attempts for audit (rate-limited to avoid log flooding)
+# These ports are blocked by NAT RETURN + final DROP, but logging helps identify
+# what the agent tried to access
+echo "[iptables] Adding audit LOG rules for dangerous ports and default deny..."
+iptables -A OUTPUT -p tcp -m multiport --dports 22,23,25,110,143,445,1433,1521,3306,3389,5432,6379,27017,27018,28017 \
+  -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "[FW_BLOCKED_DANGEROUS_PORT] " --log-level 4 --log-uid
+
 # Drop all other TCP and UDP traffic (default deny policy)
 # TCP: ensures only explicitly allowed ports can be accessed
 # UDP: prevents DNS exfiltration by blocking direct queries to non-configured DNS servers
 echo "[iptables] Drop all non-allowed TCP and UDP traffic (default deny)..."
+iptables -A OUTPUT -p tcp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_TCP] " --log-level 4 --log-uid
 iptables -A OUTPUT -p tcp -j DROP
+iptables -A OUTPUT -p udp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_UDP_AGENT] " --log-level 4 --log-uid
 iptables -A OUTPUT -p udp -j DROP
 
 echo "[iptables] NAT rules applied successfully"
@@ -328,3 +337,23 @@ if [ "$IP6TABLES_AVAILABLE" = true ]; then
 else
   echo "[iptables] (ip6tables NAT not available)"
 fi
+
+# Dump full iptables state for audit trail
+# Written to the init signal volume so it can be preserved by the host
+AUDIT_FILE="/tmp/awf-init/iptables-audit.txt"
+echo "# iptables audit dump - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$AUDIT_FILE"
+echo "" >> "$AUDIT_FILE"
+echo "## IPv4 NAT rules" >> "$AUDIT_FILE"
+iptables-save -t nat >> "$AUDIT_FILE" 2>/dev/null || echo "(iptables-save not available)" >> "$AUDIT_FILE"
+echo "" >> "$AUDIT_FILE"
+echo "## IPv4 filter rules" >> "$AUDIT_FILE"
+iptables-save -t filter >> "$AUDIT_FILE" 2>/dev/null || echo "(iptables-save not available)" >> "$AUDIT_FILE"
+if [ "$IP6TABLES_AVAILABLE" = true ]; then
+  echo "" >> "$AUDIT_FILE"
+  echo "## IPv6 NAT rules" >> "$AUDIT_FILE"
+  ip6tables-save -t nat >> "$AUDIT_FILE" 2>/dev/null || true
+  echo "" >> "$AUDIT_FILE"
+  echo "## IPv6 filter rules" >> "$AUDIT_FILE"
+  ip6tables-save -t filter >> "$AUDIT_FILE" 2>/dev/null || true
+fi
+echo "[iptables] Audit state dumped to $AUDIT_FILE"

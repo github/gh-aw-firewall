@@ -1,4 +1,4 @@
-import { SquidConfig } from './types';
+import { SquidConfig, PolicyManifest, PolicyRule } from './types';
 import {
   parseDomainList,
   isDomainMatchedByPattern,
@@ -80,6 +80,40 @@ function groupPatternsByProtocol(patterns: DomainPattern[]): PatternsByProtocol 
     result[pattern.protocol].push(pattern);
   }
   return result;
+}
+
+/**
+ * Shared domain parsing: validates, deduplicates, filters, and groups domains by protocol.
+ * Used by both generateSquidConfig and generatePolicyManifest to ensure consistent logic.
+ */
+function parseDomainConfig(domains: string[]): {
+  domainsByProto: DomainsByProtocol;
+  patternsByProto: PatternsByProtocol;
+  patterns: DomainPattern[];
+} {
+  const { plainDomains, patterns } = parseDomainList(domains);
+
+  // Remove redundant plain subdomains within same protocol
+  const uniquePlainDomains = plainDomains.filter((entry, index, arr) => {
+    return !arr.some((other, otherIndex) => {
+      if (index === otherIndex) return false;
+      if (entry.domain === other.domain || !entry.domain.endsWith('.' + other.domain)) {
+        return false;
+      }
+      return other.protocol === 'both' || other.protocol === entry.protocol;
+    });
+  });
+
+  // Remove plain domains already covered by wildcard patterns
+  const filteredPlainDomains = uniquePlainDomains.filter(entry => {
+    return !isDomainMatchedByPattern(entry, patterns);
+  });
+
+  return {
+    domainsByProto: groupDomainsByProtocol(filteredPlainDomains),
+    patternsByProto: groupPatternsByProtocol(patterns),
+    patterns,
+  };
 }
 
 /**
@@ -208,34 +242,8 @@ ${urlAclSection}${urlAccessRules}`;
 export function generateSquidConfig(config: SquidConfig): string {
   const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers } = config;
 
-  // Parse domains into plain domains and wildcard patterns
-  // Note: parseDomainList extracts and preserves protocol info from prefixes (http://, https://)
-  // This also validates all inputs and throws on invalid patterns
-  const { plainDomains, patterns } = parseDomainList(domains);
-
-  // Remove redundant plain subdomains within same protocol
-  // (e.g., if github.com with 'both' is present, api.github.com with 'both' is redundant)
-  const uniquePlainDomains = plainDomains.filter((entry, index, arr) => {
-    // Check if this domain is a subdomain of another plain domain with compatible protocol
-    return !arr.some((other, otherIndex) => {
-      if (index === otherIndex) return false;
-      // Check if this domain is a subdomain of other
-      if (entry.domain === other.domain || !entry.domain.endsWith('.' + other.domain)) {
-        return false;
-      }
-      // Subdomain is only redundant if parent has same or broader protocol
-      return other.protocol === 'both' || other.protocol === entry.protocol;
-    });
-  });
-
-  // Remove plain domains that are already covered by wildcard patterns
-  const filteredPlainDomains = uniquePlainDomains.filter(entry => {
-    return !isDomainMatchedByPattern(entry, patterns);
-  });
-
-  // Group domains and patterns by protocol
-  const domainsByProto = groupDomainsByProtocol(filteredPlainDomains);
-  const patternsByProto = groupPatternsByProtocol(patterns);
+  // Parse, deduplicate, and group domains by protocol (shared logic)
+  const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
 
   // Generate ACL entries
   const aclLines: string[] = [];
@@ -524,10 +532,16 @@ pid_filename /var/run/squid/squid.pid
 # Note: For CONNECT requests (HTTPS), the domain is in the URL field
 logformat firewall_detailed %ts.%03tu %>a:%>p %{Host}>h %<a:%<p %rv %rm %>Hs %Ss:%Sh %ru "%{User-Agent}>h"
 
+# Structured JSONL audit log for machine-readable analysis
+# Note: Squid logformat does not JSON-escape strings, so fields like User-Agent
+# could break JSON parsing. We omit User-Agent to reduce breakage risk.
+logformat audit_jsonl {"ts":%ts.%03tu,"client":"%>a","host":"%{Host}>h","dest":"%<a:%<p","method":"%rm","status":%>Hs,"decision":"%Ss","url":"%ru"}
+
 # Access log and cache configuration
 # Don't log healthcheck probes from localhost (using ACL filter on access_log)
 acl healthcheck_localhost src 127.0.0.1 ::1
 access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost
+access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost
 cache_log /var/log/squid/cache.log
 cache deny all
 
@@ -613,4 +627,198 @@ shutdown_lifetime 0 seconds
 # Debugging (can be enabled for troubleshooting)
 # debug_options ALL,1 33,2
 `;
+}
+
+/**
+ * Generates a structured policy manifest describing all firewall rules in effect.
+ *
+ * The manifest mirrors the http_access rule ordering in generateSquidConfig() so
+ * that post-hoc log analysis can deterministically replay which rule matched each
+ * request by evaluating rules in order and stopping at the first match.
+ */
+export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
+  const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers } = config;
+
+  // Parse, deduplicate, and group domains by protocol (shared logic with generateSquidConfig)
+  const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
+
+  const rules: PolicyRule[] = [];
+  let order = 0;
+
+  // --- Port safety rules (evaluated first in Squid) ---
+  rules.push({
+    id: 'deny-unsafe-ports',
+    order: ++order,
+    action: 'deny',
+    aclName: '!Safe_ports',
+    protocol: 'both',
+    domains: [],
+    description: 'Deny requests to ports not in Safe_ports ACL (only 80, 443, and user-specified ports allowed)',
+  });
+  rules.push({
+    id: 'deny-connect-unsafe-ports',
+    order: ++order,
+    action: 'deny',
+    aclName: 'CONNECT !Safe_ports',
+    protocol: 'https',
+    domains: [],
+    description: 'Deny CONNECT (HTTPS) to ports not in Safe_ports ACL',
+  });
+
+  // --- Raw IP blocking ---
+  rules.push({
+    id: 'deny-raw-ipv4',
+    order: ++order,
+    action: 'deny',
+    aclName: 'dst_ipv4',
+    protocol: 'both',
+    domains: ['^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'],
+    description: 'Deny requests to raw IPv4 addresses (bypasses domain filtering)',
+  });
+  rules.push({
+    id: 'deny-raw-ipv6',
+    order: ++order,
+    action: 'deny',
+    aclName: 'dst_ipv6',
+    protocol: 'both',
+    domains: ['^\\[?[0-9a-fA-F:]+\\]?$'],
+    description: 'Deny requests to raw IPv6 addresses (bypasses domain filtering)',
+  });
+
+  // --- DLP rules (if enabled) ---
+  if (enableDlp) {
+    rules.push({
+      id: 'deny-dlp',
+      order: ++order,
+      action: 'deny',
+      aclName: 'dlp_blocked',
+      protocol: 'both',
+      domains: [],
+      description: 'Deny requests containing credential patterns in URLs (DLP)',
+    });
+  }
+
+  // --- Blocked domains ---
+  if (blockedDomains && blockedDomains.length > 0) {
+    const normalizedBlocked = blockedDomains.map(d => d.replace(/^https?:\/\//, '').replace(/\/$/, ''));
+    const { plainDomains: blockedPlain, patterns: blockedPatterns } = parseDomainList(normalizedBlocked);
+
+    if (blockedPlain.length > 0) {
+      rules.push({
+        id: 'deny-blocked-plain',
+        order: ++order,
+        action: 'deny',
+        aclName: 'blocked_domains',
+        protocol: 'both',
+        domains: blockedPlain.map(e => formatDomainForSquid(e.domain)),
+        description: 'Deny requests to explicitly blocked domains',
+      });
+    }
+
+    if (blockedPatterns.length > 0) {
+      rules.push({
+        id: 'deny-blocked-regex',
+        order: ++order,
+        action: 'deny',
+        aclName: 'blocked_domains_regex',
+        protocol: 'both',
+        domains: blockedPatterns.map(p => p.regex),
+        description: 'Deny requests to explicitly blocked domain patterns',
+      });
+    }
+  }
+
+  // --- Protocol-specific allow rules ---
+  if (domainsByProto.http.length > 0) {
+    rules.push({
+      id: 'allow-http-only-plain',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_http_only',
+      protocol: 'http',
+      domains: domainsByProto.http.map(d => formatDomainForSquid(d)),
+      description: 'Allow HTTP-only traffic to these domains (no HTTPS)',
+    });
+  }
+  if (patternsByProto.http.length > 0) {
+    rules.push({
+      id: 'allow-http-only-regex',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_http_only_regex',
+      protocol: 'http',
+      domains: patternsByProto.http.map(p => p.regex),
+      description: 'Allow HTTP-only traffic matching these patterns',
+    });
+  }
+
+  if (domainsByProto.https.length > 0) {
+    rules.push({
+      id: 'allow-https-only-plain',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_https_only',
+      protocol: 'https',
+      domains: domainsByProto.https.map(d => formatDomainForSquid(d)),
+      description: 'Allow HTTPS-only traffic to these domains (no HTTP)',
+    });
+  }
+  if (patternsByProto.https.length > 0) {
+    rules.push({
+      id: 'allow-https-only-regex',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_https_only_regex',
+      protocol: 'https',
+      domains: patternsByProto.https.map(p => p.regex),
+      description: 'Allow HTTPS-only traffic matching these patterns',
+    });
+  }
+
+  // --- Both-protocol allow (used in deny rule logic) ---
+  if (domainsByProto.both.length > 0) {
+    rules.push({
+      id: 'allow-both-plain',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_domains',
+      protocol: 'both',
+      domains: domainsByProto.both.map(d => formatDomainForSquid(d)),
+      description: 'Allow HTTP and HTTPS traffic to these domains',
+    });
+  }
+  if (patternsByProto.both.length > 0) {
+    rules.push({
+      id: 'allow-both-regex',
+      order: ++order,
+      action: 'allow',
+      aclName: 'allowed_domains_regex',
+      protocol: 'both',
+      domains: patternsByProto.both.map(p => p.regex),
+      description: 'Allow HTTP and HTTPS traffic matching these patterns',
+    });
+  }
+
+  // --- Default deny (final rule) ---
+  rules.push({
+    id: 'deny-default',
+    order: ++order,
+    action: 'deny',
+    aclName: 'all',
+    protocol: 'both',
+    domains: [],
+    description: 'Deny all traffic not matching any allow rule (default deny)',
+  });
+
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    rules,
+    dangerousPorts: DANGEROUS_PORTS,
+    dnsServers: dnsServers || ['8.8.8.8', '8.8.4.4'],
+    sslBumpEnabled: sslBump ?? false,
+    dlpEnabled: enableDlp ?? false,
+    hostAccessEnabled: enableHostAccess ?? false,
+    allowHostPorts: allowHostPorts ?? null,
+  };
 }

@@ -13,6 +13,7 @@ import {
   runAgentCommand,
   stopContainers,
   cleanup,
+  preserveIptablesAudit,
 } from './docker-manager';
 import {
   ensureFirewallNetwork,
@@ -1323,6 +1324,10 @@ program
     '--proxy-logs-dir <path>',
     'Directory to save Squid proxy access.log'
   )
+  .option(
+    '--audit-dir <path>',
+    'Directory for firewall audit artifacts (configs, policy manifest, iptables state)'
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
     // Require -- separator for passing command arguments
@@ -1619,6 +1624,7 @@ program
       dnsOverHttps,
       memoryLimit: memoryLimit.value,
       proxyLogsDir: options.proxyLogsDir,
+      auditDir: options.auditDir || process.env.AWF_AUDIT_DIR,
       enableHostAccess: options.enableHostAccess,
       allowHostPorts: options.allowHostPorts,
       sslBump: options.sslBump,
@@ -1737,7 +1743,9 @@ program
         logger.info(`Received ${signal}, cleaning up...`);
       }
 
+      // Copy iptables audit BEFORE stopping containers (volumes are destroyed by `docker compose down -v`)
       if (containersStarted) {
+        preserveIptablesAudit(config.workDir, config.auditDir);
         await stopContainers(config.workDir, config.keepContainers);
       }
 
@@ -1746,7 +1754,7 @@ program
       }
 
       if (!config.keepContainers) {
-        await cleanup(config.workDir, false, config.proxyLogsDir);
+        await cleanup(config.workDir, false, config.proxyLogsDir, config.auditDir);
         // Note: We don't remove the firewall network here since it can be reused
         // across multiple runs. Cleanup script will handle removal if needed.
       } else {
@@ -1937,6 +1945,38 @@ logsCmd
     await summaryCommand({
       format: options.format as 'json' | 'markdown' | 'pretty',
       source: options.source,
+    });
+  });
+
+// Logs audit subcommand - show enriched audit with rule matching
+logsCmd
+  .command('audit')
+  .description('Show firewall audit with policy rule matching (requires policy-manifest.json)')
+  .option(
+    '--format <format>',
+    'Output format: json, markdown, pretty',
+    'pretty'
+  )
+  .option('--source <path>', 'Path to log directory or "running" for live container')
+  .option('--rule <id>', 'Filter to specific rule ID')
+  .option('--domain <domain>', 'Filter to specific domain')
+  .option('--decision <decision>', 'Filter to "allowed" or "denied"')
+  .action(async (options) => {
+    const validFormats = ['json', 'markdown', 'pretty'];
+    validateFormat(options.format, validFormats);
+
+    if (options.decision && !['allowed', 'denied'].includes(options.decision)) {
+      logger.error(`Invalid decision filter: ${options.decision}. Must be "allowed" or "denied".`);
+      process.exit(1);
+    }
+
+    const { auditCommand } = await import('./commands/logs-audit');
+    await auditCommand({
+      format: options.format as 'json' | 'markdown' | 'pretty',
+      source: options.source,
+      rule: options.rule,
+      domain: options.domain,
+      decision: options.decision,
     });
   });
 

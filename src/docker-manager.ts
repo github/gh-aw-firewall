@@ -5,7 +5,7 @@ import * as yaml from 'js-yaml';
 import execa from 'execa';
 import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from './types';
 import { logger } from './logger';
-import { generateSquidConfig } from './squid-config';
+import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 
 const SQUID_PORT = 3128;
@@ -1434,6 +1434,27 @@ export function generateDockerCompose(
 }
 
 /**
+ * Redacts sensitive environment variables from a Docker Compose config for audit logging.
+ * Replaces values of env vars that look like secrets (tokens, keys, passwords) with "[REDACTED]".
+ */
+function redactDockerComposeSecrets(compose: DockerComposeConfig): DockerComposeConfig {
+  const sensitivePatterns = /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|_B64)$/i;
+  const redacted = JSON.parse(JSON.stringify(compose)) as DockerComposeConfig;
+
+  for (const service of Object.values(redacted.services)) {
+    if (service.environment && typeof service.environment === 'object') {
+      for (const key of Object.keys(service.environment)) {
+        if (sensitivePatterns.test(key)) {
+          (service.environment as Record<string, string>)[key] = '[REDACTED]';
+        }
+      }
+    }
+  }
+
+  return redacted;
+}
+
+/**
  * Writes configuration files to disk
  * Uses fixed network configuration (172.30.0.0/24) defined in host-iptables.ts
  */
@@ -1626,6 +1647,42 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // (like AWF_SQUID_CONFIG_B64) from being split across multiple lines
   fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose, { lineWidth: -1 }), { mode: 0o600 });
   logger.debug(`Docker Compose config written to: ${dockerComposePath}`);
+
+  // Write audit artifacts (config snapshots for post-run forensics)
+  const auditDir = config.auditDir || path.join(config.workDir, 'audit');
+  if (!fs.existsSync(auditDir)) {
+    fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
+  }
+
+  // Save squid.conf for audit (no secrets — just domain ACLs and proxy config)
+  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o644 });
+
+  // Save redacted docker-compose.yml (strip env vars that may contain secrets)
+  const redactedCompose = redactDockerComposeSecrets(dockerCompose);
+  fs.writeFileSync(
+    path.join(auditDir, 'docker-compose.redacted.yml'),
+    yaml.dump(redactedCompose, { lineWidth: -1 }),
+    { mode: 0o644 }
+  );
+
+  // Generate and save policy manifest (structured description of all firewall rules)
+  const policyManifest = generatePolicyManifest({
+    domains: config.allowedDomains,
+    blockedDomains: config.blockedDomains,
+    port: SQUID_PORT,
+    sslBump: config.sslBump,
+    enableHostAccess: config.enableHostAccess,
+    allowHostPorts: config.allowHostPorts,
+    enableDlp: config.enableDlp,
+    dnsServers: config.dnsServers,
+  });
+  fs.writeFileSync(
+    path.join(auditDir, 'policy-manifest.json'),
+    JSON.stringify(policyManifest, null, 2),
+    { mode: 0o644 }
+  );
+
+  logger.debug(`Audit artifacts written to: ${auditDir}`);
 }
 
 /**
@@ -1930,7 +1987,25 @@ export async function stopContainers(workDir: string, keepContainers: boolean): 
  * @param keepFiles - If true, skip cleanup and keep files
  * @param proxyLogsDir - Optional custom directory where Squid proxy logs were written directly
  */
-export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?: string): Promise<void> {
+/**
+ * Copies the iptables audit dump from the init-signal volume to the audit directory.
+ * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
+ * the init-signal volume.
+ */
+export function preserveIptablesAudit(workDir: string, auditDir?: string): void {
+  const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
+  const targetAuditDir = auditDir || path.join(workDir, 'audit');
+  if (fs.existsSync(iptablesAuditSrc) && fs.existsSync(targetAuditDir)) {
+    try {
+      fs.copyFileSync(iptablesAuditSrc, path.join(targetAuditDir, 'iptables-audit.txt'));
+      logger.debug('Copied iptables audit state to audit directory');
+    } catch (error) {
+      logger.debug('Could not copy iptables audit file:', error);
+    }
+  }
+}
+
+export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?: string, auditDir?: string): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
     return;
@@ -2011,6 +2086,32 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             logger.info(`Squid logs preserved at: ${squidLogsDestination}`);
           } catch (error) {
             logger.debug('Could not preserve squid logs:', error);
+          }
+        }
+      }
+
+      // Preserve audit artifacts
+      if (auditDir) {
+        // User-specified audit dir: just fix permissions
+        if (fs.existsSync(auditDir)) {
+          try {
+            execa.sync('chmod', ['-R', 'a+rX', auditDir]);
+            logger.info(`Audit artifacts available at: ${auditDir}`);
+          } catch (error) {
+            logger.debug('Could not fix audit dir permissions:', error);
+          }
+        }
+      } else {
+        // Default: move from workDir/audit to timestamped /tmp directory
+        const defaultAuditDir = path.join(workDir, 'audit');
+        const auditDestination = path.join(os.tmpdir(), `awf-audit-${timestamp}`);
+        if (fs.existsSync(defaultAuditDir) && fs.readdirSync(defaultAuditDir).length > 0) {
+          try {
+            fs.renameSync(defaultAuditDir, auditDestination);
+            execa.sync('chmod', ['-R', 'a+rX', auditDestination]);
+            logger.info(`Audit artifacts preserved at: ${auditDestination}`);
+          } catch (error) {
+            logger.debug('Could not preserve audit artifacts:', error);
           }
         }
       }
