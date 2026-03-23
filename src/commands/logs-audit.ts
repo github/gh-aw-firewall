@@ -28,7 +28,7 @@ export interface AuditCommandOptions {
 }
 
 function formatAuditJson(entries: EnrichedLogEntry[]): string {
-  return entries.map(e => JSON.stringify({
+  const items = entries.map(e => ({
     timestamp: e.timestamp,
     domain: e.domain,
     method: e.method,
@@ -37,7 +37,8 @@ function formatAuditJson(entries: EnrichedLogEntry[]): string {
     matchedRule: e.matchedRuleId,
     matchReason: e.matchReason,
     url: e.url,
-  })).join('\n');
+  }));
+  return JSON.stringify(items, null, 2);
 }
 
 function formatAuditMarkdown(entries: EnrichedLogEntry[], manifest: PolicyManifest): string {

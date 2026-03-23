@@ -65,7 +65,11 @@ export function parseLogLine(line: string): ParsedLogEntry | null {
 
   const timestamp = parseFloat(timestampStr);
   const statusCode = parseInt(statusCodeStr, 10);
-  const isAllowed = decision.startsWith('TCP_TUNNEL') || decision.startsWith('TCP_MISS');
+  // Treat anything not explicitly denied (TCP_DENIED) or noise (NONE) as allowed.
+  // Covers TCP_TUNNEL, TCP_MISS, TCP_HIT, TCP_MEM_HIT, TCP_REFRESH_*, etc.
+  const isDenied = decision.startsWith('TCP_DENIED');
+  const isNone = decision.startsWith('NONE');
+  const isAllowed = decision !== '' && !isDenied && !isNone;
   const isHttps = method === 'CONNECT';
 
   // Extract domain from the appropriate field
@@ -175,8 +179,13 @@ export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
 
     const method = obj.method || '';
     const isHttps = method === 'CONNECT';
-    const decision = obj.decision || '';
-    const isAllowed = decision.startsWith('TCP_TUNNEL') || decision.startsWith('TCP_MISS');
+    // Squid can emit many TCP_* statuses for allowed requests (TCP_TUNNEL, TCP_MISS,
+    // TCP_HIT, TCP_MEM_HIT, TCP_REFRESH_HIT, etc.). Treat anything that is not
+    // explicitly denied (TCP_DENIED) or operational noise (NONE) as allowed.
+    const decision = typeof obj.decision === 'string' ? obj.decision : '';
+    const isDenied = decision.startsWith('TCP_DENIED');
+    const isNone = decision.startsWith('NONE');
+    const isAllowed = decision !== '' && !isDenied && !isNone;
 
     // Parse dest into IP and port (handle IPv4, IPv6, and bracketed IPv6)
     const rawDest = typeof obj.dest === 'string' ? obj.dest : '';

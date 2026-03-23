@@ -103,19 +103,18 @@ describe('log-parser', () => {
       const result = parseLogLine(line);
 
       expect(result).not.toBeNull();
-      // TCP_HIT is neither TCP_TUNNEL nor TCP_MISS, so isAllowed should be false
-      // This documents current behavior: only TCP_TUNNEL and TCP_MISS are considered allowed
-      expect(result!.isAllowed).toBe(false);
+      // TCP_HIT is a successful cache hit — should be treated as allowed
+      expect(result!.isAllowed).toBe(true);
     });
 
-    it('should mark TCP_REFRESH_MODIFIED as denied (not in allowed list)', () => {
+    it('should mark TCP_REFRESH_MODIFIED as allowed (refreshed cache)', () => {
       const line =
         '1761074374.646 172.30.0.20:39748 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_REFRESH_MODIFIED:HIER_DIRECT http://example.com/ "-"';
       const result = parseLogLine(line);
 
       expect(result).not.toBeNull();
-      // TCP_REFRESH_MODIFIED is not TCP_TUNNEL or TCP_MISS
-      expect(result!.isAllowed).toBe(false);
+      // TCP_REFRESH_MODIFIED is a successful refreshed response — should be allowed
+      expect(result!.isAllowed).toBe(true);
     });
 
     it('should mark NONE_NONE as denied (connection failure entries)', () => {

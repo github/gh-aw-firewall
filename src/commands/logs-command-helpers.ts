@@ -95,9 +95,11 @@ export function findPolicyManifestForSource(source: LogSource): PolicyManifest |
     source.path.replace(/squid-logs-/, 'awf-audit-').replace(/\/?$/, '/policy-manifest.json'),
   ];
 
+  // AWF_AUDIT_DIR is a fallback, not priority — prefer manifests co-located with
+  // the selected log source to avoid cross-run mismatch
   const auditDirEnv = process.env.AWF_AUDIT_DIR;
   if (auditDirEnv) {
-    candidates.unshift(path.join(auditDirEnv, 'policy-manifest.json'));
+    candidates.push(path.join(auditDirEnv, 'policy-manifest.json'));
   }
 
   for (const candidate of candidates) {

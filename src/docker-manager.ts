@@ -1438,10 +1438,10 @@ export function generateDockerCompose(
  * Replaces values of env vars that look like secrets (tokens, keys, passwords) with "[REDACTED]".
  */
 function redactDockerComposeSecrets(compose: DockerComposeConfig): DockerComposeConfig {
-  // Match env var names ending with sensitive suffixes, or known token patterns.
-  // Covers: *_KEY, *_TOKEN, *_SECRET, *_PASSWORD, *_CREDENTIAL, *_B64,
-  // plus GITHUB_PAT (used in AWF_ONE_SHOT_TOKENS) and *_AUTH patterns.
-  const sensitivePatterns = /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|_B64|_PAT|_AUTH)$/i;
+  // Match env var names containing sensitive keywords.
+  // Uses substring matching (not just suffix) to catch patterns like
+  // GOOGLE_APPLICATION_CREDENTIALS, PRIVATE_KEY_PATH, etc.
+  const sensitivePatterns = /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|_B64|_PAT|_AUTH|PRIVATE_KEY)/i;
   const redacted = JSON.parse(JSON.stringify(compose)) as DockerComposeConfig;
 
   for (const service of Object.values(redacted.services)) {
@@ -1654,18 +1654,19 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Write audit artifacts (config snapshots for post-run forensics)
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
   if (!fs.existsSync(auditDir)) {
-    fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
+    // Restrictive permissions initially; made readable during cleanup (chmod a+rX)
+    fs.mkdirSync(auditDir, { recursive: true, mode: 0o700 });
   }
 
   // Save squid.conf for audit (no secrets — just domain ACLs and proxy config)
-  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o644 });
+  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o600 });
 
   // Save redacted docker-compose.yml (strip env vars that may contain secrets)
   const redactedCompose = redactDockerComposeSecrets(dockerCompose);
   fs.writeFileSync(
     path.join(auditDir, 'docker-compose.redacted.yml'),
     yaml.dump(redactedCompose, { lineWidth: -1 }),
-    { mode: 0o644 }
+    { mode: 0o600 }
   );
 
   // Generate and save policy manifest (structured description of all firewall rules)
@@ -1682,7 +1683,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   fs.writeFileSync(
     path.join(auditDir, 'policy-manifest.json'),
     JSON.stringify(policyManifest, null, 2),
-    { mode: 0o644 }
+    { mode: 0o600 }
   );
 
   logger.debug(`Audit artifacts written to: ${auditDir}`);

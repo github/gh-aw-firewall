@@ -164,10 +164,23 @@ export function computeRuleStats(
     hitCounts.set(entry.matchedRuleId, (hitCounts.get(entry.matchedRuleId) || 0) + 1);
   }
 
-  return manifest.rules.map(rule => ({
+  const manifestStats: RuleStats[] = manifest.rules.map(rule => ({
     ruleId: rule.id,
     description: rule.description,
     action: rule.action,
     hits: hitCounts.get(rule.id) || 0,
   }));
+
+  // Include unattributed traffic so per-rule totals reconcile with overall totals
+  const unknownHits = hitCounts.get('unknown') || 0;
+  if (unknownHits > 0) {
+    manifestStats.push({
+      ruleId: 'unknown',
+      description: 'Unattributed traffic (port/method-based rules not replayable from logs)',
+      action: 'deny',
+      hits: unknownHits,
+    });
+  }
+
+  return manifestStats;
 }
