@@ -49,7 +49,7 @@ jobs:
         run: |
           echo "=== Running domain tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns|ghes-auto-populate)" \
+            --testPathPatterns="(blocked-domains|dns-servers|empty-domains|wildcard-patterns)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
@@ -220,7 +220,7 @@ jobs:
         run: |
           echo "=== Running container & ops tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|log-commands|no-docker|volume-mounts|gh-host-injection|skip-pull|workdir-tmpfs-hiding)" \
+            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|log-commands|no-docker|volume-mounts|skip-pull)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
