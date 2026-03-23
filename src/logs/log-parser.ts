@@ -65,7 +65,11 @@ export function parseLogLine(line: string): ParsedLogEntry | null {
 
   const timestamp = parseFloat(timestampStr);
   const statusCode = parseInt(statusCodeStr, 10);
-  const isAllowed = decision.startsWith('TCP_TUNNEL') || decision.startsWith('TCP_MISS');
+  // Treat anything not explicitly denied (TCP_DENIED) or noise (NONE) as allowed.
+  // Covers TCP_TUNNEL, TCP_MISS, TCP_HIT, TCP_MEM_HIT, TCP_REFRESH_*, etc.
+  const isDenied = decision.startsWith('TCP_DENIED');
+  const isNone = decision.startsWith('NONE');
+  const isAllowed = decision !== '' && !isDenied && !isNone;
   const isHttps = method === 'CONNECT';
 
   // Extract domain from the appropriate field
@@ -156,4 +160,93 @@ export function extractPort(url: string, method: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Parses a single line from the JSONL audit log (audit.jsonl).
+ *
+ * Format: {"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+ *
+ * @param line - Raw JSONL line
+ * @returns Parsed log entry or null if parsing failed
+ */
+export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  try {
+    const obj = JSON.parse(trimmed);
+
+    const method = obj.method || '';
+    const isHttps = method === 'CONNECT';
+    // Squid can emit many TCP_* statuses for allowed requests (TCP_TUNNEL, TCP_MISS,
+    // TCP_HIT, TCP_MEM_HIT, TCP_REFRESH_HIT, etc.). Treat anything that is not
+    // explicitly denied (TCP_DENIED) or operational noise (NONE) as allowed.
+    const decision = typeof obj.decision === 'string' ? obj.decision : '';
+    const isDenied = decision.startsWith('TCP_DENIED');
+    const isNone = decision.startsWith('NONE');
+    const isAllowed = decision !== '' && !isDenied && !isNone;
+
+    // Parse dest into IP and port (handle IPv4, IPv6, and bracketed IPv6)
+    const rawDest = typeof obj.dest === 'string' ? obj.dest : '';
+    let destIp = '-';
+    let destPort = '-';
+
+    if (rawDest && rawDest !== '-:-') {
+      if (rawDest.startsWith('[')) {
+        // Bracketed IPv6, e.g. [2001:db8::1]:443
+        const closeBracket = rawDest.indexOf(']');
+        if (closeBracket !== -1) {
+          destIp = rawDest.slice(1, closeBracket) || '-';
+          const remainder = rawDest.slice(closeBracket + 1);
+          if (remainder.startsWith(':')) {
+            const portCandidate = remainder.slice(1);
+            if (/^\d+$/.test(portCandidate)) destPort = portCandidate;
+          }
+        } else {
+          destIp = rawDest;
+        }
+      } else {
+        // Use last colon as port separator (safe for IPv4 ip:port)
+        const lastColon = rawDest.lastIndexOf(':');
+        if (lastColon === -1) {
+          destIp = rawDest;
+        } else {
+          const portCandidate = rawDest.slice(lastColon + 1);
+          if (/^\d+$/.test(portCandidate)) {
+            destIp = rawDest.slice(0, lastColon) || '-';
+            destPort = portCandidate;
+          } else {
+            destIp = rawDest;
+          }
+        }
+      }
+    }
+
+    // Extract domain
+    const url = obj.url || '';
+    const host = obj.host || '-';
+    const domain = extractDomain(url, host, method);
+
+    return {
+      timestamp: obj.ts || 0,
+      clientIp: obj.client || '-',
+      clientPort: '-', // Not in JSONL format
+      host,
+      destIp,
+      destPort,
+      protocol: '-', // Not in JSONL format
+      method,
+      statusCode: obj.status || 0,
+      decision,
+      url,
+      userAgent: '-', // Not in JSONL format (intentionally omitted)
+      domain,
+      isAllowed,
+      isHttps,
+    };
+  } catch {
+    // JSON parse failed — likely a line with unescaped characters
+    return null;
+  }
 }

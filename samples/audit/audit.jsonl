@@ -1,0 +1,3 @@
+{"ts":1774290908.910,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.116.5:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+{"ts":1774290909.180,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.116.5:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+{"ts":1774290909.186,"client":"172.30.0.20","host":"evil.example.com:443","dest":"-:-","method":"CONNECT","status":403,"decision":"TCP_DENIED","url":"evil.example.com:443"}

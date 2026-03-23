@@ -1,16 +1,19 @@
 /**
- * Shared helper functions for log commands (stats and summary)
+ * Shared helper functions for log commands (stats, summary, audit)
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../logger';
-import type { LogSource } from '../types';
+import type { LogSource, PolicyManifest } from '../types';
 import {
   discoverLogSources,
   selectMostRecent,
   validateSource,
 } from '../logs/log-discovery';
-import { loadAndAggregate } from '../logs/log-aggregator';
+import { loadAndAggregate, loadAllLogs } from '../logs/log-aggregator';
 import type { AggregatedStats } from '../logs/log-aggregator';
+import { enrichWithPolicyRules, computeRuleStats } from '../logs/audit-enricher';
 
 /**
  * Options for determining which logs to show (based on log level)
@@ -80,7 +83,42 @@ export async function discoverAndSelectSource(
 }
 
 /**
+ * Attempts to find a policy-manifest.json near a log source path.
+ * Returns null if not found.
+ */
+export function findPolicyManifestForSource(source: LogSource): PolicyManifest | null {
+  if (source.type === 'running' || !source.path) return null;
+
+  const candidates = [
+    path.join(source.path, 'policy-manifest.json'),
+    path.join(source.path, '..', 'audit', 'policy-manifest.json'),
+    source.path.replace(/squid-logs-/, 'awf-audit-').replace(/\/?$/, '/policy-manifest.json'),
+  ];
+
+  // AWF_AUDIT_DIR is a fallback, not priority — prefer manifests co-located with
+  // the selected log source to avoid cross-run mismatch
+  const auditDirEnv = process.env.AWF_AUDIT_DIR;
+  if (auditDirEnv) {
+    candidates.push(path.join(auditDirEnv, 'policy-manifest.json'));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        const content = fs.readFileSync(candidate, 'utf-8');
+        return JSON.parse(content) as PolicyManifest;
+      }
+    } catch {
+      // Skip
+    }
+  }
+
+  return null;
+}
+
+/**
  * Loads and aggregates logs from a source, handling errors gracefully.
+ * Automatically enriches with policy rule stats when a manifest is available.
  *
  * @param source - Log source to load from
  * @returns Aggregated statistics
@@ -89,7 +127,18 @@ export async function loadLogsWithErrorHandling(
   source: LogSource
 ): Promise<AggregatedStats> {
   try {
-    return await loadAndAggregate(source);
+    const stats = await loadAndAggregate(source);
+
+    // Try to enrich with policy rule stats
+    const manifest = findPolicyManifestForSource(source);
+    if (manifest) {
+      const entries = await loadAllLogs(source);
+      const enriched = enrichWithPolicyRules(entries, manifest);
+      stats.byRule = computeRuleStats(enriched, manifest);
+      logger.debug('Enriched stats with policy rule matching');
+    }
+
+    return stats;
   } catch (error) {
     logger.error(`Failed to load logs: ${error instanceof Error ? error.message : error}`);
     process.exit(1);

@@ -2,7 +2,7 @@
  * Unit tests for log-parser.ts
  */
 
-import { parseLogLine, extractDomain, extractPort } from './log-parser';
+import { parseLogLine, extractDomain, extractPort, parseAuditJsonlLine } from './log-parser';
 
 describe('log-parser', () => {
   describe('parseLogLine', () => {
@@ -103,19 +103,18 @@ describe('log-parser', () => {
       const result = parseLogLine(line);
 
       expect(result).not.toBeNull();
-      // TCP_HIT is neither TCP_TUNNEL nor TCP_MISS, so isAllowed should be false
-      // This documents current behavior: only TCP_TUNNEL and TCP_MISS are considered allowed
-      expect(result!.isAllowed).toBe(false);
+      // TCP_HIT is a successful cache hit — should be treated as allowed
+      expect(result!.isAllowed).toBe(true);
     });
 
-    it('should mark TCP_REFRESH_MODIFIED as denied (not in allowed list)', () => {
+    it('should mark TCP_REFRESH_MODIFIED as allowed (refreshed cache)', () => {
       const line =
         '1761074374.646 172.30.0.20:39748 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_REFRESH_MODIFIED:HIER_DIRECT http://example.com/ "-"';
       const result = parseLogLine(line);
 
       expect(result).not.toBeNull();
-      // TCP_REFRESH_MODIFIED is not TCP_TUNNEL or TCP_MISS
-      expect(result!.isAllowed).toBe(false);
+      // TCP_REFRESH_MODIFIED is a successful refreshed response — should be allowed
+      expect(result!.isAllowed).toBe(true);
     });
 
     it('should mark NONE_NONE as denied (connection failure entries)', () => {
@@ -242,6 +241,53 @@ describe('log-parser', () => {
 
     it('should not extract non-numeric port', () => {
       expect(extractPort('api.github.com:abc', 'CONNECT')).toBeUndefined();
+    });
+  });
+
+  describe('parseAuditJsonlLine', () => {
+    it('should parse a valid JSONL CONNECT entry', () => {
+      const line = '{"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.timestamp).toBeCloseTo(1761074374.646);
+      expect(entry!.clientIp).toBe('172.30.0.20');
+      expect(entry!.method).toBe('CONNECT');
+      expect(entry!.statusCode).toBe(200);
+      expect(entry!.decision).toBe('TCP_TUNNEL');
+      expect(entry!.domain).toBe('api.github.com');
+      expect(entry!.isAllowed).toBe(true);
+      expect(entry!.isHttps).toBe(true);
+    });
+
+    it('should parse a denied JSONL entry', () => {
+      const line = '{"ts":1760994429.358,"client":"172.30.0.20","host":"evil.com:443","dest":"-:-","method":"CONNECT","status":403,"decision":"TCP_DENIED","url":"evil.com:443"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.isAllowed).toBe(false);
+      expect(entry!.statusCode).toBe(403);
+      expect(entry!.domain).toBe('evil.com');
+    });
+
+    it('should parse a HTTP GET entry', () => {
+      const line = '{"ts":1700000000.000,"client":"172.30.0.20","host":"example.com","dest":"93.184.216.34:80","method":"GET","status":200,"decision":"TCP_MISS","url":"http://example.com/"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.isHttps).toBe(false);
+      expect(entry!.isAllowed).toBe(true);
+      expect(entry!.domain).toBe('example.com');
+    });
+
+    it('should return null for empty lines', () => {
+      expect(parseAuditJsonlLine('')).toBeNull();
+      expect(parseAuditJsonlLine('   ')).toBeNull();
+    });
+
+    it('should return null for invalid JSON', () => {
+      expect(parseAuditJsonlLine('not json')).toBeNull();
+      expect(parseAuditJsonlLine('{broken')).toBeNull();
     });
   });
 });

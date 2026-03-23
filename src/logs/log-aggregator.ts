@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { LogSource, ParsedLogEntry } from '../types';
-import { parseLogLine } from './log-parser';
+import { parseLogLine, parseAuditJsonlLine } from './log-parser';
 import { logger } from '../logger';
 
 /**
@@ -39,6 +39,33 @@ export interface AggregatedStats {
   byDomain: Map<string, DomainStats>;
   /** Time range of the logs (null if no entries) */
   timeRange: { start: number; end: number } | null;
+  /** Per-rule hit statistics (populated when policy manifest is available) */
+  byRule?: import('./audit-enricher').RuleStats[];
+}
+
+/**
+ * Parses lines of text into log entries using the given parser function.
+ */
+function parseLines(
+  content: string,
+  parser: (line: string) => ParsedLogEntry | null
+): ParsedLogEntry[] {
+  const entries: ParsedLogEntry[] = [];
+  const lines = content.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const entry = parser(trimmed);
+    if (entry) {
+      entries.push(entry);
+    } else {
+      logger.debug(`Failed to parse log line: ${trimmed}`);
+    }
+  }
+
+  return entries;
 }
 
 /**
@@ -143,38 +170,36 @@ export async function loadAllLogs(source: LogSource): Promise<ParsedLogEntry[]> 
       return [];
     }
   } else {
-    // Read from file
+    // Read from file — prefer audit.jsonl (structured) over access.log (text)
     if (!source.path) {
       throw new Error('Path is required for preserved log source');
     }
-    const filePath = path.join(source.path, 'access.log');
-    logger.debug(`Loading logs from file: ${filePath}`);
 
-    if (!fs.existsSync(filePath)) {
-      logger.debug(`Log file not found: ${filePath}`);
+    const jsonlPath = path.join(source.path, 'audit.jsonl');
+    const textPath = path.join(source.path, 'access.log');
+
+    // Try JSONL first, fall back to text format
+    if (fs.existsSync(jsonlPath)) {
+      const jsonlContent = fs.readFileSync(jsonlPath, 'utf-8');
+      const jsonlEntries = parseLines(jsonlContent, parseAuditJsonlLine);
+      if (jsonlEntries.length > 0) {
+        logger.debug(`Loaded ${jsonlEntries.length} entries from JSONL: ${jsonlPath}`);
+        return jsonlEntries;
+      }
+      logger.debug(`JSONL file had no parseable entries, falling back to text format`);
+    }
+
+    if (fs.existsSync(textPath)) {
+      content = fs.readFileSync(textPath, 'utf-8');
+      logger.debug(`Loading logs from text: ${textPath}`);
+    } else {
+      logger.debug(`No log files found in: ${source.path}`);
       return [];
     }
-
-    content = fs.readFileSync(filePath, 'utf-8');
   }
 
-  // Parse all lines
-  const entries: ParsedLogEntry[] = [];
-  const lines = content.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const entry = parseLogLine(trimmed);
-    if (entry) {
-      entries.push(entry);
-    } else {
-      logger.debug(`Failed to parse log line: ${trimmed}`);
-    }
-  }
-
-  return entries;
+  // Parse all lines (for running container source or text file fallback)
+  return parseLines(content, parseLogLine);
 }
 
 /**

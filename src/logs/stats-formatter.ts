@@ -22,7 +22,7 @@ export function formatStatsJson(stats: AggregatedStats): string {
     };
   }
 
-  const output = {
+  const output: Record<string, unknown> = {
     totalRequests: stats.totalRequests,
     allowedRequests: stats.allowedRequests,
     deniedRequests: stats.deniedRequests,
@@ -30,6 +30,10 @@ export function formatStatsJson(stats: AggregatedStats): string {
     timeRange: stats.timeRange,
     byDomain,
   };
+
+  if (stats.byRule) {
+    output.byRule = stats.byRule;
+  }
 
   return JSON.stringify(output, null, 2);
 }
@@ -85,6 +89,22 @@ export function formatStatsMarkdown(stats: AggregatedStats): string {
     }
   } else {
     lines.push('No firewall activity detected.');
+  }
+
+  // Policy rules section (when available)
+  if (stats.byRule && stats.byRule.length > 0) {
+    lines.push('');
+    lines.push('<details>');
+    lines.push('<summary>Policy Rules</summary>\n');
+    lines.push('| Rule | Action | Hits | Description |');
+    lines.push('|------|--------|------|-------------|');
+
+    for (const rule of stats.byRule) {
+      const actionEmoji = rule.action === 'allow' ? '✅' : '🚫';
+      lines.push(`| ${rule.ruleId} | ${actionEmoji} ${rule.action} | ${rule.hits} | ${rule.description} |`);
+    }
+
+    lines.push('\n</details>');
   }
 
   lines.push('\n</details>\n');
@@ -165,6 +185,19 @@ export function formatStatsPretty(
           : c.gray(`${domainStats.denied} denied`);
       lines.push(`  ${padded}${allowedStr}, ${deniedStr}`);
     }
+  }
+
+  // Policy rules section
+  if (stats.byRule && stats.byRule.length > 0) {
+    lines.push(c.bold('Policy Rules:'));
+    const maxIdLen = Math.max(...stats.byRule.map(r => r.ruleId.length));
+    for (const rule of stats.byRule) {
+      const paddedId = rule.ruleId.padEnd(maxIdLen + 2);
+      const actionStr = rule.action === 'allow' ? c.green(rule.action) : c.red(rule.action);
+      const hitsStr = rule.hits > 0 ? String(rule.hits) : c.gray('0');
+      lines.push(`  ${paddedId}${actionStr}  ${hitsStr} hits  ${c.gray(rule.description)}`);
+    }
+    lines.push('');
   }
 
   lines.push('');
