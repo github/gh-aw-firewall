@@ -2025,6 +2025,50 @@ describe('docker-manager', () => {
         }
       });
 
+      it('should not leak GITHUB_API_URL to agent when api-proxy is enabled with envAll', () => {
+        // When api-proxy is enabled, GITHUB_API_URL must be excluded so the Copilot CLI
+        // routes token exchange through COPILOT_API_URL → api-proxy (not directly to api.github.com
+        // with the placeholder COPILOT_GITHUB_TOKEN, which would cause a 401).
+        // See: github/gh-aw#20875
+        const origUrl = process.env.GITHUB_API_URL;
+        process.env.GITHUB_API_URL = 'https://api.github.com';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghp_test_token', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // GITHUB_API_URL should NOT be passed to agent when api-proxy is enabled
+          expect(env.GITHUB_API_URL).toBeUndefined();
+          // COPILOT_API_URL should be set to route through the api-proxy
+          expect(env.COPILOT_API_URL).toBe('http://172.30.0.30:10002');
+        } finally {
+          if (origUrl !== undefined) {
+            process.env.GITHUB_API_URL = origUrl;
+          } else {
+            delete process.env.GITHUB_API_URL;
+          }
+        }
+      });
+
+      it('should pass GITHUB_API_URL to agent when api-proxy is NOT enabled with envAll', () => {
+        const origUrl = process.env.GITHUB_API_URL;
+        process.env.GITHUB_API_URL = 'https://api.github.com';
+        try {
+          const configNoProxy = { ...mockConfig, enableApiProxy: false, envAll: true };
+          const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // When api-proxy is NOT enabled, GITHUB_API_URL should be passed through
+          expect(env.GITHUB_API_URL).toBe('https://api.github.com');
+        } finally {
+          if (origUrl !== undefined) {
+            process.env.GITHUB_API_URL = origUrl;
+          } else {
+            delete process.env.GITHUB_API_URL;
+          }
+        }
+      });
+
       it('should set AWF_RATE_LIMIT env vars when rateLimitConfig is provided', () => {
         const configWithRateLimit = {
           ...mockConfig,
