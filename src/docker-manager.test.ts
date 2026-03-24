@@ -2025,10 +2025,10 @@ describe('docker-manager', () => {
         }
       });
 
-      it('should not leak GITHUB_API_URL to agent when api-proxy is enabled with envAll', () => {
-        // When api-proxy is enabled, GITHUB_API_URL must be excluded so the Copilot CLI
-        // routes token exchange through COPILOT_API_URL → api-proxy (not directly to api.github.com
-        // with the placeholder COPILOT_GITHUB_TOKEN, which would cause a 401).
+      it('should pass GITHUB_API_URL to agent when api-proxy is enabled with envAll', () => {
+        // GITHUB_API_URL must remain in the agent environment even when api-proxy is enabled.
+        // The Copilot CLI needs it to locate the GitHub API (token exchange, user info, etc.).
+        // Copilot-specific calls route through COPILOT_API_URL → api-proxy regardless.
         // See: github/gh-aw#20875
         const origUrl = process.env.GITHUB_API_URL;
         process.env.GITHUB_API_URL = 'https://api.github.com';
@@ -2037,9 +2037,9 @@ describe('docker-manager', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // GITHUB_API_URL should NOT be passed to agent when api-proxy is enabled
-          expect(env.GITHUB_API_URL).toBeUndefined();
-          // COPILOT_API_URL should be set to route through the api-proxy
+          // GITHUB_API_URL should be passed to agent even when api-proxy is enabled
+          expect(env.GITHUB_API_URL).toBe('https://api.github.com');
+          // COPILOT_API_URL should also be set to route Copilot calls through the api-proxy
           expect(env.COPILOT_API_URL).toBe('http://172.30.0.30:10002');
         } finally {
           if (origUrl !== undefined) {
