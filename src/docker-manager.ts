@@ -762,7 +762,8 @@ export function generateDockerCompose(
     // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
     // prevent atomic writes (temp file + rename), which Claude Code requires.
     // The writable home volume provides a writable $HOME, and entrypoint.sh
-    // creates ~/.claude.json with apiKeyHelper content from CLAUDE_CODE_API_KEY_HELPER.
+    // creates both ~/.claude.json (legacy) and ~/.claude/settings.json (v2.1.81+)
+    // with apiKeyHelper content from CLAUDE_CODE_API_KEY_HELPER.
 
     // Mount ~/.cargo and ~/.rustup for Rust toolchain access
     // On GitHub Actions runners, Rust is installed via rustup at $HOME/.cargo and $HOME/.rustup
