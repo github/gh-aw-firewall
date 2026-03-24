@@ -182,10 +182,27 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
         fi
         echo "[entrypoint] ✓ $label apiKeyHelper validated"
       else
-        echo "[entrypoint] $label exists but missing apiKeyHelper, writing..."
-        echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$config_file"
-        chmod 666 "$config_file"
-        echo "[entrypoint] ✓ Wrote apiKeyHelper to $label"
+        echo "[entrypoint] $label exists but missing apiKeyHelper, merging..."
+        # Use node to safely add apiKeyHelper to existing JSON without losing other fields
+        # (e.g. hasCompletedOnboarding, session tokens, user preferences)
+        if AWF_CONFIG_FILE="$config_file" AWF_KEY_HELPER="$CLAUDE_CODE_API_KEY_HELPER" \
+           node -e "
+             const fs = require('fs');
+             const file = process.env.AWF_CONFIG_FILE;
+             const helper = process.env.AWF_KEY_HELPER;
+             let obj = {};
+             try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); } catch(e) {}
+             obj.apiKeyHelper = helper;
+             fs.writeFileSync(file, JSON.stringify(obj) + '\n');
+           " 2>/dev/null; then
+          chmod 666 "$config_file"
+          echo "[entrypoint] ✓ Merged apiKeyHelper into $label"
+        else
+          # Fallback if node is unavailable or the file is not valid JSON
+          echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$config_file"
+          chmod 666 "$config_file"
+          echo "[entrypoint] ✓ Wrote apiKeyHelper to $label (overwrite fallback)"
+        fi
       fi
     else
       echo "[entrypoint] Creating $label with apiKeyHelper..."
