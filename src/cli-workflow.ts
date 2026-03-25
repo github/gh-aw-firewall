@@ -51,7 +51,7 @@ export async function runMainWorkflow(
   // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
   const dohProxyIp = config.dnsOverHttps ? '172.30.0.40' : undefined;
   const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
-    ? { enabled: true, allowHostPorts: config.allowHostPorts }
+    ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
     : undefined;
   await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess);
   onHostIptablesSetup?.();

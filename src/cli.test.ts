@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1577,6 +1577,184 @@ describe('cli', () => {
       const result = validateAllowHostPorts('3000-3010,8000-8090', true);
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe('validateAllowHostServicePorts', () => {
+    it('should pass when no service ports are provided', () => {
+      const result = validateAllowHostServicePorts(undefined, undefined);
+      expect(result.valid).toBe(true);
+      expect(result.autoEnableHostAccess).toBeUndefined();
+    });
+
+    it('should pass for valid single port', () => {
+      const result = validateAllowHostServicePorts('5432', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should pass for valid multiple ports', () => {
+      const result = validateAllowHostServicePorts('5432,6379,3306', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should auto-enable host access when not already enabled', () => {
+      const result = validateAllowHostServicePorts('5432', undefined);
+      expect(result.valid).toBe(true);
+      expect(result.autoEnableHostAccess).toBe(true);
+    });
+
+    it('should auto-enable host access when enableHostAccess is false', () => {
+      const result = validateAllowHostServicePorts('5432', false);
+      expect(result.valid).toBe(true);
+      expect(result.autoEnableHostAccess).toBe(true);
+    });
+
+    it('should not auto-enable host access when already enabled', () => {
+      const result = validateAllowHostServicePorts('5432', true);
+      expect(result.valid).toBe(true);
+      expect(result.autoEnableHostAccess).toBe(false);
+    });
+
+    it('should fail for non-numeric port', () => {
+      const result = validateAllowHostServicePorts('abc', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Invalid port');
+      expect(result.error).toContain('Must be a numeric value');
+    });
+
+    it('should fail for port with letters mixed in', () => {
+      const result = validateAllowHostServicePorts('54a32', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Must be a numeric value');
+    });
+
+    it('should fail for port 0', () => {
+      const result = validateAllowHostServicePorts('0', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Must be a number between 1 and 65535');
+    });
+
+    it('should fail for port above 65535', () => {
+      const result = validateAllowHostServicePorts('65536', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Must be a number between 1 and 65535');
+    });
+
+    it('should fail if any port in comma-separated list is invalid', () => {
+      const result = validateAllowHostServicePorts('5432,abc,6379', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('abc');
+    });
+
+    it('should allow dangerous ports (by design, for host-local services)', () => {
+      // Ports like 22 (SSH), 25 (SMTP), 5432 (Postgres), 6379 (Redis) are allowed
+      // because they are restricted to host gateway only
+      const result = validateAllowHostServicePorts('22,25,5432,6379,27017', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should handle ports with whitespace around them', () => {
+      const result = validateAllowHostServicePorts(' 5432 , 6379 ', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should pass for port 1 (minimum valid)', () => {
+      const result = validateAllowHostServicePorts('1', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should pass for port 65535 (maximum valid)', () => {
+      const result = validateAllowHostServicePorts('65535', undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should fail for negative port number', () => {
+      const result = validateAllowHostServicePorts('-1', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Must be a numeric value');
+    });
+
+    it('should fail for decimal port number', () => {
+      const result = validateAllowHostServicePorts('80.5', undefined);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Must be a numeric value');
+    });
+  });
+
+  describe('applyHostServicePortsConfig', () => {
+    let warnings: string[];
+    let infos: string[];
+    let mockLog: { warn: (msg: string) => void; info: (msg: string) => void };
+
+    beforeEach(() => {
+      warnings = [];
+      infos = [];
+      mockLog = {
+        warn: (msg: string) => warnings.push(msg),
+        info: (msg: string) => infos.push(msg),
+      };
+    });
+
+    it('should return valid with no changes when no service ports provided', () => {
+      const result = applyHostServicePortsConfig(undefined, undefined, mockLog);
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.enableHostAccess).toBeUndefined();
+      }
+      expect(warnings).toHaveLength(0);
+      expect(infos).toHaveLength(0);
+    });
+
+    it('should return error for invalid port', () => {
+      const result = applyHostServicePortsConfig('abc', undefined, mockLog);
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.error).toContain('Invalid port');
+      }
+    });
+
+    it('should auto-enable host access and emit warnings when ports provided without host access', () => {
+      const result = applyHostServicePortsConfig('5432,6379', undefined, mockLog);
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.enableHostAccess).toBe(true);
+      }
+      expect(warnings).toHaveLength(3);
+      expect(warnings[0]).toContain('bypasses dangerous port restrictions');
+      expect(warnings[1]).toContain('Ensure host services');
+      expect(warnings[2]).toContain('automatically enabling host access');
+      expect(warnings[2]).toContain('80/443');
+      expect(infos).toHaveLength(1);
+      expect(infos[0]).toContain('5432,6379');
+    });
+
+    it('should not auto-enable host access when already enabled', () => {
+      const result = applyHostServicePortsConfig('5432', true, mockLog);
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.enableHostAccess).toBe(true);
+      }
+      // Should still warn but not log auto-enable message
+      expect(warnings).toHaveLength(2);
+      expect(infos).toHaveLength(1);
+      expect(infos[0]).toContain('5432');
+    });
+
+    it('should auto-enable host access when enableHostAccess is false', () => {
+      const result = applyHostServicePortsConfig('3306', false, mockLog);
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.enableHostAccess).toBe(true);
+      }
+      expect(warnings.some(m => m.includes('automatically enabling'))).toBe(true);
+    });
+
+    it('should return error for out-of-range port', () => {
+      const result = applyHostServicePortsConfig('70000', undefined, mockLog);
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.error).toContain('Must be a number between 1 and 65535');
+      }
     });
   });
 

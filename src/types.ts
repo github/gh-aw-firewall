@@ -422,6 +422,31 @@ export interface WrapperConfig {
   allowHostPorts?: string;
 
   /**
+   * Ports to allow for host service access (e.g., GitHub Actions services containers)
+   *
+   * Comma-separated list of ports that are allowed ONLY to the host gateway IP
+   * (host.docker.internal). Unlike --allow-host-ports, this flag bypasses the
+   * DANGEROUS_PORTS validation because traffic is restricted to the host machine.
+   *
+   * This is designed for GitHub Actions `services:` containers (e.g., Postgres on
+   * port 5432) which publish to the host via port mapping. The agent can reach
+   * these services on the host but still cannot reach databases on the internet.
+   *
+   * Automatically enables host access (--enable-host-access).
+   *
+   * @default undefined
+   * @example
+   * ```bash
+   * # Allow Postgres service container on host
+   * awf --allow-host-service-ports 5432 --allow-domains github.com -- psql -h host.docker.internal
+   *
+   * # Allow multiple service containers
+   * awf --allow-host-service-ports 5432,6379,3306 --allow-domains github.com -- command
+   * ```
+   */
+  allowHostServicePorts?: string;
+
+  /**
    * Whether to enable SSL Bump for HTTPS content inspection
    *
    * When true, Squid will intercept HTTPS connections and generate

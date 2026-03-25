@@ -702,6 +702,75 @@ export function validateAllowHostPorts(
 }
 
 /**
+ * Validates --allow-host-service-ports values.
+ * Ports must be numeric and in the range 1-65535.
+ * Unlike --allow-host-ports, dangerous ports are intentionally allowed because
+ * these ports are restricted to the host gateway IP only (not the internet).
+ * Returns an object indicating whether host access should be auto-enabled.
+ */
+export function validateAllowHostServicePorts(
+  allowHostServicePorts: string | undefined,
+  enableHostAccess: boolean | undefined
+): FlagValidationResult & { autoEnableHostAccess?: boolean } {
+  if (!allowHostServicePorts) {
+    return { valid: true };
+  }
+
+  const servicePorts = allowHostServicePorts.split(',').map(p => p.trim());
+  for (const port of servicePorts) {
+    if (!/^\d+$/.test(port)) {
+      return {
+        valid: false,
+        error: `Invalid port in --allow-host-service-ports: ${port}. Must be a numeric value`,
+      };
+    }
+    const portNum = parseInt(port, 10);
+    if (portNum < 1 || portNum > 65535) {
+      return {
+        valid: false,
+        error: `Invalid port in --allow-host-service-ports: ${port}. Must be a number between 1 and 65535`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    autoEnableHostAccess: !enableHostAccess,
+  };
+}
+
+/**
+ * Applies --allow-host-service-ports validation and config mutations.
+ * Extracted from the main command handler for testability.
+ *
+ * Returns { valid: false, error } if validation fails (caller should exit).
+ * Returns { valid: true, enableHostAccess } with the (possibly mutated) value.
+ */
+export function applyHostServicePortsConfig(
+  allowHostServicePorts: string | undefined,
+  enableHostAccess: boolean | undefined,
+  log: { warn: (msg: string) => void; info: (msg: string) => void }
+): { valid: true; enableHostAccess: boolean | undefined } | { valid: false; error: string } {
+  const validation = validateAllowHostServicePorts(allowHostServicePorts, enableHostAccess);
+  if (!validation.valid) {
+    return { valid: false, error: validation.error! };
+  }
+
+  if (allowHostServicePorts) {
+    log.warn('--allow-host-service-ports bypasses dangerous port restrictions for host-local traffic.');
+    log.warn('Ensure host services on these ports do not provide external network access.');
+
+    if (validation.autoEnableHostAccess) {
+      log.warn('--allow-host-service-ports automatically enabling host access (ports 80/443 to host gateway also opened)');
+      enableHostAccess = true;
+    }
+    log.info(`Host service ports allowed (host gateway only): ${allowHostServicePorts}`);
+  }
+
+  return { valid: true, enableHostAccess };
+}
+
+/**
  * Parses and validates a Docker memory limit string.
  * Valid formats: positive integer followed by b, k, m, or g (e.g., "2g", "512m", "4g").
  */
@@ -1242,6 +1311,13 @@ program
     'Ports/ranges to allow with --enable-host-access (default: 80,443).\n' +
     '                                       Example: 3000,8080 or 3000-3010,8000-8090'
   )
+  .option(
+    '--allow-host-service-ports <ports>',
+    'Ports to allow ONLY to host gateway (for GitHub Actions services).\n' +
+    '                                       Bypasses dangerous port restrictions. Auto-enables host access.\n' +
+    '                                       WARNING: Allowing port 22 grants SSH access to the host.\n' +
+    '                                       Example: 5432,6379'
+  )
 
   .option(
     '--enable-dind',
@@ -1628,6 +1704,7 @@ program
       enableHostAccess: options.enableHostAccess,
       localhostDetected: localhostResult.localhostDetected,
       allowHostPorts: options.allowHostPorts,
+      allowHostServicePorts: options.allowHostServicePorts,
       sslBump: options.sslBump,
       enableDind: options.enableDind,
       enableDlp: options.enableDlp,
@@ -1669,6 +1746,18 @@ program
       logger.warn('⚠️  Using --env-all: All host environment variables will be passed to container');
       logger.warn('   This may expose sensitive credentials if logs or configs are shared');
     }
+
+    // Validate --allow-host-service-ports (port format & range)
+    const servicePortsResult = applyHostServicePortsConfig(
+      config.allowHostServicePorts,
+      config.enableHostAccess,
+      logger
+    );
+    if (!servicePortsResult.valid) {
+      logger.error(`❌ ${servicePortsResult.error}`);
+      process.exit(1);
+    }
+    config.enableHostAccess = servicePortsResult.enableHostAccess;
 
     // Validate --allow-host-ports requires --enable-host-access
     const hostPortsValidation = validateAllowHostPorts(config.allowHostPorts, config.enableHostAccess);

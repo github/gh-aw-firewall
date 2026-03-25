@@ -18,6 +18,7 @@ export interface AwfOptions {
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
+  allowHostServicePorts?: string; // Ports to allow ONLY to host gateway (bypasses dangerous port restrictions)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
@@ -117,6 +118,11 @@ export class AwfRunner {
     // Add allow-host-ports
     if (options.allowHostPorts) {
       args.push('--allow-host-ports', options.allowHostPorts);
+    }
+
+    // Add allow-host-service-ports
+    if (options.allowHostServicePorts) {
+      args.push('--allow-host-service-ports', options.allowHostServicePorts);
     }
 
     // Add enable-api-proxy flag
@@ -325,6 +331,11 @@ export class AwfRunner {
     // Add allow-host-ports
     if (options.allowHostPorts) {
       args.push('--allow-host-ports', options.allowHostPorts);
+    }
+
+    // Add allow-host-service-ports
+    if (options.allowHostServicePorts) {
+      args.push('--allow-host-service-ports', options.allowHostServicePorts);
     }
 
     // Add enable-api-proxy flag

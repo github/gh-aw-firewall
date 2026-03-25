@@ -644,6 +644,17 @@ export function generateDockerCompose(
     environment.AWF_ALLOW_HOST_PORTS = config.allowHostPorts;
   }
 
+  // Pass host service ports to container for setup-iptables.sh (if specified)
+  // These ports bypass DANGEROUS_PORTS validation and are only allowed to host gateway
+  if (config.allowHostServicePorts) {
+    environment.AWF_HOST_SERVICE_PORTS = config.allowHostServicePorts;
+    // Ensure host access is enabled (setup-iptables.sh requires AWF_ENABLE_HOST_ACCESS)
+    // The CLI auto-enables this, but this is a safety net for programmatic usage
+    if (!environment.AWF_ENABLE_HOST_ACCESS) {
+      environment.AWF_ENABLE_HOST_ACCESS = 'true';
+    }
+  }
+
   // Pass chroot mode flag to container for entrypoint.sh capability drop
   environment.AWF_CHROOT_ENABLED = 'true';
   // Pass the container working directory for chroot mode
@@ -1228,6 +1239,7 @@ export function generateDockerCompose(
       AWF_BLOCKED_PORTS: environment.AWF_BLOCKED_PORTS || '',
       AWF_ENABLE_HOST_ACCESS: environment.AWF_ENABLE_HOST_ACCESS || '',
       AWF_ALLOW_HOST_PORTS: environment.AWF_ALLOW_HOST_PORTS || '',
+      AWF_HOST_SERVICE_PORTS: environment.AWF_HOST_SERVICE_PORTS || '',
       AWF_API_PROXY_IP: environment.AWF_API_PROXY_IP || '',
       AWF_DOH_PROXY_IP: environment.AWF_DOH_PROXY_IP || '',
       AWF_SSL_BUMP_ENABLED: environment.AWF_SSL_BUMP_ENABLED || '',

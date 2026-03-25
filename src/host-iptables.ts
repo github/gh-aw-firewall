@@ -16,6 +16,7 @@ const AWF_NETWORK_GATEWAY = '172.30.0.1';
 export interface HostAccessConfig {
   enabled: boolean;
   allowHostPorts?: string;
+  allowHostServicePorts?: string;
 }
 
 /**
@@ -446,6 +447,21 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
         if (trimmed) {
           if (!isValidPortSpec(trimmed)) {
             logger.warn(`Skipping invalid port spec: ${trimmed}`);
+            continue;
+          }
+          customPorts.push(trimmed);
+        }
+      }
+    }
+
+    // Also include host service ports (--allow-host-service-ports)
+    // These intentionally bypass dangerous port restrictions since traffic is host-gateway-only
+    if (hostAccess.allowHostServicePorts) {
+      for (const entry of hostAccess.allowHostServicePorts.split(',')) {
+        const trimmed = entry.trim();
+        if (trimmed) {
+          if (!isValidPortSpec(trimmed)) {
+            logger.warn(`Skipping invalid host service port spec: ${trimmed}`);
             continue;
           }
           customPorts.push(trimmed);

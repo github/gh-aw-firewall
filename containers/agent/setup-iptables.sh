@@ -236,6 +236,54 @@ if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
   fi
 fi
 
+# Allow host service ports (--allow-host-service-ports) ONLY to host gateway
+# These ports bypass DANGEROUS_PORTS restrictions because they are restricted
+# to the host gateway IP only (for GitHub Actions services containers).
+# Must be applied BEFORE dangerous port RETURN rules so traffic to host gateway
+# on these ports is accepted, not dropped.
+if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
+  # Parse port list once, before resolving gateway IPs, so both blocks can use it
+  IFS=',' read -ra HSP_PORTS <<< "$AWF_HOST_SERVICE_PORTS"
+
+  # Resolve host gateway IP
+  HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
+  HSP_NET_GW_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
+
+  if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
+    echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_HOST_SERVICE_PORTS"
+    for port in "${HSP_PORTS[@]}"; do
+      port=$(echo "$port" | xargs)
+      if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "[iptables] WARNING: Skipping invalid service port: $port"
+        continue
+      fi
+      if [ -n "$port" ]; then
+        echo "[iptables]   Allow host service port $port to $HSP_HOST_GW_IP"
+        # FILTER: allow traffic to host gateway on this port
+        # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+        iptables -A OUTPUT -p tcp -d "$HSP_HOST_GW_IP" --dport "$port" -j ACCEPT
+      fi
+    done
+  fi
+
+  # Also allow to network gateway (same as the host access block does)
+  if [ -n "$HSP_NET_GW_IP" ] && is_valid_ipv4 "$HSP_NET_GW_IP" && [ "$HSP_NET_GW_IP" != "$HSP_HOST_GW_IP" ]; then
+    echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_HOST_SERVICE_PORTS"
+    for port in "${HSP_PORTS[@]}"; do
+      port=$(echo "$port" | xargs)
+      if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "[iptables] WARNING: Skipping invalid service port: $port"
+        continue
+      fi
+      if [ -n "$port" ]; then
+        # FILTER: allow traffic to network gateway on this port
+        # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+        iptables -A OUTPUT -p tcp -d "$HSP_NET_GW_IP" --dport "$port" -j ACCEPT
+      fi
+    done
+  fi
+fi
+
 # Block dangerous ports at NAT level (defense-in-depth with Squid ACL filtering)
 # These ports are explicitly blocked to prevent access to sensitive services
 # even if Squid ACL filtering fails. The ports RETURN from NAT (not redirected)

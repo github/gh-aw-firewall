@@ -134,6 +134,35 @@ describe('runMainWorkflow', () => {
     );
   });
 
+  it('passes allowHostServicePorts in hostAccess config when set', async () => {
+    const configWithServicePorts: WrapperConfig = {
+      ...baseConfig,
+      enableHostAccess: true,
+      allowHostPorts: '3000',
+      allowHostServicePorts: '5432,6379',
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithServicePorts, dependencies, { logger, performCleanup });
+
+    const expectedHostAccess: HostAccessConfig = {
+      enabled: true,
+      allowHostPorts: '3000',
+      allowHostServicePorts: '5432,6379',
+    };
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess
+    );
+  });
+
   it('passes undefined hostAccess when enableHostAccess is not set', async () => {
     const dependencies: WorkflowDependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
