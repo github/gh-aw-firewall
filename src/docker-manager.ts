@@ -455,6 +455,10 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     // COPILOT_GITHUB_TOKEN gets a placeholder (not excluded), protected by one-shot-token
+    // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
+    // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
+    // through COPILOT_API_URL → api-proxy regardless of GITHUB_API_URL being set.
+    // See: github/gh-aw#20875
   }
 
   // Start with required/overridden environment variables
@@ -584,6 +588,11 @@ export function generateDockerCompose(
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
     // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
     if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
+    // GITHUB_API_URL — always pass when set. The Copilot CLI needs it to locate the GitHub API
+    // (especially on GHES/GHEC where the URL differs from api.github.com).
+    // Copilot-specific API calls (inference and token exchange) always route through
+    // COPILOT_API_URL → api-proxy when api-proxy is enabled, so GITHUB_API_URL does not
+    // interfere with credential isolation.
     if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
 
     // Auto-inject GH_HOST when GITHUB_SERVER_URL points to a GHES/GHEC instance
@@ -594,13 +603,6 @@ export function generateDockerCompose(
       environment.GH_HOST = ghHost;
       logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
     }
-    // GITHUB_API_URL — only pass when api-proxy is NOT enabled.
-    // On GHES, workflows set GITHUB_API_URL to the GHES API endpoint (e.g., https://api.ghes-host).
-    // When api-proxy is enabled, Copilot CLI must use COPILOT_API_URL (pointing to the proxy)
-    // instead of GITHUB_API_URL, because the proxy correctly routes Copilot API requests to
-    // api.enterprise.githubcopilot.com (not the GHES API which lacks Copilot endpoints).
-    // See: github/gh-aw#20875
-    if (process.env.GITHUB_API_URL && !config.enableApiProxy) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
   }
 
   // Forward one-shot-token debug flag if set (used for testing/debugging)
@@ -762,7 +764,8 @@ export function generateDockerCompose(
     // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
     // prevent atomic writes (temp file + rename), which Claude Code requires.
     // The writable home volume provides a writable $HOME, and entrypoint.sh
-    // creates ~/.claude.json with apiKeyHelper content from CLAUDE_CODE_API_KEY_HELPER.
+    // creates both ~/.claude.json (legacy) and ~/.claude/settings.json (v2.1.81+)
+    // with apiKeyHelper content from CLAUDE_CODE_API_KEY_HELPER.
 
     // Mount ~/.cargo and ~/.rustup for Rust toolchain access
     // On GitHub Actions runners, Rust is installed via rustup at $HOME/.cargo and $HOME/.rustup

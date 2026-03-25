@@ -147,46 +147,78 @@ echo "[entrypoint] iptables initialization complete"
 /usr/local/bin/api-proxy-health-check.sh || exit 1
 
 # Configure Claude Code API key helper
-# This ensures the apiKeyHelper is properly configured in the config file
-# The config file must exist before Claude Code starts for authentication to work
-# In chroot mode, we write to /host$HOME/.claude.json so it's accessible after chroot
+# This ensures the apiKeyHelper is properly configured in the config files
+# The config files must exist before Claude Code starts for authentication to work
+# We write to BOTH paths for compatibility:
+#   - ~/.claude.json (legacy path, used by older Claude Code versions)
+#   - ~/.claude/settings.json (used by Claude Code v2.1.81+)
+# In chroot mode, we write to /host$HOME/... so files are accessible after chroot
 if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
   echo "[entrypoint] Claude Code API key helper configured: $CLAUDE_CODE_API_KEY_HELPER"
 
-  # In chroot mode, write to /host path so file is accessible after chroot transition
+  # In chroot mode, write to /host path so files are accessible after chroot transition
   if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
-    CONFIG_FILE="/host$HOME/.claude.json"
+    LEGACY_CONFIG_FILE="/host$HOME/.claude.json"
+    SETTINGS_DIR="/host$HOME/.claude"
   else
-    CONFIG_FILE="$HOME/.claude.json"
+    LEGACY_CONFIG_FILE="$HOME/.claude.json"
+    SETTINGS_DIR="$HOME/.claude"
   fi
+  SETTINGS_FILE="$SETTINGS_DIR/settings.json"
 
-  if [ -f "$CONFIG_FILE" ]; then
-    # File exists - check if it has apiKeyHelper
-    if grep -q '"apiKeyHelper"' "$CONFIG_FILE"; then
-      # apiKeyHelper exists - validate it matches the environment variable
-      echo "[entrypoint] Claude Code config file exists with apiKeyHelper, validating..."
-      CONFIGURED_HELPER=$(grep -o '"apiKeyHelper":"[^"]*"' "$CONFIG_FILE" | cut -d'"' -f4)
-      if [ "$CONFIGURED_HELPER" != "$CLAUDE_CODE_API_KEY_HELPER" ]; then
-        echo "[entrypoint][ERROR] apiKeyHelper mismatch:"
-        echo "[entrypoint][ERROR]   Environment variable: $CLAUDE_CODE_API_KEY_HELPER"
-        echo "[entrypoint][ERROR]   Config file value: $CONFIGURED_HELPER"
-        exit 1
+  # Helper: write or validate apiKeyHelper in a config file
+  write_api_key_helper() {
+    local config_file="$1"
+    local label="$2"
+
+    if [ -f "$config_file" ]; then
+      if grep -q '"apiKeyHelper"' "$config_file"; then
+        CONFIGURED_HELPER=$(grep -o '"apiKeyHelper":"[^"]*"' "$config_file" | cut -d'"' -f4)
+        if [ "$CONFIGURED_HELPER" != "$CLAUDE_CODE_API_KEY_HELPER" ]; then
+          echo "[entrypoint][ERROR] apiKeyHelper mismatch in $label:"
+          echo "[entrypoint][ERROR]   Environment variable: $CLAUDE_CODE_API_KEY_HELPER"
+          echo "[entrypoint][ERROR]   Config file value: $CONFIGURED_HELPER"
+          exit 1
+        fi
+        echo "[entrypoint] ✓ $label apiKeyHelper validated"
+      else
+        echo "[entrypoint] $label exists but missing apiKeyHelper, merging..."
+        # Use node to safely add apiKeyHelper to existing JSON without losing other fields
+        # (e.g. hasCompletedOnboarding, session tokens, user preferences)
+        if AWF_CONFIG_FILE="$config_file" AWF_KEY_HELPER="$CLAUDE_CODE_API_KEY_HELPER" \
+           node -e "
+             const fs = require('fs');
+             const file = process.env.AWF_CONFIG_FILE;
+             const helper = process.env.AWF_KEY_HELPER;
+             let obj = {};
+             try { obj = JSON.parse(fs.readFileSync(file, 'utf8')); } catch(e) {}
+             obj.apiKeyHelper = helper;
+             fs.writeFileSync(file, JSON.stringify(obj) + '\n');
+           " 2>/dev/null; then
+          chmod 666 "$config_file"
+          echo "[entrypoint] ✓ Merged apiKeyHelper into $label"
+        else
+          # Fallback if node is unavailable or the file is not valid JSON
+          echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$config_file"
+          chmod 666 "$config_file"
+          echo "[entrypoint] ✓ Wrote apiKeyHelper to $label (overwrite fallback)"
+        fi
       fi
-      echo "[entrypoint] ✓ Claude Code API key helper validated: $CLAUDE_CODE_API_KEY_HELPER"
     else
-      # File exists but no apiKeyHelper - write it
-      echo "[entrypoint] Claude Code config file exists but missing apiKeyHelper, writing..."
-      echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$CONFIG_FILE"
-      chmod 666 "$CONFIG_FILE"
-      echo "[entrypoint] ✓ Wrote apiKeyHelper to $CONFIG_FILE"
+      echo "[entrypoint] Creating $label with apiKeyHelper..."
+      echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$config_file"
+      chmod 666 "$config_file"
+      echo "[entrypoint] ✓ Created $label with apiKeyHelper: $CLAUDE_CODE_API_KEY_HELPER"
     fi
-  else
-    # File doesn't exist - create it
-    echo "[entrypoint] Creating Claude Code config file with apiKeyHelper..."
-    echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$CONFIG_FILE"
-    chmod 666 "$CONFIG_FILE"
-    echo "[entrypoint] ✓ Created $CONFIG_FILE with apiKeyHelper: $CLAUDE_CODE_API_KEY_HELPER"
-  fi
+  }
+
+  # Write to legacy path (~/.claude.json)
+  write_api_key_helper "$LEGACY_CONFIG_FILE" "$LEGACY_CONFIG_FILE"
+
+  # Write to settings path (~/.claude/settings.json) for Claude Code v2.1.81+
+  mkdir -p "$SETTINGS_DIR"
+  chmod 777 "$SETTINGS_DIR" 2>/dev/null || true
+  write_api_key_helper "$SETTINGS_FILE" "$SETTINGS_FILE"
 fi
 
 # Pre-seed JVM build tool proxy configuration

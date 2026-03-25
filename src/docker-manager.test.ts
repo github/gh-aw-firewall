@@ -2025,6 +2025,50 @@ describe('docker-manager', () => {
         }
       });
 
+      it('should pass GITHUB_API_URL to agent when api-proxy is enabled with envAll', () => {
+        // GITHUB_API_URL must remain in the agent environment even when api-proxy is enabled.
+        // The Copilot CLI needs it to locate the GitHub API (token exchange, user info, etc.).
+        // Copilot-specific calls route through COPILOT_API_URL → api-proxy regardless.
+        // See: github/gh-aw#20875
+        const origUrl = process.env.GITHUB_API_URL;
+        process.env.GITHUB_API_URL = 'https://api.github.com';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghp_test_token', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // GITHUB_API_URL should be passed to agent even when api-proxy is enabled
+          expect(env.GITHUB_API_URL).toBe('https://api.github.com');
+          // COPILOT_API_URL should also be set to route Copilot calls through the api-proxy
+          expect(env.COPILOT_API_URL).toBe('http://172.30.0.30:10002');
+        } finally {
+          if (origUrl !== undefined) {
+            process.env.GITHUB_API_URL = origUrl;
+          } else {
+            delete process.env.GITHUB_API_URL;
+          }
+        }
+      });
+
+      it('should pass GITHUB_API_URL to agent when api-proxy is NOT enabled with envAll', () => {
+        const origUrl = process.env.GITHUB_API_URL;
+        process.env.GITHUB_API_URL = 'https://api.github.com';
+        try {
+          const configNoProxy = { ...mockConfig, enableApiProxy: false, envAll: true };
+          const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // When api-proxy is NOT enabled, GITHUB_API_URL should be passed through
+          expect(env.GITHUB_API_URL).toBe('https://api.github.com');
+        } finally {
+          if (origUrl !== undefined) {
+            process.env.GITHUB_API_URL = origUrl;
+          } else {
+            delete process.env.GITHUB_API_URL;
+          }
+        }
+      });
+
       it('should set AWF_RATE_LIMIT env vars when rateLimitConfig is provided', () => {
         const configWithRateLimit = {
           ...mockConfig,
