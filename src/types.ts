@@ -386,6 +386,17 @@ export interface WrapperConfig {
   enableHostAccess?: boolean;
 
   /**
+   * Whether the localhost keyword was detected in --allow-domains.
+   *
+   * When true, localhost inside the container resolves to the host machine's
+   * Docker bridge gateway IP instead of 127.0.0.1 (container loopback).
+   * This allows Playwright and other tools to access services running on the host.
+   *
+   * @default undefined (localhost resolves to container loopback as normal)
+   */
+  localhostDetected?: boolean;
+
+  /**
    * Additional ports to allow when using --enable-host-access
    *
    * Comma-separated list of ports or port ranges to allow in addition to

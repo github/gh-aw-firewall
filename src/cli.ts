@@ -1626,6 +1626,7 @@ program
       proxyLogsDir: options.proxyLogsDir,
       auditDir: options.auditDir || process.env.AWF_AUDIT_DIR,
       enableHostAccess: options.enableHostAccess,
+      localhostDetected: localhostResult.localhostDetected,
       allowHostPorts: options.allowHostPorts,
       sslBump: options.sslBump,
       enableDind: options.enableDind,

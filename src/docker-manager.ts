@@ -841,6 +841,16 @@ export function generateDockerCompose(
         if (hostGatewayIp) {
           hostsContent += `${hostGatewayIp}\thost.docker.internal\n`;
           logger.debug(`Added host.docker.internal (${hostGatewayIp}) to chroot-hosts`);
+
+          if (config.localhostDetected) {
+            // Replace 127.0.0.1 localhost entries with the host gateway IP
+            // /etc/hosts uses first-match semantics, so we must replace rather than append
+            hostsContent = hostsContent.replace(
+              /^127\.0\.0\.1\s+localhost(\s+.*)?$/gm,
+              `${hostGatewayIp}\tlocalhost`
+            );
+            logger.info('localhost inside container resolves to host machine (localhost keyword active)');
+          }
         }
       } catch (err) {
         logger.debug(`Could not resolve Docker bridge gateway: ${err}`);
@@ -1213,6 +1223,7 @@ export function generateDockerCompose(
       AWF_DNS_SERVERS: environment.AWF_DNS_SERVERS || '',
       AWF_BLOCKED_PORTS: environment.AWF_BLOCKED_PORTS || '',
       AWF_ENABLE_HOST_ACCESS: environment.AWF_ENABLE_HOST_ACCESS || '',
+      AWF_ALLOW_HOST_PORTS: environment.AWF_ALLOW_HOST_PORTS || '',
       AWF_API_PROXY_IP: environment.AWF_API_PROXY_IP || '',
       AWF_DOH_PROXY_IP: environment.AWF_DOH_PROXY_IP || '',
       AWF_SSL_BUMP_ENABLED: environment.AWF_SSL_BUMP_ENABLED || '',

@@ -1,8 +1,9 @@
 import { WrapperConfig } from './types';
+import { HostAccessConfig } from './host-iptables';
 
 export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
-  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string) => Promise<void>;
+  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean) => Promise<void>;
   runAgentCommand: (
@@ -49,7 +50,10 @@ export async function runMainWorkflow(
   const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
   // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
   const dohProxyIp = config.dnsOverHttps ? '172.30.0.40' : undefined;
-  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp);
+  const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
+    ? { enabled: true, allowHostPorts: config.allowHostPorts }
+    : undefined;
+  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess);
   onHostIptablesSetup?.();
 
   // Step 1: Write configuration files

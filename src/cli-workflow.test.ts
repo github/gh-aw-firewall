@@ -1,5 +1,6 @@
 import { runMainWorkflow, WorkflowDependencies } from './cli-workflow';
 import { WrapperConfig } from './types';
+import { HostAccessConfig } from './host-iptables';
 
 const baseConfig: WrapperConfig = {
   allowedDomains: ['github.com'],
@@ -106,6 +107,48 @@ describe('runMainWorkflow', () => {
       baseConfig.allowedDomains,
       undefined,
       undefined
+    );
+  });
+
+  it('passes hostAccess config when enableHostAccess is true', async () => {
+    const configWithHostAccess: WrapperConfig = {
+      ...baseConfig,
+      enableHostAccess: true,
+      allowHostPorts: '3000,8080',
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithHostAccess, dependencies, { logger, performCleanup });
+
+    const expectedHostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess
+    );
+  });
+
+  it('passes undefined hostAccess when enableHostAccess is not set', async () => {
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined
     );
   });
 

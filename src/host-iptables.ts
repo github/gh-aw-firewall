@@ -6,6 +6,33 @@ const NETWORK_NAME = 'awf-net';
 const CHAIN_NAME = 'FW_WRAPPER';
 const CHAIN_NAME_V6 = 'FW_WRAPPER_V6';
 const NETWORK_SUBNET = '172.30.0.0/24';
+const AWF_NETWORK_GATEWAY = '172.30.0.1';
+
+/**
+ * Configuration for host access rules in the FW_WRAPPER chain.
+ * When enabled, allows container traffic to reach the Docker host gateway
+ * (needed for Playwright localhost testing, MCP servers, etc.).
+ */
+export interface HostAccessConfig {
+  enabled: boolean;
+  allowHostPorts?: string;
+}
+
+/**
+ * Validates a port specification string.
+ * Accepts a single port (1-65535) or a port range ("N-M" where both are valid ports and N <= M).
+ */
+export function isValidPortSpec(spec: string): boolean {
+  const rangeMatch = spec.match(/^(\d+)-(\d+)$/);
+  if (rangeMatch) {
+    const start = parseInt(rangeMatch[1], 10);
+    const end = parseInt(rangeMatch[2], 10);
+    if (String(start) !== rangeMatch[1] || String(end) !== rangeMatch[2]) return false;
+    return start >= 1 && start <= 65535 && end >= 1 && end <= 65535 && start <= end;
+  }
+  const port = parseInt(spec, 10);
+  return !isNaN(port) && String(port) === spec && port >= 1 && port <= 65535;
+}
 
 // Cache for ip6tables availability check (only checked once per run)
 let ip6tablesAvailableCache: boolean | null = null;
@@ -37,6 +64,24 @@ async function getNetworkBridgeName(): Promise<string | null> {
     return bridgeName || null;
   } catch (error) {
     logger.debug('Failed to get network bridge name:', error);
+    return null;
+  }
+}
+
+/**
+ * Gets the Docker default bridge gateway IP (e.g., 172.17.0.1).
+ * This is the IP that host.docker.internal resolves to inside containers.
+ */
+export async function getDockerBridgeGateway(): Promise<string | null> {
+  try {
+    const { stdout } = await execa('docker', [
+      'network', 'inspect', 'bridge',
+      '-f', '{{(index .IPAM.Config 0).Gateway}}',
+    ]);
+    const gateway = stdout.trim();
+    return gateway || null;
+  } catch (error) {
+    logger.debug('Failed to get Docker bridge gateway:', error);
     return null;
   }
 }
@@ -153,8 +198,9 @@ export async function ensureFirewallNetwork(): Promise<{
  * @param squidPort - Port number of the Squid proxy
  * @param apiProxyIp - Optional IP address of the API proxy sidecar
  * @param dnsServers - Upstream DNS servers that Docker embedded DNS forwards to
+ * @param hostAccess - Optional host access configuration for localhost/Playwright support
  */
-export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string): Promise<void> {
+export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
 
   // Get the bridge interface name
@@ -371,6 +417,49 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
       '-p', 'tcp', '-d', apiProxyIp, '--dport', `${minPort}:${maxPort}`,
       '-j', 'ACCEPT',
     ]);
+  }
+
+  // 5c. Allow traffic to host gateway when host access is enabled
+  // This is needed for Playwright localhost testing, MCP servers, etc.
+  if (hostAccess?.enabled) {
+    const gatewayIp = await getDockerBridgeGateway();
+    const gatewayIps = [AWF_NETWORK_GATEWAY];
+    if (gatewayIp) {
+      gatewayIps.push(gatewayIp);
+    }
+
+    // Default: allow HTTP (80) and HTTPS (443)
+    const defaultPorts = ['80', '443'];
+
+    // Parse additional custom ports
+    const customPorts: string[] = [];
+    if (hostAccess.allowHostPorts) {
+      for (const entry of hostAccess.allowHostPorts.split(',')) {
+        const trimmed = entry.trim();
+        if (trimmed) {
+          if (!isValidPortSpec(trimmed)) {
+            logger.warn(`Skipping invalid port spec: ${trimmed}`);
+            continue;
+          }
+          customPorts.push(trimmed);
+        }
+      }
+    }
+
+    const allPorts = [...new Set([...defaultPorts, ...customPorts])];
+
+    for (const gwIp of gatewayIps) {
+      for (const port of allPorts) {
+        // Port ranges (e.g., "3000-3010") use --dport with range syntax
+        logger.debug(`Allowing host gateway traffic: ${gwIp}:${port}`);
+        await execa('iptables', [
+          '-t', 'filter', '-A', CHAIN_NAME,
+          '-p', 'tcp', '-d', gwIp, '--dport', port,
+          '-j', 'ACCEPT',
+        ]);
+      }
+    }
+    logger.info(`Host access enabled: allowing traffic to gateway IPs ${gatewayIps.join(', ')} on ports ${allPorts.join(', ')}`);
   }
 
   // 6. Block multicast and link-local traffic

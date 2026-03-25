@@ -162,6 +162,20 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
   iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
 fi
 
+# Validate port specification (single port 1-65535 or range N-M)
+is_valid_port_spec() {
+  local spec="$1"
+  if echo "$spec" | grep -qE '^[0-9]+-[0-9]+$'; then
+    local start=$(echo "$spec" | cut -d- -f1)
+    local end=$(echo "$spec" | cut -d- -f2)
+    [ "$start" -ge 1 ] && [ "$start" -le 65535 ] && [ "$end" -ge 1 ] && [ "$end" -le 65535 ] && [ "$start" -le "$end" ]
+  elif echo "$spec" | grep -qE '^[0-9]+$'; then
+    [ "$spec" -ge 1 ] && [ "$spec" -le 65535 ]
+  else
+    return 1
+  fi
+}
+
 # Bypass Squid for host.docker.internal when host access is enabled.
 # MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
 # where Squid fails with "Invalid URL" because rmcp sends relative URLs.
@@ -181,6 +195,10 @@ if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
       IFS=',' read -ra HOST_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
       for port_spec in "${HOST_PORTS[@]}"; do
         port_spec=$(echo "$port_spec" | xargs)
+        if ! is_valid_port_spec "$port_spec"; then
+          echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+          continue
+        fi
         echo "[iptables]   Allow host gateway port $port_spec"
         iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
       done
@@ -205,6 +223,10 @@ if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
       IFS=',' read -ra NET_GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
       for port_spec in "${NET_GW_PORTS[@]}"; do
         port_spec=$(echo "$port_spec" | xargs)
+        if ! is_valid_port_spec "$port_spec"; then
+          echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+          continue
+        fi
         iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
       done
     fi
@@ -262,6 +284,11 @@ if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
   for port_spec in "${PORTS[@]}"; do
     # Remove leading/trailing spaces
     port_spec=$(echo "$port_spec" | xargs)
+
+    if ! is_valid_port_spec "$port_spec"; then
+      echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+      continue
+    fi
 
     if [[ $port_spec == *"-"* ]]; then
       # Port range (e.g., "3000-3010")

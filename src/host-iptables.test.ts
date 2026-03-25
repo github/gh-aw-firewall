@@ -1,4 +1,4 @@
-import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, _resetIpv6State } from './host-iptables';
+import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, _resetIpv6State, HostAccessConfig, isValidPortSpec } from './host-iptables';
 import execa from 'execa';
 
 // Mock execa
@@ -529,6 +529,311 @@ describe('host-iptables', () => {
       expect(mockedExeca).not.toHaveBeenCalledWith('sysctl', ['-w', 'net.ipv6.conf.default.disable_ipv6=1']);
     });
 
+  });
+
+  describe('setupHostIptables with host access', () => {
+    it('should add gateway ACCEPT rules when hostAccess is enabled', async () => {
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        // Mock iptables -L DOCKER-USER (permission check)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        // Mock chain existence check (doesn't exist)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      // Default mock for all subsequent calls; getDockerBridgeGateway returns 172.17.0.1
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        if (cmd === 'ip6tables') {
+          return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify ACCEPT rules for Docker bridge gateway on default ports
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '443',
+        '-j', 'ACCEPT',
+      ]);
+
+      // Verify ACCEPT rules for AWF network gateway (172.30.0.1) on default ports
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should not add gateway rules when hostAccess is undefined', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
+
+      // Verify no gateway rules for 172.30.0.1 or 172.17.0.1
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '-d', '172.30.0.1', '--dport', '80',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '-d', '172.17.0.1',
+      ]));
+    });
+
+    it('should add custom port rules when allowHostPorts is specified', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify custom port rules for Docker bridge gateway
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '3000',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '8080',
+        '-j', 'ACCEPT',
+      ]);
+
+      // Verify custom port rules for AWF network gateway
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '3000',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '8080',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should only use AWF gateway when Docker bridge gateway is null', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        // Make getDockerBridgeGateway return null (docker network inspect bridge fails)
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.reject(new Error('network bridge not found'));
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify rules for AWF network gateway (172.30.0.1)
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+
+      // Verify NO rules for Docker bridge gateway (172.17.0.1)
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should only add default ports when allowHostPorts is empty', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify default port 80 rules exist
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should support port ranges in allowHostPorts', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000-3010' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify port range rule
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '3000-3010',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '3000-3010',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should skip invalid ports in allowHostPorts', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: 'abc,99999,-1' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify invalid ports are NOT added - only default ports (80, 443) should exist
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', 'abc',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '99999',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '-1',
+      ]));
+
+      // Default ports should still be present
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
+    it('should deduplicate ports when custom ports overlap with defaults', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      // Pass 80 and 443 as custom ports (duplicates of defaults) plus 3000
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '80,443,3000' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Count how many times port 80 rule was called for 172.30.0.1
+      const port80Calls = mockedExeca.mock.calls.filter(
+        (call) => call[0] === 'iptables' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('--dport') &&
+          call[1][call[1].indexOf('--dport') + 1] === '80' &&
+          call[1].includes('-d') &&
+          call[1][call[1].indexOf('-d') + 1] === '172.30.0.1'
+      );
+      // Should only be called once (deduplicated)
+      expect(port80Calls).toHaveLength(1);
+
+      // Verify port 3000 also got a rule
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '3000',
+        '-j', 'ACCEPT',
+      ]);
+    });
+  });
+
+  describe('isValidPortSpec', () => {
+    it('should accept valid single ports', () => {
+      expect(isValidPortSpec('1')).toBe(true);
+      expect(isValidPortSpec('80')).toBe(true);
+      expect(isValidPortSpec('443')).toBe(true);
+      expect(isValidPortSpec('65535')).toBe(true);
+    });
+
+    it('should accept valid port ranges', () => {
+      expect(isValidPortSpec('3000-3010')).toBe(true);
+      expect(isValidPortSpec('1-65535')).toBe(true);
+      expect(isValidPortSpec('80-80')).toBe(true);
+    });
+
+    it('should reject invalid port specs', () => {
+      expect(isValidPortSpec('abc')).toBe(false);
+      expect(isValidPortSpec('0')).toBe(false);
+      expect(isValidPortSpec('65536')).toBe(false);
+      expect(isValidPortSpec('-1')).toBe(false);
+      expect(isValidPortSpec('99999')).toBe(false);
+      expect(isValidPortSpec('3010-3000')).toBe(false); // reversed range
+      expect(isValidPortSpec('')).toBe(false);
+      expect(isValidPortSpec('080-090')).toBe(false); // leading zeros in range
+      expect(isValidPortSpec('01-100')).toBe(false); // leading zero in start
+      expect(isValidPortSpec('1-0100')).toBe(false); // leading zero in end
+    });
   });
 
   describe('cleanupHostIptables', () => {
