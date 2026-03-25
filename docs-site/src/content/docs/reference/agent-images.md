@@ -71,13 +71,9 @@ The default `agent` image (based on Ubuntu 22.04) includes the following pre-ins
 | capsh | — | `libcap2-bin` | Capability management |
 | gnupg | 2.2.27 | `gnupg` | GPG encryption |
 | ca-certificates | — | `ca-certificates` | Trusted root certificates |
-| pandoc | — | `pandoc` | Document conversion (Markdown, LaTeX, HTML, etc.) |
 | libgdiplus | — | `libgdiplus` | GDI+ implementation for .NET System.Drawing |
 | libev-dev | — | `libev-dev` | High-performance event loop library (development files) |
 | libssl-dev | — | `libssl-dev` | OpenSSL development headers for native extensions |
-| libgtk-4-dev | — | `libgtk-4-dev` | GTK4 development headers for GUI projects |
-| libadwaita-1-dev | — | `libadwaita-1-dev` | GNOME Adwaita library development headers |
-| opam | — | `opam` | OCaml package manager |
 | php-intl | — | `php-intl` | PHP Internationalization extension |
 | php-gd | — | `php-gd` | PHP GD graphics extension |
 

@@ -39,7 +39,7 @@ RUN set -eux; \
 # These packages are commonly needed by workflows and avoid agents spending time installing them manually
 # See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
 RUN set -eux; \
-    PARITY_PKGS="pandoc libgdiplus libev-dev libssl-dev libgtk-4-dev libadwaita-1-dev opam php-intl php-gd"; \
+    PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
     apt-get update && \
     ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
