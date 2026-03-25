@@ -35,6 +35,19 @@ RUN set -eux; \
     fi && \
     rm -rf /var/lib/apt/lists/*
 
+# Install additional system packages for GitHub Actions runner parity
+# These packages are commonly needed by workflows and avoid agents spending time installing them manually
+# See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+RUN set -eux; \
+    PARITY_PKGS="pandoc libgdiplus libev-dev libssl-dev libgtk-4-dev libadwaita-1-dev opam php-intl php-gd"; \
+    apt-get update && \
+    ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
+      (echo "apt-get install failed, retrying with fresh package index..." && \
+       rm -rf /var/lib/apt/lists/* && \
+       apt-get update && \
+       apt-get install -y --no-install-recommends $PARITY_PKGS) ) && \
+    rm -rf /var/lib/apt/lists/*
+
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
