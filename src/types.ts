@@ -669,6 +669,19 @@ export interface WrapperConfig {
    * @example 45
    */
   agentTimeout?: number;
+
+  /**
+   * Disable color output from CLI tools inside the agent container
+   *
+   * When true, sets `NO_COLOR=1` (https://no-color.org/) in the agent
+   * environment instead of `FORCE_COLOR=1`. This suppresses ANSI color codes
+   * from tools like chalk, rich, kleur, etc.
+   *
+   * Useful when test assertions expect plain text output without escape codes.
+   *
+   * @default false (color output is enabled via FORCE_COLOR=1)
+   */
+  noColor?: boolean;
 }
 
 /**

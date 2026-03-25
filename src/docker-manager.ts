@@ -478,12 +478,14 @@ export function generateDockerCompose(
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    // Enable color output from CLI tools even without a TTY.
-    // Without a pseudo-TTY, isatty() returns false and tools disable color output,
-    // breaking snapshot tests and output assertions that expect colored output.
-    // FORCE_COLOR is a standard convention (https://force-color.org/) supported by
-    // many libraries (chalk, kleur, supports-color, rich, etc.).
-    FORCE_COLOR: '1',
+    // Color output control: configurable via --no-color flag.
+    // Default (FORCE_COLOR=1): enables color from CLI tools even without a TTY,
+    // following the force-color.org convention supported by chalk, kleur, rich, etc.
+    // With --no-color (NO_COLOR=1): suppresses ANSI codes per no-color.org convention,
+    // useful for tests that assert on plain text output.
+    ...(config.noColor
+      ? { NO_COLOR: '1' }
+      : { FORCE_COLOR: '1' }),
     // Provide a reasonable terminal width and terminal type so CLI tools
     // that check COLUMNS or TERM can format output correctly.
     COLUMNS: '120',

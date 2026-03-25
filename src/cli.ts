@@ -1307,6 +1307,10 @@ program
     'info'
   )
   .option(
+    '--no-color',
+    'Disable color output in the agent container (sets NO_COLOR=1 instead of FORCE_COLOR=1)',
+  )
+  .option(
     '-k, --keep-containers',
     'Keep containers running after command exits',
     false
@@ -1640,6 +1644,7 @@ program
       openaiApiBasePath: options.openaiApiBasePath || process.env.OPENAI_API_BASE_PATH,
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
+      noColor: options.color === false,
     };
 
     // Parse and validate --agent-timeout

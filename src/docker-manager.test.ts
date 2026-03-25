@@ -621,6 +621,18 @@ describe('docker-manager', () => {
       expect(env.NO_COLOR).toBeUndefined();
     });
 
+    it('should set NO_COLOR when noColor is true', () => {
+      const noColorConfig = { ...mockConfig, noColor: true };
+      const result = generateDockerCompose(noColorConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.NO_COLOR).toBe('1');
+      expect(env.FORCE_COLOR).toBeUndefined();
+      expect(env.COLUMNS).toBe('120');
+      expect(env.TERM).toBe('xterm-256color');
+    });
+
     it('should mount required volumes in agent container (default behavior)', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
