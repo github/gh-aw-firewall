@@ -478,10 +478,16 @@ export function generateDockerCompose(
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    // Disable ANSI color output from CLI tools (Rich, Chalk, etc.) inside the container.
-    // Tools like Rich inject ANSI escape codes that break test assertions expecting plain text.
-    // NO_COLOR is a standard convention (https://no-color.org/) supported by many libraries.
-    NO_COLOR: '1',
+    // Enable color output from CLI tools even without a TTY.
+    // Without a pseudo-TTY, isatty() returns false and tools disable color output,
+    // breaking snapshot tests and output assertions that expect colored output.
+    // FORCE_COLOR is a standard convention (https://force-color.org/) supported by
+    // many libraries (chalk, kleur, supports-color, rich, etc.).
+    FORCE_COLOR: '1',
+    // Provide a reasonable terminal width and terminal type so CLI tools
+    // that check COLUMNS or TERM can format output correctly.
+    COLUMNS: '120',
+    TERM: 'xterm-256color',
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
@@ -584,7 +590,8 @@ export function generateDockerCompose(
     // it gets a placeholder value set earlier (line ~362) for credential isolation
     if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
     if (process.env.USER) environment.USER = process.env.USER;
-    if (process.env.TERM) environment.TERM = process.env.TERM;
+    // Note: TERM is set as a base env var (xterm-256color) to enable color detection
+    // without a TTY. Users can override via --env TERM=<value> if needed.
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
     // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
     if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
