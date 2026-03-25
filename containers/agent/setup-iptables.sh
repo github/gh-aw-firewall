@@ -163,13 +163,14 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
 fi
 
 # Validate port specification (single port 1-65535 or range N-M)
+# Rejects leading zeros (e.g., 080) to align with TypeScript isValidPortSpec()
 is_valid_port_spec() {
   local spec="$1"
-  if echo "$spec" | grep -qE '^[0-9]+-[0-9]+$'; then
+  if echo "$spec" | grep -qE '^[1-9][0-9]{0,4}-[1-9][0-9]{0,4}$'; then
     local start=$(echo "$spec" | cut -d- -f1)
     local end=$(echo "$spec" | cut -d- -f2)
     [ "$start" -ge 1 ] && [ "$start" -le 65535 ] && [ "$end" -ge 1 ] && [ "$end" -le 65535 ] && [ "$start" -le "$end" ]
-  elif echo "$spec" | grep -qE '^[0-9]+$'; then
+  elif echo "$spec" | grep -qE '^[1-9][0-9]{0,4}$'; then
     [ "$spec" -ge 1 ] && [ "$spec" -le 65535 ]
   else
     return 1
