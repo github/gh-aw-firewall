@@ -838,7 +838,8 @@ export function generateDockerCompose(
           '-f', '{{(index .IPAM.Config 0).Gateway}}'
         ]);
         const hostGatewayIp = stdout.trim();
-        if (hostGatewayIp) {
+        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (hostGatewayIp && ipv4Regex.test(hostGatewayIp)) {
           hostsContent += `${hostGatewayIp}\thost.docker.internal\n`;
           logger.debug(`Added host.docker.internal (${hostGatewayIp}) to chroot-hosts`);
 
@@ -847,7 +848,7 @@ export function generateDockerCompose(
             // /etc/hosts uses first-match semantics, so we must replace rather than append
             hostsContent = hostsContent.replace(
               /^127\.0\.0\.1\s+localhost(\s+.*)?$/gm,
-              `${hostGatewayIp}\tlocalhost`
+              `${hostGatewayIp}\tlocalhost$1`
             );
             logger.info('localhost inside container resolves to host machine (localhost keyword active)');
           }

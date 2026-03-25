@@ -79,7 +79,14 @@ export async function getDockerBridgeGateway(): Promise<string | null> {
       '-f', '{{(index .IPAM.Config 0).Gateway}}',
     ]);
     const gateway = stdout.trim();
-    return gateway || null;
+    if (!gateway) return null;
+    // Validate IPv4 format before using in iptables rules
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (!ipv4Regex.test(gateway)) {
+      logger.warn(`Docker bridge gateway returned invalid IPv4: ${gateway}, skipping`);
+      return null;
+    }
+    return gateway;
   } catch (error) {
     logger.debug('Failed to get Docker bridge gateway:', error);
     return null;
