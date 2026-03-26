@@ -1,5 +1,5 @@
 ---
-name: AWF Issue Auditor
+name: Firewall Issue Dispatcher
 description: Audits github/gh-aw issues labeled 'awf' and creates tracking issues in gh-aw-firewall with proposed solutions
 
 on:
@@ -29,7 +29,7 @@ safe-outputs:
     allowed-repos: ["github/gh-aw"]
 ---
 
-# AWF Issue Auditor
+# Firewall Issue Dispatcher
 
 You audit open issues in `github/gh-aw` that have the `awf` label and create corresponding tracking issues in `github/gh-aw-firewall` with a detailed problem description and proposed solution.
 
@@ -58,7 +58,7 @@ For each **unprocessed** issue:
    - **iptables** (`containers/agent/setup-iptables.sh`) — network isolation, port blocking, DNAT rules
 
 3. **Create a new issue in `github/gh-aw-firewall`** with:
-   - A clear, specific title summarizing the AWF-side problem (prefix with the relevant component, e.g., "agent-container: ..." or "squid: ...")
+   - A clear, specific title starting with `[awf]` followed by a summary of the AWF-side problem (prefix with the relevant component, e.g., "[awf] agent-container: ..." or "[awf] squid: ...")
    - A body containing:
      - **Problem** section: What is broken or missing, from the firewall's perspective
      - **Context** section: Link to the original `github/gh-aw` issue
