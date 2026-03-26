@@ -595,14 +595,15 @@ export function generateDockerCompose(
     // interfere with credential isolation.
     if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
 
-    // Auto-inject GH_HOST when GITHUB_SERVER_URL points to a GHES/GHEC instance
-    // This ensures gh CLI inside the agent container targets the correct GitHub instance
-    // instead of defaulting to github.com
-    const ghHost = extractGhHostFromServerUrl(process.env.GITHUB_SERVER_URL);
-    if (ghHost) {
-      environment.GH_HOST = ghHost;
-      logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
-    }
+  }
+
+  // Auto-inject GH_HOST when GITHUB_SERVER_URL points to a GHES/GHEC instance.
+  // Must run AFTER the env-all block so it applies in both paths.
+  // The !environment.GH_HOST guard preserves an explicit GH_HOST passed through via --env-all.
+  const ghHost = extractGhHostFromServerUrl(process.env.GITHUB_SERVER_URL);
+  if (ghHost && !environment.GH_HOST) {
+    environment.GH_HOST = ghHost;
+    logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
   }
 
   // Forward one-shot-token debug flag if set (used for testing/debugging)

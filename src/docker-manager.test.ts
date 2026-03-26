@@ -1295,6 +1295,45 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should auto-inject GH_HOST from GITHUB_SERVER_URL when envAll is true', () => {
+      const prevServerUrl = process.env.GITHUB_SERVER_URL;
+      const prevGhHost = process.env.GH_HOST;
+      process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
+      delete process.env.GH_HOST;
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.GH_HOST).toBe('mycompany.ghe.com');
+      } finally {
+        if (prevServerUrl !== undefined) process.env.GITHUB_SERVER_URL = prevServerUrl;
+        else delete process.env.GITHUB_SERVER_URL;
+        if (prevGhHost !== undefined) process.env.GH_HOST = prevGhHost;
+      }
+    });
+
+    it('should not overwrite explicit GH_HOST from env-all with auto-injected value', () => {
+      const prevServerUrl = process.env.GITHUB_SERVER_URL;
+      const prevGhHost = process.env.GH_HOST;
+      process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
+      process.env.GH_HOST = 'explicit.ghe.com';
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.GH_HOST).toBe('explicit.ghe.com');
+      } finally {
+        if (prevServerUrl !== undefined) process.env.GITHUB_SERVER_URL = prevServerUrl;
+        else delete process.env.GITHUB_SERVER_URL;
+        if (prevGhHost !== undefined) process.env.GH_HOST = prevGhHost;
+        else delete process.env.GH_HOST;
+      }
+    });
+
     it('should configure DNS to use Google DNS', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
