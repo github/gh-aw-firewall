@@ -163,6 +163,7 @@ export function extractGhHostFromServerUrl(serverUrl: string | undefined): strin
 export function readGitHubPathEntries(): string[] {
   const githubPathFile = process.env.GITHUB_PATH;
   if (!githubPathFile) {
+    logger.debug('GITHUB_PATH env var is not set; skipping $GITHUB_PATH file merge (tools installed by setup-* actions may be missing from PATH if sudo reset it)');
     return [];
   }
 
@@ -174,6 +175,7 @@ export function readGitHubPathEntries(): string[] {
       .filter(line => line.length > 0);
   } catch {
     // File doesn't exist or isn't readable — expected outside GitHub Actions
+    logger.debug(`GITHUB_PATH file at '${githubPathFile}' could not be read; skipping file merge`);
     return [];
   }
 }

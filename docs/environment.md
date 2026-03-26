@@ -106,6 +106,32 @@ The following environment variables are set internally by the firewall and used 
 
 **Note:** These are set automatically based on CLI options and should not be overridden manually.
 
+## GitHub Actions `setup-*` Tool Availability
+
+Tools installed by GitHub Actions `setup-*` actions (e.g., `astral-sh/setup-uv`, `actions/setup-node`, `ruby/setup-ruby`, `actions/setup-python`) are **automatically available inside the AWF chroot**. This works by:
+
+1. `setup-*` actions write their tool bin directories to the `$GITHUB_PATH` file.
+2. AWF reads this file at startup and merges its entries (prepended, higher priority) into `AWF_HOST_PATH`.
+3. The chroot entrypoint exports `AWF_HOST_PATH` as `PATH` inside the chroot, so tools like `uv`, `node`, `python3`, `ruby`, etc. resolve correctly.
+
+This behavior was introduced in **awf v0.60.0** and is active automatically — no extra flags are required.
+
+**Fallback behavior:** If `GITHUB_PATH` is not set (e.g., outside GitHub Actions or on self-hosted runners that don't set it), AWF uses `process.env.PATH` as the chroot PATH. If `sudo` has reset `PATH` before AWF runs and `GITHUB_PATH` is also absent, the tool's directory may be missing from the chroot PATH. In that case, invoke the tool via its absolute path or ensure `GITHUB_PATH` is set.
+
+**Troubleshooting:** Run AWF with `--log-level debug` to see whether `GITHUB_PATH` is set and how many entries were merged:
+
+```
+[DEBUG] Merged 3 path(s) from $GITHUB_PATH into AWF_HOST_PATH
+```
+
+If you see instead:
+
+```
+[DEBUG] GITHUB_PATH env var is not set; skipping $GITHUB_PATH file merge …
+```
+
+the runner did not set `GITHUB_PATH`, and the tool's bin directory must already be in `$PATH` at AWF launch time.
+
 ## Debugging Environment Variables
 
 The following environment variables control debugging behavior:
