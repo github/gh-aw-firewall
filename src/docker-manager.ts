@@ -490,8 +490,8 @@ export function generateDockerCompose(
   // When api-proxy is enabled with Copilot, set placeholder tokens early
   // so --env-all won't override them with real values from host environment
   if (config.enableApiProxy && config.copilotGithubToken) {
-    environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
-    logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
+    environment.COPILOT_GITHUB_TOKEN = config.proxyToken ?? 'placeholder-token-for-credential-isolation';
+    logger.debug('COPILOT_GITHUB_TOKEN set to proxy token (early) to prevent --env-all override');
   }
 
   // Always set NO_PROXY to prevent HTTP clients from proxying localhost traffic through Squid.
@@ -1322,6 +1322,8 @@ export function generateDockerCompose(
           AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
           AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
         }),
+        // Ephemeral per-job authentication token — validated on every non-health request
+        ...(config.proxyToken && { AWF_PROXY_TOKEN: config.proxyToken }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
@@ -1385,13 +1387,14 @@ export function generateDockerCompose(
         logger.debug(`Anthropic API base path set to: ${config.anthropicApiBasePath}`);
       }
 
-      // Set placeholder token for Claude Code CLI compatibility
-      // Real authentication happens via ANTHROPIC_BASE_URL pointing to api-proxy
-      environment.ANTHROPIC_AUTH_TOKEN = 'placeholder-token-for-credential-isolation';
-      logger.debug('ANTHROPIC_AUTH_TOKEN set to placeholder value for credential isolation');
+      // Set the proxy token as the auth token for Claude Code CLI compatibility.
+      // The proxy validates this token on every incoming request.
+      // Real API authentication happens inside api-proxy via ANTHROPIC_BASE_URL.
+      environment.ANTHROPIC_AUTH_TOKEN = config.proxyToken ?? 'placeholder-token-for-credential-isolation';
+      logger.debug('ANTHROPIC_AUTH_TOKEN set to proxy token for credential isolation');
 
-      // Set API key helper for Claude Code CLI to use credential isolation
-      // The helper script returns a placeholder key; real authentication happens via ANTHROPIC_BASE_URL
+      // Set API key helper for Claude Code CLI to use the proxy token.
+      // The helper script outputs AWF_PROXY_TOKEN; real authentication happens via ANTHROPIC_BASE_URL.
       environment.CLAUDE_CODE_API_KEY_HELPER = '/usr/local/bin/get-claude-key.sh';
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
     }
@@ -1402,13 +1405,22 @@ export function generateDockerCompose(
         logger.debug(`Copilot API target overridden to: ${config.copilotApiTarget}`);
       }
 
-      // Set placeholder token for GitHub Copilot CLI compatibility
-      // Real authentication happens via COPILOT_API_URL pointing to api-proxy
-      environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
-      logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
+      // Set the proxy token as the Copilot token placeholder for CLI compatibility.
+      // The proxy validates this token on every incoming request.
+      // Real authentication happens via COPILOT_API_URL pointing to api-proxy.
+      environment.COPILOT_TOKEN = config.proxyToken ?? 'placeholder-token-for-credential-isolation';
+      logger.debug('COPILOT_TOKEN set to proxy token for credential isolation');
 
       // Note: COPILOT_GITHUB_TOKEN placeholder is set early (before --env-all)
       // to prevent override by host environment variable
+    }
+
+    // Pass the ephemeral proxy token to the agent so its credential headers are validated.
+    // AWF_PROXY_TOKEN is used by get-claude-key.sh (apiKeyHelper) and set as ANTHROPIC_AUTH_TOKEN
+    // and COPILOT_TOKEN above so that all outbound credential headers carry the same token.
+    if (config.proxyToken) {
+      environment.AWF_PROXY_TOKEN = config.proxyToken;
+      logger.debug('AWF_PROXY_TOKEN set in agent environment for proxy authentication');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');

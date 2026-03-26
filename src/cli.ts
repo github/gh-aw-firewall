@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { isIPv6 } from 'net';
 import { WrapperConfig, LogLevel, RateLimitConfig } from './types';
 import { logger } from './logger';
@@ -1719,6 +1720,14 @@ program
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
     };
+
+    // Generate a cryptographically random ephemeral proxy token per job.
+    // This token is shared between the api-proxy sidecar and the agent container.
+    // The proxy validates this token on every non-health request (HTTP 401 on mismatch).
+    if (config.enableApiProxy) {
+      config.proxyToken = crypto.randomBytes(32).toString('hex');
+      logger.debug('Generated ephemeral proxy authentication token');
+    }
 
     // Parse and validate --agent-timeout
     applyAgentTimeout(options.agentTimeout, config, logger);

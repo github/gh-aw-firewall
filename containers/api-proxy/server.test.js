@@ -2,7 +2,120 @@
  * Tests for api-proxy server.js
  */
 
-const { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath } = require('./server');
+const { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, extractInboundToken, validateProxyAuth } = require('./server');
+
+describe('extractInboundToken', () => {
+  it('should return x-api-key value when present', () => {
+    const req = { headers: { 'x-api-key': 'my-token' } };
+    expect(extractInboundToken(req)).toBe('my-token');
+  });
+
+  it('should return Bearer token from Authorization header', () => {
+    const req = { headers: { authorization: 'Bearer my-bearer-token' } };
+    expect(extractInboundToken(req)).toBe('my-bearer-token');
+  });
+
+  it('should prefer x-api-key over Authorization', () => {
+    const req = { headers: { 'x-api-key': 'api-key-token', authorization: 'Bearer bearer-token' } };
+    expect(extractInboundToken(req)).toBe('api-key-token');
+  });
+
+  it('should return null when no auth headers present', () => {
+    const req = { headers: {} };
+    expect(extractInboundToken(req)).toBeNull();
+  });
+
+  it('should return null when x-api-key is empty string', () => {
+    const req = { headers: { 'x-api-key': '' } };
+    expect(extractInboundToken(req)).toBeNull();
+  });
+
+  it('should return null when Authorization has no Bearer prefix', () => {
+    const req = { headers: { authorization: 'Basic dXNlcjpwYXNz' } };
+    expect(extractInboundToken(req)).toBeNull();
+  });
+
+  it('should handle Bearer token case-insensitively', () => {
+    const req = { headers: { authorization: 'bearer my-token' } };
+    expect(extractInboundToken(req)).toBe('my-token');
+  });
+
+  it('should return null when Authorization is just "Bearer " with no token', () => {
+    const req = { headers: { authorization: 'Bearer ' } };
+    expect(extractInboundToken(req)).toBeNull();
+  });
+});
+
+describe('validateProxyAuth', () => {
+  const VALID_TOKEN = 'a'.repeat(64);
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = process.env.AWF_PROXY_TOKEN;
+    process.env.AWF_PROXY_TOKEN = VALID_TOKEN;
+  });
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env.AWF_PROXY_TOKEN = originalEnv;
+    } else {
+      delete process.env.AWF_PROXY_TOKEN;
+    }
+  });
+
+  it('should return false when AWF_PROXY_TOKEN is not set', () => {
+    delete process.env.AWF_PROXY_TOKEN;
+    const req = { headers: { 'x-api-key': VALID_TOKEN } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return true when x-api-key matches the proxy token', () => {
+    const req = { headers: { 'x-api-key': VALID_TOKEN } };
+    expect(validateProxyAuth(req)).toBe(true);
+  });
+
+  it('should return true when Authorization Bearer matches the proxy token', () => {
+    const req = { headers: { authorization: `Bearer ${VALID_TOKEN}` } };
+    expect(validateProxyAuth(req)).toBe(true);
+  });
+
+  it('should return false when no auth header is present', () => {
+    const req = { headers: {} };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false when x-api-key does not match', () => {
+    const req = { headers: { 'x-api-key': 'wrong-token' } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false for a fabricated key (fake-key-test)', () => {
+    const req = { headers: { 'x-api-key': 'fake-key-test' } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false when token has correct prefix but wrong length', () => {
+    const req = { headers: { 'x-api-key': VALID_TOKEN.slice(0, -1) } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false when token is empty string', () => {
+    const req = { headers: { 'x-api-key': '' } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false for the old hardcoded placeholder', () => {
+    const req = { headers: { 'x-api-key': 'sk-ant-placeholder-key-for-credential-isolation' } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+
+  it('should return false for the old placeholder-token-for-credential-isolation string', () => {
+    const req = { headers: { 'x-api-key': 'placeholder-token-for-credential-isolation' } };
+    expect(validateProxyAuth(req)).toBe(false);
+  });
+});
+
+
 
 describe('deriveCopilotApiTarget', () => {
   let originalEnv;

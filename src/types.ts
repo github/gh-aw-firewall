@@ -674,6 +674,24 @@ export interface WrapperConfig {
   anthropicApiBasePath?: string;
 
   /**
+   * Ephemeral per-job proxy authentication token
+   *
+   * A cryptographically random token generated once per AWF invocation and
+   * shared between the agent container and the api-proxy sidecar.
+   *
+   * The agent includes this token in every request to the api-proxy via the
+   * standard credential headers (`x-api-key` or `Authorization: Bearer`).
+   * The proxy validates the token on every non-health request and rejects
+   * unauthenticated callers with HTTP 401.
+   *
+   * The token is set automatically when `enableApiProxy` is true; callers
+   * should not set it manually.
+   *
+   * @internal
+   */
+  proxyToken?: string;
+
+  /**
    * Enable Data Loss Prevention (DLP) scanning
    *
    * When true, Squid proxy will block outgoing requests that contain
