@@ -248,6 +248,21 @@ export interface WrapperConfig {
   envAll?: boolean;
 
   /**
+   * Path to a file containing environment variables to inject into the container
+   *
+   * The file should contain KEY=VALUE pairs, one per line. Lines starting with
+   * '#' are treated as comments and ignored. Empty lines are also ignored.
+   * Variables in the file are injected before `additionalEnv` (--env flags),
+   * so explicit --env values take precedence.
+   *
+   * Excluded system variables (PATH, HOME, etc.) are never injected regardless
+   * of whether they appear in the file.
+   *
+   * @example '/tmp/runtime-paths.env'
+   */
+  envFile?: string;
+
+  /**
    * Custom volume mounts to add to the agent execution container
    *
    * Array of volume mount specifications in Docker format:

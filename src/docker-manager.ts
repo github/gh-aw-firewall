@@ -208,6 +208,36 @@ export function mergeGitHubPathEntries(currentPath: string, githubPathEntries: s
 }
 
 /**
+ * Reads environment variables from a KEY=VALUE file (like Docker's --env-file).
+ *
+ * Rules:
+ * - Lines starting with '#' are comments and are ignored.
+ * - Empty/whitespace-only lines are ignored.
+ * - Each non-comment line must match the pattern KEY=VALUE where KEY starts with a
+ *   letter or underscore and contains only letters, digits, or underscores.
+ * - Values may be empty (KEY=).
+ * - Values are taken literally; no quote-stripping or variable expansion is done.
+ *
+ * @param filePath - Absolute or relative path to the env file
+ * @returns An object mapping variable names to their values
+ * @throws {Error} If the file cannot be read
+ */
+export function readEnvFile(filePath: string): Record<string, string> {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const result: Record<string, string> = {};
+  for (const raw of content.split('\n')) {
+    const line = raw.trimEnd();
+    // Skip comments and blank lines
+    if (line === '' || line.startsWith('#')) continue;
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (match) {
+      result[match[1]] = match[2];
+    }
+  }
+  return result;
+}
+
+/**
  * Gets existing Docker network subnets to avoid conflicts
  */
 async function getExistingDockerSubnets(): Promise<string[]> {
@@ -609,6 +639,16 @@ export function generateDockerCompose(
   // Forward one-shot-token debug flag if set (used for testing/debugging)
   if (process.env.AWF_ONE_SHOT_TOKEN_DEBUG) {
     environment.AWF_ONE_SHOT_TOKEN_DEBUG = process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
+  }
+
+  // Environment variables from --env-file (injected before --env flags so explicit flags win)
+  if (config.envFile) {
+    const fileEnv = readEnvFile(config.envFile);
+    for (const [key, value] of Object.entries(fileEnv)) {
+      if (!EXCLUDED_ENV_VARS.has(key) && !Object.prototype.hasOwnProperty.call(environment, key)) {
+        environment[key] = value;
+      }
+    }
   }
 
   // Additional environment variables from --env flags (these override everything)

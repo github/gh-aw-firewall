@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1332,6 +1332,78 @@ describe('docker-manager', () => {
         if (prevGhHost !== undefined) process.env.GH_HOST = prevGhHost;
         else delete process.env.GH_HOST;
       }
+    });
+
+    describe('envFile option', () => {
+      let tmpDir: string;
+
+      beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-envfile-'));
+      });
+
+      afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      });
+
+      it('should inject variables from env file into agent environment', () => {
+        const envFile = path.join(tmpDir, '.env');
+        fs.writeFileSync(envFile, 'MY_CUSTOM_VAR=hello\nANOTHER_VAR=world\n');
+
+        const config = { ...mockConfig, envFile };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.MY_CUSTOM_VAR).toBe('hello');
+        expect(env.ANOTHER_VAR).toBe('world');
+      });
+
+      it('should allow --env flags to override env-file values', () => {
+        const envFile = path.join(tmpDir, '.env');
+        fs.writeFileSync(envFile, 'MY_VAR=from_file\n');
+
+        const config = { ...mockConfig, envFile, additionalEnv: { MY_VAR: 'from_flag' } };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.MY_VAR).toBe('from_flag');
+      });
+
+      it('should not overwrite already-set env vars with env-file values', () => {
+        const envFile = path.join(tmpDir, '.env');
+        // AWF_DNS_SERVERS is set before envFile processing; file should not clobber it
+        fs.writeFileSync(envFile, 'AWF_DNS_SERVERS=1.1.1.1\n');
+
+        const config = { ...mockConfig, envFile };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // AWF_DNS_SERVERS is set by the framework; file should NOT override it
+        expect(env.AWF_DNS_SERVERS).not.toBe('1.1.1.1');
+      });
+
+      it('should skip excluded system vars from env file', () => {
+        const envFile = path.join(tmpDir, '.env');
+        fs.writeFileSync(envFile, 'PATH=/evil/path\nHOME=/evil/home\nMY_VAR=ok\n');
+
+        const config = { ...mockConfig, envFile };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.PATH).not.toBe('/evil/path');
+        expect(env.HOME).not.toBe('/evil/home');
+        expect(env.MY_VAR).toBe('ok');
+      });
+
+      it('should skip comment lines and blank lines in env file', () => {
+        const envFile = path.join(tmpDir, '.env');
+        fs.writeFileSync(envFile, '# comment\n\nFOO=bar\n');
+
+        const config = { ...mockConfig, envFile };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.FOO).toBe('bar');
+      });
     });
 
     it('should configure DNS to use Google DNS', () => {
@@ -3378,6 +3450,58 @@ describe('docker-manager', () => {
           process.env.PATH = originalPath;
         }
       }
+    });
+  });
+
+  describe('readEnvFile', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-readenvfile-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should parse KEY=VALUE pairs', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, 'FOO=bar\nBAZ=qux\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar', BAZ: 'qux' });
+    });
+
+    it('should skip comment lines starting with #', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, '# comment\nFOO=bar\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
+    it('should skip blank lines', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, '\nFOO=bar\n\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
+    it('should allow empty values', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, 'FOO=\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: '' });
+    });
+
+    it('should allow values containing = signs', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, 'FOO=a=b=c\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'a=b=c' });
+    });
+
+    it('should ignore lines that do not match KEY=VALUE format', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, 'INVALID LINE\nFOO=bar\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
+    it('should throw when file does not exist', () => {
+      expect(() => readEnvFile(path.join(tmpDir, 'missing.env'))).toThrow();
     });
   });
 });

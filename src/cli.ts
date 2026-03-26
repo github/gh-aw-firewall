@@ -1271,6 +1271,10 @@ program
     false
   )
   .option(
+    '--env-file <path>',
+    'Read environment variables from a file (KEY=VALUE format, one per line)'
+  )
+  .option(
     '-v, --mount <host_path:container_path[:mode]>',
     'Volume mount (repeatable). Format: host_path:container_path[:ro|rw]',
     (value: string, previous: string[] = []) => [...previous, value],
@@ -1570,6 +1574,14 @@ program
       additionalEnv = parsed.env;
     }
 
+    // Validate --env-file path if provided
+    if (options.envFile) {
+      if (!fs.existsSync(options.envFile)) {
+        logger.error(`--env-file: file not found: ${options.envFile}`);
+        process.exit(1);
+      }
+    }
+
     // Parse and validate volume mounts from --mount flags
     let volumeMounts: string[] | undefined = undefined;
     if (options.mount && Array.isArray(options.mount) && options.mount.length > 0) {
@@ -1694,6 +1706,7 @@ program
       imageTag: options.imageTag,
       additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
       envAll: options.envAll,
+      envFile: options.envFile,
       volumeMounts,
       containerWorkDir: options.containerWorkdir,
       dnsServers,
@@ -1745,6 +1758,11 @@ program
     if (config.envAll) {
       logger.warn('⚠️  Using --env-all: All host environment variables will be passed to container');
       logger.warn('   This may expose sensitive credentials if logs or configs are shared');
+    }
+
+    // Log --env-file usage
+    if (config.envFile) {
+      logger.debug(`Loading environment variables from file: ${config.envFile}`);
     }
 
     // Validate --allow-host-service-ports (port format & range)

@@ -11,6 +11,12 @@ awf -e FOO=1 -e BAR=2 'command'
 
 # Pass all host variables (development only)
 awf --env-all 'command'
+
+# Read variables from a file
+awf --env-file /tmp/runtime-paths.env 'command'
+
+# Combine file and explicit overrides (--env takes precedence over --env-file)
+awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 ```
 
 ## Default Behavior
@@ -35,6 +41,33 @@ Using `--env-all` passes all host environment variables to the container, which 
 **Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
 
 **Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy` (and their lowercase/uppercase variants) from the host are ignored when using `--env-all` because the firewall always sets these to point to Squid. Host proxy settings cannot be passed through as they would conflict with the firewall's traffic routing.
+
+## `--env-file` Support
+
+`--env-file <path>` reads environment variables from a file and injects them into the agent container. This is useful when variables are written to a file rather than exported into the current shell (e.g., step outputs from earlier GitHub Actions steps).
+
+**File format:**
+- One `KEY=VALUE` pair per line
+- Lines starting with `#` are comments and are ignored
+- Blank lines are ignored
+- Values are taken literally (no quote stripping, no variable expansion)
+
+**Precedence (lowest → highest):**
+1. Built-in framework variables (proxy, DNS, etc.)
+2. `--env-all` host variables
+3. `--env-file` variables
+4. `--env` / `-e` explicit variables (highest priority)
+
+**Excluded variables** in `--env-file` (same list as `--env-all`): `PATH`, `PWD`, `HOME`, `SUDO_*`, etc.
+
+**Example use case — Safe Outputs MCP:**
+```bash
+# Step output written to a file by the compiler
+echo "GH_AW_SAFE_OUTPUTS_CONFIG_PATH=/tmp/config.json" >> /tmp/runtime-paths.env
+
+# AWF picks it up via --env-file
+awf --env-file /tmp/runtime-paths.env --allow-domains github.com -- agent-command
+```
 
 ## Best Practices
 
