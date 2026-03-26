@@ -2326,6 +2326,48 @@ describe('cli', () => {
         enableApiProxy: false,
       });
     });
+
+    it('should use the exitCode from the thrown error when available', async () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      const errorWithExitCode = Object.assign(new Error('pull failed'), { exitCode: 2 });
+      jest.resetModules();
+      jest.doMock('./commands/predownload', () => ({
+        predownloadCommand: jest.fn().mockRejectedValue(errorWithExitCode),
+      }));
+
+      await expect(handlePredownloadAction({
+        imageRegistry: 'test',
+        imageTag: 'latest',
+        agentImage: 'default',
+        enableApiProxy: false,
+      })).rejects.toThrow('process.exit called');
+
+      expect(mockExit).toHaveBeenCalledWith(2);
+      mockExit.mockRestore();
+    });
+
+    it('should default to exit code 1 when error has no exitCode property', async () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      const errorWithoutExitCode = new Error('unexpected failure');
+      jest.resetModules();
+      jest.doMock('./commands/predownload', () => ({
+        predownloadCommand: jest.fn().mockRejectedValue(errorWithoutExitCode),
+      }));
+
+      await expect(handlePredownloadAction({
+        imageRegistry: 'test',
+        imageTag: 'latest',
+        agentImage: 'default',
+        enableApiProxy: false,
+      })).rejects.toThrow('process.exit called');
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockRestore();
+    });
   });
 
   describe('hasRateLimitOptions', () => {
@@ -2358,6 +2400,14 @@ describe('cli', () => {
     it('should return empty array when ENGINE_API_TARGET is not set', () => {
       const domains = extractGhesDomainsFromEngineApiTarget({});
       expect(domains).toEqual([]);
+    });
+
+    it('should use process.env by default when no env argument is provided', () => {
+      const saved = process.env.ENGINE_API_TARGET;
+      delete process.env.ENGINE_API_TARGET;
+      const domains = extractGhesDomainsFromEngineApiTarget();
+      expect(domains).toEqual([]);
+      if (saved !== undefined) process.env.ENGINE_API_TARGET = saved;
     });
 
     it('should extract GHES domains from api.github.* format', () => {
@@ -2470,6 +2520,17 @@ describe('cli', () => {
     it('should handle invalid GITHUB_API_URL gracefully', () => {
       const domains = extractGhecDomainsFromServerUrl({ GITHUB_API_URL: 'not-a-valid-url' });
       expect(domains).toEqual([]);
+    });
+
+    it('should use process.env by default when no env argument is provided', () => {
+      const savedServerUrl = process.env.GITHUB_SERVER_URL;
+      const savedApiUrl = process.env.GITHUB_API_URL;
+      delete process.env.GITHUB_SERVER_URL;
+      delete process.env.GITHUB_API_URL;
+      const domains = extractGhecDomainsFromServerUrl();
+      expect(domains).toEqual([]);
+      if (savedServerUrl !== undefined) process.env.GITHUB_SERVER_URL = savedServerUrl;
+      if (savedApiUrl !== undefined) process.env.GITHUB_API_URL = savedApiUrl;
     });
   });
 
