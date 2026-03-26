@@ -736,6 +736,8 @@ export function generateDockerCompose(
     `${workspaceDir}:${workspaceDir}:rw`,
     // Mount agent logs directory to workDir for persistence
     `${config.workDir}/agent-logs:${effectiveHome}/.copilot/logs:rw`,
+    // Mount agent session-state directory to workDir for persistence (events.jsonl)
+    `${config.workDir}/agent-session-state:${effectiveHome}/.copilot/session-state:rw`,
     // Init signal volume for iptables init container coordination
     `${initSignalDir}:/tmp/awf-init:rw`,
   ];
@@ -1548,6 +1550,13 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   }
   logger.debug(`Agent logs directory created at: ${agentLogsDir}`);
 
+  // Create agent session-state directory for persistence (events.jsonl written by Copilot CLI)
+  const agentSessionStateDir = path.join(config.workDir, 'agent-session-state');
+  if (!fs.existsSync(agentSessionStateDir)) {
+    fs.mkdirSync(agentSessionStateDir, { recursive: true });
+  }
+  logger.debug(`Agent session-state directory created at: ${agentSessionStateDir}`);
+
   // Create squid logs directory for persistence
   // If proxyLogsDir is specified, write directly there (timeout-safe)
   // Otherwise, use workDir/squid-logs (will be moved to /tmp after cleanup)
@@ -2101,6 +2110,18 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
           logger.info(`Agent logs preserved at: ${agentLogsDestination}`);
         } catch (error) {
           logger.debug('Could not preserve agent logs:', error);
+        }
+      }
+
+      // Preserve agent session-state before cleanup (contains events.jsonl from Copilot CLI)
+      const agentSessionStateDir = path.join(workDir, 'agent-session-state');
+      const agentSessionStateDestination = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
+      if (fs.existsSync(agentSessionStateDir) && fs.readdirSync(agentSessionStateDir).length > 0) {
+        try {
+          fs.renameSync(agentSessionStateDir, agentSessionStateDestination);
+          logger.info(`Agent session state preserved at: ${agentSessionStateDestination}`);
+        } catch (error) {
+          logger.debug('Could not preserve agent session state:', error);
         }
       }
 

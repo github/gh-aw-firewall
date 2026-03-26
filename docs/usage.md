@@ -845,6 +845,12 @@ sudo awf \
 - Location: `/tmp/awf-agent-logs-<timestamp>/`
 - View with: `cat /tmp/awf-agent-logs-<timestamp>/*.log`
 
+**Agent Session State:**
+- Contains structured conversation data written by Copilot CLI (e.g., `events.jsonl`)
+- Location: `/tmp/awf-agent-session-state-<timestamp>/`
+- View with: `cat /tmp/awf-agent-session-state-<timestamp>/events.jsonl`
+- Useful for triage dashboards, benchmarking, and debugging Copilot CLI runs
+
 **Squid Logs:**
 - Contains all HTTP/HTTPS traffic (allowed and denied)
 - Location: `/tmp/squid-logs-<timestamp>/`
@@ -859,9 +865,15 @@ sudo cat /tmp/squid-logs-<timestamp>/access.log
 ```
 
 **How it works:**
-- GitHub Copilot CLI writes to `~/.copilot/logs/`, Squid writes to `/var/log/squid/`
-- Volume mounts map these to `${workDir}/agent-logs/` and `${workDir}/squid-logs/`
-- Before cleanup, logs are automatically moved to `/tmp/awf-agent-logs-<timestamp>/` and `/tmp/squid-logs-<timestamp>/` (if they exist)
+- GitHub Copilot CLI writes to `~/.copilot/logs/` and `~/.copilot/session-state/`; Squid writes to `/var/log/squid/`
+- Volume mounts map container paths to:
+  - `${workDir}/agent-logs/` → `~/.copilot/logs/`
+  - `${workDir}/agent-session-state/` → `~/.copilot/session-state/`
+  - `${workDir}/squid-logs/` → `/var/log/squid/`
+- Before cleanup, non-empty directories are automatically moved to timestamped `/tmp` paths:
+  - `/tmp/awf-agent-logs-<timestamp>/`
+  - `/tmp/awf-agent-session-state-<timestamp>/`
+  - `/tmp/squid-logs-<timestamp>/`
 - Empty log directories are not preserved (avoids cluttering /tmp)
 
 ### Keep Containers for Inspection
