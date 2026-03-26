@@ -3500,6 +3500,24 @@ describe('docker-manager', () => {
       expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
     });
 
+    it('should reject keys starting with a digit', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, '123KEY=value\nFOO=bar\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
+    it('should reject keys containing hyphens', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, 'KEY-NAME=value\nFOO=bar\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
+    it('should handle lines with leading whitespace by trimming them', () => {
+      const envFile = path.join(tmpDir, '.env');
+      fs.writeFileSync(envFile, '  FOO=bar\n');
+      expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
+    });
+
     it('should throw when file does not exist', () => {
       expect(() => readEnvFile(path.join(tmpDir, 'missing.env'))).toThrow();
     });

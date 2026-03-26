@@ -226,7 +226,7 @@ export function readEnvFile(filePath: string): Record<string, string> {
   const content = fs.readFileSync(filePath, 'utf-8');
   const result: Record<string, string> = {};
   for (const raw of content.split('\n')) {
-    const line = raw.trimEnd();
+    const line = raw.trim();
     // Skip comments and blank lines
     if (line === '' || line.startsWith('#')) continue;
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
