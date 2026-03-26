@@ -75,7 +75,9 @@
   },
   "overrides": {
     "test-exclude": "^7.0.1",
-    "minimatch": ">=10.2.1"
+    "minimatch": ">=10.2.1",
+    "picomatch@2": ">=2.3.2",
+    "picomatch@4": ">=4.0.4"
   },
   "engines": {
     "node": ">=20.12.0"
