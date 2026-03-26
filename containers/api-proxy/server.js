@@ -120,10 +120,10 @@ function validateProxyAuth(req) {
  * Send a standardised HTTP 401 Unauthorized response.
  *
  * @param {import('http').ServerResponse} res
- * @param {string} requestId
  * @param {string} provider
  */
-function rejectUnauthorized(res, requestId, provider) {
+function rejectUnauthorized(res, provider) {
+  const requestId = generateRequestId();
   logRequest('warn', 'auth_rejected', {
     request_id: requestId,
     provider,
@@ -574,9 +574,8 @@ if (require.main === module) {
   if (OPENAI_API_KEY) {
     const server = http.createServer((req, res) => {
       if (handleManagementEndpoint(req, res)) return;
-      const requestId = generateRequestId();
       if (!validateProxyAuth(req)) {
-        rejectUnauthorized(res, requestId, 'openai');
+        rejectUnauthorized(res, 'openai');
         return;
       }
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
@@ -613,9 +612,8 @@ if (require.main === module) {
         return;
       }
 
-      const requestId = generateRequestId();
       if (!validateProxyAuth(req)) {
-        rejectUnauthorized(res, requestId, 'anthropic');
+        rejectUnauthorized(res, 'anthropic');
         return;
       }
 
@@ -646,9 +644,8 @@ if (require.main === module) {
         return;
       }
 
-      const requestId = generateRequestId();
       if (!validateProxyAuth(req)) {
-        rejectUnauthorized(res, requestId, 'copilot');
+        rejectUnauthorized(res, 'copilot');
         return;
       }
 
@@ -677,9 +674,8 @@ if (require.main === module) {
         return;
       }
 
-      const requestId = generateRequestId();
       if (!validateProxyAuth(req)) {
-        rejectUnauthorized(res, requestId, 'opencode');
+        rejectUnauthorized(res, 'opencode');
         return;
       }
 
