@@ -593,6 +593,13 @@ export function generateDockerCompose(
     environment.AWF_BUN_INSTALL = process.env.BUN_INSTALL;
   }
 
+  // If --exclude-env names were specified, add them to the excluded set
+  if (config.excludeEnv && config.excludeEnv.length > 0) {
+    for (const name of config.excludeEnv) {
+      EXCLUDED_ENV_VARS.add(name);
+    }
+  }
+
   // If --env-all is specified, pass through all host environment variables (except excluded ones)
   if (config.envAll) {
     for (const [key, value] of Object.entries(process.env)) {

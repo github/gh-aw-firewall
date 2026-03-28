@@ -35,6 +35,7 @@ awf [options] -- <command>
 | `--skip-pull` | flag | `false` | Use local images without pulling from registry |
 | `-e, --env <KEY=VALUE>` | string | `[]` | Environment variable (repeatable) |
 | `--env-all` | flag | `false` | Pass all host environment variables |
+| `--exclude-env <name>` | string | `[]` | Exclude a variable from `--env-all` passthrough (repeatable) |
 | `-v, --mount <host:container[:mode]>` | string | `[]` | Volume mount (repeatable) |
 | `--container-workdir <dir>` | string | User home | Working directory inside container |
 | `--dns-servers <servers>` | string | `8.8.8.8,8.8.4.4` | Trusted DNS servers (comma-separated) |

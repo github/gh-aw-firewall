@@ -248,6 +248,17 @@ export interface WrapperConfig {
   envAll?: boolean;
 
   /**
+   * Additional environment variable names to exclude when using --env-all
+   *
+   * When `envAll` is true, these variable names are excluded from the host environment
+   * passthrough in addition to the built-in exclusion list (PATH, HOME, etc.).
+   * Has no effect when `envAll` is false.
+   *
+   * @example ['GITHUB_MCP_SERVER_TOKEN', 'GH_AW_GITHUB_TOKEN']
+   */
+  excludeEnv?: string[];
+
+  /**
    * Path to a file containing environment variables to inject into the container
    *
    * The file should contain KEY=VALUE pairs, one per line. Lines starting with
