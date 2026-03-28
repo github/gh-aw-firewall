@@ -32,9 +32,6 @@ tools:
   edit:
   bash:
     - "*"
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
 safe-outputs:
     add-comment:
       hide-older-comments: true
