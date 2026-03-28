@@ -1173,6 +1173,10 @@ jobs:
           package-manager-cache: false
       - name: Install Codex CLI
         run: npm install -g @openai/codex@latest
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Install awf dependencies
         run: npm ci
       - name: Build awf

@@ -110,6 +110,51 @@ for (const workflowPath of workflowPaths) {
     console.log(`  Replaced ${matches.length} awf install step(s) with local build`);
   }
 
+  // Ensure a "Checkout repository" step exists before "Install awf dependencies"
+  // in every job. The gh-aw compiler may add jobs (e.g. detection) that reference
+  // install_awf_binary.sh but don't include a checkout step. After we replace the
+  // install step with local build steps (npm ci / npm run build), they need the
+  // repo checked out. We inject a checkout step right before "Install awf dependencies"
+  // if one doesn't already appear earlier in the same job.
+  const lines = content.split('\n');
+  let injectedCheckouts = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const installMatch = lines[i].match(/^(\s+)- name: Install awf dependencies$/);
+    if (!installMatch) continue;
+
+    // Walk backwards to find the job boundary (non-indented key ending with ':')
+    // and check whether a "Checkout repository" step exists in between.
+    let hasCheckout = false;
+    for (let j = i - 1; j >= 0; j--) {
+      if (/^\s+- name: Checkout repository/.test(lines[j])) {
+        hasCheckout = true;
+        break;
+      }
+      // Job-level key (e.g. "  agent:" or "  detection:") marks the boundary
+      if (/^  \S+:/.test(lines[j]) && !lines[j].startsWith('    ')) {
+        break;
+      }
+    }
+
+    if (!hasCheckout) {
+      const indent = installMatch[1];
+      const checkoutStep = [
+        `${indent}- name: Checkout repository`,
+        `${indent}  uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2`,
+        `${indent}  with:`,
+        `${indent}    persist-credentials: false`,
+      ].join('\n');
+      lines.splice(i, 0, checkoutStep);
+      injectedCheckouts++;
+      i += 4; // Skip past the inserted lines
+    }
+  }
+  if (injectedCheckouts > 0) {
+    content = lines.join('\n');
+    modified = true;
+    console.log(`  Injected ${injectedCheckouts} checkout step(s) before awf build steps`);
+  }
+
   // Remove sparse-checkout from agent job checkout (need full repo for npm build)
   const sparseMatches = content.match(sparseCheckoutRegex);
   if (sparseMatches) {
