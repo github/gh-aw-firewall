@@ -38,7 +38,7 @@ const workflowPaths = [
 // - "Install awf binary" or "Install AWF binary" step at any indent level
 // - run command invoking install_awf_binary.sh with a version
 const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash \/opt\/gh-aw\/actions\/install_awf_binary\.sh v[0-9.]+\n/m;
+  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash (?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh v[0-9.]+\n/m;
 const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 
 function buildLocalInstallSteps(indent: string): string {
@@ -102,18 +102,12 @@ for (const workflowPath of workflowPaths) {
   // Replace "Install awf binary" step with local build steps
   const matches = content.match(installStepRegexGlobal);
   if (matches) {
-    if (matches.length !== 1) {
-      throw new Error(
-        `Expected exactly one awf install step in ${workflowPath}, found ${matches.length}. ` +
-          'Ensure the workflow has a single "Install awf binary" step in the agent job.'
-      );
-    }
     content = content.replace(
       installStepRegexGlobal,
       (_match, indent: string) => buildLocalInstallSteps(indent)
     );
     modified = true;
-    console.log(`  Replaced awf install step with local build`);
+    console.log(`  Replaced ${matches.length} awf install step(s) with local build`);
   }
 
   // Remove sparse-checkout from agent job checkout (need full repo for npm build)
