@@ -1349,6 +1349,23 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should exclude GITHUB_TOKEN from env-all passthrough when specified in excludeEnv', () => {
+      const prevToken = process.env.GITHUB_TOKEN;
+      process.env.GITHUB_TOKEN = 'ghp_test_token';
+
+      try {
+        const configWithExcludeEnv = { ...mockConfig, envAll: true, excludeEnv: ['GITHUB_TOKEN'] };
+        const result = generateDockerCompose(configWithExcludeEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // GITHUB_TOKEN should be excluded from the env-all passthrough
+        expect(env.GITHUB_TOKEN).toBeUndefined();
+      } finally {
+        if (prevToken !== undefined) process.env.GITHUB_TOKEN = prevToken;
+        else delete process.env.GITHUB_TOKEN;
+      }
+    });
+
     it('should auto-inject GH_HOST from GITHUB_SERVER_URL when envAll is true', () => {
       const prevServerUrl = process.env.GITHUB_SERVER_URL;
       const prevGhHost = process.env.GH_HOST;
