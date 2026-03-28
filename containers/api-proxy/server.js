@@ -12,6 +12,7 @@
 
 const http = require('http');
 const https = require('https');
+const tls = require('tls');
 const { URL } = require('url');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
@@ -424,6 +425,217 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 }
 
 /**
+ * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.
+ *
+ * Flow:
+ *   client --[HTTP Upgrade]--> proxy --[CONNECT]--> Squid:3128 --[TLS]--> upstream:443
+ *
+ * Steps:
+ *   1. Validate the request (WebSocket upgrade only, relative URL)
+ *   2. Apply rate limiting (counts as one request, zero body bytes)
+ *   3. Open a CONNECT tunnel to targetHost:443 through Squid
+ *   4. TLS-handshake the tunnel
+ *   5. Replay the HTTP Upgrade request with auth headers injected
+ *   6. Bidirectionally pipe the raw TCP sockets
+ *
+ * No additional npm dependencies are required — only Node.js built-ins.
+ *
+ * @param {http.IncomingMessage} req - The incoming HTTP Upgrade request
+ * @param {import('net').Socket} socket - Raw TCP socket to the WebSocket client
+ * @param {Buffer} head - Any bytes already buffered after the upgrade headers
+ * @param {string} targetHost - Upstream hostname (e.g. 'api.openai.com')
+ * @param {Object} injectHeaders - Auth headers to inject (e.g. { Authorization: 'Bearer …' })
+ * @param {string} provider - Provider name for logging and metrics
+ * @param {string} [basePath=''] - Optional base-path prefix for the upstream URL
+ */
+function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '') {
+  const startTime = Date.now();
+  const clientRequestId = req.headers['x-request-id'];
+  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
+
+  // ── Validate: only forward WebSocket upgrades ──────────────────────────
+  const upgradeType = (req.headers['upgrade'] || '').toLowerCase();
+  if (upgradeType !== 'websocket') {
+    logRequest('warn', 'websocket_upgrade_rejected', {
+      request_id: requestId,
+      provider,
+      path: sanitizeForLog(req.url),
+      reason: 'unsupported upgrade type',
+      upgrade: sanitizeForLog(req.headers['upgrade'] || ''),
+    });
+    socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // ── Validate: relative path only (prevent SSRF) ────────────────────────
+  if (!req.url || !req.url.startsWith('/')) {
+    logRequest('warn', 'websocket_upgrade_rejected', {
+      request_id: requestId,
+      provider,
+      path: sanitizeForLog(req.url),
+      reason: 'URL must be a relative path',
+    });
+    socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
+
+  // ── Rate limit (counts as one request, frames are not tracked) ──────────
+  const rateCheck = limiter.check(provider, 0);
+  if (!rateCheck.allowed) {
+    metrics.increment('rate_limit_rejected_total', { provider, limit_type: rateCheck.limitType });
+    logRequest('warn', 'rate_limited', {
+      request_id: requestId,
+      provider,
+      limit_type: rateCheck.limitType,
+      limit: rateCheck.limit,
+      retry_after: rateCheck.retryAfter,
+    });
+    socket.write(
+      `HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${rateCheck.retryAfter}\r\nConnection: close\r\n\r\n`
+    );
+    socket.destroy();
+    return;
+  }
+
+  logRequest('info', 'websocket_upgrade_start', {
+    request_id: requestId,
+    provider,
+    path: sanitizeForLog(req.url),
+    upstream_host: targetHost,
+  });
+  metrics.gaugeInc('active_requests', { provider });
+
+  // finalize() must be called exactly once when the WebSocket session ends.
+  let finalized = false;
+  function finalize(isError, description) {
+    if (finalized) return;
+    finalized = true;
+    const duration = Date.now() - startTime;
+    metrics.gaugeDec('active_requests', { provider });
+    if (isError) {
+      metrics.increment('requests_errors_total', { provider });
+      logRequest('error', 'websocket_upgrade_failed', {
+        request_id: requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        duration_ms: duration,
+        error: sanitizeForLog(String(description || 'unknown error')),
+      });
+    } else {
+      metrics.increment('requests_total', { provider, method: 'GET', status_class: '1xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('info', 'websocket_upgrade_complete', {
+        request_id: requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        duration_ms: duration,
+      });
+    }
+  }
+
+  // abort(): called before the socket pipe is established (pre-TLS errors).
+  // Sends a 502 to the client and finalizes with an error.
+  function abort(reason, ...extra) {
+    finalize(true, reason);
+    if (!socket.destroyed && socket.writable) {
+      socket.write('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+    }
+    socket.destroy();
+    for (const s of extra) {
+      if (s && !s.destroyed) s.destroy();
+    }
+  }
+
+  // ── Require Squid proxy ────────────────────────────────────────────────
+  if (!HTTPS_PROXY) {
+    abort('No Squid proxy configured (HTTPS_PROXY not set)');
+    return;
+  }
+
+  let proxyUrl;
+  try {
+    proxyUrl = new URL(HTTPS_PROXY);
+  } catch (err) {
+    abort(`Invalid proxy URL: ${err.message}`);
+    return;
+  }
+
+  const proxyHost = proxyUrl.hostname;
+  const proxyPort = parseInt(proxyUrl.port, 10) || 3128;
+
+  // ── Step 1: CONNECT tunnel through Squid to targetHost:443 ────────────
+  const connectReq = http.request({
+    host: proxyHost,
+    port: proxyPort,
+    method: 'CONNECT',
+    path: `${targetHost}:443`,
+    headers: { 'Host': `${targetHost}:443` },
+  });
+
+  connectReq.once('error', (err) => abort(`CONNECT error: ${err.message}`));
+
+  connectReq.once('connect', (connectRes, tunnel) => {
+    if (connectRes.statusCode !== 200) {
+      abort(`CONNECT failed: HTTP ${connectRes.statusCode}`, tunnel);
+      return;
+    }
+
+    // ── Step 2: TLS-upgrade the raw tunnel ──────────────────────────────
+    const tlsSocket = tls.connect({ socket: tunnel, servername: targetHost, rejectUnauthorized: true });
+
+    // Pre-TLS error handler: removed once TLS is established.
+    const onTlsError = (err) => abort(`TLS handshake error: ${err.message}`, tunnel);
+    tlsSocket.once('error', onTlsError);
+
+    tlsSocket.once('secureConnect', () => {
+      // TLS connected — swap to post-connection teardown error handlers.
+      tlsSocket.removeListener('error', onTlsError);
+
+      // ── Step 3: Replay the HTTP Upgrade request with auth injected ────
+      const forwardHeaders = {};
+      for (const [name, value] of Object.entries(req.headers)) {
+        if (!shouldStripHeader(name)) {
+          forwardHeaders[name] = value;
+        }
+      }
+      Object.assign(forwardHeaders, injectHeaders);
+      forwardHeaders['host'] = targetHost; // Fix Host header for upstream
+
+      let upgradeReqStr = `GET ${upstreamPath} HTTP/1.1\r\n`;
+      for (const [name, value] of Object.entries(forwardHeaders)) {
+        upgradeReqStr += `${name}: ${value}\r\n`;
+      }
+      upgradeReqStr += '\r\n';
+      tlsSocket.write(upgradeReqStr);
+
+      // Forward any bytes already buffered before the pipe
+      if (head && head.length > 0) {
+        tlsSocket.write(head);
+      }
+
+      // ── Step 4: Bidirectional raw socket relay ─────────────────────
+      tlsSocket.pipe(socket);
+      socket.pipe(tlsSocket);
+
+      // Finalize once when either side closes; destroy the other side.
+      function onClose() { finalize(false); socket.destroy(); tlsSocket.destroy(); }
+      socket.once('close', onClose);
+      tlsSocket.once('close', onClose);
+
+      // Suppress unhandled-error crashes; destroy triggers the close handler.
+      socket.on('error', () => socket.destroy());
+      tlsSocket.on('error', () => tlsSocket.destroy());
+    });
+  });
+
+  connectReq.end();
+}
+
+/**
  * Build the enhanced health response (superset of original format).
  */
 function healthResponse() {
@@ -476,6 +688,12 @@ if (require.main === module) {
       }, 'openai', OPENAI_API_BASE_PATH);
     });
 
+    server.on('upgrade', (req, socket, head) => {
+      proxyWebSocket(req, socket, head, OPENAI_API_TARGET, {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      }, 'openai', OPENAI_API_BASE_PATH);
+    });
+
     server.listen(HEALTH_PORT, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
     });
@@ -486,6 +704,11 @@ if (require.main === module) {
 
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'OpenAI proxy not configured (no OPENAI_API_KEY)' }));
+    });
+
+    server.on('upgrade', (req, socket) => {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
     });
 
     server.listen(HEALTH_PORT, '0.0.0.0', () => {
@@ -513,6 +736,14 @@ if (require.main === module) {
       proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
     });
 
+    server.on('upgrade', (req, socket, head) => {
+      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+      if (!req.headers['anthropic-version']) {
+        anthropicHeaders['anthropic-version'] = '2023-06-01';
+      }
+      proxyWebSocket(req, socket, head, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
+    });
+
     server.listen(10001, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
     });
@@ -533,6 +764,12 @@ if (require.main === module) {
       if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
       proxyRequest(req, res, COPILOT_API_TARGET, {
+        'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+      }, 'copilot');
+    });
+
+    copilotServer.on('upgrade', (req, socket, head) => {
+      proxyWebSocket(req, socket, head, COPILOT_API_TARGET, {
         'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
       }, 'copilot');
     });
@@ -571,6 +808,14 @@ if (require.main === module) {
       proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders);
     });
 
+    opencodeServer.on('upgrade', (req, socket, head) => {
+      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
+      if (!req.headers['anthropic-version']) {
+        anthropicHeaders['anthropic-version'] = '2023-06-01';
+      }
+      proxyWebSocket(req, socket, head, ANTHROPIC_API_TARGET, anthropicHeaders, 'opencode');
+    });
+
     opencodeServer.listen(10004, '0.0.0.0', () => {
       console.log(`[API Proxy] OpenCode proxy listening on port 10004 (-> Anthropic at ${ANTHROPIC_API_TARGET})`);
     });
@@ -589,4 +834,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath };
+module.exports = { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket };
