@@ -622,9 +622,8 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       socket.pipe(tlsSocket);
 
       // Finalize once when either side closes; destroy the other side.
-      function onClose() { finalize(false); socket.destroy(); tlsSocket.destroy(); }
-      socket.once('close', onClose);
-      tlsSocket.once('close', onClose);
+      socket.once('close', () => { finalize(false); tlsSocket.destroy(); });
+      tlsSocket.once('close', () => { finalize(false); socket.destroy(); });
 
       // Suppress unhandled-error crashes; destroy triggers the close handler.
       socket.on('error', () => socket.destroy());

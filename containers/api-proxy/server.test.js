@@ -548,7 +548,7 @@ describe('proxyWebSocket', () => {
         setImmediate(() => tlsSocket.emit('secureConnect'));
       });
 
-      const headBytes = Buffer.from([0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+      const headBytes = Buffer.from([0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f]); // WS text frame: FIN=1, opcode=1, len=5, payload='Hello'
       wsProxy(makeUpgradeReq(), socket, headBytes, 'api.openai.com', { 'Authorization': 'Bearer k' }, 'openai');
 
       return new Promise(resolve => setTimeout(() => {
