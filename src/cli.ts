@@ -1271,6 +1271,12 @@ program
     false
   )
   .option(
+    '--exclude-env <name>',
+    'Exclude a specific environment variable from --env-all passthrough (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+    []
+  )
+  .option(
     '--env-file <path>',
     'Read environment variables from a file (KEY=VALUE format, one per line)'
   )
@@ -1706,6 +1712,7 @@ program
       imageTag: options.imageTag,
       additionalEnv: Object.keys(additionalEnv).length > 0 ? additionalEnv : undefined,
       envAll: options.envAll,
+      excludeEnv: options.excludeEnv && options.excludeEnv.length > 0 ? options.excludeEnv : undefined,
       envFile: options.envFile,
       volumeMounts,
       containerWorkDir: options.containerWorkdir,

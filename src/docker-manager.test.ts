@@ -1295,6 +1295,60 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should exclude specified variables when excludeEnv is set with envAll', () => {
+      process.env.CUSTOM_HOST_VAR = 'test_value';
+      process.env.SECRET_TOKEN = 'super-secret';
+
+      try {
+        const configWithExcludeEnv = { ...mockConfig, envAll: true, excludeEnv: ['SECRET_TOKEN'] };
+        const result = generateDockerCompose(configWithExcludeEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // Should pass through non-excluded vars
+        expect(env.CUSTOM_HOST_VAR).toBe('test_value');
+        // Should NOT pass through excluded var
+        expect(env.SECRET_TOKEN).toBeUndefined();
+      } finally {
+        delete process.env.CUSTOM_HOST_VAR;
+        delete process.env.SECRET_TOKEN;
+      }
+    });
+
+    it('should exclude multiple variables when excludeEnv contains multiple names', () => {
+      process.env.TOKEN_A = 'value-a';
+      process.env.TOKEN_B = 'value-b';
+      process.env.SAFE_VAR = 'safe';
+
+      try {
+        const configWithExcludeEnv = { ...mockConfig, envAll: true, excludeEnv: ['TOKEN_A', 'TOKEN_B'] };
+        const result = generateDockerCompose(configWithExcludeEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.TOKEN_A).toBeUndefined();
+        expect(env.TOKEN_B).toBeUndefined();
+        expect(env.SAFE_VAR).toBe('safe');
+      } finally {
+        delete process.env.TOKEN_A;
+        delete process.env.TOKEN_B;
+        delete process.env.SAFE_VAR;
+      }
+    });
+
+    it('should have no effect when excludeEnv is set but envAll is false', () => {
+      process.env.SECRET_TOKEN = 'super-secret';
+
+      try {
+        const configWithExcludeEnv = { ...mockConfig, envAll: false, excludeEnv: ['SECRET_TOKEN'] };
+        const result = generateDockerCompose(configWithExcludeEnv, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // envAll is false so SECRET_TOKEN was never going to be injected anyway
+        expect(env.SECRET_TOKEN).toBeUndefined();
+      } finally {
+        delete process.env.SECRET_TOKEN;
+      }
+    });
+
     it('should auto-inject GH_HOST from GITHUB_SERVER_URL when envAll is true', () => {
       const prevServerUrl = process.env.GITHUB_SERVER_URL;
       const prevGhHost = process.env.GH_HOST;
