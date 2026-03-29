@@ -258,12 +258,13 @@ for (const workflowPath of workflowPaths) {
 // These transformations must not be applied to Claude, Copilot, or other
 // non-OpenAI workflows.
 for (const workflowPath of codexWorkflowPaths) {
-  if (!fs.existsSync(workflowPath)) {
+  let content: string;
+  try {
+    content = fs.readFileSync(workflowPath, 'utf-8');
+  } catch {
     console.log(`Skipping ${workflowPath}: file not found.`);
     continue;
   }
-
-  let content = fs.readFileSync(workflowPath, 'utf-8');
   let modified = false;
 
   // Preserve empty lines as truly empty (no trailing whitespace) to keep the
