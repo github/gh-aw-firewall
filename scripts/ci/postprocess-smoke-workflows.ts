@@ -121,6 +121,9 @@ const updateCacheSetupScriptRegex =
 // Matches both path forms used across gh-aw versions:
 //   ${RUNNER_TEMP}/gh-aw/prompts/xpia.md   (v0.64.2+)
 //   /opt/gh-aw/prompts/xpia.md             (v0.58.x)
+// The optional capture group `( >> "$GH_AW_PROMPT")` handles both styles:
+//   - Without suffix: output goes to the surrounding `{...} > "$GH_AW_PROMPT"` redirect
+//   - With ` >> "$GH_AW_PROMPT"` suffix: older workflows append directly per-line
 const xpiaCatRegex =
   /^(\s+)cat "(?:\$\{RUNNER_TEMP\}|\/opt)\/gh-aw\/prompts\/xpia\.md"( >> "\$GH_AW_PROMPT")?\n/m;
 
@@ -260,7 +263,7 @@ for (const workflowPath of codexWorkflowPaths) {
     // Preserve empty lines as truly empty (no trailing whitespace) to keep the
     // YAML block scalar clean and diff-friendly.
     const heredocLines = SAFE_XPIA_CONTENT.split('\n')
-      .map((line) => (line ? `${indent}${line}` : ''))
+      .map((line) => (line.trim() ? `${indent}${line}` : ''))
       .join('\n');
     const replacement =
       `${indent}cat << 'GH_AW_XPIA_SAFE_EOF'${appendSuffix}\n` +
