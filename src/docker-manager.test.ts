@@ -1385,18 +1385,40 @@ describe('docker-manager', () => {
       }
     });
 
-    it('should not overwrite explicit GH_HOST from env-all with auto-injected value', () => {
+    it('should override proxy-rewritten GH_HOST from env-all with GITHUB_SERVER_URL-derived value', () => {
       const prevServerUrl = process.env.GITHUB_SERVER_URL;
       const prevGhHost = process.env.GH_HOST;
       process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
-      process.env.GH_HOST = 'explicit.ghe.com';
+      process.env.GH_HOST = 'localhost:18443'; // proxy-rewritten value
 
       try {
         const configWithEnvAll = { ...mockConfig, envAll: true };
         const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
         const env = result.services.agent.environment as Record<string, string>;
 
-        expect(env.GH_HOST).toBe('explicit.ghe.com');
+        // GH_HOST should be derived from GITHUB_SERVER_URL, not the proxy value
+        expect(env.GH_HOST).toBe('mycompany.ghe.com');
+      } finally {
+        if (prevServerUrl !== undefined) process.env.GITHUB_SERVER_URL = prevServerUrl;
+        else delete process.env.GITHUB_SERVER_URL;
+        if (prevGhHost !== undefined) process.env.GH_HOST = prevGhHost;
+        else delete process.env.GH_HOST;
+      }
+    });
+
+    it('should remove proxy-rewritten GH_HOST on github.com', () => {
+      const prevServerUrl = process.env.GITHUB_SERVER_URL;
+      const prevGhHost = process.env.GH_HOST;
+      process.env.GITHUB_SERVER_URL = 'https://github.com';
+      process.env.GH_HOST = 'localhost:18443'; // proxy-rewritten value
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // GH_HOST should be removed — gh CLI defaults to github.com
+        expect(env.GH_HOST).toBeUndefined();
       } finally {
         if (prevServerUrl !== undefined) process.env.GITHUB_SERVER_URL = prevServerUrl;
         else delete process.env.GITHUB_SERVER_URL;

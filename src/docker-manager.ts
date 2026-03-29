@@ -634,13 +634,21 @@ export function generateDockerCompose(
 
   }
 
-  // Auto-inject GH_HOST when GITHUB_SERVER_URL points to a GHES/GHEC instance.
-  // Must run AFTER the env-all block so it applies in both paths.
-  // The !environment.GH_HOST guard preserves an explicit GH_HOST passed through via --env-all.
+  // Always derive GH_HOST from GITHUB_SERVER_URL to prevent proxy-rewritten values
+  // (e.g. GH_HOST=localhost:18443 from DIFC proxy) from breaking gh CLI remote matching.
+  // GITHUB_SERVER_URL is injected by the Actions runner and always points to the real
+  // GitHub instance, so it is the canonical source of truth.
+  // Must run AFTER the env-all block so it overrides any leaked proxy values.
   const ghHost = extractGhHostFromServerUrl(process.env.GITHUB_SERVER_URL);
-  if (ghHost && !environment.GH_HOST) {
+  if (ghHost) {
     environment.GH_HOST = ghHost;
-    logger.debug(`Auto-injected GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
+    logger.debug(`Set GH_HOST=${ghHost} from GITHUB_SERVER_URL`);
+  } else if (environment.GH_HOST) {
+    // On github.com (or when GITHUB_SERVER_URL is unset), GH_HOST should not be set.
+    // If --env-all passed through a proxy-rewritten value, remove it so gh CLI
+    // uses its default (github.com). See: gh-aw-firewall#1492
+    delete environment.GH_HOST;
+    logger.debug('Removed proxy-rewritten GH_HOST (GITHUB_SERVER_URL targets github.com)');
   }
 
   // Forward one-shot-token debug flag if set (used for testing/debugging)
