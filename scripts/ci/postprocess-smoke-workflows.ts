@@ -26,6 +26,7 @@ const workflowPaths = [
   path.join(repoRoot, '.github/workflows/smoke-claude.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-chroot.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
+  path.join(repoRoot, '.github/workflows/smoke-services.lock.yml'),
   // Build test workflow (combined)
   path.join(repoRoot, '.github/workflows/build-test.lock.yml'),
   // Agentic workflows (use --image-tag/--skip-pull which must be replaced
