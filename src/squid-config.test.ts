@@ -1,6 +1,44 @@
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { SquidConfig } from './types';
 
+describe('defense-in-depth: rejects injected values', () => {
+  const defaultPort = 3128;
+
+  it('should reject newline in domain via validateDomainOrPattern', () => {
+    expect(() => {
+      generateSquidConfig({
+        domains: ['evil.com\nhttp_access allow all'],
+        port: defaultPort,
+      });
+    }).toThrow();
+  });
+
+  it('should reject newline in URL pattern', () => {
+    // URL patterns go through generateSslBumpSection, which interpolates into squid.conf.
+    // The assertSafeForSquidConfig guard should catch this.
+    const maliciousPattern = 'https://evil.com/path\nhttp_access allow all';
+    expect(() => {
+      generateSquidConfig({
+        domains: ['evil.com'],
+        port: defaultPort,
+        sslBump: true,
+        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
+        sslDbPath: '/tmp/ssl_db',
+        urlPatterns: [maliciousPattern],
+      });
+    }).toThrow(/SECURITY|whitespace/);
+  });
+
+  it('should reject space in domain (ACL token injection)', () => {
+    expect(() => {
+      generateSquidConfig({
+        domains: ['.evil.com .attacker.com'],
+        port: defaultPort,
+      });
+    }).toThrow();
+  });
+});
+
 // Pattern constant for the safer domain character class (matches the implementation)
 const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
 

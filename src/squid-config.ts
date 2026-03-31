@@ -54,9 +54,25 @@ interface PatternsByProtocol {
 }
 
 /**
+ * Defense-in-depth: assert a domain/regex/URL-pattern string is safe for Squid config interpolation.
+ * Rejects any whitespace (\s covers space, tab, CR, LF, Unicode whitespace) and null bytes.
+ * Squid config is line-and-space delimited, so any whitespace could inject directives or tokens.
+ */
+function assertSafeForSquidConfig(value: string): string {
+  if (/[\s\0]/.test(value)) {
+    throw new Error(
+      `SECURITY: Domain or pattern contains whitespace or null bytes and cannot be ` +
+      `interpolated into squid.conf: ${JSON.stringify(value)}`
+    );
+  }
+  return value;
+}
+
+/**
  * Helper to add leading dot to domain for Squid subdomain matching
  */
 function formatDomainForSquid(domain: string): string {
+  assertSafeForSquidConfig(domain);
   return domain.startsWith('.') ? domain : `.${domain}`;
 }
 
@@ -151,7 +167,7 @@ function generateSslBumpSection(
   let urlAccessRules = '';
   if (urlPatterns && urlPatterns.length > 0) {
     const urlAcls = urlPatterns
-      .map((pattern, i) => `acl allowed_url_${i} url_regex ${pattern}`)
+      .map((pattern, i) => `acl allowed_url_${i} url_regex ${assertSafeForSquidConfig(pattern)}`)
       .join('\n');
     urlAclSection = `\n# URL pattern ACLs for HTTPS content inspection\n${urlAcls}\n`;
 
@@ -262,7 +278,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     aclLines.push('');
     aclLines.push('# ACL definitions for allowed domain patterns (HTTP and HTTPS)');
     for (const p of patternsByProto.both) {
-      aclLines.push(`acl allowed_domains_regex dstdom_regex -i ${p.regex}`);
+      aclLines.push(`acl allowed_domains_regex dstdom_regex -i ${assertSafeForSquidConfig(p.regex)}`);
     }
   }
 
@@ -280,7 +296,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     aclLines.push('');
     aclLines.push('# ACL definitions for HTTP-only domain patterns');
     for (const p of patternsByProto.http) {
-      aclLines.push(`acl allowed_http_only_regex dstdom_regex -i ${p.regex}`);
+      aclLines.push(`acl allowed_http_only_regex dstdom_regex -i ${assertSafeForSquidConfig(p.regex)}`);
     }
   }
 
@@ -298,7 +314,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     aclLines.push('');
     aclLines.push('# ACL definitions for HTTPS-only domain patterns');
     for (const p of patternsByProto.https) {
-      aclLines.push(`acl allowed_https_only_regex dstdom_regex -i ${p.regex}`);
+      aclLines.push(`acl allowed_https_only_regex dstdom_regex -i ${assertSafeForSquidConfig(p.regex)}`);
     }
   }
 
@@ -362,7 +378,7 @@ export function generateSquidConfig(config: SquidConfig): string {
       blockedAclLines.push('');
       blockedAclLines.push('# ACL definitions for blocked domain patterns (wildcard)');
       for (const p of blockedPatterns) {
-        blockedAclLines.push(`acl blocked_domains_regex dstdom_regex -i ${p.regex}`);
+        blockedAclLines.push(`acl blocked_domains_regex dstdom_regex -i ${assertSafeForSquidConfig(p.regex)}`);
       }
       blockedAccessRules.push('http_access deny blocked_domains_regex');
     }

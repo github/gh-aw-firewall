@@ -1639,6 +1639,13 @@ program
           }
         }
 
+        // Reject whitespace and null bytes to prevent Squid config injection
+        if (/[\s\0]/.test(url)) {
+          logger.error(`URL pattern contains illegal whitespace or control characters: ${JSON.stringify(url)}`);
+          logger.error('URL patterns must not contain spaces, tabs, newlines, or null bytes.');
+          process.exit(1);
+        }
+
         // Ensure pattern has a path component (not just domain)
         const urlWithoutScheme = url.replace(/^https:\/\//, '');
         if (!urlWithoutScheme.includes('/')) {

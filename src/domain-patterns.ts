@@ -151,6 +151,23 @@ export function validateDomainOrPattern(input: string): void {
     throw new Error('Domain cannot be empty');
   }
 
+  // Reject characters that could inject Squid config directives or tokens.
+  // Squid config is line-and-space delimited, so whitespace (space, tab, CR, LF),
+  // null bytes, and comment/quote characters are dangerous.
+  // This prevents Squid config injection via --allow-domains.
+  const DANGEROUS_CHARS = /[\s\0"'`;#\\]/;
+  const match = trimmed.match(DANGEROUS_CHARS);
+  if (match) {
+    const charCode = match[0].charCodeAt(0);
+    const charDesc = charCode <= 0x20 || charCode === 0x7f
+      ? `U+${charCode.toString(16).padStart(4, '0')}`
+      : `'${match[0]}'`;
+    throw new Error(
+      `Invalid domain '${trimmed}': contains invalid character ${charDesc}. ` +
+      `Domain names must not contain whitespace, quotes, semicolons, backslashes, or control characters.`
+    );
+  }
+
   // Check for overly broad patterns
   if (trimmed === '*') {
     throw new Error("Pattern '*' matches all domains and is not allowed");

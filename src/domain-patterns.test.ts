@@ -232,6 +232,70 @@ describe('validateDomainOrPattern', () => {
     });
   });
 
+  describe('rejects injection characters', () => {
+    it('should reject LF in domain', () => {
+      expect(() => validateDomainOrPattern('evil.com\nhttp_access allow all')).toThrow('contains invalid character');
+    });
+
+    it('should reject CR in domain', () => {
+      expect(() => validateDomainOrPattern('evil.com\rhttp_access allow all')).toThrow('contains invalid character');
+    });
+
+    it('should reject CRLF in domain', () => {
+      expect(() => validateDomainOrPattern('evil.com\r\nhttp_access allow all')).toThrow('contains invalid character');
+    });
+
+    it('should reject null bytes', () => {
+      expect(() => validateDomainOrPattern('evil.com\0')).toThrow('contains invalid character');
+    });
+
+    it('should reject tabs', () => {
+      expect(() => validateDomainOrPattern('evil.com\tallowed')).toThrow('contains invalid character');
+    });
+
+    it('should reject interior spaces', () => {
+      expect(() => validateDomainOrPattern('evil.com allowed')).toThrow('contains invalid character');
+    });
+
+    it('should reject space-separated domains (ACL token injection)', () => {
+      expect(() => validateDomainOrPattern('.evil.com .attacker.com')).toThrow('contains invalid character');
+    });
+
+    it('should reject semicolons', () => {
+      expect(() => validateDomainOrPattern('evil.com;rm -rf')).toThrow('contains invalid character');
+    });
+
+    it('should reject hash characters', () => {
+      expect(() => validateDomainOrPattern('evil.com#comment')).toThrow('contains invalid character');
+    });
+
+    it('should reject backslashes', () => {
+      expect(() => validateDomainOrPattern('evil.com\\n')).toThrow('contains invalid character');
+    });
+
+    it('should reject single quotes', () => {
+      expect(() => validateDomainOrPattern("evil.com'")).toThrow('contains invalid character');
+    });
+
+    it('should reject double quotes', () => {
+      expect(() => validateDomainOrPattern('evil.com"')).toThrow('contains invalid character');
+    });
+  });
+
+  describe('accepts valid DNS names with underscores', () => {
+    it('should accept _dmarc.example.com', () => {
+      expect(() => validateDomainOrPattern('_dmarc.example.com')).not.toThrow();
+    });
+
+    it('should accept _acme-challenge.example.com', () => {
+      expect(() => validateDomainOrPattern('_acme-challenge.example.com')).not.toThrow();
+    });
+
+    it('should accept _srv._tcp.example.com', () => {
+      expect(() => validateDomainOrPattern('_srv._tcp.example.com')).not.toThrow();
+    });
+  });
+
   describe('protocol-prefixed domains', () => {
     it('should accept valid http:// prefixed domains', () => {
       expect(() => validateDomainOrPattern('http://github.com')).not.toThrow();
