@@ -24,6 +24,7 @@ import { runMainWorkflow } from './cli-workflow';
 import { redactSecrets } from './redact-secrets';
 import { validateDomainOrPattern } from './domain-patterns';
 import { loadAndMergeDomains } from './rules';
+import { detectHostDnsServers } from './dns-resolver';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -1611,7 +1612,6 @@ program
         process.exit(1);
       }
     } else {
-      const { detectHostDnsServers } = await import('./dns-resolver');
       dnsServers = detectHostDnsServers(logger);
     }
 

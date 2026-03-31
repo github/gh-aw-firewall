@@ -1,15 +1,8 @@
 import * as fs from 'fs';
+import { isIP } from 'net';
 import { logger as defaultLogger } from './logger';
 
 type Logger = typeof defaultLogger;
-
-/** Docker's embedded DNS resolver — always allowed but never used as upstream */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const DOCKER_EMBEDDED_DNS = '127.0.0.11';
-
-/** Local stub resolvers (systemd-resolved, dnsmasq) that can't be used inside containers */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const LOCAL_STUB_RESOLVERS = ['127.0.0.1', '127.0.0.53'];
 
 /** Fallback when no usable resolvers are detected on the host */
 export const DEFAULT_DNS_SERVERS = ['8.8.8.8', '8.8.4.4'];
@@ -21,10 +14,8 @@ export const DEFAULT_DNS_SERVERS = ['8.8.8.8', '8.8.4.4'];
  */
 const RESOLV_CONF_PATHS = ['/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'];
 
-const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-
 function isValidIp(ip: string): boolean {
-  return IPV4_REGEX.test(ip) || ip.includes(':');
+  return isIP(ip) !== 0;
 }
 
 function isLoopback(ip: string): boolean {
@@ -42,7 +33,7 @@ function isLoopback(ip: string): boolean {
 export function parseResolvConf(content: string): string[] {
   const servers: string[] = [];
   for (const line of content.split('\n')) {
-    const match = line.match(/^nameserver\s+(\S+)/);
+    const match = line.match(/^\s*nameserver\s+(\S+)/);
     if (match) {
       const ip = match[1];
       if (isValidIp(ip)) {
