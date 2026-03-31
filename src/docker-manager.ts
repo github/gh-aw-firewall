@@ -1447,7 +1447,8 @@ export function generateDockerCompose(
 
       // Set placeholder token for Claude Code CLI compatibility
       // Real authentication happens via ANTHROPIC_BASE_URL pointing to api-proxy
-      environment.ANTHROPIC_AUTH_TOKEN = 'placeholder-token-for-credential-isolation';
+      // Use sk-ant- prefix so Claude Code's key-format validation passes
+      environment.ANTHROPIC_AUTH_TOKEN = 'sk-ant-placeholder-key-for-credential-isolation';
       logger.debug('ANTHROPIC_AUTH_TOKEN set to placeholder value for credential isolation');
 
       // Set API key helper for Claude Code CLI to use credential isolation

@@ -101,7 +101,7 @@ describe('API Proxy Sidecar', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('ANTHROPIC_AUTH_TOKEN=placeholder-token-for-credential-isolation');
+    expect(result.stdout).toContain('ANTHROPIC_AUTH_TOKEN=sk-ant-placeholder-key-for-credential-isolation');
   }, 180000);
 
   test('should set OPENAI_BASE_URL in agent when OpenAI key is provided', async () => {
