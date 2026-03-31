@@ -43,9 +43,11 @@ function shouldStripHeader(name) {
 }
 
 // Read API keys from environment (set by docker-compose)
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
+// Trim whitespace/newlines to prevent malformed HTTP headers — env vars from
+// CI secrets or docker-compose YAML may include trailing whitespace.
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim() || undefined;
+const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
+const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
 
 // Configurable API target hosts (supports custom endpoints / internal LLM routers)
 const OPENAI_API_TARGET = process.env.OPENAI_API_TARGET || 'api.openai.com';
@@ -332,6 +334,21 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
+    // Log auth header injection for debugging credential-isolation issues
+    const injectedKey = injectHeaders['x-api-key'] || injectHeaders['authorization'];
+    if (injectedKey) {
+      const keyPreview = injectedKey.length > 8
+        ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
+        : '(short)';
+      logRequest('debug', 'auth_inject', {
+        request_id: requestId,
+        provider,
+        key_length: injectedKey.length,
+        key_preview: keyPreview,
+        has_anthropic_version: !!headers['anthropic-version'],
+      });
+    }
+
     const options = {
       hostname: targetHost,
       port: 443,
@@ -391,6 +408,19 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
       // Copy response headers and add X-Request-ID
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
+
+      // Log upstream auth failures prominently for debugging
+      if (proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
+        logRequest('warn', 'upstream_auth_error', {
+          request_id: requestId,
+          provider,
+          status: proxyRes.statusCode,
+          upstream_host: targetHost,
+          path: sanitizeForLog(req.url),
+          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and has not expired`,
+        });
+      }
+
       res.writeHead(proxyRes.statusCode, resHeaders);
       proxyRes.pipe(res);
     });
