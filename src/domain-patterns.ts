@@ -158,13 +158,14 @@ export function validateDomainOrPattern(input: string): void {
   const DANGEROUS_CHARS = /[\s\0"'`;#\\]/;
   const match = trimmed.match(DANGEROUS_CHARS);
   if (match) {
+    const safeDomainForMessage = JSON.stringify(trimmed);
     const charCode = match[0].charCodeAt(0);
     const charDesc = charCode <= 0x20 || charCode === 0x7f
       ? `U+${charCode.toString(16).padStart(4, '0')}`
       : `'${match[0]}'`;
     throw new Error(
-      `Invalid domain '${trimmed}': contains invalid character ${charDesc}. ` +
-      `Domain names must not contain whitespace, quotes, semicolons, backslashes, or control characters.`
+      `Invalid domain ${safeDomainForMessage}: contains invalid character ${charDesc}. ` +
+      `Domain names must not contain whitespace, quotes, semicolons, backticks, hash characters, backslashes, or control characters.`
     );
   }
 
