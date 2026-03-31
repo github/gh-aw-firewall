@@ -81,8 +81,9 @@ export function parseDomainsFile(filePath: string): string[] {
 
 /**
  * Default DNS servers (Google Public DNS)
+ * @deprecated Import from dns-resolver.ts instead
  */
-export const DEFAULT_DNS_SERVERS = ['8.8.8.8', '8.8.4.4'];
+export { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 /**
  * Validates that a string is a valid IPv4 address
@@ -1304,8 +1305,7 @@ program
   // -- Network & Security --
   .option(
     '--dns-servers <servers>',
-    'Comma-separated trusted DNS servers',
-    '8.8.8.8,8.8.4.4'
+    'Comma-separated trusted DNS servers (auto-detected from host if omitted)'
   )
   .option(
     '--dns-over-https [resolver-url]',
@@ -1601,13 +1601,18 @@ program
       logger.debug(`Parsed ${volumeMounts.length} volume mount(s)`);
     }
 
-    // Parse and validate DNS servers
+    // Parse and validate DNS servers (auto-detect if not explicitly provided)
     let dnsServers: string[];
-    try {
-      dnsServers = parseDnsServers(options.dnsServers);
-    } catch (error) {
-      logger.error(`Invalid DNS servers: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
+    if (options.dnsServers) {
+      try {
+        dnsServers = parseDnsServers(options.dnsServers);
+      } catch (error) {
+        logger.error(`Invalid DNS servers: ${error instanceof Error ? error.message : error}`);
+        process.exit(1);
+      }
+    } else {
+      const { detectHostDnsServers } = await import('./dns-resolver');
+      dnsServers = detectHostDnsServers(logger);
     }
 
     // Parse and validate --dns-over-https

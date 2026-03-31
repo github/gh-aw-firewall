@@ -1,6 +1,7 @@
 import execa from 'execa';
 import { logger } from './logger';
 import { API_PROXY_PORTS } from './types';
+import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 const NETWORK_NAME = 'awf-net';
 const CHAIN_NAME = 'FW_WRAPPER';
@@ -340,7 +341,7 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   // Docker's embedded DNS (127.0.0.11) proxies queries to upstream servers configured
   // via docker-compose dns: field. These forwarded queries traverse the Docker bridge
   // and need to be allowed here. Only the configured upstream servers are permitted.
-  const upstreamDns = dnsServers && dnsServers.length > 0 ? dnsServers : ['8.8.8.8', '8.8.4.4'];
+  const upstreamDns = dnsServers && dnsServers.length > 0 ? dnsServers : DEFAULT_DNS_SERVERS;
   logger.debug(`Allowing DNS forwarding to upstream servers: ${upstreamDns.join(', ')}`);
 
   // Create IPv6 chain if needed (only when IPv6 DNS servers are configured)

@@ -6,6 +6,7 @@ import {
   DomainPattern,
 } from './domain-patterns';
 import { generateDlpSquidConfig } from './dlp';
+import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 /**
  * Ports that should never be allowed, even with --allow-host-ports
@@ -582,7 +583,7 @@ http_access deny all
 cache deny all
 
 # DNS settings - Squid resolves all domains for HTTP/HTTPS traffic
-dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : '8.8.8.8 8.8.4.4'}
+dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : DEFAULT_DNS_SERVERS.join(' ')}
 
 # Forwarded headers
 forwarded_for delete
@@ -820,7 +821,7 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
     generatedAt: new Date().toISOString(),
     rules,
     dangerousPorts: DANGEROUS_PORTS,
-    dnsServers: dnsServers || ['8.8.8.8', '8.8.4.4'],
+    dnsServers: dnsServers || DEFAULT_DNS_SERVERS,
     sslBumpEnabled: sslBump ?? false,
     dlpEnabled: enableDlp ?? false,
     hostAccessEnabled: enableHostAccess ?? false,

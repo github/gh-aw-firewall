@@ -7,6 +7,7 @@ import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
+import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 const SQUID_PORT = 3128;
 
@@ -687,7 +688,7 @@ export function generateDockerCompose(
   }
 
   // DNS servers for Docker embedded DNS forwarding (used in docker-compose dns: field)
-  const dnsServers = config.dnsServers || ['8.8.8.8', '8.8.4.4'];
+  const dnsServers = config.dnsServers || DEFAULT_DNS_SERVERS;
   // Pass DNS servers to container so setup-iptables.sh can allow Docker DNS forwarding
   // to these upstream servers while blocking direct DNS to all other servers.
   environment.AWF_DNS_SERVERS = dnsServers.join(',');
