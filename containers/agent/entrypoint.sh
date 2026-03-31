@@ -175,12 +175,26 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
       if grep -q '"apiKeyHelper"' "$config_file"; then
         CONFIGURED_HELPER=$(grep -o '"apiKeyHelper":"[^"]*"' "$config_file" | cut -d'"' -f4)
         if [ "$CONFIGURED_HELPER" != "$CLAUDE_CODE_API_KEY_HELPER" ]; then
-          echo "[entrypoint][ERROR] apiKeyHelper mismatch in $label:"
-          echo "[entrypoint][ERROR]   Environment variable: $CLAUDE_CODE_API_KEY_HELPER"
-          echo "[entrypoint][ERROR]   Config file value: $CONFIGURED_HELPER"
-          exit 1
+          # Overwrite stale path (e.g. a previous run's chroot-adjusted path)
+          echo "[entrypoint] Updating apiKeyHelper in $label (was: $CONFIGURED_HELPER)"
+          if AWF_CONFIG_FILE="$config_file" AWF_KEY_HELPER="$CLAUDE_CODE_API_KEY_HELPER" \
+             node -e "
+               const fs = require('fs');
+               const f = process.env.AWF_CONFIG_FILE;
+               const obj = JSON.parse(fs.readFileSync(f, 'utf8'));
+               obj.apiKeyHelper = process.env.AWF_KEY_HELPER;
+               fs.writeFileSync(f, JSON.stringify(obj) + '\n');
+             " 2>/dev/null; then
+            chmod 666 "$config_file"
+            echo "[entrypoint] ✓ Updated apiKeyHelper in $label"
+          else
+            echo "{\"apiKeyHelper\":\"$CLAUDE_CODE_API_KEY_HELPER\"}" > "$config_file"
+            chmod 666 "$config_file"
+            echo "[entrypoint] ✓ Wrote apiKeyHelper to $label (overwrite fallback)"
+          fi
+        else
+          echo "[entrypoint] ✓ $label apiKeyHelper validated"
         fi
-        echo "[entrypoint] ✓ $label apiKeyHelper validated"
       else
         echo "[entrypoint] $label exists but missing apiKeyHelper, merging..."
         # Use node to safely add apiKeyHelper to existing JSON without losing other fields
