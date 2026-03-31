@@ -426,6 +426,41 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     fi
   fi
 
+  # Copy get-claude-key.sh to chroot-accessible path
+  # The script is baked into the Docker image at /usr/local/bin/, but the chroot
+  # bind-mounts the host's /usr (read-only), shadowing the container's copy.
+  # We must copy it to /tmp/awf-lib/ (writable) before the chroot activates.
+  if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ] && [ -f "$CLAUDE_CODE_API_KEY_HELPER" ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      CHROOT_KEY_HELPER="/tmp/awf-lib/$(basename "$CLAUDE_CODE_API_KEY_HELPER")"
+      if cp "$CLAUDE_CODE_API_KEY_HELPER" "/host${CHROOT_KEY_HELPER}" 2>/dev/null && \
+         chmod +x "/host${CHROOT_KEY_HELPER}" 2>/dev/null; then
+        echo "[entrypoint] Claude key helper copied to chroot at ${CHROOT_KEY_HELPER}"
+        # Update apiKeyHelper in config files to use the chroot-accessible path
+        for cfg in "/host$HOME/.claude.json" "/host$HOME/.claude/settings.json"; do
+          if [ -f "$cfg" ] && grep -q '"apiKeyHelper"' "$cfg" 2>/dev/null; then
+            if AWF_CFG="$cfg" AWF_OLD="$CLAUDE_CODE_API_KEY_HELPER" AWF_NEW="$CHROOT_KEY_HELPER" \
+               node -e "
+                 const fs = require('fs');
+                 const f = process.env.AWF_CFG;
+                 const obj = JSON.parse(fs.readFileSync(f, 'utf8'));
+                 if (obj.apiKeyHelper === process.env.AWF_OLD) {
+                   obj.apiKeyHelper = process.env.AWF_NEW;
+                   fs.writeFileSync(f, JSON.stringify(obj) + '\n');
+                 }
+               " 2>/dev/null; then
+              echo "[entrypoint] ✓ Updated apiKeyHelper path in $cfg"
+            fi
+          fi
+        done
+        CLAUDE_CODE_API_KEY_HELPER="$CHROOT_KEY_HELPER"
+      else
+        echo "[entrypoint][WARN] Could not copy get-claude-key.sh to chroot"
+        echo "[entrypoint][WARN] Claude Code API key helper may not work in chroot mode"
+      fi
+    fi
+  fi
+
   # Verify capsh is available on the host (required for privilege drop)
   if ! chroot /host which capsh >/dev/null 2>&1; then
     echo "[entrypoint][ERROR] capsh not found on host system"
