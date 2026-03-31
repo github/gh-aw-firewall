@@ -33,9 +33,9 @@ if [ -n "$ANTHROPIC_BASE_URL" ]; then
 
   # Verify ANTHROPIC_AUTH_TOKEN is placeholder (if present)
   if [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
-    if [ "$ANTHROPIC_AUTH_TOKEN" != "placeholder-token-for-credential-isolation" ]; then
+    if [ "$ANTHROPIC_AUTH_TOKEN" != "sk-ant-placeholder-key-for-credential-isolation" ]; then
       echo "[health-check][ERROR] ANTHROPIC_AUTH_TOKEN contains non-placeholder value!"
-      echo "[health-check][ERROR] Token should be 'placeholder-token-for-credential-isolation'"
+      echo "[health-check][ERROR] Token should be 'sk-ant-placeholder-key-for-credential-isolation'"
       exit 1
     fi
     echo "[health-check] ✓ ANTHROPIC_AUTH_TOKEN is placeholder value (correct)"
