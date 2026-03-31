@@ -439,15 +439,13 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
         # Update apiKeyHelper in config files to use the chroot-accessible path
         for cfg in "/host$HOME/.claude.json" "/host$HOME/.claude/settings.json"; do
           if [ -f "$cfg" ] && grep -q '"apiKeyHelper"' "$cfg" 2>/dev/null; then
-            if AWF_CFG="$cfg" AWF_OLD="$CLAUDE_CODE_API_KEY_HELPER" AWF_NEW="$CHROOT_KEY_HELPER" \
+            if AWF_CFG="$cfg" AWF_NEW="$CHROOT_KEY_HELPER" \
                node -e "
                  const fs = require('fs');
                  const f = process.env.AWF_CFG;
                  const obj = JSON.parse(fs.readFileSync(f, 'utf8'));
-                 if (obj.apiKeyHelper === process.env.AWF_OLD) {
-                   obj.apiKeyHelper = process.env.AWF_NEW;
-                   fs.writeFileSync(f, JSON.stringify(obj) + '\n');
-                 }
+                 obj.apiKeyHelper = process.env.AWF_NEW;
+                 fs.writeFileSync(f, JSON.stringify(obj) + '\n');
                " 2>/dev/null; then
               echo "[entrypoint] ✓ Updated apiKeyHelper path in $cfg"
             fi
