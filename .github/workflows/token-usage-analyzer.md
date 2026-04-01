@@ -4,7 +4,7 @@ on:
   schedule: daily
   workflow_dispatch:
   skip-if-match:
-    query: 'is:issue is:open in:title "Token Usage Report"'
+    query: 'is:issue is:open label:token-usage-report'
     max: 1
 permissions:
   contents: read
