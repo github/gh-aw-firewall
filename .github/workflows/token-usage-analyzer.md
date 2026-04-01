@@ -70,7 +70,13 @@ Use `gh run list` via bash to find completed agentic workflow runs from the past
 
 Use bash to run:
 ```bash
-gh run list --repo "$GITHUB_REPOSITORY" --limit 50 --json databaseId,name,status,conclusion,createdAt,workflowName --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")]'
+# Find runs from the last 24 hours
+CUTOFF="$(date -u -Iseconds -d '24 hours ago')"
+
+gh run list --repo "$GITHUB_REPOSITORY" --limit 50 \
+  --created ">=$CUTOFF" \
+  --json databaseId,name,status,conclusion,createdAt,workflowName \
+  --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")]'
 ```
 
 ### Step 2: Download and Parse Token Usage Data
