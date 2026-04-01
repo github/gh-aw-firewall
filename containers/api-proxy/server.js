@@ -19,12 +19,14 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 let trackTokenUsage;
+let trackWebSocketTokenUsage;
 let closeLogStream;
 try {
-  ({ trackTokenUsage, closeLogStream } = require('./token-tracker'));
+  ({ trackTokenUsage, trackWebSocketTokenUsage, closeLogStream } = require('./token-tracker'));
 } catch (err) {
   if (err && err.code === 'MODULE_NOT_FOUND') {
     trackTokenUsage = () => {};
+    trackWebSocketTokenUsage = () => {};
     closeLogStream = () => {};
   } else {
     throw err;
@@ -671,6 +673,15 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       // ── Step 4: Bidirectional raw socket relay ─────────────────────
       tlsSocket.pipe(socket);
       socket.pipe(tlsSocket);
+
+      // Attach WebSocket token usage tracking (non-blocking, sniffs upstream frames)
+      trackWebSocketTokenUsage(tlsSocket, {
+        requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        startTime,
+        metrics,
+      });
 
       // Finalize once when either side closes; destroy the other side.
       socket.once('close', () => { finalize(false); tlsSocket.destroy(); });
