@@ -183,7 +183,14 @@ function generateSslBumpSection(
 
 # HTTP port with SSL Bump enabled for HTTPS interception
 # This handles both HTTP requests and HTTPS CONNECT requests
+# Listen on both IPv4 and IPv6 as defense-in-depth (see #1543)
 http_port 3128 ssl-bump \\
+  cert=${caFiles.certPath} \\
+  key=${caFiles.keyPath} \\
+  generate-host-certificates=on \\
+  dynamic_cert_mem_cache_size=16MB \\
+  options=NO_SSLv3,NO_TLSv1,NO_TLSv1_1
+http_port [::]:3128 ssl-bump \\
   cert=${caFiles.certPath} \\
   key=${caFiles.keyPath} \\
   generate-host-certificates=on \\
@@ -420,7 +427,8 @@ export function generateSquidConfig(config: SquidConfig): string {
   // Port configuration: Use normal proxy mode (not intercept mode)
   // With targeted port redirection in iptables, traffic is explicitly redirected
   // to Squid on specific ports (80, 443, + user-specified), maintaining defense-in-depth
-  let portConfig = `http_port ${port}`;
+  // Listen on both IPv4 and IPv6 as defense-in-depth (see #1543)
+  let portConfig = `http_port ${port}\nhttp_port [::]:${port}`;
 
   // For SSL Bump, we need to check hasPlainDomains and hasPatterns for the 'both' protocol domains
   // since those are the ones that go into allowed_domains / allowed_domains_regex ACLs
