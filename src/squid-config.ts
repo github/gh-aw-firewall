@@ -183,7 +183,7 @@ function generateSslBumpSection(
 
 # HTTP port with SSL Bump enabled for HTTPS interception
 # This handles both HTTP requests and HTTPS CONNECT requests
-# Listen on both IPv4 and IPv6 as defense-in-depth (see #1543)
+# Listen on both IPv4 and IPv6 as defense-in-depth (see: gh-aw-firewall issue #1543)
 http_port 3128 ssl-bump \\
   cert=${caFiles.certPath} \\
   key=${caFiles.keyPath} \\
