@@ -11,7 +11,7 @@
  */
 
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -19,9 +19,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
 
-// Read the seccomp profile so we can inline it as a string constant
+// Read the seccomp profile so we can inline it as a string constant.
+// Validate that it is well-formed JSON at build time to fail fast on typos.
 const seccompPath = join(projectRoot, 'containers', 'agent', 'seccomp-profile.json');
 const seccompContent = readFileSync(seccompPath, 'utf-8');
+try {
+  JSON.parse(seccompContent);
+} catch (err) {
+  console.error(`ERROR: seccomp profile is not valid JSON: ${seccompPath}`);
+  console.error(err.message);
+  process.exit(1);
+}
 
 // Ensure output directory exists
 mkdirSync(join(projectRoot, 'release'), { recursive: true });
@@ -50,5 +58,8 @@ const bundleContent = readFileSync(outPath, 'utf-8');
 if (!bundleContent.startsWith('#!')) {
   writeFileSync(outPath, '#!/usr/bin/env node\n' + bundleContent);
 }
+
+// Set executable permission so ./release/awf-bundle.js works directly
+chmodSync(outPath, 0o755);
 
 console.log('Bundle created: release/awf-bundle.js');

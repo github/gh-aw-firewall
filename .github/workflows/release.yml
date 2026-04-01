@@ -369,7 +369,6 @@ jobs:
 
       - name: Create esbuild bundle
         run: |
-          npm install esbuild
           node scripts/build-bundle.mjs
           echo "=== Bundle size ==="
           ls -lh release/awf-bundle.js

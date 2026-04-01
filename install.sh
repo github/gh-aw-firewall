@@ -143,7 +143,8 @@ check_platform() {
     info "Detected platform: $os $arch (binary: $BINARY_NAME)"
 }
 
-# Check for Node.js >= 20 to decide between bundle and pkg binary
+# Check for Node.js >= 20.12.0 to decide between bundle and pkg binary
+# (matches engines.node requirement in package.json)
 check_node() {
     if [ "${AWF_FORCE_BINARY:-}" = "1" ]; then
         info "AWF_FORCE_BINARY=1 set, using standalone binary"
@@ -153,12 +154,13 @@ check_node() {
     if command -v node &> /dev/null; then
         NODE_VERSION=$(node -v | sed 's/^v//')
         NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-        if [ "$NODE_MAJOR" -ge 20 ]; then
-            info "Node.js v${NODE_VERSION} detected (>= 20), using lightweight bundle"
+        NODE_MINOR=$(echo "$NODE_VERSION" | cut -d. -f2)
+        if [ "$NODE_MAJOR" -gt 20 ] || { [ "$NODE_MAJOR" -eq 20 ] && [ "$NODE_MINOR" -ge 12 ]; }; then
+            info "Node.js v${NODE_VERSION} detected (>= 20.12.0), using lightweight bundle"
             USE_BUNDLE=true
             return
         fi
-        warn "Node.js v${NODE_VERSION} detected but < 20, using standalone binary"
+        warn "Node.js v${NODE_VERSION} detected but < 20.12.0, using standalone binary"
     fi
     USE_BUNDLE=false
 }
