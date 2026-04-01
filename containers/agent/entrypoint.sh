@@ -486,7 +486,8 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   AWF_CA_CHROOT=""
   if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ] && [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
     if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      if cp /usr/local/share/ca-certificates/awf-ca.crt /host/tmp/awf-lib/awf-ca.crt 2>/dev/null; then
+      if cp /usr/local/share/ca-certificates/awf-ca.crt /host/tmp/awf-lib/awf-ca.crt 2>/dev/null && \
+         [ -f /host/tmp/awf-lib/awf-ca.crt ]; then
         AWF_CA_CHROOT="/tmp/awf-lib/awf-ca.crt"
         export NODE_EXTRA_CA_CERTS="$AWF_CA_CHROOT"
         # SSL_CERT_FILE is respected by curl, git, Python requests, Ruby, and most
@@ -499,6 +500,8 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
       else
         echo "[entrypoint][WARN] Could not copy AWF CA certificate to chroot — ssl-bump TLS may fail"
       fi
+    else
+      echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for CA cert — ssl-bump TLS may fail in chroot"
     fi
   fi
 
