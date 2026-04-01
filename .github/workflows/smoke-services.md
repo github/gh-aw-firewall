@@ -62,19 +62,21 @@ post-steps:
 
 ## Test Requirements
 
-Run these connectivity checks and report the results:
+You need to verify that the AWF sandbox can reach GitHub Actions service containers running on the host. These services are exposed via `host.docker.internal`.
 
-1. **Redis Connectivity**: Run `redis-cli -h host.docker.internal -p 6379 ping` and verify the response is `PONG`
-2. **PostgreSQL Connectivity**: Run `pg_isready -h host.docker.internal -p 5432` and verify it reports the server is accepting connections
-3. **PostgreSQL Query**: Run `PGPASSWORD=testpass psql -h host.docker.internal -p 5432 -U postgres -d smoketest -c "SELECT 1 AS smoke_test;"` and verify it returns a row
+Install the required client tools first:
 
-If `redis-cli` or `pg_isready` are not installed, install them first with `sudo apt-get update && sudo apt-get install -y redis-tools postgresql-client`.
+```bash
+sudo apt-get update && sudo apt-get install -y redis-tools postgresql-client
+```
+
+Then run each of the following connectivity checks:
+
+1. Use `redis-cli` to ping the Redis server at `host.docker.internal` on port 6379. A successful response is `PONG`.
+2. Use `pg_isready` to check whether the PostgreSQL server at `host.docker.internal` on port 5432 is accepting connections.
+3. Use `psql` to execute `SELECT 1` against the `smoketest` database on `host.docker.internal:5432` as user `postgres` with password `testpass`.
 
 ## Output
 
-Add a **very brief** comment (max 5-10 lines) to the current pull request with:
-- ✅ or ❌ for each connectivity test
-- Overall status: PASS or FAIL
-
-If all tests pass, add the label `smoke-services` to the pull request.
+Post a brief comment on the current pull request summarizing which checks succeeded and which failed. If every check succeeded, also apply the `smoke-services` label.
 
