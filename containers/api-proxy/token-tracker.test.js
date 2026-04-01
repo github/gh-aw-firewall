@@ -11,6 +11,21 @@ const {
   trackTokenUsage,
 } = require('./token-tracker');
 const { EventEmitter } = require('events');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+// Redirect token log output to a temp dir to avoid /var/log permission errors
+let tmpLogDir;
+beforeAll(() => {
+  tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'token-tracker-test-'));
+  process.env.AWF_TOKEN_LOG_DIR = tmpLogDir;
+});
+
+afterAll(() => {
+  fs.rmSync(tmpLogDir, { recursive: true, force: true });
+  delete process.env.AWF_TOKEN_LOG_DIR;
+});
 
 // ── extractUsageFromJson ──────────────────────────────────────────────
 
@@ -76,7 +91,15 @@ describe('extractUsageFromJson', () => {
     expect(result.usage).toBeNull();
   });
 
-  test('ignores non-numeric usage fields', () => {
+  test('returns null usage when usage object has no numeric fields', () => {
+    const body = Buffer.from(JSON.stringify({
+      usage: { some_string: 'not a number' },
+    }));
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toBeNull();
+  });
+
+  test('ignores non-numeric usage fields but keeps numeric ones', () => {
     const body = Buffer.from(JSON.stringify({
       usage: { prompt_tokens: 'not a number', completion_tokens: 50 },
     }));
@@ -293,9 +316,7 @@ describe('trackTokenUsage', () => {
     trackTokenUsage(proxyRes, {
       requestId: 'test-123',
       provider: 'openai',
-      method: 'POST',
       path: '/v1/chat/completions',
-      targetHost: 'api.openai.com',
       startTime: Date.now(),
       metrics: metricsRef,
     });
@@ -336,9 +357,7 @@ describe('trackTokenUsage', () => {
     trackTokenUsage(proxyRes, {
       requestId: 'test-456',
       provider: 'anthropic',
-      method: 'POST',
       path: '/v1/messages',
-      targetHost: 'api.anthropic.com',
       startTime: Date.now(),
       metrics: metricsRef,
     });
@@ -389,9 +408,7 @@ describe('trackTokenUsage', () => {
     trackTokenUsage(proxyRes, {
       requestId: 'test-789',
       provider: 'openai',
-      method: 'POST',
       path: '/v1/chat/completions',
-      targetHost: 'api.openai.com',
       startTime: Date.now(),
       metrics: metricsRef,
     });
@@ -417,9 +434,7 @@ describe('trackTokenUsage', () => {
     trackTokenUsage(proxyRes, {
       requestId: 'test-no-usage',
       provider: 'openai',
-      method: 'GET',
       path: '/v1/models',
-      targetHost: 'api.openai.com',
       startTime: Date.now(),
       metrics: metricsRef,
     });

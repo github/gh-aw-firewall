@@ -5,13 +5,14 @@
  * to extract token usage data without adding latency to the client.
  *
  * Architecture:
- *   proxyRes → PassThrough (accumulates chunks) → res (client)
- *                     ↓ on('end')
- *              parse usage → log to file + metrics
+ *   proxyRes (LLM response) → res (client)
+ *        ├─ on('data'): buffer/inspect chunks for usage extraction
+ *        └─ on('end'): finalize parsing → log to file + metrics
  *
- * For non-streaming responses: parse the buffered JSON body on 'end'.
+ * For non-streaming responses: buffer the JSON body (up to MAX_BUFFER_SIZE),
+ * then parse it on 'end' to extract usage fields.
  * For streaming (SSE) responses: scan each chunk for usage events as they
- * pass through, accumulate usage from message_start / message_delta / final
+ * are received, accumulate usage from message_start / message_delta / final
  * data events, and log the aggregated result on 'end'.
  *
  * Zero external dependencies — uses Node.js built-in streams and fs.
@@ -56,11 +57,18 @@ function getLogStream() {
 
 /**
  * Write a token usage record to the JSONL log file.
+ * Handles backpressure by dropping writes when the stream buffer is full.
  */
 function writeTokenUsage(record) {
   const stream = getLogStream();
-  if (stream) {
-    stream.write(JSON.stringify(record) + '\n');
+  if (stream && !stream.writableEnded) {
+    const ok = stream.write(JSON.stringify(record) + '\n');
+    if (!ok) {
+      // Backpressure — stream buffer full. Drop this write rather than
+      // accumulating unbounded memory. The 'drain' event will unblock
+      // future writes naturally.
+      logRequest('warn', 'token_log_backpressure', { request_id: record.request_id });
+    }
   }
 }
 
@@ -91,29 +99,40 @@ function extractUsageFromJson(body) {
     const result = { usage: null, model: json.model || null };
 
     if (json.usage && typeof json.usage === 'object') {
-      result.usage = {};
+      const usage = {};
+      let hasField = false;
       // Anthropic fields
       if (typeof json.usage.input_tokens === 'number') {
-        result.usage.input_tokens = json.usage.input_tokens;
+        usage.input_tokens = json.usage.input_tokens;
+        hasField = true;
       }
       if (typeof json.usage.output_tokens === 'number') {
-        result.usage.output_tokens = json.usage.output_tokens;
+        usage.output_tokens = json.usage.output_tokens;
+        hasField = true;
       }
       if (typeof json.usage.cache_creation_input_tokens === 'number') {
-        result.usage.cache_creation_input_tokens = json.usage.cache_creation_input_tokens;
+        usage.cache_creation_input_tokens = json.usage.cache_creation_input_tokens;
+        hasField = true;
       }
       if (typeof json.usage.cache_read_input_tokens === 'number') {
-        result.usage.cache_read_input_tokens = json.usage.cache_read_input_tokens;
+        usage.cache_read_input_tokens = json.usage.cache_read_input_tokens;
+        hasField = true;
       }
       // OpenAI/Copilot fields
       if (typeof json.usage.prompt_tokens === 'number') {
-        result.usage.prompt_tokens = json.usage.prompt_tokens;
+        usage.prompt_tokens = json.usage.prompt_tokens;
+        hasField = true;
       }
       if (typeof json.usage.completion_tokens === 'number') {
-        result.usage.completion_tokens = json.usage.completion_tokens;
+        usage.completion_tokens = json.usage.completion_tokens;
+        hasField = true;
       }
       if (typeof json.usage.total_tokens === 'number') {
-        result.usage.total_tokens = json.usage.total_tokens;
+        usage.total_tokens = json.usage.total_tokens;
+        hasField = true;
+      }
+      if (hasField) {
+        result.usage = usage;
       }
     }
 
@@ -227,14 +246,12 @@ function normalizeUsage(usage) {
  * @param {object} opts
  * @param {string} opts.requestId - Request ID for correlation
  * @param {string} opts.provider - Provider name (openai, anthropic, copilot, opencode)
- * @param {string} opts.method - HTTP method
  * @param {string} opts.path - Request path
- * @param {string} opts.targetHost - Upstream host
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, method, path: reqPath, targetHost, startTime, metrics: metricsRef } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
 
   // Accumulate response body for usage extraction
@@ -340,7 +357,6 @@ function trackTokenUsage(proxyRes, opts) {
       cache_read_tokens: normalized.cache_read_tokens,
       cache_write_tokens: normalized.cache_write_tokens,
       duration_ms: duration,
-      request_bytes: 0, // filled by caller if needed
       response_bytes: totalBytes,
     };
 
@@ -363,12 +379,19 @@ function trackTokenUsage(proxyRes, opts) {
 
 /**
  * Close the log stream (for graceful shutdown).
+ * Returns a Promise that resolves once the stream has flushed.
  */
 function closeLogStream() {
-  if (logStream) {
-    logStream.end();
-    logStream = null;
-  }
+  return new Promise((resolve) => {
+    if (logStream) {
+      logStream.end(() => {
+        logStream = null;
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
 }
 
 module.exports = {
