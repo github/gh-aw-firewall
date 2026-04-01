@@ -27,7 +27,7 @@
 #     - shared/mcp-pagination.md
 #     - shared/reporting.md
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"b9590159617c1f723620110eb2508fc5de3463c43e97aae2cb54ca76f7640335","compiler_version":"v0.65.3","strict":true,"agent_id":"copilot"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"36b2fa5344086bf8bd288ec536e35402d05ab0a5a0b6373f237afa62e347be84","compiler_version":"v0.65.3","strict":true,"agent_id":"copilot"}
 
 name: "Daily Token Usage Analyzer"
 "on":
@@ -36,7 +36,7 @@ name: "Daily Token Usage Analyzer"
     # Friendly format: daily (scattered)
   # skip-if-match: # Skip-if-match processed as search check in pre-activation job
     # max: 1
-    # query: is:issue is:open in:title "Token Usage Report"
+    # query: is:issue is:open label:token-usage-report
   workflow_dispatch:
     inputs:
       aw_context:
@@ -146,14 +146,14 @@ jobs:
         run: |
           bash ${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh
           {
-          cat << 'GH_AW_PROMPT_d854c2342079bac0_EOF'
+          cat << 'GH_AW_PROMPT_d165e6a02e60fb36_EOF'
           <system>
-          GH_AW_PROMPT_d854c2342079bac0_EOF
+          GH_AW_PROMPT_d165e6a02e60fb36_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_d854c2342079bac0_EOF'
+          cat << 'GH_AW_PROMPT_d165e6a02e60fb36_EOF'
           <safe-output-tools>
           Tools: create_issue, missing_tool, missing_data, noop
           </safe-output-tools>
@@ -185,14 +185,14 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_d854c2342079bac0_EOF
+          GH_AW_PROMPT_d165e6a02e60fb36_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_d854c2342079bac0_EOF'
+          cat << 'GH_AW_PROMPT_d165e6a02e60fb36_EOF'
           </system>
           {{#runtime-import .github/workflows/shared/mcp-pagination.md}}
           {{#runtime-import .github/workflows/shared/reporting.md}}
           {{#runtime-import .github/workflows/token-usage-analyzer.md}}
-          GH_AW_PROMPT_d854c2342079bac0_EOF
+          GH_AW_PROMPT_d165e6a02e60fb36_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -351,12 +351,12 @@ jobs:
           mkdir -p ${RUNNER_TEMP}/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_d2257092ce524824_EOF'
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_6302df10dacdbb40_EOF'
           {"create_issue":{"labels":["token-usage-report"],"max":1,"title_prefix":"📊 Token Usage Report"},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_d2257092ce524824_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_6302df10dacdbb40_EOF
       - name: Write Safe Outputs Tools
         run: |
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/tools_meta.json << 'GH_AW_SAFE_OUTPUTS_TOOLS_META_f5906bfe1cd84c24_EOF'
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/tools_meta.json << 'GH_AW_SAFE_OUTPUTS_TOOLS_META_8a775b09be5d9af4_EOF'
           {
             "description_suffixes": {
               "create_issue": " CONSTRAINTS: Maximum 1 issue(s) can be created. Title will be prefixed with \"📊 Token Usage Report\". Labels [\"token-usage-report\"] will be automatically added."
@@ -364,8 +364,8 @@ jobs:
             "repo_params": {},
             "dynamic_tools": []
           }
-          GH_AW_SAFE_OUTPUTS_TOOLS_META_f5906bfe1cd84c24_EOF
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/validation.json << 'GH_AW_SAFE_OUTPUTS_VALIDATION_d3e1de4f300ee60f_EOF'
+          GH_AW_SAFE_OUTPUTS_TOOLS_META_8a775b09be5d9af4_EOF
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/validation.json << 'GH_AW_SAFE_OUTPUTS_VALIDATION_c37b1b885f812852_EOF'
           {
             "create_issue": {
               "defaultMax": 1,
@@ -458,7 +458,7 @@ jobs:
               }
             }
           }
-          GH_AW_SAFE_OUTPUTS_VALIDATION_d3e1de4f300ee60f_EOF
+          GH_AW_SAFE_OUTPUTS_VALIDATION_c37b1b885f812852_EOF
           node ${RUNNER_TEMP}/gh-aw/actions/generate_safe_outputs_tools.cjs
       - name: Generate Safe Outputs MCP Server Config
         id: safe-outputs-config
@@ -526,7 +526,7 @@ jobs:
           export MCP_GATEWAY_DOCKER_COMMAND='docker run -i --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -e MCP_GATEWAY_PORT -e MCP_GATEWAY_DOMAIN -e MCP_GATEWAY_API_KEY -e MCP_GATEWAY_PAYLOAD_DIR -e MCP_GATEWAY_PAYLOAD_SIZE_THRESHOLD -e DEBUG -e MCP_GATEWAY_LOG_DIR -e GH_AW_MCP_LOG_DIR -e GH_AW_SAFE_OUTPUTS -e GH_AW_SAFE_OUTPUTS_CONFIG_PATH -e GH_AW_SAFE_OUTPUTS_TOOLS_PATH -e GH_AW_ASSETS_BRANCH -e GH_AW_ASSETS_MAX_SIZE_KB -e GH_AW_ASSETS_ALLOWED_EXTS -e DEFAULT_BRANCH -e GITHUB_MCP_SERVER_TOKEN -e GITHUB_MCP_GUARD_MIN_INTEGRITY -e GITHUB_MCP_GUARD_REPOS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_SHA -e GITHUB_WORKSPACE -e GITHUB_TOKEN -e GITHUB_RUN_ID -e GITHUB_RUN_NUMBER -e GITHUB_RUN_ATTEMPT -e GITHUB_JOB -e GITHUB_ACTION -e GITHUB_EVENT_NAME -e GITHUB_EVENT_PATH -e GITHUB_ACTOR -e GITHUB_ACTOR_ID -e GITHUB_TRIGGERING_ACTOR -e GITHUB_WORKFLOW -e GITHUB_WORKFLOW_REF -e GITHUB_WORKFLOW_SHA -e GITHUB_REF -e GITHUB_REF_NAME -e GITHUB_REF_TYPE -e GITHUB_HEAD_REF -e GITHUB_BASE_REF -e GH_AW_SAFE_OUTPUTS_PORT -e GH_AW_SAFE_OUTPUTS_API_KEY -v /tmp/gh-aw/mcp-payloads:/tmp/gh-aw/mcp-payloads:rw -v /opt:/opt:ro -v /tmp:/tmp:rw -v '"${GITHUB_WORKSPACE}"':'"${GITHUB_WORKSPACE}"':rw ghcr.io/github/gh-aw-mcpg:v0.2.10'
           
           mkdir -p /home/runner/.copilot
-          cat << GH_AW_MCP_CONFIG_ff013a9482c38d89_EOF | bash ${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.sh
+          cat << GH_AW_MCP_CONFIG_16067b6ded72ae79_EOF | bash ${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.sh
           {
             "mcpServers": {
               "github": {
@@ -567,7 +567,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_ff013a9482c38d89_EOF
+          GH_AW_MCP_CONFIG_16067b6ded72ae79_EOF
       - name: Download activation artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1031,7 +1031,7 @@ jobs:
         id: check_skip_if_match
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          GH_AW_SKIP_QUERY: "is:issue is:open in:title \"Token Usage Report\""
+          GH_AW_SKIP_QUERY: "is:issue is:open label:token-usage-report"
           GH_AW_WORKFLOW_NAME: "Daily Token Usage Analyzer"
           GH_AW_SKIP_MAX_MATCHES: "1"
         with:
