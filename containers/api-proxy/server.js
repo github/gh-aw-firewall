@@ -18,6 +18,18 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
+let trackTokenUsage;
+let closeLogStream;
+try {
+  ({ trackTokenUsage, closeLogStream } = require('./token-tracker'));
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    trackTokenUsage = () => {};
+    closeLogStream = () => {};
+  } else {
+    throw err;
+  }
+}
 
 // Create rate limiter from environment variables
 const limiter = rateLimiter.create();
@@ -423,6 +435,15 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
       res.writeHead(proxyRes.statusCode, resHeaders);
       proxyRes.pipe(res);
+
+      // Attach token usage tracking (non-blocking, listens on same data/end events)
+      trackTokenUsage(proxyRes, {
+        requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        startTime,
+        metrics,
+      });
     });
 
     proxyReq.on('error', (err) => {
@@ -851,13 +872,15 @@ if (require.main === module) {
   }
 
   // Graceful shutdown
-  process.on('SIGTERM', () => {
+  process.on('SIGTERM', async () => {
     logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
+    await closeLogStream();
     process.exit(0);
   });
 
-  process.on('SIGINT', () => {
+  process.on('SIGINT', async () => {
     logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
+    await closeLogStream();
     process.exit(0);
   });
 }
