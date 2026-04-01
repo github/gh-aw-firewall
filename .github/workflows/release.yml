@@ -367,6 +367,15 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Create esbuild bundle
+        run: |
+          node scripts/build-bundle.mjs
+          echo "=== Bundle size ==="
+          ls -lh release/awf-bundle.js
+          echo "=== Bundle smoke test ==="
+          node release/awf-bundle.js --version
+          node release/awf-bundle.js --help | head -5
+
       - name: Install pkg for binary creation
         run: npm install -g pkg
 
@@ -550,6 +559,7 @@ jobs:
             release/awf-linux-arm64
             release/awf-darwin-x64
             release/awf-darwin-arm64
+            release/awf-bundle.js
             release/awf.tgz
             release/checksums.txt
         env:
