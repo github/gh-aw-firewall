@@ -1759,7 +1759,7 @@ describe('docker-manager', () => {
         expect(squid.volumes).toContain('/tmp/awf-test/squid-logs:/var/log/squid:rw');
       });
 
-      it('should use sibling api-proxy-logs directory when proxyLogsDir is specified', () => {
+      it('should use api-proxy-logs subdirectory inside proxyLogsDir when specified', () => {
         const config: WrapperConfig = {
           ...mockConfig,
           proxyLogsDir: '/custom/proxy/logs',
@@ -1772,7 +1772,7 @@ describe('docker-manager', () => {
         });
         const apiProxy = result.services['api-proxy'];
 
-        expect(apiProxy.volumes).toContain('/custom/proxy/api-proxy-logs:/var/log/api-proxy:rw');
+        expect(apiProxy.volumes).toContain('/custom/proxy/logs/api-proxy-logs:/var/log/api-proxy:rw');
       });
 
       it('should use workDir/api-proxy-logs when proxyLogsDir is not specified', () => {
@@ -2711,7 +2711,7 @@ describe('docker-manager', () => {
       expect(fs.existsSync(proxyLogsDir)).toBe(true);
     });
 
-    it('should create api-proxy-logs sibling directory when proxyLogsDir is specified', async () => {
+    it('should create api-proxy-logs subdirectory inside proxyLogsDir when specified', async () => {
       const proxyLogsDir = path.join(testDir, 'custom-proxy-logs');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
@@ -2728,8 +2728,8 @@ describe('docker-manager', () => {
         // May fail after writing configs
       }
 
-      // Verify api-proxy-logs sibling directory was created
-      const apiProxyLogsDir = path.join(testDir, 'api-proxy-logs');
+      // Verify api-proxy-logs subdirectory was created inside proxyLogsDir
+      const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
       expect(fs.existsSync(apiProxyLogsDir)).toBe(true);
     });
 
@@ -3253,11 +3253,11 @@ describe('docker-manager', () => {
       }
     });
 
-    it('should chmod api-proxy-logs sibling when proxyLogsDir is specified', async () => {
+    it('should chmod api-proxy-logs subdirectory when proxyLogsDir is specified', async () => {
       // proxyLogsDir must be OUTSIDE workDir since cleanup deletes workDir
       const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-logs-test-'));
       const proxyLogsDir = path.join(externalDir, 'proxy-logs');
-      const apiProxyLogsDir = path.join(externalDir, 'api-proxy-logs');
+      const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
       fs.mkdirSync(proxyLogsDir, { recursive: true });
       fs.mkdirSync(apiProxyLogsDir, { recursive: true });
       fs.writeFileSync(path.join(proxyLogsDir, 'access.log'), 'proxy log content');
@@ -3266,7 +3266,7 @@ describe('docker-manager', () => {
       try {
         await cleanup(testDir, false, proxyLogsDir);
 
-        // Verify chmod was called on both proxyLogsDir and api-proxy-logs sibling
+        // Verify chmod was called on both proxyLogsDir and api-proxy-logs subdirectory
         expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
         expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
       } finally {

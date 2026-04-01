@@ -366,10 +366,11 @@ export function generateDockerCompose(
   // Squid logs path: use proxyLogsDir if specified (direct write), otherwise workDir/squid-logs
   const squidLogsPath = config.proxyLogsDir || `${config.workDir}/squid-logs`;
 
-  // API proxy logs path: if proxyLogsDir is specified, write to sibling directory
+  // API proxy logs path: if proxyLogsDir is specified, write inside it as a subdirectory
+  // so that token-usage.jsonl is included in the firewall-audit-logs artifact automatically.
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
   const apiProxyLogsPath = config.proxyLogsDir
-    ? path.join(path.dirname(config.proxyLogsDir), 'api-proxy-logs')
+    ? path.join(config.proxyLogsDir, 'api-proxy-logs')
     : path.join(config.workDir, 'api-proxy-logs');
 
   // Build Squid volumes list
@@ -1598,11 +1599,12 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   logger.debug(`Squid logs directory created at: ${squidLogsDir}`);
 
   // Create api-proxy logs directory for persistence
-  // If proxyLogsDir is specified, write to sibling directory (timeout-safe)
+  // If proxyLogsDir is specified, write inside it as a subdirectory (timeout-safe,
+  // and included in the firewall-audit-logs artifact upload automatically)
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
   // Note: API proxy runs as user 'apiproxy' (non-root)
   const apiProxyLogsDir = config.proxyLogsDir
-    ? path.join(path.dirname(config.proxyLogsDir), 'api-proxy-logs')
+    ? path.join(config.proxyLogsDir, 'api-proxy-logs')
     : path.join(config.workDir, 'api-proxy-logs');
   if (!fs.existsSync(apiProxyLogsDir)) {
     fs.mkdirSync(apiProxyLogsDir, { recursive: true, mode: 0o777 });
@@ -2146,9 +2148,9 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
 
       // Preserve api-proxy logs before cleanup
       if (proxyLogsDir) {
-        // Logs were written directly to sibling of proxyLogsDir during runtime (timeout-safe)
+        // Logs were written inside proxyLogsDir/api-proxy-logs during runtime (timeout-safe)
         // Just fix permissions so they're readable
-        const apiProxyLogsDir = path.join(path.dirname(proxyLogsDir), 'api-proxy-logs');
+        const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
         if (fs.existsSync(apiProxyLogsDir)) {
           try {
             execa.sync('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
