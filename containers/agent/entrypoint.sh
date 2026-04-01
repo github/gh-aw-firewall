@@ -107,9 +107,14 @@ if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
   echo "[entrypoint] SSL Bump mode detected - updating CA certificates..."
   if [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
     update-ca-certificates 2>/dev/null
+    AWF_CA_PATH="/usr/local/share/ca-certificates/awf-ca.crt"
     # Set NODE_EXTRA_CA_CERTS so Node.js tools (Yarn 4, Corepack, npm) trust the AWF CA.
     # Node.js uses its own CA bundle, not the system CA store updated by update-ca-certificates.
-    export NODE_EXTRA_CA_CERTS="/usr/local/share/ca-certificates/awf-ca.crt"
+    export NODE_EXTRA_CA_CERTS="$AWF_CA_PATH"
+    # SSL_CERT_FILE is respected by curl, git, Python requests, Ruby, and most
+    # OpenSSL-based tools that don't use the system CA store updated above.
+    export SSL_CERT_FILE="$AWF_CA_PATH"
+    export REQUESTS_CA_BUNDLE="$AWF_CA_PATH"
     echo "[entrypoint] CA certificates updated for SSL Bump"
     echo "[entrypoint] NODE_EXTRA_CA_CERTS set to $NODE_EXTRA_CA_CERTS"
     echo "[entrypoint] ⚠️  WARNING: HTTPS traffic will be intercepted for URL inspection"
@@ -473,6 +478,33 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     fi
   fi
 
+  # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
+  # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
+  # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
+  # this path is inaccessible. Copy to /tmp/awf-lib/ (always writable) and update the
+  # env var so Node.js (Claude Code), curl, git, Python, etc. trust the Squid CA.
+  AWF_CA_CHROOT=""
+  if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ] && [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp /usr/local/share/ca-certificates/awf-ca.crt /host/tmp/awf-lib/awf-ca.crt 2>/dev/null && \
+         [ -f /host/tmp/awf-lib/awf-ca.crt ]; then
+        AWF_CA_CHROOT="/tmp/awf-lib/awf-ca.crt"
+        export NODE_EXTRA_CA_CERTS="$AWF_CA_CHROOT"
+        # SSL_CERT_FILE is respected by curl, git, Python requests, Ruby, and most
+        # OpenSSL-based tools. This ensures non-Node.js tools also trust the AWF CA.
+        export SSL_CERT_FILE="$AWF_CA_CHROOT"
+        export REQUESTS_CA_BUNDLE="$AWF_CA_CHROOT"
+        echo "[entrypoint] AWF CA certificate copied to chroot at $AWF_CA_CHROOT"
+        echo "[entrypoint] NODE_EXTRA_CA_CERTS updated to $AWF_CA_CHROOT"
+        echo "[entrypoint] SSL_CERT_FILE updated to $AWF_CA_CHROOT"
+      else
+        echo "[entrypoint][WARN] Could not copy AWF CA certificate to chroot — ssl-bump TLS may fail"
+      fi
+    else
+      echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for CA cert — ssl-bump TLS may fail in chroot"
+    fi
+  fi
+
   # Verify capsh is available on the host (required for privilege drop)
   if ! chroot /host which capsh >/dev/null 2>&1; then
     echo "[entrypoint][ERROR] capsh not found on host system"
@@ -697,8 +729,8 @@ AWFEOF
     CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^[0-9.]\\+[[:space:]]\\+host\\.docker\\.internal\$/d' /etc/hosts 2>/dev/null || true"
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
-  # Clean up the one-shot-token library if it was copied
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ]; then
+  # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 
