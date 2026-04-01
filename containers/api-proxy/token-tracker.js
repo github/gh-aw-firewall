@@ -22,6 +22,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { logRequest } = require('./logging');
 
 // Max response body to buffer for non-streaming usage extraction (5 MB).
@@ -32,25 +33,17 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
 const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.log');
+const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 let logStream = null;
 let diagStream = null;
 
-// Log that the module loaded successfully
-try {
-  fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-  fs.writeFileSync(
-    DIAG_LOG_FILE,
-    `${new Date().toISOString()} TOKEN_TRACKER_LOADED dir=${TOKEN_LOG_DIR}\n`,
-    { flag: 'a' }
-  );
-} catch { /* best-effort — dir may not be writable yet */ }
-
 /**
  * Write a diagnostic line to the diagnostics log file.
- * This file is captured in the artifact alongside token-usage.jsonl.
+ * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
  */
 function diag(msg, data) {
+  if (!DIAG_ENABLED) return;
   try {
     if (!diagStream) {
       fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
@@ -107,6 +100,26 @@ function writeTokenUsage(record) {
 function isStreamingResponse(headers) {
   const ct = headers['content-type'] || '';
   return ct.includes('text/event-stream');
+}
+
+/**
+ * Check if a response is gzip or deflate compressed.
+ */
+function isCompressedResponse(headers) {
+  const ce = (headers['content-encoding'] || '').toLowerCase();
+  return ce === 'gzip' || ce === 'deflate' || ce === 'br';
+}
+
+/**
+ * Create a decompression transform stream based on content-encoding.
+ * Returns null if the encoding is not supported.
+ */
+function createDecompressor(headers) {
+  const ce = (headers['content-encoding'] || '').toLowerCase();
+  if (ce === 'gzip') return zlib.createGunzip();
+  if (ce === 'deflate') return zlib.createInflate();
+  if (ce === 'br') return zlib.createBrotliDecompress();
+  return null;
 }
 
 /**
@@ -271,6 +284,10 @@ function normalizeUsage(usage) {
  * token usage. It does NOT modify the response stream — the caller still
  * does proxyRes.pipe(res) as before.
  *
+ * If the response is gzip/deflate compressed (common with Anthropic API),
+ * we decompress a copy of the data for parsing while the compressed bytes
+ * still flow to the client unchanged.
+ *
  * @param {http.IncomingMessage} proxyRes - Upstream response
  * @param {object} opts
  * @param {string} opts.requestId - Request ID for correlation
@@ -283,6 +300,8 @@ function trackTokenUsage(proxyRes, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
+  const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
+  const compressed = isCompressedResponse(proxyRes.headers);
 
   logRequest('debug', 'token_track_start', {
     request_id: requestId,
@@ -290,64 +309,94 @@ function trackTokenUsage(proxyRes, opts) {
     path: reqPath,
     streaming,
     content_type: contentType,
+    content_encoding: contentEncoding,
     status: proxyRes.statusCode,
   });
-  diag('HTTP_TRACK_START', { request_id: requestId, provider, path: reqPath, streaming, content_type: contentType, status: proxyRes.statusCode });
+  diag('HTTP_TRACK_START', { request_id: requestId, provider, path: reqPath, streaming, content_type: contentType, content_encoding: contentEncoding, status: proxyRes.statusCode });
 
   // Accumulate response body for usage extraction
   const chunks = [];
   let totalBytes = 0;
   let overflow = false;
-  let rawSample = ''; // Capture first 1KB of raw SSE for diagnostics
-  const RAW_SAMPLE_LIMIT = 1024;
 
   // For streaming: accumulate usage across SSE events
   let streamingUsage = {};
   let streamingModel = null;
   let partialLine = '';
 
-  proxyRes.on('data', (chunk) => {
-    totalBytes += chunk.length;
-
-    // Capture raw data sample for diagnostics
-    if (rawSample.length < RAW_SAMPLE_LIMIT) {
-      rawSample += chunk.toString('utf8').slice(0, RAW_SAMPLE_LIMIT - rawSample.length);
+  // If the response is compressed, create a decompressor.
+  // We feed raw chunks into it and listen on the decompressed output.
+  // The raw proxyRes still flows to the client unchanged via pipe().
+  let decompressor = null;
+  if (compressed) {
+    decompressor = createDecompressor(proxyRes.headers);
+    if (decompressor) {
+      decompressor.on('error', (err) => {
+        diag('DECOMPRESS_ERROR', { request_id: requestId, error: err.message });
+      });
     }
+  }
 
+  // The source for text parsing: decompressor output (if compressed) or raw chunks
+  function handleDecodedChunk(text) {
     if (streaming) {
-      // Parse SSE data lines from this chunk to extract usage events
-      const text = partialLine + chunk.toString('utf8');
-      // Keep any incomplete line at the end for next chunk
-      const lastNewline = text.lastIndexOf('\n');
+      const combined = partialLine + text;
+      const lastNewline = combined.lastIndexOf('\n');
       if (lastNewline >= 0) {
-        const complete = text.slice(0, lastNewline);
-        partialLine = text.slice(lastNewline + 1);
+        const complete = combined.slice(0, lastNewline);
+        partialLine = combined.slice(lastNewline + 1);
 
         const dataLines = parseSseDataLines(complete);
         for (const line of dataLines) {
           const { usage, model } = extractUsageFromSseLine(line);
           if (model && !streamingModel) streamingModel = model;
           if (usage) {
-            // Merge usage fields (Anthropic sends input in message_start, output in message_delta)
             for (const [k, v] of Object.entries(usage)) {
               streamingUsage[k] = v;
             }
           }
         }
       } else {
-        partialLine = text;
+        partialLine = combined;
       }
     } else if (!overflow) {
-      if (totalBytes <= MAX_BUFFER_SIZE) {
-        chunks.push(chunk);
-      } else {
-        overflow = true;
-        chunks.length = 0; // free memory
-      }
+      chunks.push(Buffer.from(text, 'utf8'));
     }
-  });
+  }
 
-  proxyRes.on('end', () => {
+  if (decompressor) {
+    // Feed decompressed text to our parser
+    decompressor.on('data', (decompressedChunk) => {
+      handleDecodedChunk(decompressedChunk.toString('utf8'));
+    });
+
+    // Feed raw compressed bytes into the decompressor
+    proxyRes.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      try { decompressor.write(chunk); } catch { /* ignore write errors */ }
+    });
+
+    proxyRes.on('end', () => {
+      try { decompressor.end(); } catch { /* ignore */ }
+    });
+
+    // Finalize on decompressor end
+    decompressor.on('end', () => {
+      finalizeTracking();
+    });
+  } else {
+    // No compression — parse raw chunks directly
+    proxyRes.on('data', (chunk) => {
+      totalBytes += chunk.length;
+      handleDecodedChunk(chunk.toString('utf8'));
+    });
+
+    proxyRes.on('end', () => {
+      finalizeTracking();
+    });
+  }
+
+  function finalizeTracking() {
     // Only process successful responses (2xx)
     if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
       logRequest('debug', 'token_track_skip_status', {
@@ -398,8 +447,9 @@ function trackTokenUsage(proxyRes, opts) {
       has_usage: !!usage,
       usage_keys: usage ? Object.keys(usage) : [],
       model,
+      compressed,
     });
-    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, raw_sample: rawSample.slice(0, 500) });
+    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, compressed, content_encoding: contentEncoding });
 
     const normalized = normalizeUsage(usage);
     if (!normalized) return;
@@ -441,7 +491,7 @@ function trackTokenUsage(proxyRes, opts) {
       cache_write_tokens: normalized.cache_write_tokens,
       streaming,
     });
-  });
+  }
 }
 
 /**
@@ -675,6 +725,7 @@ module.exports = {
   parseWebSocketFrames,
   normalizeUsage,
   isStreamingResponse,
+  isCompressedResponse,
   writeTokenUsage,
   TOKEN_LOG_FILE,
 };
