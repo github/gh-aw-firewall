@@ -783,6 +783,28 @@ describe('parseWebSocketFrames', () => {
     expect(messages).toHaveLength(0);
     expect(consumed).toBe(0);
   });
+
+  test('unmasks masked text frames correctly', () => {
+    const text = '{"type":"message_start"}';
+    const payload = Buffer.from(text, 'utf8');
+    const maskingKey = Buffer.from([0x37, 0xfa, 0x21, 0x3d]);
+
+    // Build masked frame: FIN + text opcode, masked bit + length, key, masked payload
+    const header = Buffer.alloc(2 + 4);
+    header[0] = 0x81; // FIN + text
+    header[1] = 0x80 | payload.length; // masked bit set + length
+    maskingKey.copy(header, 2);
+
+    const maskedPayload = Buffer.allocUnsafe(payload.length);
+    for (let i = 0; i < payload.length; i++) {
+      maskedPayload[i] = payload[i] ^ maskingKey[i % 4];
+    }
+
+    const frame = Buffer.concat([header, maskedPayload]);
+    const { messages, consumed } = parseWebSocketFrames(frame);
+    expect(messages).toEqual([text]);
+    expect(consumed).toBe(frame.length);
+  });
 });
 
 // ── trackWebSocketTokenUsage ──────────────────────────────────────────

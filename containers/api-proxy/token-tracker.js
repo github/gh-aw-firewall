@@ -41,6 +41,7 @@ let diagStream = null;
 /**
  * Write a diagnostic line to the diagnostics log file.
  * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
+ * Data is sanitized to prevent writing raw network content to disk.
  */
 function diag(msg, data) {
   if (!DIAG_ENABLED) return;
@@ -50,8 +51,14 @@ function diag(msg, data) {
       diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
       diagStream.on('error', () => { diagStream = null; });
     }
+    // Sanitize: only log known safe fields, omit raw response data
+    let safeData = data;
+    if (data && typeof data === 'object') {
+      const { raw_sample, ...rest } = data;
+      safeData = rest;
+    }
     const line = `${new Date().toISOString()} ${msg}` +
-      (data ? ' ' + JSON.stringify(data) : '') + '\n';
+      (safeData ? ' ' + JSON.stringify(safeData) : '') + '\n';
     diagStream.write(line);
   } catch { /* best-effort */ }
 }
@@ -531,14 +538,29 @@ function parseWebSocketFrames(buf) {
       headerSize = 10;
     }
 
-    if (masked) headerSize += 4; // skip masking key
+    if (masked) {
+      if (pos + headerSize + 4 > buf.length) break;
+      headerSize += 4; // masking key length
+    }
 
     const frameEnd = pos + headerSize + payloadLength;
     if (frameEnd > buf.length) break;
 
     // Extract text frames (opcode 1) with FIN set
     if (opcode === 1 && fin) {
-      messages.push(buf.slice(pos + headerSize, frameEnd).toString('utf8'));
+      const payloadStart = pos + headerSize;
+      if (masked) {
+        const maskKeyStart = payloadStart - 4;
+        const maskingKey = buf.slice(maskKeyStart, maskKeyStart + 4);
+        const maskedPayload = buf.slice(payloadStart, frameEnd);
+        const unmasked = Buffer.allocUnsafe(payloadLength);
+        for (let i = 0; i < payloadLength; i++) {
+          unmasked[i] = maskedPayload[i] ^ maskingKey[i % 4];
+        }
+        messages.push(unmasked.toString('utf8'));
+      } else {
+        messages.push(buf.slice(payloadStart, frameEnd).toString('utf8'));
+      }
     }
 
     pos = frameEnd;
@@ -579,6 +601,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
   let httpHeaderParsed = false;
   let buffer = Buffer.alloc(0);
   let totalBytes = 0;
+  let headerBytes = 0;
   let streamingUsage = {};
   let streamingModel = null;
   let finalized = false;
@@ -603,7 +626,8 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     if (!httpHeaderParsed) {
       const headerEnd = buffer.indexOf('\r\n\r\n');
       if (headerEnd === -1) return; // need more data for full header
-      buffer = buffer.slice(headerEnd + 4);
+      headerBytes = headerEnd + 4;
+      buffer = buffer.slice(headerBytes);
       httpHeaderParsed = true;
     }
 
@@ -665,14 +689,14 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       provider,
       model: streamingModel || 'unknown',
       path: reqPath,
-      status: 200,
+      status: 101,
       streaming: true,
       input_tokens: normalized.input_tokens,
       output_tokens: normalized.output_tokens,
       cache_read_tokens: normalized.cache_read_tokens,
       cache_write_tokens: normalized.cache_write_tokens,
       duration_ms: duration,
-      response_bytes: totalBytes,
+      response_bytes: totalBytes - headerBytes,
     };
 
     writeTokenUsage(record);
