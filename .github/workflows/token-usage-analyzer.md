@@ -148,7 +148,7 @@ If previous reports exist, compare current metrics to identify:
 
 Create an issue with the following structure:
 
-#### Title: `YYYY-MM-DD` (the date prefix is added by safe-outputs)
+#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Token Usage Report")
 
 #### Body structure:
 
