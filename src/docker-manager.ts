@@ -11,6 +11,11 @@ import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 const SQUID_PORT = 3128;
 
+// When bundled with esbuild, this global is replaced at build time with the
+// JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
+// builds the identifier remains undeclared, so the typeof check below is safe.
+declare const __AWF_SECCOMP_PROFILE__: string | undefined;
+
 /**
  * Base image for the 'act' preset when building locally.
  * Uses catthehacker's GitHub Actions parity image.
@@ -358,6 +363,18 @@ export function generateDockerCompose(
   squidConfigContent?: string
 ): DockerComposeConfig {
   const projectRoot = path.join(__dirname, '..');
+
+  // Guard: --build-local requires full repo checkout (not available in standalone bundle)
+  if (config.buildLocal) {
+    const containersDir = path.join(projectRoot, 'containers');
+    if (!fs.existsSync(containersDir)) {
+      throw new Error(
+        'The --build-local flag requires a full repository checkout. ' +
+        'It is not supported with the standalone bundle. ' +
+        'Use the npm package or clone the repository instead.'
+      );
+    }
+  }
 
   // Default to GHCR images unless buildLocal is explicitly set
   const useGHCR = !config.buildLocal;
@@ -1678,21 +1695,28 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
 
 
   // Copy seccomp profile to work directory for container security
-  const seccompSourcePath = path.join(__dirname, '..', 'containers', 'agent', 'seccomp-profile.json');
   const seccompDestPath = path.join(config.workDir, 'seccomp-profile.json');
-  if (fs.existsSync(seccompSourcePath)) {
-    fs.copyFileSync(seccompSourcePath, seccompDestPath);
-    logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
+
+  // Try embedded profile first (available in esbuild bundle)
+  if (typeof __AWF_SECCOMP_PROFILE__ !== 'undefined') {
+    fs.writeFileSync(seccompDestPath, __AWF_SECCOMP_PROFILE__);
+    logger.debug(`Seccomp profile written from embedded data to: ${seccompDestPath}`);
   } else {
-    // If running from dist, try relative to dist
-    const altSeccompPath = path.join(__dirname, '..', '..', 'containers', 'agent', 'seccomp-profile.json');
-    if (fs.existsSync(altSeccompPath)) {
-      fs.copyFileSync(altSeccompPath, seccompDestPath);
+    const seccompSourcePath = path.join(__dirname, '..', 'containers', 'agent', 'seccomp-profile.json');
+    if (fs.existsSync(seccompSourcePath)) {
+      fs.copyFileSync(seccompSourcePath, seccompDestPath);
       logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
     } else {
-      const message = `Seccomp profile not found at ${seccompSourcePath} or ${altSeccompPath}. Container security hardening requires the seccomp profile.`;
-      logger.error(message);
-      throw new Error(message);
+      // If running from dist, try relative to dist
+      const altSeccompPath = path.join(__dirname, '..', '..', 'containers', 'agent', 'seccomp-profile.json');
+      if (fs.existsSync(altSeccompPath)) {
+        fs.copyFileSync(altSeccompPath, seccompDestPath);
+        logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
+      } else {
+        const message = `Seccomp profile not found at ${seccompSourcePath} or ${altSeccompPath}. Container security hardening requires the seccomp profile.`;
+        logger.error(message);
+        throw new Error(message);
+      }
     }
   }
 

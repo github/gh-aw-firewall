@@ -35,6 +35,7 @@ REPO="github/gh-aw-firewall"
 BINARY_NAME=""  # Set dynamically by check_platform
 INSTALL_DIR="/usr/local/bin"
 INSTALL_NAME="awf"
+USE_BUNDLE=false  # Set by check_node
 
 # Colors for output
 RED='\033[0;31m'
@@ -140,6 +141,26 @@ check_platform() {
     esac
 
     info "Detected platform: $os $arch (binary: $BINARY_NAME)"
+}
+
+# Check for Node.js >= 20 to decide between bundle and pkg binary
+check_node() {
+    if [ "${AWF_FORCE_BINARY:-}" = "1" ]; then
+        info "AWF_FORCE_BINARY=1 set, using standalone binary"
+        USE_BUNDLE=false
+        return
+    fi
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node -v | sed 's/^v//')
+        NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
+        if [ "$NODE_MAJOR" -ge 20 ]; then
+            info "Node.js v${NODE_VERSION} detected (>= 20), using lightweight bundle"
+            USE_BUNDLE=true
+            return
+        fi
+        warn "Node.js v${NODE_VERSION} detected but < 20, using standalone binary"
+    fi
+    USE_BUNDLE=false
 }
 
 # Validate version format (should be like v1.0.0, v1.2.3, etc.)
@@ -263,54 +284,83 @@ main() {
     check_sudo
     check_requirements
     check_platform
-    
+    check_node
+
     # Get version (from argument, env var, or fetch latest)
     set_version "$1"
-    
+
     # Create temp directory with prefix for identification
     # mktemp creates secure temporary directories with proper permissions (0700)
     TEMP_DIR=$(mktemp -d -t awf-install.XXXXXX)
-    
+
     # Validate temp directory was created
     if [ -z "$TEMP_DIR" ] || [ ! -d "$TEMP_DIR" ]; then
         error "Failed to create temporary directory"
         exit 1
     fi
-    
+
     # Set up cleanup trap (mktemp already ensures secure location)
     trap 'rm -rf "$TEMP_DIR"' EXIT
-    
+
     # Download URLs
     BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
-    BINARY_URL="${BASE_URL}/${BINARY_NAME}"
     CHECKSUMS_URL="${BASE_URL}/checksums.txt"
-    
-    # Download binary and checksums
-    download_file "$BINARY_URL" "$TEMP_DIR/$BINARY_NAME"
-    download_file "$CHECKSUMS_URL" "$TEMP_DIR/checksums.txt"
-    
-    # Verify checksum
-    verify_checksum "$TEMP_DIR/$BINARY_NAME" "$TEMP_DIR/checksums.txt"
-    
-    # Make binary executable
-    chmod +x "$TEMP_DIR/$BINARY_NAME"
-    
-    # Test if it's a valid executable (ELF on Linux, Mach-O on macOS)
-    local file_type
-    file_type=$(file "$TEMP_DIR/$BINARY_NAME")
-    if echo "$file_type" | grep -q "ELF.*executable"; then
-        info "Valid Linux ELF executable"
-    elif echo "$file_type" | grep -q "Mach-O 64-bit"; then
-        info "Valid macOS Mach-O executable"
+
+    if [ "$USE_BUNDLE" = true ]; then
+        # Lightweight bundle path — requires Node.js >= 20
+        ASSET_NAME="awf-bundle.js"
+        ASSET_URL="${BASE_URL}/${ASSET_NAME}"
+
+        download_file "$ASSET_URL" "$TEMP_DIR/$ASSET_NAME"
+        download_file "$CHECKSUMS_URL" "$TEMP_DIR/checksums.txt"
+
+        # Verify checksum (reuse BINARY_NAME for the checksum lookup)
+        BINARY_NAME="$ASSET_NAME"
+        verify_checksum "$TEMP_DIR/$ASSET_NAME" "$TEMP_DIR/checksums.txt"
+
+        # Validate the file starts with the expected shebang
+        if head -c 20 "$TEMP_DIR/$ASSET_NAME" | grep -q '#!/usr/bin/env node'; then
+            info "Valid Node.js bundle"
+        else
+            error "Downloaded file does not appear to be a valid Node.js bundle"
+            exit 1
+        fi
+
+        # Make executable and install
+        chmod +x "$TEMP_DIR/$ASSET_NAME"
+        info "Installing bundle to $INSTALL_DIR/$INSTALL_NAME..."
+        mv "$TEMP_DIR/$ASSET_NAME" "$INSTALL_DIR/$INSTALL_NAME"
     else
-        error "Downloaded file is not a valid executable: $file_type"
-        exit 1
+        # Standalone pkg binary path
+        BINARY_URL="${BASE_URL}/${BINARY_NAME}"
+
+        # Download binary and checksums
+        download_file "$BINARY_URL" "$TEMP_DIR/$BINARY_NAME"
+        download_file "$CHECKSUMS_URL" "$TEMP_DIR/checksums.txt"
+
+        # Verify checksum
+        verify_checksum "$TEMP_DIR/$BINARY_NAME" "$TEMP_DIR/checksums.txt"
+
+        # Make binary executable
+        chmod +x "$TEMP_DIR/$BINARY_NAME"
+
+        # Test if it's a valid executable (ELF on Linux, Mach-O on macOS)
+        local file_type
+        file_type=$(file "$TEMP_DIR/$BINARY_NAME")
+        if echo "$file_type" | grep -q "ELF.*executable"; then
+            info "Valid Linux ELF executable"
+        elif echo "$file_type" | grep -q "Mach-O 64-bit"; then
+            info "Valid macOS Mach-O executable"
+        else
+            error "Downloaded file is not a valid executable: $file_type"
+            exit 1
+        fi
+
+        # Install binary
+        info "Installing to $INSTALL_DIR/$INSTALL_NAME..."
+        mv "$TEMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$INSTALL_NAME"
     fi
-    
-    # Install binary
-    info "Installing to $INSTALL_DIR/$INSTALL_NAME..."
-    mv "$TEMP_DIR/$BINARY_NAME" "$INSTALL_DIR/$INSTALL_NAME"
-    
+
     # Verify installation
     if [ -x "$INSTALL_DIR/$INSTALL_NAME" ]; then
         info "Installation successful! ✓"
