@@ -31,8 +31,37 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
 // Token usage log file path (inside the mounted log volume)
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
+const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.log');
 
 let logStream = null;
+let diagStream = null;
+
+// Log that the module loaded successfully
+try {
+  fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+  fs.writeFileSync(
+    DIAG_LOG_FILE,
+    `${new Date().toISOString()} TOKEN_TRACKER_LOADED dir=${TOKEN_LOG_DIR}\n`,
+    { flag: 'a' }
+  );
+} catch { /* best-effort — dir may not be writable yet */ }
+
+/**
+ * Write a diagnostic line to the diagnostics log file.
+ * This file is captured in the artifact alongside token-usage.jsonl.
+ */
+function diag(msg, data) {
+  try {
+    if (!diagStream) {
+      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+      diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
+      diagStream.on('error', () => { diagStream = null; });
+    }
+    const line = `${new Date().toISOString()} ${msg}` +
+      (data ? ' ' + JSON.stringify(data) : '') + '\n';
+    diagStream.write(line);
+  } catch { /* best-effort */ }
+}
 
 /**
  * Get or create the JSONL append stream for token usage logs.
@@ -253,6 +282,17 @@ function normalizeUsage(usage) {
 function trackTokenUsage(proxyRes, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
+  const contentType = proxyRes.headers['content-type'] || '(none)';
+
+  logRequest('debug', 'token_track_start', {
+    request_id: requestId,
+    provider,
+    path: reqPath,
+    streaming,
+    content_type: contentType,
+    status: proxyRes.statusCode,
+  });
+  diag('HTTP_TRACK_START', { request_id: requestId, provider, path: reqPath, streaming, content_type: contentType, status: proxyRes.statusCode });
 
   // Accumulate response body for usage extraction
   const chunks = [];
@@ -302,7 +342,15 @@ function trackTokenUsage(proxyRes, opts) {
 
   proxyRes.on('end', () => {
     // Only process successful responses (2xx)
-    if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) return;
+    if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+      logRequest('debug', 'token_track_skip_status', {
+        request_id: requestId,
+        provider,
+        status: proxyRes.statusCode,
+      });
+      diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
+      return;
+    }
 
     const duration = Date.now() - startTime;
     let usage = null;
@@ -333,6 +381,18 @@ function trackTokenUsage(proxyRes, opts) {
       usage = result.usage;
       model = result.model;
     }
+
+    logRequest('debug', 'token_track_end', {
+      request_id: requestId,
+      provider,
+      streaming,
+      total_bytes: totalBytes,
+      overflow,
+      has_usage: !!usage,
+      usage_keys: usage ? Object.keys(usage) : [],
+      model,
+    });
+    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model });
 
     const normalized = normalizeUsage(usage);
     if (!normalized) return;
@@ -452,12 +512,21 @@ function parseWebSocketFrames(buf) {
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
 
+  logRequest('debug', 'ws_token_track_start', {
+    request_id: requestId,
+    provider,
+    path: reqPath,
+  });
+  diag('WS_TRACK_START', { request_id: requestId, provider, path: reqPath });
+
   let httpHeaderParsed = false;
   let buffer = Buffer.alloc(0);
   let totalBytes = 0;
   let streamingUsage = {};
   let streamingModel = null;
   let finalized = false;
+  let frameCount = 0;
+  let textMessageCount = 0;
 
   // Max buffer to prevent unbounded memory growth (1 MB)
   const MAX_WS_BUFFER = 1 * 1024 * 1024;
@@ -486,11 +555,19 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     if (consumed > 0) {
       buffer = buffer.slice(consumed);
     }
+    frameCount += messages.length;
 
     for (const text of messages) {
+      textMessageCount++;
       const { usage, model } = extractUsageFromSseLine(text);
       if (model && !streamingModel) streamingModel = model;
       if (usage) {
+        logRequest('debug', 'ws_token_usage_found', {
+          request_id: requestId,
+          provider,
+          usage_keys: Object.keys(usage),
+          model,
+        });
         for (const [k, v] of Object.entries(usage)) {
           streamingUsage[k] = v;
         }
@@ -501,6 +578,18 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
   function doFinalize() {
     if (finalized) return;
     finalized = true;
+
+    logRequest('debug', 'ws_token_track_end', {
+      request_id: requestId,
+      provider,
+      total_bytes: totalBytes,
+      frame_count: frameCount,
+      text_message_count: textMessageCount,
+      has_usage: Object.keys(streamingUsage).length > 0,
+      usage_keys: Object.keys(streamingUsage),
+      model: streamingModel,
+    });
+    diag('WS_TRACK_END', { request_id: requestId, provider, total_bytes: totalBytes, frame_count: frameCount, text_message_count: textMessageCount, has_usage: Object.keys(streamingUsage).length > 0, usage_keys: Object.keys(streamingUsage), model: streamingModel });
 
     if (Object.keys(streamingUsage).length === 0) return;
 
@@ -554,14 +643,17 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
  */
 function closeLogStream() {
   return new Promise((resolve) => {
+    let pending = 0;
+    const check = () => { if (pending === 0) resolve(); };
     if (logStream) {
-      logStream.end(() => {
-        logStream = null;
-        resolve();
-      });
-    } else {
-      resolve();
+      pending++;
+      logStream.end(() => { logStream = null; pending--; check(); });
     }
+    if (diagStream) {
+      pending++;
+      diagStream.end(() => { diagStream = null; pending--; check(); });
+    }
+    if (pending === 0) resolve();
   });
 }
 
