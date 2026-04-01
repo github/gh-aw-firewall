@@ -727,7 +727,7 @@ AWFEOF
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
   # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ]; then
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 
