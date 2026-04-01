@@ -24,6 +24,7 @@ network:
   allowed:
     - defaults
     - github
+    - node
     - playwright
 tools:
   cache-memory: true
