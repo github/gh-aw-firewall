@@ -34,13 +34,17 @@ if has_ip6tables; then
 fi
 
 # Always disable IPv6 in the agent network namespace.
-# Squid listens on IPv4 only and the Docker awf-net network is IPv4-only,
-# so IPv6 serves no purpose. Disabling it prevents:
-# 1. DNS returning AAAA records → Node.js happy-eyeballs preferring IPv6 → connection failures
-# 2. IPv6 connections bypassing IPv4-only iptables DNAT rules to Squid
-# 3. Claude Code/other agents connecting via ::1 which Squid cannot handle
-# See: https://github.com/github/gh-aw-firewall/issues/1543
-echo "[iptables] Disabling IPv6 to prevent proxy bypass (Squid is IPv4-only)..."
+# The Docker awf-net network and our iptables DNAT rules are IPv4-based, so
+# IPv6 connectivity would serve mainly as a way to bypass those controls.
+# Disabling IPv6 here:
+# 1. Removes IPv6 addresses/routes so traffic cannot egress over IPv6 paths
+# 2. Prevents IPv6 connections (including ::1 loopback) that would not be
+#    intercepted by IPv4-only iptables DNAT rules to the Squid proxy
+# 3. Avoids applications preferring IPv6 paths that would bypass or conflict
+#    with the intended IPv4 proxy/NAT behavior (e.g., Happy Eyeballs)
+# Note: This does not change upstream DNS responses; it only disables IPv6
+# connectivity inside the container. See: https://github.com/github/gh-aw-firewall/issues/1543
+echo "[iptables] Disabling IPv6 inside container to prevent IPv6 egress / proxy bypass..."
 sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
 sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
 
