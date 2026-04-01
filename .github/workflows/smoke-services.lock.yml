@@ -861,6 +861,8 @@ jobs:
           name: cache-memory
           path: /tmp/gh-aw/cache-memory
       - name: Validate safe outputs were invoked
+        env:
+          GH_AW_SAFE_OUTPUTS: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
         run: "OUTPUTS_FILE=\"${GH_AW_SAFE_OUTPUTS:-/opt/gh-aw/safeoutputs/outputs.jsonl}\"\nif [ ! -s \"$OUTPUTS_FILE\" ]; then\n  echo \"::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools.\"\n  exit 1\nfi\necho \"Safe output entries found: $(wc -l < \"$OUTPUTS_FILE\")\"\nif [ \"$GITHUB_EVENT_NAME\" = \"pull_request\" ]; then\n  if ! grep -q '\"add_comment\"' \"$OUTPUTS_FILE\"; then\n    echo \"::error::Agent did not call add_comment on a pull_request trigger.\"\n    exit 1\n  fi\n  echo \"add_comment verified for PR trigger\"\nfi\necho \"Safe output validation passed\""
 
       - name: Upload agent artifacts

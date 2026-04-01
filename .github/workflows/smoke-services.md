@@ -64,9 +64,9 @@ post-steps:
 
 Run these connectivity checks and report the results:
 
-1. **Redis Connectivity**: Run `redis-cli -h localhost -p 6379 ping` and verify the response is `PONG`
-2. **PostgreSQL Connectivity**: Run `pg_isready -h localhost -p 5432` and verify it reports the server is accepting connections
-3. **PostgreSQL Query**: Run `PGPASSWORD=testpass psql -h localhost -p 5432 -U postgres -d smoketest -c "SELECT 1 AS smoke_test;"` and verify it returns a row
+1. **Redis Connectivity**: Run `redis-cli -h host.docker.internal -p 6379 ping` and verify the response is `PONG`
+2. **PostgreSQL Connectivity**: Run `pg_isready -h host.docker.internal -p 5432` and verify it reports the server is accepting connections
+3. **PostgreSQL Query**: Run `PGPASSWORD=testpass psql -h host.docker.internal -p 5432 -U postgres -d smoketest -c "SELECT 1 AS smoke_test;"` and verify it returns a row
 
 If `redis-cli` or `pg_isready` are not installed, install them first with `sudo apt-get update && sudo apt-get install -y redis-tools postgresql-client`.
 
