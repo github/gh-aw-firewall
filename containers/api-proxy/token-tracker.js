@@ -298,6 +298,8 @@ function trackTokenUsage(proxyRes, opts) {
   const chunks = [];
   let totalBytes = 0;
   let overflow = false;
+  let rawSample = ''; // Capture first 1KB of raw SSE for diagnostics
+  const RAW_SAMPLE_LIMIT = 1024;
 
   // For streaming: accumulate usage across SSE events
   let streamingUsage = {};
@@ -306,6 +308,11 @@ function trackTokenUsage(proxyRes, opts) {
 
   proxyRes.on('data', (chunk) => {
     totalBytes += chunk.length;
+
+    // Capture raw data sample for diagnostics
+    if (rawSample.length < RAW_SAMPLE_LIMIT) {
+      rawSample += chunk.toString('utf8').slice(0, RAW_SAMPLE_LIMIT - rawSample.length);
+    }
 
     if (streaming) {
       // Parse SSE data lines from this chunk to extract usage events
@@ -392,7 +399,7 @@ function trackTokenUsage(proxyRes, opts) {
       usage_keys: usage ? Object.keys(usage) : [],
       model,
     });
-    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model });
+    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, raw_sample: rawSample.slice(0, 500) });
 
     const normalized = normalizeUsage(usage);
     if (!normalized) return;
