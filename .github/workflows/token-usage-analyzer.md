@@ -106,7 +106,7 @@ For each workflow that has token data, calculate:
 
 1. **Total tokens**: `input_tokens + output_tokens + cache_read_tokens + cache_write_tokens`
 2. **Billable tokens**: `input_tokens + output_tokens + cache_write_tokens` (cache reads are discounted)
-3. **Input/output ratio**: `(input_tokens + cache_read_tokens) / output_tokens`
+3. **Input/output ratio**: `(input_tokens + cache_read_tokens) / output_tokens` (if `output_tokens == 0`, treat the ratio as `∞`/`N/A` and exclude that request from ratio averages to avoid division by zero)
 4. **Cache hit rate**: `cache_read_tokens / (cache_read_tokens + input_tokens) * 100`
 5. **Request count**: Number of records in the JSONL
 6. **Average latency**: Mean `duration_ms` per request
