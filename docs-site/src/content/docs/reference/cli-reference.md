@@ -38,7 +38,7 @@ awf [options] -- <command>
 | `--exclude-env <name>` | string | `[]` | Exclude a variable from `--env-all` passthrough (repeatable) |
 | `-v, --mount <host:container[:mode]>` | string | `[]` | Volume mount (repeatable) |
 | `--container-workdir <dir>` | string | User home | Working directory inside container |
-| `--dns-servers <servers>` | string | `8.8.8.8,8.8.4.4` | Trusted DNS servers (comma-separated) |
+| `--dns-servers <servers>` | string | Auto-detected | Trusted DNS servers (comma-separated; auto-detected from host, falls back to `8.8.8.8,8.8.4.4`) |
 | `--proxy-logs-dir <path>` | string | — | Directory to save Squid proxy logs to |
 | `--enable-host-access` | flag | `false` | Enable access to host services via host.docker.internal |
 | `--allow-host-ports <ports>` | string | `80,443` | Ports to allow when using --enable-host-access |
@@ -169,7 +169,7 @@ Set logging verbosity.
 Keep containers and configuration files after command exits for debugging.
 
 :::note
-Requires manual cleanup: `docker stop awf-squid awf-copilot && docker network rm awf-net`
+Requires manual cleanup: `docker stop awf-squid awf-agent && docker network rm awf-net`
 :::
 
 ### `--tty`
@@ -246,9 +246,11 @@ Mount host directories into container. Format: `host_path:container_path[:ro|rw]
 - Host path must exist
 - Mode: `ro` (read-only) or `rw` (read-write)
 
-**Default mounts:**
-- Host filesystem at `/host` (read-only)
-- User home directory (read-write)
+**Default mounts (selective bind mounts, not a blanket host FS mount):**
+- System binaries (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev`) at `/host` (read-only)
+- Workspace and `/tmp` (read-write)
+- Whitelisted `$HOME` subdirs such as `.cache`, `.config`, `.local` (read-write)
+- Select `/etc` files only — SSL certs, `passwd`, `group`, etc. (not `/etc/shadow`)
 
 ### `--container-workdir <dir>`
 
@@ -257,6 +259,8 @@ Working directory inside the container.
 ### `--dns-servers <servers>`
 
 Comma-separated list of trusted DNS servers. DNS traffic is **only** allowed to these servers, preventing DNS-based data exfiltration. Both IPv4 and IPv6 addresses are supported.
+
+If omitted, DNS servers are **auto-detected from host resolvers** (e.g., `/run/systemd/resolve/resolv.conf` or `/etc/resolv.conf`). Falls back to Google DNS (`8.8.8.8`, `8.8.4.4`) only if auto-detection fails.
 
 ```bash
 # Use Cloudflare DNS
@@ -285,7 +289,7 @@ sudo awf --enable-host-access --allow-domains host.docker.internal \
 ```
 
 :::danger[Security Warning]
-When `--enable-host-access` is enabled, containers can access services on the host machine. Use `--allow-host-ports` to restrict which ports can be accessed. Without port restrictions, all ports are allowed by default (this will change in a future version).
+When `--enable-host-access` is enabled, containers can access services on the host machine. By default, only ports 80 and 443 are allowed. Use `--allow-host-ports` to allow additional ports.
 :::
 
 **See also:** [Host Access Configuration](/gh-aw-firewall/docs/usage/#host-access)
@@ -307,12 +311,8 @@ sudo awf --allow-domains localhost --allow-host-ports 3000 \
 ```
 
 **Default behavior:**
-- Without `--allow-host-ports`: Currently allows all ports (will default to 80,443 in future version)
-- With `--allow-host-ports`: Only specified ports are allowed
-
-:::tip[Best Practice]
-Always explicitly specify `--allow-host-ports` to ensure consistent behavior across versions.
-:::
+- Without `--allow-host-ports`: Only ports 80 and 443 are allowed
+- With `--allow-host-ports`: Only the specified ports are allowed
 
 ### `--proxy-logs-dir <path>`
 
