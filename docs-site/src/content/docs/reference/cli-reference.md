@@ -376,6 +376,49 @@ Custom images are validated against approved patterns to prevent supply chain at
 
 ## Subcommands
 
+### `awf predownload`
+
+Pre-download Docker images for offline use or faster startup. This pulls container images ahead of time so that subsequent `awf` runs can use `--skip-pull` to avoid network calls.
+
+```bash
+awf predownload [options]
+```
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--image-registry <registry>` | string | `ghcr.io/github/gh-aw-firewall` | Container image registry |
+| `--image-tag <tag>` | string | `latest` | Container image tag (applies to squid, agent, and api-proxy images) |
+| `--agent-image <value>` | string | `default` | Agent image preset (`default`, `act`) or custom image |
+| `--enable-api-proxy` | flag | `false` | Also download the API proxy image |
+
+:::tip
+After pre-downloading, use `--skip-pull` on subsequent runs to skip pulling images at runtime.
+:::
+
+#### Examples
+
+```bash
+# Pre-download default images (squid + agent)
+awf predownload
+
+# Pre-download including the API proxy image
+awf predownload --enable-api-proxy
+
+# Pre-download a specific version
+awf predownload --image-tag v0.3.0
+
+# Pre-download the act (GitHub Actions parity) agent image
+awf predownload --agent-image act
+
+# Use a custom registry
+awf predownload --image-registry ghcr.io/myorg/awf
+
+# After pre-downloading, run without pulling
+sudo awf --skip-pull --allow-domains github.com -- curl https://api.github.com
+```
+
 ### `awf logs`
 
 View Squid proxy logs from current or previous runs.
@@ -566,6 +609,69 @@ awf logs summary --format pretty
 | evil.com | 0 | 5 |
 
 </details>
+```
+
+### `awf logs audit`
+
+Show firewall audit with policy rule matching. Enriches log entries with the specific policy rule that caused each allow/deny decision.
+
+```bash
+awf logs audit [options]
+```
+
+:::caution
+The audit command requires a `policy-manifest.json` file alongside the log files. This file is generated when running `awf` with the `--audit-dir` option.
+:::
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--format <format>` | string | `pretty` | Output format: `json`, `markdown`, `pretty` |
+| `--source <path>` | string | auto | Path to log directory or `running` for live container |
+| `--rule <id>` | string | — | Filter to a specific rule ID |
+| `--domain <domain>` | string | — | Filter to a specific domain |
+| `--decision <decision>` | string | — | Filter to `allowed` or `denied` |
+
+#### Examples
+
+```bash
+# Show audit report with colorized terminal output
+awf logs audit
+
+# Show audit in JSON format
+awf logs audit --format json
+
+# Generate markdown audit report
+awf logs audit --format markdown
+
+# Filter to denied requests only
+awf logs audit --decision denied
+
+# Filter to a specific domain
+awf logs audit --domain github.com
+
+# Filter by rule ID
+awf logs audit --rule allow-both-plain
+
+# Use a specific log directory
+awf logs audit --source /tmp/squid-logs-1234567890
+```
+
+#### Example Output (Pretty)
+
+```
+Firewall Audit Report
+────────────────────────────────────────────────────────────
+
+Rule Evaluation:
+  allow-both-plain    allow  12 hits  Allow domain (HTTP+HTTPS)
+  default-deny        deny   3 hits   Default deny rule
+
+Denied Requests (3):
+  12:00:01.234  evil.com       → default-deny
+  12:00:02.567  malware.org    → default-deny
+  12:00:03.890  blocked.net    → default-deny
 ```
 
 ## See Also
