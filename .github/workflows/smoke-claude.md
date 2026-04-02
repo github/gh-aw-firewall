@@ -15,26 +15,17 @@ permissions:
 name: Smoke Claude
 engine:
   id: claude
-  max-turns: 15
+  max-turns: 8
 strict: true
-imports:
-  - shared/mcp-pagination.md
 network:
   allowed:
     - defaults
     - github
     - playwright
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
 tools:
-  cache-memory: true
   github:
     toolsets: [repos, pull_requests]
   playwright:
-    allowed_domains:
-      - github.com
-  edit:
   bash:
     - "*"
 safe-outputs:
@@ -87,6 +78,8 @@ post-steps:
 # Smoke Test: Claude Engine Validation
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+
+> Use `perPage: 2` when listing PRs.
 
 ## Test Requirements
 
