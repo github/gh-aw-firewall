@@ -1903,6 +1903,7 @@ program
     // process. GH Actions sends SIGTERM then SIGKILL ~10 s later; the full
     // docker compose down in performCleanup() is too slow to finish in that
     // window, leaving the container running as an orphan.
+    /* istanbul ignore next -- signal handlers cannot be unit-tested */
     process.on('SIGINT', async () => {
       if (containersStarted) {
         await fastKillAgentContainer();
@@ -1912,6 +1913,7 @@ program
       process.exit(130); // Standard exit code for SIGINT
     });
 
+    /* istanbul ignore next -- signal handlers cannot be unit-tested */
     process.on('SIGTERM', async () => {
       if (containersStarted) {
         await fastKillAgentContainer();
