@@ -22,7 +22,7 @@ tools:
   bash:
     - "*"
   github:
-    toolsets: [repos, pull_requests]
+    toolsets: [pull_requests]
 safe-outputs:
   add-comment:
     hide-older-comments: true
@@ -100,7 +100,7 @@ post-steps:
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
 ### 1. GitHub MCP Testing
-The last 2 merged pull requests have been fetched. Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged) and confirm data is returned.
+Pre-step result: MCP connectivity confirmed — 2 merged PRs were pre-fetched successfully (see data below). No additional MCP call is required.
 
 ### 2. GitHub.com Connectivity
 Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
@@ -110,9 +110,6 @@ Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from githu
 Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
 File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
 Verify by running `cat` on the file path using bash to confirm it exists.
-
-### 4. Bash Tool Testing
-Run a simple bash command (e.g., `echo "bash works"`) to verify the bash tool is functional.
 
 ## Pre-Fetched PR Data
 

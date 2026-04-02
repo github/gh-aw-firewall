@@ -244,6 +244,30 @@ for (const workflowPath of workflowPaths) {
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
   }
 
+  // Exclude unused Playwright/browser tools from Copilot CLI for smoke-copilot.
+  // The Copilot CLI includes 21 built-in browser_* tools when --allow-all-tools is set.
+  // These tools are never used in smoke-copilot but add ~10,500 tokens/turn of dead weight.
+  // We inject --excluded-tools after --allow-all-tools to suppress them.
+  const isCopilotSmoke = workflowPath.includes('smoke-copilot.lock.yml');
+  if (isCopilotSmoke) {
+    const excludedToolsFlag =
+      '--excluded-tools=browser_close,browser_resize,browser_console_messages,' +
+      'browser_handle_dialog,browser_evaluate,browser_file_upload,browser_fill_form,' +
+      'browser_press_key,browser_type,browser_navigate,browser_navigate_back,' +
+      'browser_network_requests,browser_run_code,browser_take_screenshot,' +
+      'browser_snapshot,browser_click,browser_drag,browser_hover,' +
+      'browser_select_option,browser_tabs,browser_wait_for';
+    const allowAllToolsCount = (content.match(/--allow-all-tools/g) || []).length;
+    if (allowAllToolsCount > 0 && !content.includes('--excluded-tools')) {
+      content = content.replace(
+        /--allow-all-tools/g,
+        `--allow-all-tools ${excludedToolsFlag}`
+      );
+      modified = true;
+      console.log(`  Injected --excluded-tools (21 browser tools) in ${allowAllToolsCount} location(s)`);
+    }
+  }
+
   // Remove unused "Setup Scripts" step from update_cache_memory jobs.
   // The step downloads a private action but is never used in these jobs,
   // causing 401 Unauthorized failures when permissions: {} is set.
