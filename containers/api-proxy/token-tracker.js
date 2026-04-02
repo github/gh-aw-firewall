@@ -279,8 +279,8 @@ function parseSseDataLines(text) {
  * Output fields:
  *   - input_tokens: number (from Anthropic input_tokens or OpenAI prompt_tokens)
  *   - output_tokens: number (from Anthropic output_tokens or OpenAI completion_tokens)
- *   - cache_read_tokens: number (Anthropic only, 0 for others)
- *   - cache_write_tokens: number (Anthropic only, 0 for others)
+ *   - cache_read_tokens: number (from Anthropic cache_read_input_tokens or OpenAI prompt_tokens_details.cached_tokens)
+ *   - cache_write_tokens: number (Anthropic cache_creation_input_tokens; not available in OpenAI format)
  */
 function normalizeUsage(usage) {
   if (!usage) return null;
