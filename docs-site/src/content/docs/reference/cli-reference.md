@@ -52,6 +52,16 @@ awf [options] -- <command>
 | `--enable-dind` | flag | `false` | Enable Docker-in-Docker by exposing host Docker socket |
 | `--enable-dlp` | flag | `false` | Enable DLP scanning to block credential exfiltration |
 | `--agent-image <value>` | string | `default` | Agent container image (default, act, or custom) |
+| `--enable-api-proxy` | flag | `false` | Enable API proxy sidecar for secure credential injection |
+| `--copilot-api-target <host>` | string | `api.githubcopilot.com` | Target hostname for Copilot API requests |
+| `--openai-api-target <host>` | string | `api.openai.com` | Target hostname for OpenAI API requests |
+| `--openai-api-base-path <path>` | string | — | Base path prefix for OpenAI API requests |
+| `--anthropic-api-target <host>` | string | `api.anthropic.com` | Target hostname for Anthropic API requests |
+| `--anthropic-api-base-path <path>` | string | — | Base path prefix for Anthropic API requests |
+| `--rate-limit-rpm <n>` | number | `600` | Max requests per minute per provider |
+| `--rate-limit-rph <n>` | number | `10000` | Max requests per hour per provider |
+| `--rate-limit-bytes-pm <n>` | number | `52428800` (~50 MB) | Max request bytes per minute per provider |
+| `--no-rate-limit` | flag | — | Disable rate limiting in API proxy |
 | `-V, --version` | flag | — | Display version |
 | `-h, --help` | flag | — | Display help |
 
@@ -573,6 +583,174 @@ sudo awf --enable-dlp --allow-domains github.com \
 Enable DLP scanning as a defense-in-depth measure when running untrusted code that has access to environment variables or files containing credentials.
 :::
 
+### `--enable-api-proxy`
+
+Enable the API proxy sidecar for secure credential injection. The sidecar is a Node.js proxy (`172.30.0.30`) that holds real API credentials so the agent never sees them. The agent sends unauthenticated requests to the sidecar, which injects the credentials and forwards the request through Squid to the upstream API.
+
+```bash
+# Enable with keys from environment
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+sudo -E awf --enable-api-proxy \
+  --allow-domains api.openai.com,api.anthropic.com \
+  -- command
+```
+
+**Required environment variables** (at least one):
+
+| Variable | Provider |
+|----------|----------|
+| `OPENAI_API_KEY` | OpenAI / Codex |
+| `ANTHROPIC_API_KEY` | Anthropic / Claude |
+| `COPILOT_GITHUB_TOKEN` | GitHub Copilot |
+
+**Sidecar ports:**
+
+| Port | Provider |
+|------|----------|
+| `10000` | OpenAI |
+| `10001` | Anthropic |
+| `10002` | GitHub Copilot |
+| `10004` | OpenCode |
+
+:::tip
+Use `sudo -E` to preserve environment variables like API keys through sudo.
+:::
+
+:::danger[Security]
+API keys are held exclusively in the sidecar container. The agent container receives only the sidecar proxy URL — never the actual credentials.
+:::
+
+### `--copilot-api-target <host>`
+
+Target hostname for GitHub Copilot API requests. Useful for GitHub Enterprise Server (GHES) deployments where the Copilot API endpoint differs from the public default. Can also be set via the `COPILOT_API_TARGET` environment variable.
+
+- **Default:** `api.githubcopilot.com`
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --copilot-api-target api.github.mycompany.com \
+  --allow-domains api.github.mycompany.com \
+  -- command
+```
+
+### `--openai-api-target <host>`
+
+Target hostname for OpenAI API requests. Useful for custom OpenAI-compatible endpoints such as Azure OpenAI, internal LLM routers, vLLM, or TGI. Can also be set via the `OPENAI_API_TARGET` environment variable.
+
+- **Default:** `api.openai.com`
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --openai-api-target llm-router.internal.example.com \
+  --allow-domains llm-router.internal.example.com \
+  -- command
+```
+
+### `--openai-api-base-path <path>`
+
+Base path prefix prepended to every upstream OpenAI API request path. Use this when the upstream endpoint requires a URL prefix (e.g., Databricks serving endpoints, Azure OpenAI deployments). Can also be set via the `OPENAI_API_BASE_PATH` environment variable.
+
+- **Default:** none
+- **Requires:** `--enable-api-proxy`
+
+```bash
+# Databricks serving endpoint
+sudo -E awf --enable-api-proxy \
+  --openai-api-target myworkspace.cloud.databricks.com \
+  --openai-api-base-path /serving-endpoints \
+  --allow-domains myworkspace.cloud.databricks.com \
+  -- command
+```
+
+### `--anthropic-api-target <host>`
+
+Target hostname for Anthropic API requests. Useful for custom Anthropic-compatible endpoints such as internal LLM routers. Can also be set via the `ANTHROPIC_API_TARGET` environment variable.
+
+- **Default:** `api.anthropic.com`
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --anthropic-api-target llm-router.internal.example.com \
+  --allow-domains llm-router.internal.example.com \
+  -- command
+```
+
+### `--anthropic-api-base-path <path>`
+
+Base path prefix prepended to every upstream Anthropic API request path. Use this when the upstream endpoint requires a URL prefix. Can also be set via the `ANTHROPIC_API_BASE_PATH` environment variable.
+
+- **Default:** none
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --anthropic-api-target custom-llm.example.com \
+  --anthropic-api-base-path /anthropic \
+  --allow-domains custom-llm.example.com \
+  -- command
+```
+
+### `--rate-limit-rpm <n>`
+
+Maximum number of requests per minute per provider. Rate limiting is opt-in — it is only enabled when at least one `--rate-limit-*` flag is provided.
+
+- **Default:** `600` (when rate limiting is enabled)
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --rate-limit-rpm 100 \
+  --allow-domains api.openai.com \
+  -- command
+```
+
+### `--rate-limit-rph <n>`
+
+Maximum number of requests per hour per provider.
+
+- **Default:** `10000` (when rate limiting is enabled)
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --rate-limit-rph 5000 \
+  --allow-domains api.anthropic.com \
+  -- command
+```
+
+### `--rate-limit-bytes-pm <n>`
+
+Maximum request bytes per minute per provider.
+
+- **Default:** `52428800` (~50 MB, when rate limiting is enabled)
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --rate-limit-bytes-pm 10485760 \
+  --allow-domains api.openai.com \
+  -- command
+```
+
+### `--no-rate-limit`
+
+Explicitly disable rate limiting in the API proxy, even if other `--rate-limit-*` flags are provided. Useful for overriding defaults in scripts or CI configurations.
+
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy --no-rate-limit \
+  --allow-domains api.anthropic.com \
+  -- command
+```
+
+:::caution
+When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF emits a warning if a custom target is set but not in the allowlist.
+:::
 
 ## Exit Codes
 
@@ -885,6 +1063,7 @@ Denied Requests (3):
 
 ## See Also
 
+- [API Proxy Sidecar](/gh-aw-firewall/reference/api-proxy-sidecar) - Secure credential injection architecture and configuration
 - [Domain Filtering Guide](/gh-aw-firewall/guides/domain-filtering) - Allowlists, blocklists, and wildcards
 - [SSL Bump Reference](/gh-aw-firewall/reference/ssl-bump/) - HTTPS content inspection and URL filtering
 - [Quick Start Guide](/gh-aw-firewall/quickstart) - Getting started with examples
