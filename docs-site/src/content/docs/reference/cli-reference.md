@@ -841,15 +841,18 @@ When `GITHUB_SERVER_URL` points to a `*.ghe.com` tenant (set automatically by Gi
 | `copilot-api.<tenant>.ghe.com` | Copilot inference |
 | `copilot-telemetry-service.<tenant>.ghe.com` | Copilot telemetry |
 
-Domains from `GITHUB_API_URL` (e.g., `https://api.<tenant>.ghe.com`) are also detected.
+Domains from `GITHUB_API_URL` are also detected — if `GITHUB_API_URL` points to a `*.ghe.com` hostname (e.g., `https://api.myorg.ghe.com`), that hostname is added to the allowlist as well. This ensures API access works even if only `GITHUB_API_URL` is set.
 
 ```bash
 # These environment variables are set automatically by GitHub Agentic Workflows
 # GITHUB_SERVER_URL=https://myorg.ghe.com
 # GITHUB_API_URL=https://api.myorg.ghe.com
 
-# AWF auto-adds: myorg.ghe.com, api.myorg.ghe.com,
-#   copilot-api.myorg.ghe.com, copilot-telemetry-service.myorg.ghe.com
+# AWF auto-adds:
+# - myorg.ghe.com
+# - api.myorg.ghe.com
+# - copilot-api.myorg.ghe.com
+# - copilot-telemetry-service.myorg.ghe.com
 sudo awf --allow-domains github.com -- copilot-agent
 ```
 
@@ -873,9 +876,12 @@ When `ENGINE_API_TARGET` is set (indicating a GHES environment), AWF auto-adds:
 # Set by GitHub Agentic Workflows on GHES
 # ENGINE_API_TARGET=https://api.github.mycompany.com
 
-# AWF auto-adds: github.mycompany.com, api.github.mycompany.com,
-#   api.githubcopilot.com, api.enterprise.githubcopilot.com,
-#   telemetry.enterprise.githubcopilot.com
+# AWF auto-adds:
+# - github.mycompany.com
+# - api.github.mycompany.com
+# - api.githubcopilot.com
+# - api.enterprise.githubcopilot.com
+# - telemetry.enterprise.githubcopilot.com
 sudo awf --allow-domains github.com -- copilot-agent
 ```
 
