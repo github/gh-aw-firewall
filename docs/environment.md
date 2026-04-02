@@ -102,9 +102,10 @@ The following environment variables are set internally by the firewall and used 
 | `AWF_DNS_SERVERS` | Comma-separated list of trusted DNS servers | `8.8.8.8,8.8.4.4` |
 | `AWF_CHROOT_ENABLED` | Whether chroot mode is enabled | `true` |
 | `AWF_HOST_PATH` | Host PATH passed to chroot environment | `/usr/local/bin:/usr/bin` |
+| `AWF_SESSION_STATE_DIR` | Directory for Copilot CLI session state output (equivalent to `--session-state-dir`) | *(unset)* |
 | `NO_PROXY` | Domains bypassing Squid (host access mode) | `localhost,host.docker.internal` |
 
-**Note:** These are set automatically based on CLI options and should not be overridden manually.
+**Note:** Most of these are set automatically based on CLI options and should not be overridden manually. `AWF_SESSION_STATE_DIR` is an exception — it is the environment-variable equivalent of `--session-state-dir` and can be set by users to configure a predictable session-state output path.
 
 ## GitHub Actions `setup-*` Tool Availability
 

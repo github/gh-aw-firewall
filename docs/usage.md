@@ -53,6 +53,9 @@ Options:
                                allowed to these servers (default: 8.8.8.8,8.8.4.4)
   --proxy-logs-dir <path>      Directory to save Squid proxy logs to (writes access.log directly to
                                this directory)
+  --session-state-dir <path>   Directory to save Copilot CLI session state (events.jsonl, session
+                               data). Writes directly during execution (timeout-safe, predictable
+                               path). Also configurable via AWF_SESSION_STATE_DIR env var.
   --enable-host-access         Enable access to host services via host.docker.internal. Security
                                warning: When combined with --allow-domains host.docker.internal,
                                containers can access ANY service on the host machine. (default: false)
@@ -847,9 +850,12 @@ sudo awf \
 
 **Agent Session State:**
 - Contains structured conversation data written by Copilot CLI (e.g., `events.jsonl`)
-- Location: `/tmp/awf-agent-session-state-<timestamp>/`
+- Default location: `/tmp/awf-agent-session-state-<timestamp>/`
 - View with: `cat /tmp/awf-agent-session-state-<timestamp>/events.jsonl`
 - Useful for triage dashboards, benchmarking, and debugging Copilot CLI runs
+- Use `--session-state-dir <path>` (or `AWF_SESSION_STATE_DIR`) to write session state to a
+  predictable path during execution — ideal for artifact upload in GitHub Actions where the
+  runner may time out before cleanup completes
 
 **Squid Logs:**
 - Contains all HTTP/HTTPS traffic (allowed and denied)
