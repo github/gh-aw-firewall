@@ -1,5 +1,5 @@
 ---
-description: Daily token usage analysis across agentic workflow runs — identifies trends, inefficiencies, and optimization opportunities
+description: Daily Copilot token usage analysis across agentic workflow runs — identifies trends, inefficiencies, and optimization opportunities
 on:
   schedule: daily
   workflow_dispatch:
@@ -14,20 +14,24 @@ permissions:
 imports:
   - shared/mcp-pagination.md
   - shared/reporting.md
+network:
+  allowed:
+    - github
+    - "*.blob.core.windows.net"
 tools:
   github:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
   create-issue:
-    title-prefix: "📊 Token Usage Report"
+    title-prefix: "📊 Copilot Token Usage Report"
     labels: [token-usage-report]
 timeout-minutes: 15
 ---
 
-# Daily Token Usage Analyzer
+# Daily Copilot Token Usage Analyzer
 
-You are an AI agent that analyzes token usage across agentic workflow runs in this repository. Your goal is to identify trends, highlight inefficiencies, and recommend optimizations to reduce AI inference costs.
+You are an AI agent that analyzes Copilot token usage across agentic workflow runs in this repository. Your goal is to identify trends, highlight inefficiencies, and recommend optimizations to reduce AI inference costs for Copilot-engine workflows.
 
 ## Background
 
@@ -60,13 +64,15 @@ Each line in `token-usage.jsonl` is a JSON object:
 
 ### Step 1: Discover Recent Workflow Runs
 
-Use `gh run list` via bash to find completed agentic workflow runs from the past 24 hours (or since the last token usage report issue). Focus on workflows that use the api-proxy:
+Use `gh run list` via bash to find completed agentic workflow runs from the past 24 hours (or since the last token usage report issue). Focus on **Copilot-engine workflows** that use the api-proxy:
 
-- `smoke-copilot`, `smoke-claude`, `smoke-codex`, `smoke-chroot`, `smoke-services`
-- `secret-digger-copilot`, `secret-digger-claude`, `secret-digger-codex`
-- `security-guard`, `security-review`
+- `smoke-copilot`, `smoke-chroot`, `smoke-services`
 - `build-test`, `ci-doctor`, `plan`
-- Any other workflow with `agent-artifacts`
+- `secret-digger-copilot`
+- `cli-flag-consistency-checker`, `doc-maintainer`
+- Any other Copilot-engine workflow with `agent-artifacts`
+
+**Note:** Claude-engine and Codex-engine workflows (e.g., `smoke-claude`, `smoke-codex`, `secret-digger-claude`, `secret-digger-codex`, `security-review`, `security-guard`) are excluded from this analysis to limit scope and keep within the time budget.
 
 Use bash to run:
 ```bash
@@ -81,7 +87,9 @@ gh run list --repo "$GITHUB_REPOSITORY" --limit 50 \
 
 ### Step 2: Download and Parse Token Usage Data
 
-For each discovered run, attempt to download the `agent-artifacts` artifact and extract `token-usage.jsonl`:
+For each discovered run, attempt to download the `agent-artifacts` artifact and extract `token-usage.jsonl`.
+
+**IMPORTANT:** Always use `gh run download` via bash — this is much faster than using MCP `get_job_logs` and the network is configured to allow artifact blob storage access.
 
 ```bash
 # Create temp directory
@@ -148,7 +156,7 @@ If previous reports exist, compare current metrics to identify:
 
 Create an issue with the following structure:
 
-#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Token Usage Report")
+#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Copilot Token Usage Report")
 
 #### Body structure:
 
@@ -212,6 +220,8 @@ The following workflows either don't use `--enable-api-proxy` or ran before toke
 
 ## Important Guidelines
 
+- **Time budget** — You have 15 minutes total. Spend at most 8 minutes on data collection (steps 1-2) and reserve the rest for analysis and issue creation. If artifact downloads are slow, limit to the 5 most recent runs.
+- **Prefer bash over MCP** for data collection — `gh run download` via bash is much faster than MCP `get_job_logs` for retrieving artifacts.
 - **Do NOT fail** if no token data is available. Create a minimal report explaining that token tracking is new and which workflows need instrumentation.
 - **Clean up** temporary directories after processing.
 - **Respect rate limits** — download artifacts one at a time, not in parallel.
