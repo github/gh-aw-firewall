@@ -3292,6 +3292,39 @@ describe('docker-manager', () => {
       // Should not throw
       await expect(cleanup(nonExistentDir, false)).resolves.not.toThrow();
     });
+
+    it('should preserve session state to /tmp when sessionStateDir is not specified', async () => {
+      const sessionStateDir = path.join(testDir, 'agent-session-state');
+      const sessionDir = path.join(sessionStateDir, 'abc-123');
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'events.jsonl'), '{"event":"test"}');
+
+      await cleanup(testDir, false);
+
+      // Verify session state was moved to timestamped /tmp directory
+      const timestamp = path.basename(testDir).replace('awf-', '');
+      const preservedDir = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
+      expect(fs.existsSync(preservedDir)).toBe(true);
+      expect(fs.existsSync(path.join(preservedDir, 'abc-123', 'events.jsonl'))).toBe(true);
+    });
+
+    it('should chmod session state in-place when sessionStateDir is specified', async () => {
+      const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-session-test-'));
+      const sessionStateDir = path.join(externalDir, 'session-state');
+      fs.mkdirSync(sessionStateDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionStateDir, 'events.jsonl'), '{"event":"test"}');
+
+      try {
+        await cleanup(testDir, false, undefined, undefined, sessionStateDir);
+
+        // Verify chmod was called on sessionStateDir (not moved)
+        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', sessionStateDir]);
+        // Files should remain in-place
+        expect(fs.existsSync(path.join(sessionStateDir, 'events.jsonl'))).toBe(true);
+      } finally {
+        fs.rmSync(externalDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('readGitHubPathEntries', () => {
