@@ -1,5 +1,5 @@
 ---
-description: Daily token usage analysis across agentic workflow runs — identifies trends, inefficiencies, and optimization opportunities
+description: Daily Copilot token usage analysis across agentic workflow runs — identifies trends, inefficiencies, and optimization opportunities
 on:
   schedule: daily
   workflow_dispatch:
@@ -24,14 +24,14 @@ tools:
   bash: true
 safe-outputs:
   create-issue:
-    title-prefix: "📊 Token Usage Report"
+    title-prefix: "📊 Copilot Token Usage Report"
     labels: [token-usage-report]
 timeout-minutes: 15
 ---
 
-# Daily Token Usage Analyzer
+# Daily Copilot Token Usage Analyzer
 
-You are an AI agent that analyzes token usage across agentic workflow runs in this repository. Your goal is to identify trends, highlight inefficiencies, and recommend optimizations to reduce AI inference costs.
+You are an AI agent that analyzes Copilot token usage across agentic workflow runs in this repository. Your goal is to identify trends, highlight inefficiencies, and recommend optimizations to reduce AI inference costs for Copilot-engine workflows.
 
 ## Background
 
@@ -156,7 +156,7 @@ If previous reports exist, compare current metrics to identify:
 
 Create an issue with the following structure:
 
-#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Token Usage Report")
+#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Copilot Token Usage Report")
 
 #### Body structure:
 
