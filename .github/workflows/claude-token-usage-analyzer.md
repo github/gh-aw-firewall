@@ -114,14 +114,14 @@ find "$TMPDIR/run-<RUN_ID>" -name "token-usage.jsonl" 2>/dev/null
 For each workflow that has token data, calculate:
 
 1. **Total tokens**: `input_tokens + output_tokens + cache_read_tokens + cache_write_tokens`
-2. **Billable tokens**: `input_tokens + output_tokens + cache_write_tokens` (cache reads are discounted)
+2. **Full-price tokens**: `input_tokens + output_tokens + cache_write_tokens` (excludes discounted cache reads; use **Estimated cost** below for true billed amount)
 3. **Input/output ratio**: `(input_tokens + cache_read_tokens) / output_tokens` (if `output_tokens == 0`, treat the ratio as `∞`/`N/A` and exclude that request from ratio averages to avoid division by zero)
 4. **Cache hit rate**: `cache_read_tokens / (cache_read_tokens + input_tokens) * 100`
 5. **Cache write rate**: `cache_write_tokens / (cache_read_tokens + input_tokens + cache_write_tokens) * 100`
 6. **Request count**: Number of records in the JSONL
 7. **Average latency**: Mean `duration_ms` per request
 8. **Model distribution**: Count of requests per model
-9. **Estimated cost** (use approximate rates):
+9. **Estimated cost** (sum all four token types at their respective rates — cache reads are discounted, not free):
    - Anthropic Sonnet: input $3/M, output $15/M, cache_read $0.30/M, cache_write $3.75/M
    - Anthropic Haiku: input $0.80/M, output $4/M, cache_read $0.08/M, cache_write $1/M
    - Anthropic Opus: input $15/M, output $75/M, cache_read $1.50/M, cache_write $18.75/M
