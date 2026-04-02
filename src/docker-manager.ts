@@ -1682,6 +1682,20 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     fs.chownSync(emptyHomeDir, uid, gid);
     logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
+    // Pre-create subdirectories inside the empty home volume so they exist with
+    // correct ownership after chroot. Without this, Docker auto-creates them as
+    // root-owned when mounting child volumes (e.g., .copilot/session-state),
+    // preventing user-level writes to sibling paths (e.g., .copilot/pkg).
+    const emptyHomeDirs = ['.copilot'];
+    for (const dir of emptyHomeDirs) {
+      const dirPath = path.join(emptyHomeDir, dir);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+        fs.chownSync(dirPath, uid, gid);
+        logger.debug(`Created chroot home subdirectory: ${dirPath} (${uid}:${gid})`);
+      }
+    }
+
     // Ensure source directories for subdirectory mounts exist with correct ownership
     const chrootHomeDirs = [
       '.copilot', '.cache', '.config', '.local',
