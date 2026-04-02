@@ -1905,7 +1905,7 @@ program
     // window, leaving the container running as an orphan.
     /* istanbul ignore next -- signal handlers cannot be unit-tested */
     process.on('SIGINT', async () => {
-      if (containersStarted) {
+      if (containersStarted && !config.keepContainers) {
         await fastKillAgentContainer();
       }
       await performCleanup('SIGINT');
@@ -1915,7 +1915,7 @@ program
 
     /* istanbul ignore next -- signal handlers cannot be unit-tested */
     process.on('SIGTERM', async () => {
-      if (containersStarted) {
+      if (containersStarted && !config.keepContainers) {
         await fastKillAgentContainer();
       }
       await performCleanup('SIGTERM');
