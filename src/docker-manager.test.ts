@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2947,6 +2947,42 @@ describe('docker-manager', () => {
       mockExecaFn.mockRejectedValueOnce(new Error('Docker compose down failed'));
 
       await expect(stopContainers(testDir, false)).rejects.toThrow('Docker compose down failed');
+    });
+  });
+
+  describe('fastKillAgentContainer', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should call docker stop with default 3-second timeout', async () => {
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await fastKillAgentContainer();
+
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        ['stop', '-t', '3', 'awf-agent'],
+        { reject: false, timeout: 8000 }
+      );
+    });
+
+    it('should accept a custom stop timeout', async () => {
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await fastKillAgentContainer(5);
+
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        ['stop', '-t', '5', 'awf-agent'],
+        { reject: false, timeout: 10000 }
+      );
+    });
+
+    it('should not throw when docker stop fails', async () => {
+      mockExecaFn.mockRejectedValueOnce(new Error('docker not found'));
+
+      await expect(fastKillAgentContainer()).resolves.toBeUndefined();
     });
   });
 
