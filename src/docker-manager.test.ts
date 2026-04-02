@@ -791,6 +791,15 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
+    it('should use sessionStateDir when specified for chroot mounts', () => {
+      const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
+      const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+      const homeDir = process.env.HOME || '/root';
+      expect(volumes).toContain(`/custom/session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`/custom/session-state:${homeDir}/.copilot/session-state:rw`);
+    });
+
     it('should add SYS_CHROOT and SYS_ADMIN capabilities but NOT NET_ADMIN', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
