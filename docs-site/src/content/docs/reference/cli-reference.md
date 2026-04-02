@@ -39,9 +39,13 @@ awf [options] -- <command>
 | `-v, --mount <host:container[:mode]>` | string | `[]` | Volume mount (repeatable) |
 | `--container-workdir <dir>` | string | User home | Working directory inside container |
 | `--dns-servers <servers>` | string | Auto-detected | Trusted DNS servers (comma-separated; auto-detected from host, falls back to `8.8.8.8,8.8.4.4`) |
+| `--dns-over-https [resolver-url]` | optional string | `https://dns.google/dns-query` | Enable DNS-over-HTTPS via sidecar proxy |
 | `--proxy-logs-dir <path>` | string | — | Directory to save Squid proxy logs to |
 | `--enable-host-access` | flag | `false` | Enable access to host services via host.docker.internal |
 | `--allow-host-ports <ports>` | string | `80,443` | Ports to allow when using --enable-host-access |
+| `--allow-host-service-ports <ports>` | string | — | Ports to allow ONLY to host gateway (for GitHub Actions `services:`) |
+| `--enable-dind` | flag | `false` | Enable Docker-in-Docker by exposing host Docker socket |
+| `--enable-dlp` | flag | `false` | Enable DLP scanning to block credential exfiltration |
 | `--agent-image <value>` | string | `default` | Agent container image (default, act, or custom) |
 | `-V, --version` | flag | — | Display version |
 | `-h, --help` | flag | — | Display help |
@@ -278,6 +282,25 @@ Docker's embedded DNS (127.0.0.11) is always allowed for container name resoluti
 AWF always runs in chroot mode, making the host filesystem appear as the root filesystem inside the container. This provides transparent access to host-installed binaries (Python, Node.js, Go, etc.) while maintaining network isolation. See [Chroot Mode Documentation](/gh-aw-firewall/docs/chroot-mode/) for details.
 :::
 
+### `--dns-over-https [resolver-url]`
+
+Enable DNS-over-HTTPS (DoH) via a sidecar proxy. When enabled, DNS queries are encrypted and sent over HTTPS instead of plaintext UDP, preventing DNS-based traffic inspection or tampering.
+
+```bash
+# Use default resolver (Google DNS)
+--dns-over-https
+
+# Use a custom resolver
+--dns-over-https https://cloudflare-dns.com/dns-query
+```
+
+- **Default resolver**: `https://dns.google/dns-query`
+- **Requirement**: Resolver URL must start with `https://`
+
+:::tip
+Use `--dns-over-https` without a value to use the Google DNS default. Provide a custom URL only if your environment requires a specific resolver.
+:::
+
 ### `--enable-host-access`
 
 Enable access to host services via `host.docker.internal`. This allows containers to connect to services running on the host machine (e.g., local development servers, MCP gateways).
@@ -313,6 +336,33 @@ sudo awf --allow-domains localhost --allow-host-ports 3000 \
 **Default behavior:**
 - Without `--allow-host-ports`: Only ports 80 and 443 are allowed
 - With `--allow-host-ports`: Only the specified ports are allowed
+
+### `--allow-host-service-ports <ports>`
+
+Comma-separated ports to allow **only** to the host gateway (`host.docker.internal`). Designed for GitHub Actions `services:` containers (e.g., PostgreSQL, Redis) whose ports are exposed to the host gateway.
+
+```bash
+# Allow PostgreSQL and Redis on host gateway
+sudo awf --allow-host-service-ports 5432,6379 \
+  --allow-domains github.com \
+  -- python run_tests.py
+```
+
+**Key differences from `--allow-host-ports`:**
+
+| | `--allow-host-ports` | `--allow-host-service-ports` |
+|---|---|---|
+| **Scope** | General host access | Host gateway only |
+| **Dangerous ports** | Blocked (SSH, SMTP, etc.) | Allowed (restricted to host) |
+| **Requires `--enable-host-access`** | Yes | No (auto-enables it) |
+| **Use case** | Local dev servers | GitHub Actions `services:` |
+
+- **Auto-enables host access**: No need to also pass `--enable-host-access`
+- **Bypasses dangerous port restrictions**: Ports like 5432 (PostgreSQL) and 6379 (Redis) are normally blocked when using `--allow-host-ports` to prevent unintended database access, but are safe with `--allow-host-service-ports` because traffic is restricted to the host gateway only
+
+:::danger[Security Warning]
+Allowing port 22 grants SSH access to the host machine. Only allow ports for services you explicitly need.
+:::
 
 ### `--proxy-logs-dir <path>`
 
@@ -363,6 +413,32 @@ Custom images are validated against approved patterns to prevent supply chain at
 :::
 
 **See also:** [Agent Images Reference](/gh-aw-firewall/reference/agent-images/)
+
+### `--enable-dind`
+
+Enable Docker-in-Docker by mounting the host Docker socket (`/var/run/docker.sock`) into the agent container. This allows the agent to run Docker commands.
+
+```bash
+sudo awf --enable-dind --allow-domains github.com \
+  -- docker run hello-world
+```
+
+:::danger[Security Warning]
+Enabling Docker-in-Docker allows the agent to **bypass all firewall restrictions** by spawning new containers that are not subject to the firewall's network rules. Only enable this when you trust the command being executed and Docker access is required.
+:::
+
+### `--enable-dlp`
+
+Enable Data Loss Prevention (DLP) scanning on outbound requests. When enabled, the firewall inspects outbound request URLs for patterns that match common credentials (API keys, tokens, passwords) and blocks requests that appear to exfiltrate secrets.
+
+```bash
+sudo awf --enable-dlp --allow-domains github.com \
+  -- python my_script.py
+```
+
+:::tip
+Enable DLP scanning as a defense-in-depth measure when running untrusted code that has access to environment variables or files containing credentials.
+:::
 
 
 ## Exit Codes
