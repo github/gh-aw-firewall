@@ -222,6 +222,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
+          GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
           GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
           GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}

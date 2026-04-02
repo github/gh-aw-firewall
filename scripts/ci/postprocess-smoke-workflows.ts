@@ -257,8 +257,15 @@ for (const workflowPath of workflowPaths) {
       'browser_network_requests,browser_run_code,browser_take_screenshot,' +
       'browser_snapshot,browser_click,browser_drag,browser_hover,' +
       'browser_select_option,browser_tabs,browser_wait_for';
+    // First, strip any existing --excluded-tools flag to make this idempotent
+    const existingExcludedRegex = / --excluded-tools=[^\s'"]*/g;
+    const existingMatches = content.match(existingExcludedRegex);
+    if (existingMatches) {
+      content = content.replace(existingExcludedRegex, '');
+      console.log(`  Removed ${existingMatches.length} existing --excluded-tools flag(s)`);
+    }
     const allowAllToolsCount = (content.match(/--allow-all-tools/g) || []).length;
-    if (allowAllToolsCount > 0 && !content.includes('--excluded-tools')) {
+    if (allowAllToolsCount > 0) {
       content = content.replace(
         /--allow-all-tools/g,
         `--allow-all-tools ${excludedToolsFlag}`
