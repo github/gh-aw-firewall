@@ -205,21 +205,40 @@ sudo awf \
     --prompt "Search for papers"
 ```
 
+## Protocol-specific filtering
+
+Restrict domains to HTTP-only or HTTPS-only traffic by prefixing with the protocol:
+
+```bash
+# HTTPS only - blocks HTTP traffic to this domain
+sudo awf --allow-domains 'https://secure.example.com' -- curl https://secure.example.com
+
+# HTTP only - blocks HTTPS traffic to this domain
+sudo awf --allow-domains 'http://legacy-api.example.com' -- curl http://legacy-api.example.com
+
+# Both protocols (default, no prefix)
+sudo awf --allow-domains 'example.com' -- curl https://example.com
+```
+
+| Format | HTTP | HTTPS |
+|--------|------|-------|
+| `domain.com` | ✓ | ✓ |
+| `https://domain.com` | ✗ | ✓ |
+| `http://domain.com` | ✓ | ✗ |
+
+Protocol prefixes work with wildcard patterns: `https://*.secure.example.com` matches only HTTPS traffic to any subdomain of `secure.example.com`.
+
 ## Normalization
 
 Domains are normalized before matching:
 
 - **Case-insensitive**: `GitHub.COM` = `github.com`
-- **Whitespace trimmed**: `" github.com "` = `github.com`  
+- **Whitespace trimmed**: `" github.com "` = `github.com`
 - **Trailing dots removed**: `github.com.` = `github.com`
-- **Protocols stripped**: `https://github.com` = `github.com`
 
-```bash
-# These are all equivalent
---allow-domains github.com
---allow-domains " GitHub.COM. "
---allow-domains "https://github.com"
-```
+:::note
+Protocol prefixes (`http://`, `https://`) are **not** stripped — they enable [protocol-specific filtering](#protocol-specific-filtering). A bare domain (no prefix) allows both HTTP and HTTPS.
+:::
 
 ## Debugging domain filtering
 
@@ -259,5 +278,6 @@ awf logs --format json | jq 'select(.isAllowed == false)'
 
 ## See also
 
-- [CLI Reference](/gh-aw-firewall/reference/cli-reference) - Complete option documentation
+- [CLI Reference](/gh-aw-firewall/reference/cli-reference) - Complete option documentation including implicit behaviors
+- [Playwright Testing](/gh-aw-firewall/guides/playwright-testing) - Using the `localhost` keyword for local development
 - [Security Architecture](/gh-aw-firewall/reference/security-architecture) - How filtering works

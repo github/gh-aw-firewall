@@ -69,7 +69,7 @@ awf [options] -- <command>
 
 ### `--allow-domains <domains>`
 
-Comma-separated list of allowed domains. Domains automatically match all subdomains. Supports wildcard patterns and protocol-specific filtering.
+Comma-separated list of allowed domains. Domains automatically match all subdomains. Supports wildcard patterns, protocol-specific filtering, and special keywords.
 
 **If no domains are specified, all network access is blocked.** This is useful for running commands that should have no network access.
 
@@ -82,7 +82,7 @@ Comma-separated list of allowed domains. Domains automatically match all subdoma
 awf -- echo "offline command"
 ```
 
-#### Protocol-Specific Filtering
+#### Protocol-specific filtering
 
 Restrict domains to HTTP-only or HTTPS-only traffic by prefixing with the protocol:
 
@@ -93,7 +93,7 @@ Restrict domains to HTTP-only or HTTPS-only traffic by prefixing with the protoc
 # HTTP only - blocks HTTPS traffic to this domain
 --allow-domains 'http://legacy-api.example.com'
 
-# Both protocols (default behavior, backward compatible)
+# Both protocols (default behavior)
 --allow-domains 'example.com'
 
 # Mixed configuration
@@ -102,6 +102,78 @@ Restrict domains to HTTP-only or HTTPS-only traffic by prefixing with the protoc
 # Works with wildcards
 --allow-domains 'https://*.secure.example.com'
 ```
+
+| Format | HTTP | HTTPS | Example |
+|--------|------|-------|---------|
+| `domain.com` | ✓ | ✓ | `--allow-domains example.com` |
+| `https://domain.com` | ✗ | ✓ | `--allow-domains 'https://api.example.com'` |
+| `http://domain.com` | ✓ | ✗ | `--allow-domains 'http://legacy.example.com'` |
+
+:::tip
+Bare domains (without protocol prefix) allow both HTTP and HTTPS. Use protocol prefixes to restrict to a single protocol.
+:::
+
+#### Wildcard patterns
+
+Use `*` to match multiple domains:
+
+```bash
+# Match any subdomain
+--allow-domains '*.github.com'
+
+# Match prefix patterns within a subdomain label
+--allow-domains 'api-*.example.com'
+
+# Combine plain domains and wildcards
+--allow-domains 'github.com,*.googleapis.com,api-*.example.com'
+```
+
+:::caution
+Use quotes around patterns to prevent shell expansion of `*`.
+:::
+
+| Pattern | Matches | Does Not Match |
+|---------|---------|----------------|
+| `*.github.com` | `api.github.com`, `raw.github.com` | `github.com` |
+| `api-*.example.com` | `api-v1.example.com`, `api-test.example.com` | `api.example.com` |
+| `github.com` | `github.com`, `api.github.com` | `notgithub.com` |
+
+**Security restrictions:** Overly broad patterns like `*`, `*.*`, or `*.*.*` are rejected.
+
+:::note
+Wildcard patterns and protocol prefixes can be combined: `https://*.secure.example.com` matches only HTTPS traffic to any subdomain of `secure.example.com`.
+:::
+
+#### `localhost` keyword
+
+Using `localhost` in `--allow-domains` triggers special behavior for local development:
+
+```bash
+# Automatically configures everything for local testing
+sudo awf --allow-domains localhost -- npx playwright test
+```
+
+When `localhost` is detected, awf automatically:
+
+1. **Replaces `localhost` with `host.docker.internal`** — Maps to Docker's host gateway so containers can reach host services
+2. **Enables `--enable-host-access`** — Activates host network access (equivalent to passing `--enable-host-access`)
+3. **Allows common development ports** — Opens ports 3000, 3001, 4000, 4200, 5000, 5173, 8000, 8080, 8081, 8888, 9000, 9090
+
+Protocol prefixes are preserved: `http://localhost` becomes `http://host.docker.internal` and `https://localhost` becomes `https://host.docker.internal`.
+
+```bash
+# Override the default ports
+sudo awf --allow-domains localhost --allow-host-ports 3000,8080 -- npx playwright test
+
+# Combine with other domains
+sudo awf --allow-domains localhost,github.com -- npx playwright test
+```
+
+:::caution
+The `localhost` keyword enables access to services running on your host machine. Only use it for trusted workloads like local testing and development.
+:::
+
+**See also:** [Playwright Testing with Localhost](/gh-aw-firewall/guides/playwright-testing) for detailed examples.
 
 ### `--allow-domains-file <path>`
 
@@ -752,6 +824,65 @@ sudo -E awf --enable-api-proxy --no-rate-limit \
 When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF emits a warning if a custom target is set but not in the allowlist.
 :::
 
+## Implicit Behaviors
+
+### Enterprise domain auto-detection
+
+AWF automatically detects GitHub Enterprise environments and adds required domains to the allowlist. No manual configuration is needed — the domains are auto-added when the relevant environment variables are present.
+
+#### GitHub Enterprise Cloud (GHEC)
+
+When `GITHUB_SERVER_URL` points to a `*.ghe.com` tenant (set automatically by GitHub Agentic Workflows), AWF auto-adds:
+
+| Auto-added Domain | Purpose |
+|-------------------|---------|
+| `<tenant>.ghe.com` | Enterprise tenant |
+| `api.<tenant>.ghe.com` | API access |
+| `copilot-api.<tenant>.ghe.com` | Copilot inference |
+| `copilot-telemetry-service.<tenant>.ghe.com` | Copilot telemetry |
+
+Domains from `GITHUB_API_URL` (e.g., `https://api.<tenant>.ghe.com`) are also detected.
+
+```bash
+# These environment variables are set automatically by GitHub Agentic Workflows
+# GITHUB_SERVER_URL=https://myorg.ghe.com
+# GITHUB_API_URL=https://api.myorg.ghe.com
+
+# AWF auto-adds: myorg.ghe.com, api.myorg.ghe.com,
+#   copilot-api.myorg.ghe.com, copilot-telemetry-service.myorg.ghe.com
+sudo awf --allow-domains github.com -- copilot-agent
+```
+
+:::note
+Public `github.com` is not auto-added — it must be specified explicitly in `--allow-domains`.
+:::
+
+#### GitHub Enterprise Server (GHES)
+
+When `ENGINE_API_TARGET` is set (indicating a GHES environment), AWF auto-adds:
+
+| Auto-added Domain | Purpose |
+|-------------------|---------|
+| `github.<company>.com` | GHES base domain (extracted from API URL) |
+| `api.github.<company>.com` | GHES API access |
+| `api.githubcopilot.com` | Copilot API (cloud-hosted) |
+| `api.enterprise.githubcopilot.com` | Enterprise Copilot API |
+| `telemetry.enterprise.githubcopilot.com` | Enterprise Copilot telemetry |
+
+```bash
+# Set by GitHub Agentic Workflows on GHES
+# ENGINE_API_TARGET=https://api.github.mycompany.com
+
+# AWF auto-adds: github.mycompany.com, api.github.mycompany.com,
+#   api.githubcopilot.com, api.enterprise.githubcopilot.com,
+#   telemetry.enterprise.githubcopilot.com
+sudo awf --allow-domains github.com -- copilot-agent
+```
+
+:::tip
+Use `--log-level debug` to see which enterprise domains were auto-detected. Look for "Auto-added GHEC domains" or "Auto-added GHES domains" in the output.
+:::
+
 ## Exit Codes
 
 | Code | Description |
@@ -1064,7 +1195,8 @@ Denied Requests (3):
 ## See Also
 
 - [API Proxy Sidecar](/gh-aw-firewall/reference/api-proxy-sidecar) - Secure credential injection architecture and configuration
-- [Domain Filtering Guide](/gh-aw-firewall/guides/domain-filtering) - Allowlists, blocklists, and wildcards
+- [Domain Filtering Guide](/gh-aw-firewall/guides/domain-filtering) - Allowlists, blocklists, wildcards, and protocol-specific filtering
+- [Playwright Testing](/gh-aw-firewall/guides/playwright-testing) - Using the `localhost` keyword for local development
 - [SSL Bump Reference](/gh-aw-firewall/reference/ssl-bump/) - HTTPS content inspection and URL filtering
 - [Quick Start Guide](/gh-aw-firewall/quickstart) - Getting started with examples
 - [Usage Guide](/gh-aw-firewall/usage) - Detailed usage patterns and examples
