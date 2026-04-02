@@ -784,7 +784,11 @@ describe('docker-manager', () => {
       // CLI state directories
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
-      expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
+      // ~/.copilot is NOT blanket-mounted (security: may contain config/auth state)
+      // Instead, session-state and logs are mounted from AWF workDir at chroot paths
+      expect(volumes).not.toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
+      expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
     it('should add SYS_CHROOT and SYS_ADMIN capabilities but NOT NET_ADMIN', () => {

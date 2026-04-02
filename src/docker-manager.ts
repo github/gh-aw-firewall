@@ -832,9 +832,14 @@ export function generateDockerCompose(
     // - One-shot token LD_PRELOAD library: /host/tmp/awf-lib/one-shot-token.so
     agentVolumes.push('/tmp:/host/tmp:rw');
 
-    // Mount ~/.copilot for GitHub Copilot CLI (package extraction, config, logs)
-    // This is safe as ~/.copilot contains only Copilot CLI state, not credentials
-    agentVolumes.push(`${effectiveHome}/.copilot:/host${effectiveHome}/.copilot:rw`);
+    // Mount AWF workDir session-state and logs at chroot paths so events.jsonl and
+    // logs are captured in the AWF workDir (not written to the host's ~/.copilot).
+    // We intentionally do NOT mount the entire ~/.copilot directory, because it may
+    // contain configuration or cached auth state that should not be exposed to the
+    // sandboxed agent. The empty home volume (above) provides a writable ~/.copilot
+    // for Copilot CLI to create any other files it needs.
+    agentVolumes.push(`${config.workDir}/agent-session-state:/host${effectiveHome}/.copilot/session-state:rw`);
+    agentVolumes.push(`${config.workDir}/agent-logs:/host${effectiveHome}/.copilot/logs:rw`);
 
     // Mount ~/.cache, ~/.config, ~/.local for CLI tool state management (Claude Code, etc.)
     // These directories are safe to mount as they contain application state, not credentials
@@ -1017,7 +1022,7 @@ export function generateDockerCompose(
   //
   // Instead of mounting the entire $HOME directory (which contained credentials), we now:
   // 1. Mount ONLY the workspace directory ($GITHUB_WORKSPACE or cwd)
-  // 2. Mount ~/.copilot/logs separately for Copilot CLI logging
+  // 2. Mount ~/.copilot/logs and ~/.copilot/session-state from AWF workDir (not host)
   // 3. Hide credential files by mounting /dev/null over them (defense-in-depth)
   // 4. Allow users to add specific mounts via --mount flag
   //
