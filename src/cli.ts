@@ -14,6 +14,7 @@ import {
   stopContainers,
   cleanup,
   preserveIptablesAudit,
+  fastKillAgentContainer,
 } from './docker-manager';
 import {
   ensureFirewallNetwork,
@@ -1898,13 +1899,23 @@ program
     };
 
     // Register signal handlers
+    // Fast-kill the agent container immediately so it cannot outlive the awf
+    // process. GH Actions sends SIGTERM then SIGKILL ~10 s later; the full
+    // docker compose down in performCleanup() is too slow to finish in that
+    // window, leaving the container running as an orphan.
     process.on('SIGINT', async () => {
+      if (containersStarted) {
+        await fastKillAgentContainer();
+      }
       await performCleanup('SIGINT');
       console.error(`Process exiting with code: 130`);
       process.exit(130); // Standard exit code for SIGINT
     });
 
     process.on('SIGTERM', async () => {
+      if (containersStarted) {
+        await fastKillAgentContainer();
+      }
       await performCleanup('SIGTERM');
       console.error(`Process exiting with code: 143`);
       process.exit(143); // Standard exit code for SIGTERM

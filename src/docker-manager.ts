@@ -2109,6 +2109,27 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
 }
 
 /**
+ * Fast-kills the agent container with a short grace period.
+ * Used in signal handlers (SIGTERM/SIGINT) to ensure the agent cannot outlive
+ * the awf process — e.g. when GH Actions sends SIGTERM followed by SIGKILL
+ * after ~10 seconds. The full `docker compose down -v` in stopContainers() is
+ * too slow to reliably complete in that window.
+ *
+ * @param stopTimeoutSeconds - Grace period before SIGKILL (default: 3)
+ */
+export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<void> {
+  try {
+    await execa('docker', ['stop', '-t', String(stopTimeoutSeconds), 'awf-agent'], {
+      reject: false,
+      timeout: (stopTimeoutSeconds + 5) * 1000, // hard deadline on the stop command itself
+    });
+  } catch {
+    // Best-effort — if docker CLI is unavailable or hangs, we still proceed
+    // to performCleanup which will attempt docker compose down.
+  }
+}
+
+/**
  * Stops and removes Docker Compose services
  */
 export async function stopContainers(workDir: string, keepContainers: boolean): Promise<void> {
