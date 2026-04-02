@@ -3185,6 +3185,31 @@ describe('docker-manager', () => {
 
       jest.useRealTimers();
     });
+
+    it('should skip post-run analysis when agent was externally killed', async () => {
+      // Create access.log with denied entries — these should be ignored
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 blocked.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE blocked.com:443 "curl/7.81.0"\n'
+      );
+
+      // Simulate fastKillAgentContainer having been called
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // fastKill docker stop
+      await fastKillAgentContainer();
+
+      // Mock docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // Mock docker wait — container was stopped externally, returns 143
+      mockExecaFn.mockResolvedValueOnce({ stdout: '143', stderr: '', exitCode: 0 } as any);
+
+      const result = await runAgentCommand(testDir, ['github.com']);
+
+      // Should return 143 and skip log analysis (empty blockedDomains)
+      expect(result.exitCode).toBe(143);
+      expect(result.blockedDomains).toEqual([]);
+    });
   });
 
   describe('cleanup', () => {
