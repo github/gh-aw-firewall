@@ -179,10 +179,19 @@ for (const workflowPath of workflowPaths) {
     if (!installMatch) continue;
 
     // Walk backwards to find the job boundary (non-indented key ending with ':')
-    // and check whether a "Checkout repository" step exists in between.
+    // and check whether an *unconditional* "Checkout repository" step exists in
+    // between. Conditional checkouts (e.g. "Checkout repository for patch context"
+    // with an `if:` guard) don't guarantee the repo is available, so we still
+    // need to inject one.
     let hasCheckout = false;
     for (let j = i - 1; j >= 0; j--) {
       if (/^\s+- name: Checkout repository/.test(lines[j])) {
+        // Check if this checkout step has an `if:` condition (next line)
+        const nextLine = j + 1 < lines.length ? lines[j + 1] : '';
+        if (/^\s+if:/.test(nextLine)) {
+          // Conditional checkout — doesn't count, keep searching
+          continue;
+        }
         hasCheckout = true;
         break;
       }
