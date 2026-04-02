@@ -3,9 +3,6 @@ description: Daily Copilot token usage analysis across agentic workflow runs —
 on:
   schedule: daily
   workflow_dispatch:
-  skip-if-match:
-    query: 'is:issue is:open label:token-usage-report'
-    max: 1
 permissions:
   contents: read
   actions: read
@@ -26,6 +23,7 @@ safe-outputs:
   create-issue:
     title-prefix: "📊 Copilot Token Usage Report"
     labels: [token-usage-report]
+    close-older-issues: true
 timeout-minutes: 15
 ---
 
