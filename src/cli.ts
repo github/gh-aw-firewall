@@ -1642,7 +1642,7 @@ program
         // Reject characters that could inject Squid config directives or tokens
         if (SQUID_DANGEROUS_CHARS.test(url)) {
           logger.error(`URL pattern contains characters unsafe for Squid config: ${JSON.stringify(url)}`);
-          logger.error('URL patterns must not contain whitespace, quotes, semicolons, backticks, hash characters, backslashes, or null bytes.');
+          logger.error('URL patterns must not contain whitespace, quotes, semicolons, backticks, hash characters, or null bytes.');
           process.exit(1);
         }
 
