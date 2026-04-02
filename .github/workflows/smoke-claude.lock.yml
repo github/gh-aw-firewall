@@ -22,7 +22,7 @@
 #
 # Smoke test workflow that validates Claude engine functionality by reviewing recent PRs twice daily
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"57cd20e78a38f7087f38b1db0825b44ac560da7556cbbc0c564493b855df6758","compiler_version":"v0.65.5","strict":true,"agent_id":"claude"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"5fcf29fa5f79605e779505fe6d96f1f0f166f81a9b1c2ea525561356d6edc497","compiler_version":"v0.65.5","strict":true,"agent_id":"claude"}
 
 name: "Smoke Claude"
 "on":
@@ -33,7 +33,7 @@ name: "Smoke Claude"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "30 */12 * * *"
+  - cron: "53 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:
@@ -70,7 +70,7 @@ jobs:
       title: ${{ steps.sanitized.outputs.title }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw-actions/setup@v0.65.5
+        uses: github/gh-aw-actions/setup@15b2fa31e9a1b771c9773c162273924d8f5ea516 # v0.65.5
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
       - name: Generate agentic run info
@@ -168,15 +168,15 @@ jobs:
         run: |
           bash ${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh
           {
-          cat << 'GH_AW_PROMPT_79abd9dcacde2945_EOF'
+          cat << 'GH_AW_PROMPT_8bdc0e8acce16dea_EOF'
           <system>
-          GH_AW_PROMPT_79abd9dcacde2945_EOF
+          GH_AW_PROMPT_8bdc0e8acce16dea_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/playwright_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_79abd9dcacde2945_EOF'
+          cat << 'GH_AW_PROMPT_8bdc0e8acce16dea_EOF'
           <safe-output-tools>
           Tools: add_comment, add_labels, missing_tool, missing_data, noop
           </safe-output-tools>
@@ -208,12 +208,12 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_79abd9dcacde2945_EOF
+          GH_AW_PROMPT_8bdc0e8acce16dea_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_79abd9dcacde2945_EOF'
+          cat << 'GH_AW_PROMPT_8bdc0e8acce16dea_EOF'
           </system>
           {{#runtime-import .github/workflows/smoke-claude.md}}
-          GH_AW_PROMPT_79abd9dcacde2945_EOF
+          GH_AW_PROMPT_8bdc0e8acce16dea_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -302,7 +302,7 @@ jobs:
       output_types: ${{ steps.collect_output.outputs.output_types }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw-actions/setup@v0.65.5
+        uses: github/gh-aw-actions/setup@15b2fa31e9a1b771c9773c162273924d8f5ea516 # v0.65.5
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
       - name: Set runtime paths
@@ -396,12 +396,12 @@ jobs:
           mkdir -p ${RUNNER_TEMP}/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_e5b35b7c3d6a1c58_EOF'
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_ceabe5de5b9735e6_EOF'
           {"add_comment":{"hide_older_comments":true,"max":1},"add_labels":{"allowed":["smoke-claude"]},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_e5b35b7c3d6a1c58_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_ceabe5de5b9735e6_EOF
       - name: Write Safe Outputs Tools
         run: |
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/tools_meta.json << 'GH_AW_SAFE_OUTPUTS_TOOLS_META_e9f93d239b321788_EOF'
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/tools_meta.json << 'GH_AW_SAFE_OUTPUTS_TOOLS_META_db7f3227f8d345bb_EOF'
           {
             "description_suffixes": {
               "add_comment": " CONSTRAINTS: Maximum 1 comment(s) can be added.",
@@ -410,8 +410,8 @@ jobs:
             "repo_params": {},
             "dynamic_tools": []
           }
-          GH_AW_SAFE_OUTPUTS_TOOLS_META_e9f93d239b321788_EOF
-          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/validation.json << 'GH_AW_SAFE_OUTPUTS_VALIDATION_8685db7b74ba5c0f_EOF'
+          GH_AW_SAFE_OUTPUTS_TOOLS_META_db7f3227f8d345bb_EOF
+          cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/validation.json << 'GH_AW_SAFE_OUTPUTS_VALIDATION_f0616392a6e45779_EOF'
           {
             "add_comment": {
               "defaultMax": 1,
@@ -508,7 +508,7 @@ jobs:
               }
             }
           }
-          GH_AW_SAFE_OUTPUTS_VALIDATION_8685db7b74ba5c0f_EOF
+          GH_AW_SAFE_OUTPUTS_VALIDATION_f0616392a6e45779_EOF
           node ${RUNNER_TEMP}/gh-aw/actions/generate_safe_outputs_tools.cjs
       - name: Generate Safe Outputs MCP Server Config
         id: safe-outputs-config
@@ -576,7 +576,7 @@ jobs:
           export GH_AW_ENGINE="claude"
           export MCP_GATEWAY_DOCKER_COMMAND='docker run -i --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -e MCP_GATEWAY_PORT -e MCP_GATEWAY_DOMAIN -e MCP_GATEWAY_API_KEY -e MCP_GATEWAY_PAYLOAD_DIR -e MCP_GATEWAY_PAYLOAD_SIZE_THRESHOLD -e DEBUG -e MCP_GATEWAY_LOG_DIR -e GH_AW_MCP_LOG_DIR -e GH_AW_SAFE_OUTPUTS -e GH_AW_SAFE_OUTPUTS_CONFIG_PATH -e GH_AW_SAFE_OUTPUTS_TOOLS_PATH -e GH_AW_ASSETS_BRANCH -e GH_AW_ASSETS_MAX_SIZE_KB -e GH_AW_ASSETS_ALLOWED_EXTS -e DEFAULT_BRANCH -e GITHUB_MCP_SERVER_TOKEN -e GITHUB_MCP_GUARD_MIN_INTEGRITY -e GITHUB_MCP_GUARD_REPOS -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_SHA -e GITHUB_WORKSPACE -e GITHUB_TOKEN -e GITHUB_RUN_ID -e GITHUB_RUN_NUMBER -e GITHUB_RUN_ATTEMPT -e GITHUB_JOB -e GITHUB_ACTION -e GITHUB_EVENT_NAME -e GITHUB_EVENT_PATH -e GITHUB_ACTOR -e GITHUB_ACTOR_ID -e GITHUB_TRIGGERING_ACTOR -e GITHUB_WORKFLOW -e GITHUB_WORKFLOW_REF -e GITHUB_WORKFLOW_SHA -e GITHUB_REF -e GITHUB_REF_NAME -e GITHUB_REF_TYPE -e GITHUB_HEAD_REF -e GITHUB_BASE_REF -e GH_AW_SAFE_OUTPUTS_PORT -e GH_AW_SAFE_OUTPUTS_API_KEY -v /tmp/gh-aw/mcp-payloads:/tmp/gh-aw/mcp-payloads:rw -v /opt:/opt:ro -v /tmp:/tmp:rw -v '"${GITHUB_WORKSPACE}"':'"${GITHUB_WORKSPACE}"':rw ghcr.io/github/gh-aw-mcpg:v0.2.11'
           
-          cat << GH_AW_MCP_CONFIG_5d7a7214c6097300_EOF | bash ${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.sh
+          cat << GH_AW_MCP_CONFIG_61263d87c181f682_EOF | bash ${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.sh
           {
             "mcpServers": {
               "github": {
@@ -640,7 +640,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_5d7a7214c6097300_EOF
+          GH_AW_MCP_CONFIG_61263d87c181f682_EOF
       - name: Download activation artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -880,7 +880,7 @@ jobs:
         name: Show final Claude Code config
         run: "echo \"=== Final Claude Code Config ===\"\nif [ -f ~/.claude.json ]; then\n  echo \"File: ~/.claude.json\"\n  cat ~/.claude.json\nelse\n  echo \"~/.claude.json not found\"\nfi\nif [ -f ~/.claude/config.json ]; then\n  echo \"\"\n  echo \"File: ~/.claude/config.json (legacy)\"\n  cat ~/.claude/config.json\nelse\n  echo \"~/.claude/config.json not found\"\nfi\n"
       - name: Validate safe outputs were invoked
-        run: "OUTPUTS_FILE=\"${GH_AW_SAFE_OUTPUTS:-/opt/gh-aw/safeoutputs/outputs.jsonl}\"\nif [ ! -s \"$OUTPUTS_FILE\" ]; then\n  echo \"::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools.\"\n  exit 1\nfi\necho \"Safe output entries found: $(wc -l < \"$OUTPUTS_FILE\")\"\nif [ \"$GITHUB_EVENT_NAME\" = \"pull_request\" ]; then\n  if ! grep -q '\"add_comment\"' \"$OUTPUTS_FILE\"; then\n    echo \"::error::Agent did not call add_comment on a pull_request trigger.\"\n    exit 1\n  fi\n  echo \"add_comment verified for PR trigger\"\nfi\necho \"Safe output validation passed\""
+        run: "OUTPUTS_FILE=\"${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}\"\nif [ ! -s \"$OUTPUTS_FILE\" ]; then\n  echo \"::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools.\"\n  exit 1\nfi\necho \"Safe output entries found: $(wc -l < \"$OUTPUTS_FILE\")\"\nif [ \"$GITHUB_EVENT_NAME\" = \"pull_request\" ]; then\n  if ! grep -q '\"add_comment\"' \"$OUTPUTS_FILE\"; then\n    echo \"::error::Agent did not call add_comment on a pull_request trigger.\"\n    exit 1\n  fi\n  echo \"add_comment verified for PR trigger\"\nfi\necho \"Safe output validation passed\""
 
       - name: Upload agent artifacts
         if: always()
@@ -931,7 +931,7 @@ jobs:
       total_count: ${{ steps.missing_tool.outputs.total_count }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw-actions/setup@v0.65.5
+        uses: github/gh-aw-actions/setup@15b2fa31e9a1b771c9773c162273924d8f5ea516 # v0.65.5
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
       - name: Download agent output artifact
@@ -1031,7 +1031,7 @@ jobs:
       detection_success: ${{ steps.detection_conclusion.outputs.success }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw-actions/setup@v0.65.5
+        uses: github/gh-aw-actions/setup@15b2fa31e9a1b771c9773c162273924d8f5ea516 # v0.65.5
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
       - name: Download agent output artifact
@@ -1236,7 +1236,7 @@ jobs:
       process_safe_outputs_temporary_id_map: ${{ steps.process_safe_outputs.outputs.temporary_id_map }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw-actions/setup@v0.65.5
+        uses: github/gh-aw-actions/setup@15b2fa31e9a1b771c9773c162273924d8f5ea516 # v0.65.5
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
       - name: Download agent output artifact
