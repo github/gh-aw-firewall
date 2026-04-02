@@ -11,6 +11,24 @@ import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 
 const SQUID_PORT = 3128;
 
+/**
+ * Container names used in Docker Compose and referenced by docker CLI commands.
+ * Extracted as constants so that generateDockerCompose() and helpers like
+ * fastKillAgentContainer() stay in sync.
+ */
+export const AGENT_CONTAINER_NAME = 'awf-agent';
+const SQUID_CONTAINER_NAME = 'awf-squid';
+const IPTABLES_INIT_CONTAINER_NAME = 'awf-iptables-init';
+const API_PROXY_CONTAINER_NAME = 'awf-api-proxy';
+const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
+
+/**
+ * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
+ * the container was externally stopped. When true, runAgentCommand() skips
+ * its own docker wait / log collection to avoid racing with the signal handler.
+ */
+let agentExternallyKilled = false;
+
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
 // builds the identifier remains undeclared, so the typeof check below is safe.
@@ -418,7 +436,7 @@ export function generateDockerCompose(
 
   // Squid service configuration
   const squidService: any = {
-    container_name: 'awf-squid',
+    container_name: SQUID_CONTAINER_NAME,
     networks: {
       'awf-net': {
         ipv4_address: networkConfig.squidIp,
@@ -1143,7 +1161,7 @@ export function generateDockerCompose(
 
   // Agent service configuration
   const agentService: any = {
-    container_name: 'awf-agent',
+    container_name: AGENT_CONTAINER_NAME,
     networks: {
       'awf-net': {
         ipv4_address: networkConfig.agentIp,
@@ -1316,7 +1334,7 @@ export function generateDockerCompose(
   // that shares the agent's network namespace but NEVER gives NET_ADMIN to the agent.
   // This eliminates the window where the agent holds NET_ADMIN during startup.
   const iptablesInitService: any = {
-    container_name: 'awf-iptables-init',
+    container_name: IPTABLES_INIT_CONTAINER_NAME,
     // Share agent's network namespace so iptables rules apply to agent's traffic
     network_mode: 'service:agent',
     // Only mount the init signal volume and the iptables setup script
@@ -1379,7 +1397,7 @@ export function generateDockerCompose(
   // Add Node.js API proxy sidecar if enabled
   if (config.enableApiProxy && networkConfig.proxyIp) {
     const proxyService: any = {
-      container_name: 'awf-api-proxy',
+      container_name: API_PROXY_CONTAINER_NAME,
       networks: {
         'awf-net': {
           ipv4_address: networkConfig.proxyIp,
@@ -1513,7 +1531,7 @@ export function generateDockerCompose(
   // Add DNS-over-HTTPS proxy sidecar if enabled
   if (config.dnsOverHttps && networkConfig.dohProxyIp) {
     const dohService: any = {
-      container_name: 'awf-doh-proxy',
+      container_name: DOH_PROXY_CONTAINER_NAME,
       image: 'cloudflare/cloudflared:latest',
       networks: {
         'awf-net': {
@@ -1918,7 +1936,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy'], {
+    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME], {
       reject: false,
     });
   } catch {
@@ -2011,7 +2029,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
   try {
     // Stream logs in real-time using docker logs -f (follow mode)
     // Run this in the background and wait for the container to exit separately
-    const logsProcess = execa('docker', ['logs', '-f', 'awf-agent'], {
+    const logsProcess = execa('docker', ['logs', '-f', AGENT_CONTAINER_NAME], {
       stdio: 'inherit',
       reject: false,
     });
@@ -2023,7 +2041,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
 
       // Race docker wait against a timeout
-      const waitPromise = execa('docker', ['wait', 'awf-agent']).then(result => ({
+      const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME]).then(result => ({
         type: 'completed' as const,
         exitCodeStr: result.stdout,
       }));
@@ -2038,7 +2056,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       if (raceResult.type === 'timeout') {
         logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
         // Stop the container gracefully (10 second grace period before SIGKILL)
-        await execa('docker', ['stop', '-t', '10', 'awf-agent'], { reject: false });
+        await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false });
         exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
       } else {
         // Clear the timeout timer so it doesn't keep the event loop alive
@@ -2047,12 +2065,20 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       }
     } else {
       // No timeout - wait indefinitely
-      const { stdout: exitCodeStr } = await execa('docker', ['wait', 'awf-agent']);
+      const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME]);
       exitCode = parseInt(exitCodeStr.trim(), 10);
     }
 
     // Wait for the logs process to finish (it should exit automatically when container stops)
     await logsProcess;
+
+    // If the container was killed externally (e.g. by fastKillAgentContainer in a
+    // signal handler), skip the remaining log analysis — the container state is
+    // unreliable and the signal handler will drive the rest of the shutdown.
+    if (agentExternallyKilled) {
+      logger.debug('Agent was externally killed, skipping post-run analysis');
+      return { exitCode: exitCode || 143, blockedDomains: [] };
+    }
 
     logger.debug(`Agent exit code: ${exitCode}`);
 
@@ -2118,8 +2144,9 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
  * @param stopTimeoutSeconds - Grace period before SIGKILL (default: 3)
  */
 export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<void> {
+  agentExternallyKilled = true;
   try {
-    await execa('docker', ['stop', '-t', String(stopTimeoutSeconds), 'awf-agent'], {
+    await execa('docker', ['stop', '-t', String(stopTimeoutSeconds), AGENT_CONTAINER_NAME], {
       reject: false,
       timeout: (stopTimeoutSeconds + 5) * 1000, // hard deadline on the stop command itself
     });
@@ -2127,6 +2154,22 @@ export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<vo
     // Best-effort — if docker CLI is unavailable or hangs, we still proceed
     // to performCleanup which will attempt docker compose down.
   }
+}
+
+/**
+ * Returns whether the agent was externally killed via fastKillAgentContainer().
+ * @internal Exported for testing.
+ */
+export function isAgentExternallyKilled(): boolean {
+  return agentExternallyKilled;
+}
+
+/**
+ * Resets the externally-killed flag. Only used in tests.
+ * @internal Exported for testing.
+ */
+export function resetAgentExternallyKilled(): void {
+  agentExternallyKilled = false;
 }
 
 /**

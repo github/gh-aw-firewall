@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1726,7 +1726,7 @@ describe('docker-manager', () => {
         // Verify working_dir is set
         expect(result.services.agent.working_dir).toBe('/custom/workdir');
         // Verify other config is still present
-        expect(result.services.agent.container_name).toBe('awf-agent');
+        expect(result.services.agent.container_name).toBe(AGENT_CONTAINER_NAME);
         expect(result.services.agent.cap_add).toContain('SYS_CHROOT');
       });
 
@@ -2953,6 +2953,7 @@ describe('docker-manager', () => {
   describe('fastKillAgentContainer', () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      resetAgentExternallyKilled();
     });
 
     it('should call docker stop with default 3-second timeout', async () => {
@@ -2962,7 +2963,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['stop', '-t', '3', 'awf-agent'],
+        ['stop', '-t', '3', AGENT_CONTAINER_NAME],
         { reject: false, timeout: 8000 }
       );
     });
@@ -2974,7 +2975,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['stop', '-t', '5', 'awf-agent'],
+        ['stop', '-t', '5', AGENT_CONTAINER_NAME],
         { reject: false, timeout: 10000 }
       );
     });
@@ -2984,6 +2985,21 @@ describe('docker-manager', () => {
 
       await expect(fastKillAgentContainer()).resolves.toBeUndefined();
     });
+
+    it('should set the externally-killed flag', async () => {
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      expect(isAgentExternallyKilled()).toBe(false);
+      await fastKillAgentContainer();
+      expect(isAgentExternallyKilled()).toBe(true);
+    });
+
+    it('should set the externally-killed flag even when docker stop fails', async () => {
+      mockExecaFn.mockRejectedValueOnce(new Error('docker not found'));
+
+      await fastKillAgentContainer();
+      expect(isAgentExternallyKilled()).toBe(true);
+    });
   });
 
   describe('runAgentCommand', () => {
@@ -2992,6 +3008,7 @@ describe('docker-manager', () => {
     beforeEach(() => {
       testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
       jest.clearAllMocks();
+      resetAgentExternallyKilled();
     });
 
     afterEach(() => {
