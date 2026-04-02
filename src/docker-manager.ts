@@ -839,12 +839,15 @@ export function generateDockerCompose(
     // - One-shot token LD_PRELOAD library: /host/tmp/awf-lib/one-shot-token.so
     agentVolumes.push('/tmp:/host/tmp:rw');
 
-    // Mount session-state and logs at chroot paths so events.jsonl and logs are
-    // captured (not written to the host's ~/.copilot via a blanket bind mount).
-    // We intentionally do NOT mount the entire ~/.copilot directory, because it may
-    // contain configuration or cached auth state that should not be exposed to the
-    // sandboxed agent. The empty home volume (above) provides a writable ~/.copilot
-    // for Copilot CLI to create any other files it needs.
+    // Mount ~/.copilot for Copilot CLI (package extraction, MCP config, etc.)
+    // This is safe as ~/.copilot contains only Copilot CLI state, not credentials.
+    // Auth tokens are in COPILOT_GITHUB_TOKEN env var (handled by API proxy sidecar).
+    agentVolumes.push(`${effectiveHome}/.copilot:/host${effectiveHome}/.copilot:rw`);
+
+    // Overlay session-state and logs from AWF workDir so events.jsonl and logs are
+    // captured in the workDir instead of written to the host's ~/.copilot.
+    // Docker processes mounts in order — these shadow the corresponding paths under
+    // the blanket ~/.copilot mount above.
     agentVolumes.push(`${sessionStatePath}:/host${effectiveHome}/.copilot/session-state:rw`);
     agentVolumes.push(`${agentLogsPath}:/host${effectiveHome}/.copilot/logs:rw`);
 
@@ -1029,7 +1032,7 @@ export function generateDockerCompose(
   //
   // Instead of mounting the entire $HOME directory (which contained credentials), we now:
   // 1. Mount ONLY the workspace directory ($GITHUB_WORKSPACE or cwd)
-  // 2. Mount ~/.copilot/logs and ~/.copilot/session-state from AWF workDir (not host)
+  // 2. Mount ~/.copilot with session-state and logs overlaid from AWF workDir
   // 3. Hide credential files by mounting /dev/null over them (defense-in-depth)
   // 4. Allow users to add specific mounts via --mount flag
   //
@@ -1681,20 +1684,6 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     }
     fs.chownSync(emptyHomeDir, uid, gid);
     logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
-
-    // Pre-create subdirectories inside the empty home volume so they exist with
-    // correct ownership after chroot. Without this, Docker auto-creates them as
-    // root-owned when mounting child volumes (e.g., .copilot/session-state),
-    // preventing user-level writes to sibling paths (e.g., .copilot/pkg).
-    const emptyHomeDirs = ['.copilot'];
-    for (const dir of emptyHomeDirs) {
-      const dirPath = path.join(emptyHomeDir, dir);
-      if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-        fs.chownSync(dirPath, uid, gid);
-        logger.debug(`Created chroot home subdirectory: ${dirPath} (${uid}:${gid})`);
-      }
-    }
 
     // Ensure source directories for subdirectory mounts exist with correct ownership
     const chrootHomeDirs = [
