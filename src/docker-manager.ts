@@ -384,6 +384,13 @@ export function generateDockerCompose(
   // Squid logs path: use proxyLogsDir if specified (direct write), otherwise workDir/squid-logs
   const squidLogsPath = config.proxyLogsDir || `${config.workDir}/squid-logs`;
 
+  // Session state path: use sessionStateDir if specified (timeout-safe, predictable path),
+  // otherwise workDir/agent-session-state (will be moved to /tmp after cleanup)
+  const sessionStatePath = config.sessionStateDir || `${config.workDir}/agent-session-state`;
+
+  // Agent logs path: always workDir/agent-logs (moved to /tmp after cleanup)
+  const agentLogsPath = `${config.workDir}/agent-logs`;
+
   // API proxy logs path: if proxyLogsDir is specified, write inside it as a subdirectory
   // so that token-usage.jsonl is included in the firewall-audit-logs artifact automatically.
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
@@ -771,10 +778,10 @@ export function generateDockerCompose(
     // Mount only the workspace directory (not entire HOME)
     // This prevents access to ~/.docker/, ~/.config/gh/, ~/.npmrc, etc.
     `${workspaceDir}:${workspaceDir}:rw`,
-    // Mount agent logs directory to workDir for persistence
-    `${config.workDir}/agent-logs:${effectiveHome}/.copilot/logs:rw`,
-    // Mount agent session-state directory to workDir for persistence (events.jsonl)
-    `${config.workDir}/agent-session-state:${effectiveHome}/.copilot/session-state:rw`,
+    // Mount agent logs directory for persistence
+    `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
+    // Mount agent session-state directory for persistence (events.jsonl, session data)
+    `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
     // Init signal volume for iptables init container coordination
     `${initSignalDir}:/tmp/awf-init:rw`,
   ];
@@ -832,9 +839,17 @@ export function generateDockerCompose(
     // - One-shot token LD_PRELOAD library: /host/tmp/awf-lib/one-shot-token.so
     agentVolumes.push('/tmp:/host/tmp:rw');
 
-    // Mount ~/.copilot for GitHub Copilot CLI (package extraction, config, logs)
-    // This is safe as ~/.copilot contains only Copilot CLI state, not credentials
+    // Mount ~/.copilot for Copilot CLI (package extraction, MCP config, etc.)
+    // This is safe as ~/.copilot contains only Copilot CLI state, not credentials.
+    // Auth tokens are in COPILOT_GITHUB_TOKEN env var (handled by API proxy sidecar).
     agentVolumes.push(`${effectiveHome}/.copilot:/host${effectiveHome}/.copilot:rw`);
+
+    // Overlay session-state and logs from AWF workDir so events.jsonl and logs are
+    // captured in the workDir instead of written to the host's ~/.copilot.
+    // Docker processes mounts in order — these shadow the corresponding paths under
+    // the blanket ~/.copilot mount above.
+    agentVolumes.push(`${sessionStatePath}:/host${effectiveHome}/.copilot/session-state:rw`);
+    agentVolumes.push(`${agentLogsPath}:/host${effectiveHome}/.copilot/logs:rw`);
 
     // Mount ~/.cache, ~/.config, ~/.local for CLI tool state management (Claude Code, etc.)
     // These directories are safe to mount as they contain application state, not credentials
@@ -1017,7 +1032,7 @@ export function generateDockerCompose(
   //
   // Instead of mounting the entire $HOME directory (which contained credentials), we now:
   // 1. Mount ONLY the workspace directory ($GITHUB_WORKSPACE or cwd)
-  // 2. Mount ~/.copilot/logs separately for Copilot CLI logging
+  // 2. Mount ~/.copilot with session-state and logs overlaid from AWF workDir
   // 3. Hide credential files by mounting /dev/null over them (defense-in-depth)
   // 4. Allow users to add specific mounts via --mount flag
   //
@@ -1582,17 +1597,27 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   }
 
   // Create agent logs directory for persistence
+  // Chown to host user so Copilot CLI can write logs (AWF runs as root, agent runs as host user)
   const agentLogsDir = path.join(config.workDir, 'agent-logs');
   if (!fs.existsSync(agentLogsDir)) {
     fs.mkdirSync(agentLogsDir, { recursive: true });
   }
+  try {
+    fs.chownSync(agentLogsDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+  } catch { /* ignore chown failures in non-root context */ }
   logger.debug(`Agent logs directory created at: ${agentLogsDir}`);
 
-  // Create agent session-state directory for persistence (events.jsonl written by Copilot CLI)
-  const agentSessionStateDir = path.join(config.workDir, 'agent-session-state');
+  // Create agent session-state directory for persistence (events.jsonl, session data)
+  // If sessionStateDir is specified, write directly there (timeout-safe, predictable path)
+  // Otherwise, use workDir/agent-session-state (will be moved to /tmp after cleanup)
+  // Chown to host user so Copilot CLI can create session subdirs and write events.jsonl
+  const agentSessionStateDir = config.sessionStateDir || path.join(config.workDir, 'agent-session-state');
   if (!fs.existsSync(agentSessionStateDir)) {
     fs.mkdirSync(agentSessionStateDir, { recursive: true });
   }
+  try {
+    fs.chownSync(agentSessionStateDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+  } catch { /* ignore chown failures in non-root context */ }
   logger.debug(`Agent session-state directory created at: ${agentSessionStateDir}`);
 
   // Create squid logs directory for persistence
@@ -2132,7 +2157,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   }
 }
 
-export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?: string, auditDir?: string): Promise<void> {
+export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?: string, auditDir?: string, sessionStateDir?: string): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
     return;
@@ -2159,15 +2184,28 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         }
       }
 
-      // Preserve agent session-state before cleanup (contains events.jsonl from Copilot CLI)
-      const agentSessionStateDir = path.join(workDir, 'agent-session-state');
-      const agentSessionStateDestination = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
-      if (fs.existsSync(agentSessionStateDir) && fs.readdirSync(agentSessionStateDir).length > 0) {
-        try {
-          fs.renameSync(agentSessionStateDir, agentSessionStateDestination);
-          logger.info(`Agent session state preserved at: ${agentSessionStateDestination}`);
-        } catch (error) {
-          logger.debug('Could not preserve agent session state:', error);
+      // Preserve agent session-state (contains events.jsonl, session data from Copilot CLI)
+      if (sessionStateDir) {
+        // Session state was written directly to sessionStateDir during runtime (timeout-safe)
+        // Just fix permissions so they're readable for artifact upload
+        if (fs.existsSync(sessionStateDir)) {
+          try {
+            execa.sync('chmod', ['-R', 'a+rX', sessionStateDir]);
+            logger.info(`Agent session state available at: ${sessionStateDir}`);
+          } catch (error) {
+            logger.debug('Could not fix session state permissions:', error);
+          }
+        }
+      } else {
+        const agentSessionStateDir = path.join(workDir, 'agent-session-state');
+        const agentSessionStateDestination = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
+        if (fs.existsSync(agentSessionStateDir) && fs.readdirSync(agentSessionStateDir).length > 0) {
+          try {
+            fs.renameSync(agentSessionStateDir, agentSessionStateDestination);
+            logger.info(`Agent session state preserved at: ${agentSessionStateDestination}`);
+          } catch (error) {
+            logger.debug('Could not preserve agent session state:', error);
+          }
         }
       }
 

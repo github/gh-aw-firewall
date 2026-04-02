@@ -1415,6 +1415,10 @@ program
     '--audit-dir <path>',
     'Directory for firewall audit artifacts (configs, policy manifest, iptables state)'
   )
+  .option(
+    '--session-state-dir <path>',
+    'Directory to save Copilot CLI session state (events.jsonl, session data)'
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
     // Require -- separator for passing command arguments
@@ -1726,6 +1730,7 @@ program
       memoryLimit: memoryLimit.value,
       proxyLogsDir: options.proxyLogsDir,
       auditDir: options.auditDir || process.env.AWF_AUDIT_DIR,
+      sessionStateDir: options.sessionStateDir || process.env.AWF_SESSION_STATE_DIR,
       enableHostAccess: options.enableHostAccess,
       localhostDetected: localhostResult.localhostDetected,
       allowHostPorts: options.allowHostPorts,
@@ -1874,7 +1879,7 @@ program
       }
 
       if (!config.keepContainers) {
-        await cleanup(config.workDir, false, config.proxyLogsDir, config.auditDir);
+        await cleanup(config.workDir, false, config.proxyLogsDir, config.auditDir, config.sessionStateDir);
         // Note: We don't remove the firewall network here since it can be reused
         // across multiple runs. Cleanup script will handle removal if needed.
       } else {

@@ -391,6 +391,24 @@ export interface WrapperConfig {
   auditDir?: string;
 
   /**
+   * Directory for agent session state (Copilot CLI events.jsonl, session data)
+   *
+   * When specified, the session-state volume is written directly to this
+   * directory during execution, making it timeout-safe and available at a
+   * predictable path for artifact upload.
+   *
+   * When not specified, session state is written to ${workDir}/agent-session-state
+   * during runtime and moved to /tmp/awf-agent-session-state-<timestamp> after cleanup.
+   *
+   * Can be set via:
+   * - CLI flag: `--session-state-dir <path>`
+   * - Environment variable: `AWF_SESSION_STATE_DIR`
+   *
+   * @example '/tmp/gh-aw/sandbox/agent/session-state'
+   */
+  sessionStateDir?: string;
+
+  /**
    * Enable access to host services via host.docker.internal
    *
    * When true, adds `host.docker.internal` hostname resolution to containers,

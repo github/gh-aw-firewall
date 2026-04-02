@@ -784,7 +784,19 @@ describe('docker-manager', () => {
       // CLI state directories
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
+      // ~/.copilot is mounted from host, with session-state and logs overlaid from AWF workDir
       expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
+      expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
+    });
+
+    it('should use sessionStateDir when specified for chroot mounts', () => {
+      const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
+      const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+      const homeDir = process.env.HOME || '/root';
+      expect(volumes).toContain(`/custom/session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`/custom/session-state:${homeDir}/.copilot/session-state:rw`);
     });
 
     it('should add SYS_CHROOT and SYS_ADMIN capabilities but NOT NET_ADMIN', () => {
@@ -3279,6 +3291,39 @@ describe('docker-manager', () => {
 
       // Should not throw
       await expect(cleanup(nonExistentDir, false)).resolves.not.toThrow();
+    });
+
+    it('should preserve session state to /tmp when sessionStateDir is not specified', async () => {
+      const sessionStateDir = path.join(testDir, 'agent-session-state');
+      const sessionDir = path.join(sessionStateDir, 'abc-123');
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'events.jsonl'), '{"event":"test"}');
+
+      await cleanup(testDir, false);
+
+      // Verify session state was moved to timestamped /tmp directory
+      const timestamp = path.basename(testDir).replace('awf-', '');
+      const preservedDir = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
+      expect(fs.existsSync(preservedDir)).toBe(true);
+      expect(fs.existsSync(path.join(preservedDir, 'abc-123', 'events.jsonl'))).toBe(true);
+    });
+
+    it('should chmod session state in-place when sessionStateDir is specified', async () => {
+      const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-session-test-'));
+      const sessionStateDir = path.join(externalDir, 'session-state');
+      fs.mkdirSync(sessionStateDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionStateDir, 'events.jsonl'), '{"event":"test"}');
+
+      try {
+        await cleanup(testDir, false, undefined, undefined, sessionStateDir);
+
+        // Verify chmod was called on sessionStateDir (not moved)
+        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', sessionStateDir]);
+        // Files should remain in-place
+        expect(fs.existsSync(path.join(sessionStateDir, 'events.jsonl'))).toBe(true);
+      } finally {
+        fs.rmSync(externalDir, { recursive: true, force: true });
+      }
     });
   });
 
