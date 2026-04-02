@@ -21,12 +21,14 @@ awf [options] -- <command>
 |--------|------|---------|-------------|
 | `--allow-domains <domains>` | string | — | Comma-separated list of allowed domains (optional; if not specified, all network access is blocked) |
 | `--allow-domains-file <path>` | string | — | Path to file containing allowed domains |
+| `--ruleset-file <path>` | string | `[]` | YAML rule file for domain allowlisting (repeatable) |
 | `--block-domains <domains>` | string | — | Comma-separated list of blocked domains (takes precedence over allowed) |
 | `--block-domains-file <path>` | string | — | Path to file containing blocked domains |
 | `--ssl-bump` | flag | `false` | Enable SSL Bump for HTTPS content inspection |
 | `--allow-urls <urls>` | string | — | Comma-separated list of allowed URL patterns (requires `--ssl-bump`) |
 | `--log-level <level>` | string | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
 | `--keep-containers` | flag | `false` | Keep containers running after command exits |
+| `--agent-timeout <minutes>` | number | no limit | Maximum time in minutes for the agent command to run |
 | `--tty` | flag | `false` | Allocate pseudo-TTY for interactive tools |
 | `--work-dir <dir>` | string | `/tmp/awf-<timestamp>` | Working directory for temporary files |
 | `--build-local` | flag | `false` | Build containers locally instead of pulling from registry |
@@ -36,11 +38,14 @@ awf [options] -- <command>
 | `-e, --env <KEY=VALUE>` | string | `[]` | Environment variable (repeatable) |
 | `--env-all` | flag | `false` | Pass all host environment variables |
 | `--exclude-env <name>` | string | `[]` | Exclude a variable from `--env-all` passthrough (repeatable) |
+| `--env-file <path>` | string | — | Read env vars from a file (KEY=VALUE format, one per line) |
 | `-v, --mount <host:container[:mode]>` | string | `[]` | Volume mount (repeatable) |
 | `--container-workdir <dir>` | string | User home | Working directory inside container |
+| `--memory-limit <limit>` | string | `6g` | Memory limit for the agent container |
 | `--dns-servers <servers>` | string | Auto-detected | Trusted DNS servers (comma-separated; auto-detected from host, falls back to `8.8.8.8,8.8.4.4`) |
 | `--dns-over-https [resolver-url]` | optional string | `https://dns.google/dns-query` | Enable DNS-over-HTTPS via sidecar proxy |
 | `--proxy-logs-dir <path>` | string | — | Directory to save Squid proxy logs to |
+| `--audit-dir <path>` | string | — | Directory for firewall audit artifacts |
 | `--enable-host-access` | flag | `false` | Enable access to host services via host.docker.internal |
 | `--allow-host-ports <ports>` | string | `80,443` | Ports to allow when using --enable-host-access |
 | `--allow-host-service-ports <ports>` | string | — | Ports to allow ONLY to host gateway (for GitHub Actions `services:`) |
@@ -95,6 +100,35 @@ Path to file with allowed domains. Supports comments (`#`) and one domain per li
 ```bash
 --allow-domains-file ./allowed-domains.txt
 ```
+
+### `--ruleset-file <path>`
+
+YAML rule file for domain allowlisting. Can be specified multiple times to load multiple files. Domains from ruleset files are merged with `--allow-domains` and `--allow-domains-file`.
+
+```bash
+# Single ruleset file
+--ruleset-file ./domains.yml
+
+# Multiple ruleset files
+--ruleset-file ./base-domains.yml --ruleset-file ./extra-domains.yml
+```
+
+**Schema** (version 1):
+
+```yaml
+version: 1
+rules:
+  - domain: github.com
+    subdomains: true    # default: true — also allows *.github.com
+  - domain: example.com
+    subdomains: false   # exact match only
+```
+
+**Fields:**
+- `version` — Must be `1`
+- `rules` — Array of rule objects
+  - `domain` *(required)* — Domain name to allow
+  - `subdomains` *(optional, default: `true`)* — Whether to also allow all subdomains
 
 ### `--block-domains <domains>`
 
@@ -176,6 +210,24 @@ Keep containers and configuration files after command exits for debugging.
 Requires manual cleanup: `docker stop awf-squid awf-agent && docker network rm awf-net`
 :::
 
+### `--agent-timeout <minutes>`
+
+Maximum time in minutes for the agent command to run. When the timeout is reached, the agent container is stopped and the firewall exits. Must be a positive integer.
+
+```bash
+# Allow up to 30 minutes
+sudo awf --agent-timeout 30 --allow-domains github.com \
+  -- long-running-command
+
+# Allow up to 2 hours
+sudo awf --agent-timeout 120 --allow-domains github.com \
+  -- npx @github/copilot@latest --prompt "complex task"
+```
+
+:::note
+By default, there is no time limit. Use this flag to prevent runaway agent processes.
+:::
+
 ### `--tty`
 
 Allocate a pseudo-TTY for interactive tools (e.g., Claude Code, interactive shells).
@@ -234,8 +286,46 @@ Pass environment variable to container. Can be specified multiple times.
 Pass all host environment variables to container.
 
 :::danger[Security Risk]
-May expose sensitive credentials. Prefer `-e` for specific variables.
+May expose sensitive credentials. Prefer `-e` for specific variables, or use `--exclude-env` to filter out sensitive variables.
 :::
+
+### `--exclude-env <name>`
+
+Exclude a specific environment variable from `--env-all` passthrough. Can be specified multiple times. Only meaningful when used with `--env-all`.
+
+```bash
+# Pass all env vars except secrets
+sudo -E awf --env-all \
+  --exclude-env AWS_SECRET_ACCESS_KEY \
+  --exclude-env GITHUB_TOKEN \
+  --allow-domains github.com \
+  -- my-command
+```
+
+:::tip[Security Best Practice]
+When using `--env-all`, always exclude sensitive variables like API keys, tokens, and credentials with `--exclude-env`.
+:::
+
+### `--env-file <path>`
+
+Read environment variables from a file. The file uses `KEY=VALUE` format with one variable per line. Lines starting with `#` are treated as comments.
+
+```bash
+sudo awf --env-file ./env.production \
+  --allow-domains github.com \
+  -- my-command
+```
+
+**File format:**
+```bash
+# Database configuration
+DB_HOST=localhost
+DB_PORT=5432
+
+# API settings
+API_KEY=my-key
+DEBUG=true
+```
 
 ### `-v, --mount <host_path:container_path[:mode]>`
 
@@ -259,6 +349,26 @@ Mount host directories into container. Format: `host_path:container_path[:ro|rw]
 ### `--container-workdir <dir>`
 
 Working directory inside the container.
+
+### `--memory-limit <limit>`
+
+Memory limit for the agent container. Format: `<number><unit>` where unit is `b` (bytes), `k` (kilobytes), `m` (megabytes), or `g` (gigabytes).
+
+- **Default**: `6g`
+
+```bash
+# Increase memory for large language model agents
+sudo awf --memory-limit 8g --allow-domains github.com \
+  -- memory-intensive-command
+
+# Reduce memory for lightweight tasks
+sudo awf --memory-limit 2g --allow-domains github.com \
+  -- curl https://api.github.com
+```
+
+:::tip
+If your agent process is being killed unexpectedly (OOM), try increasing the memory limit with `--memory-limit 8g` or higher.
+:::
 
 ### `--dns-servers <servers>`
 
@@ -379,6 +489,24 @@ cat ./firewall-logs/access.log
 ```
 
 **Note:** The directory must be writable by the current user.
+
+### `--audit-dir <path>`
+
+Directory for firewall audit artifacts. When specified, the firewall saves configuration files, the policy manifest, and iptables state to this directory for compliance and debugging purposes.
+
+```bash
+# Save audit artifacts
+sudo awf --audit-dir ./audit \
+  --allow-domains github.com \
+  -- curl https://api.github.com
+
+# Review audit artifacts
+ls ./audit/
+```
+
+:::tip
+Use `--audit-dir` in CI/CD pipelines to capture firewall configuration for audit trails. Can also be set via the `AWF_AUDIT_DIR` environment variable.
+:::
 
 ### `--agent-image <value>`
 
