@@ -133,7 +133,7 @@ function createDecompressor(headers) {
  * Extract token usage from a non-streaming JSON response body.
  *
  * Supports:
- *   - OpenAI/Copilot: { usage: { prompt_tokens, completion_tokens, total_tokens } }
+ *   - OpenAI/Copilot: { usage: { prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details: { cached_tokens } } }
  *   - Anthropic: { usage: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } }
  *
  * Also extracts the model field if present.
@@ -180,6 +180,11 @@ function extractUsageFromJson(body) {
         usage.total_tokens = json.usage.total_tokens;
         hasField = true;
       }
+      // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
+      if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
+        usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
+        hasField = true;
+      }
       if (hasField) {
         result.usage = usage;
       }
@@ -201,7 +206,7 @@ function extractUsageFromJson(body) {
  *   - message_delta: { type: "message_delta", usage: { output_tokens } }
  *
  * OpenAI/Copilot streaming events with usage:
- *   - Final chunk: { usage: { prompt_tokens, completion_tokens, total_tokens } }
+ *   - Final chunk: { usage: { prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details: { cached_tokens } } }
  *
  * @param {string} line - A single SSE data line (without "data: " prefix)
  * @returns {{ usage: object|null, model: string|null }}
@@ -237,6 +242,10 @@ function extractUsageFromSseLine(line) {
       if (typeof json.usage.prompt_tokens === 'number') result.usage.prompt_tokens = json.usage.prompt_tokens;
       if (typeof json.usage.completion_tokens === 'number') result.usage.completion_tokens = json.usage.completion_tokens;
       if (typeof json.usage.total_tokens === 'number') result.usage.total_tokens = json.usage.total_tokens;
+      // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
+      if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
+        result.usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
+      }
       return result;
     }
 

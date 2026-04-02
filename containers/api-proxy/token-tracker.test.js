@@ -110,6 +110,50 @@ describe('extractUsageFromJson', () => {
     const result = extractUsageFromJson(body);
     expect(result.usage).toEqual({ completion_tokens: 50 });
   });
+
+  test('extracts OpenAI prompt_tokens_details.cached_tokens', () => {
+    const body = Buffer.from(JSON.stringify({
+      id: 'chatcmpl-456',
+      model: 'claude-sonnet-4.6',
+      usage: {
+        prompt_tokens: 41344,
+        completion_tokens: 256,
+        total_tokens: 41600,
+        prompt_tokens_details: {
+          cached_tokens: 36500,
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('claude-sonnet-4.6');
+    expect(result.usage).toEqual({
+      prompt_tokens: 41344,
+      completion_tokens: 256,
+      total_tokens: 41600,
+      cache_read_input_tokens: 36500,
+    });
+  });
+
+  test('handles OpenAI usage without prompt_tokens_details', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      total_tokens: 150,
+    });
+    // Should NOT have cache_read_input_tokens
+    expect(result.usage.cache_read_input_tokens).toBeUndefined();
+  });
 });
 
 // ── extractUsageFromSseLine ───────────────────────────────────────────
@@ -186,6 +230,30 @@ describe('extractUsageFromSseLine', () => {
   test('returns null for invalid JSON', () => {
     const result = extractUsageFromSseLine('invalid json');
     expect(result.usage).toBeNull();
+  });
+
+  test('extracts OpenAI prompt_tokens_details.cached_tokens from streaming final chunk', () => {
+    const line = JSON.stringify({
+      model: 'claude-sonnet-4.6',
+      choices: [{ finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 43977,
+        completion_tokens: 24,
+        total_tokens: 44001,
+        prompt_tokens_details: {
+          cached_tokens: 43894,
+        },
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.model).toBe('claude-sonnet-4.6');
+    expect(result.usage).toEqual({
+      prompt_tokens: 43977,
+      completion_tokens: 24,
+      total_tokens: 44001,
+      cache_read_input_tokens: 43894,
+    });
   });
 });
 
@@ -282,6 +350,21 @@ describe('normalizeUsage', () => {
     });
     expect(result.input_tokens).toBe(200);
     expect(result.output_tokens).toBe(80);
+  });
+
+  test('normalizes OpenAI cache tokens via cache_read_input_tokens mapping', () => {
+    const result = normalizeUsage({
+      prompt_tokens: 43977,
+      completion_tokens: 24,
+      total_tokens: 44001,
+      cache_read_input_tokens: 43894,
+    });
+    expect(result).toEqual({
+      input_tokens: 43977,
+      output_tokens: 24,
+      cache_read_tokens: 43894,
+      cache_write_tokens: 0,
+    });
   });
 });
 
