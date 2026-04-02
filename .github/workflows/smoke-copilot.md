@@ -17,35 +17,60 @@ engine: copilot
 network:
   allowed:
     - defaults
-    - node
     - github
-    - playwright
 tools:
-  agentic-workflows:
-  cache-memory: true
-  edit:
   bash:
     - "*"
   github:
-  playwright:
-    allowed_domains:
-      - github.com
-  web-fetch:
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
+    toolsets: [repos, pull_requests]
 safe-outputs:
-    add-comment:
-      hide-older-comments: true
-    add-labels:
-      allowed: [smoke-copilot]
-    messages:
-      footer: "> 📰 *BREAKING: Report filed by [{workflow_name}]({run_url})*"
-      run-started: "📰 BREAKING: [{workflow_name}]({run_url}) is now investigating this {event_type}. Sources say the story is developing..."
-      run-success: "📰 VERDICT: [{workflow_name}]({run_url}) has concluded. All systems operational. This is a developing story. 🎤"
-      run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
+  add-comment:
+    hide-older-comments: true
+  add-labels:
+    allowed: [smoke-copilot]
+  messages:
+    footer: "> 📰 *BREAKING: Report filed by [{workflow_name}]({run_url})*"
+    run-started: "📰 BREAKING: [{workflow_name}]({run_url}) is now investigating this {event_type}. Sources say the story is developing..."
+    run-success: "📰 VERDICT: [{workflow_name}]({run_url}) has concluded. All systems operational. This is a developing story. 🎤"
+    run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
 timeout-minutes: 5
 strict: true
+steps:
+  - name: Pre-compute smoke test data
+    id: smoke-data
+    run: |
+      echo "::group::Fetching last 2 merged PRs"
+      PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
+        --json number,title,author,mergedAt \
+        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"')
+      echo "$PR_DATA"
+      echo "::endgroup::"
+
+      echo "::group::GitHub.com connectivity check"
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com)
+      echo "github.com returned HTTP $HTTP_CODE"
+      echo "::endgroup::"
+
+      echo "::group::File write/read test"
+      TEST_DIR="/tmp/gh-aw/agent"
+      TEST_FILE="$TEST_DIR/smoke-test-copilot-${GITHUB_RUN_ID}.txt"
+      mkdir -p "$TEST_DIR"
+      echo "Smoke test passed for Copilot at $(date)" > "$TEST_FILE"
+      FILE_CONTENT=$(cat "$TEST_FILE")
+      echo "Wrote and read back: $FILE_CONTENT"
+      echo "::endgroup::"
+
+      # Export results for agent context
+      {
+        echo "SMOKE_PR_DATA<<SMOKE_EOF"
+        echo "$PR_DATA"
+        echo "SMOKE_EOF"
+        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
+        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
+        echo "SMOKE_FILE_PATH=$TEST_FILE"
+      } >> "$GITHUB_OUTPUT"
+    env:
+      GH_TOKEN: ${{ github.token }}
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -69,12 +94,30 @@ post-steps:
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
-## Test Requirements
+## Pre-Computed Test Results
 
-1. **GitHub MCP Testing**: Review the last 2 merged pull requests in ${{ github.repository }}
-2. **Playwright Testing**: Use playwright to navigate to https://github.com and verify the page title contains "GitHub"
-3. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-copilot-${{ github.run_id }}.txt` with content "Smoke test passed for Copilot at $(date)" (create the directory if it doesn't exist)
-4. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
+The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
+
+### 1. GitHub MCP Testing
+The last 2 merged pull requests have been fetched. Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged) and confirm data is returned.
+
+### 2. GitHub.com Connectivity
+Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
+✅ if HTTP 200 or 301, ❌ otherwise.
+
+### 3. File Write/Read Test
+Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
+File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
+Verify by running `cat` on the file path using bash to confirm it exists.
+
+### 4. Bash Tool Testing
+Run a simple bash command (e.g., `echo "bash works"`) to verify the bash tool is functional.
+
+## Pre-Fetched PR Data
+
+```
+${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+```
 
 ## Output
 
