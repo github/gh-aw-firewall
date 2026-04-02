@@ -22,7 +22,7 @@ import {
 } from './host-iptables';
 import { runMainWorkflow } from './cli-workflow';
 import { redactSecrets } from './redact-secrets';
-import { validateDomainOrPattern } from './domain-patterns';
+import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from './domain-patterns';
 import { loadAndMergeDomains } from './rules';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
@@ -1639,10 +1639,10 @@ program
           }
         }
 
-        // Reject whitespace and null bytes to prevent Squid config injection
-        if (/[\s\0]/.test(url)) {
-          logger.error(`URL pattern contains illegal whitespace or control characters: ${JSON.stringify(url)}`);
-          logger.error('URL patterns must not contain spaces, tabs, newlines, or null bytes.');
+        // Reject characters that could inject Squid config directives or tokens
+        if (SQUID_DANGEROUS_CHARS.test(url)) {
+          logger.error(`URL pattern contains characters unsafe for Squid config: ${JSON.stringify(url)}`);
+          logger.error('URL patterns must not contain whitespace, quotes, semicolons, backticks, hash characters, backslashes, or null bytes.');
           process.exit(1);
         }
 

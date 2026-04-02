@@ -26,7 +26,35 @@ describe('defense-in-depth: rejects injected values', () => {
         sslDbPath: '/tmp/ssl_db',
         urlPatterns: [maliciousPattern],
       });
-    }).toThrow(/SECURITY|whitespace/);
+    }).toThrow(/SECURITY/);
+  });
+
+  it('should reject hash character in URL pattern (Squid comment injection)', () => {
+    const maliciousPattern = 'https://evil.com/path#http_access allow all';
+    expect(() => {
+      generateSquidConfig({
+        domains: ['evil.com'],
+        port: defaultPort,
+        sslBump: true,
+        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
+        sslDbPath: '/tmp/ssl_db',
+        urlPatterns: [maliciousPattern],
+      });
+    }).toThrow(/SECURITY/);
+  });
+
+  it('should reject semicolon in URL pattern (Squid token injection)', () => {
+    const maliciousPattern = 'https://evil.com/path;injected';
+    expect(() => {
+      generateSquidConfig({
+        domains: ['evil.com'],
+        port: defaultPort,
+        sslBump: true,
+        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
+        sslDbPath: '/tmp/ssl_db',
+        urlPatterns: [maliciousPattern],
+      });
+    }).toThrow(/SECURITY/);
   });
 
   it('should reject space in domain (ACL token injection)', () => {

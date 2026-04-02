@@ -13,6 +13,20 @@
  */
 
 /**
+ * Characters that are dangerous in Squid config files when interpolating domain names
+ * or URL regex patterns. Squid config is line-and-space delimited, so:
+ * - Whitespace (space, tab, CR, LF) can split ACL tokens or inject new directives
+ * - Null bytes may terminate strings unexpectedly
+ * - `#` starts a Squid config comment, truncating the rest of the line
+ * - Quotes (", ', `) and `;` can interfere with config parsing
+ *
+ * Note: backslash is intentionally excluded here because URL regex patterns passed to
+ * `--allow-urls` legitimately use `\` for regex escaping (e.g., `\\.` or `[^\\s]`).
+ * Domain names are additionally validated to reject `\` in validateDomainOrPattern().
+ */
+export const SQUID_DANGEROUS_CHARS = /[\s\0"'`;#]/;
+
+/**
  * Protocol restriction for a domain
  */
 export type DomainProtocol = 'http' | 'https' | 'both';
@@ -152,11 +166,11 @@ export function validateDomainOrPattern(input: string): void {
   }
 
   // Reject characters that could inject Squid config directives or tokens.
-  // Squid config is line-and-space delimited, so whitespace (space, tab, CR, LF),
-  // null bytes, and comment/quote characters are dangerous.
+  // Also reject backslash: domain names never legitimately contain backslashes,
+  // and they could be used in regex injection if they reach Squid config.
   // This prevents Squid config injection via --allow-domains.
-  const DANGEROUS_CHARS = /[\s\0"'`;#\\]/;
-  const match = trimmed.match(DANGEROUS_CHARS);
+  const DOMAIN_DANGEROUS_CHARS = /[\s\0"'`;#\\]/;
+  const match = trimmed.match(DOMAIN_DANGEROUS_CHARS);
   if (match) {
     const safeDomainForMessage = JSON.stringify(trimmed);
     const charCode = match[0].charCodeAt(0);
