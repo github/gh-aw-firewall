@@ -1,7 +1,10 @@
 ---
 description: Daily Claude token optimization advisor — reads the latest token usage report and creates actionable recommendations to reduce token consumption for the most expensive workflow
 on:
-  schedule: daily
+  workflow_run:
+    workflows: ["Daily Claude Token Usage Analyzer"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
   skip-if-match:
     query: 'is:issue is:open label:claude-token-optimization'
@@ -42,7 +45,7 @@ gh issue list --repo "$GITHUB_REPOSITORY" \
   --json number,title,body,createdAt,url
 ```
 
-If no report exists, create a brief issue stating that no token usage report was found and that the `claude-token-usage-analyzer` workflow should run first. Then stop.
+If no report exists, do **not** create an issue. Simply log a message noting that no token usage report was found and that the `claude-token-usage-analyzer` workflow should run first. Then stop without calling any safe-output tools.
 
 Read the full issue body to extract per-workflow statistics.
 
@@ -63,10 +66,18 @@ Extract these key metrics for the target workflow:
 
 ## Step 3: Analyze the Workflow Definition
 
-Read the workflow's `.md` source file to understand its configuration:
+Resolve the workflow file name from the display name in the report. The report table uses display names (e.g., "Smoke Claude") but the files use kebab-case (e.g., `smoke-claude.md`). Map the name by searching for a matching `name:` field:
 
 ```bash
-cat ".github/workflows/<workflow-name>.md"
+# Find workflow file by display name
+DISPLAY_NAME="Smoke Claude"  # from report
+WORKFLOW_FILE=$(grep -rl "^name: ${DISPLAY_NAME}$" .github/workflows/*.md 2>/dev/null | head -1)
+# Fallback: try kebab-case conversion
+if [ -z "$WORKFLOW_FILE" ]; then
+  KEBAB=$(echo "$DISPLAY_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  WORKFLOW_FILE=".github/workflows/${KEBAB}.md"
+fi
+cat "$WORKFLOW_FILE"
 ```
 
 Analyze:
@@ -81,27 +92,32 @@ Analyze:
 Download the most recent successful run's artifacts to understand actual tool usage:
 
 ```bash
-# Find the latest successful run
+# Find the latest successful run using the resolved workflow file
+LOCK_FILE="$(basename "$WORKFLOW_FILE" .md).lock.yml"
 RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" \
-  --workflow "<workflow-name>.lock.yml" \
+  --workflow "$LOCK_FILE" \
   --status success --limit 1 \
   --json databaseId --jq '.[0].databaseId')
 
-# Download artifacts
-TMPDIR=$(mktemp -d)
-gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-  --name agent-artifacts --dir "$TMPDIR" 2>/dev/null || \
-gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-  --name agent --dir "$TMPDIR" 2>/dev/null
+if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+  echo "No successful runs found for $LOCK_FILE — skipping artifact analysis"
+else
+  # Download artifacts
+  TMPDIR=$(mktemp -d)
+  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+    --name agent-artifacts --dir "$TMPDIR" 2>/dev/null || \
+  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+    --name agent --dir "$TMPDIR" 2>/dev/null
 
-# Check token usage
-find "$TMPDIR" -name "token-usage.jsonl" -exec cat {} \;
+  # Check token usage
+  find "$TMPDIR" -name "token-usage.jsonl" -exec cat {} \;
 
-# Check agent stdio log for tool calls
-find "$TMPDIR" -name "agent-stdio.log" -exec grep "^●" {} \;
+  # Check agent stdio log for tool calls (|| true to handle no matches)
+  find "$TMPDIR" -name "agent-stdio.log" -exec grep -h "^●" {} \; || true
 
-# Check prompt size
-find "$TMPDIR" -name "prompt.txt" -exec wc -c {} \;
+  # Check prompt size
+  find "$TMPDIR" -name "prompt.txt" -exec wc -c {} \;
+fi
 ```
 
 From the artifacts, determine:
