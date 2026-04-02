@@ -1597,19 +1597,27 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   }
 
   // Create agent logs directory for persistence
+  // Chown to host user so Copilot CLI can write logs (AWF runs as root, agent runs as host user)
   const agentLogsDir = path.join(config.workDir, 'agent-logs');
   if (!fs.existsSync(agentLogsDir)) {
     fs.mkdirSync(agentLogsDir, { recursive: true });
   }
+  try {
+    fs.chownSync(agentLogsDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+  } catch { /* ignore chown failures in non-root context */ }
   logger.debug(`Agent logs directory created at: ${agentLogsDir}`);
 
   // Create agent session-state directory for persistence (events.jsonl, session data)
   // If sessionStateDir is specified, write directly there (timeout-safe, predictable path)
   // Otherwise, use workDir/agent-session-state (will be moved to /tmp after cleanup)
+  // Chown to host user so Copilot CLI can create session subdirs and write events.jsonl
   const agentSessionStateDir = config.sessionStateDir || path.join(config.workDir, 'agent-session-state');
   if (!fs.existsSync(agentSessionStateDir)) {
     fs.mkdirSync(agentSessionStateDir, { recursive: true });
   }
+  try {
+    fs.chownSync(agentSessionStateDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+  } catch { /* ignore chown failures in non-root context */ }
   logger.debug(`Agent session-state directory created at: ${agentSessionStateDir}`);
 
   // Create squid logs directory for persistence
