@@ -127,8 +127,13 @@ rules:
 **Fields:**
 - `version` — Must be `1`
 - `rules` — Array of rule objects
-  - `domain` *(required)* — Domain name to allow
-  - `subdomains` *(optional, default: `true`)* — Whether to also allow all subdomains
+
+Each rule has the following fields:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `domain` | Yes | — | Domain name to allow |
+| `subdomains` | No | `true` | Whether to also allow all subdomains |
 
 ### `--block-domains <domains>`
 
@@ -323,7 +328,7 @@ DB_HOST=localhost
 DB_PORT=5432
 
 # API settings
-API_KEY=my-key
+API_KEY=your-api-key-here
 DEBUG=true
 ```
 
