@@ -163,14 +163,13 @@ These are gh-aw agentic workflows compiled from `.md` source files into `.lock.y
 
 | Attribute | Value |
 |-----------|-------|
-| **What it tests** | Claude Code engine running inside AWF sandbox with MCP servers, Playwright, file I/O, and bash tools |
-| **Engine** | `claude` (max 15 turns) |
+| **What it tests** | Claude Code engine running inside AWF sandbox with GitHub API, Playwright, file I/O, and bash tools |
+| **Engine** | `claude` (max 8 turns) |
 | **Triggers** | Every 12h (schedule), PR (opened/synchronize/reopened), manual dispatch |
 | **Timeout** | 10 minutes |
 | **Network allowed** | defaults, github, playwright |
-| **Tools** | cache-memory, github (repos, pull_requests), playwright, edit, bash |
+| **Tools** | github (repos, pull_requests), playwright, bash |
 | **Safe outputs** | add-comment (hide older), add-labels (smoke-claude) |
-| **MCP** | ghcr.io/github/gh-aw-mcpg container |
 | **Real-world mapping** | Validates that Claude Code can operate within AWF's network sandbox: GitHub API access via MCP, browser automation via Playwright, local file operations — the core use case for agentic workflows |
 | **Gaps** | Non-deterministic (AI agent may behave differently). No HTTPS blocking verification. |
 | **Integration test relationship** | High-level end-to-end complement. Integration tests verify AWF mechanics (iptables, proxy); this verifies an actual AI agent works through the firewall. |
