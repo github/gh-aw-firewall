@@ -27,12 +27,13 @@ steps:
     id: pr-diff
     if: github.event.pull_request.number
     run: |
+      DELIM="GHAW_PR_FILES_$(date +%s)"
       {
-        echo "PR_FILES<<EOF"
+        echo "PR_FILES<<${DELIM}"
         gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
           --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
           | head -c 8000
-        echo "EOF"
+        echo "${DELIM}"
       } >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
