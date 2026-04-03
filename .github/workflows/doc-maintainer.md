@@ -11,8 +11,6 @@ permissions:
   issues: read
   pull-requests: read
 tools:
-  github:
-    toolsets: [default]
   edit:
   bash: true
 safe-outputs:
@@ -22,6 +20,20 @@ safe-outputs:
     reviewers: copilot
     draft: false
 timeout-minutes: 15
+steps:
+  - name: Gather recent git changes
+    id: git-changes
+    run: |
+      echo "RECENT_COMMITS<<EOF" >> $GITHUB_OUTPUT
+      git log --since="7 days ago" --name-only --format="%H %s" | head -200
+      echo "EOF" >> $GITHUB_OUTPUT
+  - name: List documentation files
+    id: doc-files
+    run: |
+      echo "DOC_FILES<<EOF" >> $GITHUB_OUTPUT
+      find docs/ -name "*.md" 2>/dev/null | sort
+      find . -maxdepth 1 -name "*.md" | sort
+      echo "EOF" >> $GITHUB_OUTPUT
 ---
 
 # Documentation Maintainer
@@ -40,15 +52,29 @@ This repository is a security-critical firewall for GitHub Copilot CLI. Accurate
 - MCP configuration changes
 - Security guidance updates
 
+## Recent Changes (Pre-computed)
+
+The following git commits from the past 7 days and their affected files have been pre-computed:
+
+```
+${{ steps.git-changes.outputs.RECENT_COMMITS }}
+```
+
 ## Documentation Files
 
-Explore all documentation files in the `/docs/` directory and all `*.md` files in the repository root. The agent should discover and review these files to identify what needs updating.
+The following documentation files exist in the repository:
+
+```
+${{ steps.doc-files.outputs.DOC_FILES }}
+```
+
+Review these files to identify what needs updating based on the recent changes above.
 
 ## Task Steps
 
-### 1. Gather Recent Changes (Past 7 Days)
+### 1. Analyze Pre-computed Changes
 
-Use git commands to analyze commits from the past 7 days and identify which files changed.
+Review the git commit list above. For commits that touch source code (`src/`, `containers/`, `scripts/`), use `git show <sha>` to examine the actual diffs and understand what changed.
 
 ### 2. Identify Documentation Gaps
 
@@ -56,7 +82,7 @@ Compare code changes with current documentation and identify what needs to be up
 
 ### 3. Review Current Documentation
 
-Read the current state of documentation files in `/docs/` and root `*.md` files.
+Read the documentation files listed above that are likely affected by the recent changes.
 
 ### 4. Verify Code Examples
 
