@@ -30,7 +30,7 @@ steps:
       {
         echo "PR_FILES<<EOF"
         gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
-          --paginate --jq '.[] | "### \(.filename) (+\(.additions)/-\(.deletions))\n\(.patch // \"(binary)\")\n"' \
+          --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
           | head -c 8000
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
