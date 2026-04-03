@@ -15,26 +15,17 @@ permissions:
 name: Smoke Claude
 engine:
   id: claude
-  max-turns: 15
+  max-turns: 8
 strict: true
-imports:
-  - shared/mcp-pagination.md
 network:
   allowed:
     - defaults
     - github
     - playwright
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
 tools:
-  cache-memory: true
   github:
     toolsets: [repos, pull_requests]
   playwright:
-    allowed_domains:
-      - github.com
-  edit:
   bash:
     - "*"
 safe-outputs:
@@ -68,7 +59,7 @@ post-steps:
       fi
   - name: Validate safe outputs were invoked
     run: |
-      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-/opt/gh-aw/safeoutputs/outputs.jsonl}"
+      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
       if [ ! -s "$OUTPUTS_FILE" ]; then
         echo "::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools."
         exit 1
@@ -87,6 +78,8 @@ post-steps:
 # Smoke Test: Claude Engine Validation
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+
+> Use `perPage: 2` when listing PRs.
 
 ## Test Requirements
 
