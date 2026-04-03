@@ -25,12 +25,15 @@ timeout-minutes: 10
 steps:
   - name: Fetch PR changed files
     id: pr-diff
+    if: github.event.pull_request.number
     run: |
-      echo "PR_FILES<<EOF" >> $GITHUB_OUTPUT
-      gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
-        --paginate --jq '.[] | "### \(.filename) (+\(.additions)/-\(.deletions))\n\(.patch // "(binary)")\n"' \
-        | head -c 8000
-      echo "EOF" >> $GITHUB_OUTPUT
+      {
+        echo "PR_FILES<<EOF"
+        gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+          --paginate --jq '.[] | "### \(.filename) (+\(.additions)/-\(.deletions))\n\(.patch // \"(binary)\")\n"' \
+          | head -c 8000
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
