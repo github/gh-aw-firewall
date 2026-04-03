@@ -784,6 +784,7 @@ describe('docker-manager', () => {
       // CLI state directories
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
+      expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
       // ~/.copilot is mounted from host, with session-state and logs overlaid from AWF workDir
       expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
       expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
@@ -2403,6 +2404,119 @@ describe('docker-manager', () => {
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         expect(env.COPILOT_API_TARGET).toBeUndefined();
+      });
+
+      it('should include api-proxy service when enableApiProxy is true with Gemini key', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        expect(result.services['api-proxy']).toBeDefined();
+        const proxy = result.services['api-proxy'];
+        expect(proxy.container_name).toBe('awf-api-proxy');
+      });
+
+      it('should pass GEMINI_API_KEY to api-proxy env when geminiApiKey is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GEMINI_API_KEY).toBe('AIza-test-gemini-key');
+      });
+
+      it('should set GEMINI_API_BASE_URL in agent when geminiApiKey is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+      });
+
+      it('should set GEMINI_API_KEY placeholder in agent when geminiApiKey is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+      });
+
+      it('should not set GEMINI_API_BASE_URL in agent when geminiApiKey is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.GEMINI_API_BASE_URL).toBeUndefined();
+      });
+
+      it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled', () => {
+        const origKey = process.env.GEMINI_API_KEY;
+        process.env.GEMINI_API_KEY = 'AIza-secret-gemini-key';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // Agent should NOT have the real API key — only the sidecar gets it
+          expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+          // Agent should have GEMINI_API_BASE_URL to proxy through sidecar
+          expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+        } finally {
+          if (origKey !== undefined) {
+            process.env.GEMINI_API_KEY = origKey;
+          } else {
+            delete process.env.GEMINI_API_KEY;
+          }
+        }
+      });
+
+      it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled with envAll', () => {
+        const origKey = process.env.GEMINI_API_KEY;
+        process.env.GEMINI_API_KEY = 'AIza-secret-gemini-key';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          // Even with envAll, agent should NOT have the real GEMINI_API_KEY
+          expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+          expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+        } finally {
+          if (origKey !== undefined) {
+            process.env.GEMINI_API_KEY = origKey;
+          } else {
+            delete process.env.GEMINI_API_KEY;
+          }
+        }
+      });
+
+      it('should set GEMINI_API_TARGET in api-proxy when geminiApiTarget is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-key', geminiApiTarget: 'custom.gemini-router.internal' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GEMINI_API_TARGET).toBe('custom.gemini-router.internal');
+      });
+
+      it('should not set GEMINI_API_TARGET in api-proxy when geminiApiTarget is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GEMINI_API_TARGET).toBeUndefined();
+      });
+
+      it('should set GEMINI_API_BASE_PATH in api-proxy when geminiApiBasePath is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-key', geminiApiBasePath: '/v1beta' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GEMINI_API_BASE_PATH).toBe('/v1beta');
+      });
+
+      it('should not set GEMINI_API_BASE_PATH in api-proxy when geminiApiBasePath is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GEMINI_API_BASE_PATH).toBeUndefined();
       });
     });
 
