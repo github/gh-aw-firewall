@@ -32,7 +32,7 @@ steps:
         echo "PR_FILES<<${DELIM}"
         gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
           --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
-          | head -c 8000
+          | head -c 8000 || true
         echo "${DELIM}"
       } >> "$GITHUB_OUTPUT"
     env:

@@ -313,7 +313,7 @@ jobs:
         id: pr-diff
         if: github.event.pull_request.number
         name: Fetch PR changed files
-        run: "DELIM=\"GHAW_PR_FILES_$(date +%s)\"\n{\n  echo \"PR_FILES<<${DELIM}\"\n  gh api \"repos/${GH_REPO}/pulls/${PR_NUMBER}/files\" \\\n    --paginate --jq '.[] | \"### \" + .filename + \" (+\" + (.additions|tostring) + \"/-\" + (.deletions|tostring) + \")\\n\" + (.patch // \"\") + \"\\n\"' \\\n    | head -c 8000\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\"\n"
+        run: "DELIM=\"GHAW_PR_FILES_$(date +%s)\"\n{\n  echo \"PR_FILES<<${DELIM}\"\n  gh api \"repos/${GH_REPO}/pulls/${PR_NUMBER}/files\" \\\n    --paginate --jq '.[] | \"### \" + .filename + \" (+\" + (.additions|tostring) + \"/-\" + (.deletions|tostring) + \")\\n\" + (.patch // \"\") + \"\\n\"' \\\n    | head -c 8000 || true\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\"\n"
 
       - name: Configure Git credentials
         env:
