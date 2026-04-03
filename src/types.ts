@@ -34,6 +34,12 @@ export const API_PROXY_PORTS = {
   COPILOT: 10002,
 
   /**
+   * Google Gemini API proxy port
+   * @see containers/api-proxy/server.js
+   */
+  GEMINI: 10003,
+
+  /**
    * OpenCode API proxy port (routes to Anthropic by default)
    * OpenCode is BYOK — defaults to Anthropic as the primary provider
    * @see containers/api-proxy/server.js
@@ -620,6 +626,19 @@ export interface WrapperConfig {
   copilotGithubToken?: string;
 
   /**
+   * Google Gemini API key (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this key is injected into the Node.js sidecar
+   * container and used to authenticate requests to generativelanguage.googleapis.com.
+   *
+   * The key is NOT exposed to the agent container - only the proxy URL is provided.
+   * The agent receives a placeholder value so Gemini CLI's startup auth check passes.
+   *
+   * @default undefined
+   */
+  geminiApiKey?: string;
+
+  /**
    * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
@@ -716,6 +735,39 @@ export interface WrapperConfig {
    * @example '/anthropic'
    */
   anthropicApiBasePath?: string;
+
+  /**
+   * Target hostname for Google Gemini API requests (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
+   * as `GEMINI_API_TARGET`. The proxy will forward Gemini API requests to this host
+   * instead of the default `generativelanguage.googleapis.com`.
+   *
+   * Can be set via:
+   * - CLI flag: `--gemini-api-target <host>`
+   * - Environment variable: `GEMINI_API_TARGET`
+   *
+   * @default 'generativelanguage.googleapis.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --gemini-api-target custom-gemini-endpoint.example.com -- command
+   * ```
+   */
+  geminiApiTarget?: string;
+
+  /**
+   * Base path prefix for Google Gemini API requests (used by API proxy sidecar)
+   *
+   * When set, this path is prepended to every upstream request path so that
+   * endpoints which require a URL prefix work correctly.
+   *
+   * Can be set via:
+   * - CLI flag: `--gemini-api-base-path <path>`
+   * - Environment variable: `GEMINI_API_BASE_PATH`
+   *
+   * @default ''
+   */
+  geminiApiBasePath?: string;
 
   /**
    * Enable Data Loss Prevention (DLP) scanning

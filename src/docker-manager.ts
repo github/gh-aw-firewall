@@ -512,6 +512,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('CODEX_API_KEY');
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
+    EXCLUDED_ENV_VARS.add('GEMINI_API_KEY');
     // COPILOT_GITHUB_TOKEN gets a placeholder (not excluded), protected by one-shot-token
     // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
@@ -866,6 +867,10 @@ export function generateDockerCompose(
     // Mount ~/.claude for Claude CLI state and configuration
     // This is safe as ~/.claude contains only Claude-specific state, not credentials
     agentVolumes.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
+
+    // Mount ~/.gemini for Gemini CLI state and project registry
+    // This is safe as ~/.gemini contains only Gemini-specific state, not credentials
+    agentVolumes.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
 
     // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
     // prevent atomic writes (temp file + rename), which Claude Code requires.
@@ -1394,12 +1399,15 @@ export function generateDockerCompose(
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
         ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
+        ...(config.geminiApiKey && { GEMINI_API_KEY: config.geminiApiKey }),
         // Configurable API targets (for GHES/GHEC / custom endpoints)
         ...(config.copilotApiTarget && { COPILOT_API_TARGET: config.copilotApiTarget }),
         ...(config.openaiApiTarget && { OPENAI_API_TARGET: config.openaiApiTarget }),
         ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
         ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: config.anthropicApiTarget }),
         ...(config.anthropicApiBasePath && { ANTHROPIC_API_BASE_PATH: config.anthropicApiBasePath }),
+        ...(config.geminiApiTarget && { GEMINI_API_TARGET: config.geminiApiTarget }),
+        ...(config.geminiApiBasePath && { GEMINI_API_BASE_PATH: config.geminiApiBasePath }),
         // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
         ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
         // Route through Squid to respect domain whitelisting
@@ -1504,6 +1512,21 @@ export function generateDockerCompose(
 
       // Note: COPILOT_GITHUB_TOKEN placeholder is set early (before --env-all)
       // to prevent override by host environment variable
+    }
+    if (config.geminiApiKey) {
+      environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
+      logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
+      if (config.geminiApiTarget) {
+        logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
+      }
+      if (config.geminiApiBasePath) {
+        logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
+      }
+
+      // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
+      // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
+      environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
+      logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');
@@ -1696,7 +1719,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // Ensure source directories for subdirectory mounts exist with correct ownership
     const chrootHomeDirs = [
       '.copilot', '.cache', '.config', '.local',
-      '.anthropic', '.claude', '.cargo', '.rustup', '.npm',
+      '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm',
     ];
     for (const dir of chrootHomeDirs) {
       const dirPath = path.join(effectiveHome, dir);

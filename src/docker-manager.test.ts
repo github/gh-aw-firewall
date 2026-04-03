@@ -2793,7 +2793,7 @@ describe('docker-manager', () => {
       // Verify chroot home subdirectories were created
       const expectedDirs = [
         '.copilot', '.cache', '.config', '.local',
-        '.anthropic', '.claude', '.cargo', '.rustup', '.npm',
+        '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm',
       ];
       for (const dir of expectedDirs) {
         expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);

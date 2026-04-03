@@ -62,10 +62,12 @@ function shouldStripHeader(name) {
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim() || undefined;
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
 const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
+const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
 // Configurable API target hosts (supports custom endpoints / internal LLM routers)
 const OPENAI_API_TARGET = process.env.OPENAI_API_TARGET || 'api.openai.com';
 const ANTHROPIC_API_TARGET = process.env.ANTHROPIC_API_TARGET || 'api.anthropic.com';
+const GEMINI_API_TARGET = process.env.GEMINI_API_TARGET || 'generativelanguage.googleapis.com';
 
 /**
  * Normalizes a base path for use as a URL path prefix.
@@ -115,6 +117,7 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
 // Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
 const OPENAI_API_BASE_PATH = normalizeBasePath(process.env.OPENAI_API_BASE_PATH);
 const ANTHROPIC_API_BASE_PATH = normalizeBasePath(process.env.ANTHROPIC_API_BASE_PATH);
+const GEMINI_API_BASE_PATH = normalizeBasePath(process.env.GEMINI_API_BASE_PATH);
 
 // Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
 // Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
@@ -160,15 +163,18 @@ logRequest('info', 'startup', {
   api_targets: {
     openai: OPENAI_API_TARGET,
     anthropic: ANTHROPIC_API_TARGET,
+    gemini: GEMINI_API_TARGET,
     copilot: COPILOT_API_TARGET,
   },
   api_base_paths: {
     openai: OPENAI_API_BASE_PATH || '(none)',
     anthropic: ANTHROPIC_API_BASE_PATH || '(none)',
+    gemini: GEMINI_API_BASE_PATH || '(none)',
   },
   providers: {
     openai: !!OPENAI_API_KEY,
     anthropic: !!ANTHROPIC_API_KEY,
+    gemini: !!GEMINI_API_KEY,
     copilot: !!COPILOT_GITHUB_TOKEN,
   },
 });
@@ -707,6 +713,7 @@ function healthResponse() {
     providers: {
       openai: !!OPENAI_API_KEY,
       anthropic: !!ANTHROPIC_API_KEY,
+      gemini: !!GEMINI_API_KEY,
       copilot: !!COPILOT_GITHUB_TOKEN,
     },
     metrics_summary: metrics.getSummary(),
@@ -837,6 +844,34 @@ if (require.main === module) {
 
     copilotServer.listen(10002, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
+    });
+  }
+
+  // Google Gemini API proxy (port 10003)
+  if (GEMINI_API_KEY) {
+    const geminiServer = http.createServer((req, res) => {
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'healthy', service: 'gemini-proxy' }));
+        return;
+      }
+
+      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
+      if (checkRateLimit(req, res, 'gemini', contentLength)) return;
+
+      proxyRequest(req, res, GEMINI_API_TARGET, {
+        'x-goog-api-key': GEMINI_API_KEY,
+      }, 'gemini', GEMINI_API_BASE_PATH);
+    });
+
+    geminiServer.on('upgrade', (req, socket, head) => {
+      proxyWebSocket(req, socket, head, GEMINI_API_TARGET, {
+        'x-goog-api-key': GEMINI_API_KEY,
+      }, 'gemini', GEMINI_API_BASE_PATH);
+    });
+
+    geminiServer.listen(10003, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: 'Google Gemini proxy listening on port 10003', target: GEMINI_API_TARGET });
     });
   }
 

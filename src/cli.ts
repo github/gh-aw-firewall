@@ -251,6 +251,8 @@ export function processAgentImageOption(
 export const DEFAULT_OPENAI_API_TARGET = 'api.openai.com';
 /** Default upstream hostname for Anthropic API requests in the api-proxy sidecar */
 export const DEFAULT_ANTHROPIC_API_TARGET = 'api.anthropic.com';
+/** Default upstream hostname for Google Gemini API requests in the api-proxy sidecar */
+export const DEFAULT_GEMINI_API_TARGET = 'generativelanguage.googleapis.com';
 /** Default upstream hostname for GitHub Copilot API requests in the api-proxy sidecar (when running on github.com) */
 export const DEFAULT_COPILOT_API_TARGET = 'api.githubcopilot.com';
 
@@ -344,7 +346,7 @@ export function validateApiTargetInAllowedDomains(
  * @param warn - Function to emit a warning message
  */
 export function emitApiProxyTargetWarnings(
-  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string; copilotApiTarget?: string },
+  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string; copilotApiTarget?: string; geminiApiTarget?: string },
   allowedDomains: string[],
   warn: (msg: string) => void
 ): void {
@@ -378,6 +380,16 @@ export function emitApiProxyTargetWarnings(
   );
   if (copilotTargetWarning) {
     warn(`⚠️  ${copilotTargetWarning}`);
+  }
+
+  const geminiTargetWarning = validateApiTargetInAllowedDomains(
+    config.geminiApiTarget ?? DEFAULT_GEMINI_API_TARGET,
+    DEFAULT_GEMINI_API_TARGET,
+    '--gemini-api-target',
+    allowedDomains
+  );
+  if (geminiTargetWarning) {
+    warn(`⚠️  ${geminiTargetWarning}`);
   }
 }
 
@@ -494,6 +506,7 @@ export function resolveApiTargetsToAllowedDomains(
     copilotApiTarget?: string;
     openaiApiTarget?: string;
     anthropicApiTarget?: string;
+    geminiApiTarget?: string;
   },
   allowedDomains: string[],
   env: Record<string, string | undefined> = process.env,
@@ -517,6 +530,12 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push(options.anthropicApiTarget);
   } else if (env['ANTHROPIC_API_TARGET']) {
     apiTargets.push(env['ANTHROPIC_API_TARGET']);
+  }
+
+  if (options.geminiApiTarget) {
+    apiTargets.push(options.geminiApiTarget);
+  } else if (env['GEMINI_API_TARGET']) {
+    apiTargets.push(env['GEMINI_API_TARGET']);
   }
 
   // Auto-populate GHEC domains when GITHUB_SERVER_URL points to a *.ghe.com tenant
@@ -1371,6 +1390,14 @@ program
     'Base path prefix for Anthropic API requests (e.g. /anthropic)',
   )
   .option(
+    '--gemini-api-target <host>',
+    'Target hostname for Gemini API requests (default: generativelanguage.googleapis.com)',
+  )
+  .option(
+    '--gemini-api-base-path <path>',
+    'Base path prefix for Gemini API requests',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1750,11 +1777,14 @@ program
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
+      geminiApiKey: process.env.GEMINI_API_KEY,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
       openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
       openaiApiBasePath: options.openaiApiBasePath || process.env.OPENAI_API_BASE_PATH,
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
+      geminiApiTarget: options.geminiApiTarget || process.env.GEMINI_API_TARGET,
+      geminiApiBasePath: options.geminiApiBasePath || process.env.GEMINI_API_BASE_PATH,
     };
 
     // Parse and validate --agent-timeout
