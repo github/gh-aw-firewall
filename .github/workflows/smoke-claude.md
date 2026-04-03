@@ -15,7 +15,7 @@ permissions:
 name: Smoke Claude
 engine:
   id: claude
-  max-turns: 8
+  max-turns: 12
 strict: true
 network:
   allowed:
@@ -39,6 +39,11 @@ safe-outputs:
       run-success: "🎬 **THE END** — [{workflow_name}]({run_url}) **MISSION: ACCOMPLISHED!** The hero saves the day! ✨"
       run-failure: "💫 **TO BE CONTINUED...** [{workflow_name}]({run_url}) {status}! Our hero faces unexpected challenges..."
 timeout-minutes: 10
+steps:
+  - name: Ensure playwright log directory is writable
+    run: |
+      mkdir -p /tmp/gh-aw/mcp-logs/playwright
+      chmod 777 /tmp/gh-aw/mcp-logs/playwright
 post-steps:
   - name: Show final Claude Code config
     if: always()
