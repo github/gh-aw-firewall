@@ -11,13 +11,30 @@ permissions:
   issues: read
 engine:
   id: claude
+  max-turns: 15
 tools:
   github:
-    toolsets: [default]
+    toolsets: [pull_requests, repos]
+network:
+  allowed:
+    - github
 safe-outputs:
   add-comment:
     max: 1
 timeout-minutes: 10
+steps:
+  - name: Fetch PR changed files
+    id: pr-diff
+    run: |
+      echo "PR_FILES<<EOF" >> $GITHUB_OUTPUT
+      gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+        --paginate --jq '.[] | "### \(.filename) (+\(.additions)/-\(.deletions))\n\(.patch // "(binary)")\n"' \
+        | head -c 8000
+      echo "EOF" >> $GITHUB_OUTPUT
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_REPO: ${{ github.repository }}
 ---
 
 # Security Guard
@@ -55,12 +72,20 @@ This repository implements a **network firewall for AI agents** that provides L7
    - Wildcard pattern security (prevents overly broad patterns)
    - Protocol prefix handling
 
+## Changed Files (Pre-fetched)
+
+The following PR diff has been pre-computed. Focus your security analysis on these changes:
+
+```
+${{ steps.pr-diff.outputs.PR_FILES }}
+```
+
 ## Your Task
 
 Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
 
-1. **Get the PR diff** using the GitHub tools to understand what files changed
-2. **Examine each changed file** for security implications
+1. **Review the pre-fetched diff above** to understand what files changed
+2. **Use `get_file_contents`** only if you need full context beyond the diff
 3. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
