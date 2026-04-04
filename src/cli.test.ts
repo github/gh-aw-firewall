@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1785,6 +1785,7 @@ describe('cli', () => {
       expect(DEFAULT_OPENAI_API_TARGET).toBe('api.openai.com');
       expect(DEFAULT_ANTHROPIC_API_TARGET).toBe('api.anthropic.com');
       expect(DEFAULT_COPILOT_API_TARGET).toBe('api.githubcopilot.com');
+      expect(DEFAULT_GEMINI_API_TARGET).toBe('generativelanguage.googleapis.com');
     });
   });
 
@@ -1988,6 +1989,55 @@ describe('cli', () => {
       expect(warnings[1]).toContain('--anthropic-api-target=anthropic.internal');
       expect(warnings[2]).toContain('--copilot-api-target=copilot.internal');
     });
+
+    it('should emit warning for custom Gemini target not in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, geminiApiTarget: 'custom.gemini-router.internal' },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('--gemini-api-target=custom.gemini-router.internal');
+    });
+
+    it('should emit no warnings when custom Gemini target is in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, geminiApiTarget: 'gemini.example.com' },
+        ['example.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should use default Gemini target when geminiApiTarget is undefined', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        { enableApiProxy: true, geminiApiTarget: undefined },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      // Default target is not in 'github.com' but since it IS the default, no warning is emitted
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('should emit warnings for all four custom targets when none are in allowed domains', () => {
+      const warnings: string[] = [];
+      emitApiProxyTargetWarnings(
+        {
+          enableApiProxy: true,
+          openaiApiTarget: 'openai.internal',
+          anthropicApiTarget: 'anthropic.internal',
+          copilotApiTarget: 'copilot.internal',
+          geminiApiTarget: 'gemini.internal',
+        },
+        ['github.com'],
+        (msg) => warnings.push(msg)
+      );
+      expect(warnings).toHaveLength(4);
+      expect(warnings[3]).toContain('--gemini-api-target=gemini.internal');
+    });
   });
 
   describe('resolveApiTargetsToAllowedDomains', () => {
@@ -2116,6 +2166,28 @@ describe('cli', () => {
       resolveApiTargetsToAllowedDomains({}, domains, env);
       // Whitespace-only and empty values are filtered out
       expect(domains).toHaveLength(0);
+    });
+
+    it('should add gemini-api-target option to allowed domains', () => {
+      const domains: string[] = ['github.com'];
+      resolveApiTargetsToAllowedDomains({ geminiApiTarget: 'custom.gemini.internal' }, domains);
+      expect(domains).toContain('custom.gemini.internal');
+      expect(domains).toContain('https://custom.gemini.internal');
+    });
+
+    it('should read GEMINI_API_TARGET from env when flag not set', () => {
+      const domains: string[] = [];
+      const env = { GEMINI_API_TARGET: 'env.gemini.internal' };
+      resolveApiTargetsToAllowedDomains({}, domains, env);
+      expect(domains).toContain('env.gemini.internal');
+    });
+
+    it('should prefer geminiApiTarget option over GEMINI_API_TARGET env var', () => {
+      const domains: string[] = [];
+      const env = { GEMINI_API_TARGET: 'env.gemini.internal' };
+      resolveApiTargetsToAllowedDomains({ geminiApiTarget: 'flag.gemini.internal' }, domains, env);
+      expect(domains).toContain('flag.gemini.internal');
+      expect(domains).not.toContain('env.gemini.internal');
     });
   });
 
