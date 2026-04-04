@@ -1780,7 +1780,7 @@ describe('cli', () => {
     });
   });
 
-  describe('DEFAULT_OPENAI_API_TARGET and DEFAULT_ANTHROPIC_API_TARGET', () => {
+  describe('DEFAULT_*_API_TARGET constants', () => {
     it('should have correct default values', () => {
       expect(DEFAULT_OPENAI_API_TARGET).toBe('api.openai.com');
       expect(DEFAULT_ANTHROPIC_API_TARGET).toBe('api.anthropic.com');
