@@ -9,25 +9,39 @@ permissions:
   issues: read
   pull-requests: read
   discussions: read
-imports:
-  - shared/mcp-pagination.md
 tools:
   agentic-workflows:
-  github:
-    toolsets: [default, actions]
   bash:
     - "*"
   web-fetch:
   cache-memory: true
 network:
   allowed:
-    - github
     - "github.github.io"
 safe-outputs:
   create-discussion:
     title-prefix: "[Pelis Agent Factory Advisor] "
     category: "general"
 timeout-minutes: 30
+steps:
+  - name: Fetch Pelis Agent Factory Docs
+    id: fetch-docs
+    run: |
+      BASE="https://github.github.io/gh-aw"
+      DELIM="PELIS_DOCS_$(date +%s%N)"
+      {
+        echo "DOCS_CONTENT<<${DELIM}"
+        for PATH_SUFFIX in \
+          "/blog/2026-01-12-welcome-to-pelis-agent-factory/" \
+          "/introduction/overview/" \
+          "/guides/workflow-patterns/" \
+          "/guides/best-practices/"; do
+          echo "### ${BASE}${PATH_SUFFIX}"
+          curl -sf "${BASE}${PATH_SUFFIX}" | python3 -c "import sys,html,re;t=sys.stdin.read();print(html.unescape(re.sub('<[^>]+>','',t))[:8000])" 2>/dev/null || echo "(not found)"
+          echo ""
+        done
+        echo "${DELIM}"
+      } >> "$GITHUB_OUTPUT"
 ---
 
 # Pelis Agent Factory Advisor
@@ -36,16 +50,23 @@ You are an expert advisor on agentic workflows, specializing in patterns and bes
 
 ## Phase 1: Learn Pelis Agent Factory Patterns
 
-### Step 1.1: Crawl the Pelis Agent Factory Documentation Site
+### Cache Check: Skip Phase 1 If Documentation Is Unchanged
 
-**IMPORTANT**: You must thoroughly crawl and read the Pelis Agent Factory documentation site to understand the common patterns and best practices for agentic workflows.
+Before exploring, check your cache-memory for `pelis_docs_hash`. Compute a SHA-256
+hash (64 hex characters) of the pre-fetched documentation below and compare it to the
+cached value. If they match, skip the rest of Phase 1 and use your existing cached
+knowledge of the patterns. Store the new hash value if it has changed.
 
-Start from the main blog post and explore ALL linked pages:
-- Start at: https://github.github.io/gh-aw/blog/2026-01-12-welcome-to-pelis-agent-factory/
-- Use `web-fetch` to retrieve each page
-- Follow ALL internal links to other pages on the site
-- Read the documentation sections, guides, and examples
-- Pay special attention to:
+### Pre-fetched Documentation
+
+The following Pelis Agent Factory documentation was pre-fetched from the site:
+
+${{ steps.fetch-docs.outputs.DOCS_CONTENT }}
+
+### Step 1.1: Review Pre-fetched Documentation
+
+Review the pre-fetched documentation above and note key patterns and best practices.
+Pay special attention to:
   - Workflow patterns and templates
   - Best practices for agentic automation
   - Common use cases and implementations
@@ -53,14 +74,15 @@ Start from the main blog post and explore ALL linked pages:
   - Safe outputs and permissions models
   - Caching and state management
 
-### Step 1.2: Explore the Agentics Repository
+If you need additional pages not covered above, use `web-fetch` to supplement
+(hard limit: 2 additional fetches for Phase 1.1).
 
-Clone knowledge from the agentics repository to understand reference implementations:
-- Repository: https://github.com/githubnext/agentics
-- Use the GitHub tools to explore the repository structure
-- Read key workflow files and configurations
-- Understand the patterns used in that repository
-- Note any interesting automation patterns that could apply here
+### Step 1.2: Reference Agentics Patterns
+
+Reference patterns from https://github.com/githubnext/agentics. Check key files
+via `web-fetch` if needed: `README.md` and `.github/workflows/*.md`. **Hard limit:
+2 web-fetch calls for Step 1.2 (independent of any fetches in Step 1.1).** Use
+cache-memory to persist any patterns found for future runs.
 
 ### Step 1.3: Document Learned Patterns
 
@@ -112,12 +134,11 @@ ls -la .github/workflows/
 ls -la scripts/ 2>/dev/null || echo "No scripts directory"
 ```
 
-### Step 2.3: Review Recent Activity
+### Step 2.3: Assess Recent Activity via Workflow Runs
 
-Use GitHub tools to understand recent repository activity:
-- Recent pull requests and their review patterns
-- Recent issues and their resolution patterns
-- Recent workflow runs and their success/failure rates
+Use the `agentic-workflows` tool to check recent run history and status:
+- `status` — current workflow health
+- `audit` — any security or configuration issues
 
 ## Phase 3: Identify Opportunities
 
