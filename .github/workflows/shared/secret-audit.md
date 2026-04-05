@@ -6,7 +6,6 @@ tools:
 network:
   allowed:
     - defaults
-    - github
 safe-outputs:
   create-issue:
     title-prefix: "[secrets] "
