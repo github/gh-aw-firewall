@@ -140,7 +140,6 @@ jobs:
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_SAFE_OUTPUTS: ${{ runner.temp }}/gh-aw/safeoutputs/outputs.jsonl
-          GH_AW_EXPR_D5B28826: ${{ steps.fetch-docs.outputs.DOCS_CONTENT }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_EVENT_COMMENT_ID: ${{ github.event.comment.id }}
           GH_AW_GITHUB_EVENT_DISCUSSION_NUMBER: ${{ github.event.discussion.number }}
@@ -205,7 +204,6 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
-          GH_AW_EXPR_D5B28826: ${{ steps.fetch-docs.outputs.DOCS_CONTENT }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -219,7 +217,6 @@ jobs:
           GH_AW_ALLOWED_EXTENSIONS: ''
           GH_AW_CACHE_DESCRIPTION: ''
           GH_AW_CACHE_DIR: '/tmp/gh-aw/cache-memory/'
-          GH_AW_EXPR_D5B28826: ${{ steps.fetch-docs.outputs.DOCS_CONTENT }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_EVENT_COMMENT_ID: ${{ github.event.comment.id }}
           GH_AW_GITHUB_EVENT_DISCUSSION_NUMBER: ${{ github.event.discussion.number }}
@@ -242,7 +239,6 @@ jobs:
                 GH_AW_ALLOWED_EXTENSIONS: process.env.GH_AW_ALLOWED_EXTENSIONS,
                 GH_AW_CACHE_DESCRIPTION: process.env.GH_AW_CACHE_DESCRIPTION,
                 GH_AW_CACHE_DIR: process.env.GH_AW_CACHE_DIR,
-                GH_AW_EXPR_D5B28826: process.env.GH_AW_EXPR_D5B28826,
                 GH_AW_GITHUB_ACTOR: process.env.GH_AW_GITHUB_ACTOR,
                 GH_AW_GITHUB_EVENT_COMMENT_ID: process.env.GH_AW_GITHUB_EVENT_COMMENT_ID,
                 GH_AW_GITHUB_EVENT_DISCUSSION_NUMBER: process.env.GH_AW_GITHUB_EVENT_DISCUSSION_NUMBER,
@@ -330,7 +326,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - id: fetch-docs
         name: Fetch Pelis Agent Factory Docs
-        run: "BASE=\"https://github.github.io/gh-aw\"\nDELIM=\"PELIS_DOCS_$(date +%s%N)\"\n{\n  echo \"DOCS_CONTENT<<${DELIM}\"\n  for PATH_SUFFIX in \\\n    \"/blog/2026-01-12-welcome-to-pelis-agent-factory/\" \\\n    \"/introduction/overview/\" \\\n    \"/guides/workflow-patterns/\" \\\n    \"/guides/best-practices/\"; do\n    echo \"### ${BASE}${PATH_SUFFIX}\"\n    curl -sf \"${BASE}${PATH_SUFFIX}\" | python3 -c \"import sys,html,re;t=sys.stdin.read();print(html.unescape(re.sub('<[^>]+>','',t))[:8000])\" 2>/dev/null || echo \"(not found)\"\n    echo \"\"\n  done\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\""
+        run: "set -o pipefail\nBASE=\"https://github.github.io/gh-aw\"\nOUTFILE=\"${GITHUB_WORKSPACE}/.pelis-agent-factory-docs.txt\"\n: > \"$OUTFILE\"\nfor PATH_SUFFIX in \\\n  \"/blog/2026-01-12-welcome-to-pelis-agent-factory/\" \\\n  \"/introduction/overview/\" \\\n  \"/guides/workflow-patterns/\" \\\n  \"/guides/best-practices/\"; do\n  echo \"### ${BASE}${PATH_SUFFIX}\" >> \"$OUTFILE\"\n  curl -sf \"${BASE}${PATH_SUFFIX}\" \\\n    | python3 -c \"import sys,html,re;t=sys.stdin.read();print(html.unescape(re.sub('<[^>]+>','',t))[:8000])\" \\\n    >> \"$OUTFILE\" 2>/dev/null \\\n    || echo \"(not found)\" >> \"$OUTFILE\"\n  echo \"\" >> \"$OUTFILE\"\ndone"
 
       # Cache memory file share configuration from frontmatter processed below
       - name: Create cache-memory directory

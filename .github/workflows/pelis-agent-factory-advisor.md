@@ -27,21 +27,22 @@ steps:
   - name: Fetch Pelis Agent Factory Docs
     id: fetch-docs
     run: |
+      set -o pipefail
       BASE="https://github.github.io/gh-aw"
-      DELIM="PELIS_DOCS_$(date +%s%N)"
-      {
-        echo "DOCS_CONTENT<<${DELIM}"
-        for PATH_SUFFIX in \
-          "/blog/2026-01-12-welcome-to-pelis-agent-factory/" \
-          "/introduction/overview/" \
-          "/guides/workflow-patterns/" \
-          "/guides/best-practices/"; do
-          echo "### ${BASE}${PATH_SUFFIX}"
-          curl -sf "${BASE}${PATH_SUFFIX}" | python3 -c "import sys,html,re;t=sys.stdin.read();print(html.unescape(re.sub('<[^>]+>','',t))[:8000])" 2>/dev/null || echo "(not found)"
-          echo ""
-        done
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+      OUTFILE="${GITHUB_WORKSPACE}/.pelis-agent-factory-docs.txt"
+      : > "$OUTFILE"
+      for PATH_SUFFIX in \
+        "/blog/2026-01-12-welcome-to-pelis-agent-factory/" \
+        "/introduction/overview/" \
+        "/guides/workflow-patterns/" \
+        "/guides/best-practices/"; do
+        echo "### ${BASE}${PATH_SUFFIX}" >> "$OUTFILE"
+        curl -sf "${BASE}${PATH_SUFFIX}" \
+          | python3 -c "import sys,html,re;t=sys.stdin.read();print(html.unescape(re.sub('<[^>]+>','',t))[:8000])" \
+          >> "$OUTFILE" 2>/dev/null \
+          || echo "(not found)" >> "$OUTFILE"
+        echo "" >> "$OUTFILE"
+      done
 ---
 
 # Pelis Agent Factory Advisor
@@ -59,13 +60,12 @@ knowledge of the patterns. Store the new hash value if it has changed.
 
 ### Pre-fetched Documentation
 
-The following Pelis Agent Factory documentation was pre-fetched from the site:
-
-${{ steps.fetch-docs.outputs.DOCS_CONTENT }}
+Pelis Agent Factory documentation was pre-fetched and saved to `.pelis-agent-factory-docs.txt`
+in the workspace root. Read this file with `cat .pelis-agent-factory-docs.txt` to access the content.
 
 ### Step 1.1: Review Pre-fetched Documentation
 
-Review the pre-fetched documentation above and note key patterns and best practices.
+Read `.pelis-agent-factory-docs.txt` and note key patterns and best practices.
 Pay special attention to:
   - Workflow patterns and templates
   - Best practices for agentic automation
