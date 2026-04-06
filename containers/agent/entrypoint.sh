@@ -681,6 +681,10 @@ AWFEOF
       echo "export GOROOT=\"${AWF_GOROOT}\"" >> "/host${SCRIPT_FILE}"
     fi
   fi
+  # Configure npm global prefix to a writable directory (since /usr is read-only)
+  echo 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> "/host${SCRIPT_FILE}"
+  echo 'mkdir -p "$HOME/.npm-global/bin" 2>/dev/null' >> "/host${SCRIPT_FILE}"
+  echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "/host${SCRIPT_FILE}"
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates
