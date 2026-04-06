@@ -88,12 +88,12 @@ You are an expert advisor on agentic workflows, specializing in patterns and bes
 
 ## Phase 1: Learn Pelis Agent Factory Patterns
 
-> **Efficiency note:** Read all required files in a **single parallel batch** — call `bash:cat` for `.content-hash.txt`, `.pelis-agent-factory-docs.txt`, `.agentics-patterns.txt`, and `.repo-structure.txt` simultaneously in your first turn. Do not read them one at a time.
+> **Efficiency note:** Use **batched reads**, but preserve the cache gate. In your first turn, call `bash:cat` for `.content-hash.txt` and `.repo-structure.txt` together. Only if the hash is changed or missing should you make a second parallel batch to read `.pelis-agent-factory-docs.txt` and `.agentics-patterns.txt`. Do not read the doc/pattern files on cache hits.
 
 Check cache-memory for `pelis_docs_hash`. Read the precomputed hash from
 `.content-hash.txt` and compare it to the cached value.
-If unchanged, skip to Phase 2 using cached knowledge.
-Otherwise read the doc files and update the hash in cache-memory.
+If unchanged, skip reading `.pelis-agent-factory-docs.txt` and `.agentics-patterns.txt` and continue to Phase 2 using cached knowledge.
+Otherwise read those files in a single parallel batch and update the hash in cache-memory.
 
 ### Step 1.1: Review Pre-fetched Documentation
 
