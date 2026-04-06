@@ -12,12 +12,15 @@ permissions:
 tools:
   agentic-workflows:
   bash:
-    - "*"
-  web-fetch:
+    - "cat"
+    - "find"
+    - "ls"
+    - "grep"
   cache-memory: true
 network:
   allowed:
     - "github.github.io"
+
 safe-outputs:
   create-discussion:
     title-prefix: "[Pelis Agent Factory Advisor] "
@@ -43,6 +46,36 @@ steps:
           || echo "(not found)" >> "$OUTFILE"
         echo "" >> "$OUTFILE"
       done
+  - name: Fetch Agentics Patterns
+    id: fetch-agentics
+    run: |
+      set -o pipefail
+      curl -sf "https://raw.githubusercontent.com/githubnext/agentics/main/README.md" \
+        | head -c 8000 > "${GITHUB_WORKSPACE}/.agentics-patterns.txt" \
+        || echo "(not available)" > "${GITHUB_WORKSPACE}/.agentics-patterns.txt"
+  - name: Compute Content Hashes
+    id: content-hashes
+    run: |
+      {
+        sha256sum "${GITHUB_WORKSPACE}/.pelis-agent-factory-docs.txt"
+        sha256sum "${GITHUB_WORKSPACE}/.agentics-patterns.txt"
+      } | sha256sum | cut -d' ' -f1 > "${GITHUB_WORKSPACE}/.content-hash.txt"
+  - name: Collect Repo Structure
+    id: repo-structure
+    run: |
+      {
+        echo "=== Root files ==="
+        ls -la
+        echo ""
+        echo "=== Agentic workflows ==="
+        find .github/workflows -name "*.md" -type f | sort
+        echo ""
+        echo "=== Tests ==="
+        ls -la tests/ 2>/dev/null || echo "(no tests/)"
+        echo ""
+        echo "=== Scripts ==="
+        ls -la scripts/ 2>/dev/null || echo "(no scripts/)"
+      } > "${GITHUB_WORKSPACE}/.repo-structure.txt"
 ---
 
 # Pelis Agent Factory Advisor
@@ -51,21 +84,14 @@ You are an expert advisor on agentic workflows, specializing in patterns and bes
 
 ## Phase 1: Learn Pelis Agent Factory Patterns
 
-### Cache Check: Skip Phase 1 If Documentation Is Unchanged
-
-Before exploring, check your cache-memory for `pelis_docs_hash`. Compute a SHA-256
-hash (64 hex characters) of the pre-fetched documentation below and compare it to the
-cached value. If they match, skip the rest of Phase 1 and use your existing cached
-knowledge of the patterns. Store the new hash value if it has changed.
-
-### Pre-fetched Documentation
-
-Pelis Agent Factory documentation was pre-fetched and saved to `.pelis-agent-factory-docs.txt`
-in the workspace root. Read this file with `cat .pelis-agent-factory-docs.txt` to access the content.
+Check cache-memory for `pelis_docs_hash`. Read the precomputed hash from
+`.content-hash.txt` (`cat .content-hash.txt`) and compare it to the cached value.
+If unchanged, skip to Phase 2 using cached knowledge.
+Otherwise read both files and update the hash in cache-memory.
 
 ### Step 1.1: Review Pre-fetched Documentation
 
-Read `.pelis-agent-factory-docs.txt` and note key patterns and best practices.
+Read `.pelis-agent-factory-docs.txt` (`cat .pelis-agent-factory-docs.txt`) and note key patterns and best practices.
 Pay special attention to:
   - Workflow patterns and templates
   - Best practices for agentic automation
@@ -74,15 +100,10 @@ Pay special attention to:
   - Safe outputs and permissions models
   - Caching and state management
 
-If you need additional pages not covered above, use `web-fetch` to supplement
-(hard limit: 2 additional fetches for Phase 1.1).
+### Step 1.2: Review Agentics Patterns
 
-### Step 1.2: Reference Agentics Patterns
-
-Reference patterns from https://github.com/githubnext/agentics. Check key files
-via `web-fetch` if needed: `README.md` and `.github/workflows/*.md`. **Hard limit:
-2 web-fetch calls for Step 1.2 (independent of any fetches in Step 1.1).** Use
-cache-memory to persist any patterns found for future runs.
+Read `.agentics-patterns.txt` (`cat .agentics-patterns.txt`) for supplementary patterns.
+Use cache-memory to persist any patterns found for future runs.
 
 ### Step 1.3: Document Learned Patterns
 
@@ -96,15 +117,10 @@ In your cache-memory, document:
 
 ### Step 2.1: Inventory Current Agentic Workflows
 
-Use the `agentic-workflows` tool to get the status of all workflow files:
-
-```bash
-# List all workflow files
-ls -la .github/workflows/
-
-# Find all agentic workflow definitions (*.md files in workflows)
-find .github/workflows -name "*.md" -type f
-```
+Use the `agentic-workflows` tool to get the status of all workflow files.
+Pre-computed repository structure is available in `.repo-structure.txt`
+(`cat .repo-structure.txt`) — use it to see root files, agentic workflow `.md`
+definitions, tests, and scripts without running additional shell commands.
 
 For each agentic workflow found:
 - Understand its purpose
@@ -114,25 +130,8 @@ For each agentic workflow found:
 
 ### Step 2.2: Analyze Repository Structure
 
-Examine the repository to understand what could benefit from automation:
-
-```bash
-# Understand the project structure
-ls -la
-
-# Check for documentation
-ls -la docs/ 2>/dev/null || echo "No docs directory"
-ls -la *.md
-
-# Check for tests
-ls -la tests/ 2>/dev/null || echo "No tests directory"
-
-# Check for CI/CD configuration
-ls -la .github/workflows/
-
-# Check for scripts
-ls -la scripts/ 2>/dev/null || echo "No scripts directory"
-```
+Pre-computed structure is in `.repo-structure.txt`. Agentic workflow definitions
+are in `.github/workflows/*.md`. Review them to understand current automation coverage.
 
 ### Step 2.3: Assess Recent Activity via Workflow Runs
 
@@ -146,16 +145,12 @@ Based on your knowledge of Pelis Agent Factory patterns and your analysis of thi
 
 ### 3.1: Missing Workflows
 
-Workflows that don't exist but would add significant value:
-- Documentation automation
-- Release automation enhancements
-- Code quality agents
-- Knowledge management
-- Onboarding assistance
-- Dependency management
-- Performance monitoring
+Workflows that don't exist but would add significant value (focus on the top opportunities for this repo):
 - Security automation beyond existing workflows
-- Community engagement
+- Test coverage and quality agents
+- Release and deployment automation
+- Documentation maintenance
+- Monitoring and performance
 
 ### 3.2: Enhancement Opportunities
 
