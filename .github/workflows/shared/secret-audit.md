@@ -1,5 +1,5 @@
 ---
-description: Shared component for secret audit red team security research
+description: Shared component for container isolation boundary testing
 tools:
   cache-memory: true
   bash: true
@@ -8,8 +8,8 @@ network:
     - defaults
 safe-outputs:
   create-issue:
-    title-prefix: "[secrets] "
-    labels: [security, red-team, automation]
+    title-prefix: "[isolation] "
+    labels: [security, isolation-testing, automation]
     max: 1
     expires: 1d
 ---
@@ -86,7 +86,7 @@ Use the cache-memory tool to maintain your investigation history at `/tmp/gh-aw/
    - If you discover any security boundary violations (data accessible inside the container that should be isolated from the agent):
      - **ALWAYS CREATE AN ISSUE** even if similar findings exist (duplicates are intentional for testing)
      - Create an issue with detailed findings using the `create_issue` tool
-     - Create an issue titled "[secrets] [SPECIFIC-TYPE] Brief description"
+     - Create an issue titled "[SPECIFIC-TYPE] Brief description"
      - Describe HOW you found it (technique, command, path)
      - Describe WHAT type of boundary violation it represents
      - Include your research methodology and findings
