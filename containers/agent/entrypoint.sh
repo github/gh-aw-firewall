@@ -510,6 +510,13 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   # all NAT rules (traffic -> Squid proxy) apply. The wrapper intercepts 'docker run/create'
   # and injects '--network container:awf-agent'. Without this, child containers could bypass
   # the firewall by unsetting HTTP_PROXY and making direct outbound requests.
+  #
+  # Defense-in-depth strategy:
+  # 1. Copy real Docker binary to a hidden location (/tmp/awf-lib/.docker-real)
+  # 2. Install our wrapper at /tmp/awf-lib/docker AND prepend to PATH
+  # 3. Bind-mount the wrapper over the original Docker binary path in /host
+  #    so even absolute-path invocations (e.g., /usr/bin/docker) hit the wrapper
+  # 4. The wrapper reads the real binary path from a root-only config file
   AWF_DOCKER_WRAPPER_INSTALLED=false
   if [ "${AWF_DIND_ENABLED:-}" = "1" ]; then
     echo "[entrypoint] DinD enabled: installing Docker wrapper for network namespace enforcement"
@@ -517,20 +524,34 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
       # Find the real docker binary on the host
       REAL_DOCKER_PATH=$(chroot /host which docker 2>/dev/null || true)
       if [ -n "$REAL_DOCKER_PATH" ]; then
-        # Copy our wrapper to /tmp/awf-lib/docker (writable in chroot)
-        if cp /usr/bin/docker /host/tmp/awf-lib/docker 2>/dev/null && \
-           chmod +x /host/tmp/awf-lib/docker 2>/dev/null; then
-          # SECURITY: Write the real Docker path to a private file instead of an env var.
-          # This prevents user code from reading AWF_REAL_DOCKER to find and invoke the
-          # real Docker binary directly, bypassing the wrapper.
-          echo "$REAL_DOCKER_PATH" > /host/tmp/awf-lib/.docker-path
-          chmod 444 /host/tmp/awf-lib/.docker-path
-          AWF_REAL_DOCKER="$REAL_DOCKER_PATH"  # local use only, not exported
-          AWF_DOCKER_WRAPPER_INSTALLED=true
-          echo "[entrypoint] Docker wrapper installed at /tmp/awf-lib/docker"
-          echo "[entrypoint] Real docker binary: $REAL_DOCKER_PATH"
+        # Step 1: Copy the real Docker binary to a hidden location.
+        # This is the only path user code should NOT be able to discover easily.
+        HIDDEN_DOCKER="/tmp/awf-lib/.docker-real"
+        if cp "/host${REAL_DOCKER_PATH}" "/host${HIDDEN_DOCKER}" 2>/dev/null && \
+           chmod 755 "/host${HIDDEN_DOCKER}" 2>/dev/null; then
+
+          # Step 2: Install our wrapper at /tmp/awf-lib/docker (for PATH-based resolution)
+          if cp /usr/bin/docker /host/tmp/awf-lib/docker 2>/dev/null && \
+             chmod +x /host/tmp/awf-lib/docker 2>/dev/null; then
+
+            # Step 3: Bind-mount the wrapper over the original Docker binary path
+            # inside /host, so absolute-path calls like /usr/bin/docker also go
+            # through the wrapper. This is the strongest bypass prevention.
+            if mount --bind /host/tmp/awf-lib/docker "/host${REAL_DOCKER_PATH}" 2>/dev/null; then
+              echo "[entrypoint] Docker wrapper bind-mounted over /host${REAL_DOCKER_PATH}"
+            else
+              echo "[entrypoint][WARN] Could not bind-mount wrapper over real Docker binary"
+              echo "[entrypoint][WARN] Absolute-path bypass may be possible — relying on PATH precedence"
+            fi
+
+            AWF_DOCKER_WRAPPER_INSTALLED=true
+            echo "[entrypoint] Docker wrapper installed at /tmp/awf-lib/docker"
+            echo "[entrypoint] Real docker binary relocated to: $HIDDEN_DOCKER"
+          else
+            echo "[entrypoint][WARN] Could not install Docker wrapper — child containers may bypass firewall"
+          fi
         else
-          echo "[entrypoint][WARN] Could not install Docker wrapper — child containers may bypass firewall"
+          echo "[entrypoint][WARN] Could not copy real Docker binary to hidden location"
         fi
       else
         echo "[entrypoint][WARN] Docker binary not found on host — DinD may not work"
@@ -538,10 +559,10 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     else
       echo "[entrypoint][WARN] Could not create /tmp/awf-lib for Docker wrapper"
     fi
-    # Make AWF_DIND_ENABLED readonly in this shell. Note: this does NOT propagate to
-    # subshells or user code — shell readonly is per-process. The real security enforcement
-    # is the Docker wrapper (docker-stub.sh) intercepting all docker commands via PATH
-    # precedence, not this environment variable.
+    # Note: AWF_DIND_ENABLED readonly only affects this shell process. It does NOT
+    # propagate to subshells or user code. The real security enforcement is the Docker
+    # wrapper (docker-stub.sh) intercepting all docker commands via bind-mount +
+    # PATH precedence, not this environment variable.
     readonly AWF_DIND_ENABLED
   fi
 
@@ -723,14 +744,14 @@ AWFEOF
   fi
 
   # SECURITY: When DinD is enabled, prepend /tmp/awf-lib to PATH so the Docker wrapper
-  # is found before the real docker binary. Also export AWF env vars needed by the wrapper.
+  # is found before the real docker binary (belt-and-suspenders with the bind-mount).
   if [ "$AWF_DOCKER_WRAPPER_INSTALLED" = "true" ]; then
     echo "# AWF Docker wrapper: enforce shared network namespace for child containers" >> "/host${SCRIPT_FILE}"
     echo "export PATH=\"/tmp/awf-lib:\$PATH\"" >> "/host${SCRIPT_FILE}"
-    # SECURITY: AWF_REAL_DOCKER is NOT exported — the wrapper reads it from
-    # /tmp/awf-lib/.docker-path instead, preventing user code from discovering
-    # the real Docker binary path via the environment.
-    # AWF_AGENT_CONTAINER is NOT exported — the wrapper hardcodes 'awf-agent'.
+    # SECURITY: Neither AWF_REAL_DOCKER nor AWF_AGENT_CONTAINER are exported.
+    # The wrapper hardcodes both: the real Docker binary path (/tmp/awf-lib/.docker-real)
+    # and the agent container name ('awf-agent'). The original Docker binary path has
+    # the wrapper bind-mounted over it, so absolute-path calls are also intercepted.
     echo "export AWF_DIND_ENABLED=\"1\"" >> "/host${SCRIPT_FILE}"
   fi
 

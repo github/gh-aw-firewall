@@ -29,17 +29,14 @@ fi
 
 # --- DinD enabled: enforce shared network namespace ---
 
-# SECURITY: Read the real Docker path from a private file rather than an environment
-# variable. Environment variables are visible to (and modifiable by) user code, which
-# could invoke the real Docker binary directly to bypass the wrapper.
-AWF_DOCKER_CONFIG="/tmp/awf-lib/.docker-path"
-if [ ! -f "$AWF_DOCKER_CONFIG" ]; then
-  echo "ERROR: Docker wrapper config not found at $AWF_DOCKER_CONFIG" >&2
-  exit 127
-fi
-REAL_DOCKER=$(cat "$AWF_DOCKER_CONFIG")
-if [ -z "$REAL_DOCKER" ] || [ ! -x "$REAL_DOCKER" ]; then
-  echo "ERROR: Real Docker binary not found or not executable: '$REAL_DOCKER'" >&2
+# SECURITY: The real Docker binary is at a hardcoded hidden path, set during
+# wrapper installation by entrypoint.sh. This path is not exposed via environment
+# variables or world-readable config files, and the original Docker binary path
+# has the wrapper bind-mounted over it to prevent absolute-path bypass.
+REAL_DOCKER="/tmp/awf-lib/.docker-real"
+if [ ! -x "$REAL_DOCKER" ]; then
+  echo "ERROR: Real Docker binary not found or not executable at: $REAL_DOCKER" >&2
+  echo "This may indicate the Docker wrapper was not installed correctly." >&2
   exit 127
 fi
 
@@ -75,31 +72,49 @@ get_subcommand() {
 
 SUBCOMMAND=$(get_subcommand "$@")
 
+# Split arguments into global options (before subcommand) and subcommand args (after).
+# This handles cases like: docker --context foo run --rm alpine
+split_at_subcommand() {
+  local target_subcmd="$1"
+  shift
+  GLOBAL_OPTS=()
+  SUBCMD_ARGS=()
+  local found=false
+  for arg in "$@"; do
+    if [ "$found" = true ]; then
+      SUBCMD_ARGS+=("$arg")
+    elif [ "$arg" = "$target_subcmd" ]; then
+      found=true
+    else
+      GLOBAL_OPTS+=("$arg")
+    fi
+  done
+}
+
 # Block commands that could attach containers to other networks
 case "$SUBCOMMAND" in
   "network")
     # Check for 'docker network connect' which could bypass firewall
     # Allow 'docker network ls', 'docker network inspect', etc.
-    shift  # remove 'network'
-    NETWORK_SUBCMD=$(get_subcommand "$@")
+    split_at_subcommand "network" "$@"
+    NETWORK_SUBCMD=$(get_subcommand "${SUBCMD_ARGS[@]}")
     if [ "$NETWORK_SUBCMD" = "connect" ]; then
       echo "ERROR: 'docker network connect' is blocked by AWF firewall." >&2
       echo "Child containers must share the agent's network namespace for security." >&2
       exit 1
     fi
-    exec "$REAL_DOCKER" network "$@"
+    exec "$REAL_DOCKER" "${GLOBAL_OPTS[@]}" network "${SUBCMD_ARGS[@]}"
     ;;
 
   "run"|"create")
     # Intercept 'docker run' and 'docker create' to enforce shared network namespace
     # This ensures child containers use the agent's NAT rules (traffic -> Squid proxy)
-    CMD="$1"
-    shift  # remove 'run' or 'create'
+    split_at_subcommand "$SUBCOMMAND" "$@"
 
     FILTERED_ARGS=()
     SKIP_NEXT=false
 
-    for arg in "$@"; do
+    for arg in "${SUBCMD_ARGS[@]}"; do
       if [ "$SKIP_NEXT" = true ]; then
         SKIP_NEXT=false
         continue
@@ -124,7 +139,7 @@ case "$SUBCOMMAND" in
     done
 
     # Inject --network container:<agent> to share network namespace
-    exec "$REAL_DOCKER" "$CMD" --network "container:${AGENT_CONTAINER}" "${FILTERED_ARGS[@]}"
+    exec "$REAL_DOCKER" "${GLOBAL_OPTS[@]}" "$SUBCOMMAND" --network "container:${AGENT_CONTAINER}" "${FILTERED_ARGS[@]}"
     ;;
 
   "build")
@@ -155,7 +170,7 @@ case "$SUBCOMMAND" in
     ;;
 
   *)
-    # All other commands (ps, logs, inspect, exec, build, images, etc.) pass through
+    # All other commands (ps, logs, inspect, exec, images, pull, etc.) pass through
     exec "$REAL_DOCKER" "$@"
     ;;
 esac

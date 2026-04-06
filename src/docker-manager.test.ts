@@ -768,8 +768,9 @@ describe('docker-manager', () => {
 
       // AWF_DIND_ENABLED tells docker-stub.sh to act as a wrapper instead of blocking
       expect(env.AWF_DIND_ENABLED).toBe('1');
-      // AWF_AGENT_CONTAINER tells the wrapper which container to share network with
-      expect(env.AWF_AGENT_CONTAINER).toBe('awf-agent');
+      // AWF_AGENT_CONTAINER should NOT be set — the wrapper hardcodes the container name
+      // to prevent user code from overriding it to join arbitrary container namespaces
+      expect(env.AWF_AGENT_CONTAINER).toBeUndefined();
     });
 
     it('should NOT set DinD env vars when enableDind is false', () => {

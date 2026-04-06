@@ -1004,10 +1004,11 @@ export function generateDockerCompose(
       agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
       // Also expose the /run/docker.sock symlink if it exists
       agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
-      // Set DinD environment variables so the docker-stub wrapper enforces
-      // shared network namespace for child containers (prevents proxy bypass)
+      // Set AWF_DIND_ENABLED so entrypoint.sh installs the Docker wrapper that
+      // enforces shared network namespace for child containers (prevents proxy bypass).
+      // Note: AWF_AGENT_CONTAINER is NOT set — the wrapper hardcodes the container name
+      // to prevent user code from overriding it to join arbitrary container namespaces.
       environment.AWF_DIND_ENABLED = '1';
-      environment.AWF_AGENT_CONTAINER = AGENT_CONTAINER_NAME;
       logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
     } else {
       // Hide Docker socket to prevent firewall bypass via 'docker run'
