@@ -6,6 +6,7 @@ export interface PredownloadOptions {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
+  enableCliProxy?: boolean;
 }
 
 /**
@@ -45,6 +46,11 @@ export function resolveImages(options: PredownloadOptions): string[] {
   // Optionally pull api-proxy
   if (enableApiProxy) {
     images.push(`${imageRegistry}/api-proxy:${imageTag}`);
+  }
+
+  // Optionally pull cli-proxy
+  if (options.enableCliProxy) {
+    images.push(`${imageRegistry}/cli-proxy:${imageTag}`);
   }
 
   return images;

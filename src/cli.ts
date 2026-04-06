@@ -1415,7 +1415,24 @@ program
     'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
 
-  // -- Logging & Debug --
+  // -- CLI Proxy --
+  .option(
+    '--enable-cli-proxy',
+    'Enable gh CLI proxy sidecar for secure GitHub CLI access.\n' +
+    '                                       Routes gh commands through mcpg DIFC proxy with guard policies.\n' +
+    '                                       GH_TOKEN is held in the sidecar; never exposed to the agent.',
+    false
+  )
+  .option(
+    '--cli-proxy-writable',
+    'Allow write operations through the CLI proxy (default: read-only)',
+    false
+  )
+  .option(
+    '--cli-proxy-policy <json>',
+    'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
+    '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
+  )
   .option(
     '--log-level <level>',
     'Log level: debug, info, warn, error',
@@ -1786,6 +1803,10 @@ program
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
       geminiApiTarget: options.geminiApiTarget || process.env.GEMINI_API_TARGET,
       geminiApiBasePath: options.geminiApiBasePath || process.env.GEMINI_API_BASE_PATH,
+      enableCliProxy: options.enableCliProxy,
+      cliProxyWritable: options.cliProxyWritable,
+      cliProxyPolicy: options.cliProxyPolicy,
+      githubToken: process.env.GITHUB_TOKEN,
     };
 
     // Parse and validate --agent-timeout
@@ -1881,6 +1902,16 @@ program
 
     // Warn if custom API targets are not in --allow-domains
     emitApiProxyTargetWarnings(config, allowedDomains, logger.warn.bind(logger));
+
+    // Log CLI proxy status
+    if (config.enableCliProxy) {
+      if (config.githubToken) {
+        logger.info(`CLI proxy enabled: GH_TOKEN present, writable=${!!config.cliProxyWritable}`);
+      } else {
+        logger.warn('⚠️  CLI proxy enabled but GITHUB_TOKEN not found in environment');
+        logger.warn('   Set GITHUB_TOKEN to enable authenticated gh CLI access through the proxy');
+      }
+    }
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
@@ -2005,6 +2036,7 @@ export async function handlePredownloadAction(options: {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
+  enableCliProxy?: boolean;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
   try {
@@ -2013,6 +2045,7 @@ export async function handlePredownloadAction(options: {
       imageTag: options.imageTag,
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
+      enableCliProxy: options.enableCliProxy,
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -2036,6 +2069,7 @@ program
     'default'
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
+  .option('--enable-cli-proxy', 'Also download the CLI proxy image', false)
   .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs

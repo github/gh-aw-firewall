@@ -478,6 +478,23 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     fi
   fi
 
+  # Activate gh CLI proxy wrapper when CLI proxy sidecar is enabled.
+  # The wrapper at /usr/local/bin/gh-cli-proxy-wrapper.sh (baked into the image)
+  # is copied to /tmp/awf-lib/gh so it is accessible inside the chroot at a
+  # location that takes precedence over the host's /usr/bin/gh mount.
+  if [ -n "$AWF_CLI_PROXY_URL" ] && [ -f /usr/local/bin/gh-cli-proxy-wrapper.sh ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /host/tmp/awf-lib/gh 2>/dev/null && \
+         chmod +x /host/tmp/awf-lib/gh 2>/dev/null; then
+        echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
+        # Prepend /tmp/awf-lib to PATH so the wrapper takes precedence over host gh
+        export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}"
+      else
+        echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
+      fi
+    fi
+  fi
+
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
   # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
@@ -782,6 +799,21 @@ AWFEOF
 else
   # Original behavior - run in container filesystem
   # Drop capabilities and privileges, then execute the user command
+
+  # Activate gh CLI proxy wrapper in non-chroot mode.
+  # Copy the wrapper to /tmp/awf-lib/gh so it takes precedence over
+  # the system gh at /usr/bin/gh (since /tmp/awf-lib is prepended to PATH).
+  if [ -n "$AWF_CLI_PROXY_URL" ] && [ -f /usr/local/bin/gh-cli-proxy-wrapper.sh ]; then
+    mkdir -p /tmp/awf-lib
+    if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /tmp/awf-lib/gh 2>/dev/null && \
+       chmod +x /tmp/awf-lib/gh 2>/dev/null; then
+      export PATH="/tmp/awf-lib:${PATH}"
+      echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
+    else
+      echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
+    fi
+  fi
+
   # This prevents malicious code from modifying iptables rules or using chroot
   # Security note: capsh --drop removes capabilities from the bounding set,
   # preventing any process (even if it escalates to root) from acquiring them
