@@ -12,7 +12,7 @@
 # MCPG_IMAGE is configurable via --cli-proxy-mcpg-image so the AWF compiler
 # can control which mcpg version is pulled and run (e.g. for version pinning
 # or testing a new mcpg release before it is bundled in the GHCR cli-proxy image).
-ARG MCPG_IMAGE=ghcr.io/github/gh-aw-mcpg:v0.2.2
+ARG MCPG_IMAGE=ghcr.io/github/gh-aw-mcpg:v0.2.15
 FROM ${MCPG_IMAGE} AS mcpg-source
 
 # Stage 2: Build the CLI proxy image

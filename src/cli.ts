@@ -1438,7 +1438,7 @@ program
     'Docker image for the mcpg DIFC proxy used inside the CLI proxy sidecar\n' +
     '                                       (only used with --build-local; ignored when pulling pre-built GHCR images)\n' +
     '                                       Set by the AWF compiler to control which mcpg version is pulled and run',
-    'ghcr.io/github/gh-aw-mcpg:v0.2.2'
+    'ghcr.io/github/gh-aw-mcpg:v0.2.15'
   )
   // -- Logging & Debug --
   .option(

@@ -849,7 +849,7 @@ export interface WrapperConfig {
    * The AWF compiler (gh-aw) sets this to control which mcpg version is pulled
    * and run, enabling version pinning and testing of new mcpg releases.
    *
-   * @default 'ghcr.io/github/gh-aw-mcpg:v0.2.2'
+   * @default 'ghcr.io/github/gh-aw-mcpg:v0.2.15'
    * @example 'ghcr.io/github/gh-aw-mcpg:v0.3.0'
    */
   cliProxyMcpgImage?: string;
