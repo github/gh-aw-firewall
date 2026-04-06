@@ -746,11 +746,15 @@ AWFEOF
       echo "[entrypoint][WARN] Failed to transfer /host/tmp/gh-aw ownership to chroot user"
     fi
   fi
-  if [ -d /host/opt/gh-aw/safeoutputs ]; then
-    if chown -R "${HOST_UID}:${HOST_GID}" /host/opt/gh-aw/safeoutputs 2>/dev/null; then
-      echo "[entrypoint] Transferred /host/opt/gh-aw/safeoutputs ownership to chroot user (${HOST_UID}:${HOST_GID})"
-    else
-      echo "[entrypoint][WARN] Failed to transfer /host/opt/gh-aw/safeoutputs ownership to chroot user"
+  # Handle safe-outputs directory (path varies by gh-aw version)
+  if [ -n "${GH_AW_SAFE_OUTPUTS:-}" ]; then
+    _so_dir="/host$(dirname "$GH_AW_SAFE_OUTPUTS")"
+    if [ -d "$_so_dir" ]; then
+      if chown -R "${HOST_UID}:${HOST_GID}" "$_so_dir" 2>/dev/null; then
+        echo "[entrypoint] Transferred $_so_dir ownership to chroot user (${HOST_UID}:${HOST_GID})"
+      else
+        echo "[entrypoint][WARN] Failed to transfer $_so_dir ownership to chroot user"
+      fi
     fi
   fi
 
