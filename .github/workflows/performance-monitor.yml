@@ -12,7 +12,7 @@ on:
         default: "5"
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -23,6 +23,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history needed for committing back to the repo
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -57,6 +60,47 @@ jobs:
           path: benchmark-results.json
           retention-days: 90
 
+      - name: Append to benchmark history
+        run: |
+          HISTORY_FILE="benchmarks/history.json"
+
+          # Validate benchmark-results.json is valid JSON with results
+          if ! jq -e '.results' benchmark-results.json > /dev/null 2>&1; then
+            echo "Invalid or missing benchmark results — skipping history update"
+            exit 0
+          fi
+
+          # Read current history
+          HISTORY=$(cat "$HISTORY_FILE")
+
+          # Append new entry (strip thresholds to keep history lean)
+          ENTRY=$(jq '{timestamp, commitSha, iterations, results, regressions}' benchmark-results.json)
+          UPDATED=$(echo "$HISTORY" | jq --argjson entry "$ENTRY" '. + [$entry]')
+
+          # Keep only last 50 entries
+          TRIMMED=$(echo "$UPDATED" | jq '.[-50:]')
+
+          echo "$TRIMMED" | jq '.' > "$HISTORY_FILE"
+
+          echo "History now has $(echo "$TRIMMED" | jq 'length') entries"
+
+      - name: Commit benchmark history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/history.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update benchmark history [skip ci]"
+            git push origin main
+          fi
+
+      - name: Generate trend report
+        id: trend
+        run: |
+          npx tsx scripts/ci/benchmark-trend.ts >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
       - name: Check for regressions
         id: check
         run: |
@@ -69,13 +113,13 @@ jobs:
           echo "regression_count=$REGRESSIONS" >> "$GITHUB_OUTPUT"
 
           if [ "$REGRESSIONS" -gt 0 ]; then
-            echo "## ⚠️ Performance Regressions Detected" >> "$GITHUB_STEP_SUMMARY"
+            echo "## Performance Regressions Detected" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             jq -r '.regressions[]' benchmark-results.json | while read -r line; do
               echo "- $line" >> "$GITHUB_STEP_SUMMARY"
             done
           else
-            echo "## ✅ All Metrics Within Thresholds" >> "$GITHUB_STEP_SUMMARY"
+            echo "## All Metrics Within Thresholds" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"

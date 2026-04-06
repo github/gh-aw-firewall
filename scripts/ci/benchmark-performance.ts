@@ -12,6 +12,8 @@
  */
 
 import { execSync, ExecSyncOptions } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 
 // ── Configuration ──────────────────────────────────────────────────
 
@@ -233,6 +235,49 @@ function benchmarkNetworkCreation(): BenchmarkResult {
   return { metric: "docker_network_creation", unit: "ms", values, ...stats(values) };
 }
 
+// ── History-based regression detection ─────────────────────────────
+
+const DELTA_REGRESSION_THRESHOLD_PERCENT = 20;
+const HISTORY_PATH = path.resolve(__dirname, "../../benchmarks/history.json");
+
+interface HistoryEntry {
+  timestamp: string;
+  commitSha: string;
+  iterations: number;
+  results: BenchmarkResult[];
+  regressions: string[];
+}
+
+function loadPreviousRun(): HistoryEntry | null {
+  try {
+    if (!fs.existsSync(HISTORY_PATH)) return null;
+    const history: HistoryEntry[] = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf-8"));
+    if (history.length === 0) return null;
+    return history[history.length - 1];
+  } catch {
+    return null;
+  }
+}
+
+function checkDeltaRegressions(
+  results: BenchmarkResult[],
+  previous: HistoryEntry
+): string[] {
+  const regressions: string[] = [];
+  for (const cur of results) {
+    const prev = previous.results.find((r) => r.metric === cur.metric);
+    if (!prev || prev.p95 === 0) continue;
+
+    const deltaPercent = ((cur.p95 - prev.p95) / prev.p95) * 100;
+    if (deltaPercent > DELTA_REGRESSION_THRESHOLD_PERCENT) {
+      regressions.push(
+        `${cur.metric}: p95=${cur.p95}${cur.unit} is ${Math.round(deltaPercent)}% worse than previous run (${prev.p95}${prev.unit})`
+      );
+    }
+  }
+  return regressions;
+}
+
 // ── Main ───────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -262,6 +307,16 @@ async function main(): Promise<void> {
         `${r.metric}: p95=${r.p95}${r.unit} exceeds critical threshold of ${threshold.critical}${r.unit}`
       );
     }
+  }
+
+  // Check for delta-based regressions against previous run
+  const previousRun = loadPreviousRun();
+  if (previousRun) {
+    console.error(`  Comparing against previous run: ${previousRun.commitSha.substring(0, 7)} (${previousRun.timestamp})`);
+    const deltaRegressions = checkDeltaRegressions(results, previousRun);
+    regressions.push(...deltaRegressions);
+  } else {
+    console.error("  No previous run found in history — skipping delta regression check.");
   }
 
   const report: BenchmarkReport = {
