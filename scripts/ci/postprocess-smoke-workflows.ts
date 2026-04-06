@@ -342,8 +342,9 @@ for (const workflowPath of workflowPaths) {
     // Replace --enable-host-access with --allow-host-service-ports 6379,5432
     // only in the agent job's awf invocation (not the detection job).
     // The agent job's command is identifiable by its long --allow-domains list enclosed
-    // in single quotes (the detection job uses a shorter unquoted domain list). We use
-    // a non-greedy match anchored to --build-local to avoid cross-line over-matching.
+    // in single quotes (the detection job uses a shorter unquoted domain list). We match
+    // only within a single line and bound the match with the later --build-local flag to
+    // avoid cross-line over-matching.
     // --allow-domains '...' <other flags> --enable-host-access --build-local
     const agentJobEnableHostAccessRegex =
       /(--allow-domains '[^']*' [^\n]* )--enable-host-access( --build-local)/;
@@ -352,7 +353,7 @@ for (const workflowPath of workflowPaths) {
 
     if (!agentJobHostServicePortsRegex.test(content)) {
       if (agentJobEnableHostAccessRegex.test(content)) {
-        const matchCount = (content.match(agentJobEnableHostAccessRegex) || []).length;
+        const matchCount = (content.match(new RegExp(agentJobEnableHostAccessRegex.source, 'g')) || []).length;
         if (matchCount > 1) {
           console.warn(
             `  WARNING: Found ${matchCount} matches for agent job --enable-host-access pattern. ` +
