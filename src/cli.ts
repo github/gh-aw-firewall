@@ -1806,7 +1806,7 @@ program
       enableCliProxy: options.enableCliProxy,
       cliProxyWritable: options.cliProxyWritable,
       cliProxyPolicy: options.cliProxyPolicy,
-      githubToken: process.env.GITHUB_TOKEN,
+      githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
     };
 
     // Parse and validate --agent-timeout
@@ -1906,10 +1906,10 @@ program
     // Log CLI proxy status
     if (config.enableCliProxy) {
       if (config.githubToken) {
-        logger.info(`CLI proxy enabled: GH_TOKEN present, writable=${!!config.cliProxyWritable}`);
+        logger.info(`CLI proxy enabled: token present (GITHUB_TOKEN/GH_TOKEN), writable=${!!config.cliProxyWritable}`);
       } else {
-        logger.warn('⚠️  CLI proxy enabled but GITHUB_TOKEN not found in environment');
-        logger.warn('   Set GITHUB_TOKEN to enable authenticated gh CLI access through the proxy');
+        logger.warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
+        logger.warn('   Set GITHUB_TOKEN or GH_TOKEN to enable authenticated gh CLI access through the proxy');
       }
     }
 

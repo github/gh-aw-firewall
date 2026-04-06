@@ -187,6 +187,57 @@ describe('validateArgs', () => {
       const result = validateArgs(['pr', '--json', 'number', 'list'], false);
       expect(result.valid).toBe(true);
     });
+
+    it('should deny cache delete', () => {
+      const result = validateArgs(['cache', 'delete', 'some-key'], false);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should allow cache list', () => {
+      const result = validateArgs(['cache', 'list'], false);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should deny codespace create', () => {
+      const result = validateArgs(['codespace', 'create'], false);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should deny codespace delete', () => {
+      const result = validateArgs(['codespace', 'delete', '--all'], false);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should allow codespace list', () => {
+      const result = validateArgs(['codespace', 'list'], false);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should deny org invite', () => {
+      const result = validateArgs(['org', 'invite', '--org', 'myorg', 'user'], false);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should allow org list', () => {
+      const result = validateArgs(['org', 'list'], false);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should not bypass blocked action when subcommand appears as a flag value (indexOf bypass)', () => {
+      // Without the subcommandIndex fix, 'args.indexOf("pr")' would return index 1 (the flag value),
+      // and args.slice(2) = ['pr', 'merge', '1'], finding 'merge' as the action → blocked.
+      // With the correct index (3), slice(4) = ['merge', '1'] → still blocked. But if the
+      // subcommand were a read-only action, the old code would use the wrong index.
+      // Here we verify that gh --repo pr pr list is still allowed (subcommand is at index 3).
+      const result = validateArgs(['--repo', 'pr', 'pr', 'list'], false);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should correctly detect blocked action even when subcommand appears earlier as flag value', () => {
+      // gh --repo pr pr merge 1: subcommand 'pr' is at index 2 (flag value 'pr' at index 1 is skipped)
+      const result = validateArgs(['--repo', 'pr', 'pr', 'merge', '1'], false);
+      expect(result.valid).toBe(false);
+    });
   });
 
   describe('writable mode', () => {

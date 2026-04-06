@@ -42,11 +42,18 @@ COPY healthcheck.sh /usr/local/bin/healthcheck.sh
 
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh
 
-# Create log directory with open permissions so Node server (non-root) can write
-RUN mkdir -p /var/log/cli-proxy/mcpg && chmod 777 /var/log/cli-proxy /var/log/cli-proxy/mcpg
-
 # Create non-root user
 RUN addgroup -S cliproxy && adduser -S cliproxy -G cliproxy
+
+# Create log directory owned by cliproxy (so non-root process can write)
+RUN mkdir -p /var/log/cli-proxy/mcpg && \
+    chown -R cliproxy:cliproxy /var/log/cli-proxy
+
+# Create /tmp/proxy-tls directory owned by cliproxy for mcpg TLS cert generation
+RUN mkdir -p /tmp/proxy-tls && chown cliproxy:cliproxy /tmp/proxy-tls
+
+# Switch to non-root user
+USER cliproxy
 
 # Expose port for agent→cli-proxy HTTP communication
 # 11000 - gh exec endpoint and health check

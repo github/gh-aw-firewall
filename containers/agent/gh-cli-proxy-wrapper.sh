@@ -24,11 +24,13 @@ if [ ! -t 0 ]; then
   STDIN_DATA=$(cat | base64 | tr -d '\n')
 fi
 
-# Send the request to the CLI proxy
-# Capture curl exit code separately since $? after a $() substitution may
-# be from the last command inside the subshell, not from curl itself.
-RESPONSE=$(curl -sf \
+# Use a temporary file to capture the response body without -f,
+# so we can read the body even on 4xx/5xx responses (e.g., 403 policy block).
+RESPONSE_FILE=$(mktemp)
+HTTP_STATUS=$(curl -s \
   --max-time 60 \
+  -o "$RESPONSE_FILE" \
+  -w "%{http_code}" \
   -X POST "${CLI_PROXY}/exec" \
   -H "Content-Type: application/json" \
   --data-binary "$(printf '{"args":%s,"cwd":%s,"stdin":"%s"}' \
@@ -36,23 +38,29 @@ RESPONSE=$(curl -sf \
     "$(printf '%s' "$CWD" | jq -Rs .)" \
     "$STDIN_DATA")")
 CURL_EXIT=$?
+RESPONSE=$(cat "$RESPONSE_FILE")
+rm -f "$RESPONSE_FILE"
 
-if [ "$CURL_EXIT" -ne 0 ] || [ -z "$RESPONSE" ]; then
-  echo "gh: CLI proxy unavailable at ${CLI_PROXY}" >&2
+if [ "$CURL_EXIT" -ne 0 ]; then
+  echo "gh: CLI proxy unavailable at ${CLI_PROXY} (curl exit ${CURL_EXIT})" >&2
   exit 1
 fi
 
-# Extract and emit stdout/stderr
+# Surface policy errors (403), request errors (400/413), and server errors (5xx)
+if [ "$HTTP_STATUS" != "200" ]; then
+  ERROR=$(printf '%s' "$RESPONSE" | jq -r '.error // empty' 2>/dev/null)
+  if [ -n "$ERROR" ]; then
+    echo "gh: ${ERROR}" >&2
+  else
+    echo "gh: CLI proxy returned HTTP ${HTTP_STATUS}" >&2
+  fi
+  exit 1
+fi
+
+# Extract and emit stdout/stderr from a successful 200 response
 STDOUT=$(printf '%s' "$RESPONSE" | jq -r '.stdout // empty' 2>/dev/null)
 STDERR=$(printf '%s' "$RESPONSE" | jq -r '.stderr // empty' 2>/dev/null)
 EXIT_CODE=$(printf '%s' "$RESPONSE" | jq -r '.exitCode // 1' 2>/dev/null)
-
-# Check for error response (403 blocked, 404, 500)
-ERROR=$(printf '%s' "$RESPONSE" | jq -r '.error // empty' 2>/dev/null)
-if [ -n "$ERROR" ]; then
-  echo "gh: ${ERROR}" >&2
-  exit 1
-fi
 
 printf '%s' "$STDOUT"
 printf '%s' "$STDERR" >&2

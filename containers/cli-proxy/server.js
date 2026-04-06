@@ -54,9 +54,15 @@ const ALLOWED_SUBCOMMANDS_READONLY = new Set([
  * Maps subcommand -> Set of blocked action verbs.
  */
 const BLOCKED_ACTIONS_READONLY = new Map([
+  // cache: delete is a write operation
+  ['cache', new Set(['delete'])],
+  // codespace: create, delete, edit, stop, ports forward are write operations
+  ['codespace', new Set(['create', 'delete', 'edit', 'stop', 'ports'])],
   ['gist', new Set(['create', 'delete', 'edit'])],
   ['issue', new Set(['create', 'close', 'delete', 'edit', 'lock', 'pin', 'reopen', 'transfer', 'unpin'])],
   ['label', new Set(['create', 'delete', 'edit'])],
+  // org: invite changes org membership
+  ['org', new Set(['invite'])],
   ['pr', new Set(['checkout', 'close', 'create', 'edit', 'lock', 'merge', 'ready', 'reopen', 'review', 'update-branch'])],
   ['release', new Set(['create', 'delete', 'delete-asset', 'edit', 'upload'])],
   ['repo', new Set(['archive', 'create', 'delete', 'edit', 'fork', 'rename', 'set-default', 'sync', 'unarchive'])],
@@ -97,7 +103,11 @@ function validateArgs(args, writable) {
   // Find the subcommand by scanning through args, skipping flags and their values.
   // Handles patterns like: gh --repo owner/repo pr list
   // Strategy: when we see --flag (without =), assume the next non-flag-like arg is its value.
+  // We also track the subcommand's index so that subsequent action detection doesn't
+  // accidentally pick up a flag value that happens to equal the subcommand string
+  // (e.g. gh --repo pr pr merge 1 would be wrongly parsed by indexOf).
   let subcommand = null;
+  let subcommandIndex = -1;
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
@@ -111,6 +121,7 @@ function validateArgs(args, writable) {
       }
     } else {
       subcommand = arg;
+      subcommandIndex = i;
       break;
     }
   }
@@ -134,8 +145,9 @@ function validateArgs(args, writable) {
     // Check action-level blocklist
     const blockedActions = BLOCKED_ACTIONS_READONLY.get(subcommand);
     if (blockedActions) {
-      // The action is the first non-flag argument after the subcommand
-      const subcommandIndex = args.indexOf(subcommand);
+      // The action is the first non-flag argument after the subcommand.
+      // Use the tracked subcommandIndex (not indexOf) to avoid false matches when
+      // the subcommand string also appears as a flag value earlier in the args array.
       const action = args.slice(subcommandIndex + 1).find(a => !a.startsWith('-'));
       if (action && blockedActions.has(action)) {
         return {
@@ -150,16 +162,37 @@ function validateArgs(args, writable) {
 }
 
 /**
- * Read the full request body as a Buffer.
+ * Maximum size for the /exec request body (1 MB).
+ * Prevents memory exhaustion from oversized POST bodies.
+ */
+const MAX_REQUEST_BODY_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_REQUEST_BYTES || String(1024 * 1024), 10);
+
+/**
+ * Read the full request body as a Buffer, rejecting bodies over MAX_REQUEST_BODY_BYTES.
  *
  * @param {import('http').IncomingMessage} req
- * @returns {Promise<Buffer>}
+ * @param {import('http').ServerResponse} res
+ * @returns {Promise<Buffer|null>} Buffer on success, null if size limit exceeded (response already sent)
  */
-function readBody(req) {
+function readBody(req, res) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    let totalBytes = 0;
+    req.on('data', chunk => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+        req.destroy();
+        sendError(res, 413, `Request body exceeds maximum size of ${MAX_REQUEST_BODY_BYTES} bytes`);
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (totalBytes <= MAX_REQUEST_BODY_BYTES) {
+        resolve(Buffer.concat(chunks));
+      }
+    });
     req.on('error', reject);
   });
 }
@@ -213,7 +246,9 @@ function handleHealth(res) {
 async function handleExec(req, res) {
   let body;
   try {
-    const raw = await readBody(req);
+    const raw = await readBody(req, res);
+    // null means readBody already sent a 413 error response
+    if (raw === null) return;
     body = JSON.parse(raw.toString('utf8'));
   } catch {
     return sendError(res, 400, 'Invalid JSON body');

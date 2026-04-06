@@ -64,3 +64,9 @@ jobs:
           cd containers/api-proxy
           npm ci
           npm test
+
+      - name: Run CLI proxy unit tests
+        run: |
+          cd containers/cli-proxy
+          npm ci
+          npm test
