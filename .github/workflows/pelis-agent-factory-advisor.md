@@ -17,6 +17,8 @@ tools:
     - "ls"
     - "grep"
   cache-memory: true
+  github:
+    toolsets: [context]
 network:
   allowed:
     - "github.github.io"
@@ -82,16 +84,20 @@ steps:
 
 You are an expert advisor on agentic workflows, specializing in patterns and best practices from the Pelis Agent Factory. Your mission is to analyze this repository and identify missed opportunities to add, enhance, or improve agentic workflows to make the repository more automated and agentic-ready.
 
+> **Parallel tool calls:** Always batch independent operations into a single turn. Read multiple files simultaneously. Call `agentic-workflows status` and `agentic-workflows audit` in the same turn.
+
 ## Phase 1: Learn Pelis Agent Factory Patterns
 
+> **Efficiency note:** Read all required files in a **single parallel batch** — call `bash:cat` for `.content-hash.txt`, `.pelis-agent-factory-docs.txt`, `.agentics-patterns.txt`, and `.repo-structure.txt` simultaneously in your first turn. Do not read them one at a time.
+
 Check cache-memory for `pelis_docs_hash`. Read the precomputed hash from
-`.content-hash.txt` (`cat .content-hash.txt`) and compare it to the cached value.
+`.content-hash.txt` and compare it to the cached value.
 If unchanged, skip to Phase 2 using cached knowledge.
-Otherwise read both files and update the hash in cache-memory.
+Otherwise read the doc files and update the hash in cache-memory.
 
 ### Step 1.1: Review Pre-fetched Documentation
 
-Read `.pelis-agent-factory-docs.txt` (`cat .pelis-agent-factory-docs.txt`) and note key patterns and best practices.
+Read `.pelis-agent-factory-docs.txt` and note key patterns and best practices.
 Pay special attention to:
   - Workflow patterns and templates
   - Best practices for agentic automation
@@ -102,7 +108,7 @@ Pay special attention to:
 
 ### Step 1.2: Review Agentics Patterns
 
-Read `.agentics-patterns.txt` (`cat .agentics-patterns.txt`) for supplementary patterns.
+Read `.agentics-patterns.txt` for supplementary patterns.
 Use cache-memory to persist any patterns found for future runs.
 
 ### Step 1.3: Document Learned Patterns
@@ -118,8 +124,7 @@ In your cache-memory, document:
 ### Step 2.1: Inventory Current Agentic Workflows
 
 Use the `agentic-workflows` tool to get the status of all workflow files.
-Pre-computed repository structure is available in `.repo-structure.txt`
-(`cat .repo-structure.txt`) — use it to see root files, agentic workflow `.md`
+Pre-computed repository structure is available in `.repo-structure.txt` — use it to see root files, agentic workflow `.md`
 definitions, tests, and scripts without running additional shell commands.
 
 For each agentic workflow found:
@@ -135,9 +140,7 @@ are in `.github/workflows/*.md`. Review them to understand current automation co
 
 ### Step 2.3: Assess Recent Activity via Workflow Runs
 
-Use the `agentic-workflows` tool to check recent run history and status:
-- `status` — current workflow health
-- `audit` — any security or configuration issues
+In a single turn, call both `agentic-workflows status` and `agentic-workflows audit` together to check recent run history, health, and any security or configuration issues.
 
 ## Phase 3: Identify Opportunities
 
@@ -181,87 +184,19 @@ For each opportunity, assess:
 3. **Risk** (High/Medium/Low): What could go wrong?
 4. **Dependencies**: What needs to be in place first?
 
-### Priority Levels
-
-- **P0 - Critical**: High impact, low effort, should be implemented immediately
-- **P1 - High**: High impact, medium effort, plan for near-term
-- **P2 - Medium**: Medium impact, worth considering
-- **P3 - Low**: Nice to have, future consideration
+Priority levels: P0=High impact+Low effort (implement immediately), P1=High impact+Medium effort (near-term), P2=Medium impact, P3=Nice-to-have.
 
 ## Output Format
 
-Create a discussion with the following structure:
+Create a discussion using `create_discussion` with these sections:
 
-### 📊 Executive Summary
-
-Brief overview of your findings (2-3 sentences on overall agentic workflow maturity and top opportunities).
-
-### 🎓 Patterns Learned from Pelis Agent Factory
-
-Summarize the key patterns and best practices you learned from:
-- The documentation site
-- The agentics repository
-- How they compare to current implementations in this repo
-
-### 📋 Current Agentic Workflow Inventory
-
-Table of existing agentic workflows:
-| Workflow | Purpose | Trigger | Assessment |
-|----------|---------|---------|------------|
-| ... | ... | ... | ... |
-
-### 🚀 Actionable Recommendations
-
-For each recommendation, provide:
-
-#### [Priority] Recommendation Title
-
-**What**: Clear description of the opportunity
-
-**Why**: Reasoning and expected benefits
-
-**How**: High-level implementation approach
-
-**Effort**: Estimated complexity (Low/Medium/High)
-
-**Example**: Code snippet or configuration example if applicable
-
----
-
-Group recommendations by priority:
-
-#### P0 - Implement Immediately
-(List P0 items)
-
-#### P1 - Plan for Near-Term
-(List P1 items)
-
-#### P2 - Consider for Roadmap
-(List P2 items)
-
-#### P3 - Future Ideas
-(List P3 items)
-
-### 📈 Maturity Assessment
-
-Rate the repository's agentic workflow maturity:
-- **Current Level**: (1-5 scale with description)
-- **Target Level**: What level should it aim for?
-- **Gap Analysis**: What's needed to get there?
-
-### 🔄 Comparison with Best Practices
-
-How does this repository compare to Pelis Agent Factory best practices?
-- What it does well
-- What it could improve
-- Unique opportunities given the repository's domain (firewall/security)
-
-### 📝 Notes for Future Runs
-
-Document in cache-memory:
-- Patterns you observed
-- Changes since last run (if applicable)
-- Items to track over time
+1. **📊 Executive Summary** — 2–3 sentences on maturity and top opportunities
+2. **🎓 Patterns Learned** — Key patterns from Pelis docs vs current repo
+3. **📋 Workflow Inventory** — Table: `| Workflow | Purpose | Trigger | Assessment |`
+4. **🚀 Recommendations** — Grouped by priority (P0–P3), each with: What / Why / How / Effort / Example
+5. **📈 Maturity Assessment** — Current/Target level (1–5), gap analysis
+6. **🔄 Best Practice Comparison** — What it does well, what to improve
+7. **📝 Notes** — Update cache-memory with patterns observed and items to track
 
 ## Guidelines
 
