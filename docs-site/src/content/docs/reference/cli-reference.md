@@ -893,18 +893,18 @@ Use `--log-level debug` to see which enterprise domains were auto-detected. Look
 
 AWF reads several environment variables that influence its behavior. These are grouped by purpose.
 
-### Auto-Detection
+### Credentials (API Proxy Sidecar)
 
-These variables are read by AWF to automatically add required domains to the allowlist, particularly for GitHub Enterprise Cloud (GHEC) and GitHub Enterprise Server (GHES) deployments.
+These variables supply API credentials to the API proxy sidecar when `--enable-api-proxy` is active.
 
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_SERVER_URL` | GHEC tenant URL. When set to a `*.ghe.com` host, AWF auto-adds the tenant and API domains to the allowlist. |
-| `GITHUB_API_URL` | GHEC API URL. Auto-added to the allowlist when the host matches `*.ghe.com`. |
-| `ENGINE_API_TARGET` | GHES API URL. The hostname is extracted and GHES-related domains are added to the allowlist. |
+| `OPENAI_API_KEY` | OpenAI API key — held securely in the api-proxy sidecar |
+| `ANTHROPIC_API_KEY` | Anthropic API key — held securely in the api-proxy sidecar |
+| `COPILOT_GITHUB_TOKEN` | GitHub Copilot token — held securely in the api-proxy sidecar |
 
-:::note
-These variables are typically set automatically by GitHub Actions runners. You do not need to configure them manually in most cases.
+:::danger[Credential Isolation]
+When `--enable-api-proxy` is active, these credentials are **never exposed to the agent container**. They are held exclusively in the api-proxy sidecar, which injects them into outbound requests on the agent's behalf.
 :::
 
 ### API Target Overrides
@@ -924,20 +924,6 @@ These variables provide an alternative to the corresponding CLI flags for config
 | Variable | CLI Flag | Description |
 |----------|----------|-------------|
 | `AWF_AUDIT_DIR` | `--audit-dir` | Directory for audit artifacts |
-
-### Credentials (API Proxy Sidecar)
-
-These variables supply API credentials to the API proxy sidecar when `--enable-api-proxy` is active.
-
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key — held securely in the api-proxy sidecar |
-| `ANTHROPIC_API_KEY` | Anthropic API key — held securely in the api-proxy sidecar |
-| `COPILOT_GITHUB_TOKEN` | GitHub Copilot token — held securely in the api-proxy sidecar |
-
-:::danger[Credential Isolation]
-When `--enable-api-proxy` is active, these credentials are **never exposed to the agent container**. They are held exclusively in the api-proxy sidecar, which injects them into outbound requests on the agent's behalf.
-:::
 
 ## Exit Codes
 
