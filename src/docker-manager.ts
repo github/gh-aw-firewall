@@ -536,10 +536,17 @@ export function generateDockerCompose(
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    // Disable ANSI color output from CLI tools (Rich, Chalk, etc.) inside the container.
-    // Tools like Rich inject ANSI escape codes that break test assertions expecting plain text.
+    // Color output control: when --tty is set, enable color output for tools that support it.
+    // When tty is off (default), disable colors to avoid ANSI escape codes in log output.
     // NO_COLOR is a standard convention (https://no-color.org/) supported by many libraries.
-    NO_COLOR: '1',
+    // FORCE_COLOR is used by Chalk, Rich, and other tools to enable color output.
+    ...(config.tty ? {
+      FORCE_COLOR: '1',
+      TERM: 'xterm-256color',
+      COLUMNS: '120',
+    } : {
+      NO_COLOR: '1',
+    }),
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
@@ -649,7 +656,8 @@ export function generateDockerCompose(
     // it gets a placeholder value set earlier (line ~362) for credential isolation
     if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
     if (process.env.USER) environment.USER = process.env.USER;
-    if (process.env.TERM) environment.TERM = process.env.TERM;
+    // When --tty is set, we use TERM=xterm-256color (set above); otherwise inherit host TERM
+    if (process.env.TERM && !config.tty) environment.TERM = process.env.TERM;
     if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
     // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
     if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
