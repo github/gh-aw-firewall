@@ -1,79 +1,54 @@
 {
   "entries": {
-    "actions/checkout@v4.3.1": {
+    "actions/checkout@v6.0.2": {
       "repo": "actions/checkout",
-      "version": "v4.3.1",
-      "sha": "34e114876b0b11c390a56381ad16ebd13914f8d5"
+      "version": "v6.0.2",
+      "sha": "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
     },
     "actions/github-script@v8": {
       "repo": "actions/github-script",
       "version": "v8",
       "sha": "ed597411d8f924073f98dfc5c65a23a2325f34cd"
     },
-    "actions/setup-node@v4.4.0": {
+    "actions/setup-node@v6.3.0": {
       "repo": "actions/setup-node",
-      "version": "v4.4.0",
-      "sha": "49933ea5288caeca8642d1e84afbd3f7d6820020"
+      "version": "v6.3.0",
+      "sha": "53b83947a5a98c8d113130e565377fae1a50d02f"
     },
-    "actions/upload-artifact@v4.6.2": {
+    "actions/upload-artifact@v7.0.0": {
       "repo": "actions/upload-artifact",
-      "version": "v4.6.2",
-      "sha": "ea165f8d65b6e75b540449e92b4886f43607fa02"
+      "version": "v7.0.0",
+      "sha": "bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
     },
-    "docker/build-push-action@v5.4.0": {
+    "docker/build-push-action@v7.0.0": {
       "repo": "docker/build-push-action",
-      "version": "v5.4.0",
-      "sha": "ca052bb54ab0790a636c9b5f226502c73d547a25"
+      "version": "v7.0.0",
+      "sha": "d08e5c354a6adb9ed34480a06d141179aa583294"
     },
-    "docker/login-action@v3.7.0": {
+    "docker/login-action@v4.1.0": {
       "repo": "docker/login-action",
-      "version": "v3.7.0",
-      "sha": "c94ce9fb468520275223c153574b00df6fe4bcc9"
+      "version": "v4.1.0",
+      "sha": "4907a6ddec9925e35a0a9e82d7399ccc52663121"
     },
-    "docker/setup-buildx-action@v3.12.0": {
+    "docker/setup-buildx-action@v4.0.0": {
       "repo": "docker/setup-buildx-action",
-      "version": "v3.12.0",
-      "sha": "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"
+      "version": "v4.0.0",
+      "sha": "4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd"
     },
-    "github/gh-aw-actions/setup@v0.63.0": {
+    "github/gh-aw-actions/setup@v0.67.0": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.63.0",
-      "sha": "9128d2542bbf1bdfec94dabeaf3e1d3c0d402577"
+      "version": "v0.67.0",
+      "sha": "cde65c546c2b0f6d3f3a9492a04e6687887c4fe8"
     },
-    "github/gh-aw-actions/setup@v0.64.5": {
-      "repo": "github/gh-aw-actions/setup",
-      "version": "v0.64.5",
-      "sha": "5d2ebfd87a1a45a8a8323c1a12c01b055730dac5"
-    },
-    "github/gh-aw-actions/setup@v0.65.3": {
-      "repo": "github/gh-aw-actions/setup",
-      "version": "v0.65.3",
-      "sha": "6b4da262b8f7e0e253d1ae84f400a843b918a4ab"
-    },
-    "github/gh-aw-actions/setup@v0.65.5": {
-      "repo": "github/gh-aw-actions/setup",
-      "version": "v0.65.5",
-      "sha": "15b2fa31e9a1b771c9773c162273924d8f5ea516"
-    },
-    "github/gh-aw/actions/setup@v0.42.0": {
+    "github/gh-aw/actions/setup@v0.67.0": {
       "repo": "github/gh-aw/actions/setup",
-      "version": "v0.42.0",
-      "sha": "a7134347103ecf66b4bd422c3e9ce6466d400c02"
+      "version": "v0.67.0",
+      "sha": "245d16844b16f61042aebf5931af62a750b202fc"
     },
-    "github/gh-aw/actions/setup@v0.42.17": {
-      "repo": "github/gh-aw/actions/setup",
-      "version": "v0.42.17",
-      "sha": "7a970851c1090295e55a16e549c61ba1ce227f16"
-    },
-    "github/gh-aw/actions/setup@v0.42.7": {
-      "repo": "github/gh-aw/actions/setup",
-      "version": "v0.42.7",
-      "sha": "b16be66a3f0089b92ad39c580f42421b7104a849"
-    },
-    "softprops/action-gh-release@v1": {
+    "softprops/action-gh-release@v2.6.1": {
       "repo": "softprops/action-gh-release",
-      "version": "v1",
-      "sha": "26994186c0ac3ef5cae75ac16aa32e8153525f77"
+      "version": "v2.6.1",
+      "sha": "153bb8e04406b158c6c84fc1615b65b24149a1fe"
     }
   }
 }

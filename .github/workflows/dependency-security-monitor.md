@@ -31,7 +31,7 @@ safe-outputs:
     title-prefix: "[Security] "
     labels: [security, dependencies]
     max: 10
-    expires: 30
+    expires: 30d
   create-pull-request:
     title-prefix: "[Deps] "
     labels: [dependencies, automated]

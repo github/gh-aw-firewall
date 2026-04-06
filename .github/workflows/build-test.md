@@ -41,9 +41,6 @@ tools:
     - "*"
   github:
     github-token: "${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN }}"
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
 safe-outputs:
   add-comment:
     hide-older-comments: true

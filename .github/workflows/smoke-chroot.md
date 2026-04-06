@@ -24,9 +24,6 @@ network:
   allowed:
     - defaults
     - github
-sandbox:
-  mcp:
-    container: "ghcr.io/github/gh-aw-mcpg"
 tools:
   github:
     toolsets: [repos, pull_requests]
