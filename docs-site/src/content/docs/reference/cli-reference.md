@@ -1,6 +1,6 @@
 ---
 title: CLI Reference
-description: Quick reference for awf command-line options and arguments.
+description: Quick reference for awf command-line options, arguments, and environment variables.
 ---
 
 Quick reference for the `awf` command-line interface.
@@ -887,6 +887,56 @@ sudo awf --allow-domains github.com -- copilot-agent
 
 :::tip
 Use `--log-level debug` to see which enterprise domains were auto-detected. Look for "Auto-added GHEC domains" or "Auto-added GHES domains" in the output.
+:::
+
+## Environment Variables
+
+AWF reads several environment variables that influence its behavior. These are grouped by purpose.
+
+### Auto-Detection
+
+These variables are read by AWF to automatically add required domains to the allowlist, particularly for GitHub Enterprise Cloud (GHEC) and GitHub Enterprise Server (GHES) deployments.
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_SERVER_URL` | GHEC tenant URL. When set to a `*.ghe.com` host, AWF auto-adds the tenant and API domains to the allowlist. |
+| `GITHUB_API_URL` | GHEC API URL. Auto-added to the allowlist when the host matches `*.ghe.com`. |
+| `ENGINE_API_TARGET` | GHES API URL. The hostname is extracted and GHES-related domains are added to the allowlist. |
+
+:::note
+These variables are typically set automatically by GitHub Actions runners. You do not need to configure them manually in most cases.
+:::
+
+### API Target Overrides
+
+These variables provide an alternative to the corresponding CLI flags for configuring API proxy endpoints. The CLI flag takes precedence if both are set.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COPILOT_API_TARGET` | `api.githubcopilot.com` | Copilot API endpoint override |
+| `OPENAI_API_TARGET` | `api.openai.com` | OpenAI API endpoint override |
+| `OPENAI_API_BASE_PATH` | _(empty)_ | OpenAI API base path (e.g., `/serving-endpoints`) |
+| `ANTHROPIC_API_TARGET` | `api.anthropic.com` | Anthropic API endpoint override |
+| `ANTHROPIC_API_BASE_PATH` | _(empty)_ | Anthropic API base path |
+
+### Audit
+
+| Variable | CLI Flag | Description |
+|----------|----------|-------------|
+| `AWF_AUDIT_DIR` | `--audit-dir` | Directory for audit artifacts |
+
+### Credentials (API Proxy Sidecar)
+
+These variables supply API credentials to the API proxy sidecar when `--enable-api-proxy` is active.
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key — held securely in the api-proxy sidecar |
+| `ANTHROPIC_API_KEY` | Anthropic API key — held securely in the api-proxy sidecar |
+| `COPILOT_GITHUB_TOKEN` | GitHub Copilot token — held securely in the api-proxy sidecar |
+
+:::danger[Credential Isolation]
+When `--enable-api-proxy` is active, these credentials are **never exposed to the agent container**. They are held exclusively in the api-proxy sidecar, which injects them into outbound requests on the agent's behalf.
 :::
 
 ## Exit Codes
