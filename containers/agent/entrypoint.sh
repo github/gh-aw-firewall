@@ -734,6 +734,18 @@ AWFEOF
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 
+  # Make gh-aw config directories readable/writable by the chroot user.
+  # On self-hosted runners these directories are created by the host-side
+  # gh-aw tooling as root, so the unprivileged chroot user cannot access them.
+  if [ -d /host/tmp/gh-aw ]; then
+    chmod -R a+rwX /host/tmp/gh-aw 2>/dev/null || true
+    echo "[entrypoint] Made /host/tmp/gh-aw accessible to chroot user"
+  fi
+  if [ -d /host/opt/gh-aw/safeoutputs ]; then
+    chmod -R a+rwX /host/opt/gh-aw/safeoutputs 2>/dev/null || true
+    echo "[entrypoint] Made /host/opt/gh-aw/safeoutputs accessible to chroot user"
+  fi
+
   # Build LD_PRELOAD command for one-shot token protection
   LD_PRELOAD_CMD=""
   if [ -n "${ONE_SHOT_TOKEN_LIB}" ]; then
