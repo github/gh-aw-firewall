@@ -29,20 +29,46 @@ fi
 
 # --- DinD enabled: enforce shared network namespace ---
 
-REAL_DOCKER="${AWF_REAL_DOCKER:-}"
+# SECURITY: Read the real Docker path from a private file rather than an environment
+# variable. Environment variables are visible to (and modifiable by) user code, which
+# could invoke the real Docker binary directly to bypass the wrapper.
+AWF_DOCKER_CONFIG="/tmp/awf-lib/.docker-path"
+if [ ! -f "$AWF_DOCKER_CONFIG" ]; then
+  echo "ERROR: Docker wrapper config not found at $AWF_DOCKER_CONFIG" >&2
+  exit 127
+fi
+REAL_DOCKER=$(cat "$AWF_DOCKER_CONFIG")
 if [ -z "$REAL_DOCKER" ] || [ ! -x "$REAL_DOCKER" ]; then
-  echo "ERROR: AWF_REAL_DOCKER is not set or not executable: '$REAL_DOCKER'" >&2
+  echo "ERROR: Real Docker binary not found or not executable: '$REAL_DOCKER'" >&2
   exit 127
 fi
 
-AGENT_CONTAINER="${AWF_AGENT_CONTAINER:-awf-agent}"
+# SECURITY: Hardcode the agent container name to prevent user code from tampering
+# via the AWF_AGENT_CONTAINER environment variable to join arbitrary container namespaces.
+AGENT_CONTAINER="awf-agent"
 
-# Get the subcommand (first non-flag argument)
+# Known Docker subcommands we intercept or pass through.
+# We match against this list rather than assuming the first non-flag token is
+# a subcommand, because Docker global options can take values (e.g., --context foo,
+# -H unix:///...) which would be misidentified as subcommands.
+KNOWN_SUBCOMMANDS="run create exec build buildx pull push network compose images ps logs inspect rm rmi tag stop start restart kill pause unpause wait top stats attach commit cp diff export history import load save port rename update volume system info version events"
+
 get_subcommand() {
   for arg in "$@"; do
     case "$arg" in
       -*) continue ;;
-      *) echo "$arg"; return ;;
+      *)
+        # Check if this token is a known Docker subcommand
+        for cmd in $KNOWN_SUBCOMMANDS; do
+          if [ "$arg" = "$cmd" ]; then
+            echo "$arg"
+            return
+          fi
+        done
+        # Unknown token — could be a value for a global option (e.g., --context foo),
+        # so skip it and keep looking.
+        continue
+        ;;
     esac
   done
 }
@@ -99,6 +125,25 @@ case "$SUBCOMMAND" in
 
     # Inject --network container:<agent> to share network namespace
     exec "$REAL_DOCKER" "$CMD" --network "container:${AGENT_CONTAINER}" "${FILTERED_ARGS[@]}"
+    ;;
+
+  "build")
+    # SECURITY: Block 'docker build' because BuildKit intermediate containers get their
+    # own network namespace and are not subject to the agent's NAT/iptables rules.
+    # This means build steps (e.g., RUN curl) could make unrestricted outbound requests,
+    # bypassing the Squid proxy entirely.
+    echo "ERROR: 'docker build' is blocked by AWF firewall." >&2
+    echo "BuildKit containers bypass NAT rules and could make unrestricted network requests." >&2
+    echo "Build images outside the AWF wrapper before invoking awf." >&2
+    exit 1
+    ;;
+
+  "buildx")
+    # SECURITY: Block 'docker buildx' for the same reason as 'docker build' above.
+    echo "ERROR: 'docker buildx' is blocked by AWF firewall." >&2
+    echo "BuildKit containers bypass NAT rules and could make unrestricted network requests." >&2
+    echo "Build images outside the AWF wrapper before invoking awf." >&2
+    exit 1
     ;;
 
   "compose")

@@ -520,7 +520,12 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
         # Copy our wrapper to /tmp/awf-lib/docker (writable in chroot)
         if cp /usr/bin/docker /host/tmp/awf-lib/docker 2>/dev/null && \
            chmod +x /host/tmp/awf-lib/docker 2>/dev/null; then
-          export AWF_REAL_DOCKER="$REAL_DOCKER_PATH"
+          # SECURITY: Write the real Docker path to a private file instead of an env var.
+          # This prevents user code from reading AWF_REAL_DOCKER to find and invoke the
+          # real Docker binary directly, bypassing the wrapper.
+          echo "$REAL_DOCKER_PATH" > /host/tmp/awf-lib/.docker-path
+          chmod 444 /host/tmp/awf-lib/.docker-path
+          AWF_REAL_DOCKER="$REAL_DOCKER_PATH"  # local use only, not exported
           AWF_DOCKER_WRAPPER_INSTALLED=true
           echo "[entrypoint] Docker wrapper installed at /tmp/awf-lib/docker"
           echo "[entrypoint] Real docker binary: $REAL_DOCKER_PATH"
@@ -533,7 +538,10 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     else
       echo "[entrypoint][WARN] Could not create /tmp/awf-lib for Docker wrapper"
     fi
-    # Make AWF_DIND_ENABLED readonly to prevent tampering by user code
+    # Make AWF_DIND_ENABLED readonly in this shell. Note: this does NOT propagate to
+    # subshells or user code — shell readonly is per-process. The real security enforcement
+    # is the Docker wrapper (docker-stub.sh) intercepting all docker commands via PATH
+    # precedence, not this environment variable.
     readonly AWF_DIND_ENABLED
   fi
 
@@ -719,9 +727,11 @@ AWFEOF
   if [ "$AWF_DOCKER_WRAPPER_INSTALLED" = "true" ]; then
     echo "# AWF Docker wrapper: enforce shared network namespace for child containers" >> "/host${SCRIPT_FILE}"
     echo "export PATH=\"/tmp/awf-lib:\$PATH\"" >> "/host${SCRIPT_FILE}"
-    echo "export AWF_REAL_DOCKER=\"${AWF_REAL_DOCKER}\"" >> "/host${SCRIPT_FILE}"
+    # SECURITY: AWF_REAL_DOCKER is NOT exported — the wrapper reads it from
+    # /tmp/awf-lib/.docker-path instead, preventing user code from discovering
+    # the real Docker binary path via the environment.
+    # AWF_AGENT_CONTAINER is NOT exported — the wrapper hardcodes 'awf-agent'.
     echo "export AWF_DIND_ENABLED=\"1\"" >> "/host${SCRIPT_FILE}"
-    echo "export AWF_AGENT_CONTAINER=\"${AWF_AGENT_CONTAINER:-awf-agent}\"" >> "/host${SCRIPT_FILE}"
   fi
 
   # Append the actual command arguments

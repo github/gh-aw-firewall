@@ -1007,7 +1007,7 @@ export function generateDockerCompose(
       // Set DinD environment variables so the docker-stub wrapper enforces
       // shared network namespace for child containers (prevents proxy bypass)
       environment.AWF_DIND_ENABLED = '1';
-      environment.AWF_AGENT_CONTAINER = 'awf-agent';
+      environment.AWF_AGENT_CONTAINER = AGENT_CONTAINER_NAME;
       logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
     } else {
       // Hide Docker socket to prevent firewall bypass via 'docker run'
