@@ -505,6 +505,38 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     fi
   fi
 
+  # SECURITY: Install Docker wrapper to enforce shared network namespace for child containers
+  # When DinD is enabled, child containers must share the agent's network namespace so that
+  # all NAT rules (traffic -> Squid proxy) apply. The wrapper intercepts 'docker run/create'
+  # and injects '--network container:awf-agent'. Without this, child containers could bypass
+  # the firewall by unsetting HTTP_PROXY and making direct outbound requests.
+  AWF_DOCKER_WRAPPER_INSTALLED=false
+  if [ "${AWF_DIND_ENABLED:-}" = "1" ]; then
+    echo "[entrypoint] DinD enabled: installing Docker wrapper for network namespace enforcement"
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      # Find the real docker binary on the host
+      REAL_DOCKER_PATH=$(chroot /host which docker 2>/dev/null || true)
+      if [ -n "$REAL_DOCKER_PATH" ]; then
+        # Copy our wrapper to /tmp/awf-lib/docker (writable in chroot)
+        if cp /usr/bin/docker /host/tmp/awf-lib/docker 2>/dev/null && \
+           chmod +x /host/tmp/awf-lib/docker 2>/dev/null; then
+          export AWF_REAL_DOCKER="$REAL_DOCKER_PATH"
+          AWF_DOCKER_WRAPPER_INSTALLED=true
+          echo "[entrypoint] Docker wrapper installed at /tmp/awf-lib/docker"
+          echo "[entrypoint] Real docker binary: $REAL_DOCKER_PATH"
+        else
+          echo "[entrypoint][WARN] Could not install Docker wrapper — child containers may bypass firewall"
+        fi
+      else
+        echo "[entrypoint][WARN] Docker binary not found on host — DinD may not work"
+      fi
+    else
+      echo "[entrypoint][WARN] Could not create /tmp/awf-lib for Docker wrapper"
+    fi
+    # Make AWF_DIND_ENABLED readonly to prevent tampering by user code
+    readonly AWF_DIND_ENABLED
+  fi
+
   # Verify capsh is available on the host (required for privilege drop)
   if ! chroot /host which capsh >/dev/null 2>&1; then
     echo "[entrypoint][ERROR] capsh not found on host system"
@@ -681,6 +713,17 @@ AWFEOF
       echo "export GOROOT=\"${AWF_GOROOT}\"" >> "/host${SCRIPT_FILE}"
     fi
   fi
+
+  # SECURITY: When DinD is enabled, prepend /tmp/awf-lib to PATH so the Docker wrapper
+  # is found before the real docker binary. Also export AWF env vars needed by the wrapper.
+  if [ "$AWF_DOCKER_WRAPPER_INSTALLED" = "true" ]; then
+    echo "# AWF Docker wrapper: enforce shared network namespace for child containers" >> "/host${SCRIPT_FILE}"
+    echo "export PATH=\"/tmp/awf-lib:\$PATH\"" >> "/host${SCRIPT_FILE}"
+    echo "export AWF_REAL_DOCKER=\"${AWF_REAL_DOCKER}\"" >> "/host${SCRIPT_FILE}"
+    echo "export AWF_DIND_ENABLED=\"1\"" >> "/host${SCRIPT_FILE}"
+    echo "export AWF_AGENT_CONTAINER=\"${AWF_AGENT_CONTAINER:-awf-agent}\"" >> "/host${SCRIPT_FILE}"
+  fi
+
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates
@@ -729,8 +772,8 @@ AWFEOF
     CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^[0-9.]\\+[[:space:]]\\+host\\.docker\\.internal\$/d' /etc/hosts 2>/dev/null || true"
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
-  # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ]; then
+  # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper, docker wrapper)
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ "$AWF_DOCKER_WRAPPER_INSTALLED" = "true" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 

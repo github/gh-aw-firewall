@@ -760,6 +760,27 @@ describe('docker-manager', () => {
       expect(volumes).not.toContain('/dev/null:/host/run/docker.sock:ro');
     });
 
+    it('should set DinD env vars when enableDind is true', () => {
+      const dindConfig = { ...mockConfig, enableDind: true };
+      const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      // AWF_DIND_ENABLED tells docker-stub.sh to act as a wrapper instead of blocking
+      expect(env.AWF_DIND_ENABLED).toBe('1');
+      // AWF_AGENT_CONTAINER tells the wrapper which container to share network with
+      expect(env.AWF_AGENT_CONTAINER).toBe('awf-agent');
+    });
+
+    it('should NOT set DinD env vars when enableDind is false', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.AWF_DIND_ENABLED).toBeUndefined();
+      expect(env.AWF_AGENT_CONTAINER).toBeUndefined();
+    });
+
     it('should mount workspace directory under /host', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;

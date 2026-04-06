@@ -998,12 +998,16 @@ export function generateDockerCompose(
 
     // SECURITY: Docker socket access control
     if (config.enableDind) {
-      logger.warn('Docker-in-Docker enabled: agent can run docker commands (firewall bypass possible)');
+      logger.warn('Docker-in-Docker enabled: child containers will share agent network namespace');
       // Mount the real Docker socket into the chroot
       const dockerSocketPath = '/var/run/docker.sock';
       agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
       // Also expose the /run/docker.sock symlink if it exists
       agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
+      // Set DinD environment variables so the docker-stub wrapper enforces
+      // shared network namespace for child containers (prevents proxy bypass)
+      environment.AWF_DIND_ENABLED = '1';
+      environment.AWF_AGENT_CONTAINER = 'awf-agent';
       logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
     } else {
       // Hide Docker socket to prevent firewall bypass via 'docker run'
