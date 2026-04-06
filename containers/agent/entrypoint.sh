@@ -682,9 +682,12 @@ AWFEOF
     fi
   fi
   # Configure npm global prefix to a writable directory (since /usr is read-only)
-  echo 'export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> "/host${SCRIPT_FILE}"
-  echo 'mkdir -p "$HOME/.npm-global/bin" 2>/dev/null' >> "/host${SCRIPT_FILE}"
-  echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "/host${SCRIPT_FILE}"
+  # Preserve user-provided NPM_CONFIG_PREFIX if already set
+  echo 'if [ -z "${NPM_CONFIG_PREFIX:-}" ]; then' >> "/host${SCRIPT_FILE}"
+  echo '  export NPM_CONFIG_PREFIX="$HOME/.npm-global"' >> "/host${SCRIPT_FILE}"
+  echo 'fi' >> "/host${SCRIPT_FILE}"
+  echo 'mkdir -p "$NPM_CONFIG_PREFIX/bin" 2>/dev/null' >> "/host${SCRIPT_FILE}"
+  echo 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >> "/host${SCRIPT_FILE}"
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates
