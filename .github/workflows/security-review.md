@@ -29,14 +29,16 @@ steps:
   - name: Fetch latest escape test results
     run: |
       mkdir -p /tmp/gh-aw
-      RUN_ID=$(gh run list --workflow "firewall-escape-test.lock.yml" \
+      # secret-digger-copilot is the red-team escape test workflow for this repo
+      RUN_ID=$(gh run list --workflow "secret-digger-copilot.lock.yml" \
         --status success --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
-      if [ -n "$RUN_ID" ]; then
+      # Validate RUN_ID is a non-empty numeric value (jq returns literal "null" on empty arrays)
+      if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] && [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
         # 200 lines captures the full escape-attempt summary without exceeding prompt budget
         gh run view "$RUN_ID" --log 2>/dev/null | tail -200 > /tmp/gh-aw/escape-test-summary.txt \
           || echo "Failed to fetch run logs" > /tmp/gh-aw/escape-test-summary.txt
       else
-        echo "No recent successful firewall-escape-test run found" > /tmp/gh-aw/escape-test-summary.txt
+        echo "No recent successful secret-digger-copilot run found" > /tmp/gh-aw/escape-test-summary.txt
       fi
     env:
       GH_TOKEN: ${{ github.token }}
@@ -80,7 +82,7 @@ echo "=== NETWORK SECURITY ===" && \
   cat src/host-iptables.ts && echo "---" && \
   cat containers/agent/setup-iptables.sh && echo "---" && \
   cat src/squid-config.ts && echo "---" && \
-  grep -r "network" src/ --include="*.ts" -l
+  grep -r --include="*.ts" -l "network" src/
 
 echo "=== CONTAINER SECURITY ===" && \
   grep -rn "cap_drop\|capabilities\|NET_ADMIN\|NET_RAW" src/ containers/ && echo "---" && \
@@ -89,11 +91,11 @@ echo "=== CONTAINER SECURITY ===" && \
 
 echo "=== DOMAIN PATTERNS ===" && \
   cat src/domain-patterns.ts && echo "---" && \
-  grep -rn "domain\|wildcard\|pattern" src/ --include="*.ts" -l
+  grep -rn --include="*.ts" -l "domain\|wildcard\|pattern" src/
 
 echo "=== INJECTION RISKS ===" && \
-  grep -rn "exec\|spawn\|shell\|command" src/ --include="*.ts" -l && echo "---" && \
-  grep -rn '\$\{' containers/ --include="*.sh" && echo "---" && \
+  grep -rn --include="*.ts" -l "exec\|spawn\|shell\|command" src/ && echo "---" && \
+  grep -rn --include="*.sh" '\$\{' containers/ && echo "---" && \
   grep -rn "args\|argv\|input" src/cli.ts
 
 echo "=== DOCKER WRAPPER ===" && \
