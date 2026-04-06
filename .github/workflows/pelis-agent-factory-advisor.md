@@ -20,7 +20,7 @@ tools:
 network:
   allowed:
     - "github.github.io"
-    - "raw.githubusercontent.com"
+
 safe-outputs:
   create-discussion:
     title-prefix: "[Pelis Agent Factory Advisor] "
@@ -49,9 +49,17 @@ steps:
   - name: Fetch Agentics Patterns
     id: fetch-agentics
     run: |
+      set -o pipefail
       curl -sf "https://raw.githubusercontent.com/githubnext/agentics/main/README.md" \
         | head -c 8000 > "${GITHUB_WORKSPACE}/.agentics-patterns.txt" \
         || echo "(not available)" > "${GITHUB_WORKSPACE}/.agentics-patterns.txt"
+  - name: Compute Content Hashes
+    id: content-hashes
+    run: |
+      {
+        sha256sum "${GITHUB_WORKSPACE}/.pelis-agent-factory-docs.txt"
+        sha256sum "${GITHUB_WORKSPACE}/.agentics-patterns.txt"
+      } | sha256sum | cut -d' ' -f1 > "${GITHUB_WORKSPACE}/.content-hash.txt"
   - name: Collect Repo Structure
     id: repo-structure
     run: |
@@ -76,8 +84,9 @@ You are an expert advisor on agentic workflows, specializing in patterns and bes
 
 ## Phase 1: Learn Pelis Agent Factory Patterns
 
-Check cache-memory for `pelis_docs_hash`. Hash `.pelis-agent-factory-docs.txt`
-and `.agentics-patterns.txt`. If unchanged, skip to Phase 2 using cached knowledge.
+Check cache-memory for `pelis_docs_hash`. Read the precomputed hash from
+`.content-hash.txt` (`cat .content-hash.txt`) and compare it to the cached value.
+If unchanged, skip to Phase 2 using cached knowledge.
 Otherwise read both files and update the hash in cache-memory.
 
 ### Step 1.1: Review Pre-fetched Documentation
