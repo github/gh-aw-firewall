@@ -29,9 +29,13 @@ const WRITABLE_MODE = process.env.AWF_CLI_PROXY_WRITABLE === 'true';
 /**
  * Subcommands allowed in read-only mode.
  * These commands only retrieve data and do not modify any GitHub resources.
+ *
+ * Note: 'api' is intentionally excluded even in read-only mode because it is a raw
+ * HTTP passthrough that can perform arbitrary POST/PUT/DELETE mutations via -X/--method.
+ * Agents should use typed subcommands (gh issue list, gh pr view, etc.) instead.
+ * In writable mode, 'api' is permitted since the operator has explicitly opted in.
  */
 const ALLOWED_SUBCOMMANDS_READONLY = new Set([
-  'api',
   'browse',
   'cache',
   'codespace',

@@ -1433,6 +1433,7 @@ program
     'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
     '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
   )
+  // -- Logging & Debug --
   .option(
     '--log-level <level>',
     'Log level: debug, info, warn, error',

@@ -544,8 +544,15 @@ export function generateDockerCompose(
     // See: github/gh-aw#20875
   }
 
-  // When cli-proxy is enabled, exclude GitHub tokens from agent environment
-  // (they are held securely in the cli-proxy sidecar's mcpg process instead)
+  // When cli-proxy is enabled, exclude GitHub tokens from agent environment.
+  // These tokens are held securely in the cli-proxy sidecar's mcpg process instead,
+  // so the agent can invoke gh commands without ever seeing the raw token.
+  //
+  // Design note: unlike api-proxy (which excludes LLM API keys), this excludes a
+  // token that many GitHub Actions tools also use.  In practice this is safe because
+  // actions/checkout runs before awf starts, and tools that need GITHUB_TOKEN
+  // (e.g. gh-mcp-server) should use GITHUB_MCP_SERVER_TOKEN (a separate env var)
+  // rather than GITHUB_TOKEN.
   if (config.enableCliProxy) {
     EXCLUDED_ENV_VARS.add('GITHUB_TOKEN');
     EXCLUDED_ENV_VARS.add('GH_TOKEN');

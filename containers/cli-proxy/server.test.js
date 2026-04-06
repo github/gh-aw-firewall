@@ -111,9 +111,14 @@ describe('validateArgs', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('should allow api (raw API calls)', () => {
+    it('should deny api in read-only mode (raw passthrough can mutate via -X POST)', () => {
       const result = validateArgs(['api', 'repos/owner/repo'], false);
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should deny api POST in read-only mode', () => {
+      const result = validateArgs(['api', '-X', 'POST', '/repos/owner/repo/issues', '-f', 'title=Test'], false);
+      expect(result.valid).toBe(false);
     });
 
     it('should allow search', () => {
@@ -274,6 +279,16 @@ describe('validateArgs', () => {
     it('should still deny extension in writable mode', () => {
       const result = validateArgs(['extension', 'install', 'owner/ext'], true);
       expect(result.valid).toBe(false);
+    });
+
+    it('should allow api in writable mode (operator opted in to writes)', () => {
+      const result = validateArgs(['api', 'repos/owner/repo'], true);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should allow api POST in writable mode', () => {
+      const result = validateArgs(['api', '-X', 'POST', '/repos/owner/repo/issues'], true);
+      expect(result.valid).toBe(true);
     });
 
     it('should allow all read-only subcommands in writable mode', () => {

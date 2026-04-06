@@ -40,6 +40,7 @@ mcpg proxy \
   --tls \
   --tls-dir /tmp/proxy-tls \
   --guards-mode filter \
+  --trusted-bots "github-actions[bot],github-actions,dependabot[bot],copilot" \
   --log-dir /var/log/cli-proxy/mcpg &
 MCPG_PID=$!
 echo "[cli-proxy] mcpg proxy started (PID: ${MCPG_PID})"

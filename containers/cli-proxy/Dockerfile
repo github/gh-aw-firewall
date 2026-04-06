@@ -9,7 +9,7 @@
 #   2. HTTP server (port 11000) - receives gh invocations from the agent container
 
 # Stage 1: Extract the mcpg binary from the official gh-aw-mcpg image
-FROM ghcr.io/github/gh-aw-mcpg:latest AS mcpg-source
+FROM ghcr.io/github/gh-aw-mcpg:v0.2.2 AS mcpg-source
 
 # Stage 2: Build the CLI proxy image
 FROM node:22-alpine
