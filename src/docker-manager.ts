@@ -1683,9 +1683,16 @@ export function generateDockerCompose(
     if (useGHCR) {
       cliProxyService.image = `${registry}/cli-proxy:${tag}`;
     } else {
+      // When building locally, pass MCPG_IMAGE as a build arg so the compiler
+      // can control which mcpg version is pulled (mirrors the Dockerfile's ARG default).
+      const buildArgs: Record<string, string> = {};
+      if (config.cliProxyMcpgImage) {
+        buildArgs.MCPG_IMAGE = config.cliProxyMcpgImage;
+      }
       cliProxyService.build = {
         context: path.join(projectRoot, 'containers/cli-proxy'),
         dockerfile: 'Dockerfile',
+        ...(Object.keys(buildArgs).length > 0 && { args: buildArgs }),
       };
     }
 

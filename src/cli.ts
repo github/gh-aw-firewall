@@ -1433,6 +1433,13 @@ program
     'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
     '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
   )
+  .option(
+    '--cli-proxy-mcpg-image <image>',
+    'Docker image for the mcpg DIFC proxy used inside the CLI proxy sidecar\n' +
+    '                                       (only used with --build-local; ignored when pulling pre-built GHCR images)\n' +
+    '                                       Set by the AWF compiler to control which mcpg version is pulled and run',
+    'ghcr.io/github/gh-aw-mcpg:v0.2.2'
+  )
   // -- Logging & Debug --
   .option(
     '--log-level <level>',
@@ -1807,6 +1814,7 @@ program
       enableCliProxy: options.enableCliProxy,
       cliProxyWritable: options.cliProxyWritable,
       cliProxyPolicy: options.cliProxyPolicy,
+      cliProxyMcpgImage: options.cliProxyMcpgImage,
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
     };
 

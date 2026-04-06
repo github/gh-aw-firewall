@@ -8,8 +8,12 @@
 #   1. mcpg proxy (TLS, port 18443) - holds GH_TOKEN, enforces guard policies
 #   2. HTTP server (port 11000) - receives gh invocations from the agent container
 
-# Stage 1: Extract the mcpg binary from the official gh-aw-mcpg image
-FROM ghcr.io/github/gh-aw-mcpg:v0.2.2 AS mcpg-source
+# Stage 1: Extract the mcpg binary from the official gh-aw-mcpg image.
+# MCPG_IMAGE is configurable via --cli-proxy-mcpg-image so the AWF compiler
+# can control which mcpg version is pulled and run (e.g. for version pinning
+# or testing a new mcpg release before it is bundled in the GHCR cli-proxy image).
+ARG MCPG_IMAGE=ghcr.io/github/gh-aw-mcpg:v0.2.2
+FROM ${MCPG_IMAGE} AS mcpg-source
 
 # Stage 2: Build the CLI proxy image
 FROM node:22-alpine

@@ -840,6 +840,21 @@ export interface WrapperConfig {
   githubToken?: string;
 
   /**
+   * Docker image reference for the mcpg DIFC proxy used inside the CLI proxy sidecar
+   *
+   * Passed as the `MCPG_IMAGE` build argument when building the cli-proxy image
+   * locally with `--build-local`.  Has no effect when using the pre-built GHCR
+   * cli-proxy image (mcpg is already bundled in that image).
+   *
+   * The AWF compiler (gh-aw) sets this to control which mcpg version is pulled
+   * and run, enabling version pinning and testing of new mcpg releases.
+   *
+   * @default 'ghcr.io/github/gh-aw-mcpg:v0.2.2'
+   * @example 'ghcr.io/github/gh-aw-mcpg:v0.3.0'
+   */
+  cliProxyMcpgImage?: string;
+
+  /**
    * Enable Data Loss Prevention (DLP) scanning
    *
    * When true, Squid proxy will block outgoing requests that contain

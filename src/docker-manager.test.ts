@@ -2772,6 +2772,41 @@ describe('docker-manager', () => {
         expect(proxy.image).toBeUndefined();
       });
 
+      it('should not pass MCPG_IMAGE build arg when cliProxyMcpgImage is not set', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token', buildLocal: true };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect((proxy.build as any).args).toBeUndefined();
+      });
+
+      it('should pass MCPG_IMAGE build arg when cliProxyMcpgImage is set with --build-local', () => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          enableCliProxy: true,
+          githubToken: 'ghp_test_token',
+          buildLocal: true,
+          cliProxyMcpgImage: 'ghcr.io/github/gh-aw-mcpg:v0.3.0',
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect((proxy.build as any).args).toEqual({ MCPG_IMAGE: 'ghcr.io/github/gh-aw-mcpg:v0.3.0' });
+      });
+
+      it('should ignore cliProxyMcpgImage when not using --build-local (pre-built GHCR image)', () => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          enableCliProxy: true,
+          githubToken: 'ghp_test_token',
+          buildLocal: false,
+          cliProxyMcpgImage: 'ghcr.io/github/gh-aw-mcpg:v0.3.0',
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        // Pre-built GHCR image already contains mcpg; build arg has no effect
+        expect(proxy.image).toContain('cli-proxy');
+        expect(proxy.build).toBeUndefined();
+      });
+
       it('should not include cli-proxy when cliProxyIp is missing from networkConfig', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfig);
