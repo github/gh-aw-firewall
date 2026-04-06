@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# SECURITY: Lock down AWF control variables to prevent tampering by user code.
+# These are set by the Docker Compose environment and must not be modified.
+readonly AWF_ENABLE_HOST_ACCESS="${AWF_ENABLE_HOST_ACCESS:-}"
+export AWF_ENABLE_HOST_ACCESS
+
 echo "[entrypoint] Agentic Workflow Firewall - Agent Container"
 echo "[entrypoint] =================================="
 

@@ -1581,6 +1581,23 @@ describe('docker-manager', () => {
 
         expect(env.AWF_ENABLE_HOST_ACCESS).toBeUndefined();
       });
+
+      it('should propagate AWF_ENABLE_HOST_ACCESS to iptables-init container', () => {
+        const config = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const initService = result.services['iptables-init'] as any;
+
+        expect(initService.environment.AWF_ENABLE_HOST_ACCESS).toBe('1');
+      });
+
+      it('should pass empty AWF_ENABLE_HOST_ACCESS to iptables-init when host access is disabled', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const initService = result.services['iptables-init'] as any;
+
+        expect(initService.environment.AWF_ENABLE_HOST_ACCESS).toBe('');
+      });
     });
 
     describe('NO_PROXY baseline', () => {
