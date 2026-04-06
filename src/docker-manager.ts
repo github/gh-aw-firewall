@@ -755,7 +755,7 @@ export function generateDockerCompose(
     // Ensure host access is enabled (setup-iptables.sh requires AWF_ENABLE_HOST_ACCESS)
     // The CLI auto-enables this, but this is a safety net for programmatic usage
     if (!environment.AWF_ENABLE_HOST_ACCESS) {
-      environment.AWF_ENABLE_HOST_ACCESS = 'true';
+      environment.AWF_ENABLE_HOST_ACCESS = '1';
     }
   }
 

@@ -37,12 +37,50 @@ fi
 
 AGENT_CONTAINER="${AWF_AGENT_CONTAINER:-awf-agent}"
 
-# Get the subcommand (first non-flag argument)
+# Known Docker subcommands that we need to intercept or handle.
+# Used by get_subcommand() to avoid misidentifying Docker global option
+# values as subcommands (e.g., `docker --context foo run` where `foo` is
+# a value for --context, not a subcommand).
+KNOWN_SUBCOMMANDS="run create exec build pull push images ps logs stop start rm rmi network compose volume inspect cp tag login logout info version"
+
+# Get the Docker subcommand, skipping global options and their values.
+# Docker global options that take a value (e.g., --context <name>, --host <url>)
+# would cause a naive "first non-flag token" parser to misidentify the value
+# as the subcommand. Instead, we check each non-flag token against known
+# Docker subcommands.
 get_subcommand() {
+  local skip_next=false
   for arg in "$@"; do
+    if [ "$skip_next" = true ]; then
+      skip_next=false
+      continue
+    fi
     case "$arg" in
-      -*) continue ;;
-      *) echo "$arg"; return ;;
+      # Docker global options that take a separate value argument
+      --config|--context|-c|--host|-H|--log-level|-l)
+        skip_next=true
+        continue
+        ;;
+      # Docker global options with value in same token (--context=foo)
+      --config=*|--context=*|--host=*|--log-level=*)
+        continue
+        ;;
+      # Other flags (boolean flags like --debug, --tls, etc.)
+      -*)
+        continue
+        ;;
+      *)
+        # Check if this token is a known Docker subcommand
+        for cmd in $KNOWN_SUBCOMMANDS; do
+          if [ "$arg" = "$cmd" ]; then
+            echo "$arg"
+            return
+          fi
+        done
+        # Unknown token before a known subcommand — skip it
+        # (could be an unrecognized global option value)
+        continue
+        ;;
     esac
   done
 }
@@ -103,6 +141,7 @@ case "$SUBCOMMAND" in
     # Propagate host.docker.internal DNS to child containers when host access is enabled.
     # The agent container gets this via Docker's extra_hosts in docker-compose.yml,
     # but child containers spawned via 'docker run' don't inherit it automatically.
+    # Note: docker-manager.ts sets AWF_ENABLE_HOST_ACCESS='1' (not 'true').
     if [ "${AWF_ENABLE_HOST_ACCESS:-}" = "1" ]; then
       INJECT_FLAGS+=("--add-host" "host.docker.internal:host-gateway")
     fi

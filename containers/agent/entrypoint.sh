@@ -3,6 +3,11 @@ set -e
 
 # SECURITY: Lock down AWF control variables to prevent tampering by user code.
 # These are set by the Docker Compose environment and must not be modified.
+# Note: `readonly` is a best-effort defense — it only prevents modification within
+# this shell's execution path. Subshells and child processes get their own copies
+# of exported variables and can modify them freely. The real enforcement is the
+# docker-stub.sh wrapper, which intercepts `docker run/create` and injects the
+# correct flags based on the original value set here.
 readonly AWF_ENABLE_HOST_ACCESS="${AWF_ENABLE_HOST_ACCESS:-}"
 export AWF_ENABLE_HOST_ACCESS
 
