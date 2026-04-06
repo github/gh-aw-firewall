@@ -32,6 +32,7 @@ steps:
       RUN_ID=$(gh run list --workflow "firewall-escape-test.lock.yml" \
         --status success --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
       if [ -n "$RUN_ID" ]; then
+        # 200 lines captures the full escape-attempt summary without exceeding prompt budget
         gh run view "$RUN_ID" --log 2>/dev/null | tail -200 > /tmp/gh-aw/escape-test-summary.txt \
           || echo "Failed to fetch run logs" > /tmp/gh-aw/escape-test-summary.txt
       else
