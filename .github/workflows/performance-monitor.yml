@@ -12,7 +12,7 @@ on:
         default: "5"
 
 permissions:
-  contents: write
+  contents: write  # Required to push to benchmark-data branch (not main)
   issues: write
 
 jobs:
@@ -47,10 +47,19 @@ jobs:
           WRAPPER
           sudo chmod +x /usr/local/bin/awf
 
+      - name: Fetch benchmark history
+        run: |
+          # Pull history.json from benchmark-data branch if it exists
+          if git fetch origin benchmark-data 2>/dev/null; then
+            git show origin/benchmark-data:benchmarks/history.json > benchmarks/history.json 2>/dev/null || echo '[]' > benchmarks/history.json
+          else
+            echo '[]' > benchmarks/history.json
+          fi
+
       - name: Run benchmarks
         id: benchmark
         run: |
-          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>&1 || true
+          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json || true
           cat benchmark-results.json
 
       - name: Upload results
@@ -75,31 +84,57 @@ jobs:
 
           # Append new entry (strip thresholds to keep history lean)
           ENTRY=$(jq '{timestamp, commitSha, iterations, results, regressions}' benchmark-results.json)
-          UPDATED=$(echo "$HISTORY" | jq --argjson entry "$ENTRY" '. + [$entry]')
+          UPDATED=$(printf '%s' "$HISTORY" | jq --argjson entry "$ENTRY" '. + [$entry]')
 
           # Keep only last 50 entries
-          TRIMMED=$(echo "$UPDATED" | jq '.[-50:]')
+          TRIMMED=$(printf '%s' "$UPDATED" | jq '.[-50:]')
 
-          echo "$TRIMMED" | jq '.' > "$HISTORY_FILE"
+          printf '%s' "$TRIMMED" | jq '.' > "$HISTORY_FILE"
 
-          echo "History now has $(echo "$TRIMMED" | jq 'length') entries"
+          echo "History now has $(printf '%s' "$TRIMMED" | jq 'length') entries"
 
       - name: Commit benchmark history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Save files before switching branches
+          cp benchmarks/history.json /tmp/history.json
+          cp benchmark-results.json /tmp/benchmark-results.json
+
+          # Fetch or create the benchmark-data orphan branch
+          if git fetch origin benchmark-data 2>/dev/null; then
+            git checkout benchmark-data
+          else
+            git checkout --orphan benchmark-data
+            git rm -rf . 2>/dev/null || true
+          fi
+
+          # Copy updated history into the branch
+          mkdir -p benchmarks
+          cp /tmp/history.json benchmarks/history.json
+
           git add benchmarks/history.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "chore: update benchmark history [skip ci]"
-            git push origin main
+            git push origin benchmark-data
           fi
+
+      - name: Restore main branch
+        run: |
+          # Switch back to main for running scripts
+          git checkout ${{ github.sha }}
+          # Restore files saved before branch switch
+          cp /tmp/history.json benchmarks/history.json
+          cp /tmp/benchmark-results.json benchmark-results.json
 
       - name: Generate trend report
         id: trend
         run: |
-          npx tsx scripts/ci/benchmark-trend.ts >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          set -o pipefail
+          npx tsx scripts/ci/benchmark-trend.ts >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for regressions
         id: check

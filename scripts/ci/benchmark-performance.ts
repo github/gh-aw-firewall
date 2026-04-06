@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Performance benchmark script for AWF (Agentic Workflow Firewall).
  *
@@ -254,7 +254,8 @@ function loadPreviousRun(): HistoryEntry | null {
     const history: HistoryEntry[] = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf-8"));
     if (history.length === 0) return null;
     return history[history.length - 1];
-  } catch {
+  } catch (err) {
+    console.error(`Warning: failed to load previous run from ${HISTORY_PATH}:`, err);
     return null;
   }
 }

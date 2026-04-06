@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Benchmark trend reporter for AWF (Agentic Workflow Firewall).
  *
@@ -66,6 +66,16 @@ function parseArgs(): { last: number; format: "markdown" | "json" } {
     }
   }
 
+  if (isNaN(last) || last < 1) {
+    console.error(`Invalid --last value: must be a positive integer, got "${args[args.indexOf("--last") + 1]}"`);
+    process.exit(1);
+  }
+
+  if (format !== "markdown" && format !== "json") {
+    console.error(`Invalid --format value: must be "markdown" or "json", got "${format}"`);
+    process.exit(1);
+  }
+
   return { last, format };
 }
 
@@ -73,8 +83,13 @@ function loadHistory(): HistoryEntry[] {
   if (!fs.existsSync(HISTORY_PATH)) {
     return [];
   }
-  const raw = fs.readFileSync(HISTORY_PATH, "utf-8");
-  return JSON.parse(raw) as HistoryEntry[];
+  try {
+    const raw = fs.readFileSync(HISTORY_PATH, "utf-8");
+    return JSON.parse(raw) as HistoryEntry[];
+  } catch (err) {
+    console.error(`Warning: failed to parse ${HISTORY_PATH}:`, err);
+    return [];
+  }
 }
 
 function computeDeltas(current: HistoryEntry, previous: HistoryEntry): MetricDelta[] {
