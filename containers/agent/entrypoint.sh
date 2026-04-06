@@ -486,7 +486,8 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
       if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /host/tmp/awf-lib/gh 2>/dev/null && \
          chmod +x /host/tmp/awf-lib/gh 2>/dev/null; then
-        echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
+        # The chroot will see this as /tmp/awf-lib/gh (the /host prefix is the bind mount)
+        echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh (inside chroot)"
         # Prepend /tmp/awf-lib to PATH so the wrapper takes precedence over host gh
         export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}"
       else

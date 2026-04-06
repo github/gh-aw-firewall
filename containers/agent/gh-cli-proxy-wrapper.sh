@@ -6,7 +6,6 @@
 # host-mounted gh binary at /host/usr/bin/gh.
 #
 # Dependencies: curl, jq (both available in the agent container)
-set -e
 
 CLI_PROXY="${AWF_CLI_PROXY_URL:-http://172.30.0.50:11000}"
 
@@ -26,6 +25,8 @@ if [ ! -t 0 ]; then
 fi
 
 # Send the request to the CLI proxy
+# Capture curl exit code separately since $? after a $() substitution may
+# be from the last command inside the subshell, not from curl itself.
 RESPONSE=$(curl -sf \
   --max-time 60 \
   -X POST "${CLI_PROXY}/exec" \
@@ -34,8 +35,9 @@ RESPONSE=$(curl -sf \
     "$ARGS_JSON" \
     "$(printf '%s' "$CWD" | jq -Rs .)" \
     "$STDIN_DATA")")
+CURL_EXIT=$?
 
-if [ $? -ne 0 ] || [ -z "$RESPONSE" ]; then
+if [ "$CURL_EXIT" -ne 0 ] || [ -z "$RESPONSE" ]; then
   echo "gh: CLI proxy unavailable at ${CLI_PROXY}" >&2
   exit 1
 fi

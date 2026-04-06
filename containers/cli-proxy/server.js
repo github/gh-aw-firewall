@@ -284,7 +284,9 @@ async function handleExec(req, res) {
     stderr = result.stderr;
     exitCode = result.exitCode;
   } catch (err) {
-    stderr = err.message || String(err);
+    // Only expose a safe message, not a full stack trace
+    const errMsg = err instanceof Error ? err.message : 'Command execution failed';
+    stderr = errMsg;
     exitCode = 1;
   }
 

@@ -2772,7 +2772,7 @@ describe('docker-manager', () => {
         expect(proxy.image).toBeUndefined();
       });
 
-      it('should not include cli-proxy when dohProxyIp is missing from networkConfig', () => {
+      it('should not include cli-proxy when cliProxyIp is missing from networkConfig', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfig);
         expect(result.services['cli-proxy']).toBeUndefined();
