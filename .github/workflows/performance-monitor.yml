@@ -47,15 +47,28 @@ jobs:
       - name: Run benchmarks
         id: benchmark
         run: |
-          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>&1 || true
+          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>benchmark-progress.log || true
+          cat benchmark-progress.log
+          echo "--- JSON output ---"
           cat benchmark-results.json
 
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ github.sha }}
-          path: benchmark-results.json
+          path: |
+            benchmark-results.json
+            benchmark-progress.log
           retention-days: 90
+
+      - name: Validate benchmark JSON
+        run: |
+          if ! jq empty benchmark-results.json 2>/dev/null; then
+            echo "ERROR: benchmark-results.json is not valid JSON"
+            cat benchmark-results.json
+            exit 1
+          fi
 
       - name: Check for regressions
         id: check
