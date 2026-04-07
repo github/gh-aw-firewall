@@ -64,6 +64,10 @@ jobs:
 
       - name: Validate benchmark JSON
         run: |
+          if [ ! -s benchmark-results.json ]; then
+            echo "ERROR: benchmark-results.json is empty"
+            exit 1
+          fi
           if ! jq empty benchmark-results.json 2>/dev/null; then
             echo "ERROR: benchmark-results.json is not valid JSON"
             cat benchmark-results.json

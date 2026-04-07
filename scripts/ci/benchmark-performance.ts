@@ -56,7 +56,7 @@ const THRESHOLDS: Record<string, { target: number; critical: number }> = {
 // ── Helpers ────────────────────────────────────────────────────────
 
 function exec(cmd: string, opts?: ExecSyncOptions): string {
-  return execSync(cmd, { encoding: "utf-8", timeout: 120_000, ...opts }).trim();
+  return (execSync(cmd, { encoding: "utf-8", timeout: 120_000, ...opts }) ?? "").trim();
 }
 
 function timeMs(fn: () => void): number {
