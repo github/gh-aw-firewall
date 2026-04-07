@@ -16,6 +16,7 @@
  */
 
 import { execSync, ExecSyncOptions, spawn, ChildProcess } from "child_process";
+import { stats, parseMb, checkRegressions, BenchmarkResult, BenchmarkReport } from "./benchmark-utils";
 
 // ── Configuration ──────────────────────────────────────────────────
 
@@ -23,25 +24,6 @@ const ITERATIONS = 5;
 const AWF_CMD = "sudo awf";
 const ALLOWED_DOMAIN = "api.github.com";
 const CLEANUP_CMD = "sudo docker compose down -v 2>/dev/null; sudo docker rm -f awf-squid awf-agent 2>/dev/null; sudo docker network prune -f 2>/dev/null";
-
-interface BenchmarkResult {
-  metric: string;
-  unit: string;
-  values: number[];
-  mean: number;
-  median: number;
-  p95: number;
-  p99: number;
-}
-
-interface BenchmarkReport {
-  timestamp: string;
-  commitSha: string;
-  iterations: number;
-  results: BenchmarkResult[];
-  thresholds: Record<string, { target: number; critical: number }>;
-  regressions: string[];
-}
 
 // ── Thresholds (milliseconds or MB) ───────────────────────────────
 
@@ -63,17 +45,6 @@ function timeMs(fn: () => void): number {
   const start = performance.now();
   fn();
   return Math.round(performance.now() - start);
-}
-
-function stats(values: number[]): Pick<BenchmarkResult, "mean" | "median" | "p95" | "p99"> {
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
-  return {
-    mean: Math.round(sorted.reduce((a, b) => a + b, 0) / n),
-    median: sorted[Math.floor(n / 2)],
-    p95: sorted[Math.min(Math.floor(n * 0.95), n - 1)],
-    p99: sorted[Math.min(Math.floor(n * 0.99), n - 1)],
-  };
 }
 
 function cleanup(): void {
@@ -200,19 +171,6 @@ function waitForContainers(containerNames: string[], timeoutMs: number): Promise
     };
     poll();
   });
-}
-
-/**
- * Parse a Docker memory usage string like "123.4MiB / 7.773GiB" into MB.
- */
-function parseMb(s: string): number {
-  const match = s.match(/([\d.]+)\s*(MiB|GiB|KiB)/i);
-  if (!match) return 0;
-  const val = parseFloat(match[1]);
-  const unit = match[2].toLowerCase();
-  if (unit === "gib") return val * 1024;
-  if (unit === "kib") return val / 1024;
-  return val;
 }
 
 /**
@@ -343,15 +301,7 @@ async function main(): Promise<void> {
   cleanup();
 
   // Check for regressions against critical thresholds
-  const regressions: string[] = [];
-  for (const r of results) {
-    const threshold = THRESHOLDS[r.metric];
-    if (threshold && r.p95 > threshold.critical) {
-      regressions.push(
-        `${r.metric}: p95=${r.p95}${r.unit} exceeds critical threshold of ${threshold.critical}${r.unit}`
-      );
-    }
-  }
+  const regressions = checkRegressions(results, THRESHOLDS);
 
   const report: BenchmarkReport = {
     timestamp: new Date().toISOString(),
