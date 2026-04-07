@@ -17,6 +17,8 @@
 
 import { execSync, ExecSyncOptions, spawn, ChildProcess } from "child_process";
 import { stats, parseMb, checkRegressions, BenchmarkResult, BenchmarkReport } from "./benchmark-utils";
+import * as fs from "fs";
+import { BenchmarkHistory, compareAgainstBaseline, trendArrow } from "../../src/benchmark/history";
 
 // ── Configuration ──────────────────────────────────────────────────
 
@@ -282,11 +284,24 @@ function benchmarkNetworkCreation(): BenchmarkResult {
 
 // ── Main ───────────────────────────────────────────────────────────
 
+function parseBaselineArg(): string | null {
+  const idx = process.argv.indexOf("--baseline");
+  if (idx !== -1 && idx + 1 < process.argv.length) {
+    return process.argv[idx + 1];
+  }
+  return null;
+}
+
 async function main(): Promise<void> {
   const commitSha = exec("git rev-parse HEAD");
+  const baselinePath = parseBaselineArg();
+
   console.error(`AWF Performance Benchmark`);
   console.error(`  Commit: ${commitSha}`);
   console.error(`  Iterations: ${ITERATIONS}`);
+  if (baselinePath) {
+    console.error(`  Baseline: ${baselinePath}`);
+  }
   console.error("");
 
   const results: BenchmarkResult[] = [];
@@ -303,6 +318,16 @@ async function main(): Promise<void> {
   // Check for regressions against critical thresholds
   const regressions = checkRegressions(results, THRESHOLDS);
 
+  // Check for relative regressions against historical baseline
+  let history: BenchmarkHistory | null = null;
+  if (baselinePath && fs.existsSync(baselinePath)) {
+    try {
+      history = JSON.parse(fs.readFileSync(baselinePath, "utf-8"));
+    } catch (err) {
+      console.error(`Warning: could not parse baseline file: ${err}`);
+    }
+  }
+
   const report: BenchmarkReport = {
     timestamp: new Date().toISOString(),
     commitSha,
@@ -312,19 +337,39 @@ async function main(): Promise<void> {
     regressions,
   };
 
+  if (history && history.entries.length > 0) {
+    const comparisons = compareAgainstBaseline(report, history);
+    console.error("Historical comparison (current p95 vs rolling mean p95):");
+    for (const c of comparisons) {
+      const arrow = trendArrow(c.ratio);
+      console.error(
+        `  ${arrow} ${c.metric}: ${c.currentP95}${c.unit} vs ${c.rollingMeanP95}${c.unit} avg (${c.ratio}x)`
+      );
+      if (c.regressed) {
+        regressions.push(
+          `${c.metric}: p95=${c.currentP95}${c.unit} is ${c.ratio}x the historical average of ${c.rollingMeanP95}${c.unit} (>1.25x threshold)`
+        );
+      }
+    }
+    // Update regressions in report after relative check
+    report.regressions = regressions;
+  } else if (baselinePath) {
+    console.error("No historical baseline data available, skipping relative comparison.");
+  }
+
   // Output JSON to stdout
   console.log(JSON.stringify(report, null, 2));
 
   if (regressions.length > 0) {
     console.error("");
-    console.error("⚠️  Performance regressions detected:");
+    console.error("Performance regressions detected:");
     for (const r of regressions) {
       console.error(`  - ${r}`);
     }
     process.exit(1);
   } else {
     console.error("");
-    console.error("✅ All metrics within acceptable thresholds.");
+    console.error("All metrics within acceptable thresholds.");
   }
 }
 

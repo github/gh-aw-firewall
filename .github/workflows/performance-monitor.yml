@@ -44,13 +44,35 @@ jobs:
           WRAPPER
           sudo chmod +x /usr/local/bin/awf
 
+      - name: Restore benchmark history
+        uses: actions/cache/restore@v4
+        with:
+          path: benchmark-history.json
+          key: benchmark-history-${{ github.ref_name }}
+          restore-keys: |
+            benchmark-history-
+
       - name: Run benchmarks
         id: benchmark
         run: |
-          npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>benchmark-progress.log || true
+          BASELINE_ARG=""
+          if [ -f benchmark-history.json ]; then
+            BASELINE_ARG="--baseline benchmark-history.json"
+          fi
+          npx tsx scripts/ci/benchmark-performance.ts $BASELINE_ARG > benchmark-results.json 2>benchmark-progress.log || true
           cat benchmark-progress.log
           echo "--- JSON output ---"
           cat benchmark-results.json
+
+      - name: Update benchmark history
+        run: |
+          npx tsx scripts/ci/update-benchmark-history.ts benchmark-results.json benchmark-history.json
+
+      - name: Save benchmark history
+        uses: actions/cache/save@v4
+        with:
+          path: benchmark-history.json
+          key: benchmark-history-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Upload results
         if: always()
@@ -60,6 +82,7 @@ jobs:
           path: |
             benchmark-results.json
             benchmark-progress.log
+            benchmark-history.json
           retention-days: 90
 
       - name: Validate benchmark JSON
@@ -86,24 +109,34 @@ jobs:
           echo "regression_count=$REGRESSIONS" >> "$GITHUB_OUTPUT"
 
           if [ "$REGRESSIONS" -gt 0 ]; then
-            echo "## ⚠️ Performance Regressions Detected" >> "$GITHUB_STEP_SUMMARY"
+            echo "## Performance Regressions Detected" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             jq -r '.regressions[]' benchmark-results.json | while read -r line; do
               echo "- $line" >> "$GITHUB_STEP_SUMMARY"
             done
           else
-            echo "## ✅ All Metrics Within Thresholds" >> "$GITHUB_STEP_SUMMARY"
+            echo "## All Metrics Within Thresholds" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Mean | Median | P95 | P99 | Target | Critical |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|------|--------|-----|-----|--------|----------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Mean | Median | P95 | P99 | Target | Critical | Trend |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|------|--------|-----|-----|--------|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
 
-          jq -r '.results[] as $r | .thresholds[$r.metric] as $t |
-            "| \($r.metric) | \($r.mean)\($r.unit) | \($r.median)\($r.unit) | \($r.p95)\($r.unit) | \($r.p99)\($r.unit) | \($t.target // "N/A")\(if $t then $r.unit else "" end) | \($t.critical // "N/A")\(if $t then $r.unit else "" end) |"' \
+          # Build trend data from history if available
+          if [ -f benchmark-history.json ]; then
+            HISTORY_COUNT=$(jq '.entries | length' benchmark-history.json)
+          else
+            HISTORY_COUNT=0
+          fi
+
+          jq -r --argjson hcount "$HISTORY_COUNT" '.results[] as $r | .thresholds[$r.metric] as $t |
+            "| \($r.metric) | \($r.mean)\($r.unit) | \($r.median)\($r.unit) | \($r.p95)\($r.unit) | \($r.p99)\($r.unit) | \($t.target // "N/A")\(if $t then $r.unit else "" end) | \($t.critical // "N/A")\(if $t then $r.unit else "" end) | \(if $hcount > 1 then "see log" else "N/A (first run)" end) |"' \
             benchmark-results.json >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "*History: ${HISTORY_COUNT} data points*" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Ensure labels exist
         if: steps.check.outputs.regression_count != '0'
