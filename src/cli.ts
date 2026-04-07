@@ -395,6 +395,25 @@ export function emitApiProxyTargetWarnings(
 }
 
 /**
+ * Logs CLI proxy status and emits warnings when misconfigured.
+ * Extracted for testability (same pattern as emitApiProxyTargetWarnings).
+ */
+export function emitCliProxyStatusLogs(
+  config: { enableCliProxy?: boolean; cliProxyWritable?: boolean; githubToken?: string },
+  info: (msg: string) => void,
+  warn: (msg: string) => void,
+): void {
+  if (!config.enableCliProxy) return;
+
+  if (config.githubToken) {
+    info(`CLI proxy enabled: token present (GITHUB_TOKEN/GH_TOKEN), writable=${!!config.cliProxyWritable}`);
+  } else {
+    warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
+    warn('   Set GITHUB_TOKEN or GH_TOKEN to enable authenticated gh CLI access through the proxy');
+  }
+}
+
+/**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
  * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
  * its API subdomain, the Copilot API subdomain, and the Copilot telemetry subdomain so they
@@ -1913,14 +1932,7 @@ program
     emitApiProxyTargetWarnings(config, allowedDomains, logger.warn.bind(logger));
 
     // Log CLI proxy status
-    if (config.enableCliProxy) {
-      if (config.githubToken) {
-        logger.info(`CLI proxy enabled: token present (GITHUB_TOKEN/GH_TOKEN), writable=${!!config.cliProxyWritable}`);
-      } else {
-        logger.warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
-        logger.warn('   Set GITHUB_TOKEN or GH_TOKEN to enable authenticated gh CLI access through the proxy');
-      }
-    }
+    emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2037,6 +2037,73 @@ describe('cli', () => {
       );
       expect(warnings).toHaveLength(4);
       expect(warnings[3]).toContain('--gemini-api-target=gemini.internal');
+    });
+  });
+
+  describe('emitCliProxyStatusLogs', () => {
+    it('should emit nothing when cli proxy is disabled', () => {
+      const infos: string[] = [];
+      const warns: string[] = [];
+      emitCliProxyStatusLogs(
+        { enableCliProxy: false, githubToken: 'tok' },
+        (msg) => infos.push(msg),
+        (msg) => warns.push(msg),
+      );
+      expect(infos).toHaveLength(0);
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should emit nothing when enableCliProxy is undefined', () => {
+      const infos: string[] = [];
+      const warns: string[] = [];
+      emitCliProxyStatusLogs(
+        {},
+        (msg) => infos.push(msg),
+        (msg) => warns.push(msg),
+      );
+      expect(infos).toHaveLength(0);
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should emit info when token is present (read-only)', () => {
+      const infos: string[] = [];
+      const warns: string[] = [];
+      emitCliProxyStatusLogs(
+        { enableCliProxy: true, githubToken: 'ghp_test123', cliProxyWritable: false },
+        (msg) => infos.push(msg),
+        (msg) => warns.push(msg),
+      );
+      expect(infos).toHaveLength(1);
+      expect(infos[0]).toContain('CLI proxy enabled');
+      expect(infos[0]).toContain('writable=false');
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should emit info when token is present (writable)', () => {
+      const infos: string[] = [];
+      const warns: string[] = [];
+      emitCliProxyStatusLogs(
+        { enableCliProxy: true, githubToken: 'ghp_test123', cliProxyWritable: true },
+        (msg) => infos.push(msg),
+        (msg) => warns.push(msg),
+      );
+      expect(infos).toHaveLength(1);
+      expect(infos[0]).toContain('writable=true');
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should emit warnings when token is missing', () => {
+      const infos: string[] = [];
+      const warns: string[] = [];
+      emitCliProxyStatusLogs(
+        { enableCliProxy: true },
+        (msg) => infos.push(msg),
+        (msg) => warns.push(msg),
+      );
+      expect(infos).toHaveLength(0);
+      expect(warns).toHaveLength(2);
+      expect(warns[0]).toContain('no GitHub token found');
+      expect(warns[1]).toContain('GITHUB_TOKEN or GH_TOKEN');
     });
   });
 
