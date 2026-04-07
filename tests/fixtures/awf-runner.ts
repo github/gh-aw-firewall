@@ -20,6 +20,8 @@ export interface AwfOptions {
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
   allowHostServicePorts?: string; // Ports to allow ONLY to host gateway (bypasses dangerous port restrictions)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
+  enableCliProxy?: boolean; // Enable CLI proxy sidecar for secure gh CLI access
+  cliProxyWritable?: boolean; // Allow write operations through the CLI proxy
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
@@ -128,6 +130,14 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add enable-cli-proxy flags
+    if (options.enableCliProxy) {
+      args.push('--enable-cli-proxy');
+    }
+    if (options.cliProxyWritable) {
+      args.push('--cli-proxy-writable');
     }
 
     // Add API target flags
@@ -341,6 +351,14 @@ export class AwfRunner {
     // Add enable-api-proxy flag
     if (options.enableApiProxy) {
       args.push('--enable-api-proxy');
+    }
+
+    // Add enable-cli-proxy flags
+    if (options.enableCliProxy) {
+      args.push('--enable-cli-proxy');
+    }
+    if (options.cliProxyWritable) {
+      args.push('--cli-proxy-writable');
     }
 
     // Add API target flags
