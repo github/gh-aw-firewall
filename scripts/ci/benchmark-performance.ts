@@ -161,6 +161,8 @@ function benchmarkHttpsLatency(): BenchmarkResult {
 
 /**
  * Wait for Docker containers to be running, polling at 500ms intervals.
+ * Uses exact name matching (anchored regex) to avoid false positives from
+ * containers with similar names (e.g., "awf-squid-old").
  * Throws if containers are not running within timeoutMs.
  */
 function waitForContainers(containerNames: string[], timeoutMs: number): Promise<void> {
@@ -174,10 +176,14 @@ function waitForContainers(containerNames: string[], timeoutMs: number): Promise
       try {
         const allRunning = containerNames.every((name) => {
           const result = execSync(
-            `sudo docker ps --filter name=${name} --filter status=running --format '{{.Names}}' 2>/dev/null`,
+            `sudo docker ps --filter name=^${name}$ --filter status=running --format '{{.Names}}' 2>/dev/null`,
             { encoding: "utf-8", timeout: 5_000 }
-          ).trim();
-          return result.includes(name);
+          )
+            .trim()
+            .split("\n")
+            .map((n) => n.trim())
+            .filter(Boolean);
+          return result.some((n) => n === name);
         });
         if (allRunning) {
           resolve();
@@ -206,21 +212,26 @@ function parseMb(s: string): number {
 }
 
 /**
- * Kill a spawned background process and its process group, best-effort.
+ * Kill a spawned background process and its entire process group, best-effort.
+ * Sends SIGTERM then SIGKILL to the process group so descendant processes
+ * (e.g., sudo, awf, docker) don't survive.
  */
 function killBackground(child: ChildProcess): void {
+  const pid = child.pid;
+  if (!pid) return;
+
   try {
-    if (child.pid) {
-      // Kill the process group (negative PID) to catch child processes
-      process.kill(-child.pid, "SIGTERM");
-    }
+    // SIGTERM the process group to allow graceful shutdown
+    process.kill(-pid, "SIGTERM");
   } catch {
-    // Process may have already exited
+    // Process group may have already exited
   }
+
   try {
-    child.kill("SIGKILL");
+    // SIGKILL the entire process group to ensure nothing survives
+    process.kill(-pid, "SIGKILL");
   } catch {
-    // best-effort
+    // Process group may have already exited
   }
 }
 
@@ -232,15 +243,19 @@ async function benchmarkMemory(): Promise<BenchmarkResult> {
     cleanup();
     let child: ChildProcess | null = null;
     try {
-      // Start awf with a long-running command in the background so containers stay alive
+      // Start awf with a long-running command in the background so containers stay alive.
+      // Derive spawn args from AWF_CMD to stay consistent with the rest of the script.
+      const awfParts = AWF_CMD.split(/\s+/);
       child = spawn(
-        "sudo",
-        ["awf", "--allow-domains", ALLOWED_DOMAIN, "--log-level", "error", "--", "sleep", "30"],
+        awfParts[0],
+        [...awfParts.slice(1), "--allow-domains", ALLOWED_DOMAIN, "--log-level", "error", "--", "sleep", "30"],
         {
           detached: true,
           stdio: "ignore",
         }
       );
+      // Unref so the parent process won't be kept alive if cleanup fails
+      child.unref();
 
       // Wait for both containers to be running (up to 30s)
       await waitForContainers(["awf-squid", "awf-agent"], 30_000);
