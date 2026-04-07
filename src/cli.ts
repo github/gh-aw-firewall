@@ -395,6 +395,25 @@ export function emitApiProxyTargetWarnings(
 }
 
 /**
+ * Logs CLI proxy status and emits warnings when misconfigured.
+ * Extracted for testability (same pattern as emitApiProxyTargetWarnings).
+ */
+export function emitCliProxyStatusLogs(
+  config: { enableCliProxy?: boolean; cliProxyWritable?: boolean; githubToken?: string },
+  info: (msg: string) => void,
+  warn: (msg: string) => void,
+): void {
+  if (!config.enableCliProxy) return;
+
+  if (config.githubToken) {
+    info(`CLI proxy enabled: token present (GITHUB_TOKEN/GH_TOKEN), writable=${!!config.cliProxyWritable}`);
+  } else {
+    warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
+    warn('   Set GITHUB_TOKEN or GH_TOKEN to enable authenticated gh CLI access through the proxy');
+  }
+}
+
+/**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
  * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
  * its API subdomain, the Copilot API subdomain, and the Copilot telemetry subdomain so they
@@ -1415,6 +1434,31 @@ program
     'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
 
+  // -- CLI Proxy --
+  .option(
+    '--enable-cli-proxy',
+    'Enable gh CLI proxy sidecar for secure GitHub CLI access.\n' +
+    '                                       Routes gh commands through mcpg DIFC proxy with guard policies.\n' +
+    '                                       GH_TOKEN is held in the sidecar; never exposed to the agent.',
+    false
+  )
+  .option(
+    '--cli-proxy-writable',
+    'Allow write operations through the CLI proxy (default: read-only)',
+    false
+  )
+  .option(
+    '--cli-proxy-policy <json>',
+    'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
+    '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
+  )
+  .option(
+    '--cli-proxy-mcpg-image <image>',
+    'Docker image for the mcpg DIFC proxy used inside the CLI proxy sidecar\n' +
+    '                                       (only used with --build-local; ignored when pulling pre-built GHCR images)\n' +
+    '                                       Set by the AWF compiler to control which mcpg version is pulled and run',
+    'ghcr.io/github/gh-aw-mcpg:v0.2.15'
+  )
   // -- Logging & Debug --
   .option(
     '--log-level <level>',
@@ -1786,6 +1830,11 @@ program
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
       geminiApiTarget: options.geminiApiTarget || process.env.GEMINI_API_TARGET,
       geminiApiBasePath: options.geminiApiBasePath || process.env.GEMINI_API_BASE_PATH,
+      enableCliProxy: options.enableCliProxy,
+      cliProxyWritable: options.cliProxyWritable,
+      cliProxyPolicy: options.cliProxyPolicy,
+      cliProxyMcpgImage: options.cliProxyMcpgImage,
+      githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
     };
 
     // Parse and validate --agent-timeout
@@ -1881,6 +1930,9 @@ program
 
     // Warn if custom API targets are not in --allow-domains
     emitApiProxyTargetWarnings(config, allowedDomains, logger.warn.bind(logger));
+
+    // Log CLI proxy status
+    emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
@@ -2005,6 +2057,7 @@ export async function handlePredownloadAction(options: {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
+  enableCliProxy?: boolean;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
   try {
@@ -2013,6 +2066,7 @@ export async function handlePredownloadAction(options: {
       imageTag: options.imageTag,
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
+      enableCliProxy: options.enableCliProxy,
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -2036,6 +2090,7 @@ program
     'default'
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
+  .option('--enable-cli-proxy', 'Also download the CLI proxy image', false)
   .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs

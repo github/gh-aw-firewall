@@ -43,6 +43,25 @@ describe('predownload', () => {
       ]);
     });
 
+    it('should include cli-proxy when enabled', () => {
+      const images = resolveImages({ ...defaults, enableCliProxy: true });
+      expect(images).toEqual([
+        'ghcr.io/github/gh-aw-firewall/squid:latest',
+        'ghcr.io/github/gh-aw-firewall/agent:latest',
+        'ghcr.io/github/gh-aw-firewall/cli-proxy:latest',
+      ]);
+    });
+
+    it('should include both api-proxy and cli-proxy when both enabled', () => {
+      const images = resolveImages({ ...defaults, enableApiProxy: true, enableCliProxy: true });
+      expect(images).toEqual([
+        'ghcr.io/github/gh-aw-firewall/squid:latest',
+        'ghcr.io/github/gh-aw-firewall/agent:latest',
+        'ghcr.io/github/gh-aw-firewall/api-proxy:latest',
+        'ghcr.io/github/gh-aw-firewall/cli-proxy:latest',
+      ]);
+    });
+
     it('should use custom registry and tag', () => {
       const images = resolveImages({
         ...defaults,
@@ -112,6 +131,17 @@ describe('predownload', () => {
       expect(execa).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/api-proxy:latest'],
+        { stdio: 'inherit' },
+      );
+    });
+
+    it('should pull cli-proxy when enabled', async () => {
+      await predownloadCommand({ ...defaults, enableCliProxy: true });
+
+      expect(execa).toHaveBeenCalledTimes(3);
+      expect(execa).toHaveBeenCalledWith(
+        'docker',
+        ['pull', 'ghcr.io/github/gh-aw-firewall/cli-proxy:latest'],
         { stdio: 'inherit' },
       );
     });

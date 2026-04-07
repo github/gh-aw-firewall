@@ -1,0 +1,16 @@
+{
+  "name": "awf-cli-proxy",
+  "version": "1.0.0",
+  "description": "CLI proxy sidecar for AWF - forwards gh CLI invocations through mcpg DIFC proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "jest --verbose --ci"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

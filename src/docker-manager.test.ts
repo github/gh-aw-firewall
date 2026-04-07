@@ -2632,6 +2632,187 @@ describe('docker-manager', () => {
         expect(result.services['doh-proxy']).toBeUndefined();
       });
     });
+
+    describe('CLI proxy sidecar', () => {
+      const mockNetworkConfigWithCliProxy = {
+        ...mockNetworkConfig,
+        cliProxyIp: '172.30.0.50',
+      };
+
+      it('should not include cli-proxy service when enableCliProxy is false', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfigWithCliProxy);
+        expect(result.services['cli-proxy']).toBeUndefined();
+      });
+
+      it('should not include cli-proxy service when enableCliProxy is true but no cliProxyIp', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfig);
+        expect(result.services['cli-proxy']).toBeUndefined();
+      });
+
+      it('should include cli-proxy service when enableCliProxy is true with cliProxyIp', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        expect(result.services['cli-proxy']).toBeDefined();
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.container_name).toBe('awf-cli-proxy');
+        expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.50');
+      });
+
+      it('should pass GH_TOKEN to cli-proxy environment', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.GH_TOKEN).toBe('ghp_test_token');
+      });
+
+      it('should route cli-proxy traffic through Squid', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.HTTP_PROXY).toContain('172.30.0.10:3128');
+        expect(env.HTTPS_PROXY).toContain('172.30.0.10:3128');
+      });
+
+      it('should configure healthcheck for cli-proxy', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.healthcheck).toBeDefined();
+        expect((proxy.healthcheck as any).test).toEqual(['CMD', 'curl', '-f', 'http://localhost:11000/health']);
+      });
+
+      it('should drop all capabilities from cli-proxy', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.cap_drop).toEqual(['ALL']);
+        expect(proxy.security_opt).toContain('no-new-privileges:true');
+      });
+
+      it('should update agent depends_on to wait for cli-proxy', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const dependsOn = result.services['agent'].depends_on as Record<string, any>;
+        expect(dependsOn['cli-proxy']).toBeDefined();
+        expect(dependsOn['cli-proxy'].condition).toBe('service_healthy');
+      });
+
+      it('should set AWF_CLI_PROXY_URL in agent environment', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const agent = result.services['agent'];
+        const env = agent.environment as Record<string, string>;
+        expect(env.AWF_CLI_PROXY_URL).toBe('http://172.30.0.50:11000');
+      });
+
+      it('should set AWF_CLI_PROXY_IP in agent environment', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const agent = result.services['agent'];
+        const env = agent.environment as Record<string, string>;
+        expect(env.AWF_CLI_PROXY_IP).toBe('172.30.0.50');
+      });
+
+      it('should pass AWF_CLI_PROXY_IP to iptables-init environment', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const initEnv = result.services['iptables-init'].environment as Record<string, string>;
+        expect(initEnv.AWF_CLI_PROXY_IP).toBe('172.30.0.50');
+      });
+
+      it('should set AWF_CLI_PROXY_WRITABLE=false by default', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_CLI_PROXY_WRITABLE).toBe('false');
+      });
+
+      it('should set AWF_CLI_PROXY_WRITABLE=true when cliProxyWritable is true', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, cliProxyWritable: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_CLI_PROXY_WRITABLE).toBe('true');
+      });
+
+      it('should pass guard policy JSON when cliProxyPolicy is set', () => {
+        const policy = '{"repos":["owner/repo"],"min-integrity":"public"}';
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token', cliProxyPolicy: policy };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_GH_GUARD_POLICY).toBe(policy);
+      });
+
+      it('should not set AWF_GH_GUARD_POLICY when cliProxyPolicy is not set', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_GH_GUARD_POLICY).toBeUndefined();
+      });
+
+      it('should use GHCR image by default', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token', buildLocal: false };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.image).toContain('cli-proxy');
+        expect(proxy.build).toBeUndefined();
+      });
+
+      it('should use local build when buildLocal is true', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token', buildLocal: true };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect((proxy.build as any).context).toContain('containers/cli-proxy');
+        expect(proxy.image).toBeUndefined();
+      });
+
+      it('should not pass MCPG_IMAGE build arg when cliProxyMcpgImage is not set', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token', buildLocal: true };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect((proxy.build as any).args).toBeUndefined();
+      });
+
+      it('should pass MCPG_IMAGE build arg when cliProxyMcpgImage is set with --build-local', () => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          enableCliProxy: true,
+          githubToken: 'ghp_test_token',
+          buildLocal: true,
+          cliProxyMcpgImage: 'ghcr.io/github/gh-aw-mcpg:v0.3.0',
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect((proxy.build as any).args).toEqual({ MCPG_IMAGE: 'ghcr.io/github/gh-aw-mcpg:v0.3.0' });
+      });
+
+      it('should ignore cliProxyMcpgImage when not using --build-local (pre-built GHCR image)', () => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          enableCliProxy: true,
+          githubToken: 'ghp_test_token',
+          buildLocal: false,
+          cliProxyMcpgImage: 'ghcr.io/github/gh-aw-mcpg:v0.3.0',
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        // Pre-built GHCR image already contains mcpg; build arg has no effect
+        expect(proxy.image).toContain('cli-proxy');
+        expect(proxy.build).toBeUndefined();
+      });
+
+      it('should not include cli-proxy when cliProxyIp is missing from networkConfig', () => {
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfig);
+        expect(result.services['cli-proxy']).toBeUndefined();
+      });
+    });
   });
 
   describe('writeConfigs', () => {
@@ -2956,7 +3137,7 @@ describe('docker-manager', () => {
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
-        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy'],
+        ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy', 'awf-cli-proxy'],
         { reject: false }
       );
     });

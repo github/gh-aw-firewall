@@ -173,6 +173,13 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
   iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
 fi
 
+# Allow traffic to CLI proxy sidecar (when enabled)
+# AWF_CLI_PROXY_IP is set by docker-manager.ts when --enable-cli-proxy is used
+if [ -n "$AWF_CLI_PROXY_IP" ]; then
+  echo "[iptables] Allow traffic to CLI proxy sidecar (${AWF_CLI_PROXY_IP})..."
+  iptables -t nat -A OUTPUT -d "$AWF_CLI_PROXY_IP" -j RETURN
+fi
+
 # Validate port specification (single port 1-65535 or range N-M)
 # Rejects leading zeros (e.g., 080) to align with TypeScript isValidPortSpec()
 is_valid_port_spec() {

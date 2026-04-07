@@ -54,6 +54,20 @@ export const API_PROXY_PORTS = {
 export const API_PROXY_HEALTH_PORT = API_PROXY_PORTS.OPENAI;
 
 /**
+ * Port for the CLI proxy sidecar HTTP server.
+ *
+ * The CLI proxy sidecar listens on this port for gh CLI invocations forwarded
+ * from the agent container. Port 11000 is chosen to avoid collision with the
+ * api-proxy ports (10000-10004).
+ *
+ * All ports must be allowed in:
+ * - containers/cli-proxy/Dockerfile (EXPOSE directive)
+ * - containers/agent/setup-iptables.sh (NAT rules)
+ * @see containers/cli-proxy/server.js
+ */
+export const CLI_PROXY_PORT = 11000;
+
+/**
  * Main configuration interface for the firewall wrapper
  * 
  * This configuration controls the entire firewall lifecycle including:
@@ -768,6 +782,77 @@ export interface WrapperConfig {
    * @default ''
    */
   geminiApiBasePath?: string;
+
+  /**
+   * Enable CLI proxy sidecar for secure gh CLI access
+   *
+   * When true, deploys a CLI proxy sidecar container that:
+   * - Holds GH_TOKEN securely (never exposed to the agent)
+   * - Routes gh CLI invocations through an mcpg DIFC proxy
+   * - Enforces guard policies (min-integrity, repo restrictions)
+   * - Generates audit logs via mcpg's JSONL output
+   *
+   * The agent container gets a /usr/local/bin/gh wrapper script that
+   * forwards invocations to the CLI proxy sidecar at http://172.30.0.50:11000.
+   *
+   * @default false
+   * @example
+   * ```bash
+   * export GITHUB_TOKEN="ghp_..."
+   * awf --enable-cli-proxy --allow-domains api.github.com,github.com -- command
+   * ```
+   */
+  enableCliProxy?: boolean;
+
+  /**
+   * Allow write operations through the CLI proxy sidecar
+   *
+   * When true, the CLI proxy allows write operations (pr create, issue create, etc.)
+   * in addition to read-only operations.
+   * When false (default), only read-only subcommands and actions are permitted.
+   *
+   * @default false
+   */
+  cliProxyWritable?: boolean;
+
+  /**
+   * Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar
+   *
+   * This JSON string is passed to the mcpg proxy's --policy flag to enforce
+   * DIFC guard policies (repository restrictions, minimum integrity level).
+   * If not specified, a default policy is generated based on GITHUB_REPOSITORY.
+   *
+   * @example '{"repos":["owner/repo"],"min-integrity":"public"}'
+   */
+  cliProxyPolicy?: string;
+
+  /**
+   * GitHub token for the CLI proxy sidecar
+   *
+   * When enableCliProxy is true, this token is injected into the CLI proxy
+   * container and passed to the mcpg DIFC proxy. The token is never exposed
+   * to the agent container directly.
+   *
+   * Read from GITHUB_TOKEN environment variable when not specified.
+   *
+   * @default undefined
+   */
+  githubToken?: string;
+
+  /**
+   * Docker image reference for the mcpg DIFC proxy used inside the CLI proxy sidecar
+   *
+   * Passed as the `MCPG_IMAGE` build argument when building the cli-proxy image
+   * locally with `--build-local`.  Has no effect when using the pre-built GHCR
+   * cli-proxy image (mcpg is already bundled in that image).
+   *
+   * The AWF compiler (gh-aw) sets this to control which mcpg version is pulled
+   * and run, enabling version pinning and testing of new mcpg releases.
+   *
+   * @default 'ghcr.io/github/gh-aw-mcpg:v0.2.15'
+   * @example 'ghcr.io/github/gh-aw-mcpg:v0.3.0'
+   */
+  cliProxyMcpgImage?: string;
 
   /**
    * Enable Data Loss Prevention (DLP) scanning

@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
-import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from './types';
+import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT, CLI_PROXY_PORT } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
@@ -21,6 +21,7 @@ const SQUID_CONTAINER_NAME = 'awf-squid';
 const IPTABLES_INIT_CONTAINER_NAME = 'awf-iptables-init';
 const API_PROXY_CONTAINER_NAME = 'awf-api-proxy';
 const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
+const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
@@ -376,7 +377,7 @@ export interface SslConfig {
  */
 export function generateDockerCompose(
   config: WrapperConfig,
-  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string },
+  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string; cliProxyIp?: string },
   sslConfig?: SslConfig,
   squidConfigContent?: string
 ): DockerComposeConfig {
@@ -415,6 +416,11 @@ export function generateDockerCompose(
   const apiProxyLogsPath = config.proxyLogsDir
     ? path.join(config.proxyLogsDir, 'api-proxy-logs')
     : path.join(config.workDir, 'api-proxy-logs');
+
+  // CLI proxy logs path: write to workDir/cli-proxy-logs (will be moved to /tmp after cleanup)
+  const cliProxyLogsPath = config.proxyLogsDir
+    ? path.join(config.proxyLogsDir, 'cli-proxy-logs')
+    : path.join(config.workDir, 'cli-proxy-logs');
 
   // Build Squid volumes list
   // Note: squid.conf is NOT bind-mounted. Instead, it's passed as a base64-encoded
@@ -536,6 +542,20 @@ export function generateDockerCompose(
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
     // through COPILOT_API_URL → api-proxy regardless of GITHUB_API_URL being set.
     // See: github/gh-aw#20875
+  }
+
+  // When cli-proxy is enabled, exclude GitHub tokens from agent environment.
+  // These tokens are held securely in the cli-proxy sidecar's mcpg process instead,
+  // so the agent can invoke gh commands without ever seeing the raw token.
+  //
+  // Design note: unlike api-proxy (which excludes LLM API keys), this excludes a
+  // token that many GitHub Actions tools also use.  In practice this is safe because
+  // actions/checkout runs before awf starts, and tools that need GITHUB_TOKEN
+  // (e.g. gh-mcp-server) should use GITHUB_MCP_SERVER_TOKEN (a separate env var)
+  // rather than GITHUB_TOKEN.
+  if (config.enableCliProxy) {
+    EXCLUDED_ENV_VARS.add('GITHUB_TOKEN');
+    EXCLUDED_ENV_VARS.add('GH_TOKEN');
   }
 
   // Start with required/overridden environment variables
@@ -1343,6 +1363,12 @@ export function generateDockerCompose(
     environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
   }
 
+  // Pre-set CLI proxy IP in environment before the init container definition
+  // for the same reason as AWF_API_PROXY_IP above.
+  if (config.enableCliProxy && networkConfig.cliProxyIp) {
+    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyIp;
+  }
+
   // SECURITY: iptables init container - sets up NAT rules in a separate container
   // that shares the agent's network namespace but NEVER gives NET_ADMIN to the agent.
   // This eliminates the window where the agent holds NET_ADMIN during startup.
@@ -1368,6 +1394,7 @@ export function generateDockerCompose(
       AWF_HOST_SERVICE_PORTS: environment.AWF_HOST_SERVICE_PORTS || '',
       AWF_API_PROXY_IP: environment.AWF_API_PROXY_IP || '',
       AWF_DOH_PROXY_IP: environment.AWF_DOH_PROXY_IP || '',
+      AWF_CLI_PROXY_IP: environment.AWF_CLI_PROXY_IP || '',
       AWF_SSL_BUMP_ENABLED: environment.AWF_SSL_BUMP_ENABLED || '',
       AWF_SSL_BUMP_INTERCEPT_PORT: environment.AWF_SSL_BUMP_INTERCEPT_PORT || '',
     },
@@ -1595,6 +1622,101 @@ export function generateDockerCompose(
     logger.info(`DNS-over-HTTPS proxy sidecar enabled - DNS queries encrypted via ${config.dnsOverHttps}`);
   }
 
+  // Add CLI proxy sidecar if enabled
+  if (config.enableCliProxy && networkConfig.cliProxyIp) {
+    const cliProxyService: any = {
+      container_name: CLI_PROXY_CONTAINER_NAME,
+      networks: {
+        'awf-net': {
+          ipv4_address: networkConfig.cliProxyIp,
+        },
+      },
+      volumes: [
+        // Mount log directory for mcpg DIFC proxy audit logs
+        `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
+      ],
+      environment: {
+        // Pass GH_TOKEN to the mcpg DIFC proxy (never exposed to agent)
+        ...(config.githubToken && { GH_TOKEN: config.githubToken }),
+        // Pass GITHUB_REPOSITORY so the default guard policy restricts to the current repo
+        ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
+        ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
+        // Guard policy JSON for mcpg proxy (optional; default generated from GITHUB_REPOSITORY)
+        ...(config.cliProxyPolicy && { AWF_GH_GUARD_POLICY: config.cliProxyPolicy }),
+        // Enable write mode when --cli-proxy-writable is passed
+        AWF_CLI_PROXY_WRITABLE: String(!!config.cliProxyWritable),
+        // Route through Squid to respect domain whitelisting
+        HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        // Prevent curl health check from routing localhost through Squid
+        NO_PROXY: `localhost,127.0.0.1,::1`,
+        no_proxy: `localhost,127.0.0.1,::1`,
+      },
+      healthcheck: {
+        test: ['CMD', 'curl', '-f', `http://localhost:${CLI_PROXY_PORT}/health`],
+        interval: '5s',
+        timeout: '3s',
+        retries: 5,
+        start_period: '30s',  // Extra time for mcpg TLS cert generation
+      },
+      // Depend on Squid for routing outbound API traffic
+      depends_on: {
+        'squid-proxy': {
+          condition: 'service_healthy',
+        },
+      },
+      // Security hardening: Drop all capabilities
+      cap_drop: ['ALL'],
+      security_opt: [
+        'no-new-privileges:true',
+      ],
+      // Resource limits to prevent DoS attacks
+      mem_limit: '256m',
+      memswap_limit: '256m',
+      pids_limit: 50,
+      cpu_shares: 256,
+      stop_grace_period: '2s',
+    };
+
+    // Use GHCR image or build locally
+    if (useGHCR) {
+      cliProxyService.image = `${registry}/cli-proxy:${tag}`;
+    } else {
+      // When building locally, pass MCPG_IMAGE as a build arg so the compiler
+      // can control which mcpg version is pulled (mirrors the Dockerfile's ARG default).
+      const buildArgs: Record<string, string> = {};
+      if (config.cliProxyMcpgImage) {
+        buildArgs.MCPG_IMAGE = config.cliProxyMcpgImage;
+      }
+      cliProxyService.build = {
+        context: path.join(projectRoot, 'containers/cli-proxy'),
+        dockerfile: 'Dockerfile',
+        ...(Object.keys(buildArgs).length > 0 && { args: buildArgs }),
+      };
+    }
+
+    services['cli-proxy'] = cliProxyService;
+
+    // Update agent dependencies to wait for cli-proxy
+    agentService.depends_on['cli-proxy'] = {
+      condition: 'service_healthy',
+    };
+
+    // Tell the agent how to reach the CLI proxy
+    // Use IP address instead of hostname since Docker DNS may not resolve in chroot mode
+    environment.AWF_CLI_PROXY_URL = `http://${networkConfig.cliProxyIp}:${CLI_PROXY_PORT}`;
+    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyIp;
+
+    // Install the gh wrapper in the agent's PATH by symlinking to the pre-installed wrapper
+    // The agent entrypoint uses AWF_CLI_PROXY_URL to know it should activate the wrapper
+    logger.info('CLI proxy sidecar enabled - gh CLI will route through mcpg DIFC proxy');
+    logger.info('CLI proxy will route through Squid to respect domain whitelisting');
+    if (config.cliProxyWritable) {
+      logger.info('CLI proxy running in writable mode - write operations permitted');
+    }
+  }
+
   return {
     services,
     networks: {
@@ -1705,6 +1827,17 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   }
   logger.debug(`API proxy logs directory created at: ${apiProxyLogsDir}`);
 
+  // Create CLI proxy logs directory for persistence
+  // Note: CLI proxy runs as user 'cliproxy' (non-root)
+  const cliProxyLogsDir = config.proxyLogsDir
+    ? path.join(config.proxyLogsDir, 'cli-proxy-logs')
+    : path.join(config.workDir, 'cli-proxy-logs');
+  if (!fs.existsSync(cliProxyLogsDir)) {
+    fs.mkdirSync(cliProxyLogsDir, { recursive: true, mode: 0o777 });
+    fs.chmodSync(cliProxyLogsDir, 0o777);
+  }
+  logger.debug(`CLI proxy logs directory created at: ${cliProxyLogsDir}`);
+
   // Create /tmp/gh-aw/mcp-logs directory
   // This directory exists on the HOST for MCP gateway to write logs
   // Inside the AWF container, it's hidden via tmpfs mount (see generateDockerCompose)
@@ -1764,6 +1897,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     agentIp: '172.30.0.20',
     proxyIp: '172.30.0.30',  // Envoy API proxy sidecar
     dohProxyIp: '172.30.0.40',  // DoH proxy sidecar
+    cliProxyIp: '172.30.0.50',  // CLI proxy sidecar
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 
@@ -1967,7 +2101,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME], {
+    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, CLI_PROXY_CONTAINER_NAME], {
       reject: false,
     });
   } catch {
@@ -2327,6 +2461,30 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             logger.info(`API proxy logs preserved at: ${apiProxyLogsDestination}`);
           } catch (error) {
             logger.debug('Could not preserve api-proxy logs:', error);
+          }
+        }
+      }
+
+      // Preserve cli-proxy (mcpg DIFC proxy audit) logs before cleanup
+      if (proxyLogsDir) {
+        const cliProxyLogsDir = path.join(proxyLogsDir, 'cli-proxy-logs');
+        if (fs.existsSync(cliProxyLogsDir)) {
+          try {
+            execa.sync('chmod', ['-R', 'a+rX', cliProxyLogsDir]);
+            logger.info(`CLI proxy logs available at: ${cliProxyLogsDir}`);
+          } catch (error) {
+            logger.debug('Could not fix cli-proxy log permissions:', error);
+          }
+        }
+      } else {
+        const cliProxyLogsDir = path.join(workDir, 'cli-proxy-logs');
+        const cliProxyLogsDestination = path.join(os.tmpdir(), `cli-proxy-logs-${timestamp}`);
+        if (fs.existsSync(cliProxyLogsDir) && fs.readdirSync(cliProxyLogsDir).length > 0) {
+          try {
+            fs.renameSync(cliProxyLogsDir, cliProxyLogsDestination);
+            logger.info(`CLI proxy logs preserved at: ${cliProxyLogsDestination}`);
+          } catch (error) {
+            logger.debug('Could not preserve cli-proxy logs:', error);
           }
         }
       }
