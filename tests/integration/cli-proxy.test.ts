@@ -223,9 +223,10 @@ describe('CLI Proxy Sidecar', () => {
         { ...cliProxyDefaults, keepContainers: true },
       );
 
-      // Don't require success — docker exec may require the container to still be running
-      // Just verify the env vars are set in the compose config by checking stderr logs
-      expect(result.stderr).toMatch(/HTTP_PROXY|HTTPS_PROXY|squid/i);
+      // `env | grep -i proxy` writes matches to stdout, and `|| true` forces a zero exit code.
+      // Verify the cli-proxy environment includes the expected proxy-related settings.
+      expect(result).toSucceed();
+      expect(extractCommandOutput(result.stdout)).toMatch(/HTTP_PROXY|HTTPS_PROXY|squid/i);
     }, 180000);
   });
 });
