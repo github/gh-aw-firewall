@@ -91,8 +91,11 @@ describe("parseMb()", () => {
     expect(parseMb("512KiB / 8GiB")).toBe(0.5);
   });
 
-  it("returns 0 for unrecognized format", () => {
+  it("parses zero-valued MiB input", () => {
     expect(parseMb("0MiB")).toBe(0);
+  });
+
+  it("returns 0 for unrecognized or empty format", () => {
     expect(parseMb("unknown")).toBe(0);
     expect(parseMb("")).toBe(0);
   });

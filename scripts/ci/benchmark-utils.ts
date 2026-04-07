@@ -51,7 +51,8 @@ export function stats(values: number[]): Pick<BenchmarkResult, "mean" | "median"
 
 /**
  * Parse a Docker memory usage string like "123.4MiB / 7.773GiB"
- * and return the used amount in MB (first number only).
+ * and return the used amount in MiB (first number only).
+ * Note: GiB values are converted to MiB (GiB * 1024), KiB to MiB (KiB / 1024).
  */
 export function parseMb(s: string): number {
   const match = s.match(/([\d.]+)\s*(MiB|GiB|KiB)/i);
