@@ -9,6 +9,10 @@
  *  - Docker network creation time
  *
  * Outputs structured JSON with mean, median, p95, p99 per metric.
+ *
+ * IMPORTANT: stdout/stderr contract:
+ *   - stdout (console.log): JSON result only — consumed by the CI workflow via redirect to file
+ *   - stderr (console.error): progress messages and diagnostics — kept separate so JSON stays valid
  */
 
 import { execSync, ExecSyncOptions } from "child_process";
