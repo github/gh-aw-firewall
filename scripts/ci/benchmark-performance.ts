@@ -286,10 +286,17 @@ function benchmarkNetworkCreation(): BenchmarkResult {
 
 function parseBaselineArg(): string | null {
   const idx = process.argv.indexOf("--baseline");
-  if (idx !== -1 && idx + 1 < process.argv.length) {
-    return process.argv[idx + 1];
+  if (idx === -1) {
+    return null;
   }
-  return null;
+
+  const value = process.argv[idx + 1];
+  if (!value || value.startsWith("--")) {
+    console.error("Error: --baseline requires a file path argument");
+    process.exit(1);
+  }
+
+  return value;
 }
 
 async function main(): Promise<void> {

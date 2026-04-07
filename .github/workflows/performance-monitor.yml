@@ -48,9 +48,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: benchmark-history.json
-          key: benchmark-history-${{ github.ref_name }}
+          key: benchmark-history-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            benchmark-history-
+            benchmark-history-${{ github.ref_name }}-
+            benchmark-history-main-
 
       - name: Run benchmarks
         id: benchmark

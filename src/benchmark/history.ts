@@ -125,7 +125,11 @@ export function compareAgainstBaseline(
 
   for (const result of report.results) {
     const baseline = rolling[result.metric];
-    if (!baseline || baseline.count === 0) {
+    if (!baseline || baseline.count === 0 || baseline.meanP95 <= 0) {
+      continue;
+    }
+
+    if (result.p95 <= 0) {
       continue;
     }
 

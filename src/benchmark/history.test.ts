@@ -153,6 +153,33 @@ describe("compareAgainstBaseline", () => {
     expect(comparisons).toHaveLength(0);
   });
 
+  it("skips metrics with zero rolling mean p95 to avoid division by zero", () => {
+    const history: BenchmarkHistory = {
+      version: 1,
+      entries: [makeEntry(0, 0)],
+    };
+    const report = makeReport();
+    const comparisons = compareAgainstBaseline(report, history);
+
+    // Both metrics have 0 baseline p95, so they should be skipped
+    expect(comparisons).toHaveLength(0);
+  });
+
+  it("skips metrics with zero current p95", () => {
+    const history: BenchmarkHistory = {
+      version: 1,
+      entries: [makeEntry(5000, 80)],
+    };
+    const report = makeReport({
+      results: [
+        { metric: "container_startup_warm", unit: "ms", values: [0], mean: 0, median: 0, p95: 0, p99: 0 },
+      ],
+    });
+    const comparisons = compareAgainstBaseline(report, history);
+
+    expect(comparisons).toHaveLength(0);
+  });
+
   it("skips metrics not in history", () => {
     const history: BenchmarkHistory = {
       version: 1,
