@@ -52,15 +52,8 @@ jobs:
           echo "--- JSON output ---"
           cat benchmark-results.json
 
-      - name: Validate benchmark JSON
-        run: |
-          if ! jq empty benchmark-results.json 2>/dev/null; then
-            echo "ERROR: benchmark-results.json is not valid JSON"
-            cat benchmark-results.json
-            exit 1
-          fi
-
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ github.sha }}
@@ -68,6 +61,14 @@ jobs:
             benchmark-results.json
             benchmark-progress.log
           retention-days: 90
+
+      - name: Validate benchmark JSON
+        run: |
+          if ! jq empty benchmark-results.json 2>/dev/null; then
+            echo "ERROR: benchmark-results.json is not valid JSON"
+            cat benchmark-results.json
+            exit 1
+          fi
 
       - name: Check for regressions
         id: check
