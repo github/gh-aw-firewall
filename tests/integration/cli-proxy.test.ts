@@ -175,12 +175,13 @@ describe('CLI Proxy Sidecar', () => {
     test('should block auth subcommand even in writable mode', async () => {
       // 'auth' is always denied (meta-command)
       const result = await runner.runWithSudo(
-        `bash -c 'curl -s -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"auth\\",\\"status\\"]}"'`,
+        `bash -c 'curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"auth\\",\\"status\\"]}"'`,
         { ...cliProxyDefaults, cliProxyWritable: true },
       );
 
       expect(result).toSucceed();
-      expect(result.stdout).toMatch(/denied|blocked|not allowed/i);
+      expect(result.stdout).toContain('HTTP_STATUS:403');
+      expect(result.stdout).toMatch(/denied|blocked|not allowed|not permitted/i);
     }, 180000);
 
     test('should allow read operations in read-only mode', async () => {
