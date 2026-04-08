@@ -475,10 +475,10 @@ export function generateDockerCompose(
     volumes: squidVolumes,
     healthcheck: {
       test: ['CMD', 'nc', '-z', 'localhost', '3128'],
-      interval: '5s',
-      timeout: '3s',
+      interval: '1s',
+      timeout: '1s',
       retries: 5,
-      start_period: '10s',
+      start_period: '2s',
     },
     ports: [`${SQUID_PORT}:${SQUID_PORT}`],
     // Security hardening: Drop unnecessary capabilities
@@ -1512,10 +1512,10 @@ export function generateDockerCompose(
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
-        interval: '5s',
-        timeout: '3s',
+        interval: '1s',
+        timeout: '1s',
         retries: 5,
-        start_period: '5s',
+        start_period: '2s',
       },
       // Security hardening: Drop all capabilities
       cap_drop: ['ALL'],

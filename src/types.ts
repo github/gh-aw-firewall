@@ -1303,10 +1303,10 @@ export interface DockerService {
    * ```typescript
    * {
    *   test: ['CMD', 'squidclient', '-h', 'localhost', '-p', '3128', 'http://localhost/'],
-   *   interval: '5s',
-   *   timeout: '3s',
-   *   retries: 3,
-   *   start_period: '10s'
+   *   interval: '1s',
+   *   timeout: '1s',
+   *   retries: 5,
+   *   start_period: '2s'
    * }
    * ```
    */
