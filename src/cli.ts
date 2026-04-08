@@ -2043,7 +2043,7 @@ export async function handlePredownloadAction(options: {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
-  enableCliProxy?: boolean;
+  difcProxy?: boolean;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
   try {
@@ -2052,7 +2052,7 @@ export async function handlePredownloadAction(options: {
       imageTag: options.imageTag,
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
-      enableCliProxy: options.enableCliProxy,
+      difcProxy: options.difcProxy,
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -2076,7 +2076,7 @@ program
     'default'
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
-  .option('--enable-cli-proxy', 'Also download the CLI proxy image', false)
+  .option('--difc-proxy', 'Also download the CLI proxy image (for --difc-proxy-host)', false)
   .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs

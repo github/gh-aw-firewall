@@ -2814,6 +2814,30 @@ describe('docker-manager', () => {
         expect(env.AWF_DIFC_PROXY_PORT).toBe('9999');
       });
 
+      it('should parse IPv6 bracketed host:port from difcProxyHost', () => {
+        const configWithCliProxy = { ...mockConfig, difcProxyHost: '[::1]:18443' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_DIFC_PROXY_HOST).toBe('[::1]');
+        expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
+      });
+
+      it('should default port to 18443 when only host is specified', () => {
+        const configWithCliProxy = { ...mockConfig, difcProxyHost: 'my-host' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_DIFC_PROXY_HOST).toBe('my-host');
+        expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
+      });
+
+      it('should throw on invalid difcProxyHost value', () => {
+        const configWithCliProxy = { ...mockConfig, difcProxyHost: ':::invalid' };
+        expect(() => generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy))
+          .toThrow('Invalid --difc-proxy-host');
+      });
+
       it('should include host.docker.internal in NO_PROXY', () => {
         const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);

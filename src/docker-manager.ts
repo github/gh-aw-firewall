@@ -1649,10 +1649,33 @@ export function generateDockerCompose(
   if (config.difcProxyHost && networkConfig.cliProxyIp) {
     const cliProxyIp = networkConfig.cliProxyIp;
 
-    // Parse host:port from difcProxyHost
-    const hostParts = config.difcProxyHost.split(':');
-    const difcProxyHost = hostParts[0] || 'host.docker.internal';
-    const difcProxyPort = hostParts[1] || '18443';
+    // Parse host:port from difcProxyHost (supports IPv6, e.g. [::1]:18443)
+    const parseDifcProxyHost = (value: string): { host: string; port: string } => {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return { host: 'host.docker.internal', port: '18443' };
+      }
+      // Use URL to parse host:port correctly (handles IPv6 brackets)
+      const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed);
+      const candidate = hasScheme ? trimmed : `tcp://${trimmed}`;
+      let parsed: URL;
+      try {
+        parsed = new URL(candidate);
+      } catch {
+        throw new Error(`Invalid --difc-proxy-host value: "${value}". Expected host:port format.`);
+      }
+      const host = parsed.hostname || 'host.docker.internal';
+      const port = parsed.port || '18443';
+      if (!/^\d+$/.test(port)) {
+        throw new Error(`Invalid --difc-proxy-host port: "${port}". Must be a number.`);
+      }
+      const portNum = Number(port);
+      if (portNum < 1 || portNum > 65535) {
+        throw new Error(`Invalid --difc-proxy-host port: ${portNum}. Must be between 1 and 65535.`);
+      }
+      return { host, port: String(portNum) };
+    };
+    const { host: difcProxyHost, port: difcProxyPort } = parseDifcProxyHost(config.difcProxyHost);
 
     // --- CLI proxy HTTP server (Node.js + gh CLI) ---
     // Connects to external DIFC proxy via TCP tunnel for TLS hostname matching.

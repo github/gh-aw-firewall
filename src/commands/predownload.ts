@@ -6,7 +6,7 @@ export interface PredownloadOptions {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
-  enableCliProxy?: boolean;
+  difcProxy?: boolean;
 }
 
 /**
@@ -49,7 +49,7 @@ export function resolveImages(options: PredownloadOptions): string[] {
   }
 
   // Optionally pull cli-proxy (mcpg is now started externally by the compiler)
-  if (options.enableCliProxy) {
+  if (options.difcProxy) {
     images.push(`${imageRegistry}/cli-proxy:${imageTag}`);
   }
 

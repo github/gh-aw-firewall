@@ -44,7 +44,7 @@ describe('predownload', () => {
     });
 
     it('should include cli-proxy when enabled (no mcpg — runs externally)', () => {
-      const images = resolveImages({ ...defaults, enableCliProxy: true });
+      const images = resolveImages({ ...defaults, difcProxy: true });
       expect(images).toEqual([
         'ghcr.io/github/gh-aw-firewall/squid:latest',
         'ghcr.io/github/gh-aw-firewall/agent:latest',
@@ -53,7 +53,7 @@ describe('predownload', () => {
     });
 
     it('should include both api-proxy and cli-proxy when both enabled', () => {
-      const images = resolveImages({ ...defaults, enableApiProxy: true, enableCliProxy: true });
+      const images = resolveImages({ ...defaults, enableApiProxy: true, difcProxy: true });
       expect(images).toEqual([
         'ghcr.io/github/gh-aw-firewall/squid:latest',
         'ghcr.io/github/gh-aw-firewall/agent:latest',
@@ -136,7 +136,7 @@ describe('predownload', () => {
     });
 
     it('should pull cli-proxy when enabled (no mcpg)', async () => {
-      await predownloadCommand({ ...defaults, enableCliProxy: true });
+      await predownloadCommand({ ...defaults, difcProxy: true });
 
       expect(execa).toHaveBeenCalledTimes(3);
       expect(execa).toHaveBeenCalledWith(

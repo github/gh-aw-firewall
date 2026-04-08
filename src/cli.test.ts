@@ -2442,7 +2442,7 @@ describe('cli', () => {
         imageTag: 'v1.0',
         agentImage: 'default',
         enableApiProxy: false,
-        enableCliProxy: true,
+        difcProxy: true,
       });
 
       expect(mockPredownloadCommand).toHaveBeenCalledWith({
@@ -2450,7 +2450,7 @@ describe('cli', () => {
         imageTag: 'v1.0',
         agentImage: 'default',
         enableApiProxy: false,
-        enableCliProxy: true,
+        difcProxy: true,
       });
     });
 

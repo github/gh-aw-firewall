@@ -37,7 +37,9 @@ while [ $i -lt 30 ]; do
 done
 
 if [ ! -f /tmp/proxy-tls/ca.crt ]; then
-  echo "[cli-proxy] WARNING: DIFC proxy TLS certificate not found within 30s, continuing without it"
+  echo "[cli-proxy] ERROR: DIFC proxy TLS certificate not found within 30s"
+  echo "[cli-proxy] Ensure --difc-proxy-ca-cert points to a valid CA cert file"
+  exit 1
 fi
 
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
@@ -45,11 +47,8 @@ fi
 # matching the self-signed cert's SAN.
 export GH_HOST="localhost:${DIFC_PORT}"
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-
-# Only set NODE_EXTRA_CA_CERTS if the CA cert was mounted
-if [ -f /tmp/proxy-tls/ca.crt ]; then
-  export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
-fi
+# The CA cert is guaranteed to exist at this point (we exit above if missing)
+export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 

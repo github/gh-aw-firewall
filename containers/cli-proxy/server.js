@@ -29,6 +29,7 @@ const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || 
  * These modify gh itself rather than GitHub resources.
  */
 const ALWAYS_DENIED_SUBCOMMANDS = new Set([
+  'alias',
   'auth',
   'config',
   'extension',

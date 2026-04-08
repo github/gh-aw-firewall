@@ -34,12 +34,19 @@ if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
   process.exit(1);
 }
 
-net.createServer(client => {
+const server = net.createServer(client => {
   const upstream = net.connect(remotePort, remoteHost);
   client.pipe(upstream);
   upstream.pipe(client);
   client.on('error', (err) => { console.error('[tcp-tunnel] Client error:', err.message); upstream.destroy(); });
   upstream.on('error', (err) => { console.error('[tcp-tunnel] Upstream error:', err.message); client.destroy(); });
-}).listen(localPort, '127.0.0.1', () => {
+});
+
+server.on('error', (err) => {
+  console.error('[tcp-tunnel] Server error:', err.message);
+  process.exit(1);
+});
+
+server.listen(localPort, '127.0.0.1', () => {
   console.log(`[tcp-tunnel] Forwarding localhost:${localPort} → ${remoteHost}:${remotePort}`);
 });

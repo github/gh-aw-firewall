@@ -137,6 +137,11 @@ describe('validateArgs', () => {
   });
 
   describe('meta-command denial', () => {
+    it('should deny alias set (shell exec bypass)', () => {
+      const result = validateArgs(['alias', 'set', 'myalias', '!echo pwned']);
+      expect(result.valid).toBe(false);
+    });
+
     it('should deny auth login', () => {
       const result = validateArgs(['auth', 'login']);
       expect(result.valid).toBe(false);
