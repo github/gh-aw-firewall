@@ -1285,6 +1285,65 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should pass through ACTIONS_ID_TOKEN_REQUEST_URL when present in environment', () => {
+      const originalEnv = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://token.actions.githubusercontent.com/abc');
+      } finally {
+        if (originalEnv !== undefined) {
+          process.env.ACTIONS_ID_TOKEN_REQUEST_URL = originalEnv;
+        } else {
+          delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+        }
+      }
+    });
+
+    it('should pass through ACTIONS_ID_TOKEN_REQUEST_TOKEN when present in environment', () => {
+      const originalEnv = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+      process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('test-oidc-token-value');
+      } finally {
+        if (originalEnv !== undefined) {
+          process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = originalEnv;
+        } else {
+          delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+        }
+      }
+    });
+
+    it('should not pass through OIDC variables when not in environment', () => {
+      const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+        expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+      } finally {
+        if (origUrl !== undefined) {
+          process.env.ACTIONS_ID_TOKEN_REQUEST_URL = origUrl;
+        } else {
+          delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+        }
+        if (origToken !== undefined) {
+          process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
+        } else {
+          delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+        }
+      }
+    });
+
     it('should add additional environment variables from config', () => {
       const configWithEnv = {
         ...mockConfig,

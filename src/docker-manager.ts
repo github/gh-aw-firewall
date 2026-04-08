@@ -708,6 +708,10 @@ export function generateDockerCompose(
     // interfere with credential isolation.
     if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
 
+    // GitHub Actions OIDC — required for MCP servers with auth.type: 'github-oidc'
+    if (process.env.ACTIONS_ID_TOKEN_REQUEST_URL) environment.ACTIONS_ID_TOKEN_REQUEST_URL = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    if (process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+
   }
 
   // Always derive GH_HOST from GITHUB_SERVER_URL to prevent proxy-rewritten values
