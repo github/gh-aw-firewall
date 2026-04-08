@@ -1614,7 +1614,7 @@ export function generateDockerCompose(
       logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
     } else {
       logger.warn('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
-      logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will not start.`);
+      logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will start in fallback mode and return 503 responses until GEMINI_API_KEY is set.`);
       logger.warn('   Set GEMINI_API_KEY in the AWF runner environment to enable Gemini credential isolation.');
     }
 
