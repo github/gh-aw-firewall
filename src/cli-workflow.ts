@@ -1,6 +1,7 @@
 import { WrapperConfig } from './types';
 import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
+import { parseDifcProxyHost } from './docker-manager';
 
 export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
@@ -58,17 +59,8 @@ export async function runMainWorkflow(
   // on the DIFC proxy port (e.g., 18443)
   let cliProxyConfig: CliProxyHostConfig | undefined;
   if (config.difcProxyHost) {
-    // Parse port from host:port (same logic as docker-manager.ts parseDifcProxyHost)
-    const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(config.difcProxyHost.trim());
-    const candidate = hasScheme ? config.difcProxyHost.trim() : `tcp://${config.difcProxyHost.trim()}`;
-    try {
-      const parsed = new URL(candidate);
-      const port = parseInt(parsed.port || '18443', 10);
-      cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: port };
-    } catch {
-      // If parsing fails, use default port — docker-manager will catch the full error
-      cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: 18443 };
-    }
+    const { port } = parseDifcProxyHost(config.difcProxyHost);
+    cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: parseInt(port, 10) };
   }
   await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig);
   onHostIptablesSetup?.();
