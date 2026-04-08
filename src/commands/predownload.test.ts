@@ -1,13 +1,10 @@
 import { resolveImages, predownloadCommand, PredownloadOptions } from './predownload';
 
-// Mock execa
-jest.mock('execa', () => {
-  const mockExeca = jest.fn().mockResolvedValue({ stdout: '', stderr: '' });
-  return { __esModule: true, default: mockExeca };
-});
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const execa = require('execa').default as jest.Mock;
+// Mock execa (v9: named exports)
+const mockExeca = jest.fn().mockResolvedValue({ stdout: '', stderr: '' });
+jest.mock('execa', () => ({
+  execa: (...args: any[]) => mockExeca(...args),
+}));
 
 describe('predownload', () => {
   describe('resolveImages', () => {
@@ -116,20 +113,20 @@ describe('predownload', () => {
     };
 
     beforeEach(() => {
-      execa.mockReset();
-      execa.mockResolvedValue({ stdout: '', stderr: '' });
+      mockExeca.mockReset();
+      mockExeca.mockResolvedValue({ stdout: '', stderr: '' });
     });
 
     it('should pull all resolved images', async () => {
       await predownloadCommand(defaults);
 
-      expect(execa).toHaveBeenCalledTimes(2);
-      expect(execa).toHaveBeenCalledWith(
+      expect(mockExeca).toHaveBeenCalledTimes(2);
+      expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/squid:latest'],
         { stdio: 'inherit' },
       );
-      expect(execa).toHaveBeenCalledWith(
+      expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/agent:latest'],
         { stdio: 'inherit' },
@@ -139,8 +136,8 @@ describe('predownload', () => {
     it('should pull api-proxy when enabled', async () => {
       await predownloadCommand({ ...defaults, enableApiProxy: true });
 
-      expect(execa).toHaveBeenCalledTimes(3);
-      expect(execa).toHaveBeenCalledWith(
+      expect(mockExeca).toHaveBeenCalledTimes(3);
+      expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/api-proxy:latest'],
         { stdio: 'inherit' },
@@ -150,13 +147,13 @@ describe('predownload', () => {
     it('should pull cli-proxy and mcpg when enabled', async () => {
       await predownloadCommand({ ...defaults, enableCliProxy: true });
 
-      expect(execa).toHaveBeenCalledTimes(4);
-      expect(execa).toHaveBeenCalledWith(
+      expect(mockExeca).toHaveBeenCalledTimes(4);
+      expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/cli-proxy:latest'],
         { stdio: 'inherit' },
       );
-      expect(execa).toHaveBeenCalledWith(
+      expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-mcpg:v0.2.15'],
         { stdio: 'inherit' },
@@ -164,7 +161,7 @@ describe('predownload', () => {
     });
 
     it('should throw with exitCode 1 when a pull fails', async () => {
-      execa
+      mockExeca
         .mockResolvedValueOnce({ stdout: '', stderr: '' })
         .mockRejectedValueOnce(new Error('pull failed'));
 
@@ -178,18 +175,18 @@ describe('predownload', () => {
     });
 
     it('should continue pulling remaining images after a failure', async () => {
-      execa.mockRejectedValueOnce(new Error('pull failed')).mockResolvedValueOnce({ stdout: '', stderr: '' });
+      mockExeca.mockRejectedValueOnce(new Error('pull failed')).mockResolvedValueOnce({ stdout: '', stderr: '' });
 
       await expect(predownloadCommand(defaults)).rejects.toThrow(
         '1 of 2 image(s) failed to pull',
       );
 
       // Both images should have been attempted
-      expect(execa).toHaveBeenCalledTimes(2);
+      expect(mockExeca).toHaveBeenCalledTimes(2);
     });
 
     it('should handle non-Error rejection', async () => {
-      execa.mockRejectedValueOnce('string error').mockResolvedValueOnce({ stdout: '', stderr: '' });
+      mockExeca.mockRejectedValueOnce('string error').mockResolvedValueOnce({ stdout: '', stderr: '' });
 
       try {
         await predownloadCommand(defaults);

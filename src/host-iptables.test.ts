@@ -1,5 +1,5 @@
 import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, _resetIpv6State, HostAccessConfig, isValidPortSpec } from './host-iptables';
-import execa from 'execa';
+import { execa } from 'execa';
 
 // Mock execa
 jest.mock('execa');

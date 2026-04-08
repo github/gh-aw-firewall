@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import { streamLogs } from './log-streamer';
 import { LogFormatter } from './log-formatter';
 import { LogSource } from '../types';
-import execa from 'execa';
+import { execa } from 'execa';
 import { Readable } from 'stream';
 import { trackPidForPortSync, isPidTrackingAvailable } from '../pid-tracker';
 

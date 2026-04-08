@@ -12,7 +12,7 @@ import {
   validateSource,
   listLogSources,
 } from './log-discovery';
-import execa from 'execa';
+import { execa } from 'execa';
 import { glob } from 'glob';
 import { LogSource } from '../types';
 

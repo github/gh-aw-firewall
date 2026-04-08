@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import execa from 'execa';
+import { execa } from 'execa';
 import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial, chownRecursive, unmountSslTmpfs } from './ssl-bump';
 
 // Pattern constant for the safer URL character class (matches the implementation)

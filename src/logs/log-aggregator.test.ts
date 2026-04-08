@@ -4,7 +4,7 @@
 
 import { aggregateLogs, loadAllLogs, loadAndAggregate } from './log-aggregator';
 import { ParsedLogEntry, LogSource } from '../types';
-import execa from 'execa';
+import { execa } from 'execa';
 import * as fs from 'fs';
 
 // Mock dependencies

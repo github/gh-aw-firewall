@@ -8,12 +8,11 @@ import * as os from 'os';
 const mockExecaFn = jest.fn();
 const mockExecaSync = jest.fn();
 
-// Mock execa module
-jest.mock('execa', () => {
-  const fn = (...args: any[]) => mockExecaFn(...args);
-  fn.sync = (...args: any[]) => mockExecaSync(...args);
-  return fn;
-});
+// Mock execa module (v9: named exports instead of default)
+jest.mock('execa', () => ({
+  execa: (...args: any[]) => mockExecaFn(...args),
+  execaSync: (...args: any[]) => mockExecaSync(...args),
+}));
 
 describe('docker-manager', () => {
   describe('subnetsOverlap', () => {
