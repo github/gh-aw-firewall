@@ -14,6 +14,8 @@ permissions:
   actions: read
 name: Smoke Copilot
 engine: copilot
+features:
+  cli-proxy: true
 network:
   allowed:
     - defaults
@@ -21,8 +23,6 @@ network:
 tools:
   bash:
     - "*"
-  github:
-    toolsets: [pull_requests]
 safe-outputs:
   add-comment:
     hide-older-comments: true
@@ -99,8 +99,8 @@ post-steps:
 
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
-### 1. GitHub MCP Testing
-Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
+### 1. GitHub CLI Proxy Testing
+Verify the `gh` CLI works through the cli-proxy by running: `gh pr list --repo ${{ github.repository }} --state merged --limit 1 --json number,title`. Confirm the result matches the pre-fetched data below.
 
 ### 2. GitHub.com Connectivity
 Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
@@ -121,7 +121,7 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 
 Add a **very brief** comment (max 5-10 lines) to the current pull request with:
 - PR titles only (no descriptions)
-- ✅ or ❌ for each test result
+- ✅ or ❌ for each test result (gh CLI proxy, HTTP connectivity, file I/O)
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 
