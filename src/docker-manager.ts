@@ -373,13 +373,26 @@ export interface SslConfig {
 }
 
 /**
- * Strips any http:// or https:// scheme prefix from an API target hostname.
+ * Normalizes an API target value to a bare hostname.
  * API target values should be bare hostnames (e.g., "api.openai.com"), but
- * may arrive with a scheme when set via GitHub Actions expressions that are
- * resolved at runtime (see github/gh-aw#25137).
+ * may arrive with a scheme or path when set via GitHub Actions expressions
+ * that are resolved at runtime (see github/gh-aw#25137).
+ * Discards any scheme, path, query, fragment, credentials, or port —
+ * path prefixes must use the separate *_API_BASE_PATH settings.
  */
 export function stripScheme(value: string): string {
-  return value.replace(/^https?:\/\//, '');
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+
+  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    return new URL(candidate).hostname || trimmed;
+  } catch {
+    return trimmed;
+  }
 }
 
 /**

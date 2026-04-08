@@ -65,22 +65,44 @@ const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || 
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
 /**
- * Normalizes an API target value to a bare hostname (+ optional path).
- * Strips any https?:// scheme prefix that may arrive when the value
- * originates from a GitHub Actions expression resolved at runtime
- * (e.g., ${{ vars.ANTHROPIC_BASE_URL }} → "https://my-gateway.example.com").
- * Also trims whitespace for safety.
+ * Normalizes an API target value to a bare hostname.
+ * Accepts either a hostname or a full URL and extracts only the hostname,
+ * discarding any scheme, path, query, fragment, credentials, or port.
+ * Path configuration must be provided separately via the existing
+ * *_API_BASE_PATH environment variables.
  *
  * @param {string|undefined} value - Raw env var value
  * @returns {string|undefined} Bare hostname, or undefined if input is falsy
  */
 function normalizeApiTarget(value) {
   if (!value) return value;
-  return value.trim().replace(/^https?:\/\//, '');
+
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password || parsed.port) {
+      console.warn(
+        `Ignoring unsupported API target URL components in ${sanitizeForLog(trimmed)}; ` +
+        'configure path prefixes via the corresponding *_API_BASE_PATH environment variable.'
+      );
+    }
+
+    return parsed.hostname || undefined;
+  } catch (err) {
+    console.warn(`Invalid API target ${sanitizeForLog(trimmed)}; expected a hostname or URL`);
+    return undefined;
+  }
 }
 
 // Configurable API target hosts (supports custom endpoints / internal LLM routers)
-// Values are normalized to strip any scheme prefix — buildUpstreamPath() prepends https://
+// Values are normalized to bare hostnames — buildUpstreamPath() prepends https://
 const OPENAI_API_TARGET = normalizeApiTarget(process.env.OPENAI_API_TARGET) || 'api.openai.com';
 const ANTHROPIC_API_TARGET = normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) || 'api.anthropic.com';
 const GEMINI_API_TARGET = normalizeApiTarget(process.env.GEMINI_API_TARGET) || 'generativelanguage.googleapis.com';

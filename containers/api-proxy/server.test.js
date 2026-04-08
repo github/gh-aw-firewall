@@ -20,8 +20,8 @@ describe('normalizeApiTarget', () => {
     expect(normalizeApiTarget('api.openai.com')).toBe('api.openai.com');
   });
 
-  it('should preserve hostname with path', () => {
-    expect(normalizeApiTarget('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com/some-path');
+  it('should normalize a URL with a path to just the hostname', () => {
+    expect(normalizeApiTarget('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com');
   });
 
   it('should trim whitespace', () => {
@@ -35,6 +35,14 @@ describe('normalizeApiTarget', () => {
 
   it('should not strip scheme-like substrings in the middle', () => {
     expect(normalizeApiTarget('api.https.example.com')).toBe('api.https.example.com');
+  });
+
+  it('should discard port from URL', () => {
+    expect(normalizeApiTarget('https://my-gateway.example.com:8443')).toBe('my-gateway.example.com');
+  });
+
+  it('should discard query and fragment from URL', () => {
+    expect(normalizeApiTarget('https://my-gateway.example.com/path?key=val#frag')).toBe('my-gateway.example.com');
   });
 });
 
@@ -301,9 +309,9 @@ describe('buildUpstreamPath', () => {
   });
 
   describe('with normalized API target (gh-aw#25137 regression)', () => {
-    it('should produce correct path when target was already scheme-stripped', () => {
+    it('should produce correct path when target was already normalized', () => {
       // normalizeApiTarget('https://my-gateway.example.com/some-path')
-      // returns 'my-gateway.example.com/some-path'
+      // returns 'my-gateway.example.com' (hostname only)
       const target = 'my-gateway.example.com';
       expect(buildUpstreamPath('/v1/messages', target, ''))
         .toBe('/v1/messages');

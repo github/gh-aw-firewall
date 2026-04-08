@@ -308,8 +308,8 @@ describe('docker-manager', () => {
       expect(stripScheme('api.openai.com')).toBe('api.openai.com');
     });
 
-    it('should preserve hostname with path after scheme strip', () => {
-      expect(stripScheme('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com/some-path');
+    it('should normalize URL with path to hostname only', () => {
+      expect(stripScheme('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com');
     });
 
     it('should not strip scheme-like substrings in the middle', () => {
