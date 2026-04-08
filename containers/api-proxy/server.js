@@ -64,10 +64,26 @@ const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefi
 const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
+/**
+ * Normalizes an API target value to a bare hostname (+ optional path).
+ * Strips any https?:// scheme prefix that may arrive when the value
+ * originates from a GitHub Actions expression resolved at runtime
+ * (e.g., ${{ vars.ANTHROPIC_BASE_URL }} → "https://my-gateway.example.com").
+ * Also trims whitespace for safety.
+ *
+ * @param {string|undefined} value - Raw env var value
+ * @returns {string|undefined} Bare hostname, or undefined if input is falsy
+ */
+function normalizeApiTarget(value) {
+  if (!value) return value;
+  return value.trim().replace(/^https?:\/\//, '');
+}
+
 // Configurable API target hosts (supports custom endpoints / internal LLM routers)
-const OPENAI_API_TARGET = process.env.OPENAI_API_TARGET || 'api.openai.com';
-const ANTHROPIC_API_TARGET = process.env.ANTHROPIC_API_TARGET || 'api.anthropic.com';
-const GEMINI_API_TARGET = process.env.GEMINI_API_TARGET || 'generativelanguage.googleapis.com';
+// Values are normalized to strip any scheme prefix — buildUpstreamPath() prepends https://
+const OPENAI_API_TARGET = normalizeApiTarget(process.env.OPENAI_API_TARGET) || 'api.openai.com';
+const ANTHROPIC_API_TARGET = normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) || 'api.anthropic.com';
+const GEMINI_API_TARGET = normalizeApiTarget(process.env.GEMINI_API_TARGET) || 'generativelanguage.googleapis.com';
 
 /**
  * Normalizes a base path for use as a URL path prefix.
@@ -123,7 +139,7 @@ const GEMINI_API_BASE_PATH = normalizeBasePath(process.env.GEMINI_API_BASE_PATH)
 // Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
 function deriveCopilotApiTarget() {
   if (process.env.COPILOT_API_TARGET) {
-    return process.env.COPILOT_API_TARGET;
+    return normalizeApiTarget(process.env.COPILOT_API_TARGET);
   }
   // Auto-derive from GITHUB_SERVER_URL:
   // - GitHub Enterprise Cloud (*.ghe.com): Copilot inference/models/MCP are served at
@@ -932,4 +948,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket };

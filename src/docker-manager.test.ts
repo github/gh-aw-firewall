@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -292,6 +292,28 @@ describe('docker-manager', () => {
   describe('MIN_REGULAR_UID constant', () => {
     it('should be 1000 (standard Linux regular user UID threshold)', () => {
       expect(MIN_REGULAR_UID).toBe(1000);
+    });
+  });
+
+  describe('stripScheme', () => {
+    it('should strip https:// prefix', () => {
+      expect(stripScheme('https://my-gateway.example.com')).toBe('my-gateway.example.com');
+    });
+
+    it('should strip http:// prefix', () => {
+      expect(stripScheme('http://my-gateway.example.com')).toBe('my-gateway.example.com');
+    });
+
+    it('should preserve bare hostname', () => {
+      expect(stripScheme('api.openai.com')).toBe('api.openai.com');
+    });
+
+    it('should preserve hostname with path after scheme strip', () => {
+      expect(stripScheme('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com/some-path');
+    });
+
+    it('should not strip scheme-like substrings in the middle', () => {
+      expect(stripScheme('api.https.example.com')).toBe('api.https.example.com');
     });
   });
 
@@ -2378,6 +2400,22 @@ describe('docker-manager', () => {
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         expect(env.ANTHROPIC_API_TARGET).toBe('custom.anthropic-router.internal');
+      });
+
+      it('should strip https:// scheme from API target values (gh-aw#25137)', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          anthropicApiKey: 'sk-ant-test-key',
+          anthropicApiTarget: 'https://my-gateway.example.com',
+          openaiApiKey: 'sk-openai-test',
+          openaiApiTarget: 'https://openai-router.internal',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.ANTHROPIC_API_TARGET).toBe('my-gateway.example.com');
+        expect(env.OPENAI_API_TARGET).toBe('openai-router.internal');
       });
 
       it('should not set ANTHROPIC_API_TARGET in api-proxy when anthropicApiTarget is not provided', () => {

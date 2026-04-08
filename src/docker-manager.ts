@@ -373,6 +373,16 @@ export interface SslConfig {
 }
 
 /**
+ * Strips any http:// or https:// scheme prefix from an API target hostname.
+ * API target values should be bare hostnames (e.g., "api.openai.com"), but
+ * may arrive with a scheme when set via GitHub Actions expressions that are
+ * resolved at runtime (see github/gh-aw#25137).
+ */
+export function stripScheme(value: string): string {
+  return value.replace(/^https?:\/\//, '');
+}
+
+/**
  * Generates Docker Compose configuration
  * Note: Uses external network 'awf-net' created by host-iptables setup
  */
@@ -1456,12 +1466,15 @@ export function generateDockerCompose(
         ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
         ...(config.geminiApiKey && { GEMINI_API_KEY: config.geminiApiKey }),
         // Configurable API targets (for GHES/GHEC / custom endpoints)
-        ...(config.copilotApiTarget && { COPILOT_API_TARGET: config.copilotApiTarget }),
-        ...(config.openaiApiTarget && { OPENAI_API_TARGET: config.openaiApiTarget }),
+        // Strip any scheme prefix — server.js also normalizes defensively, but
+        // stripping here prevents a scheme-prefixed hostname from reaching the
+        // container at all (belt-and-suspenders for gh-aw#25137).
+        ...(config.copilotApiTarget && { COPILOT_API_TARGET: stripScheme(config.copilotApiTarget) }),
+        ...(config.openaiApiTarget && { OPENAI_API_TARGET: stripScheme(config.openaiApiTarget) }),
         ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
-        ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: config.anthropicApiTarget }),
+        ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: stripScheme(config.anthropicApiTarget) }),
         ...(config.anthropicApiBasePath && { ANTHROPIC_API_BASE_PATH: config.anthropicApiBasePath }),
-        ...(config.geminiApiTarget && { GEMINI_API_TARGET: config.geminiApiTarget }),
+        ...(config.geminiApiTarget && { GEMINI_API_TARGET: stripScheme(config.geminiApiTarget) }),
         ...(config.geminiApiBasePath && { GEMINI_API_BASE_PATH: config.geminiApiBasePath }),
         // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
         ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),

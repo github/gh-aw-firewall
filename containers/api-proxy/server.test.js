@@ -5,7 +5,38 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket } = require('./server');
+
+describe('normalizeApiTarget', () => {
+  it('should strip https:// prefix', () => {
+    expect(normalizeApiTarget('https://my-gateway.example.com')).toBe('my-gateway.example.com');
+  });
+
+  it('should strip http:// prefix', () => {
+    expect(normalizeApiTarget('http://my-gateway.example.com')).toBe('my-gateway.example.com');
+  });
+
+  it('should preserve bare hostname', () => {
+    expect(normalizeApiTarget('api.openai.com')).toBe('api.openai.com');
+  });
+
+  it('should preserve hostname with path', () => {
+    expect(normalizeApiTarget('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com/some-path');
+  });
+
+  it('should trim whitespace', () => {
+    expect(normalizeApiTarget('  https://api.openai.com  ')).toBe('api.openai.com');
+  });
+
+  it('should return undefined for falsy input', () => {
+    expect(normalizeApiTarget(undefined)).toBeUndefined();
+    expect(normalizeApiTarget('')).toBe('');
+  });
+
+  it('should not strip scheme-like substrings in the middle', () => {
+    expect(normalizeApiTarget('api.https.example.com')).toBe('api.https.example.com');
+  });
+});
 
 describe('deriveCopilotApiTarget', () => {
   let originalEnv;
@@ -266,6 +297,25 @@ describe('buildUpstreamPath', () => {
     it('should drop empty query string marker', () => {
       expect(buildUpstreamPath('/v1/chat/completions?', HOST, '/serving-endpoints'))
         .toBe('/serving-endpoints/v1/chat/completions');
+    });
+  });
+
+  describe('with normalized API target (gh-aw#25137 regression)', () => {
+    it('should produce correct path when target was already scheme-stripped', () => {
+      // normalizeApiTarget('https://my-gateway.example.com/some-path')
+      // returns 'my-gateway.example.com/some-path'
+      const target = 'my-gateway.example.com';
+      expect(buildUpstreamPath('/v1/messages', target, ''))
+        .toBe('/v1/messages');
+    });
+
+    it('should produce wrong hostname if scheme is NOT stripped (demonstrating the bug)', () => {
+      // Without normalizeApiTarget, the scheme-prefixed value causes
+      // new URL() to parse 'https' as the hostname instead of the real host
+      const badTarget = 'https://my-gateway.example.com';
+      const targetUrl = new URL('/v1/messages', `https://${badTarget}`);
+      // Node parses this as hostname='https', not 'my-gateway.example.com'
+      expect(targetUrl.hostname).not.toBe('my-gateway.example.com');
     });
   });
 });
