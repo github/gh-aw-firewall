@@ -1454,9 +1454,8 @@ program
   )
   .option(
     '--cli-proxy-mcpg-image <image>',
-    'Docker image for the mcpg DIFC proxy used inside the CLI proxy sidecar\n' +
-    '                                       (only used with --build-local; ignored when pulling pre-built GHCR images)\n' +
-    '                                       Set by the AWF compiler to control which mcpg version is pulled and run',
+    'Docker image for the mcpg DIFC proxy container (runs as a separate service alongside cli-proxy)\n' +
+    '                                       Set by the AWF compiler to control which mcpg version is used',
     'ghcr.io/github/gh-aw-mcpg:v0.2.15'
   )
   // -- Logging & Debug --
@@ -2058,6 +2057,7 @@ export async function handlePredownloadAction(options: {
   agentImage: string;
   enableApiProxy: boolean;
   enableCliProxy?: boolean;
+  cliProxyMcpgImage?: string;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
   try {
@@ -2067,6 +2067,7 @@ export async function handlePredownloadAction(options: {
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
       enableCliProxy: options.enableCliProxy,
+      cliProxyMcpgImage: options.cliProxyMcpgImage,
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -2091,6 +2092,7 @@ program
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
   .option('--enable-cli-proxy', 'Also download the CLI proxy image', false)
+  .option('--cli-proxy-mcpg-image <image>', 'Docker image for the mcpg DIFC proxy container', 'ghcr.io/github/gh-aw-mcpg:v0.2.15')
   .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs

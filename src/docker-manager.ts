@@ -22,6 +22,7 @@ const IPTABLES_INIT_CONTAINER_NAME = 'awf-iptables-init';
 const API_PROXY_CONTAINER_NAME = 'awf-api-proxy';
 const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
 const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
+const CLI_PROXY_MCPG_CONTAINER_NAME = 'awf-cli-proxy-mcpg';
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
@@ -377,7 +378,7 @@ export interface SslConfig {
  */
 export function generateDockerCompose(
   config: WrapperConfig,
-  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string; cliProxyIp?: string },
+  networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string; cliProxyIp?: string; cliProxyMcpgIp?: string },
   sslConfig?: SslConfig,
   squidConfigContent?: string
 ): DockerComposeConfig {
@@ -1624,6 +1625,99 @@ export function generateDockerCompose(
 
   // Add CLI proxy sidecar if enabled
   if (config.enableCliProxy && networkConfig.cliProxyIp) {
+    const mcpgIp = networkConfig.cliProxyMcpgIp || '172.30.0.51';
+    const mcpgPort = 18443;
+    const DEFAULT_MCPG_IMAGE = 'ghcr.io/github/gh-aw-mcpg:v0.2.15';
+    const mcpgImage = config.cliProxyMcpgImage || DEFAULT_MCPG_IMAGE;
+
+    // Fail-close: refuse to generate cli-proxy-mcpg without a GH_TOKEN.
+    // mcpg needs a token to authenticate upstream API calls; running without
+    // one would bypass DIFC enforcement.
+    if (!config.githubToken) {
+      throw new Error(
+        '--enable-cli-proxy requires a GitHub token (GH_TOKEN or --github-token). ' +
+        'The mcpg DIFC proxy cannot enforce integrity policies without authentication.'
+      );
+    }
+
+    // Build the guard policy for the mcpg proxy
+    let guardPolicy = config.cliProxyPolicy || '';
+    if (!guardPolicy) {
+      const repo = process.env.GITHUB_REPOSITORY;
+      guardPolicy = repo
+        ? `{"repos":["${repo}"],"min-integrity":"public"}`
+        : '{"min-integrity":"public"}';
+    }
+
+    // --- mcpg DIFC proxy service (runs the official gh-aw-mcpg image directly) ---
+    const mcpgService: any = {
+      container_name: CLI_PROXY_MCPG_CONTAINER_NAME,
+      image: mcpgImage,
+      // Override entrypoint+command to run in proxy mode (matches gh-aw start_difc_proxy.sh)
+      entrypoint: ['/app/run.sh'],
+      command: [
+        'proxy',
+        '--policy', guardPolicy,
+        // Bind to the container's assigned IP only — not 0.0.0.0 — so that
+        // only containers that know the IP can reach it.  The agent container
+        // should never contact mcpg directly; it goes through cli-proxy.
+        '--listen', `${mcpgIp}:${mcpgPort}`,
+        '--tls',
+        '--tls-dir', '/tmp/proxy-tls',
+        '--guards-mode', 'filter',
+        '--trusted-bots', 'github-actions[bot],github-actions,dependabot[bot],copilot',
+        '--log-dir', '/var/log/cli-proxy/mcpg',
+      ],
+      networks: {
+        'awf-net': {
+          ipv4_address: mcpgIp,
+        },
+      },
+      volumes: [
+        // Shared TLS cert volume — mcpg writes certs, cli-proxy reads them
+        'cli-proxy-tls:/tmp/proxy-tls:rw',
+        // Log directory for mcpg audit logs
+        `${cliProxyLogsPath}/mcpg:/var/log/cli-proxy/mcpg:rw`,
+      ],
+      environment: {
+        // GH_TOKEN held by mcpg — never exposed to agent
+        GH_TOKEN: config.githubToken,
+        ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
+        ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
+        // Route upstream API calls through Squid
+        HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+        NO_PROXY: `localhost,127.0.0.1,::1,${mcpgIp}`,
+        no_proxy: `localhost,127.0.0.1,::1,${mcpgIp}`,
+      },
+      healthcheck: {
+        // Use the mcpg IP (not localhost) so TLS hostname verification is
+        // consistent with how cli-proxy connects via GH_HOST.
+        test: ['CMD', 'curl', '-sf', '--cacert', '/tmp/proxy-tls/ca.crt', `https://${mcpgIp}:${mcpgPort}/api/v3/health`],
+        interval: '5s',
+        timeout: '3s',
+        retries: 5,
+        start_period: '30s',
+      },
+      depends_on: {
+        'squid-proxy': {
+          condition: 'service_healthy',
+        },
+      },
+      cap_drop: ['ALL'],
+      security_opt: ['no-new-privileges:true'],
+      mem_limit: '256m',
+      memswap_limit: '256m',
+      pids_limit: 50,
+      cpu_shares: 256,
+      stop_grace_period: '2s',
+    };
+
+    // Add shared TLS volume to the volumes block (added to return below)
+    services['cli-proxy-mcpg'] = mcpgService;
+
+    // --- CLI proxy HTTP server (Node.js + gh CLI) ---
     const cliProxyService: any = {
       container_name: CLI_PROXY_CONTAINER_NAME,
       networks: {
@@ -1632,23 +1726,19 @@ export function generateDockerCompose(
         },
       },
       volumes: [
-        // Mount log directory for mcpg DIFC proxy audit logs
+        // Shared TLS cert volume — read certs written by mcpg
+        'cli-proxy-tls:/tmp/proxy-tls:ro',
+        // Log directory for HTTP server logs
         `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
       ],
       environment: {
-        // Pass GH_TOKEN to the mcpg DIFC proxy (never exposed to agent)
-        ...(config.githubToken && { GH_TOKEN: config.githubToken }),
-        // Pass GITHUB_REPOSITORY so the default guard policy restricts to the current repo
+        // Tell entrypoint where the mcpg proxy is running
+        AWF_MCPG_HOST: mcpgIp,
+        AWF_MCPG_PORT: String(mcpgPort),
+        // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
         ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
-        ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
-        // Guard policy JSON for mcpg proxy (optional; default generated from GITHUB_REPOSITORY)
-        ...(config.cliProxyPolicy && { AWF_GH_GUARD_POLICY: config.cliProxyPolicy }),
         // Enable write mode when --cli-proxy-writable is passed
         AWF_CLI_PROXY_WRITABLE: String(!!config.cliProxyWritable),
-        // Route through Squid to respect domain whitelisting
-        HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
-        HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
-        https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         // Prevent curl health check from routing localhost through Squid
         NO_PROXY: `localhost,127.0.0.1,::1`,
         no_proxy: `localhost,127.0.0.1,::1`,
@@ -1658,20 +1748,16 @@ export function generateDockerCompose(
         interval: '5s',
         timeout: '3s',
         retries: 5,
-        start_period: '30s',  // Extra time for mcpg TLS cert generation
+        start_period: '30s',
       },
-      // Depend on Squid for routing outbound API traffic
+      // Depend on mcpg for TLS cert and API routing
       depends_on: {
-        'squid-proxy': {
+        'cli-proxy-mcpg': {
           condition: 'service_healthy',
         },
       },
-      // Security hardening: Drop all capabilities
       cap_drop: ['ALL'],
-      security_opt: [
-        'no-new-privileges:true',
-      ],
-      // Resource limits to prevent DoS attacks
+      security_opt: ['no-new-privileges:true'],
       mem_limit: '256m',
       memswap_limit: '256m',
       pids_limit: 50,
@@ -1679,20 +1765,13 @@ export function generateDockerCompose(
       stop_grace_period: '2s',
     };
 
-    // Use GHCR image or build locally
+    // Use GHCR image or build locally for the Node.js HTTP server container
     if (useGHCR) {
       cliProxyService.image = `${registry}/cli-proxy:${tag}`;
     } else {
-      // When building locally, pass MCPG_IMAGE as a build arg so the compiler
-      // can control which mcpg version is pulled (mirrors the Dockerfile's ARG default).
-      const buildArgs: Record<string, string> = {};
-      if (config.cliProxyMcpgImage) {
-        buildArgs.MCPG_IMAGE = config.cliProxyMcpgImage;
-      }
       cliProxyService.build = {
         context: path.join(projectRoot, 'containers/cli-proxy'),
         dockerfile: 'Dockerfile',
-        ...(Object.keys(buildArgs).length > 0 && { args: buildArgs }),
       };
     }
 
@@ -1711,13 +1790,14 @@ export function generateDockerCompose(
     // Install the gh wrapper in the agent's PATH by symlinking to the pre-installed wrapper
     // The agent entrypoint uses AWF_CLI_PROXY_URL to know it should activate the wrapper
     logger.info('CLI proxy sidecar enabled - gh CLI will route through mcpg DIFC proxy');
+    logger.info(`CLI proxy mcpg image: ${mcpgImage}`);
     logger.info('CLI proxy will route through Squid to respect domain whitelisting');
     if (config.cliProxyWritable) {
       logger.info('CLI proxy running in writable mode - write operations permitted');
     }
   }
 
-  return {
+  const composeResult: DockerComposeConfig = {
     services,
     networks: {
       'awf-net': {
@@ -1725,6 +1805,13 @@ export function generateDockerCompose(
       },
     },
   };
+
+  // Add named volumes when cli-proxy-mcpg shares TLS certs with cli-proxy
+  if (config.enableCliProxy && networkConfig.cliProxyIp) {
+    composeResult.volumes = { 'cli-proxy-tls': {} };
+  }
+
+  return composeResult;
 }
 
 /**
@@ -1898,6 +1985,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     proxyIp: '172.30.0.30',  // Envoy API proxy sidecar
     dohProxyIp: '172.30.0.40',  // DoH proxy sidecar
     cliProxyIp: '172.30.0.50',  // CLI proxy sidecar
+    cliProxyMcpgIp: '172.30.0.51',  // CLI proxy mcpg DIFC proxy
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 
