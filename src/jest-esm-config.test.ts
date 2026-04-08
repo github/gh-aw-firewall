@@ -1,28 +1,20 @@
 /**
  * Test to verify Jest ESM configuration is working correctly.
- * 
- * IMPORTANT: This is preparatory infrastructure for future ESM-only dependency upgrades.
- * 
- * Current state:
- * - Uses chalk v4 (has CJS support) because this PR only adds ESM transformation infrastructure
- * - The Babel + transformIgnorePatterns configuration is in place and ready
- * - Actual ESM-only upgrades (chalk 5.x, execa 9.x, commander 14.x) require separate PRs
- *   to address breaking API changes in those packages
- * 
- * Future validation:
- * - When upgrading to chalk v5+ (ESM-only), this test will validate transformation works
- * - The infrastructure added here (babel.config.js, jest.config.js changes) will enable
- *   those upgrades without additional Jest configuration changes
+ *
+ * Validates that ESM-only packages (chalk v5, execa v9) are properly
+ * transformed and resolved in the Jest test environment via:
+ * - babel-jest transformation of ESM → CJS
+ * - transformIgnorePatterns allowing ESM packages to be transformed
+ * - Custom jest-resolver.js handling exports maps with only "import" conditions
  */
 
-// Import chalk (ESM-only in v5+, currently v4 with CJS support)
+// Import ESM-only packages to validate transformation pipeline
 import chalk from 'chalk';
+import { execa } from 'execa';
 
 describe('Jest ESM Configuration', () => {
-  describe('chalk ESM compatibility (preparatory)', () => {
+  describe('chalk v5 ESM compatibility', () => {
     it('should be able to import chalk', () => {
-      // Validates infrastructure is in place for ESM imports
-      // Currently uses chalk v4 (CJS), will work with v5 (ESM-only) when upgraded
       expect(chalk).toBeDefined();
       expect(typeof chalk.blue).toBe('function');
       expect(typeof chalk.red).toBe('function');
@@ -36,13 +28,19 @@ describe('Jest ESM Configuration', () => {
     });
   });
 
+  describe('execa v9 ESM compatibility', () => {
+    it('should be able to import execa named export', () => {
+      expect(execa).toBeDefined();
+      expect(typeof execa).toBe('function');
+    });
+  });
+
   describe('transformIgnorePatterns configuration', () => {
     it('should be configured to transform ESM packages in node_modules', () => {
       // Verifies jest.config.js has transformIgnorePatterns set up correctly
-      // This ensures babel-jest will transform chalk/execa/commander when they're ESM-only
+      // so babel-jest transforms chalk/execa/commander and their transitive deps
       expect(chalk).toBeDefined();
-      
-      // Infrastructure is ready - actual ESM validation will happen when dependencies upgrade
+
       const result = chalk.green('success');
       expect(result).toBeTruthy();
     });
@@ -50,13 +48,11 @@ describe('Jest ESM Configuration', () => {
 
   describe('babel configuration', () => {
     it('should be configured for ESM→CJS transformation', () => {
-      // Verifies babel.config.js exists and is properly configured
-      // with @babel/preset-env targeting current Node.js
-      
-      // This infrastructure will enable future ESM-only dependency upgrades
+      // Verifies babel.config.js and jest-resolver.js work together
+      // to transform and resolve ESM-only packages
       expect(chalk).toBeDefined();
       expect(chalk.blue).toBeDefined();
-      
+
       const text = 'ESM transformation infrastructure ready';
       const coloredText = chalk.blue(text);
       expect(coloredText).toContain(text);
