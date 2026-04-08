@@ -79,7 +79,8 @@ export class Cleanup {
         const lines = lineNumbers
           .split('\n')
           .filter((line: string) => line.includes('FW_WRAPPER'))
-          .map((line: string) => parseInt(line.trim().split(/\s+/)[0] ?? '0'))
+          .map((line: string) => Number.parseInt(line.trim().split(/\s+/)[0] || '', 10))
+          .filter((lineNum: number) => !Number.isNaN(lineNum))
           .sort((a: number, b: number) => b - a); // Reverse order
 
         // Delete rules by line number

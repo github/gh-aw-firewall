@@ -7,16 +7,42 @@
  * default resolver only checks "require" and "node" conditions.
  *
  * This resolver falls back to the "import" condition when the default
- * resolution fails, allowing these packages to be resolved correctly.
+ * resolution fails for exports-related reasons, allowing these packages
+ * to be resolved correctly while still surfacing unrelated errors.
  */
+const isExportsResolutionError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    return true;
+  }
+
+  const message = typeof error.message === 'string' ? error.message : '';
+  return (
+    message.includes('Package subpath') ||
+    message.includes('package exports') ||
+    message.includes('conditional exports') ||
+    message.includes('No "exports" main defined')
+  );
+};
+
 module.exports = (path, options) => {
   try {
     return options.defaultResolver(path, options);
   } catch (error) {
-    // If default resolution fails, retry with "import" condition added
-    return options.defaultResolver(path, {
-      ...options,
-      conditions: [...(options.conditions || []), 'import'],
-    });
+    if (!isExportsResolutionError(error)) {
+      throw error;
+    }
+
+    try {
+      return options.defaultResolver(path, {
+        ...options,
+        conditions: [...(options.conditions || []), 'import'],
+      });
+    } catch (_fallbackError) {
+      throw error;
+    }
   }
 };
