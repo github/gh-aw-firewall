@@ -1366,8 +1366,6 @@ export function generateDockerCompose(
 
   // Pre-set CLI proxy IP in environment before the init container definition
   // for the same reason as AWF_API_PROXY_IP above.
-  // Pre-set CLI proxy IP in environment before the init container definition
-  // for the same reason as AWF_API_PROXY_IP above.
   // cli-proxy shares mcpg's network namespace, so use the mcpg IP.
   if (config.enableCliProxy && networkConfig.cliProxyIp) {
     environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyMcpgIp || '172.30.0.51';
