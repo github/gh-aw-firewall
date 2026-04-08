@@ -1612,6 +1612,10 @@ export function generateDockerCompose(
       // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
       environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
       logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
+    } else {
+      logger.warn('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
+      logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will not start.`);
+      logger.warn('   Set GEMINI_API_KEY in the AWF runner environment to enable Gemini credential isolation.');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');

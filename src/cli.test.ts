@@ -1397,6 +1397,7 @@ describe('cli', () => {
       expect(result.enabled).toBe(true);
       expect(result.warnings).toHaveLength(2);
       expect(result.warnings[0]).toContain('no API keys found');
+      expect(result.warnings[1]).toContain('GEMINI_API_KEY');
       expect(result.debugMessages).toEqual([]);
     });
 
@@ -1430,14 +1431,23 @@ describe('cli', () => {
       expect(result.debugMessages[0]).toContain('Copilot');
     });
 
-    it('should detect all three keys', () => {
-      const result = validateApiProxyConfig(true, true, true, true);
+    it('should detect Gemini key', () => {
+      const result = validateApiProxyConfig(true, false, false, false, true);
       expect(result.enabled).toBe(true);
       expect(result.warnings).toEqual([]);
-      expect(result.debugMessages).toHaveLength(3);
+      expect(result.debugMessages).toHaveLength(1);
+      expect(result.debugMessages[0]).toContain('Gemini');
+    });
+
+    it('should detect all four keys', () => {
+      const result = validateApiProxyConfig(true, true, true, true, true);
+      expect(result.enabled).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.debugMessages).toHaveLength(4);
       expect(result.debugMessages[0]).toContain('OpenAI');
       expect(result.debugMessages[1]).toContain('Anthropic');
       expect(result.debugMessages[2]).toContain('Copilot');
+      expect(result.debugMessages[3]).toContain('Gemini');
     });
 
     it('should not warn when disabled even with keys', () => {
