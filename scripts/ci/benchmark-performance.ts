@@ -104,27 +104,48 @@ function benchmarkWarmStart(): BenchmarkResult {
   return { metric: "container_startup_warm", unit: "ms", values, ...stats(values) };
 }
 
-function benchmarkHttpsLatency(): BenchmarkResult {
+async function benchmarkHttpsLatency(): Promise<BenchmarkResult> {
   console.error("  Benchmarking HTTPS latency through Squid...");
   const values: number[] = [];
 
   for (let i = 0; i < ITERATIONS; i++) {
     cleanup();
+    let child: ChildProcess | null = null;
     try {
-      // Use curl's time_total to measure end-to-end HTTPS request latency
+      // Start AWF in the background so Squid stays alive, then measure
+      // latency by curling through the proxy directly from the host.
+      // This isolates Squid proxy latency from container startup overhead.
+      const awfParts = AWF_CMD.split(/\s+/);
+      child = spawn(
+        awfParts[0],
+        [...awfParts.slice(1), "--allow-domains", ALLOWED_DOMAIN, "--log-level", "error", "--", "sleep", "30"],
+        {
+          detached: true,
+          stdio: "ignore",
+        }
+      );
+      child.unref();
+
+      // Wait for Squid to be running and healthy
+      await waitForContainers(["awf-squid"], 30_000);
+
+      // Measure HTTPS request latency through Squid's proxy port from the host
       const output = exec(
-        `${AWF_CMD} --allow-domains ${ALLOWED_DOMAIN} --log-level error -- ` +
-          `curl -fsS -o /dev/null -w '%{time_total}' https://${ALLOWED_DOMAIN}/zen`
+        `curl -fsS -o /dev/null -w '%{time_total}' -x http://172.30.0.10:3128 https://${ALLOWED_DOMAIN}/zen`
       );
       const seconds = parseFloat(output);
       if (!isNaN(seconds)) {
         values.push(Math.round(seconds * 1000));
       }
-    } catch {
-      console.error(`    Iteration ${i + 1}/${ITERATIONS}: failed (skipped)`);
-      continue;
+      console.error(`    Iteration ${i + 1}/${ITERATIONS}: ${values[values.length - 1]}ms`);
+    } catch (err) {
+      console.error(`    Iteration ${i + 1}/${ITERATIONS}: failed (skipped) - ${err}`);
+    } finally {
+      if (child) {
+        killBackground(child);
+      }
+      cleanup();
     }
-    console.error(`    Iteration ${i + 1}/${ITERATIONS}: ${values[values.length - 1]}ms`);
   }
 
   if (values.length === 0) {
@@ -294,7 +315,7 @@ async function main(): Promise<void> {
   results.push(benchmarkNetworkCreation());
   results.push(benchmarkWarmStart());
   results.push(benchmarkColdStart());
-  results.push(benchmarkHttpsLatency());
+  results.push(await benchmarkHttpsLatency());
   results.push(await benchmarkMemory());
 
   // Final cleanup
