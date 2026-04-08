@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
-import execa from 'execa';
+import { execa } from 'execa';
 import { LogSource, EnhancedLogEntry } from '../types';
 import { LogFormatter } from './log-formatter';
 import { parseLogLine } from './log-parser';

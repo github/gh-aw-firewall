@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
-import execa from 'execa';
+import { execa, execaSync } from 'execa';
 import { DockerComposeConfig, WrapperConfig, BlockedTarget, API_PROXY_PORTS, API_PROXY_HEALTH_PORT, CLI_PROXY_PORT } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
@@ -1002,7 +1002,7 @@ export function generateDockerCompose(
       if (hostsContent.includes(domain)) continue;
 
       try {
-        const { stdout } = execa.sync('getent', ['hosts', domain], { timeout: 5000 });
+        const { stdout } = execaSync('getent', ['hosts', domain], { timeout: 5000 });
         const parts = stdout.trim().split(/\s+/);
         const ip = parts[0];
         if (ip) {
@@ -1021,7 +1021,7 @@ export function generateDockerCompose(
     // to connect to the MCP gateway running on the host.
     if (config.enableHostAccess) {
       try {
-        const { stdout } = execa.sync('docker', [
+        const { stdout } = execaSync('docker', [
           'network', 'inspect', 'bridge',
           '-f', '{{(index .IPAM.Config 0).Gateway}}'
         ]);
@@ -2538,7 +2538,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         // Just fix permissions so they're readable for artifact upload
         if (fs.existsSync(sessionStateDir)) {
           try {
-            execa.sync('chmod', ['-R', 'a+rX', sessionStateDir]);
+            execaSync('chmod', ['-R', 'a+rX', sessionStateDir]);
             logger.info(`Agent session state available at: ${sessionStateDir}`);
           } catch (error) {
             logger.debug('Could not fix session state permissions:', error);
@@ -2564,7 +2564,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
         if (fs.existsSync(apiProxyLogsDir)) {
           try {
-            execa.sync('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
+            execaSync('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
             logger.info(`API proxy logs available at: ${apiProxyLogsDir}`);
           } catch (error) {
             logger.debug('Could not fix api-proxy log permissions:', error);
@@ -2589,7 +2589,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         const cliProxyLogsDir = path.join(proxyLogsDir, 'cli-proxy-logs');
         if (fs.existsSync(cliProxyLogsDir)) {
           try {
-            execa.sync('chmod', ['-R', 'a+rX', cliProxyLogsDir]);
+            execaSync('chmod', ['-R', 'a+rX', cliProxyLogsDir]);
             logger.info(`CLI proxy logs available at: ${cliProxyLogsDir}`);
           } catch (error) {
             logger.debug('Could not fix cli-proxy log permissions:', error);
@@ -2613,7 +2613,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         // Logs were written directly to proxyLogsDir during runtime (timeout-safe)
         // Just fix permissions so they're readable
         try {
-          execa.sync('chmod', ['-R', 'a+rX', proxyLogsDir]);
+          execaSync('chmod', ['-R', 'a+rX', proxyLogsDir]);
           logger.info(`Squid logs available at: ${proxyLogsDir}`);
         } catch (error) {
           logger.debug('Could not fix squid log permissions:', error);
@@ -2630,7 +2630,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             // Make logs readable by GitHub Actions runner for artifact upload
             // Squid creates logs as 'proxy' user (UID 13) which runner cannot read
             // chmod a+rX sets read for all users, and execute for dirs (capital X)
-            execa.sync('chmod', ['-R', 'a+rX', squidLogsDestination]);
+            execaSync('chmod', ['-R', 'a+rX', squidLogsDestination]);
 
             logger.info(`Squid logs preserved at: ${squidLogsDestination}`);
           } catch (error) {
@@ -2644,7 +2644,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         // User-specified audit dir: just fix permissions
         if (fs.existsSync(auditDir)) {
           try {
-            execa.sync('chmod', ['-R', 'a+rX', auditDir]);
+            execaSync('chmod', ['-R', 'a+rX', auditDir]);
             logger.info(`Audit artifacts available at: ${auditDir}`);
           } catch (error) {
             logger.debug('Could not fix audit dir permissions:', error);
@@ -2657,7 +2657,7 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         if (fs.existsSync(defaultAuditDir) && fs.readdirSync(defaultAuditDir).length > 0) {
           try {
             fs.renameSync(defaultAuditDir, auditDestination);
-            execa.sync('chmod', ['-R', 'a+rX', auditDestination]);
+            execaSync('chmod', ['-R', 'a+rX', auditDestination]);
             logger.info(`Audit artifacts preserved at: ${auditDestination}`);
           } catch (error) {
             logger.debug('Could not preserve audit artifacts:', error);

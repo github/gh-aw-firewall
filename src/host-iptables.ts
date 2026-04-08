@@ -1,4 +1,4 @@
-import execa from 'execa';
+import { execa } from 'execa';
 import { logger } from './logger';
 import { API_PROXY_PORTS } from './types';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';

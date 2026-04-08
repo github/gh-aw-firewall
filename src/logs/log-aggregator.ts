@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import execa from 'execa';
+import { execa } from 'execa';
 import { LogSource, ParsedLogEntry } from '../types';
 import { parseLogLine, parseAuditJsonlLine } from './log-parser';
 import { logger } from '../logger';
