@@ -284,10 +284,10 @@ The sidecar container:
 ### Health check
 
 Docker healthcheck on the `/health` endpoint (port 10000):
-- **Interval**: 5s
-- **Timeout**: 3s
+- **Interval**: 1s
+- **Timeout**: 1s
 - **Retries**: 5
-- **Start period**: 5s
+- **Start period**: 2s
 
 ## Troubleshooting
 
