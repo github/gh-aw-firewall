@@ -49,16 +49,6 @@ safe-outputs:
 timeout-minutes: 45
 strict: true
 steps:
-  - name: Install Bun and Deno
-    run: |
-      curl -fsSL https://bun.sh/install | bash || true
-      export BUN_INSTALL="$HOME/.bun"
-      export PATH="$BUN_INSTALL/bin:$PATH"
-      bun --version || echo "Bun install failed"
-      curl -fsSL https://deno.land/install.sh | sh || true
-      export DENO_INSTALL="$HOME/.deno"
-      export PATH="$DENO_INSTALL/bin:$PATH"
-      deno --version || echo "Deno install failed"
   - name: Clone all test repositories
     run: |
       for entry in \
@@ -81,11 +71,6 @@ steps:
   - name: Run all build tests
     id: build-results
     run: |
-      export BUN_INSTALL="$HOME/.bun"
-      export PATH="$BUN_INSTALL/bin:$PATH"
-      export DENO_INSTALL="$HOME/.deno"
-      export PATH="$DENO_INSTALL/bin:$PATH"
-
       RESULTS_FILE="/tmp/gh-aw/build-test/results.txt"
       mkdir -p /tmp/gh-aw/build-test
       > "$RESULTS_FILE"
@@ -109,8 +94,8 @@ steps:
       run_test "cpp/json"      "cd /tmp/test-cpp/json && mkdir -p build && cd build && cmake .. && make -s"
       run_test "deno/oak"      "cd /tmp/test-deno/oak && deno test"
       run_test "deno/std"      "cd /tmp/test-deno/std && deno test"
-      run_test "dotnet/hello"  "cd /tmp/test-dotnet/hello-world && dotnet restore -v q && dotnet build -v q && dotnet run"
-      run_test "dotnet/json"   "cd /tmp/test-dotnet/json-parse && dotnet restore -v q && dotnet build -v q && dotnet run"
+      run_test "dotnet/hello"  "cd /tmp/test-dotnet/hello-world && dotnet restore --verbosity quiet && dotnet build --verbosity quiet && dotnet run"
+      run_test "dotnet/json"   "cd /tmp/test-dotnet/json-parse && dotnet restore --verbosity quiet && dotnet build --verbosity quiet && dotnet run"
       run_test "go/color"      "cd /tmp/test-go/color && go mod download && go test ./..."
       run_test "go/env"        "cd /tmp/test-go/env && go mod download && go test ./..."
       run_test "go/uuid"       "cd /tmp/test-go/uuid && go mod download && go test ./..."
