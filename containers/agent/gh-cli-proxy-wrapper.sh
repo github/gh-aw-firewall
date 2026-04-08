@@ -2,7 +2,7 @@
 # /usr/local/bin/gh-cli-proxy-wrapper
 # Forwards gh CLI invocations to the CLI proxy sidecar over HTTP.
 # This wrapper is installed at /usr/local/bin/gh in the agent container
-# when --enable-cli-proxy is active, so it takes precedence over any
+# when --difc-proxy-host is active, so it takes precedence over any
 # host-mounted gh binary at /host/usr/bin/gh.
 #
 # Dependencies: curl, jq (both available in the agent container)

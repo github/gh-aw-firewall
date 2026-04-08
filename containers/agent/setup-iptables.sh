@@ -174,7 +174,7 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
 fi
 
 # Allow traffic to CLI proxy sidecar (when enabled)
-# AWF_CLI_PROXY_IP is set by docker-manager.ts when --enable-cli-proxy is used
+# AWF_CLI_PROXY_IP is set by docker-manager.ts when --difc-proxy-host is used
 if [ -n "$AWF_CLI_PROXY_IP" ]; then
   echo "[iptables] Allow traffic to CLI proxy sidecar (${AWF_CLI_PROXY_IP})..."
   iptables -t nat -A OUTPUT -d "$AWF_CLI_PROXY_IP" -j RETURN

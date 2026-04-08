@@ -24,23 +24,16 @@ echo "[cli-proxy] Starting TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:$
 node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" &
 TUNNEL_PID=$!
 
-# Wait for CA cert to appear (mounted from host by docker-manager.ts)
-echo "[cli-proxy] Waiting for DIFC proxy TLS certificate..."
-i=0
-while [ $i -lt 30 ]; do
-  if [ -f /tmp/proxy-tls/ca.crt ]; then
-    echo "[cli-proxy] TLS certificate available"
-    break
-  fi
-  sleep 1
-  i=$((i + 1))
-done
-
+# Verify CA cert is available (bind-mounted from host by docker-manager.ts).
+# Unlike the old architecture where mcpg generated the cert at runtime, the
+# external DIFC proxy has already created the cert before AWF starts, so the
+# bind mount makes it immediately available — no polling needed.
 if [ ! -f /tmp/proxy-tls/ca.crt ]; then
-  echo "[cli-proxy] ERROR: DIFC proxy TLS certificate not found within 30s"
-  echo "[cli-proxy] Ensure --difc-proxy-ca-cert points to a valid CA cert file"
+  echo "[cli-proxy] ERROR: DIFC proxy TLS certificate not found at /tmp/proxy-tls/ca.crt"
+  echo "[cli-proxy] Ensure --difc-proxy-ca-cert points to a valid CA cert file on the host"
   exit 1
 fi
+echo "[cli-proxy] TLS certificate available"
 
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
 # Uses localhost because the tunnel makes the DIFC proxy appear on localhost,
