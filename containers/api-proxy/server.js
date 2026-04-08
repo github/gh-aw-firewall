@@ -96,7 +96,7 @@ function normalizeApiTarget(value) {
 
     return parsed.hostname || undefined;
   } catch (err) {
-    console.warn(`Invalid API target ${sanitizeForLog(trimmed)}; expected a hostname or URL`);
+    console.warn(`Invalid API target ${sanitizeForLog(trimmed)}; expected a hostname (e.g. 'api.example.com') or URL`);
     return undefined;
   }
 }
