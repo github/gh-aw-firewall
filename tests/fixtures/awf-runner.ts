@@ -1,7 +1,5 @@
-import execa = require('execa');
+import { execa, type Result } from 'execa';
 import * as path from 'path';
-
-type ExecaReturnValue = execa.ExecaReturnValue<string>;
 
 export interface AwfOptions {
   allowDomains?: string[];
@@ -193,7 +191,7 @@ export class AwfRunner {
       },
     };
 
-    let result: ExecaReturnValue;
+    let result: Result;
 
     try {
       result = await execa('node', [this.awfPath, ...args], execOptions);
@@ -216,24 +214,24 @@ export class AwfRunner {
     if (result.timedOut) {
       return {
         exitCode: -1,
-        stdout: result.stdout || '',
-        stderr: result.stderr || '',
+        stdout: String(result.stdout || ''),
+        stderr: String(result.stderr || ''),
         success: false,
         timedOut: true,
-        workDir: this.extractWorkDir(result.stderr || ''),
+        workDir: this.extractWorkDir(String(result.stderr || '')),
       };
     }
 
     // Extract work directory from stderr logs
-    const workDir = this.extractWorkDir(result.stderr || '');
+    const workDir = this.extractWorkDir(String(result.stderr || ''));
 
     // Normalize exit code to handle undefined (defaults to 0)
     const exitCode = result.exitCode ?? 0;
 
     return {
       exitCode,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
+      stdout: String(result.stdout || ''),
+      stderr: String(result.stderr || ''),
       success: exitCode === 0,
       timedOut: false,
       workDir,
@@ -414,7 +412,7 @@ export class AwfRunner {
       },
     };
 
-    let result: ExecaReturnValue;
+    let result: Result;
 
     try {
       result = await execa('sudo', args, execOptions);
@@ -436,23 +434,23 @@ export class AwfRunner {
     if (result.timedOut) {
       return {
         exitCode: -1,
-        stdout: result.stdout || '',
-        stderr: result.stderr || '',
+        stdout: String(result.stdout || ''),
+        stderr: String(result.stderr || ''),
         success: false,
         timedOut: true,
-        workDir: this.extractWorkDir(result.stderr || ''),
+        workDir: this.extractWorkDir(String(result.stderr || '')),
       };
     }
 
-    const workDir = this.extractWorkDir(result.stderr || '');
+    const workDir = this.extractWorkDir(String(result.stderr || ''));
 
     // Normalize exit code to handle undefined (defaults to 0)
     const exitCode = result.exitCode ?? 0;
 
     return {
       exitCode,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
+      stdout: String(result.stdout || ''),
+      stderr: String(result.stderr || ''),
       success: exitCode === 0,
       timedOut: false,
       workDir,

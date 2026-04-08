@@ -1,4 +1,4 @@
-import execa = require('execa');
+import { execa } from 'execa';
 import * as fs from 'fs/promises';
 import glob = require('glob');
 
@@ -78,9 +78,9 @@ export class Cleanup {
         // Extract line numbers in reverse order
         const lines = lineNumbers
           .split('\n')
-          .filter(line => line.includes('FW_WRAPPER'))
-          .map(line => parseInt(line.trim().split(/\s+/)[0]))
-          .sort((a, b) => b - a); // Reverse order
+          .filter((line: string) => line.includes('FW_WRAPPER'))
+          .map((line: string) => parseInt(line.trim().split(/\s+/)[0] ?? '0'))
+          .sort((a: number, b: number) => b - a); // Reverse order
 
         // Delete rules by line number
         for (const lineNum of lines) {

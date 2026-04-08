@@ -15,7 +15,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
-import execa = require('execa');
+import { execa } from 'execa';
 
 /**
  * Helper to check if IPv6 is available in the current environment

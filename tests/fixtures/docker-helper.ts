@@ -1,4 +1,4 @@
-import execa = require('execa');
+import { execa } from 'execa';
 
 export interface DockerRunOptions {
   image: string;
@@ -268,7 +268,7 @@ export class DockerHelper {
     }
 
     const { stdout } = await execa('docker', args);
-    return stdout.split('\n').filter(name => name.trim() !== '');
+    return stdout.split('\n').filter((name: string) => name.trim() !== '');
   }
 
   /**
