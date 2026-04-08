@@ -13,6 +13,10 @@
 
 const net = require('net');
 
+function sanitizeForLog(value) {
+  return String(value).replace(/[\r\n]/g, '');
+}
+
 const localPortStr = process.argv[2];
 const remoteHost = process.argv[3];
 const remotePortStr = process.argv[4];
@@ -38,12 +42,12 @@ const server = net.createServer(client => {
   const upstream = net.connect(remotePort, remoteHost);
   client.pipe(upstream);
   upstream.pipe(client);
-  client.on('error', (err) => { console.error('[tcp-tunnel] Client error:', err.message); upstream.destroy(); });
-  upstream.on('error', (err) => { console.error('[tcp-tunnel] Upstream error:', err.message); client.destroy(); });
+  client.on('error', (err) => { console.error('[tcp-tunnel] Client error:', sanitizeForLog(err.message)); upstream.destroy(); });
+  upstream.on('error', (err) => { console.error('[tcp-tunnel] Upstream error:', sanitizeForLog(err.message)); client.destroy(); });
 });
 
 server.on('error', (err) => {
-  console.error('[tcp-tunnel] Server error:', err.message);
+  console.error('[tcp-tunnel] Server error:', sanitizeForLog(err.message));
   process.exit(1);
 });
 
