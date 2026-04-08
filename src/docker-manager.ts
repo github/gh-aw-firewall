@@ -1645,13 +1645,15 @@ export function generateDockerCompose(
       );
     }
 
-    // Build the guard policy for the mcpg proxy
+    // Build the guard policy for the mcpg proxy.
+    // Must use the {"allow-only": {...}} wrapper format required by mcpg proxy mode.
     let guardPolicy = config.cliProxyPolicy || '';
     if (!guardPolicy) {
       const repo = process.env.GITHUB_REPOSITORY;
-      guardPolicy = repo
-        ? `{"repos":["${repo}"],"min-integrity":"public"}`
-        : '{"min-integrity":"public"}';
+      const inner = repo
+        ? `{"repos":["${repo}"],"min-integrity":"none"}`
+        : '{"repos":"all","min-integrity":"none"}';
+      guardPolicy = `{"allow-only":${inner}}`;
     }
 
     // --- mcpg DIFC proxy service (runs the official gh-aw-mcpg image directly) ---

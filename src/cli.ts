@@ -1450,7 +1450,7 @@ program
   .option(
     '--cli-proxy-policy <json>',
     'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
-    '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
+    '                                       (e.g. \'{"allow-only":{"repos":["owner/repo"],"min-integrity":"none"}}\')',
   )
   .option(
     '--cli-proxy-mcpg-image <image>',

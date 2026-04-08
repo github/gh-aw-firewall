@@ -822,7 +822,7 @@ export interface WrapperConfig {
    * DIFC guard policies (repository restrictions, minimum integrity level).
    * If not specified, a default policy is generated based on GITHUB_REPOSITORY.
    *
-   * @example '{"repos":["owner/repo"],"min-integrity":"public"}'
+   * @example '{"allow-only":{"repos":["owner/repo"],"min-integrity":"none"}}'
    */
   cliProxyPolicy?: string;
 

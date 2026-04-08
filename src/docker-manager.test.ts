@@ -2858,15 +2858,20 @@ describe('docker-manager', () => {
         expect(cmd[policyIdx + 1]).toBe(policy);
       });
 
-      it('should use default guard policy when cliProxyPolicy is not set', () => {
+      it('should use default guard policy with allow-only wrapper when cliProxyPolicy is not set', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const mcpg = result.services['cli-proxy-mcpg'];
         const cmd = mcpg.command as string[];
         const policyIdx = cmd.indexOf('--policy');
         expect(policyIdx).toBeGreaterThan(-1);
-        // Default policy should contain min-integrity
-        expect(cmd[policyIdx + 1]).toContain('min-integrity');
+        // Default policy must use allow-only wrapper format required by mcpg proxy mode
+        const policy = cmd[policyIdx + 1];
+        expect(policy).toContain('allow-only');
+        expect(policy).toContain('min-integrity');
+        const parsed = JSON.parse(policy);
+        expect(parsed['allow-only']).toBeDefined();
+        expect(parsed['allow-only']['min-integrity']).toBe('none');
       });
 
       it('should use GHCR image by default', () => {
