@@ -917,7 +917,7 @@ if (require.main === module) {
     const geminiServer = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'unavailable', service: 'gemini-proxy', error: 'GEMINI_API_KEY not configured in api-proxy sidecar' }));
+        res.end(JSON.stringify({ status: 'not_configured', service: 'gemini-proxy', error: 'GEMINI_API_KEY not configured in api-proxy sidecar' }));
         return;
       }
 

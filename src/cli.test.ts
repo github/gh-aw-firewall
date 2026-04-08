@@ -1456,6 +1456,15 @@ describe('cli', () => {
       expect(result.warnings).toEqual([]);
       expect(result.debugMessages).toEqual([]);
     });
+
+    it('should detect mixed key combination (OpenAI + Gemini)', () => {
+      const result = validateApiProxyConfig(true, true, false, false, true);
+      expect(result.enabled).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.debugMessages).toHaveLength(2);
+      expect(result.debugMessages[0]).toContain('OpenAI');
+      expect(result.debugMessages[1]).toContain('Gemini');
+    });
   });
 
   describe('buildRateLimitConfig', () => {
