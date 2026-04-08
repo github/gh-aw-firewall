@@ -1207,11 +1207,24 @@ export interface DockerService {
    * - Object with IPs: { 'awf-net': { ipv4_address: '172.30.0.10' } } - Static IPs
    * 
    * Static IPs are used to ensure predictable addressing for iptables rules.
+   * Mutually exclusive with network_mode.
    * 
    * @example ['awf-net']
    * @example { 'awf-net': { ipv4_address: '172.30.0.10' } }
    */
-  networks: string[] | { [key: string]: { ipv4_address?: string } };
+  networks?: string[] | { [key: string]: { ipv4_address?: string } };
+
+  /**
+   * Network mode for the container
+   * 
+   * When set to 'service:<name>', the container shares the named service's
+   * network namespace. This is used when two containers need to communicate
+   * via localhost (e.g., for TLS cert hostname matching).
+   * Mutually exclusive with networks.
+   * 
+   * @example 'service:cli-proxy-mcpg'
+   */
+  network_mode?: string;
 
   /**
    * Custom DNS servers for the container

@@ -2,21 +2,21 @@
 # CLI Proxy sidecar entrypoint
 #
 # The mcpg DIFC proxy runs as a separate docker-compose service
-# (awf-cli-proxy-mcpg). This entrypoint waits for the mcpg TLS cert
-# (written to a shared volume at /tmp/proxy-tls), configures gh CLI to
-# route through the mcpg container, then starts the Node.js HTTP server.
+# (awf-cli-proxy-mcpg). This container shares mcpg's network namespace
+# (network_mode: service:cli-proxy-mcpg), so localhost resolves to mcpg.
+# This ensures the TLS cert's SAN (localhost + 127.0.0.1) matches the
+# hostname used by the gh CLI, avoiding TLS hostname verification failures.
 set -e
 
 echo "[cli-proxy] Starting CLI proxy sidecar..."
 
 NODE_PID=""
 
-# AWF_MCPG_HOST is set by docker-manager.ts to the mcpg container's IP.
-# Fall back to localhost for backward-compatible local testing.
-MCPG_HOST="${AWF_MCPG_HOST:-localhost}"
+# cli-proxy shares mcpg's network namespace, so mcpg is always at localhost.
+# AWF_MCPG_PORT is set by docker-manager.ts.
 MCPG_PORT="${AWF_MCPG_PORT:-18443}"
 
-echo "[cli-proxy] mcpg proxy at ${MCPG_HOST}:${MCPG_PORT}"
+echo "[cli-proxy] mcpg proxy at localhost:${MCPG_PORT}"
 
 # Wait for TLS cert to appear in the shared volume (max 30s)
 echo "[cli-proxy] Waiting for mcpg TLS certificate..."
@@ -36,7 +36,9 @@ if [ ! -f /tmp/proxy-tls/ca.crt ]; then
 fi
 
 # Configure gh CLI to route through the mcpg proxy (TLS, self-signed CA)
-export GH_HOST="${MCPG_HOST}:${MCPG_PORT}"
+# Uses localhost because cli-proxy shares mcpg's network namespace — the
+# self-signed cert's SAN covers localhost, so TLS hostname verification passes.
+export GH_HOST="localhost:${MCPG_PORT}"
 export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
 

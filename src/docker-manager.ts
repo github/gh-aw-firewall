@@ -1366,8 +1366,11 @@ export function generateDockerCompose(
 
   // Pre-set CLI proxy IP in environment before the init container definition
   // for the same reason as AWF_API_PROXY_IP above.
+  // Pre-set CLI proxy IP in environment before the init container definition
+  // for the same reason as AWF_API_PROXY_IP above.
+  // cli-proxy shares mcpg's network namespace, so use the mcpg IP.
   if (config.enableCliProxy && networkConfig.cliProxyIp) {
-    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyIp;
+    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyMcpgIp || '172.30.0.51';
   }
 
   // SECURITY: iptables init container - sets up NAT rules in a separate container
@@ -1658,10 +1661,10 @@ export function generateDockerCompose(
       command: [
         'proxy',
         '--policy', guardPolicy,
-        // Bind to the container's assigned IP only — not 0.0.0.0 — so that
-        // only containers that know the IP can reach it.  The agent container
-        // should never contact mcpg directly; it goes through cli-proxy.
-        '--listen', `${mcpgIp}:${mcpgPort}`,
+        // Bind to localhost only — cli-proxy shares this container's network
+        // namespace (network_mode: service:cli-proxy-mcpg), so it can reach
+        // mcpg via 127.0.0.1.  No other container on awf-net can connect.
+        '--listen', `127.0.0.1:${mcpgPort}`,
         '--tls',
         '--tls-dir', '/tmp/proxy-tls',
         '--guards-mode', 'filter',
@@ -1692,9 +1695,9 @@ export function generateDockerCompose(
         no_proxy: `localhost,127.0.0.1,::1,${mcpgIp}`,
       },
       healthcheck: {
-        // Use the mcpg IP (not localhost) so TLS hostname verification is
-        // consistent with how cli-proxy connects via GH_HOST.
-        test: ['CMD', 'curl', '-sf', '--cacert', '/tmp/proxy-tls/ca.crt', `https://${mcpgIp}:${mcpgPort}/api/v3/health`],
+        // Use localhost — healthcheck runs inside the mcpg container where
+        // localhost matches the self-signed TLS cert's SAN.
+        test: ['CMD', 'curl', '-sf', '--cacert', '/tmp/proxy-tls/ca.crt', `https://localhost:${mcpgPort}/api/v3/health`],
         interval: '5s',
         timeout: '3s',
         retries: 5,
@@ -1718,13 +1721,13 @@ export function generateDockerCompose(
     services['cli-proxy-mcpg'] = mcpgService;
 
     // --- CLI proxy HTTP server (Node.js + gh CLI) ---
+    // Uses network_mode: service:cli-proxy-mcpg to share mcpg's network namespace.
+    // This allows cli-proxy to connect to mcpg via localhost, matching the TLS
+    // cert's SAN (localhost + 127.0.0.1) and avoiding hostname mismatch errors.
     const cliProxyService: any = {
       container_name: CLI_PROXY_CONTAINER_NAME,
-      networks: {
-        'awf-net': {
-          ipv4_address: networkConfig.cliProxyIp,
-        },
-      },
+      // Share mcpg's network namespace — localhost resolves to mcpg
+      network_mode: 'service:cli-proxy-mcpg',
       volumes: [
         // Shared TLS cert volume — read certs written by mcpg
         'cli-proxy-tls:/tmp/proxy-tls:ro',
@@ -1732,8 +1735,8 @@ export function generateDockerCompose(
         `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
       ],
       environment: {
-        // Tell entrypoint where the mcpg proxy is running
-        AWF_MCPG_HOST: mcpgIp,
+        // mcpg port for the entrypoint to set GH_HOST=localhost:${port}
+        // AWF_MCPG_HOST is not needed — cli-proxy shares mcpg's network namespace
         AWF_MCPG_PORT: String(mcpgPort),
         // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
         ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
@@ -1783,9 +1786,9 @@ export function generateDockerCompose(
     };
 
     // Tell the agent how to reach the CLI proxy
-    // Use IP address instead of hostname since Docker DNS may not resolve in chroot mode
-    environment.AWF_CLI_PROXY_URL = `http://${networkConfig.cliProxyIp}:${CLI_PROXY_PORT}`;
-    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyIp;
+    // cli-proxy shares mcpg's network namespace, so use mcpg's IP
+    environment.AWF_CLI_PROXY_URL = `http://${mcpgIp}:${CLI_PROXY_PORT}`;
+    environment.AWF_CLI_PROXY_IP = mcpgIp;
 
     // Install the gh wrapper in the agent's PATH by symlinking to the pre-installed wrapper
     // The agent entrypoint uses AWF_CLI_PROXY_URL to know it should activate the wrapper

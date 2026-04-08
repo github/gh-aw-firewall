@@ -2664,7 +2664,9 @@ describe('docker-manager', () => {
         expect(result.services['cli-proxy']).toBeDefined();
         const proxy = result.services['cli-proxy'];
         expect(proxy.container_name).toBe('awf-cli-proxy');
-        expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.50');
+        // cli-proxy shares mcpg's network namespace — no separate networks config
+        expect(proxy.network_mode).toBe('service:cli-proxy-mcpg');
+        expect(proxy.networks).toBeUndefined();
         // Also verify the separate mcpg container
         expect(result.services['cli-proxy-mcpg']).toBeDefined();
         const mcpg = result.services['cli-proxy-mcpg'];
@@ -2695,26 +2697,27 @@ describe('docker-manager', () => {
         expect(mcpgEnv.HTTPS_PROXY).toContain('172.30.0.10:3128');
       });
 
-      it('should bind mcpg to its assigned IP (not 0.0.0.0)', () => {
+      it('should bind mcpg to localhost (only accessible from shared namespace)', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const mcpg = result.services['cli-proxy-mcpg'];
         const cmd = mcpg.command as string[];
         const listenIdx = cmd.indexOf('--listen');
         expect(listenIdx).toBeGreaterThan(-1);
-        // Must bind to the specific IP, not 0.0.0.0
-        expect(cmd[listenIdx + 1]).toBe('172.30.0.51:18443');
+        // Must bind to localhost — cli-proxy shares the namespace and the
+        // self-signed TLS cert only covers localhost/127.0.0.1
+        expect(cmd[listenIdx + 1]).toBe('127.0.0.1:18443');
         expect(cmd[listenIdx + 1]).not.toContain('0.0.0.0');
       });
 
-      it('should use mcpg IP in healthcheck (not localhost)', () => {
+      it('should use localhost in mcpg healthcheck (matches TLS cert SAN)', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const mcpg = result.services['cli-proxy-mcpg'];
         const healthcheck = (mcpg.healthcheck as any).test as string[];
-        // Healthcheck URL must use the mcpg IP for TLS hostname consistency
-        expect(healthcheck.join(' ')).toContain('https://172.30.0.51:18443');
-        expect(healthcheck.join(' ')).not.toContain('localhost');
+        // Healthcheck runs inside mcpg container — must use localhost to match
+        // the self-signed TLS cert's SAN
+        expect(healthcheck.join(' ')).toContain('https://localhost:18443');
       });
 
       it('should configure healthcheck for cli-proxy', () => {
@@ -2746,7 +2749,8 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const agent = result.services['agent'];
         const env = agent.environment as Record<string, string>;
-        expect(env.AWF_CLI_PROXY_URL).toBe('http://172.30.0.50:11000');
+        // cli-proxy shares mcpg's network namespace, so use mcpg's IP
+        expect(env.AWF_CLI_PROXY_URL).toBe('http://172.30.0.51:11000');
       });
 
       it('should set AWF_CLI_PROXY_IP in agent environment', () => {
@@ -2754,14 +2758,16 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const agent = result.services['agent'];
         const env = agent.environment as Record<string, string>;
-        expect(env.AWF_CLI_PROXY_IP).toBe('172.30.0.50');
+        // cli-proxy shares mcpg's network namespace, so use mcpg's IP
+        expect(env.AWF_CLI_PROXY_IP).toBe('172.30.0.51');
       });
 
       it('should pass AWF_CLI_PROXY_IP to iptables-init environment', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const initEnv = result.services['iptables-init'].environment as Record<string, string>;
-        expect(initEnv.AWF_CLI_PROXY_IP).toBe('172.30.0.50');
+        // cli-proxy shares mcpg's network namespace, so use mcpg's IP
+        expect(initEnv.AWF_CLI_PROXY_IP).toBe('172.30.0.51');
       });
 
       it('should set AWF_CLI_PROXY_WRITABLE=false by default', () => {
@@ -2857,13 +2863,16 @@ describe('docker-manager', () => {
         expect(result.volumes!['cli-proxy-tls']).toBeDefined();
       });
 
-      it('should configure cli-proxy to connect to mcpg container', () => {
+      it('should configure cli-proxy to connect to mcpg via shared network namespace', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
         const env = proxy.environment as Record<string, string>;
-        expect(env.AWF_MCPG_HOST).toBe('172.30.0.51');
+        // AWF_MCPG_HOST should not be set — cli-proxy uses localhost via shared network namespace
+        expect(env.AWF_MCPG_HOST).toBeUndefined();
         expect(env.AWF_MCPG_PORT).toBe('18443');
+        // Verify network_mode is used instead of networks
+        expect(proxy.network_mode).toBe('service:cli-proxy-mcpg');
       });
     });
   });
