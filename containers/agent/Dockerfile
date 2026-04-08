@@ -50,7 +50,11 @@ RUN set -eux; \
 
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+# Retry logic handles transient mirror sync failures during apt-get update
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
+    (echo "apt-get upgrade failed, retrying with fresh package index..." && \
+     rm -rf /var/lib/apt/lists/* && \
+     apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
 
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
