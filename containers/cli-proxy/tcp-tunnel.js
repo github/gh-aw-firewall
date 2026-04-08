@@ -13,19 +13,33 @@
 
 const net = require('net');
 
-const [localPort, remoteHost, remotePort] = [process.argv[2], process.argv[3], process.argv[4]];
+const localPortStr = process.argv[2];
+const remoteHost = process.argv[3];
+const remotePortStr = process.argv[4];
 
-if (!localPort || !remoteHost || !remotePort) {
+if (!localPortStr || !remoteHost || !remotePortStr) {
   console.error('[tcp-tunnel] Usage: node tcp-tunnel.js <localPort> <remoteHost> <remotePort>');
   process.exit(1);
 }
 
+const localPort = parseInt(localPortStr, 10);
+const remotePort = parseInt(remotePortStr, 10);
+
+if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
+  console.error(`[tcp-tunnel] Invalid localPort: ${localPortStr}`);
+  process.exit(1);
+}
+if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
+  console.error(`[tcp-tunnel] Invalid remotePort: ${remotePortStr}`);
+  process.exit(1);
+}
+
 net.createServer(client => {
-  const upstream = net.connect(+remotePort, remoteHost);
+  const upstream = net.connect(remotePort, remoteHost);
   client.pipe(upstream);
   upstream.pipe(client);
-  client.on('error', () => upstream.destroy());
-  upstream.on('error', () => client.destroy());
-}).listen(+localPort, '127.0.0.1', () => {
+  client.on('error', (err) => { console.error('[tcp-tunnel] Client error:', err.message); upstream.destroy(); });
+  upstream.on('error', (err) => { console.error('[tcp-tunnel] Upstream error:', err.message); client.destroy(); });
+}).listen(localPort, '127.0.0.1', () => {
   console.log(`[tcp-tunnel] Forwarding localhost:${localPort} → ${remoteHost}:${remotePort}`);
 });

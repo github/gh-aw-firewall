@@ -44,8 +44,12 @@ fi
 # Uses localhost because the tunnel makes the DIFC proxy appear on localhost,
 # matching the self-signed cert's SAN.
 export GH_HOST="localhost:${DIFC_PORT}"
-export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
+
+# Only set NODE_EXTRA_CA_CERTS if the CA cert was mounted
+if [ -f /tmp/proxy-tls/ca.crt ]; then
+  export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
+fi
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 

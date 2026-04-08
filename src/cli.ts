@@ -1445,7 +1445,7 @@ program
   .option(
     '--difc-proxy-ca-cert <path>',
     'Path to TLS CA cert written by the external DIFC proxy.\n' +
-    '                                       Required when --difc-proxy-host is set.',
+    '                                       Recommended when --difc-proxy-host is set for TLS verification.',
   )
   // -- Logging & Debug --
   .option(
