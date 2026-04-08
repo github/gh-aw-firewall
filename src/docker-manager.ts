@@ -626,6 +626,14 @@ export function generateDockerCompose(
     environment.no_proxy = environment.NO_PROXY;
   }
 
+  // When CLI proxy is enabled, bypass HTTP_PROXY for the cli-proxy IP
+  // so the agent's gh wrapper can reach the cli-proxy sidecar directly.
+  // Without this, Squid's deny dst_ipv4 rule blocks raw-IP connections.
+  if (config.enableCliProxy && networkConfig.cliProxyMcpgIp) {
+    environment.NO_PROXY += `,${networkConfig.cliProxyMcpgIp}`;
+    environment.no_proxy = environment.NO_PROXY;
+  }
+
   // Pass the host's actual PATH and tool directories so the entrypoint can use them
   // This ensures toolcache paths (Python, Node, Go, Rust, Java, Ruby, Dart, etc.) are correctly resolved
   //
@@ -1699,9 +1707,10 @@ export function generateDockerCompose(
         no_proxy: `localhost,127.0.0.1,::1,${mcpgIp}`,
       },
       healthcheck: {
-        // Use localhost — healthcheck runs inside the mcpg container where
-        // localhost matches the self-signed TLS cert's SAN.
-        test: ['CMD', 'curl', '-sf', '--cacert', '/tmp/proxy-tls/ca.crt', `https://localhost:${mcpgPort}/api/v3/health`],
+        // Check that the TLS CA cert was written — signals proxy is initialized and listening.
+        // The mcpg image does not include curl/wget, so use a file-existence check
+        // (same approach as gh-aw's start_difc_proxy.sh readiness detection).
+        test: ['CMD-SHELL', 'test -f /tmp/proxy-tls/ca.crt'],
         interval: '5s',
         timeout: '3s',
         retries: 5,

@@ -2186,6 +2186,20 @@ describe('docker-manager', () => {
         expect(env.no_proxy).toContain('172.30.0.30');
       });
 
+      it('should set NO_PROXY to include cli-proxy-mcpg IP', () => {
+        const networkConfigWithCliProxy = {
+          ...mockNetworkConfig,
+          cliProxyIp: '172.30.0.50',
+          cliProxyMcpgIp: '172.30.0.51',
+        };
+        const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
+        const result = generateDockerCompose(configWithCliProxy, networkConfigWithCliProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.NO_PROXY).toContain('172.30.0.51');
+        expect(env.no_proxy).toContain('172.30.0.51');
+      });
+
       it('should set CLAUDE_CODE_API_KEY_HELPER when Anthropic key is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
@@ -2769,14 +2783,13 @@ describe('docker-manager', () => {
         expect(cmd[listenIdx + 1]).not.toContain('0.0.0.0');
       });
 
-      it('should use localhost in mcpg healthcheck (matches TLS cert SAN)', () => {
+      it('should use file-based mcpg healthcheck (mcpg image has no curl)', () => {
         const configWithCliProxy = { ...mockConfig, enableCliProxy: true, githubToken: 'ghp_test_token' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const mcpg = result.services['cli-proxy-mcpg'];
         const healthcheck = (mcpg.healthcheck as any).test as string[];
-        // Healthcheck runs inside mcpg container — must use localhost to match
-        // the self-signed TLS cert's SAN
-        expect(healthcheck.join(' ')).toContain('https://localhost:18443');
+        // mcpg image doesn't include curl/wget — check for TLS CA cert file instead
+        expect(healthcheck).toEqual(['CMD-SHELL', 'test -f /tmp/proxy-tls/ca.crt']);
       });
 
       it('should configure healthcheck for cli-proxy', () => {
