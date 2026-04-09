@@ -18,11 +18,41 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { execFile } = require('child_process');
 
 const CLI_PROXY_PORT = parseInt(process.env.AWF_CLI_PROXY_PORT || '11000', 10);
 const COMMAND_TIMEOUT_MS = parseInt(process.env.AWF_CLI_PROXY_TIMEOUT_MS || '30000', 10);
 const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || String(10 * 1024 * 1024), 10);
+
+// --- Structured logging to /var/log/cli-proxy/access.log ---
+
+const LOG_DIR = process.env.AWF_CLI_PROXY_LOG_DIR || '/var/log/cli-proxy';
+const LOG_FILE = path.join(LOG_DIR, 'access.log');
+
+let logStream = null;
+try {
+  if (fs.existsSync(LOG_DIR)) {
+    logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+  }
+} catch {
+  // Non-fatal: logging to file is best-effort
+}
+
+/**
+ * Write a structured JSON log entry to the access log file and stderr.
+ * Each line is a self-contained JSON object for easy parsing.
+ */
+function accessLog(entry) {
+  const record = { ts: new Date().toISOString(), ...entry };
+  const line = JSON.stringify(record);
+  if (logStream) {
+    logStream.write(line + '\n');
+  }
+  // Also emit to stderr so docker logs captures it
+  console.error(line);
+}
 
 /**
  * Meta-commands that are always denied.
@@ -169,6 +199,7 @@ function handleHealth(res) {
  * }
  */
 async function handleExec(req, res) {
+  const startTime = Date.now();
   let body;
   try {
     const raw = await readBody(req, res);
@@ -176,6 +207,7 @@ async function handleExec(req, res) {
     if (raw === null) return;
     body = JSON.parse(raw.toString('utf8'));
   } catch {
+    accessLog({ event: 'exec_error', error: 'Invalid JSON body' });
     return sendError(res, 400, 'Invalid JSON body');
   }
 
@@ -184,8 +216,11 @@ async function handleExec(req, res) {
   // Validate args
   const validation = validateArgs(args);
   if (!validation.valid) {
+    accessLog({ event: 'exec_denied', args, error: validation.error });
     return sendError(res, 403, validation.error);
   }
+
+  accessLog({ event: 'exec_start', args, cwd: cwd || null });
 
   // Build environment for the subprocess
   // Inherit server environment (includes GH_HOST, NODE_EXTRA_CA_CERTS, GH_REPO, etc.)
@@ -251,6 +286,19 @@ async function handleExec(req, res) {
   }
 
   const responseBody = JSON.stringify({ stdout, stderr, exitCode });
+
+  const durationMs = Date.now() - startTime;
+  accessLog({
+    event: 'exec_done',
+    args,
+    exitCode,
+    durationMs,
+    stdoutBytes: stdout.length,
+    stderrBytes: stderr.length,
+    // Include truncated stderr for debugging failures (redact tokens)
+    ...(exitCode !== 0 && stderr ? { stderrPreview: stderr.slice(0, 500) } : {}),
+  });
+
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(responseBody),
@@ -277,7 +325,7 @@ async function requestHandler(req, res) {
 if (require.main === module) {
   const server = http.createServer((req, res) => {
     requestHandler(req, res).catch(err => {
-      console.error('[cli-proxy] Unhandled request error:', err);
+      accessLog({ event: 'unhandled_error', error: err.message });
       if (!res.headersSent) {
         sendError(res, 500, 'Internal server error');
       }
@@ -285,10 +333,19 @@ if (require.main === module) {
   });
 
   server.listen(CLI_PROXY_PORT, '0.0.0.0', () => {
+    accessLog({
+      event: 'server_start',
+      port: CLI_PROXY_PORT,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      ghHost: process.env.GH_HOST || '(not set)',
+      caCert: process.env.NODE_EXTRA_CA_CERTS || '(not set)',
+      hasGhToken: !!process.env.GH_TOKEN,
+    });
     console.log(`[cli-proxy] HTTP server listening on port ${CLI_PROXY_PORT}`);
   });
 
   server.on('error', err => {
+    accessLog({ event: 'server_error', error: err.message });
     console.error('[cli-proxy] Server error:', err);
     process.exit(1);
   });
