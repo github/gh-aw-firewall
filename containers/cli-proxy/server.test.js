@@ -6,7 +6,29 @@
  * The server only enforces meta-command denial (auth, config, extension).
  */
 
-const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS } = require('./server');
+const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS } = require('./server');
+
+describe('PROTECTED_ENV_KEYS', () => {
+  it('should protect GH_HOST from agent override', () => {
+    expect(PROTECTED_ENV_KEYS.has('GH_HOST')).toBe(true);
+  });
+
+  it('should protect GH_TOKEN from agent override', () => {
+    expect(PROTECTED_ENV_KEYS.has('GH_TOKEN')).toBe(true);
+  });
+
+  it('should protect GITHUB_TOKEN from agent override', () => {
+    expect(PROTECTED_ENV_KEYS.has('GITHUB_TOKEN')).toBe(true);
+  });
+
+  it('should protect NODE_EXTRA_CA_CERTS from agent override', () => {
+    expect(PROTECTED_ENV_KEYS.has('NODE_EXTRA_CA_CERTS')).toBe(true);
+  });
+
+  it('should protect SSL_CERT_FILE from agent override (combined CA bundle for Go TLS)', () => {
+    expect(PROTECTED_ENV_KEYS.has('SSL_CERT_FILE')).toBe(true);
+  });
+});
 
 describe('validateArgs', () => {
   describe('input validation', () => {
