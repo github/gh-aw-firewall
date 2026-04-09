@@ -39,11 +39,14 @@ if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
 }
 
 const server = net.createServer(client => {
+  const clientAddr = `${client.remoteAddress}:${client.remotePort}`;
+  console.error(`[tcp-tunnel] Connection from ${sanitizeForLog(clientAddr)}`);
   const upstream = net.connect(remotePort, remoteHost);
   client.pipe(upstream);
   upstream.pipe(client);
-  client.on('error', (err) => { console.error('[tcp-tunnel] Client error:', sanitizeForLog(err.message)); upstream.destroy(); });
-  upstream.on('error', (err) => { console.error('[tcp-tunnel] Upstream error:', sanitizeForLog(err.message)); client.destroy(); });
+  client.on('error', (err) => { console.error(`[tcp-tunnel] Client error (${sanitizeForLog(clientAddr)}): ${sanitizeForLog(err.message)}`); upstream.destroy(); });
+  upstream.on('error', (err) => { console.error(`[tcp-tunnel] Upstream error (${sanitizeForLog(clientAddr)}): ${sanitizeForLog(err.message)}`); client.destroy(); });
+  client.on('close', () => { console.error(`[tcp-tunnel] Connection closed: ${sanitizeForLog(clientAddr)}`); });
 });
 
 server.on('error', (err) => {

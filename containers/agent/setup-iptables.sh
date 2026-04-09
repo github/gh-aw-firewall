@@ -406,6 +406,11 @@ if [ -n "$AWF_API_PROXY_IP" ]; then
   iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
 fi
 
+# Allow traffic to CLI proxy sidecar (when enabled)
+if [ -n "$AWF_CLI_PROXY_IP" ]; then
+  iptables -A OUTPUT -p tcp -d "$AWF_CLI_PROXY_IP" -j ACCEPT
+fi
+
 # Log dangerous port access attempts for audit (rate-limited to avoid log flooding)
 # These ports are blocked by NAT RETURN + final DROP, but logging helps identify
 # what the agent tried to access

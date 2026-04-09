@@ -1713,6 +1713,12 @@ export function generateDockerCompose(
         AWF_DIFC_PROXY_PORT: difcProxyPort,
         // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
         ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
+        // The gh CLI inside the cli-proxy needs a GitHub token to authenticate API
+        // requests. The token is safe here: the cli-proxy container is inside the
+        // firewall perimeter and not accessible to the agent. The DIFC proxy on the
+        // host provides write-control via its guard policy.
+        ...(process.env.GH_TOKEN && { GH_TOKEN: process.env.GH_TOKEN }),
+        ...(process.env.GITHUB_TOKEN && !process.env.GH_TOKEN && { GH_TOKEN: process.env.GITHUB_TOKEN }),
         // Prevent curl/node from routing localhost or host.docker.internal through Squid
         NO_PROXY: `localhost,127.0.0.1,::1,host.docker.internal`,
         no_proxy: `localhost,127.0.0.1,::1,host.docker.internal`,
