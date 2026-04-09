@@ -6,9 +6,10 @@
  * emit double-quoted ${RUNNER_TEMP}/... paths.
  */
 
-// The regex is module-internal, so we duplicate the pattern here for testing.
-// If the source regex changes, these tests will catch regressions by failing
-// on the expected inputs below.
+// The regex is module-internal in postprocess-smoke-workflows.ts (line 58-59)
+// and cannot be imported because the script performs file I/O at module load
+// time. If the source regex changes, these tests will catch regressions by
+// failing on the expected inputs below.
 const installStepRegex =
   /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+\n/m;
 
