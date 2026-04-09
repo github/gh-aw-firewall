@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 15
+  max-turns: 25
 tools:
   github:
     toolsets: [pull_requests, repos]
