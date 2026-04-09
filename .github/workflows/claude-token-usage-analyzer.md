@@ -24,7 +24,7 @@ safe-outputs:
     title-prefix: "📊 Claude Token Usage Report"
     labels: [claude-token-usage-report]
     close-older-issues: true
-timeout-minutes: 15
+timeout-minutes: 45
 ---
 
 # Daily Claude Token Usage Analyzer
