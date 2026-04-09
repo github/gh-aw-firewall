@@ -21,9 +21,9 @@ import { stats, parseMb, checkRegressions, BenchmarkResult, BenchmarkReport } fr
 // ── Configuration ──────────────────────────────────────────────────
 
 const ITERATIONS = parseInt(process.env.AWF_BENCHMARK_ITERATIONS || '30', 10);
-const AWF_CMD = "sudo awf";
+const AWF_CMD = "sudo awf --build-local";
 const ALLOWED_DOMAIN = "api.github.com";
-const CLEANUP_CMD = "sudo docker compose down -v 2>/dev/null; sudo docker rm -f awf-squid awf-agent 2>/dev/null; sudo docker network prune -f 2>/dev/null";
+const CLEANUP_CMD = "sudo docker compose down -v 2>/dev/null; sudo docker rm -f awf-squid awf-agent awf-iptables-init 2>/dev/null; sudo docker network prune -f 2>/dev/null";
 
 // ── Thresholds (milliseconds or MB) ───────────────────────────────
 
@@ -63,9 +63,9 @@ function benchmarkColdStart(): BenchmarkResult {
 
   for (let i = 0; i < ITERATIONS; i++) {
     cleanup();
-    // Remove cached images to force cold pull
+    // Remove locally-built images and build cache to force a full rebuild
     try {
-      execSync("sudo docker rmi ghcr.io/github/gh-aw-firewall/squid:latest ghcr.io/github/gh-aw-firewall/agent:latest 2>/dev/null", { stdio: "ignore", timeout: 30_000 });
+      execSync("sudo docker image prune -af --filter 'label=com.docker.compose.project' 2>/dev/null; sudo docker builder prune -af 2>/dev/null", { stdio: "ignore", timeout: 60_000 });
     } catch {
       // images may not exist
     }
