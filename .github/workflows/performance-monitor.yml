@@ -2,8 +2,8 @@ name: Performance Monitor
 
 on:
   schedule:
-    # Run weekly on Mondays at 06:00 UTC
-    - cron: "0 6 * * 1"
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       iterations:
@@ -165,14 +165,35 @@ jobs:
             ].join('\n');
 
             try {
-              const issue = await github.rest.issues.create({
+              // Check for existing open regression issue to avoid duplicates on daily runs
+              const existing = await github.rest.issues.listForRepo({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: `Performance regression detected (${new Date().toISOString().split('T')[0]})`,
-                body,
-                labels: ['performance', 'needs-investigation'],
+                labels: 'performance,needs-investigation',
+                state: 'open',
+                per_page: 1,
               });
-              core.info(`Created regression issue: ${issue.data.html_url}`);
+
+              if (existing.data.length > 0) {
+                // Comment on existing issue instead of creating a duplicate
+                const issueNumber = existing.data[0].number;
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  body: `## Updated Regression Data\n\n**Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n${body}`,
+                });
+                core.info(`Updated existing regression issue #${issueNumber}`);
+              } else {
+                const issue = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `Performance regression detected (${new Date().toISOString().split('T')[0]})`,
+                  body,
+                  labels: ['performance', 'needs-investigation'],
+                });
+                core.info(`Created regression issue: ${issue.data.html_url}`);
+              }
             } catch (error) {
-              core.setFailed(`Failed to create regression issue: ${error.message}`);
+              core.setFailed(`Failed to create/update regression issue: ${error.message}`);
             }
