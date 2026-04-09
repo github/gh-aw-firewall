@@ -17,14 +17,14 @@ Modified the entrypoint to unset all sensitive tokens from its own environment a
 
 2. **Modified chroot mode execution** (entrypoint.sh:449-468)
    - Changed from `exec chroot ...` to `chroot ... &` (run in background)
-   - Added 5-second sleep to allow agent to initialize and cache tokens
+   - Added poll-based wait (up to 1 second, 100ms intervals) to allow agent to initialize and cache tokens
    - Call `unset_sensitive_tokens()` to clear tokens from parent shell
    - Use `wait $AGENT_PID` to wait for agent completion
    - Exit with agent's exit code
 
 3. **Modified non-chroot mode execution** (entrypoint.sh:484-499)
    - Changed from `exec capsh ...` to `capsh ... &` (run in background)
-   - Added 5-second sleep to allow agent to initialize and cache tokens
+   - Added poll-based wait (up to 1 second, 100ms intervals) to allow agent to initialize and cache tokens
    - Call `unset_sensitive_tokens()` to clear tokens from parent shell
    - Use `wait $AGENT_PID` to wait for agent completion
    - Exit with agent's exit code
@@ -47,15 +47,15 @@ The following tokens are unset from the entrypoint's environment:
 
 1. **t=0s**: Container starts, entrypoint receives tokens in environment
 2. **t=0s**: Entrypoint starts agent command in background
-3. **t=0-5s**: Agent initializes, reads tokens via getenv(), one-shot-token library caches them
-4. **t=5s**: Entrypoint calls `unset_sensitive_tokens()`, clearing tokens from `/proc/1/environ`
-5. **t=5s+**: Agent continues running with cached tokens, `/proc/1/environ` no longer contains tokens
+3. **t=0-1s**: Agent initializes, reads tokens via getenv(), one-shot-token library caches them
+4. **t=≤1s**: Entrypoint calls `unset_sensitive_tokens()`, clearing tokens from `/proc/1/environ`
+5. **t=≤1s+**: Agent continues running with cached tokens, `/proc/1/environ` no longer contains tokens
 6. **t=end**: Agent completes, entrypoint exits with agent's exit code
 
 ### Security Impact
 
 - **Before**: Tokens accessible via `/proc/1/environ` throughout agent execution
-- **After**: Tokens accessible via `/proc/1/environ` only for first 5 seconds, then cleared
+- **After**: Tokens accessible via `/proc/1/environ` only for up to 1 second, then cleared
 - **Agent behavior**: Unchanged - agent can still read tokens via getenv() (cached by one-shot-token library)
 
 ### Testing
@@ -75,6 +75,6 @@ Manual test script at `test-token-unset.sh`:
 
 ## Notes
 
-- The 5-second delay is necessary to give the agent process time to initialize and cache tokens via the one-shot-token library before the parent shell unsets them
+- The poll-based wait (up to 1 second, checking every 100ms) gives the agent process time to initialize and cache tokens via the one-shot-token library before the parent shell unsets them. Fast commands exit early without waiting the full second.
 - Both token lists (entrypoint.sh and one-shot-token library) must be kept in sync when adding new token types
 - The exit code handling is preserved - the entrypoint exits with the agent's exit code

@@ -1658,10 +1658,10 @@ export function generateDockerCompose(
       command: ['proxy-dns', '--address', '0.0.0.0', '--port', '53', '--upstream', config.dnsOverHttps],
       healthcheck: {
         test: ['CMD', 'nslookup', '-port=53', 'cloudflare.com', '127.0.0.1'],
-        interval: '5s',
+        interval: '1s',
         timeout: '3s',
         retries: 5,
-        start_period: '10s',
+        start_period: '2s',
       },
       // Security hardening: Drop all capabilities
       cap_drop: ['ALL'],
@@ -2301,7 +2301,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
     logger.debug(`Agent exit code: ${exitCode}`);
 
     // Small delay to ensure Squid logs are flushed to disk
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Check Squid logs to see if any domains were blocked (do this BEFORE cleanup)
     const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);

@@ -810,8 +810,13 @@ AWFEOF
   " &
   AGENT_PID=$!
 
-  # Wait for agent to initialize and cache tokens (5 seconds)
-  sleep 5
+  # Wait for agent to initialize and cache tokens (up to 1 second)
+  # The one-shot-token LD_PRELOAD library caches tokens in ~100ms during process init.
+  # Poll every 100ms so fast commands (e.g. 'echo ok') don't pay the full wait.
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$AGENT_PID" 2>/dev/null || break
+    sleep 0.1
+  done
 
   # Unset all sensitive tokens from parent shell environment
   unset_sensitive_tokens
@@ -872,8 +877,13 @@ else
   fi
   AGENT_PID=$!
 
-  # Wait for agent to initialize and cache tokens (5 seconds)
-  sleep 5
+  # Wait for agent to initialize and cache tokens (up to 1 second)
+  # The one-shot-token LD_PRELOAD library caches tokens in ~100ms during process init.
+  # Poll every 100ms so fast commands (e.g. 'echo ok') don't pay the full wait.
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$AGENT_PID" 2>/dev/null || break
+    sleep 0.1
+  done
 
   # Unset all sensitive tokens from parent shell environment
   unset_sensitive_tokens

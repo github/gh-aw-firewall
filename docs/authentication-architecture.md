@@ -313,7 +313,7 @@ char* getenv(const char* name) {
 
 **Source:** `containers/agent/entrypoint.sh`
 
-The entrypoint (PID 1) runs the agent command in the background, then unsets sensitive tokens from its own environment after a 5-second grace period:
+The entrypoint (PID 1) runs the agent command in the background, then unsets sensitive tokens from its own environment after a brief grace period (up to 1 second, polling every 100ms):
 
 ```bash
 unset_sensitive_tokens() {
@@ -336,7 +336,11 @@ unset_sensitive_tokens() {
 # Run agent in background, wait for it to cache tokens, then unset
 capsh --drop=cap_net_admin -- -c "exec gosu awfuser $COMMAND" &
 AGENT_PID=$!
-sleep 5
+# Poll every 100ms for up to 1s; exit early if agent finishes
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+  kill -0 "$AGENT_PID" 2>/dev/null || break
+  sleep 0.1
+done
 unset_sensitive_tokens
 wait $AGENT_PID
 ```
