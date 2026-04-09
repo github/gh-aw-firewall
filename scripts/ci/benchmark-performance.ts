@@ -20,7 +20,26 @@ import { stats, parseMb, checkRegressions, BenchmarkResult, BenchmarkReport } fr
 
 // ── Configuration ──────────────────────────────────────────────────
 
-const ITERATIONS = parseInt(process.env.AWF_BENCHMARK_ITERATIONS || '30', 10);
+const DEFAULT_ITERATIONS = 30;
+
+function getIterations(): number {
+  const raw = process.env.AWF_BENCHMARK_ITERATIONS;
+  if (raw === undefined) {
+    return DEFAULT_ITERATIONS;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    console.error(
+      `Invalid AWF_BENCHMARK_ITERATIONS=${JSON.stringify(raw)}; using default ${DEFAULT_ITERATIONS}.`
+    );
+    return DEFAULT_ITERATIONS;
+  }
+
+  return parsed;
+}
+
+const ITERATIONS = getIterations();
 const AWF_CMD = "sudo awf";
 const ALLOWED_DOMAIN = "api.github.com";
 const CLEANUP_CMD = "sudo docker compose down -v 2>/dev/null; sudo docker rm -f awf-squid awf-agent 2>/dev/null; sudo docker network prune -f 2>/dev/null";
