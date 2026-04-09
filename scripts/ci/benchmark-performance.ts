@@ -20,7 +20,7 @@ import { stats, parseMb, checkRegressions, BenchmarkResult, BenchmarkReport } fr
 
 // ── Configuration ──────────────────────────────────────────────────
 
-const ITERATIONS = 5;
+const ITERATIONS = parseInt(process.env.AWF_BENCHMARK_ITERATIONS || '30', 10);
 const AWF_CMD = "sudo awf";
 const ALLOWED_DOMAIN = "api.github.com";
 const CLEANUP_CMD = "sudo docker compose down -v 2>/dev/null; sudo docker rm -f awf-squid awf-agent 2>/dev/null; sudo docker network prune -f 2>/dev/null";
