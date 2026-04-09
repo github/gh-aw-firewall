@@ -171,17 +171,22 @@ jobs:
                 repo: context.repo.repo,
                 labels: 'performance,needs-investigation',
                 state: 'open',
-                per_page: 1,
+                per_page: 5,
               });
 
-              if (existing.data.length > 0) {
-                // Comment on existing issue instead of creating a duplicate
-                const issueNumber = existing.data[0].number;
+              // Filter out PRs (listForRepo returns both issues and PRs)
+              const existingIssues = existing.data.filter(item => !item.pull_request);
+
+              if (existingIssues.length > 0) {
+                // Comment on existing issue with a short summary (link to run for full details)
+                const issueNumber = existingIssues[0].number;
+                const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                const regressionList = report.regressions.map(r => `- ${r}`).join('\n');
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  body: `## Updated Regression Data\n\n**Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n${body}`,
+                  body: `## Updated Regression Data (${new Date().toISOString().split('T')[0]})\n\n**Run:** [${context.runId}](${runUrl})\n**Commit:** ${report.commitSha}\n\n### Regressions\n${regressionList}\n\nSee the [workflow run](${runUrl}) for full results and artifacts.`,
                 });
                 core.info(`Updated existing regression issue #${issueNumber}`);
               } else {
