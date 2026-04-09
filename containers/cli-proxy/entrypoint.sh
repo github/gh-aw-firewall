@@ -35,13 +35,22 @@ if [ ! -f /tmp/proxy-tls/ca.crt ]; then
 fi
 echo "[cli-proxy] TLS certificate available"
 
+# Build a combined CA bundle so the gh CLI (Go binary) trusts the DIFC proxy's
+# self-signed cert.  NODE_EXTRA_CA_CERTS only helps Node.js; Go programs use
+# the system store or SSL_CERT_FILE.
+COMBINED_CA="/tmp/proxy-tls/combined-ca.crt"
+cat /etc/ssl/certs/ca-certificates.crt /tmp/proxy-tls/ca.crt > "${COMBINED_CA}"
+echo "[cli-proxy] Combined CA bundle created at ${COMBINED_CA}"
+
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
 # Uses localhost because the tunnel makes the DIFC proxy appear on localhost,
 # matching the self-signed cert's SAN.
 export GH_HOST="localhost:${DIFC_PORT}"
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
-# The CA cert is guaranteed to exist at this point (we exit above if missing)
+# Node.js (server.js / tcp-tunnel.js) uses NODE_EXTRA_CA_CERTS;
+# gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle.
 export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
+export SSL_CERT_FILE="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 

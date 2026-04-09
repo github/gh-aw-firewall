@@ -227,7 +227,7 @@ async function handleExec(req, res) {
   const childEnv = Object.assign({}, process.env);
   if (extraEnv && typeof extraEnv === 'object') {
     // Only allow safe string env overrides; never allow overriding GH_HOST or GH_TOKEN
-    const PROTECTED_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS']);
+    const PROTECTED_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']);
     for (const [key, value] of Object.entries(extraEnv)) {
       if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_KEYS.has(key)) {
         childEnv[key] = value;
