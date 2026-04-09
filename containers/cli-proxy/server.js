@@ -241,9 +241,8 @@ async function handleExec(req, res) {
   const childEnv = Object.assign({}, process.env);
   if (extraEnv && typeof extraEnv === 'object') {
     // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
-    const PROTECTED_KEYS = PROTECTED_ENV_KEYS;
     for (const [key, value] of Object.entries(extraEnv)) {
-      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_KEYS.has(key)) {
+      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_ENV_KEYS.has(key)) {
         childEnv[key] = value;
       }
     }
