@@ -236,6 +236,8 @@ async function handleExec(req, res) {
   }
 
   // Execute gh directly (no shell — prevents injection attacks)
+  // Always use the server's own cwd — the agent sends its container workspace
+  // path which doesn't exist inside the cli-proxy container.
   let stdout = '';
   let stderr = '';
   let exitCode = 0;
@@ -243,7 +245,7 @@ async function handleExec(req, res) {
   try {
     const result = await new Promise((resolve, reject) => {
       const child = execFile('gh', args, {
-        cwd: cwd || process.cwd(),
+        cwd: process.cwd(),
         env: childEnv,
         timeout: COMMAND_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
