@@ -2,8 +2,6 @@
 name: Secret Digger (Codex)
 description: Red team agent that searches for secrets in the agent container (Codex engine)
 on:
-  schedule:
-    - cron: "10 * * * *"  # Run every hour at :10
   workflow_dispatch:
 permissions:
   contents: read

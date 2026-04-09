@@ -2,8 +2,6 @@
 name: Secret Digger (Claude)
 description: Red team agent that searches for secrets in the agent container (Claude engine)
 on:
-  schedule:
-    - cron: "5 * * * *"  # Run every hour at :05
   workflow_dispatch:
 permissions:
   contents: read

@@ -2,8 +2,6 @@
 name: Secret Digger (Copilot)
 description: Red team agent that searches for secrets in the agent container (Copilot engine)
 on:
-  schedule:
-    - cron: "0 * * * *"  # Run every hour
   workflow_dispatch:
 permissions:
   contents: read
