@@ -9,7 +9,7 @@ on:
       iterations:
         description: "Number of iterations per metric"
         required: false
-        default: "5"
+        default: "30"
 
 permissions:
   contents: read
@@ -19,7 +19,7 @@ jobs:
   benchmark:
     name: Run Performance Benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +46,8 @@ jobs:
 
       - name: Run benchmarks
         id: benchmark
+        env:
+          AWF_BENCHMARK_ITERATIONS: ${{ github.event.inputs.iterations || '30' }}
         run: |
           npx tsx scripts/ci/benchmark-performance.ts > benchmark-results.json 2>benchmark-progress.log || true
           cat benchmark-progress.log
