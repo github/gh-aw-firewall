@@ -911,6 +911,28 @@ if (require.main === module) {
     geminiServer.listen(10003, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Google Gemini proxy listening on port 10003', target: GEMINI_API_TARGET });
     });
+  } else {
+    // No Gemini key — listen on port 10003 and return 503 so the Gemini CLI
+    // gets an actionable error instead of a silent connection-refused.
+    const geminiServer = http.createServer((req, res) => {
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not_configured', service: 'gemini-proxy', error: 'GEMINI_API_KEY not configured in api-proxy sidecar' }));
+        return;
+      }
+
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Gemini proxy not configured (no GEMINI_API_KEY). Set GEMINI_API_KEY in the AWF runner environment to enable credential isolation.' }));
+    });
+
+    geminiServer.on('upgrade', (req, socket) => {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    });
+
+    geminiServer.listen(10003, '0.0.0.0', () => {
+      logRequest('info', 'server_start', { message: 'Gemini endpoint listening on port 10003 (Gemini not configured — returning 503)' });
+    });
   }
 
   // OpenCode API proxy (port 10004) — routes to Anthropic (default BYOK provider)

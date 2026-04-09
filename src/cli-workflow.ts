@@ -1,10 +1,11 @@
 import { WrapperConfig } from './types';
-import { HostAccessConfig } from './host-iptables';
+import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
+import { parseDifcProxyHost } from './docker-manager';
 
 export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
-  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig) => Promise<void>;
+  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean) => Promise<void>;
   runAgentCommand: (
@@ -54,7 +55,14 @@ export async function runMainWorkflow(
   const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
     ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
     : undefined;
-  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess);
+  // When DIFC proxy is enabled, allow cli-proxy container to reach the host gateway
+  // on the DIFC proxy port (e.g., 18443)
+  let cliProxyConfig: CliProxyHostConfig | undefined;
+  if (config.difcProxyHost) {
+    const { port } = parseDifcProxyHost(config.difcProxyHost);
+    cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: parseInt(port, 10) };
+  }
+  await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig);
   onHostIptablesSetup?.();
 
   // Step 1: Write configuration files

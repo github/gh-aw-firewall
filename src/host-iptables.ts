@@ -21,6 +21,16 @@ export interface HostAccessConfig {
 }
 
 /**
+ * Configuration for the CLI proxy's connection to an external DIFC proxy on the host.
+ */
+export interface CliProxyHostConfig {
+  /** CLI proxy container IP on awf-net (e.g., 172.30.0.50) */
+  ip: string;
+  /** DIFC proxy port on the host (e.g., 18443) */
+  difcProxyPort: number;
+}
+
+/**
  * Validates a port specification string.
  * Accepts a single port (1-65535) or a port range ("N-M" where both are valid ports and N <= M).
  */
@@ -208,8 +218,9 @@ export async function ensureFirewallNetwork(): Promise<{
  * @param apiProxyIp - Optional IP address of the API proxy sidecar
  * @param dnsServers - Upstream DNS servers that Docker embedded DNS forwards to
  * @param hostAccess - Optional host access configuration for localhost/Playwright support
+ * @param cliProxyConfig - Optional CLI proxy config for DIFC proxy host access
  */
-export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig): Promise<void> {
+export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
 
   // Get the bridge interface name
@@ -426,6 +437,27 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
       '-p', 'tcp', '-d', apiProxyIp, '--dport', `${minPort}:${maxPort}`,
       '-j', 'ACCEPT',
     ]);
+  }
+
+  // 5b2. Allow CLI proxy container to reach host DIFC proxy (when enabled)
+  // The cli-proxy container needs to TCP-tunnel to the external DIFC proxy on the host.
+  // Only the cli-proxy IP is allowed to reach the host gateway on the DIFC port.
+  if (cliProxyConfig) {
+    const { ip: cliProxyIp, difcProxyPort } = cliProxyConfig;
+    const gatewayIp = await getDockerBridgeGateway();
+    const gatewayIps = [AWF_NETWORK_GATEWAY];
+    if (gatewayIp) {
+      gatewayIps.push(gatewayIp);
+    }
+    for (const gwIp of gatewayIps) {
+      logger.debug(`Allowing CLI proxy (${cliProxyIp}) → host gateway (${gwIp}):${difcProxyPort}`);
+      await execa('iptables', [
+        '-t', 'filter', '-A', CHAIN_NAME,
+        '-p', 'tcp', '-s', cliProxyIp, '-d', gwIp, '--dport', difcProxyPort.toString(),
+        '-j', 'ACCEPT',
+      ]);
+    }
+    logger.info(`CLI proxy host access enabled: ${cliProxyIp} → host gateway:${difcProxyPort}`);
   }
 
   // 5c. Allow traffic to host gateway when host access is enabled

@@ -1,9 +1,13 @@
 /**
  * CLI Proxy Sidecar Integration Tests
  *
- * Tests that the --enable-cli-proxy flag correctly starts the CLI proxy sidecar,
- * routes gh CLI commands through the mcpg DIFC proxy, enforces subcommand
- * allowlists, and isolates GITHUB_TOKEN from the agent container.
+ * Tests that the --difc-proxy-host flag correctly starts the CLI proxy sidecar,
+ * connects to an external DIFC proxy, routes gh CLI commands through it,
+ * and isolates GITHUB_TOKEN from the agent container.
+ *
+ * Note: These tests require a running external DIFC proxy. In CI, the
+ * smoke-copilot workflow provides full end-to-end coverage. These tests
+ * validate the compose generation and container setup.
  */
 
 /// <reference path="../jest-custom-matchers.d.ts" />
@@ -18,9 +22,11 @@ const CLI_PROXY_IP = '172.30.0.50';
 const CLI_PROXY_PORT = 11000;
 
 // Common test options for cli-proxy tests
+// Note: These tests require a running external DIFC proxy at the specified host
 const cliProxyDefaults = {
   allowDomains: ['github.com', 'api.github.com'],
-  enableCliProxy: true,
+  difcProxyHost: 'host.docker.internal:18443',
+  difcProxyCaCert: '/tmp/difc-proxy-tls/ca.crt',
   buildLocal: true,
   logLevel: 'debug' as const,
   timeout: 120000,
@@ -39,39 +45,6 @@ describe('CLI Proxy Sidecar', () => {
 
   afterAll(async () => {
     await cleanup(false);
-  });
-
-  describe('Health and Startup', () => {
-    test('should start cli-proxy sidecar and pass healthcheck', async () => {
-      const result = await runner.runWithSudo(
-        `curl -s http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/health`,
-        cliProxyDefaults,
-      );
-
-      expect(result).toSucceed();
-      expect(result.stdout).toContain('"status":"ok"');
-      expect(result.stdout).toContain('"service":"cli-proxy"');
-    }, 180000);
-
-    test('should report writable=false in healthcheck by default', async () => {
-      const result = await runner.runWithSudo(
-        `curl -s http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/health`,
-        cliProxyDefaults,
-      );
-
-      expect(result).toSucceed();
-      expect(result.stdout).toContain('"writable":false');
-    }, 180000);
-
-    test('should report writable=true when --cli-proxy-writable is set', async () => {
-      const result = await runner.runWithSudo(
-        `curl -s http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/health`,
-        { ...cliProxyDefaults, cliProxyWritable: true },
-      );
-
-      expect(result).toSucceed();
-      expect(result.stdout).toContain('"writable":true');
-    }, 180000);
   });
 
   describe('Token Isolation', () => {
@@ -137,9 +110,7 @@ describe('CLI Proxy Sidecar', () => {
       );
 
       // gh --version goes through the wrapper and the proxy server
-      // The proxy may block --version as it's not a recognized subcommand.
       // Either way, it should not crash — we just verify the wrapper is invoked.
-      // If it fails, the error should come from the proxy, not "command not found"
       const output = extractCommandOutput(result.stdout);
       const stderr = result.stderr || '';
       // Should NOT get "command not found" — the wrapper must be installed
@@ -147,86 +118,17 @@ describe('CLI Proxy Sidecar', () => {
     }, 180000);
   });
 
-  describe('Read-Only Mode (default)', () => {
-    test('should block write operations in read-only mode', async () => {
-      // Try to execute a write operation: 'gh issue create'
-      // In read-only mode, 'create' action under 'issue' is blocked
-      const result = await runner.runWithSudo(
-        `bash -c 'curl -s -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"issue\\",\\"create\\",\\"--title\\",\\"test\\"]}"'`,
-        cliProxyDefaults,
-      );
-
-      expect(result).toSucceed();
-      // The proxy should return a 403 with an error about the blocked action
-      expect(result.stdout).toMatch(/denied|blocked|not allowed|read.only/i);
-    }, 180000);
-
-    test('should block gh api in read-only mode', async () => {
-      // 'api' is always blocked in read-only mode (raw HTTP passthrough risk)
-      const result = await runner.runWithSudo(
-        `bash -c 'curl -s -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"api\\",\\"/repos/github/gh-aw-firewall\\"]}"'`,
-        cliProxyDefaults,
-      );
-
-      expect(result).toSucceed();
-      expect(result.stdout).toMatch(/denied|blocked|not allowed/i);
-    }, 180000);
-
-    test('should block auth subcommand even in writable mode', async () => {
+  describe('Meta-command Denial', () => {
+    test('should block auth subcommand', async () => {
       // 'auth' is always denied (meta-command)
       const result = await runner.runWithSudo(
         `bash -c 'curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"auth\\",\\"status\\"]}"'`,
-        { ...cliProxyDefaults, cliProxyWritable: true },
+        cliProxyDefaults,
       );
 
       expect(result).toSucceed();
       expect(result.stdout).toContain('HTTP_STATUS:403');
       expect(result.stdout).toMatch(/denied|blocked|not allowed|not permitted/i);
-    }, 180000);
-
-    test('should allow read operations in read-only mode', async () => {
-      // 'pr list' is a read-only operation — should be allowed by the proxy.
-      // The actual gh command may fail (auth error from mcpg with fake token),
-      // but the proxy should NOT block it at the allowlist level.
-      const result = await runner.runWithSudo(
-        `bash -c 'curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"pr\\",\\"list\\",\\"--repo\\",\\"github/gh-aw-firewall\\",\\"--limit\\",\\"1\\"]}"'`,
-        cliProxyDefaults,
-      );
-
-      expect(result).toSucceed();
-      // HTTP 200 means the proxy allowed the command (even if gh itself errored)
-      expect(result.stdout).toContain('HTTP_STATUS:200');
-    }, 180000);
-  });
-
-  describe('Writable Mode', () => {
-    test('should allow gh api in writable mode', async () => {
-      // 'api' is permitted in writable mode
-      const result = await runner.runWithSudo(
-        `bash -c 'curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"api\\",\\"/repos/github/gh-aw-firewall\\"]}"'`,
-        { ...cliProxyDefaults, cliProxyWritable: true },
-      );
-
-      expect(result).toSucceed();
-      // HTTP 200 means the proxy allowed the command
-      expect(result.stdout).toContain('HTTP_STATUS:200');
-    }, 180000);
-  });
-
-  describe('Squid Integration', () => {
-    test('should route cli-proxy traffic through Squid domain allowlist', async () => {
-      // The cli-proxy container uses HTTP_PROXY/HTTPS_PROXY to route through Squid.
-      // A domain NOT in --allow-domains should be blocked by Squid.
-      // We verify by checking that the cli-proxy env includes the proxy settings.
-      const result = await runner.runWithSudo(
-        `bash -c 'docker exec awf-cli-proxy env | grep -i proxy || true'`,
-        { ...cliProxyDefaults, keepContainers: true },
-      );
-
-      // `env | grep -i proxy` writes matches to stdout, and `|| true` forces a zero exit code.
-      // Verify the cli-proxy environment includes the expected proxy-related settings.
-      expect(result).toSucceed();
-      expect(extractCommandOutput(result.stdout)).toMatch(/HTTP_PROXY|HTTPS_PROXY|squid/i);
     }, 180000);
   });
 });

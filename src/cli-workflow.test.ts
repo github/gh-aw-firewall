@@ -130,7 +130,7 @@ describe('runMainWorkflow', () => {
 
     const expectedHostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined
     );
   });
 
@@ -159,7 +159,7 @@ describe('runMainWorkflow', () => {
       allowHostServicePorts: '5432,6379',
     };
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined
     );
   });
 
@@ -177,7 +177,7 @@ describe('runMainWorkflow', () => {
     await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, undefined
     );
   });
 

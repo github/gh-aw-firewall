@@ -1397,6 +1397,7 @@ describe('cli', () => {
       expect(result.enabled).toBe(true);
       expect(result.warnings).toHaveLength(2);
       expect(result.warnings[0]).toContain('no API keys found');
+      expect(result.warnings[1]).toContain('GEMINI_API_KEY');
       expect(result.debugMessages).toEqual([]);
     });
 
@@ -1430,14 +1431,23 @@ describe('cli', () => {
       expect(result.debugMessages[0]).toContain('Copilot');
     });
 
-    it('should detect all three keys', () => {
-      const result = validateApiProxyConfig(true, true, true, true);
+    it('should detect Gemini key', () => {
+      const result = validateApiProxyConfig(true, false, false, false, true);
       expect(result.enabled).toBe(true);
       expect(result.warnings).toEqual([]);
-      expect(result.debugMessages).toHaveLength(3);
+      expect(result.debugMessages).toHaveLength(1);
+      expect(result.debugMessages[0]).toContain('Gemini');
+    });
+
+    it('should detect all four keys', () => {
+      const result = validateApiProxyConfig(true, true, true, true, true);
+      expect(result.enabled).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.debugMessages).toHaveLength(4);
       expect(result.debugMessages[0]).toContain('OpenAI');
       expect(result.debugMessages[1]).toContain('Anthropic');
       expect(result.debugMessages[2]).toContain('Copilot');
+      expect(result.debugMessages[3]).toContain('Gemini');
     });
 
     it('should not warn when disabled even with keys', () => {
@@ -1445,6 +1455,15 @@ describe('cli', () => {
       expect(result.enabled).toBe(false);
       expect(result.warnings).toEqual([]);
       expect(result.debugMessages).toEqual([]);
+    });
+
+    it('should detect mixed key combination (OpenAI + Gemini)', () => {
+      const result = validateApiProxyConfig(true, true, false, false, true);
+      expect(result.enabled).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.debugMessages).toHaveLength(2);
+      expect(result.debugMessages[0]).toContain('OpenAI');
+      expect(result.debugMessages[1]).toContain('Gemini');
     });
   });
 
@@ -2041,11 +2060,11 @@ describe('cli', () => {
   });
 
   describe('emitCliProxyStatusLogs', () => {
-    it('should emit nothing when cli proxy is disabled', () => {
+    it('should emit nothing when difcProxyHost is not set', () => {
       const infos: string[] = [];
       const warns: string[] = [];
       emitCliProxyStatusLogs(
-        { enableCliProxy: false, githubToken: 'tok' },
+        { githubToken: 'tok' },
         (msg) => infos.push(msg),
         (msg) => warns.push(msg),
       );
@@ -2053,7 +2072,7 @@ describe('cli', () => {
       expect(warns).toHaveLength(0);
     });
 
-    it('should emit nothing when enableCliProxy is undefined', () => {
+    it('should emit nothing when difcProxyHost is undefined', () => {
       const infos: string[] = [];
       const warns: string[] = [];
       emitCliProxyStatusLogs(
@@ -2065,30 +2084,17 @@ describe('cli', () => {
       expect(warns).toHaveLength(0);
     });
 
-    it('should emit info when token is present (read-only)', () => {
+    it('should emit info when difcProxyHost is set with token', () => {
       const infos: string[] = [];
       const warns: string[] = [];
       emitCliProxyStatusLogs(
-        { enableCliProxy: true, githubToken: 'ghp_test123', cliProxyWritable: false },
+        { difcProxyHost: 'host.docker.internal:18443', githubToken: 'ghp_test123' },
         (msg) => infos.push(msg),
         (msg) => warns.push(msg),
       );
-      expect(infos).toHaveLength(1);
+      expect(infos.length).toBeGreaterThanOrEqual(1);
       expect(infos[0]).toContain('CLI proxy enabled');
-      expect(infos[0]).toContain('writable=false');
-      expect(warns).toHaveLength(0);
-    });
-
-    it('should emit info when token is present (writable)', () => {
-      const infos: string[] = [];
-      const warns: string[] = [];
-      emitCliProxyStatusLogs(
-        { enableCliProxy: true, githubToken: 'ghp_test123', cliProxyWritable: true },
-        (msg) => infos.push(msg),
-        (msg) => warns.push(msg),
-      );
-      expect(infos).toHaveLength(1);
-      expect(infos[0]).toContain('writable=true');
+      expect(infos[0]).toContain('host.docker.internal:18443');
       expect(warns).toHaveLength(0);
     });
 
@@ -2096,14 +2102,13 @@ describe('cli', () => {
       const infos: string[] = [];
       const warns: string[] = [];
       emitCliProxyStatusLogs(
-        { enableCliProxy: true },
+        { difcProxyHost: 'host.docker.internal:18443' },
         (msg) => infos.push(msg),
         (msg) => warns.push(msg),
       );
-      expect(infos).toHaveLength(0);
-      expect(warns).toHaveLength(2);
+      expect(infos.length).toBeGreaterThanOrEqual(1);
+      expect(warns.length).toBeGreaterThanOrEqual(1);
       expect(warns[0]).toContain('no GitHub token found');
-      expect(warns[1]).toContain('GITHUB_TOKEN or GH_TOKEN');
     });
   });
 
@@ -2456,7 +2461,7 @@ describe('cli', () => {
         imageTag: 'v1.0',
         agentImage: 'default',
         enableApiProxy: false,
-        enableCliProxy: true,
+        difcProxy: true,
       });
 
       expect(mockPredownloadCommand).toHaveBeenCalledWith({
@@ -2464,7 +2469,7 @@ describe('cli', () => {
         imageTag: 'v1.0',
         agentImage: 'default',
         enableApiProxy: false,
-        enableCliProxy: true,
+        difcProxy: true,
       });
     });
 

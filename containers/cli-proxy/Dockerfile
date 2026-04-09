@@ -1,10 +1,9 @@
-# CLI Proxy sidecar for AWF - provides gh CLI access via mcpg DIFC proxy
+# CLI Proxy sidecar for AWF - provides gh CLI access via external DIFC proxy
 #
 # This container runs the HTTP exec server (port 11000) that receives gh
-# invocations from the agent container.  The mcpg DIFC proxy runs as a
-# separate docker-compose service (awf-cli-proxy-mcpg) using the official
-# gh-aw-mcpg image directly — no binary extraction needed.  GH_HOST is
-# set to the mcpg container so all gh CLI traffic flows through the proxy.
+# invocations from the agent container.  The DIFC proxy (mcpg) runs
+# externally on the host, started by the gh-aw compiler.  A TCP tunnel
+# forwards localhost traffic to the external proxy for TLS hostname matching.
 FROM node:22-alpine
 
 # Install gh CLI and curl for healthchecks/wrapper
@@ -25,7 +24,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application files
-COPY server.js ./
+COPY server.js tcp-tunnel.js ./
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
 
@@ -38,7 +37,7 @@ RUN addgroup -S cliproxy && adduser -S cliproxy -G cliproxy
 RUN mkdir -p /var/log/cli-proxy && \
     chown -R cliproxy:cliproxy /var/log/cli-proxy
 
-# Create /tmp/proxy-tls directory owned by cliproxy for shared mcpg TLS certs
+# Create /tmp/proxy-tls directory owned by cliproxy for mounted DIFC proxy CA cert
 RUN mkdir -p /tmp/proxy-tls && chown cliproxy:cliproxy /tmp/proxy-tls
 
 # Switch to non-root user

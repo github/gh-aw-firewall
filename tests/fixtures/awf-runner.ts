@@ -18,8 +18,8 @@ export interface AwfOptions {
   allowHostPorts?: string; // Ports or port ranges to allow for host access (e.g., '3000' or '3000-8000')
   allowHostServicePorts?: string; // Ports to allow ONLY to host gateway (bypasses dangerous port restrictions)
   enableApiProxy?: boolean; // Enable API proxy sidecar for LLM credential management
-  enableCliProxy?: boolean; // Enable CLI proxy sidecar for secure gh CLI access
-  cliProxyWritable?: boolean; // Allow write operations through the CLI proxy
+  difcProxyHost?: string; // Connect to external DIFC proxy at host:port (enables CLI proxy)
+  difcProxyCaCert?: string; // Path to TLS CA cert written by the external DIFC proxy
   rateLimitRpm?: number; // Requests per minute per provider
   rateLimitRph?: number; // Requests per hour per provider
   rateLimitBytesPm?: number; // Request bytes per minute per provider
@@ -130,12 +130,12 @@ export class AwfRunner {
       args.push('--enable-api-proxy');
     }
 
-    // Add enable-cli-proxy flags
-    if (options.enableCliProxy) {
-      args.push('--enable-cli-proxy');
+    // Add DIFC proxy flags (replaces --enable-cli-proxy)
+    if (options.difcProxyHost) {
+      args.push('--difc-proxy-host', options.difcProxyHost);
     }
-    if (options.cliProxyWritable) {
-      args.push('--cli-proxy-writable');
+    if (options.difcProxyCaCert) {
+      args.push('--difc-proxy-ca-cert', options.difcProxyCaCert);
     }
 
     // Add API target flags
@@ -351,12 +351,12 @@ export class AwfRunner {
       args.push('--enable-api-proxy');
     }
 
-    // Add enable-cli-proxy flags
-    if (options.enableCliProxy) {
-      args.push('--enable-cli-proxy');
+    // Add DIFC proxy flags (replaces --enable-cli-proxy)
+    if (options.difcProxyHost) {
+      args.push('--difc-proxy-host', options.difcProxyHost);
     }
-    if (options.cliProxyWritable) {
-      args.push('--cli-proxy-writable');
+    if (options.difcProxyCaCert) {
+      args.push('--difc-proxy-ca-cert', options.difcProxyCaCert);
     }
 
     // Add API target flags

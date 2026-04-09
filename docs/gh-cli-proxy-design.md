@@ -1,5 +1,7 @@
 # Design: `gh` CLI Proxy for Agent Container
 
+> **Updated**: The CLI proxy now connects to an **external** DIFC proxy (mcpg) started by the gh-aw compiler on the host, instead of managing the mcpg container internally. See [Architecture Changes](#architecture-external-difc-proxy) below.
+
 ## Problem Statement
 
 Today, agents access GitHub data exclusively through the GitHub MCP server, which is spawned by mcpg in a separate container and communicates via the MCP protocol. This has three costs:
@@ -49,7 +51,55 @@ The gh-aw compiler already proxies pre-agent `gh` CLI calls through mcpg's proxy
 
 By reusing this same pattern inside the cli-proxy sidecar, we get guard policies, audit logging, and credential isolation "for free" — without building a new auth-injection mechanism.
 
-## Architecture: AWF Sidecar with mcpg Proxy
+## Architecture: External DIFC Proxy {#architecture-external-difc-proxy}
+
+The DIFC proxy (mcpg) is now started **externally** by the gh-aw compiler on the host. AWF only launches the cli-proxy container and connects it to the external proxy.
+
+### New Architecture
+
+```
+Host (managed by gh-aw compiler):
+  difc-proxy (mcpg in proxy mode) on 0.0.0.0:18443, --network host
+
+AWF docker-compose:
+  squid-proxy (172.30.0.10)
+  cli-proxy (172.30.0.50) → host difc-proxy via host.docker.internal:18443
+  agent (172.30.0.20) → cli-proxy at http://172.30.0.50:11000
+```
+
+### TLS Hostname Matching
+
+The difc-proxy's self-signed TLS cert has SANs for `localhost` and `127.0.0.1`, but not `host.docker.internal`. The cli-proxy container runs a **Node.js TCP tunnel** (`tcp-tunnel.js`):
+
+```
+localhost:18443 (inside cli-proxy) → TCP tunnel → host.docker.internal:18443 (host difc-proxy)
+```
+
+The `gh` CLI uses `GH_HOST=localhost:18443`, which matches the cert's SAN.
+
+### CLI Flags
+
+| Flag | Description |
+|---|---|
+| `--difc-proxy-host <host:port>` | Connect to external DIFC proxy (e.g., `host.docker.internal:18443`) |
+| `--difc-proxy-ca-cert <path>` | Path to TLS CA cert written by the DIFC proxy |
+
+### Key Properties
+
+- **No internal mcpg container**: The mcpg process runs on the host, started by the gh-aw compiler
+- **TCP tunnel for TLS**: `tcp-tunnel.js` forwards localhost traffic to the host DIFC proxy
+- **Guard policy enforcement**: Handled by the external DIFC proxy, not by AWF
+- **Write control**: Delegated to the DIFC guard policy (no read-only mode in cli-proxy)
+- **Credential isolation**: Tokens held by the external DIFC proxy, excluded from agent env
+- **Audit logging**: mcpg logs all proxied API calls on the host
+- **Squid routing**: The external DIFC proxy's traffic is not routed through Squid
+
+---
+
+<details>
+<summary>Historical: Original internal mcpg architecture (deprecated)</summary>
+
+## Architecture: AWF Sidecar with mcpg Proxy (deprecated)
 
 A new container on the `awf-net`, managed by `docker-manager.ts`, that runs two processes internally:
 
@@ -519,3 +569,5 @@ The exact savings depend on which GitHub toolsets are enabled. Workflows with `"
 - `pkg/workflow/compiler_difc_proxy.go` — Compiler generates the start/stop steps and policy JSON
 - `actions/setup/sh/start_difc_proxy.sh` — Runtime startup: `docker run mcpg proxy ...`, TLS cert wait, env var injection
 - `actions/setup/sh/stop_difc_proxy.sh` — Cleanup: stop container, restore env vars, remove CA cert
+
+</details>

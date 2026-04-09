@@ -277,13 +277,15 @@ export interface ApiProxyValidationResult {
  * @param hasOpenaiKey - Whether an OpenAI API key is present
  * @param hasAnthropicKey - Whether an Anthropic API key is present
  * @param hasCopilotKey - Whether a GitHub Copilot API key is present
+ * @param hasGeminiKey - Whether a Google Gemini API key is present
  * @returns ApiProxyValidationResult with warnings and debug messages
  */
 export function validateApiProxyConfig(
   enableApiProxy: boolean,
   hasOpenaiKey?: boolean,
   hasAnthropicKey?: boolean,
-  hasCopilotKey?: boolean
+  hasCopilotKey?: boolean,
+  hasGeminiKey?: boolean
 ): ApiProxyValidationResult {
   if (!enableApiProxy) {
     return { enabled: false, warnings: [], debugMessages: [] };
@@ -292,9 +294,9 @@ export function validateApiProxyConfig(
   const warnings: string[] = [];
   const debugMessages: string[] = [];
 
-  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey) {
+  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey) {
     warnings.push('⚠️  API proxy enabled but no API keys found in environment');
-    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or COPILOT_GITHUB_TOKEN to use the proxy');
+    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or GEMINI_API_KEY to use the proxy');
   }
   if (hasOpenaiKey) {
     debugMessages.push('OpenAI API key detected - will be held securely in sidecar');
@@ -304,6 +306,9 @@ export function validateApiProxyConfig(
   }
   if (hasCopilotKey) {
     debugMessages.push('GitHub Copilot API key detected - will be held securely in sidecar');
+  }
+  if (hasGeminiKey) {
+    debugMessages.push('Google Gemini API key detected - will be held securely in sidecar');
   }
 
   return { enabled: true, warnings, debugMessages };
@@ -399,17 +404,18 @@ export function emitApiProxyTargetWarnings(
  * Extracted for testability (same pattern as emitApiProxyTargetWarnings).
  */
 export function emitCliProxyStatusLogs(
-  config: { enableCliProxy?: boolean; cliProxyWritable?: boolean; githubToken?: string },
+  config: { difcProxyHost?: string; githubToken?: string },
   info: (msg: string) => void,
   warn: (msg: string) => void,
 ): void {
-  if (!config.enableCliProxy) return;
+  if (!config.difcProxyHost) return;
 
+  info(`CLI proxy enabled: connecting to external DIFC proxy at ${config.difcProxyHost}`);
   if (config.githubToken) {
-    info(`CLI proxy enabled: token present (GITHUB_TOKEN/GH_TOKEN), writable=${!!config.cliProxyWritable}`);
+    info('GitHub token present — will be excluded from agent environment');
   } else {
     warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
-    warn('   Set GITHUB_TOKEN or GH_TOKEN to enable authenticated gh CLI access through the proxy');
+    warn('   The external DIFC proxy handles token authentication');
   }
 }
 
@@ -1434,29 +1440,17 @@ program
     'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
 
-  // -- CLI Proxy --
+  // -- CLI Proxy (external DIFC proxy) --
   .option(
-    '--enable-cli-proxy',
-    'Enable gh CLI proxy sidecar for secure GitHub CLI access.\n' +
-    '                                       Routes gh commands through mcpg DIFC proxy with guard policies.\n' +
-    '                                       GH_TOKEN is held in the sidecar; never exposed to the agent.',
-    false
+    '--difc-proxy-host <host:port>',
+    'Connect to an external DIFC proxy (mcpg) at host:port.\n' +
+    '                                       Enables the CLI proxy sidecar that routes gh commands through the DIFC proxy.\n' +
+    '                                       The DIFC proxy must be started externally (e.g., by the gh-aw compiler).',
   )
   .option(
-    '--cli-proxy-writable',
-    'Allow write operations through the CLI proxy (default: read-only)',
-    false
-  )
-  .option(
-    '--cli-proxy-policy <json>',
-    'Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar\n' +
-    '                                       (e.g. \'{"repos":["owner/repo"],"min-integrity":"public"}\')',
-  )
-  .option(
-    '--cli-proxy-mcpg-image <image>',
-    'Docker image for the mcpg DIFC proxy container (runs as a separate service alongside cli-proxy)\n' +
-    '                                       Set by the AWF compiler to control which mcpg version is used',
-    'ghcr.io/github/gh-aw-mcpg:v0.2.15'
+    '--difc-proxy-ca-cert <path>',
+    'Path to TLS CA cert written by the external DIFC proxy.\n' +
+    '                                       Recommended when --difc-proxy-host is set for TLS verification.',
   )
   // -- Logging & Debug --
   .option(
@@ -1829,10 +1823,8 @@ program
       anthropicApiBasePath: options.anthropicApiBasePath || process.env.ANTHROPIC_API_BASE_PATH,
       geminiApiTarget: options.geminiApiTarget || process.env.GEMINI_API_TARGET,
       geminiApiBasePath: options.geminiApiBasePath || process.env.GEMINI_API_BASE_PATH,
-      enableCliProxy: options.enableCliProxy,
-      cliProxyWritable: options.cliProxyWritable,
-      cliProxyPolicy: options.cliProxyPolicy,
-      cliProxyMcpgImage: options.cliProxyMcpgImage,
+      difcProxyHost: options.difcProxyHost,
+      difcProxyCaCert: options.difcProxyCaCert,
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
     };
 
@@ -1912,12 +1904,13 @@ program
       config.enableApiProxy || false,
       !!config.openaiApiKey,
       !!config.anthropicApiKey,
-      !!config.copilotGithubToken
+      !!config.copilotGithubToken,
+      !!config.geminiApiKey
     );
 
     // Log API proxy status at info level for visibility
     if (config.enableApiProxy) {
-      logger.info(`API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!config.copilotGithubToken}`);
+      logger.info(`API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!config.copilotGithubToken}, Gemini=${!!config.geminiApiKey}`);
     }
 
     for (const warning of apiProxyValidation.warnings) {
@@ -1937,7 +1930,7 @@ program
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
     const redactedConfig: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(config)) {
-      if (key === 'openaiApiKey' || key === 'anthropicApiKey' || key === 'copilotGithubToken') continue;
+      if (key === 'openaiApiKey' || key === 'anthropicApiKey' || key === 'copilotGithubToken' || key === 'geminiApiKey') continue;
       redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
     }
     logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
@@ -2056,8 +2049,7 @@ export async function handlePredownloadAction(options: {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
-  enableCliProxy?: boolean;
-  cliProxyMcpgImage?: string;
+  difcProxy?: boolean;
 }): Promise<void> {
   const { predownloadCommand } = await import('./commands/predownload');
   try {
@@ -2066,8 +2058,7 @@ export async function handlePredownloadAction(options: {
       imageTag: options.imageTag,
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
-      enableCliProxy: options.enableCliProxy,
-      cliProxyMcpgImage: options.cliProxyMcpgImage,
+      difcProxy: options.difcProxy,
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -2091,8 +2082,7 @@ program
     'default'
   )
   .option('--enable-api-proxy', 'Also download the API proxy image', false)
-  .option('--enable-cli-proxy', 'Also download the CLI proxy image', false)
-  .option('--cli-proxy-mcpg-image <image>', 'Docker image for the mcpg DIFC proxy container', 'ghcr.io/github/gh-aw-mcpg:v0.2.15')
+  .option('--difc-proxy', 'Also download the CLI proxy image (for --difc-proxy-host)', false)
   .action(handlePredownloadAction);
 
 // Logs subcommand - view Squid proxy logs

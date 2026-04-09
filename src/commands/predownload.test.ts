@@ -40,34 +40,22 @@ describe('predownload', () => {
       ]);
     });
 
-    it('should include cli-proxy and mcpg when enabled', () => {
-      const images = resolveImages({ ...defaults, enableCliProxy: true });
+    it('should include cli-proxy when enabled (no mcpg — runs externally)', () => {
+      const images = resolveImages({ ...defaults, difcProxy: true });
       expect(images).toEqual([
         'ghcr.io/github/gh-aw-firewall/squid:latest',
         'ghcr.io/github/gh-aw-firewall/agent:latest',
         'ghcr.io/github/gh-aw-firewall/cli-proxy:latest',
-        'ghcr.io/github/gh-aw-mcpg:v0.2.15',
       ]);
     });
 
     it('should include both api-proxy and cli-proxy when both enabled', () => {
-      const images = resolveImages({ ...defaults, enableApiProxy: true, enableCliProxy: true });
+      const images = resolveImages({ ...defaults, enableApiProxy: true, difcProxy: true });
       expect(images).toEqual([
         'ghcr.io/github/gh-aw-firewall/squid:latest',
         'ghcr.io/github/gh-aw-firewall/agent:latest',
         'ghcr.io/github/gh-aw-firewall/api-proxy:latest',
         'ghcr.io/github/gh-aw-firewall/cli-proxy:latest',
-        'ghcr.io/github/gh-aw-mcpg:v0.2.15',
-      ]);
-    });
-
-    it('should use custom mcpg image when specified', () => {
-      const images = resolveImages({ ...defaults, enableCliProxy: true, cliProxyMcpgImage: 'ghcr.io/github/gh-aw-mcpg:v0.3.0' });
-      expect(images).toEqual([
-        'ghcr.io/github/gh-aw-firewall/squid:latest',
-        'ghcr.io/github/gh-aw-firewall/agent:latest',
-        'ghcr.io/github/gh-aw-firewall/cli-proxy:latest',
-        'ghcr.io/github/gh-aw-mcpg:v0.3.0',
       ]);
     });
 
@@ -144,18 +132,13 @@ describe('predownload', () => {
       );
     });
 
-    it('should pull cli-proxy and mcpg when enabled', async () => {
-      await predownloadCommand({ ...defaults, enableCliProxy: true });
+    it('should pull cli-proxy when enabled (no mcpg)', async () => {
+      await predownloadCommand({ ...defaults, difcProxy: true });
 
-      expect(mockExeca).toHaveBeenCalledTimes(4);
+      expect(mockExeca).toHaveBeenCalledTimes(3);
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         ['pull', 'ghcr.io/github/gh-aw-firewall/cli-proxy:latest'],
-        { stdio: 'inherit' },
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        ['pull', 'ghcr.io/github/gh-aw-mcpg:v0.2.15'],
         { stdio: 'inherit' },
       );
     });

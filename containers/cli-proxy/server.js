@@ -7,93 +7,87 @@
  *   POST /exec    - Execute a gh CLI command and return stdout/stderr/exitCode
  *
  * Security:
- *   - Subcommand allowlist enforced (read-only mode by default)
  *   - Args are exec'd directly via execFile (no shell, no injection)
  *   - Per-command timeout (default 30s)
  *   - Max output size limit to prevent memory exhaustion
+ *   - Meta-commands (auth, config, extension) are always denied
  *
- * The gh CLI running inside this container has GH_HOST set to the mcpg proxy
- * (localhost:18443), so it never sees GH_TOKEN directly.
+ * The gh CLI running inside this container has GH_HOST set to the DIFC proxy
+ * (localhost:18443 via TCP tunnel), so it never sees GH_TOKEN directly.
+ * Write control is handled by the DIFC guard policy, not by this server.
  */
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { execFile } = require('child_process');
 
 const CLI_PROXY_PORT = parseInt(process.env.AWF_CLI_PROXY_PORT || '11000', 10);
 const COMMAND_TIMEOUT_MS = parseInt(process.env.AWF_CLI_PROXY_TIMEOUT_MS || '30000', 10);
 const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || String(10 * 1024 * 1024), 10);
 
-// When AWF_CLI_PROXY_WRITABLE=true, allow write operations
-const WRITABLE_MODE = process.env.AWF_CLI_PROXY_WRITABLE === 'true';
+// Environment keys that agents are not allowed to override via the /exec env field.
+// GH_HOST / GH_TOKEN / GITHUB_TOKEN — prevent auth/routing hijack.
+// NODE_EXTRA_CA_CERTS / SSL_CERT_FILE — prevent TLS trust-store bypass.
+const _PROTECTED_ENV_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']);
+const PROTECTED_ENV_KEYS = Object.freeze({
+  has(key) { return _PROTECTED_ENV_KEYS.has(key); },
+  get size() { return _PROTECTED_ENV_KEYS.size; },
+  values() { return _PROTECTED_ENV_KEYS.values(); },
+  keys() { return _PROTECTED_ENV_KEYS.keys(); },
+  entries() { return _PROTECTED_ENV_KEYS.entries(); },
+  forEach(callback, thisArg) { return _PROTECTED_ENV_KEYS.forEach(callback, thisArg); },
+  [Symbol.iterator]() { return _PROTECTED_ENV_KEYS[Symbol.iterator](); },
+});
+
+// --- Structured logging to /var/log/cli-proxy/access.log ---
+
+const LOG_DIR = process.env.AWF_CLI_PROXY_LOG_DIR || '/var/log/cli-proxy';
+const LOG_FILE = path.join(LOG_DIR, 'access.log');
+
+let logStream = null;
+try {
+  if (fs.existsSync(LOG_DIR)) {
+    logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+  }
+} catch {
+  // Non-fatal: logging to file is best-effort
+}
 
 /**
- * Subcommands allowed in read-only mode.
- * These commands only retrieve data and do not modify any GitHub resources.
- *
- * Note: 'api' is intentionally excluded even in read-only mode because it is a raw
- * HTTP passthrough that can perform arbitrary POST/PUT/DELETE mutations via -X/--method.
- * Agents should use typed subcommands (gh issue list, gh pr view, etc.) instead.
- * In writable mode, 'api' is permitted since the operator has explicitly opted in.
+ * Write a structured JSON log entry to the access log file and stderr.
+ * Each line is a self-contained JSON object for easy parsing.
  */
-const ALLOWED_SUBCOMMANDS_READONLY = new Set([
-  'browse',
-  'cache',
-  'codespace',
-  'gist',
-  'issue',
-  'label',
-  'org',
-  'pr',
-  'release',
-  'repo',
-  'run',
-  'search',
-  'secret',
-  'variable',
-  'workflow',
-]);
+function accessLog(entry) {
+  const record = { ts: new Date().toISOString(), ...entry };
+  const line = JSON.stringify(record);
+  if (logStream) {
+    logStream.write(line + '\n');
+  }
+  // Also emit to stderr so docker logs captures it
+  console.error(line);
+}
 
 /**
- * Actions that are blocked within their parent subcommand in read-only mode.
- * Maps subcommand -> Set of blocked action verbs.
- */
-const BLOCKED_ACTIONS_READONLY = new Map([
-  // cache: delete is a write operation
-  ['cache', new Set(['delete'])],
-  // codespace: create, delete, edit, stop, ports forward are write operations
-  ['codespace', new Set(['create', 'delete', 'edit', 'stop', 'ports'])],
-  ['gist', new Set(['create', 'delete', 'edit'])],
-  ['issue', new Set(['create', 'close', 'delete', 'edit', 'lock', 'pin', 'reopen', 'transfer', 'unpin'])],
-  ['label', new Set(['create', 'delete', 'edit'])],
-  // org: invite changes org membership
-  ['org', new Set(['invite'])],
-  ['pr', new Set(['checkout', 'close', 'create', 'edit', 'lock', 'merge', 'ready', 'reopen', 'review', 'update-branch'])],
-  ['release', new Set(['create', 'delete', 'delete-asset', 'edit', 'upload'])],
-  ['repo', new Set(['archive', 'create', 'delete', 'edit', 'fork', 'rename', 'set-default', 'sync', 'unarchive'])],
-  ['run', new Set(['cancel', 'delete', 'download', 'rerun'])],
-  ['secret', new Set(['delete', 'set'])],
-  ['variable', new Set(['delete', 'set'])],
-  ['workflow', new Set(['disable', 'enable', 'run'])],
-]);
-
-/**
- * Meta-commands that are always denied, even in write mode.
+ * Meta-commands that are always denied.
  * These modify gh itself rather than GitHub resources.
  */
 const ALWAYS_DENIED_SUBCOMMANDS = new Set([
+  'alias',
   'auth',
   'config',
   'extension',
 ]);
 
 /**
- * Validates the gh CLI arguments against the subcommand allowlist.
+ * Validates the gh CLI arguments.
+ * Write control is handled by the DIFC guard policy — this server only
+ * blocks meta-commands that modify gh CLI itself.
  *
  * @param {string[]} args - The argument array (excluding 'gh' itself)
- * @param {boolean} writable - Whether write operations are permitted
  * @returns {{ valid: boolean, error?: string }}
  */
-function validateArgs(args, writable) {
+function validateArgs(args) {
   if (!Array.isArray(args)) {
     return { valid: false, error: 'args must be an array' };
   }
@@ -105,13 +99,7 @@ function validateArgs(args, writable) {
   }
 
   // Find the subcommand by scanning through args, skipping flags and their values.
-  // Handles patterns like: gh --repo owner/repo pr list
-  // Strategy: when we see --flag (without =), assume the next non-flag-like arg is its value.
-  // We also track the subcommand's index so that subsequent action detection doesn't
-  // accidentally pick up a flag value that happens to equal the subcommand string
-  // (e.g. gh --repo pr pr merge 1 would be wrongly parsed by indexOf).
   let subcommand = null;
-  let subcommandIndex = -1;
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
@@ -125,7 +113,6 @@ function validateArgs(args, writable) {
       }
     } else {
       subcommand = arg;
-      subcommandIndex = i;
       break;
     }
   }
@@ -138,28 +125,6 @@ function validateArgs(args, writable) {
   // Always deny meta-commands
   if (ALWAYS_DENIED_SUBCOMMANDS.has(subcommand)) {
     return { valid: false, error: `Subcommand '${subcommand}' is not permitted` };
-  }
-
-  if (!writable) {
-    // Read-only mode: check allowlist
-    if (!ALLOWED_SUBCOMMANDS_READONLY.has(subcommand)) {
-      return { valid: false, error: `Subcommand '${subcommand}' is not allowed in read-only mode. Enable write mode with --cli-proxy-writable.` };
-    }
-
-    // Check action-level blocklist
-    const blockedActions = BLOCKED_ACTIONS_READONLY.get(subcommand);
-    if (blockedActions) {
-      // The action is the first non-flag argument after the subcommand.
-      // Use the tracked subcommandIndex (not indexOf) to avoid false matches when
-      // the subcommand string also appears as a flag value earlier in the args array.
-      const action = args.slice(subcommandIndex + 1).find(a => !a.startsWith('-'));
-      if (action && blockedActions.has(action)) {
-        return {
-          valid: false,
-          error: `Action '${subcommand} ${action}' is not allowed in read-only mode. Enable write mode with --cli-proxy-writable.`,
-        };
-      }
-    }
   }
 
   return { valid: true };
@@ -221,7 +186,7 @@ function sendError(res, statusCode, message) {
  * Handle GET /health
  */
 function handleHealth(res) {
-  const body = JSON.stringify({ status: 'ok', service: 'cli-proxy', writable: WRITABLE_MODE });
+  const body = JSON.stringify({ status: 'ok', service: 'cli-proxy' });
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
@@ -248,6 +213,7 @@ function handleHealth(res) {
  * }
  */
 async function handleExec(req, res) {
+  const startTime = Date.now();
   let body;
   try {
     const raw = await readBody(req, res);
@@ -255,31 +221,36 @@ async function handleExec(req, res) {
     if (raw === null) return;
     body = JSON.parse(raw.toString('utf8'));
   } catch {
+    accessLog({ event: 'exec_error', error: 'Invalid JSON body' });
     return sendError(res, 400, 'Invalid JSON body');
   }
 
   const { args, cwd, stdin, env: extraEnv } = body;
 
   // Validate args
-  const validation = validateArgs(args, WRITABLE_MODE);
+  const validation = validateArgs(args);
   if (!validation.valid) {
+    accessLog({ event: 'exec_denied', args, error: validation.error });
     return sendError(res, 403, validation.error);
   }
+
+  accessLog({ event: 'exec_start', args, cwd: cwd || null });
 
   // Build environment for the subprocess
   // Inherit server environment (includes GH_HOST, NODE_EXTRA_CA_CERTS, GH_REPO, etc.)
   const childEnv = Object.assign({}, process.env);
   if (extraEnv && typeof extraEnv === 'object') {
-    // Only allow safe string env overrides; never allow overriding GH_HOST or GH_TOKEN
-    const PROTECTED_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS']);
+    // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
     for (const [key, value] of Object.entries(extraEnv)) {
-      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_KEYS.has(key)) {
+      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_ENV_KEYS.has(key)) {
         childEnv[key] = value;
       }
     }
   }
 
   // Execute gh directly (no shell — prevents injection attacks)
+  // Always use the server's own cwd — the agent sends its container workspace
+  // path which doesn't exist inside the cli-proxy container.
   let stdout = '';
   let stderr = '';
   let exitCode = 0;
@@ -287,7 +258,7 @@ async function handleExec(req, res) {
   try {
     const result = await new Promise((resolve, reject) => {
       const child = execFile('gh', args, {
-        cwd: cwd || process.cwd(),
+        cwd: process.cwd(),
         env: childEnv,
         timeout: COMMAND_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
@@ -330,6 +301,19 @@ async function handleExec(req, res) {
   }
 
   const responseBody = JSON.stringify({ stdout, stderr, exitCode });
+
+  const durationMs = Date.now() - startTime;
+  accessLog({
+    event: 'exec_done',
+    args,
+    exitCode,
+    durationMs,
+    stdoutBytes: stdout.length,
+    stderrBytes: stderr.length,
+    // Include truncated stderr for debugging failures (redact tokens)
+    ...(exitCode !== 0 && stderr ? { stderrPreview: stderr.slice(0, 500) } : {}),
+  });
+
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(responseBody),
@@ -356,7 +340,7 @@ async function requestHandler(req, res) {
 if (require.main === module) {
   const server = http.createServer((req, res) => {
     requestHandler(req, res).catch(err => {
-      console.error('[cli-proxy] Unhandled request error:', err);
+      accessLog({ event: 'unhandled_error', error: err.message });
       if (!res.headersSent) {
         sendError(res, 500, 'Internal server error');
       }
@@ -364,13 +348,22 @@ if (require.main === module) {
   });
 
   server.listen(CLI_PROXY_PORT, '0.0.0.0', () => {
-    console.log(`[cli-proxy] HTTP server listening on port ${CLI_PROXY_PORT} (writable=${WRITABLE_MODE})`);
+    accessLog({
+      event: 'server_start',
+      port: CLI_PROXY_PORT,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      ghHost: process.env.GH_HOST || '(not set)',
+      caCert: process.env.NODE_EXTRA_CA_CERTS || '(not set)',
+      hasGhToken: !!process.env.GH_TOKEN,
+    });
+    console.log(`[cli-proxy] HTTP server listening on port ${CLI_PROXY_PORT}`);
   });
 
   server.on('error', err => {
+    accessLog({ event: 'server_error', error: err.message });
     console.error('[cli-proxy] Server error:', err);
     process.exit(1);
   });
 }
 
-module.exports = { validateArgs, ALLOWED_SUBCOMMANDS_READONLY, BLOCKED_ACTIONS_READONLY, ALWAYS_DENIED_SUBCOMMANDS };
+module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS };

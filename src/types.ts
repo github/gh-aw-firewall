@@ -787,72 +787,43 @@ export interface WrapperConfig {
    * Enable CLI proxy sidecar for secure gh CLI access
    *
    * When true, deploys a CLI proxy sidecar container that:
-   * - Holds GH_TOKEN securely (never exposed to the agent)
-   * - Routes gh CLI invocations through an mcpg DIFC proxy
-   * - Enforces guard policies (min-integrity, repo restrictions)
+   * - Routes gh CLI invocations through an external DIFC proxy (mcpg)
+   * - The DIFC proxy enforces guard policies (min-integrity, repo restrictions)
    * - Generates audit logs via mcpg's JSONL output
    *
    * The agent container gets a /usr/local/bin/gh wrapper script that
    * forwards invocations to the CLI proxy sidecar at http://172.30.0.50:11000.
    *
-   * @default false
-   * @example
-   * ```bash
-   * export GITHUB_TOKEN="ghp_..."
-   * awf --enable-cli-proxy --allow-domains api.github.com,github.com -- command
-   * ```
+   * The DIFC proxy (mcpg) is started externally by the gh-aw compiler on the
+   * host. AWF only launches the cli-proxy container and connects it to the
+   * external DIFC proxy via a TCP tunnel for TLS hostname matching.
+   *
+   * @example 'host.docker.internal:18443'
    */
-  enableCliProxy?: boolean;
+  difcProxyHost?: string;
 
   /**
-   * Allow write operations through the CLI proxy sidecar
+   * Path to the TLS CA certificate written by the external DIFC proxy.
    *
-   * When true, the CLI proxy allows write operations (pr create, issue create, etc.)
-   * in addition to read-only operations.
-   * When false (default), only read-only subcommands and actions are permitted.
+   * The DIFC proxy generates a self-signed TLS cert. This path points to
+   * the CA cert on the host filesystem, which is bind-mounted into the
+   * cli-proxy container for TLS verification.
    *
-   * @default false
+   * @example '/tmp/gh-aw/difc-proxy-tls/ca.crt'
    */
-  cliProxyWritable?: boolean;
-
-  /**
-   * Guard policy JSON for the mcpg DIFC proxy inside the CLI proxy sidecar
-   *
-   * This JSON string is passed to the mcpg proxy's --policy flag to enforce
-   * DIFC guard policies (repository restrictions, minimum integrity level).
-   * If not specified, a default policy is generated based on GITHUB_REPOSITORY.
-   *
-   * @example '{"repos":["owner/repo"],"min-integrity":"public"}'
-   */
-  cliProxyPolicy?: string;
+  difcProxyCaCert?: string;
 
   /**
    * GitHub token for the CLI proxy sidecar
    *
-   * When enableCliProxy is true, this token is injected into the CLI proxy
-   * container and passed to the mcpg DIFC proxy. The token is never exposed
-   * to the agent container directly.
+   * When difcProxyHost is set, GitHub tokens are excluded from the agent
+   * container environment. The token is held by the external DIFC proxy.
    *
    * Read from GITHUB_TOKEN environment variable when not specified.
    *
    * @default undefined
    */
   githubToken?: string;
-
-  /**
-   * Docker image reference for the mcpg DIFC proxy container.
-   *
-   * When `--enable-cli-proxy` is active, the mcpg proxy runs as a separate
-   * docker-compose service (awf-cli-proxy-mcpg) using this image directly.
-   * The CLI proxy HTTP server connects to it via the Docker network.
-   *
-   * The AWF compiler (gh-aw) sets this to control which mcpg version is used,
-   * enabling version pinning and testing of new mcpg releases.
-   *
-   * @default 'ghcr.io/github/gh-aw-mcpg:v0.2.15'
-   * @example 'ghcr.io/github/gh-aw-mcpg:v0.3.0'
-   */
-  cliProxyMcpgImage?: string;
 
   /**
    * Enable Data Loss Prevention (DLP) scanning
@@ -1222,7 +1193,7 @@ export interface DockerService {
    * via localhost (e.g., for TLS cert hostname matching).
    * Mutually exclusive with networks.
    * 
-   * @example 'service:cli-proxy-mcpg'
+   * @example 'service:agent'
    */
   network_mode?: string;
 
@@ -1303,10 +1274,10 @@ export interface DockerService {
    * ```typescript
    * {
    *   test: ['CMD', 'squidclient', '-h', 'localhost', '-p', '3128', 'http://localhost/'],
-   *   interval: '5s',
-   *   timeout: '3s',
-   *   retries: 3,
-   *   start_period: '10s'
+   *   interval: '1s',
+   *   timeout: '1s',
+   *   retries: 5,
+   *   start_period: '2s'
    * }
    * ```
    */

@@ -6,8 +6,7 @@ export interface PredownloadOptions {
   imageTag: string;
   agentImage: string;
   enableApiProxy: boolean;
-  enableCliProxy?: boolean;
-  cliProxyMcpgImage?: string;
+  difcProxy?: boolean;
 }
 
 /**
@@ -49,13 +48,9 @@ export function resolveImages(options: PredownloadOptions): string[] {
     images.push(`${imageRegistry}/api-proxy:${imageTag}`);
   }
 
-  // Optionally pull cli-proxy and its mcpg sidecar
-  if (options.enableCliProxy) {
+  // Optionally pull cli-proxy (mcpg is now started externally by the compiler)
+  if (options.difcProxy) {
     images.push(`${imageRegistry}/cli-proxy:${imageTag}`);
-    // mcpg runs as a separate container; default or user-specified image
-    const mcpgImage = options.cliProxyMcpgImage || 'ghcr.io/github/gh-aw-mcpg:v0.2.15';
-    validateImageReference(mcpgImage);
-    images.push(mcpgImage);
   }
 
   return images;
