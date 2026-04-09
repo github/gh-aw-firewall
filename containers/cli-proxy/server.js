@@ -26,6 +26,11 @@ const CLI_PROXY_PORT = parseInt(process.env.AWF_CLI_PROXY_PORT || '11000', 10);
 const COMMAND_TIMEOUT_MS = parseInt(process.env.AWF_CLI_PROXY_TIMEOUT_MS || '30000', 10);
 const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || String(10 * 1024 * 1024), 10);
 
+// Environment keys that agents are not allowed to override via the /exec env field.
+// GH_HOST / GH_TOKEN / GITHUB_TOKEN — prevent auth/routing hijack.
+// NODE_EXTRA_CA_CERTS / SSL_CERT_FILE — prevent TLS trust-store bypass.
+const PROTECTED_ENV_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']);
+
 // --- Structured logging to /var/log/cli-proxy/access.log ---
 
 const LOG_DIR = process.env.AWF_CLI_PROXY_LOG_DIR || '/var/log/cli-proxy';
@@ -227,7 +232,7 @@ async function handleExec(req, res) {
   const childEnv = Object.assign({}, process.env);
   if (extraEnv && typeof extraEnv === 'object') {
     // Only allow safe string env overrides; never allow overriding GH_HOST or GH_TOKEN
-    const PROTECTED_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']);
+    const PROTECTED_KEYS = PROTECTED_ENV_KEYS;
     for (const [key, value] of Object.entries(extraEnv)) {
       if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_KEYS.has(key)) {
         childEnv[key] = value;
@@ -353,4 +358,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS };
+module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS };

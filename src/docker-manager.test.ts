@@ -2919,6 +2919,74 @@ describe('docker-manager', () => {
         expect(dependsOn['squid-proxy']).toBeDefined();
         expect(dependsOn['cli-proxy-mcpg']).toBeUndefined();
       });
+
+      it('should pass GH_TOKEN to cli-proxy environment when available', () => {
+        const originalGhToken = process.env.GH_TOKEN;
+        try {
+          process.env.GH_TOKEN = 'ghp_cli_proxy_test_token';
+          const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
+          const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+          const proxy = result.services['cli-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.GH_TOKEN).toBe('ghp_cli_proxy_test_token');
+        } finally {
+          if (originalGhToken !== undefined) {
+            process.env.GH_TOKEN = originalGhToken;
+          } else {
+            delete process.env.GH_TOKEN;
+          }
+        }
+      });
+
+      it('should fall back to GITHUB_TOKEN for cli-proxy when GH_TOKEN is absent', () => {
+        const originalGhToken = process.env.GH_TOKEN;
+        const originalGithubToken = process.env.GITHUB_TOKEN;
+        try {
+          delete process.env.GH_TOKEN;
+          process.env.GITHUB_TOKEN = 'ghp_github_token_fallback';
+          const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
+          const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+          const proxy = result.services['cli-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.GH_TOKEN).toBe('ghp_github_token_fallback');
+        } finally {
+          if (originalGhToken !== undefined) {
+            process.env.GH_TOKEN = originalGhToken;
+          } else {
+            delete process.env.GH_TOKEN;
+          }
+          if (originalGithubToken !== undefined) {
+            process.env.GITHUB_TOKEN = originalGithubToken;
+          } else {
+            delete process.env.GITHUB_TOKEN;
+          }
+        }
+      });
+
+      it('should not set GH_TOKEN in cli-proxy when neither GH_TOKEN nor GITHUB_TOKEN is set', () => {
+        const originalGhToken = process.env.GH_TOKEN;
+        const originalGithubToken = process.env.GITHUB_TOKEN;
+        try {
+          delete process.env.GH_TOKEN;
+          delete process.env.GITHUB_TOKEN;
+          const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
+          const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+          const proxy = result.services['cli-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.GH_TOKEN).toBeUndefined();
+        } finally {
+          if (originalGhToken !== undefined) {
+            process.env.GH_TOKEN = originalGhToken;
+          } else {
+            delete process.env.GH_TOKEN;
+          }
+          if (originalGithubToken !== undefined) {
+            process.env.GITHUB_TOKEN = originalGithubToken;
+          } else {
+            delete process.env.GITHUB_TOKEN;
+          }
+        }
+      });
     });
   });
 
