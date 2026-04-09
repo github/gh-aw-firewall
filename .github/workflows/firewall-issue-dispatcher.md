@@ -11,6 +11,9 @@ permissions:
   issues: read
   pull-requests: read
 
+features:
+  cli-proxy: true
+
 tools:
   github:
     toolsets: [default]

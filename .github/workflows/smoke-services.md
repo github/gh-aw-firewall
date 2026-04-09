@@ -14,6 +14,8 @@ permissions:
   actions: read
 name: Smoke Services
 engine: copilot
+features:
+  cli-proxy: true
 network:
   allowed:
     - defaults
