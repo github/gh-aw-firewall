@@ -60,7 +60,12 @@ function parseArgs(): { last: number; format: "markdown" | "json" } {
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--last" && args[i + 1]) {
-      last = parseInt(args[i + 1], 10);
+      const parsed = parseInt(args[i + 1], 10);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        last = parsed;
+      } else {
+        console.error(`Warning: invalid --last value "${args[i + 1]}", using default ${DEFAULT_LAST}`);
+      }
       i++;
     } else if (args[i] === "--format" && args[i + 1]) {
       format = args[i + 1] as "markdown" | "json";

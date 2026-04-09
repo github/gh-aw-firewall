@@ -11,6 +11,10 @@ on:
         required: false
         default: "30"
 
+concurrency:
+  group: performance-benchmark
+  cancel-in-progress: false  # Let the running benchmark finish; queue the next one
+
 permissions:
   contents: write  # Required to push to benchmark-data branch
   issues: write
@@ -52,6 +56,11 @@ jobs:
           if git fetch origin benchmark-data 2>/dev/null; then
             git show origin/benchmark-data:benchmarks/history.json > benchmarks/history.json 2>/dev/null || echo '[]' > benchmarks/history.json
           else
+            echo '[]' > benchmarks/history.json
+          fi
+          # Validate JSON; fall back to empty array if corrupted
+          if ! jq empty benchmarks/history.json 2>/dev/null; then
+            echo "WARNING: history.json is corrupted, resetting to empty"
             echo '[]' > benchmarks/history.json
           fi
           echo "History entries: $(jq 'length' benchmarks/history.json)"
