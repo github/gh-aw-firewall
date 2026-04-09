@@ -39,6 +39,7 @@ const workflowPaths = [
   path.join(repoRoot, '.github/workflows/cli-flag-consistency-checker.lock.yml'),
   path.join(repoRoot, '.github/workflows/dependency-security-monitor.lock.yml'),
   path.join(repoRoot, '.github/workflows/doc-maintainer.lock.yml'),
+  path.join(repoRoot, '.github/workflows/firewall-issue-dispatcher.lock.yml'),
   path.join(repoRoot, '.github/workflows/issue-duplication-detector.lock.yml'),
   path.join(repoRoot, '.github/workflows/issue-monster.lock.yml'),
   path.join(repoRoot, '.github/workflows/pelis-agent-factory-advisor.lock.yml'),
