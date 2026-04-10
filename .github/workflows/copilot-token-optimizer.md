@@ -14,6 +14,8 @@ permissions:
   actions: read
   issues: read
   pull-requests: read
+imports:
+  - uses: shared/mcp/gh-aw.md
 network:
   allowed:
     - github
@@ -23,11 +25,39 @@ tools:
   bash: true
 safe-outputs:
   create-issue:
-    title-prefix: "⚡ Copilot Token Optimization"
+    title-prefix: "\u26a1 Copilot Token Optimization"
     labels: [copilot-token-optimization]
     close-older-issues: true
 timeout-minutes: 10
 strict: true
+steps:
+  - name: Download recent Copilot workflow logs
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      set -euo pipefail
+      mkdir -p /tmp/gh-aw/token-audit
+
+      echo "\U0001F4E5 Downloading Copilot workflow logs (last 7 days)..."
+
+      LOGS_EXIT=0
+      gh aw logs \
+        --engine copilot \
+        --start-date -7d \
+        --json \
+        -c 50 \
+        > /tmp/gh-aw/token-audit/copilot-logs.json || LOGS_EXIT=$?
+
+      if [ -s /tmp/gh-aw/token-audit/copilot-logs.json ]; then
+        TOTAL=$(jq '.runs | length' /tmp/gh-aw/token-audit/copilot-logs.json)
+        echo "\u2705 Downloaded $TOTAL Copilot workflow runs (last 7 days)"
+        if [ "$LOGS_EXIT" -ne 0 ]; then
+          echo "\u26a0\ufe0f gh aw logs exited with code $LOGS_EXIT (partial results)"
+        fi
+      else
+        echo "\u274c No log data downloaded (exit code $LOGS_EXIT)"
+        echo '{"runs":[],"summary":{}}' > /tmp/gh-aw/token-audit/copilot-logs.json
+      fi
 ---
 
 # Daily Copilot Token Optimization Advisor
@@ -80,52 +110,31 @@ cat "$WORKFLOW_FILE"
 ```
 
 Analyze:
-- **Tools loaded** — List all tools in the `tools:` section. Flag any that may not be needed.
-- **Network groups** — List network groups in `network.allowed:`. Flag unused ones.
-- **Prompt length** — Estimate the markdown body size. Is it verbose?
-- **Pre-agent steps** — Does it use `steps:` to pre-compute deterministic work?
-- **Post-agent steps** — Does it use `post-steps:` for validation?
+- **Tools loaded** \u2014 List all tools in the `tools:` section. Flag any that may not be needed.
+- **Network groups** \u2014 List network groups in `network.allowed:`. Flag unused ones.
+- **Prompt length** \u2014 Estimate the markdown body size. Is it verbose?
+- **Pre-agent steps** \u2014 Does it use `steps:` to pre-compute deterministic work?
+- **Post-agent steps** \u2014 Does it use `post-steps:` for validation?
 
-## Step 4: Analyze Recent Run Artifacts
+## Step 4: Analyze Recent Run Data
 
-Download the most recent successful run's artifacts to understand actual tool usage:
+The pre-agent step downloaded the last 7 days of Copilot workflow logs to `/tmp/gh-aw/token-audit/copilot-logs.json`. Filter this data for the target workflow:
 
 ```bash
-# Find the latest successful run using the resolved workflow file
-LOCK_FILE="$(basename "$WORKFLOW_FILE" .md).lock.yml"
-RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" \
-  --workflow "$LOCK_FILE" \
-  --status success --limit 1 \
-  --json databaseId --jq '.[0].databaseId')
-
-if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-  echo "No successful runs found for $LOCK_FILE — skipping artifact analysis"
-else
-  # Download artifacts
-  TMPDIR=$(mktemp -d)
-  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-    --name agent-artifacts --dir "$TMPDIR" 2>/dev/null || \
-  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-    --name agent --dir "$TMPDIR" 2>/dev/null
-
-  # Check token usage
-  find "$TMPDIR" -name "token-usage.jsonl" -exec cat {} \;
-
-  # Check agent stdio log for tool calls (|| true to handle no matches)
-  find "$TMPDIR" -name "agent-stdio.log" -exec grep -h "^●" {} \; || true
-
-  # Check prompt size
-  find "$TMPDIR" -name "prompt.txt" -exec wc -c {} \;
-fi
+# Extract runs for the target workflow
+cat /tmp/gh-aw/token-audit/copilot-logs.json | \
+  jq --arg name "$WORKFLOW_NAME" '[.runs[] | select(.workflow_name == $name)]'
 ```
 
-From the artifacts, determine:
-- **Which tools were actually called** vs which are loaded
-- **How many LLM turns** were used
-- **Per-turn token breakdown** (first turn is usually the most expensive)
-- **Whether there's a "tool probing" pattern** (Turn 1 calls every tool once)
+From the run data, determine:
+- **Per-run token breakdown** (token_usage, estimated_cost per run)
+- **Average turns** per run
+- **Error/warning patterns**
+- **Token usage summary** (per-model breakdown from `token_usage_summary` if available)
 
-Clean up: `rm -rf "$TMPDIR"`
+Also check the `tool_usage` and `mcp_tool_usage` fields in the JSON to identify which tools are actually being used vs loaded.
+
+Clean up is not needed \u2014 data is pre-downloaded to /tmp.
 
 ## Step 5: Generate Optimization Recommendations
 
@@ -135,18 +144,16 @@ Produce **specific, implementable recommendations** based on these patterns:
 If many tools are loaded but few are used:
 - List which tools to remove from `tools:` in the workflow `.md`
 - Estimate token savings (each tool schema is ~500-700 tokens)
-- Example: "Remove `playwright:`, `web-fetch:`, `edit:` — saves ~30K tokens/turn"
+- Example: "Remove `playwright:`, `web-fetch:`, `edit:` \u2014 saves ~30K tokens/turn"
 
 ### Pre-Agent Steps
 If the workflow does deterministic work (API calls, file creation, data fetching) inside the agent:
 - Identify which operations could move to `steps:` (pre-agent)
 - Show example `steps:` configuration
-- Example: "Move `gh pr list` to a pre-step, inject results via `${{ steps.X.outputs.Y }}`"
 
 ### Prompt Optimization
 If the prompt is verbose or contains data the agent doesn't need:
 - Suggest specific cuts or rewrites
-- Example: "Replace 15-line test instructions with 3-line summary referencing pre-computed results"
 
 ### GitHub Toolset Restriction
 If `github:` tools are loaded without `toolsets:` restriction:
@@ -156,17 +163,15 @@ If `github:` tools are loaded without `toolsets:` restriction:
 ### Network Group Trimming
 If unused network groups are configured (e.g., `node`, `playwright`):
 - List which to remove
-- These don't directly affect tokens but indicate unnecessary tool/domain overhead
 
 ### Cache Optimization
 If cache hit rate is low (<50%):
 - Check if prompts vary between runs (run-specific IDs, timestamps)
 - Suggest moving variable content to the end of prompts (prefix caching)
-- Note: cache TTL is ~5 minutes, so sequential runs within a window benefit
 
 ## Step 6: Create the Optimization Issue
 
-Create an issue with title: `YYYY-MM-DD — <workflow-name>`
+Create an issue with title: `YYYY-MM-DD \u2014 <workflow-name>`
 
 Body structure:
 
@@ -228,10 +233,10 @@ Body structure:
 
 ## Important Guidelines
 
-- **Be concrete** — Every recommendation must include specific file changes, not just "reduce tools"
-- **Estimate savings** — Quantify each recommendation in tokens and percentage
-- **Prioritize by impact** — Order recommendations from highest to lowest token savings
-- **Include implementation steps** — Someone should be able to follow your recommendations without additional research
-- **Reference the report** — Link back to the source token usage report issue
-- **One workflow per issue** — Focus on the single most expensive workflow
-- **Clean up** temporary files after analysis
+- **Be concrete** \u2014 Every recommendation must include specific file changes, not just "reduce tools"
+- **Estimate savings** \u2014 Quantify each recommendation in tokens and percentage
+- **Prioritize by impact** \u2014 Order recommendations from highest to lowest token savings
+- **Include implementation steps** \u2014 Someone should be able to follow your recommendations without additional research
+- **Reference the report** \u2014 Link back to the source token usage report issue
+- **One workflow per issue** \u2014 Focus on the single most expensive workflow
+- **Use pre-downloaded data** \u2014 All run data is at `/tmp/gh-aw/token-audit/copilot-logs.json`. Do not download artifacts manually.

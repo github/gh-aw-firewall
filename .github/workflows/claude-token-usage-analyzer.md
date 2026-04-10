@@ -9,22 +9,50 @@ permissions:
   issues: read
   pull-requests: read
 imports:
+  - uses: shared/mcp/gh-aw.md
   - shared/mcp-pagination.md
   - shared/reporting.md
 network:
   allowed:
     - github
-    - "*.blob.core.windows.net"
 tools:
   github:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
   create-issue:
-    title-prefix: "📊 Claude Token Usage Report"
+    title-prefix: "\U0001F4CA Claude Token Usage Report"
     labels: [claude-token-usage-report]
     close-older-issues: true
 timeout-minutes: 45
+steps:
+  - name: Download Claude workflow logs
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      set -euo pipefail
+      mkdir -p /tmp/gh-aw/token-audit
+
+      echo "\U0001F4E5 Downloading Claude workflow logs (last 24 hours)..."
+
+      LOGS_EXIT=0
+      gh aw logs \
+        --engine claude \
+        --start-date -1d \
+        --json \
+        -c 50 \
+        > /tmp/gh-aw/token-audit/claude-logs.json || LOGS_EXIT=$?
+
+      if [ -s /tmp/gh-aw/token-audit/claude-logs.json ]; then
+        TOTAL=$(jq '.runs | length' /tmp/gh-aw/token-audit/claude-logs.json)
+        echo "\u2705 Downloaded $TOTAL Claude workflow runs (last 24 hours)"
+        if [ "$LOGS_EXIT" -ne 0 ]; then
+          echo "\u26a0\ufe0f gh aw logs exited with code $LOGS_EXIT (partial results \u2014 likely API rate limit)"
+        fi
+      else
+        echo "\u274c No log data downloaded (exit code $LOGS_EXIT)"
+        echo '{"runs":[],"summary":{}}' > /tmp/gh-aw/token-audit/claude-logs.json
+      fi
 ---
 
 # Daily Claude Token Usage Analyzer
@@ -33,114 +61,99 @@ You are an AI agent that analyzes Claude token usage across agentic workflow run
 
 ## Background
 
-This repository uses the **Agent Workflow Firewall (AWF)** with an api-proxy sidecar that tracks token usage for LLM API calls. Each workflow run with `--enable-api-proxy` produces a `token-usage.jsonl` file captured in the `agent-artifacts` upload artifact.
+This repository uses the **Agent Workflow Firewall (AWF)** with an api-proxy sidecar that tracks token usage for LLM API calls. The pre-agent step has already downloaded structured run data using `gh aw logs --json`, which includes per-run token usage, cost estimates, and run metadata.
 
-**Token usage tracking is a new feature** — many older runs won't have this data. Handle missing data gracefully.
+**Note:** Copilot-engine and Codex-engine workflows are excluded \u2014 they are covered by the separate Copilot Token Usage Analyzer.
 
-### Token Usage Record Format
+## Data Sources
 
-Each line in `token-usage.jsonl` is a JSON object:
+### Pre-downloaded logs
+
+The file `/tmp/gh-aw/token-audit/claude-logs.json` contains structured JSON output from `gh aw logs --engine claude --json` with this shape:
+
 ```json
 {
-  "timestamp": "2026-04-01T17:38:12.486Z",
-  "request_id": "uuid",
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "path": "/v1/messages?beta=true",
-  "status": 200,
-  "streaming": true,
-  "input_tokens": 3,
-  "output_tokens": 418,
-  "cache_read_tokens": 14044,
-  "cache_write_tokens": 26042,
-  "duration_ms": 5858,
-  "response_bytes": 2800
+  "summary": {
+    "run_count": N,
+    "total_tokens": N,
+    "avg_tokens": N,
+    "total_cost": F,
+    "avg_cost": F,
+    "total_turns": N,
+    "avg_turns": F,
+    "total_action_minutes": F,
+    "error_count": N,
+    "warning_count": N
+  },
+  "runs": [ ... ],
+  "tool_usage": [ ... ],
+  "mcp_tool_usage": { ... }
 }
 ```
 
+Each element of `.runs` includes:
+
+| Field | Type | Notes |
+|---|---|---|
+| `workflow_name` | string | Human-readable name |
+| `workflow_path` | string | `.github/workflows/....lock.yml` |
+| `token_usage` | int | Total tokens (treat missing/null as 0) |
+| `effective_tokens` | int | Cost-normalized tokens |
+| `estimated_cost` | float | USD cost (treat missing/null as 0) |
+| `action_minutes` | float | Billable GitHub Actions minutes |
+| `turns` | int | Number of agent turns |
+| `duration` | string | Human-readable duration |
+| `created_at` | ISO 8601 | Run creation time |
+| `database_id` | int64 | Unique run ID |
+| `url` | string | Link to the run |
+| `status` | string | `completed`, `in_progress`, etc. |
+| `conclusion` | string | `success`, `failure`, etc. |
+| `error_count` | int | Errors encountered |
+| `warning_count` | int | Warnings encountered |
+| `token_usage_summary` | object or null | Firewall-level breakdown by model (includes Anthropic cache read/write tokens) |
+
 ## Your Mission
 
-### Step 1: Discover Recent Workflow Runs
+### Step 1: Load and Parse Pre-Downloaded Data
 
-Use `gh run list` via bash to find completed agentic workflow runs from the past 24 hours (or since the last token usage report issue). Focus on **Claude-engine workflows** that use the api-proxy:
-
-- `smoke-claude`
-- `secret-digger-claude`
-- `security-review`, `security-guard`
-- Any other Claude-engine workflow with `agent-artifacts`
-
-**Note:** Copilot-engine and Codex-engine workflows (e.g., `smoke-copilot`, `smoke-chroot`, `smoke-services`, `build-test`, `smoke-codex`, `secret-digger-copilot`) are excluded from this analysis — they are covered by the separate Copilot Token Usage Analyzer.
-
-Use bash to run:
-```bash
-# Find runs from the last 24 hours
-CUTOFF="$(date -u -Iseconds -d '24 hours ago')"
-
-gh run list --repo "$GITHUB_REPOSITORY" --limit 50 \
-  --created ">=$CUTOFF" \
-  --json databaseId,name,status,conclusion,createdAt,workflowName \
-  --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")]'
-```
-
-### Step 2: Download and Parse Token Usage Data
-
-For each discovered run, attempt to download the `agent-artifacts` artifact and extract `token-usage.jsonl`.
-
-**IMPORTANT:** Always use `gh run download` via bash — this is much faster than using MCP `get_job_logs` and the network is configured to allow artifact blob storage access.
+Read the pre-downloaded logs:
 
 ```bash
-# Create temp directory
-TMPDIR=$(mktemp -d)
-
-# Try to download artifacts for a run
-gh run download <RUN_ID> --repo "$GITHUB_REPOSITORY" --name agent-artifacts --dir "$TMPDIR/run-<RUN_ID>" 2>/dev/null
-
-# Look for token-usage.jsonl (may be nested under sandbox/firewall/logs/api-proxy-logs/)
-find "$TMPDIR/run-<RUN_ID>" -name "token-usage.jsonl" 2>/dev/null
+cat /tmp/gh-aw/token-audit/claude-logs.json | jq '.summary'
+cat /tmp/gh-aw/token-audit/claude-logs.json | jq '.runs | length'
 ```
 
-**Filter for Claude/Anthropic requests:** When parsing `token-usage.jsonl`, only include records where `provider` is `"anthropic"`. This ensures we're analyzing Claude-specific usage even if a workflow makes calls to multiple providers.
+If `.runs` is empty, create a minimal report noting that no Claude workflow runs were found in the last 24 hours.
 
-**Graceful degradation:**
-- If artifact download fails → skip run, note it as "no artifacts"
-- If `token-usage.jsonl` is missing → skip run, note it as "no token logs"
-- If the file is empty → skip run, note it as "empty token logs"
-- Track which workflows have instrumentation vs which don't
+### Step 2: Compute Per-Workflow Statistics
 
-### Step 3: Compute Per-Workflow Statistics
+Group `.runs` by `workflow_name` and compute per-workflow aggregates:
 
-For each workflow that has token data, calculate:
+1. **Run count**: Number of runs per workflow
+2. **Total tokens**: Sum of `token_usage` across runs
+3. **Avg tokens/run**: Mean `token_usage`
+4. **Total cost**: Sum of `estimated_cost`
+5. **Avg cost/run**: Mean `estimated_cost`
+6. **Total turns**: Sum of `turns`
+7. **Error/warning counts**: Sum of `error_count`, `warning_count`
+8. **Model & cache breakdown**: Extract from `token_usage_summary` where available (Anthropic provides cache_read_tokens and cache_write_tokens)
 
-1. **Total tokens**: `input_tokens + output_tokens + cache_read_tokens + cache_write_tokens`
-2. **Full-price tokens**: `input_tokens + output_tokens + cache_write_tokens` (excludes discounted cache reads; use **Estimated cost** below for true billed amount)
-3. **Input/output ratio**: `(input_tokens + cache_read_tokens) / output_tokens` (if `output_tokens == 0`, treat the ratio as `∞`/`N/A` and exclude that request from ratio averages to avoid division by zero)
-4. **Cache hit rate**: `cache_read_tokens / (cache_read_tokens + input_tokens) * 100`
-5. **Cache write rate**: `cache_write_tokens / (cache_read_tokens + input_tokens + cache_write_tokens) * 100`
-6. **Request count**: Number of records in the JSONL
-7. **Average latency**: Mean `duration_ms` per request
-8. **Model distribution**: Count of requests per model
-9. **Estimated cost** (sum all four token types at their respective rates — cache reads are discounted, not free):
-   - Anthropic Sonnet: input $3/M, output $15/M, cache_read $0.30/M, cache_write $3.75/M
-   - Anthropic Haiku: input $0.80/M, output $4/M, cache_read $0.08/M, cache_write $1/M
-   - Anthropic Opus: input $15/M, output $75/M, cache_read $1.50/M, cache_write $18.75/M
+Use bash with jq or a Python script to process efficiently. Handle null/missing `token_usage` and `estimated_cost` by treating them as 0.
 
-Use bash with a Python or jq script to process the JSONL files efficiently.
-
-### Step 4: Identify Optimization Opportunities
+### Step 3: Identify Optimization Opportunities
 
 Flag workflows with these patterns:
 
 | Pattern | Threshold | Recommendation |
 |---------|-----------|----------------|
-| Zero cache hits | cache_hit_rate = 0% | Enable prompt caching |
-| Low cache hits | cache_hit_rate < 50% | Review cache breakpoints |
-| High cache write vs read | cache_write > cache_read | Cache is being written but not reused — check if conversation turns are too short |
-| High input/output ratio | ratio > 100:1 | Reduce system prompt or MCP tool surface |
-| Many small requests | >10 requests, <50 output tokens each | Batch requests or combine tool calls |
 | High total cost | >$1.00 per run | Review if workflow is doing too much |
+| High token count | >100K tokens/run | Reduce system prompt or MCP tool surface |
+| Many turns | >15 turns/run | Consider pre-computing deterministic work in steps |
+| High cache write vs read | cache_write > cache_read in token_usage_summary | Cache is being written but not reused \u2014 check if conversation turns are too short |
+| High error rate | >30% of runs with errors | Investigate reliability issues |
 | Increasing trend | >20% increase vs last report | Investigate what changed |
 
-### Step 5: Check for Historical Trends
+### Step 4: Check for Historical Trends
 
 Search for previous token usage report issues:
 ```bash
@@ -150,14 +163,14 @@ gh issue list --repo "$GITHUB_REPOSITORY" --label claude-token-usage-report --st
 If previous reports exist, compare current metrics to identify:
 - Workflows with increasing token consumption
 - Workflows that gained or lost prompt caching
-- New workflows that started using the api-proxy
+- New workflows that appeared
 - Cost trend over time
 
-### Step 6: Create the Summary Issue
+### Step 5: Create the Summary Issue
 
 Create an issue with the following structure:
 
-#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "📊 Claude Token Usage Report")
+#### Title: `YYYY-MM-DD` (safe-outputs will automatically prefix this with "\U0001F4CA Claude Token Usage Report")
 
 #### Body structure:
 
@@ -165,21 +178,22 @@ Create an issue with the following structure:
 ### Overview
 
 **Period**: [start date] to [end date]
-**Runs analyzed**: X of Y (Z had token data)
+**Runs analyzed**: X (Y had token data)
 **Total tokens**: N across all workflows
 **Estimated total cost**: $X.XX
+**Total Actions minutes**: X.X min
 
 ### Workflow Summary
 
-| Workflow | Runs | Total Tokens | Cost | Cache Rate | I/O Ratio | Top Model |
-|----------|------|-------------|------|------------|-----------|-----------|
-| smoke-claude | 2 | 395K | $0.46 | 99.5% | 0.6:1 | sonnet-4.6 |
-| security-review | 1 | 120K | $0.22 | 85% | 2.3:1 | sonnet-4.6 |
+| Workflow | Runs | Total Tokens | Avg Tokens | Cost | Avg Cost | Turns |
+|----------|------|-------------|------------|------|----------|-------|
+| smoke-claude | 2 | 395K | 197K | $0.46 | $0.23 | 12 |
+| security-review | 1 | 120K | 120K | $0.22 | $0.22 | 5 |
 | ... | | | | | | |
 
-### 🔍 Optimization Opportunities
+### \U0001F50D Optimization Opportunities
 
-1. **secret-digger-claude** — 45% cache hit rate, high cache writes
+1. **security-review** \u2014 $0.22/run, high cache writes
    - Cache is being created but not fully reused across turns
    - Consider restructuring the prompt to maximize cache prefix reuse
 
@@ -189,44 +203,37 @@ Create an issue with the following structure:
 <summary><b>Per-Workflow Details</b></summary>
 
 #### smoke-claude
-- **Runs**: 2 (run 123, run 456)
-- **Requests**: 12 total (avg 6/run)
-- **Models**: claude-haiku-4.5 (4 reqs), claude-sonnet-4.6 (8 reqs)
-- **Tokens**: 395K total (1.5K input, 2.5K output, 304K cache_read, 87K cache_write)
-- **Cache hit rate**: 99.5%
-- **Cache write rate**: 22.3%
-- **Avg latency**: 3,800ms/request
-- **Estimated cost**: $0.46
-
-#### security-review
-...
+- **Runs**: 2 (links to each run)
+- **Total tokens**: 395K (avg 197K/run)
+- **Estimated cost**: $0.46 (avg $0.23/run)
+- **Turns**: 12 total (avg 6/run)
+- **Model breakdown**: [from token_usage_summary if available]
+- **Cache analysis**: [cache read/write breakdown if available]
+- **Error rate**: 0/2 runs
 
 </details>
 
 <details>
 <summary><b>Workflows Without Token Data</b></summary>
 
-The following workflows either don't use `--enable-api-proxy` or ran before token tracking was enabled:
-- secret-digger-claude (1 run — no agent-artifacts)
+Runs where `token_usage` was null or 0 \u2014 these may not have the api-proxy enabled:
+- [list workflows with missing data]
 
 </details>
 
 ### Historical Trend
 
-[If previous reports exist, show comparison. Otherwise note: "This is the first Claude token usage report. Historical trends will be available in future reports."]
+[If previous reports exist, show comparison. Otherwise: "This is the first Claude token usage report."]
 
 ### Previous Report
-[Link to previous report issue if one exists, otherwise omit this section]
+[Link to previous report issue if one exists]
 ```
 
 ## Important Guidelines
 
-- **Time budget** — You have 15 minutes total. Spend at most 8 minutes on data collection (steps 1-2) and reserve the rest for analysis and issue creation. If artifact downloads are slow, limit to the 5 most recent runs.
-- **Prefer bash over MCP** for data collection — `gh run download` via bash is much faster than MCP `get_job_logs` for retrieving artifacts.
-- **Do NOT fail** if no token data is available. Create a minimal report explaining that token tracking is new and which workflows need instrumentation.
-- **Clean up** temporary directories after processing.
-- **Respect rate limits** — download artifacts one at a time, not in parallel.
-- **Use `--perPage` parameters** when listing runs to avoid token limits on MCP responses.
+- **Do NOT fail** if no token data is available. Create a minimal report explaining which workflows need instrumentation.
+- **All data is pre-downloaded** \u2014 do not attempt to download artifacts or run `gh run download`. Use only the JSON at `/tmp/gh-aw/token-audit/claude-logs.json`.
+- **Anthropic-specific insights** \u2014 Leverage cache write/read data from `token_usage_summary` when available. Anthropic charges 12.5x more for cache writes than reads.
 - **Wrap verbose output** in `<details>` blocks for progressive disclosure.
 - **Round costs** to 2 decimal places, token counts to nearest thousand for readability.
 - **Sort workflows** by estimated cost (highest first) in the summary table.
