@@ -33,7 +33,7 @@ You are an AI agent that analyzes Claude token usage across agentic workflow run
 
 ## Background
 
-This repository uses the **Agent Workflow Firewall (AWF)** with an api-proxy sidecar that tracks token usage for LLM API calls. Each workflow run with `--enable-api-proxy` produces a `token-usage.jsonl` file captured in the `agent-artifacts` upload artifact.
+This repository uses the **Agent Workflow Firewall (AWF)** with an api-proxy sidecar that tracks token usage for LLM API calls. Each workflow run with `--enable-api-proxy` produces a `token-usage.jsonl` file captured in the `firewall-audit-logs` upload artifact (under `logs/api-proxy-logs/`).
 
 **Token usage tracking is a new feature** — many older runs won't have this data. Handle missing data gracefully.
 
@@ -67,7 +67,7 @@ Use `gh run list` via bash to find completed agentic workflow runs from the past
 - `smoke-claude`
 - `secret-digger-claude`
 - `security-review`, `security-guard`
-- Any other Claude-engine workflow with `agent-artifacts`
+- Any other Claude-engine workflow with `firewall-audit-logs`
 
 **Note:** Copilot-engine and Codex-engine workflows (e.g., `smoke-copilot`, `smoke-chroot`, `smoke-services`, `build-test`, `smoke-codex`, `secret-digger-copilot`) are excluded from this analysis — they are covered by the separate Copilot Token Usage Analyzer.
 
@@ -84,7 +84,7 @@ gh run list --repo "$GITHUB_REPOSITORY" --limit 50 \
 
 ### Step 2: Download and Parse Token Usage Data
 
-For each discovered run, attempt to download the `agent-artifacts` artifact and extract `token-usage.jsonl`.
+For each discovered run, attempt to download the `firewall-audit-logs` artifact and extract `token-usage.jsonl`.
 
 **IMPORTANT:** Always use `gh run download` via bash — this is much faster than using MCP `get_job_logs` and the network is configured to allow artifact blob storage access.
 
@@ -92,10 +92,10 @@ For each discovered run, attempt to download the `agent-artifacts` artifact and 
 # Create temp directory
 TMPDIR=$(mktemp -d)
 
-# Try to download artifacts for a run
-gh run download <RUN_ID> --repo "$GITHUB_REPOSITORY" --name agent-artifacts --dir "$TMPDIR/run-<RUN_ID>" 2>/dev/null
+# Try to download artifacts for a run (firewall-audit-logs is the standard artifact name)
+gh run download <RUN_ID> --repo "$GITHUB_REPOSITORY" --name firewall-audit-logs --dir "$TMPDIR/run-<RUN_ID>" 2>/dev/null
 
-# Look for token-usage.jsonl (may be nested under sandbox/firewall/logs/api-proxy-logs/)
+# Look for token-usage.jsonl (nested under logs/api-proxy-logs/)
 find "$TMPDIR/run-<RUN_ID>" -name "token-usage.jsonl" 2>/dev/null
 ```
 

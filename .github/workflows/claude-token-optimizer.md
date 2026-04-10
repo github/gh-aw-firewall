@@ -102,10 +102,10 @@ RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" \
 if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
   echo "No successful runs found for $LOCK_FILE — skipping artifact analysis"
 else
-  # Download artifacts
+  # Download artifacts (firewall-audit-logs contains token-usage.jsonl)
   TMPDIR=$(mktemp -d)
   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-    --name agent-artifacts --dir "$TMPDIR" 2>/dev/null || \
+    --name firewall-audit-logs --dir "$TMPDIR" 2>/dev/null || \
   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
     --name agent --dir "$TMPDIR" 2>/dev/null
 
