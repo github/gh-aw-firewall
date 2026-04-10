@@ -10,6 +10,11 @@
       "version": "v8",
       "sha": "ed597411d8f924073f98dfc5c65a23a2325f34cd"
     },
+    "actions/github-script@v9.0.0": {
+      "repo": "actions/github-script",
+      "version": "v9.0.0",
+      "sha": "d746ffe35508b1917358783b479e04febd2b8f71"
+    },
     "actions/setup-node@v6.3.0": {
       "repo": "actions/setup-node",
       "version": "v6.3.0",
@@ -35,15 +40,15 @@
       "version": "v4.0.0",
       "sha": "4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd"
     },
-    "github/gh-aw-actions/setup@v0.67.4": {
+    "github/gh-aw-actions/setup@v0.68.0": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.67.4",
-      "sha": "9d6ae06250fc0ec536a0e5f35de313b35bad7246"
+      "version": "v0.68.0",
+      "sha": "0acfb4a691fe207cd8bc982ea5cb9d750d57a702"
     },
-    "github/gh-aw/actions/setup@v0.67.4": {
+    "github/gh-aw/actions/setup@v0.68.0": {
       "repo": "github/gh-aw/actions/setup",
-      "version": "v0.67.4",
-      "sha": "78323e834d6a0284641b43590d8c097d1d815d22"
+      "version": "v0.68.0",
+      "sha": "f3d301231ec6de850c2b3320f3ba896ab1e8a8ff"
     },
     "softprops/action-gh-release@v2.6.1": {
       "repo": "softprops/action-gh-release",
