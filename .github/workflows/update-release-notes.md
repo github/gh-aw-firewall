@@ -17,6 +17,8 @@ tools:
     - "git tag:*"
     - "git show:*"
 safe-outputs:
+  threat-detection:
+    enabled: false
   update-release:
     max: 1
 timeout-minutes: 10

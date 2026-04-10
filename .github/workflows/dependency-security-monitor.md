@@ -27,6 +27,8 @@ network:
     - node
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "[Security] "
     labels: [security, dependencies]

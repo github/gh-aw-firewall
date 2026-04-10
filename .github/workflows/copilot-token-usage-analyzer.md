@@ -20,6 +20,8 @@ tools:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "\U0001F4CA Copilot Token Usage Report"
     labels: [token-usage-report]

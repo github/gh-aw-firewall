@@ -15,6 +15,8 @@ tools:
   github:
     toolsets: [default, discussions]
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "[plan] "
     labels: [plan, ai-generated]

@@ -20,6 +20,8 @@ tools:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "\U0001F4CA Claude Token Usage Report"
     labels: [claude-token-usage-report]

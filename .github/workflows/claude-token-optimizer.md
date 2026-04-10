@@ -24,6 +24,8 @@ tools:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "\u26a1 Claude Token Optimization"
     labels: [claude-token-optimization]

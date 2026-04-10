@@ -238,6 +238,8 @@ jobs:
             }
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   assign-to-agent:
     name: "copilot"
   add-comment:

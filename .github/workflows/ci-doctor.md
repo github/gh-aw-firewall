@@ -60,6 +60,8 @@ network:
     - github
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "🏥 CI Failure"
   add-comment:

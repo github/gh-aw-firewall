@@ -28,6 +28,8 @@ tools:
     - "*"
   github:
 safe-outputs:
+    threat-detection:
+      enabled: false
     add-comment:
       hide-older-comments: true
     add-labels:

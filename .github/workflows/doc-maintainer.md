@@ -14,6 +14,8 @@ tools:
   edit:
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-pull-request:
     title-prefix: "[docs] "
     labels: [documentation, ai-generated]

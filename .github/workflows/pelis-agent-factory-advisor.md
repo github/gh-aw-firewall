@@ -24,6 +24,8 @@ network:
     - "github.github.io"
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-discussion:
     title-prefix: "[Pelis Agent Factory Advisor] "
     category: "general"

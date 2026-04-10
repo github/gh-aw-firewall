@@ -15,6 +15,8 @@ tools:
   github:
     toolsets: [default, actions]
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-discussion:
     title-prefix: "[CI/CD Assessment] "
     category: "general"

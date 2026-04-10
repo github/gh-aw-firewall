@@ -12,6 +12,8 @@ tools:
     toolsets: [default]
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-discussion:
     title-prefix: "[CLI Flag Review] "
     category: "general"

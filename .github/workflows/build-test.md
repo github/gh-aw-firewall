@@ -42,6 +42,8 @@ tools:
   github:
     github-token: "${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN }}"
 safe-outputs:
+  threat-detection:
+    enabled: false
   add-comment:
     hide-older-comments: true
   add-labels:

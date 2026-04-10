@@ -21,6 +21,8 @@ network:
   allowed:
     - github
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-discussion:
     title-prefix: "[Security Review] "
     category: "general"

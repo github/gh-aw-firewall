@@ -33,6 +33,8 @@ tools:
     - "tail:*"
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-pull-request:
     draft: true
     title-prefix: "[Test Coverage] "

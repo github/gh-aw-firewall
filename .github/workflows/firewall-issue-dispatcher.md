@@ -22,6 +22,8 @@ tools:
     github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
 
 safe-outputs:
+  threat-detection:
+    enabled: false
   github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
   create-issue:
     max: 10

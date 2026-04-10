@@ -24,6 +24,8 @@ tools:
     toolsets: [default, actions]
   bash: true
 safe-outputs:
+  threat-detection:
+    enabled: false
   create-issue:
     title-prefix: "\u26a1 Copilot Token Optimization"
     labels: [copilot-token-optimization]
