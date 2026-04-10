@@ -1,0 +1,88 @@
+[
+  {
+    "timestamp": "2026-04-10T00:07:30.366Z",
+    "commitSha": "5c2b67c6e24350291db671248aeb0aaa31289c55",
+    "iterations": 5,
+    "results": [
+      {
+        "metric": "docker_network_creation",
+        "unit": "ms",
+        "values": [
+          77,
+          57,
+          61,
+          57,
+          56
+        ],
+        "mean": 62,
+        "median": 57,
+        "p95": 77,
+        "p99": 77
+      },
+      {
+        "metric": "container_startup_warm",
+        "unit": "ms",
+        "values": [
+          13827,
+          13765,
+          13880,
+          13890,
+          13924
+        ],
+        "mean": 13857,
+        "median": 13880,
+        "p95": 13924,
+        "p99": 13924
+      },
+      {
+        "metric": "container_startup_cold",
+        "unit": "ms",
+        "values": [
+          81044,
+          80377,
+          75597,
+          75126,
+          75753
+        ],
+        "mean": 77579,
+        "median": 75753,
+        "p95": 81044,
+        "p99": 81044
+      },
+      {
+        "metric": "squid_https_latency",
+        "unit": "ms",
+        "values": [
+          105,
+          32,
+          31,
+          30,
+          33
+        ],
+        "mean": 46,
+        "median": 32,
+        "p95": 105,
+        "p99": 105
+      },
+      {
+        "metric": "memory_footprint_mb",
+        "unit": "MB",
+        "values": [
+          20,
+          20,
+          20,
+          19,
+          20
+        ],
+        "mean": 20,
+        "median": 20,
+        "p95": 20,
+        "p99": 20
+      }
+    ],
+    "regressions": [
+      "container_startup_warm: p95=13924ms exceeds critical threshold of 8000ms",
+      "container_startup_cold: p95=81044ms exceeds critical threshold of 20000ms"
+    ]
+  }
+]
