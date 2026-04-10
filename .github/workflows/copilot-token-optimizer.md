@@ -104,9 +104,9 @@ else
   # Download artifacts (firewall-audit-logs contains token-usage.jsonl)
   TMPDIR=$(mktemp -d)
   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-    --name firewall-audit-logs --dir "$TMPDIR" 2>/dev/null || \
+    --name firewall-audit-logs --dir "$TMPDIR" 2>/dev/null || true
   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-    --name agent --dir "$TMPDIR" 2>/dev/null
+    --name agent --dir "$TMPDIR" 2>/dev/null || true
 
   # Check token usage
   find "$TMPDIR" -name "token-usage.jsonl" -exec cat {} \;
