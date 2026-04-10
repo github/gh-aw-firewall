@@ -20,37 +20,15 @@ const codexWorkflowPaths = [
   path.join(repoRoot, '.github/workflows/secret-digger-codex.lock.yml'),
 ];
 
-const workflowPaths = [
-  // Existing smoke workflows
-  path.join(repoRoot, '.github/workflows/smoke-copilot.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-claude.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-chroot.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-services.lock.yml'),
-  // Build test workflow (combined)
-  path.join(repoRoot, '.github/workflows/build-test.lock.yml'),
-  // Agentic workflows (use --image-tag/--skip-pull which must be replaced
-  // with --build-local since chroot mode is now always-on and requires
-  // a container image built from the current source)
-  path.join(repoRoot, '.github/workflows/security-guard.lock.yml'),
-  path.join(repoRoot, '.github/workflows/security-review.lock.yml'),
-  path.join(repoRoot, '.github/workflows/ci-cd-gaps-assessment.lock.yml'),
-  path.join(repoRoot, '.github/workflows/ci-doctor.lock.yml'),
-  path.join(repoRoot, '.github/workflows/cli-flag-consistency-checker.lock.yml'),
-  path.join(repoRoot, '.github/workflows/dependency-security-monitor.lock.yml'),
-  path.join(repoRoot, '.github/workflows/doc-maintainer.lock.yml'),
-  path.join(repoRoot, '.github/workflows/firewall-issue-dispatcher.lock.yml'),
-  path.join(repoRoot, '.github/workflows/issue-duplication-detector.lock.yml'),
-  path.join(repoRoot, '.github/workflows/issue-monster.lock.yml'),
-  path.join(repoRoot, '.github/workflows/pelis-agent-factory-advisor.lock.yml'),
-  path.join(repoRoot, '.github/workflows/plan.lock.yml'),
-  path.join(repoRoot, '.github/workflows/test-coverage-improver.lock.yml'),
-  path.join(repoRoot, '.github/workflows/update-release-notes.lock.yml'),
-  // Secret digger workflows (red team security research)
-  path.join(repoRoot, '.github/workflows/secret-digger-copilot.lock.yml'),
-  path.join(repoRoot, '.github/workflows/secret-digger-codex.lock.yml'),
-  path.join(repoRoot, '.github/workflows/secret-digger-claude.lock.yml'),
-];
+// Auto-discover all lock files so new workflows are automatically included.
+// This avoids the recurring bug where adding a new workflow .md file and
+// compiling it produces a lock file with --image-tag/--skip-pull that isn't
+// post-processed, causing CI failures ("No such image").
+const workflowsDir = path.join(repoRoot, '.github/workflows');
+const workflowPaths = fs.readdirSync(workflowsDir)
+  .filter(f => f.endsWith('.lock.yml'))
+  .sort()
+  .map(f => path.join(workflowsDir, f));
 
 // Matches the install step with captured indentation:
 // - "Install awf binary" or "Install AWF binary" step at any indent level
