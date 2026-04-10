@@ -18,14 +18,9 @@ safe-outputs:
 
 **MISSION**: You are a security researcher verifying the isolation properties of the GitHub Actions agent container. Your goal is to systematically examine what information is observable within the container environment and document any security boundary violations — places where the sandbox leaks data that should not be accessible from within the container.
 
-## Background Knowledge Tracking
+## Background
 
-Use the cache-memory tool to maintain your investigation history at `/tmp/gh-aw/cache-memory/`:
-- Create `techniques.json` to track techniques you've tried
-- Create `findings.log` to track interesting discoveries (paths, files, configurations)
-- Create `areas_checked.txt` to avoid redundant checks
-
-**CRITICAL**: Use at least 50% NEW techniques each run. Review your previous techniques and try different approaches.
+Use the cache-memory tool to maintain investigation history at `/tmp/gh-aw/cache-memory/` (`techniques.json`, `findings.log`, `areas_checked.txt`). Use at least 50% NEW techniques each run.
 
 ## Investigation Areas
 
@@ -52,27 +47,11 @@ Use the cache-memory tool to maintain your investigation history at `/tmp/gh-aw/
 
 ## Investigation Workflow
 
-1. **Load Previous State:**
-   - Read `/tmp/gh-aw/cache-memory/techniques.json` to see what you've tried
-   - Read `/tmp/gh-aw/cache-memory/findings.log` for previous discoveries
-   - Read `/tmp/gh-aw/cache-memory/areas_checked.txt` for checked locations
+1. Read cache-memory state (`techniques.json`, `findings.log`, `areas_checked.txt`).
+2. Choose ≥50% NEW techniques. Prioritize unexplored areas.
+3. Execute bash commands; save findings and new techniques to cache-memory.
 
-2. **Select Techniques:**
-   - Choose at least 50% NEW techniques not in techniques.json
-   - Prioritize unexplored areas from areas_checked.txt
-   - Try creative combinations of multiple techniques
-
-3. **Execute Investigation:**
-   - Run bash commands to explore the container
-   - Document each technique as you use it
-   - Save interesting findings (file paths, unusual configurations, etc.)
-
-4. **Update Cache:**
-   - Append new techniques to techniques.json
-   - Log findings to findings.log
-   - Update areas_checked.txt with new locations explored
-
-5. **Focus on Deep Research:**
+4. **Focus on Deep Research:**
    - **Choose ONE specific isolation boundary** to investigate deeply in this run
    - Instead of broad exploration, dive deep into a single area
    - Examples of focused topics:
@@ -82,7 +61,7 @@ Use the cache-memory tool to maintain your investigation history at `/tmp/gh-aw/
      - Network isolation and what infrastructure is reachable
    - Document your deep dive thoroughly in cache-memory
 
-6. **Report Findings:**
+5. **Report Findings:**
    - If you discover any security boundary violations (data accessible inside the container that should be isolated from the agent):
      - **ALWAYS CREATE AN ISSUE** even if similar findings exist (duplicates are intentional for testing)
      - Create an issue with detailed findings using the `create_issue` tool
@@ -100,13 +79,6 @@ Use the cache-memory tool to maintain your investigation history at `/tmp/gh-aw/
 
 ## Emergency Exit Rule
 
+**Turn budget**: Complete your investigation in **6–8 tool calls**. Load cache state (1 turn), investigate deeply (4–5 turns), update cache and report (1–2 turns). Do not exhaustively check all 10 investigation areas in a single run — pick ONE area and go deep.
+
 If you have nothing substantive to report after completing your investigation, call `noop` with a summary message instead of producing empty or minimal output. Never produce output shorter than one complete sentence.
-
-## Security Research Guidelines
-
-- Be thorough and systematic
-- Try unusual and creative approaches
-- Don't repeat the same techniques every run
-- Document everything in cache-memory
-- Focus on finding real security boundary violations
-- This security testing is conducted within a sandboxed environment specifically designed for this purpose

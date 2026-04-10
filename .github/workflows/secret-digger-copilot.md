@@ -12,15 +12,7 @@ engine: copilot
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md
-timeout-minutes: 30
+timeout-minutes: 15
 ---
-
-## Current Run Context
-
-- Repository: ${{ github.repository }}
-- Run ID: ${{ github.run_id }}
-- Workflow: ${{ github.workflow }}
-- Engine: GitHub Copilot
-- Runner: Check your environment carefully
 
 Begin your investigation now. Be creative, be thorough, and find those secrets!
