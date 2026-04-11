@@ -429,6 +429,30 @@ export interface WrapperConfig {
   sessionStateDir?: string;
 
   /**
+   * Enable diagnostic log collection on non-zero exit
+   *
+   * When true and AWF exits with a non-zero exit code, container stdout/stderr
+   * logs, state metadata, and a sanitized docker-compose.yml are written to
+   * `${workDir}/diagnostics/` before containers are stopped.  When `auditDir`
+   * is also set the diagnostics are co-located there as `${auditDir}/diagnostics/`.
+   *
+   * Collected artifacts:
+   * - `<container>.log`: stdout+stderr from `docker logs`
+   * - `<container>.state`: exit code and error string from `docker inspect`
+   * - `<container>.mounts.json`: volume mount info from `docker inspect`
+   * - `docker-compose.yml`: generated compose file with TOKEN/KEY/SECRET values redacted
+   *
+   * Containers inspected: awf-squid, awf-agent, awf-api-proxy, awf-iptables-init.
+   * Containers that never started (e.g. api-proxy when not enabled) are silently skipped.
+   *
+   * Off by default. Enable via `--diagnostic-logs` CLI flag or the
+   * `features.awf-diagnostic-logs: true` workflow frontmatter key.
+   *
+   * @default false
+   */
+  diagnosticLogs?: boolean;
+
+  /**
    * Enable access to host services via host.docker.internal
    *
    * When true, adds `host.docker.internal` hostname resolution to containers,

@@ -224,4 +224,90 @@ describe('runMainWorkflow', () => {
     expect(logger.warn).toHaveBeenCalledWith('Command completed with exit code: 42');
     expect(logger.success).not.toHaveBeenCalled();
   });
+
+  it('calls collectDiagnosticLogs before cleanup on non-zero exit when diagnosticLogs is enabled', async () => {
+    const callOrder: string[] = [];
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockImplementation(async () => {
+        callOrder.push('runAgentCommand');
+        return { exitCode: 1 };
+      }),
+      collectDiagnosticLogs: jest.fn().mockImplementation(async () => {
+        callOrder.push('collectDiagnosticLogs');
+      }),
+    };
+    const performCleanup = jest.fn().mockImplementation(async () => {
+      callOrder.push('performCleanup');
+    });
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup });
+
+    expect(callOrder).toEqual(['runAgentCommand', 'collectDiagnosticLogs', 'performCleanup']);
+    expect(dependencies.collectDiagnosticLogs).toHaveBeenCalledWith(configWithDiagnostics.workDir);
+  });
+
+  it('does not call collectDiagnosticLogs when diagnosticLogs is disabled', async () => {
+    const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 1 }),
+      collectDiagnosticLogs,
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(collectDiagnosticLogs).not.toHaveBeenCalled();
+  });
+
+  it('does not call collectDiagnosticLogs on zero exit even when diagnosticLogs is enabled', async () => {
+    const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+      collectDiagnosticLogs,
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(collectDiagnosticLogs).not.toHaveBeenCalled();
+  });
+
+  it('does not call collectDiagnosticLogs when dependency is not provided', async () => {
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 1 }),
+      // collectDiagnosticLogs not provided
+    };
+    const logger = createLogger();
+
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).resolves.toBe(1);
+  });
 });

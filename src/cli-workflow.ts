@@ -14,6 +14,7 @@ export interface WorkflowDependencies {
     proxyLogsDir?: string,
     agentTimeoutMinutes?: number
   ) => Promise<{ exitCode: number }>;
+  collectDiagnosticLogs?: (workDir: string) => Promise<void>;
 }
 
 export interface WorkflowCallbacks {
@@ -75,6 +76,16 @@ export async function runMainWorkflow(
 
   // Step 3: Wait for agent to complete
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);
+
+  // Step 3.5: Collect diagnostic logs before containers are stopped
+  // Must run BEFORE performCleanup() which calls docker compose down -v.
+  if (config.diagnosticLogs && result.exitCode !== 0 && dependencies.collectDiagnosticLogs) {
+    try {
+      await dependencies.collectDiagnosticLogs(config.workDir);
+    } catch (error) {
+      logger.warn('Failed to collect diagnostic logs; continuing with cleanup.', error);
+    }
+  }
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
   await performCleanup();
