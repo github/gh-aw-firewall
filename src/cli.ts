@@ -892,6 +892,15 @@ export function applyAgentTimeout(
 }
 
 /**
+ * The set of DOCKER_HOST values that point to the local Docker daemon and are
+ * therefore compatible with AWF's network isolation model.
+ */
+const LOCAL_DOCKER_HOST_VALUES = new Set([
+  'unix:///var/run/docker.sock',
+  'unix:///run/docker.sock',
+]);
+
+/**
  * Checks whether DOCKER_HOST is set to an external daemon that is incompatible
  * with AWF.
  *
@@ -903,13 +912,9 @@ export function applyAgentTimeout(
  *  - The iptables DNAT rules set up by awf-iptables-init
  *  - Port-binding expectations between containers
  *
- * Any `unix://` socket (including non-default paths) is accepted because it
- * still refers to a local Docker daemon.  Only remote schemes (`tcp://`,
- * `ssh://`, etc.) are rejected.
- *
  * @param env - Environment variables to inspect (defaults to process.env)
- * @returns `{ valid: true }` when DOCKER_HOST is absent or uses a unix socket;
- *          `{ valid: false, error: string }` for remote daemon schemes.
+ * @returns `{ valid: true }` when DOCKER_HOST is absent or points at the local
+ *          socket; `{ valid: false, error: string }` otherwise.
  */
 export function checkDockerHost(
   env: Record<string, string | undefined> = process.env
@@ -920,7 +925,7 @@ export function checkDockerHost(
     return { valid: true };
   }
 
-  if (dockerHost.startsWith('unix://')) {
+  if (LOCAL_DOCKER_HOST_VALUES.has(dockerHost)) {
     return { valid: true };
   }
 
