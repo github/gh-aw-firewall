@@ -65,7 +65,7 @@ gh api graphql -f query='
 
 ## Step 2: Filter Locally
 
-For each issue found, read its comments and check whether any comment contains a reference to a `github/gh-aw-firewall` issue (i.e., a URL matching `https://github.com/github/gh-aw-firewall/issues/` or a GitHub cross-repo reference matching `github/gh-aw-firewall#`). If such a comment exists, **skip** that issue — it has already been audited.
+For each issue found, read its comments and check whether any comment contains a reference to a `github/gh-aw-firewall` issue (i.e., a URL matching `https://github.com/github/gh-aw-firewall/issues/` or a GitHub cross-repo reference matching `github/gh-aw-firewall#`). If such a comment exists, **skip** that issue — it has already been audited. Do this filtering in your analysis — do NOT make additional API calls.
 
 If no unprocessed issues remain, call `noop` and stop.
 
@@ -73,9 +73,16 @@ If no unprocessed issues remain, call `noop` and stop.
 
 For each **unprocessed** issue:
 
-4. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
+1. **Create a tracking issue in `github/gh-aw-firewall`** using the `create_issue` safe output with:
+   - Title: `[awf] <component>: <summary>`
+   - Body: **Problem**, **Context** (link to original), **Root Cause**, **Proposed Solution**
+   - Labels: `awf-triage`
+   - Reference specific source files. See `AGENTS.md` for component descriptions.
 
+2. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
    > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/{NUMBER}
+
+   where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 
    where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 

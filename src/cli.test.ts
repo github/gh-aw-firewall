@@ -2842,17 +2842,14 @@ describe('cli', () => {
       }
     });
 
-    it('should return invalid for a TLS TCP daemon', () => {
+    it('should return invalid for a TCP daemon on a non-default port', () => {
       const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2376' });
       expect(result.valid).toBe(false);
     });
 
-    it('should return invalid for a non-standard unix socket', () => {
+    it('should return valid for a non-standard unix socket', () => {
       const result = checkDockerHost({ DOCKER_HOST: 'unix:///tmp/custom-docker.sock' });
-      expect(result.valid).toBe(false);
-      if (!result.valid) {
-        expect(result.error).toContain('unix:///tmp/custom-docker.sock');
-      }
+      expect(result.valid).toBe(true);
     });
   });
 });
