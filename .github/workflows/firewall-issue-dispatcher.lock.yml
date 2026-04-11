@@ -39,7 +39,7 @@
 name: "Firewall Issue Dispatcher"
 "on":
   schedule:
-  - cron: "11 */6 * * *"
+  - cron: "20 */6 * * *"
     # Friendly format: every 6h (scattered)
   workflow_dispatch:
     inputs:

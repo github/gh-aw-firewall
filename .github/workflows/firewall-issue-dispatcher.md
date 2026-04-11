@@ -46,7 +46,7 @@ Search for all **open** issues in `github/gh-aw` with the label `awf`.
 
 ### 2. Filter Out Already-Audited Issues
 
-For each issue found, read its comments and check whether any comment contains a link to a `github/gh-aw-firewall` issue (i.e., a URL matching `https://github.com/github/gh-aw-firewall/issues/`). If such a comment exists, **skip** that issue — it has already been audited.
+For each issue found, read its comments and check whether any comment contains a reference to a `github/gh-aw-firewall` issue (i.e., a URL matching `https://github.com/github/gh-aw-firewall/issues/` or a GitHub cross-repo reference matching `github/gh-aw-firewall#`). If such a comment exists, **skip** that issue — it has already been audited.
 
 ### 3. Analyze and Create Tracking Issues
 
@@ -71,11 +71,11 @@ For each **unprocessed** issue:
      - **Proposed Solution** section: A concrete, actionable fix or investigation path
    - Use the `create_issue` safe output tool
 
-4. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this format:
+4. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
 
-   > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/NUMBER
+   > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/{NUMBER}
 
-   Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
+   where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 
 ### 4. Report Results
 
