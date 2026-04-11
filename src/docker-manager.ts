@@ -2408,6 +2408,67 @@ export function resetAgentExternallyKilled(): void {
  *
  * @param workDir - AWF working directory (contains docker-compose.yml)
  */
+function isSensitiveComposeEnvVar(name: string): boolean {
+  return /(TOKEN|KEY|SECRET)/i.test(name);
+}
+
+function sanitizeComposeEnvironment(environment: unknown): void {
+  if (Array.isArray(environment)) {
+    for (let i = 0; i < environment.length; i++) {
+      const entry = environment[i];
+      if (typeof entry !== 'string') {
+        continue;
+      }
+
+      const separatorIndex = entry.indexOf('=');
+      if (separatorIndex === -1) {
+        continue;
+      }
+
+      const key = entry.slice(0, separatorIndex);
+      if (isSensitiveComposeEnvVar(key)) {
+        environment[i] = `${key}=[REDACTED]`;
+      }
+    }
+    return;
+  }
+
+  if (environment && typeof environment === 'object') {
+    const values = environment as Record<string, unknown>;
+    for (const key of Object.keys(values)) {
+      if (isSensitiveComposeEnvVar(key)) {
+        values[key] = '[REDACTED]';
+      }
+    }
+  }
+}
+
+function sanitizeDockerComposeYaml(raw: string): string {
+  const parsed = yaml.load(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return raw;
+  }
+
+  const compose = parsed as Record<string, unknown>;
+  const services = compose.services;
+  if (!services || typeof services !== 'object' || Array.isArray(services)) {
+    return yaml.dump(compose, { lineWidth: -1 });
+  }
+
+  for (const service of Object.values(services as Record<string, unknown>)) {
+    if (!service || typeof service !== 'object' || Array.isArray(service)) {
+      continue;
+    }
+
+    const serviceConfig = service as Record<string, unknown>;
+    if ('environment' in serviceConfig) {
+      sanitizeComposeEnvironment(serviceConfig.environment);
+    }
+  }
+
+  return yaml.dump(compose, { lineWidth: -1 });
+}
+
 export async function collectDiagnosticLogs(workDir: string): Promise<void> {
   const diagnosticsDir = path.join(workDir, 'diagnostics');
   try {
@@ -2471,18 +2532,14 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
     }
   }
 
-  // Write a sanitized copy of docker-compose.yml — redact values of env vars
-  // whose name contains TOKEN, KEY, or SECRET (case-insensitive, e.g. github_token, API_KEY, Api_Key).
-  // \w* matches word characters [A-Za-z0-9_] so all valid identifier characters are covered.
+  // Write a sanitized copy of docker-compose.yml by parsing the YAML and redacting
+  // sensitive environment variable values under services[*].environment in both
+  // object/map and list forms.
   const composeFile = path.join(workDir, 'docker-compose.yml');
   if (fs.existsSync(composeFile)) {
     try {
       const raw = fs.readFileSync(composeFile, 'utf8');
-      // Match lines like:  SOME_TOKEN_VAR: value  or  api_key: "value"  or  Api_Key: mixed
-      const sanitized = raw.replace(
-        /^(\s+\w*(?:TOKEN|KEY|SECRET)\w*\s*:.*)$/gim,
-        match => match.replace(/:\s*(.*)$/, ': [REDACTED]')
-      );
+      const sanitized = sanitizeDockerComposeYaml(raw);
       fs.writeFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), sanitized);
     } catch (error) {
       logger.debug('Could not write sanitized docker-compose.yml to diagnostics:', error);
