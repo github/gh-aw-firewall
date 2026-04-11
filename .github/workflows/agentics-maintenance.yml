@@ -40,16 +40,8 @@ on:
       operation:
         description: 'Optional maintenance operation to run'
         required: false
-        type: choice
+        type: string
         default: ''
-        options:
-          - ''
-          - 'disable'
-          - 'enable'
-          - 'update'
-          - 'upgrade'
-          - 'safe_outputs'
-          - 'create_labels'
       run_url:
         description: 'Run URL or run ID to replay safe outputs from (e.g. https://github.com/owner/repo/actions/runs/12345 or 12345). Required when operation is safe_outputs.'
         required: false
