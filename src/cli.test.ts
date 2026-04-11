@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl, checkDockerHost } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2768,6 +2768,51 @@ describe('cli', () => {
       // Custom API target
       expect(domains).toContain('custom.copilot.com');
       expect(domains).toContain('https://custom.copilot.com');
+    });
+  });
+
+  describe('checkDockerHost', () => {
+    it('should return valid when DOCKER_HOST is not set', () => {
+      const result = checkDockerHost({});
+      expect(result.valid).toBe(true);
+    });
+
+    it('should return valid when DOCKER_HOST is undefined', () => {
+      const result = checkDockerHost({ DOCKER_HOST: undefined });
+      expect(result.valid).toBe(true);
+    });
+
+    it('should return valid for the default /var/run/docker.sock socket', () => {
+      const result = checkDockerHost({ DOCKER_HOST: 'unix:///var/run/docker.sock' });
+      expect(result.valid).toBe(true);
+    });
+
+    it('should return valid for the /run/docker.sock socket', () => {
+      const result = checkDockerHost({ DOCKER_HOST: 'unix:///run/docker.sock' });
+      expect(result.valid).toBe(true);
+    });
+
+    it('should return invalid for a TCP daemon (workflow-scope DinD)', () => {
+      const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2375' });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.error).toContain('tcp://localhost:2375');
+        expect(result.error).toContain('external daemon');
+        expect(result.error).toContain('network isolation model');
+      }
+    });
+
+    it('should return invalid for a TLS TCP daemon', () => {
+      const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2376' });
+      expect(result.valid).toBe(false);
+    });
+
+    it('should return invalid for a non-standard unix socket', () => {
+      const result = checkDockerHost({ DOCKER_HOST: 'unix:///tmp/custom-docker.sock' });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.error).toContain('unix:///tmp/custom-docker.sock');
+      }
     });
   });
 });

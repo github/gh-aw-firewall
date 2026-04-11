@@ -867,6 +867,54 @@ export function applyAgentTimeout(
 }
 
 /**
+ * The set of DOCKER_HOST values that point to the local Docker daemon and are
+ * therefore compatible with AWF's network isolation model.
+ */
+const LOCAL_DOCKER_HOST_VALUES = new Set([
+  'unix:///var/run/docker.sock',
+  'unix:///run/docker.sock',
+]);
+
+/**
+ * Checks whether DOCKER_HOST is set to an external daemon that is incompatible
+ * with AWF.
+ *
+ * AWF manages its own Docker network (`172.30.0.0/24`) and iptables rules that
+ * require direct access to the host's Docker socket.  When DOCKER_HOST points
+ * at an external TCP daemon (e.g. a DinD sidecar), Docker Compose routes all
+ * container creation through that daemon's network namespace, which breaks:
+ *  - AWF's fixed subnet routing
+ *  - The iptables DNAT rules set up by awf-iptables-init
+ *  - Port-binding expectations between containers
+ *
+ * @param env - Environment variables to inspect (defaults to process.env)
+ * @returns `{ valid: true }` when DOCKER_HOST is absent or points at the local
+ *          socket; `{ valid: false, error: string }` otherwise.
+ */
+export function checkDockerHost(
+  env: Record<string, string | undefined> = process.env
+): { valid: true } | { valid: false; error: string } {
+  const dockerHost = env['DOCKER_HOST'];
+
+  if (!dockerHost) {
+    return { valid: true };
+  }
+
+  if (LOCAL_DOCKER_HOST_VALUES.has(dockerHost)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    error:
+      `DOCKER_HOST is set to an external daemon (${dockerHost}). ` +
+      'AWF requires the local Docker daemon (default socket). ' +
+      'Workflow-scope DinD is incompatible with AWF\'s network isolation model. ' +
+      'See the "Workflow-Scope DinD Incompatibility" section in docs/usage.md for details and workarounds.',
+  };
+}
+
+/**
  * Parses and validates DNS servers from a comma-separated string
  * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
  * @returns Array of validated DNS server IP addresses
@@ -1528,6 +1576,14 @@ program
     }
 
     logger.setLevel(logLevel);
+
+    // Fail fast when DOCKER_HOST points at an external daemon (e.g. workflow-scope DinD).
+    // AWF's network isolation depends on direct access to the local Docker socket.
+    const dockerHostCheck = checkDockerHost();
+    if (!dockerHostCheck.valid) {
+      logger.error(`❌ ${dockerHostCheck.error}`);
+      process.exit(1);
+    }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
     let allowedDomains: string[] = [];
