@@ -84,7 +84,9 @@ For each **unprocessed** issue:
 
    where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 
-## Step 4: Summarize
+   where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
+
+### 4. Report Results
 
 Report: issues found, skipped (already audited), tracking issues created.
 
