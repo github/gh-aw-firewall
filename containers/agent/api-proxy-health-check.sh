@@ -140,6 +140,13 @@ if [ -n "$COPILOT_API_URL" ]; then
   # Verify COPILOT_PROVIDER_BASE_URL matches the sidecar URL when set (offline+BYOK mode)
   if [ -n "$COPILOT_PROVIDER_BASE_URL" ]; then
     echo "[health-check] COPILOT_PROVIDER_BASE_URL=$COPILOT_PROVIDER_BASE_URL (offline+BYOK mode)"
+    if [ "$COPILOT_PROVIDER_BASE_URL" != "$COPILOT_API_URL" ]; then
+      echo "[health-check][ERROR] COPILOT_PROVIDER_BASE_URL does not match COPILOT_API_URL"
+      echo "[health-check][ERROR] COPILOT_PROVIDER_BASE_URL=$COPILOT_PROVIDER_BASE_URL"
+      echo "[health-check][ERROR] COPILOT_API_URL=$COPILOT_API_URL"
+      exit 1
+    fi
+    echo "[health-check] ✓ COPILOT_PROVIDER_BASE_URL matches COPILOT_API_URL"
     echo "[health-check] ✓ Copilot CLI offline+BYOK mode configured"
   fi
 
