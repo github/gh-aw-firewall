@@ -74,9 +74,13 @@ runs:
           # Fall back to curl with GitHub API
           if [ -z "${VERSION:-}" ] || [ "$VERSION" = "null" ]; then
             if command -v jq &> /dev/null; then
-              VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name'); then
+                VERSION=""
+              fi
             else
-              VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+              if ! VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
+                VERSION=""
+              fi
             fi
           fi
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
