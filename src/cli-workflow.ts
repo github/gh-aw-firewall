@@ -80,7 +80,11 @@ export async function runMainWorkflow(
   // Step 3.5: Collect diagnostic logs before containers are stopped
   // Must run BEFORE performCleanup() which calls docker compose down -v.
   if (config.diagnosticLogs && result.exitCode !== 0 && dependencies.collectDiagnosticLogs) {
-    await dependencies.collectDiagnosticLogs(config.workDir);
+    try {
+      await dependencies.collectDiagnosticLogs(config.workDir);
+    } catch (error) {
+      logger.warn('Failed to collect diagnostic logs; continuing with cleanup.', error);
+    }
   }
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
