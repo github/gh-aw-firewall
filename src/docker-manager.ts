@@ -2391,6 +2391,105 @@ export function resetAgentExternallyKilled(): void {
 }
 
 /**
+ * Collects diagnostic logs from AWF containers on failure.
+ *
+ * Writes the following artifacts to `${workDir}/diagnostics/` (created if absent):
+ * - `<container>.log`          – stdout+stderr captured via `docker logs`
+ * - `<container>.state`        – ExitCode + Error string from `docker inspect`
+ * - `<container>.mounts.json`  – Mount metadata from `docker inspect` (no env vars)
+ * - `docker-compose.yml`       – Generated compose file with TOKEN/KEY/SECRET values redacted
+ *
+ * Containers that were never started (e.g. awf-api-proxy when `--enable-api-proxy` is
+ * not set) are silently skipped — `docker logs` returns a non-zero exit code and the
+ * error is swallowed.
+ *
+ * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
+ * containers (and their log streams).
+ *
+ * @param workDir - AWF working directory (contains docker-compose.yml)
+ */
+export async function collectDiagnosticLogs(workDir: string): Promise<void> {
+  const diagnosticsDir = path.join(workDir, 'diagnostics');
+  try {
+    fs.mkdirSync(diagnosticsDir, { recursive: true });
+  } catch (error) {
+    logger.warn('Failed to create diagnostics directory:', error);
+    return;
+  }
+
+  logger.info('Collecting diagnostic logs...');
+
+  const containers = [
+    SQUID_CONTAINER_NAME,
+    AGENT_CONTAINER_NAME,
+    API_PROXY_CONTAINER_NAME,
+    IPTABLES_INIT_CONTAINER_NAME,
+  ];
+
+  for (const container of containers) {
+    // Collect stdout+stderr from docker logs
+    try {
+      const result = await execa('docker', ['logs', container], { reject: false });
+      const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+      if (combined) {
+        fs.writeFileSync(path.join(diagnosticsDir, `${container}.log`), combined + '\n');
+      }
+    } catch {
+      // Container may not exist — silently skip
+    }
+
+    // Collect exit code and error string (no env vars exposed)
+    try {
+      const result = await execa(
+        'docker',
+        ['inspect', '--format', '{{.State.ExitCode}} {{.State.Error}}', container],
+        { reject: false }
+      );
+      const state = result.stdout.trim();
+      if (state) {
+        fs.writeFileSync(path.join(diagnosticsDir, `${container}.state`), state + '\n');
+      }
+    } catch {
+      // silently skip
+    }
+
+    // Collect mount metadata (no env vars exposed)
+    try {
+      const result = await execa(
+        'docker',
+        ['inspect', '--format', '{{json .Mounts}}', container],
+        { reject: false }
+      );
+      const mounts = result.stdout.trim();
+      if (mounts && mounts !== 'null') {
+        fs.writeFileSync(path.join(diagnosticsDir, `${container}.mounts.json`), mounts + '\n');
+      }
+    } catch {
+      // silently skip
+    }
+  }
+
+  // Write a sanitized copy of docker-compose.yml — redact values of env vars
+  // whose name contains TOKEN, KEY, or SECRET (case-insensitive).
+  const composeFile = path.join(workDir, 'docker-compose.yml');
+  if (fs.existsSync(composeFile)) {
+    try {
+      const raw = fs.readFileSync(composeFile, 'utf8');
+      // Match lines like:  SOME_TOKEN_VAR: actualvalue  or  SOME_KEY: "value"
+      const sanitized = raw.replace(
+        /^(\s+[A-Z_]*(?:TOKEN|KEY|SECRET)[A-Z_]*\s*:.*)$/gim,
+        match => match.replace(/:(.*)$/, ': [REDACTED]')
+      );
+      fs.writeFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), sanitized);
+    } catch (error) {
+      logger.debug('Could not write sanitized docker-compose.yml to diagnostics:', error);
+    }
+  }
+
+  logger.info(`Diagnostic logs collected at: ${diagnosticsDir}`);
+}
+
+/**
  * Stops and removes Docker Compose services
  */
 export async function stopContainers(workDir: string, keepContainers: boolean): Promise<void> {
@@ -2595,6 +2694,35 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
             logger.info(`Audit artifacts preserved at: ${auditDestination}`);
           } catch (error) {
             logger.debug('Could not preserve audit artifacts:', error);
+          }
+        }
+      }
+
+      // Preserve diagnostic logs (collected when --diagnostic-logs is enabled and exit was non-zero)
+      const diagnosticsDir = path.join(workDir, 'diagnostics');
+      if (fs.existsSync(diagnosticsDir) && fs.readdirSync(diagnosticsDir).length > 0) {
+        if (auditDir) {
+          // Co-locate with audit artifacts for a single upload path
+          const auditDiagnosticsDir = path.join(auditDir, 'diagnostics');
+          try {
+            fs.mkdirSync(auditDiagnosticsDir, { recursive: true });
+            // Move each file individually (rename across devices may fail)
+            for (const file of fs.readdirSync(diagnosticsDir)) {
+              fs.renameSync(path.join(diagnosticsDir, file), path.join(auditDiagnosticsDir, file));
+            }
+            execa.sync('chmod', ['-R', 'a+rX', auditDiagnosticsDir]);
+            logger.info(`Diagnostic logs available at: ${auditDiagnosticsDir}`);
+          } catch (error) {
+            logger.debug('Could not move diagnostics to audit dir:', error);
+          }
+        } else {
+          const diagnosticsDestination = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
+          try {
+            fs.renameSync(diagnosticsDir, diagnosticsDestination);
+            execa.sync('chmod', ['-R', 'a+rX', diagnosticsDestination]);
+            logger.info(`Diagnostic logs preserved at: ${diagnosticsDestination}`);
+          } catch (error) {
+            logger.debug('Could not preserve diagnostic logs:', error);
           }
         }
       }

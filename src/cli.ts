@@ -15,6 +15,7 @@ import {
   cleanup,
   preserveIptablesAudit,
   fastKillAgentContainer,
+  collectDiagnosticLogs,
 } from './docker-manager';
 import {
   ensureFirewallNetwork,
@@ -1484,6 +1485,13 @@ program
     '--session-state-dir <path>',
     'Directory to save Copilot CLI session state (events.jsonl, session data)'
   )
+  .option(
+    '--diagnostic-logs',
+    'Collect container logs, exit state, and sanitized config on non-zero exit.\n' +
+    '                                       Written to ${workDir}/diagnostics/ (or ${audit-dir}/diagnostics/ when set).\n' +
+    '                                       Useful for debugging container startup failures (e.g. Squid crashes in DinD).',
+    false
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
     // Require -- separator for passing command arguments
@@ -1826,6 +1834,7 @@ program
       difcProxyHost: options.difcProxyHost,
       difcProxyCaCert: options.difcProxyCaCert,
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+      diagnosticLogs: options.diagnosticLogs || false,
     };
 
     // Parse and validate --agent-timeout
@@ -2006,6 +2015,7 @@ program
           writeConfigs,
           startContainers,
           runAgentCommand,
+          collectDiagnosticLogs,
         },
         {
           logger,

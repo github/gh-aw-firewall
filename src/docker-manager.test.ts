@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -4220,6 +4220,178 @@ describe('docker-manager', () => {
 
     it('should throw when file does not exist', () => {
       expect(() => readEnvFile(path.join(tmpDir, 'missing.env'))).toThrow();
+    });
+  });
+
+  describe('collectDiagnosticLogs', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
+      jest.clearAllMocks();
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should create diagnostics directory and write container logs', async () => {
+      // Mock docker logs returning content
+      mockExecaFn
+        .mockResolvedValueOnce({ stdout: 'squid log output', stderr: '', exitCode: 0 })  // docker logs awf-squid
+        .mockResolvedValueOnce({ stdout: '0 ', stderr: '', exitCode: 0 })                 // docker inspect state awf-squid
+        .mockResolvedValueOnce({ stdout: '[{"Type":"bind"}]', stderr: '', exitCode: 0 })  // docker inspect mounts awf-squid
+        .mockResolvedValueOnce({ stdout: 'agent log output', stderr: '', exitCode: 0 })   // docker logs awf-agent
+        .mockResolvedValueOnce({ stdout: '1 container crashed', stderr: '', exitCode: 0 }) // docker inspect state awf-agent
+        .mockResolvedValueOnce({ stdout: '[{"Type":"volume"}]', stderr: '', exitCode: 0 }) // docker inspect mounts awf-agent
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 1 })                    // docker logs awf-api-proxy (not started)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 1 })                    // docker inspect state awf-api-proxy
+        .mockResolvedValueOnce({ stdout: 'null', stderr: '', exitCode: 0 })                // docker inspect mounts awf-api-proxy (null)
+        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 })                    // docker logs awf-iptables-init
+        .mockResolvedValueOnce({ stdout: '0 ', stderr: '', exitCode: 0 })                 // docker inspect state awf-iptables-init
+        .mockResolvedValueOnce({ stdout: '[]', stderr: '', exitCode: 0 });                 // docker inspect mounts awf-iptables-init
+
+      // Create a docker-compose.yml with a secret env var
+      const composeContent = [
+        'services:',
+        '  squid:',
+        '    environment:',
+        '      AWF_SQUID_CONFIG_B64: secretvalue',
+        '      GITHUB_TOKEN: ghp_abc123',
+        '      SOME_KEY: mykey',
+        '      NORMAL_VAR: normalvalue',
+      ].join('\n');
+      fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), composeContent);
+
+      await collectDiagnosticLogs(testDir);
+
+      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      expect(fs.existsSync(diagnosticsDir)).toBe(true);
+
+      // awf-squid.log should have content
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-squid.log'))).toBe(true);
+      expect(fs.readFileSync(path.join(diagnosticsDir, 'awf-squid.log'), 'utf8')).toContain('squid log output');
+
+      // awf-agent.log should have content
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-agent.log'))).toBe(true);
+      expect(fs.readFileSync(path.join(diagnosticsDir, 'awf-agent.log'), 'utf8')).toContain('agent log output');
+
+      // State files should be written
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-squid.state'))).toBe(true);
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-agent.state'))).toBe(true);
+
+      // Mounts files for containers that returned non-null JSON
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-squid.mounts.json'))).toBe(true);
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-agent.mounts.json'))).toBe(true);
+      // awf-api-proxy returned 'null' so no mounts file
+      expect(fs.existsSync(path.join(diagnosticsDir, 'awf-api-proxy.mounts.json'))).toBe(false);
+
+      // Sanitized docker-compose.yml should exist with secrets redacted
+      const sanitizedCompose = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
+      expect(sanitizedCompose).toContain('[REDACTED]');
+      // GITHUB_TOKEN and SOME_KEY contain TOKEN/KEY → redacted
+      expect(sanitizedCompose).not.toContain('ghp_abc123');
+      expect(sanitizedCompose).not.toContain('mykey');
+      // AWF_SQUID_CONFIG_B64 does not contain TOKEN/KEY/SECRET → preserved
+      expect(sanitizedCompose).toContain('secretvalue');
+      // Non-secret env vars should be unchanged
+      expect(sanitizedCompose).toContain('NORMAL_VAR: normalvalue');
+    });
+
+    it('should not write log file when docker logs returns empty output', async () => {
+      mockExecaFn
+        .mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }); // all containers return empty
+
+      await collectDiagnosticLogs(testDir);
+
+      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      // No .log files should be written for empty output
+      const files = fs.existsSync(diagnosticsDir) ? fs.readdirSync(diagnosticsDir) : [];
+      const logFiles = files.filter(f => f.endsWith('.log'));
+      expect(logFiles).toHaveLength(0);
+    });
+
+    it('should skip docker-compose.yml sanitization when file does not exist', async () => {
+      mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+      // No docker-compose.yml created in testDir
+      await expect(collectDiagnosticLogs(testDir)).resolves.not.toThrow();
+
+      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      expect(fs.existsSync(path.join(diagnosticsDir, 'docker-compose.yml'))).toBe(false);
+    });
+
+    it('should handle docker command failures gracefully', async () => {
+      // All docker commands throw errors
+      mockExecaFn.mockRejectedValue(new Error('docker not found'));
+
+      await expect(collectDiagnosticLogs(testDir)).resolves.not.toThrow();
+    });
+  });
+
+  describe('cleanup - diagnostics preservation', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
+      jest.clearAllMocks();
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 0 });
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+      const timestamp = path.basename(testDir).replace('awf-', '');
+      const diagDir = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
+      if (fs.existsSync(diagDir)) {
+        fs.rmSync(diagDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should preserve diagnostics to /tmp when no auditDir is specified', async () => {
+      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      fs.mkdirSync(diagnosticsDir, { recursive: true });
+      fs.writeFileSync(path.join(diagnosticsDir, 'awf-squid.log'), 'squid crashed\n');
+
+      await cleanup(testDir, false);
+
+      const timestamp = path.basename(testDir).replace('awf-', '');
+      const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
+      expect(fs.existsSync(preserved)).toBe(true);
+      expect(fs.readFileSync(path.join(preserved, 'awf-squid.log'), 'utf8')).toBe('squid crashed\n');
+    });
+
+    it('should co-locate diagnostics under auditDir/diagnostics when auditDir is specified', async () => {
+      const auditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-test-'));
+      try {
+        const diagnosticsDir = path.join(testDir, 'diagnostics');
+        fs.mkdirSync(diagnosticsDir, { recursive: true });
+        fs.writeFileSync(path.join(diagnosticsDir, 'awf-agent.log'), 'agent output\n');
+
+        await cleanup(testDir, false, undefined, auditDir);
+
+        const auditDiagnosticsDir = path.join(auditDir, 'diagnostics');
+        expect(fs.existsSync(auditDiagnosticsDir)).toBe(true);
+        expect(fs.readFileSync(path.join(auditDiagnosticsDir, 'awf-agent.log'), 'utf8')).toBe('agent output\n');
+        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', auditDiagnosticsDir]);
+      } finally {
+        fs.rmSync(auditDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should not create diagnostics destination when diagnostics dir is empty', async () => {
+      // Empty diagnostics dir
+      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      fs.mkdirSync(diagnosticsDir, { recursive: true });
+
+      await cleanup(testDir, false);
+
+      const timestamp = path.basename(testDir).replace('awf-', '');
+      const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
+      expect(fs.existsSync(preserved)).toBe(false);
     });
   });
 });
