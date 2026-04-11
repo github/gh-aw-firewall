@@ -1488,8 +1488,8 @@ program
   .option(
     '--diagnostic-logs',
     'Collect container logs, exit state, and sanitized config on non-zero exit.\n' +
-    '                                       Written to ${workDir}/diagnostics/ (or ${audit-dir}/diagnostics/ when set).\n' +
-    '                                       Useful for debugging container startup failures (e.g. Squid crashes in DinD).',
+    '                                       Useful for debugging container startup failures (e.g. Squid crashes in DinD).\n' +
+    '                                       Written to <workDir>/diagnostics/ (or <audit-dir>/diagnostics/ when set).',
     false
   )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
