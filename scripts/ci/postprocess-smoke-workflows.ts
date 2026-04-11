@@ -147,8 +147,12 @@ function buildStripExecBitsStep(indent: string): string {
     `${ri}CACHE_DIR="\${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"\n` +
     `${ri}# Strip execute bits from all non-.git files to prevent execute-bit\n` +
     `${ri}# persistence of attacker-planted executables across cache restore cycles.\n` +
-    `${ri}find "$CACHE_DIR" -not -path '*/.git/*' -type f -exec chmod a-x {} +\n` +
-    `${ri}echo "Execute bits stripped from cache-memory working tree"\n`
+    `${ri}if [ -d "$CACHE_DIR" ]; then\n` +
+    `${ri}  find "$CACHE_DIR" -not -path '*/.git/*' -type f -exec chmod a-x {} + || true\n` +
+    `${ri}  echo "Execute bits stripped from cache-memory working tree"\n` +
+    `${ri}else\n` +
+    `${ri}  echo "Skipping execute-bit stripping; cache-memory directory not present"\n` +
+    `${ri}fi\n`
   );
 }
 
@@ -177,11 +181,11 @@ function buildScanInjectionStep(indent: string): string {
     `${ri}  mkdir -p "$QUARANTINE_DIR"\n` +
     `${ri}  for f in "\${SUSPICIOUS_FILES[@]}"; do\n` +
     `${ri}    rel="\${f#\${CACHE_DIR}/}"\n` +
-    `${ri}    dest="$QUARANTINE_DIR/\${rel//\\//_}"\n` +
     `${ri}    echo "::warning::Quarantining file with instruction-shaped content: $f"\n` +
     `${ri}    echo "--- First 5 lines of quarantined file: $f ---"\n` +
-    `${ri}    head -5 "$f" || true\n` +
-    `${ri}    mv -f "$f" "$dest"\n` +
+    `${ri}    head -5 "$f" | sed 's/^/| /' || true\n` +
+    `${ri}    mkdir -p "$QUARANTINE_DIR/$(dirname "$rel")"\n` +
+    `${ri}    mv -f "$f" "$QUARANTINE_DIR/$rel"\n` +
     `${ri}  done\n` +
     `${ri}  echo "Quarantined \${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content to $QUARANTINE_DIR"\n` +
     `${ri}else\n` +
@@ -559,24 +563,40 @@ for (const workflowPath of workflowPaths) {
   }
 
   // Update the main cache key lines and restore-keys prefix to include the date
-  // for a 1-day TTL. Idempotent: only transforms when CACHE_MEMORY_DATE is not
-  // yet present in the file.
-  if (content.includes(cacheDateStepSentinel) && !content.includes(cacheDateRestoreKeySentinel)) {
-    const before = content;
+  // for a 1-day TTL. Apply each transformation independently so partially
+  // updated workflows are repaired correctly and repeated runs stay idempotent.
+  if (content.includes(cacheDateStepSentinel)) {
+    let updatedCacheKey = false;
+    let updatedRestoreKeys = false;
+
     // Update main key: insert date before run_id
+    const beforeKeyUpdate = content;
     content = content.replace(
       cacheMemoryKeyLineRegex,
       (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
     );
+    updatedCacheKey = content !== beforeKeyUpdate;
+
     // Update restore-keys prefix: append date segment
+    const beforeRestoreKeysUpdate = content;
     content = content.replace(
       cacheRestoreKeyPrefixRegex,
       (_m, prefixWithWorkflowId, newline) =>
         `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
     );
-    if (content !== before) {
+    updatedRestoreKeys = content !== beforeRestoreKeysUpdate;
+
+    if (updatedCacheKey || updatedRestoreKeys) {
       modified = true;
-      console.log(`  Updated cache key and restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+      if (updatedCacheKey && updatedRestoreKeys) {
+        console.log(`  Updated cache key and restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+      } else if (updatedCacheKey) {
+        console.log(`  Updated cache key to include CACHE_MEMORY_DATE for 1-day TTL`);
+      } else {
+        console.log(`  Updated restore-keys to include CACHE_MEMORY_DATE for 1-day TTL`);
+      }
+    } else {
+      console.log(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);
     }
   } else if (content.includes(cacheDateRestoreKeySentinel)) {
     console.log(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);

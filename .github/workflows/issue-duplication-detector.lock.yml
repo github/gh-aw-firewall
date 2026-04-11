@@ -368,8 +368,12 @@ jobs:
           CACHE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"
           # Strip execute bits from all non-.git files to prevent execute-bit
           # persistence of attacker-planted executables across cache restore cycles.
-          find "$CACHE_DIR" -not -path '*/.git/*' -type f -exec chmod a-x {} +
-          echo "Execute bits stripped from cache-memory working tree"
+          if [ -d "$CACHE_DIR" ]; then
+            find "$CACHE_DIR" -not -path '*/.git/*' -type f -exec chmod a-x {} + || true
+            echo "Execute bits stripped from cache-memory working tree"
+          else
+            echo "Skipping execute-bit stripping; cache-memory directory not present"
+          fi
       - name: Configure Git credentials
         env:
           REPO_NAME: ${{ github.repository }}
@@ -851,11 +855,11 @@ jobs:
             mkdir -p "$QUARANTINE_DIR"
             for f in "${SUSPICIOUS_FILES[@]}"; do
               rel="${f#${CACHE_DIR}/}"
-              dest="$QUARANTINE_DIR/${rel//\//_}"
               echo "::warning::Quarantining file with instruction-shaped content: $f"
               echo "--- First 5 lines of quarantined file: $f ---"
-              head -5 "$f" || true
-              mv -f "$f" "$dest"
+              head -5 "$f" | sed 's/^/| /' || true
+              mkdir -p "$QUARANTINE_DIR/$(dirname "$rel")"
+              mv -f "$f" "$QUARANTINE_DIR/$rel"
             done
             echo "Quarantined ${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content to $QUARANTINE_DIR"
           else
