@@ -1048,19 +1048,27 @@ jobs:
           GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory
         run: |
           CACHE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"
-          # Remove files containing instruction-shaped content to prevent
+          # Quarantine files containing instruction-shaped content to prevent
           # cross-run agent-context instruction injection via cache-memory.
-          INJECTION_PATTERN='^(New instruction|SYSTEM|Ignore (all |previous |prior )instructions?|Override|[#]{1,3}[[:space:]]*SYSTEM|<system>)'
+          # Require a colon after the keyword to reduce false positives on
+          # legitimate files (e.g. '## System Requirements', 'Override: false').
+          INJECTION_PATTERN='^(New instruction:|SYSTEM:|Ignore (all |previous |prior )instructions?:|<system>)'
+          QUARANTINE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}/.quarantine"
           mapfile -t SUSPICIOUS_FILES < <(
-            find "$CACHE_DIR" -not -path '*/.git/*' -type f \
+            find "$CACHE_DIR" -not -path '*/.git/*' -not -path '*/.quarantine/*' -type f \
               -exec grep -lEi "$INJECTION_PATTERN" {} \; 2>/dev/null || true
           )
           if [ ${#SUSPICIOUS_FILES[@]} -gt 0 ]; then
+            mkdir -p "$QUARANTINE_DIR"
             for f in "${SUSPICIOUS_FILES[@]}"; do
-              echo "::warning::Removing file with instruction-shaped content: $f"
-              rm -f "$f"
+              rel="${f#${CACHE_DIR}/}"
+              dest="$QUARANTINE_DIR/${rel//\//_}"
+              echo "::warning::Quarantining file with instruction-shaped content: $f"
+              echo "--- First 5 lines of quarantined file: $f ---"
+              head -5 "$f" || true
+              mv -f "$f" "$dest"
             done
-            echo "Removed ${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content"
+            echo "Quarantined ${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content to $QUARANTINE_DIR"
           else
             echo "No instruction-injection content found in cache-memory"
           fi

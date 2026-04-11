@@ -216,5 +216,21 @@ describe('cacheRestoreKeyPrefixRegex', () => {
     expect(result).toContain('CACHE_MEMORY_DATE');
     expect(result).toContain('issue-duplication-detector');
   });
+
+  it('should be idempotent — already-transformed restore-keys are not double-transformed', () => {
+    // Simulate an already-transformed restore-keys line (contains CACHE_MEMORY_DATE)
+    // Using the cacheDateRestoreKeySentinel guard ('env.CACHE_MEMORY_DATE }}')
+    // means the transform is never applied a second time in practice.
+    // This test verifies the sentinel check by ensuring the already-updated
+    // line does NOT match the restore key prefix regex (because the sentinel
+    // is present and the regex would match a different segment).
+    const alreadyTransformed =
+      '            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-\n';
+    // The regex should NOT match the already-transformed line because the
+    // workflow-ID part is followed by CACHE_MEMORY_DATE, not a newline.
+    expect(cacheRestoreKeyPrefixRegex.test(alreadyTransformed)).toBe(false);
+    // Reset lastIndex since cacheRestoreKeyPrefixRegex has the 'g' flag
+    cacheRestoreKeyPrefixRegex.lastIndex = 0;
+  });
 });
 

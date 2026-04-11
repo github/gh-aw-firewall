@@ -163,19 +163,27 @@ function buildScanInjectionStep(indent: string): string {
     `${i}    GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory\n` +
     `${i}  run: |\n` +
     `${ri}CACHE_DIR="\${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"\n` +
-    `${ri}# Remove files containing instruction-shaped content to prevent\n` +
+    `${ri}# Quarantine files containing instruction-shaped content to prevent\n` +
     `${ri}# cross-run agent-context instruction injection via cache-memory.\n` +
-    `${ri}INJECTION_PATTERN='^(New instruction|SYSTEM|Ignore (all |previous |prior )instructions?|Override|[#]{1,3}[[:space:]]*SYSTEM|<system>)'\n` +
+    `${ri}# Require a colon after the keyword to reduce false positives on\n` +
+    `${ri}# legitimate files (e.g. '## System Requirements', 'Override: false').\n` +
+    `${ri}INJECTION_PATTERN='^(New instruction:|SYSTEM:|Ignore (all |previous |prior )instructions?:|<system>)'\n` +
+    `${ri}QUARANTINE_DIR="\${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}/.quarantine"\n` +
     `${ri}mapfile -t SUSPICIOUS_FILES < <(\n` +
-    `${ri}  find "$CACHE_DIR" -not -path '*/.git/*' -type f \\\n` +
+    `${ri}  find "$CACHE_DIR" -not -path '*/.git/*' -not -path '*/.quarantine/*' -type f \\\n` +
     `${ri}    -exec grep -lEi "$INJECTION_PATTERN" {} \\; 2>/dev/null || true\n` +
     `${ri})\n` +
     `${ri}if [ \${#SUSPICIOUS_FILES[@]} -gt 0 ]; then\n` +
+    `${ri}  mkdir -p "$QUARANTINE_DIR"\n` +
     `${ri}  for f in "\${SUSPICIOUS_FILES[@]}"; do\n` +
-    `${ri}    echo "::warning::Removing file with instruction-shaped content: $f"\n` +
-    `${ri}    rm -f "$f"\n` +
+    `${ri}    rel="\${f#\${CACHE_DIR}/}"\n` +
+    `${ri}    dest="$QUARANTINE_DIR/\${rel//\\//_}"\n` +
+    `${ri}    echo "::warning::Quarantining file with instruction-shaped content: $f"\n` +
+    `${ri}    echo "--- First 5 lines of quarantined file: $f ---"\n` +
+    `${ri}    head -5 "$f" || true\n` +
+    `${ri}    mv -f "$f" "$dest"\n` +
     `${ri}  done\n` +
-    `${ri}  echo "Removed \${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content"\n` +
+    `${ri}  echo "Quarantined \${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content to $QUARANTINE_DIR"\n` +
     `${ri}else\n` +
     `${ri}  echo "No instruction-injection content found in cache-memory"\n` +
     `${ri}fi\n`
@@ -498,7 +506,12 @@ for (const workflowPath of workflowPaths) {
     console.log(`  'Strip execute bits' step already present`);
   }
 
-  // (2) Scan for instruction-injection content before cache-memory commit
+  // (2) Scan for instruction-injection content before cache-memory commit.
+  // The scan step content has been updated to use quarantine-based handling
+  // (moving files to .quarantine/ instead of deleting them) and a tighter
+  // injection pattern (requires colons, e.g. 'SYSTEM:' not just 'SYSTEM').
+  // The 'QUARANTINE_DIR' string acts as a sentinel for the new version.
+  const scanStepNewVersion = 'QUARANTINE_DIR';
   if (!content.includes(scanInjectionStepSentinel)) {
     const commitMatch = content.match(cacheMemoryCommitStepRegex);
     if (commitMatch) {
@@ -510,8 +523,20 @@ for (const workflowPath of workflowPaths) {
       modified = true;
       console.log(`  Injected 'Scan cache-memory for instruction-injection' step before commit`);
     }
+  } else if (!content.includes(scanStepNewVersion)) {
+    // Old version of the scan step is present — replace it with the new version.
+    // Match the entire step block by name + run block up to the next step.
+    const oldScanStepRegex =
+      /^(\s+)- name: Scan cache-memory for instruction-injection content\n(?:\1\s[^\n]*\n)+/m;
+    const oldMatch = content.match(oldScanStepRegex);
+    if (oldMatch) {
+      const indent = oldMatch[1];
+      content = content.replace(oldScanStepRegex, buildScanInjectionStep(indent));
+      modified = true;
+      console.log(`  Updated 'Scan cache-memory for instruction-injection' step to new version`);
+    }
   } else {
-    console.log(`  'Scan cache-memory for instruction-injection' step already present`);
+    console.log(`  'Scan cache-memory for instruction-injection' step already present (new version)`);
   }
 
   // (3) Add TTL date key step and update key/restore-keys to include daily date
