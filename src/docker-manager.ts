@@ -2470,15 +2470,17 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
   }
 
   // Write a sanitized copy of docker-compose.yml — redact values of env vars
-  // whose name contains TOKEN, KEY, or SECRET (case-insensitive).
+  // whose name contains TOKEN, KEY, or SECRET (case-insensitive, e.g. github_token, API_KEY).
+  // The regex uses the `i` flag which makes [A-Z_]* and TOKEN|KEY|SECRET match any case.
   const composeFile = path.join(workDir, 'docker-compose.yml');
   if (fs.existsSync(composeFile)) {
     try {
       const raw = fs.readFileSync(composeFile, 'utf8');
-      // Match lines like:  SOME_TOKEN_VAR: actualvalue  or  SOME_KEY: "value"
+      // Match lines like:  SOME_TOKEN_VAR: value  or  api_key: "value"
+      // [A-Z_]* with `i` flag also matches lowercase/mixed-case names.
       const sanitized = raw.replace(
         /^(\s+[A-Z_]*(?:TOKEN|KEY|SECRET)[A-Z_]*\s*:.*)$/gim,
-        match => match.replace(/:(.*)$/, ': [REDACTED]')
+        match => match.replace(/:\s*(.*)$/, ': [REDACTED]')
       );
       fs.writeFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), sanitized);
     } catch (error) {

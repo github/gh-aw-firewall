@@ -4329,6 +4329,31 @@ describe('docker-manager', () => {
 
       await expect(collectDiagnosticLogs(testDir)).resolves.not.toThrow();
     });
+
+    it('should redact lowercase and mixed-case secret env var names', async () => {
+      mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+      const composeContent = [
+        'services:',
+        '  agent:',
+        '    environment:',
+        '      github_token: ghp_lowercase',
+        '      Api_Key: mixedcase_value',
+        '      OAUTH_SECRET: uppercase_secret',
+        '      not_sensitive: keepme',
+      ].join('\n');
+      fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), composeContent);
+
+      await collectDiagnosticLogs(testDir);
+
+      const sanitized = fs.readFileSync(path.join(testDir, 'diagnostics', 'docker-compose.yml'), 'utf8');
+      // All three secret patterns should be redacted
+      expect(sanitized).not.toContain('ghp_lowercase');
+      expect(sanitized).not.toContain('mixedcase_value');
+      expect(sanitized).not.toContain('uppercase_secret');
+      // Non-secret var must be preserved
+      expect(sanitized).toContain('not_sensitive: keepme');
+    });
   });
 
   describe('cleanup - diagnostics preservation', () => {
