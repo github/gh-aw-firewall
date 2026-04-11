@@ -2118,7 +2118,7 @@ describe('cli', () => {
       warnClassicPATWithCopilotModel(true, true, (msg) => warns.push(msg));
       expect(warns.length).toBeGreaterThan(0);
       expect(warns[0]).toContain('COPILOT_MODEL');
-      expect(warns.some(w => w.includes('ghp_'))).toBe(true);
+      expect(warns.some(w => w.includes('classic PAT'))).toBe(true);
     });
 
     it('should not warn when token is not a classic PAT', () => {

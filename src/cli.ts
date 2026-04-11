@@ -1952,11 +1952,11 @@ program
 
     // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
     // Check if COPILOT_MODEL is set via --env/-e flags or host env (when --env-all is active)
-    const copilotModelInAdditionalEnv = !!(additionalEnv['COPILOT_MODEL']);
+    const copilotModelFromFlags = !!(additionalEnv['COPILOT_MODEL']);
     const copilotModelInHostEnv = !!(config.envAll && process.env.COPILOT_MODEL);
     warnClassicPATWithCopilotModel(
       config.copilotGithubToken?.startsWith('ghp_') ?? false,
-      copilotModelInAdditionalEnv || copilotModelInHostEnv,
+      copilotModelFromFlags || copilotModelInHostEnv,
       logger.warn.bind(logger)
     );
 
