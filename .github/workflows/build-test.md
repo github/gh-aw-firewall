@@ -242,7 +242,7 @@ After completing ALL tasks, add a **single comment** to the current pull request
 
 **Overall: X/8 ecosystems passed — PASS/FAIL**
 
-If ALL tests across all ecosystems pass, add the label `build-test` to the pull request.
+If ALL tests across all ecosystems pass **and** this run was triggered by a pull request (not `workflow_dispatch`), add the label `build-test` to the pull request.
 If ANY test fails, report the failure with error details below the table.
 
 ## Error Handling
