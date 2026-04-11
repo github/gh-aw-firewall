@@ -16,6 +16,10 @@ engine:
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md
+tools:
+  cache-memory: true
+  bash: true
+  github: false
 timeout-minutes: 30
 ---
 
