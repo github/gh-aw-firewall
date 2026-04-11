@@ -98,7 +98,7 @@ Copilot CLI 1.0.21 introduced a startup model validation step: when `COPILOT_MOD
 
 **Affected combination:**
 - `COPILOT_GITHUB_TOKEN` is a classic PAT (prefixed with `ghp_`)
-- `COPILOT_MODEL` is set in the agent environment (e.g., via `--env COPILOT_MODEL=...` or `--env-all`)
+- `COPILOT_MODEL` is set in the agent environment (e.g., via `--env COPILOT_MODEL=...`, `--env-file`, or `--env-all`)
 
 **Unaffected:** Workflows that do not set `COPILOT_MODEL` are not affected — the `/models` validation is only triggered when `COPILOT_MODEL` is set.
 
