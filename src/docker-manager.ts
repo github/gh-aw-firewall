@@ -2430,9 +2430,11 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
     // Collect stdout+stderr from docker logs
     try {
       const result = await execa('docker', ['logs', container], { reject: false });
-      const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-      if (combined) {
-        fs.writeFileSync(path.join(diagnosticsDir, `${container}.log`), combined + '\n');
+      if (result.exitCode === 0) {
+        const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+        if (combined) {
+          fs.writeFileSync(path.join(diagnosticsDir, `${container}.log`), combined + '\n');
+        }
       }
     } catch {
       // Container may not exist — silently skip
