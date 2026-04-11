@@ -2778,7 +2778,11 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
         } else {
           const diagnosticsDestination = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
           try {
-            fs.renameSync(diagnosticsDir, diagnosticsDestination);
+            fs.mkdirSync(diagnosticsDestination, { recursive: true });
+            // Move each entry individually (rename across devices may fail)
+            for (const file of fs.readdirSync(diagnosticsDir)) {
+              fs.renameSync(path.join(diagnosticsDir, file), path.join(diagnosticsDestination, file));
+            }
             execa.sync('chmod', ['-R', 'a+rX', diagnosticsDestination]);
             logger.info(`Diagnostic logs preserved at: ${diagnosticsDestination}`);
           } catch (error) {
