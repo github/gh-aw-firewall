@@ -92,6 +92,8 @@ jobs:
     name: Build Squid Image
     runs-on: ubuntu-latest
     needs: bump-version
+    outputs:
+      digest: ${{ steps.build_squid.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -152,6 +154,8 @@ jobs:
     name: Build Agent Image
     runs-on: ubuntu-latest
     needs: bump-version
+    outputs:
+      digest: ${{ steps.build_agent.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -213,6 +217,8 @@ jobs:
     name: Build API Proxy Image
     runs-on: ubuntu-latest
     needs: bump-version
+    outputs:
+      digest: ${{ steps.build_api_proxy.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -273,6 +279,8 @@ jobs:
     name: Build CLI Proxy Image
     runs-on: ubuntu-latest
     needs: bump-version
+    outputs:
+      digest: ${{ steps.build_cli_proxy.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -335,6 +343,8 @@ jobs:
     name: Build Agent-Act Image
     runs-on: ubuntu-latest
     needs: bump-version
+    outputs:
+      digest: ${{ steps.build_agent_act.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -497,6 +507,19 @@ jobs:
           npm pack
           mv *.tgz release/awf.tgz
 
+      - name: Generate containers list
+        run: |
+          mkdir -p release
+          printf '%s\n' \
+            'ghcr.io/${{ github.repository }}/squid@${{ needs.build-squid.outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/agent@${{ needs.build-agent.outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/agent-act@${{ needs.build-agent-act.outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/api-proxy@${{ needs.build-api-proxy.outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/cli-proxy@${{ needs.build-cli-proxy.outputs.digest }}' \
+            > release/containers.txt
+          echo "Generated containers.txt:"
+          cat release/containers.txt
+
       - name: Generate checksums
         run: |
           cd release
@@ -621,6 +644,7 @@ jobs:
             release/awf-darwin-arm64
             release/awf-bundle.js
             release/awf.tgz
+            release/containers.txt
             release/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
