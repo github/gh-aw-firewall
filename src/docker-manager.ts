@@ -581,9 +581,10 @@ export function generateDockerCompose(
     'SUDO_USER',      // Sudo metadata
     'SUDO_UID',       // Sudo metadata
     'SUDO_GID',       // Sudo metadata
-    // GitHub Actions artifact service tokens — always excluded to prevent agents from
-    // uploading arbitrary data as workflow artifacts (potential data exfiltration vector).
-    // These tokens are only needed by the Actions runner itself, not by the agent.
+    // GitHub Actions artifact service tokens — excluded from inherited environment
+    // propagation to prevent agents from uploading arbitrary data as workflow artifacts
+    // (potential data exfiltration vector). These tokens are only needed by the
+    // Actions runner itself, not by the agent.
     'ACTIONS_RUNTIME_TOKEN',
     'ACTIONS_RESULTS_URL',
   ]);
