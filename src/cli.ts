@@ -15,6 +15,7 @@ import {
   cleanup,
   preserveIptablesAudit,
   fastKillAgentContainer,
+  collectDiagnosticLogs,
 } from './docker-manager';
 import {
   ensureFirewallNetwork,
@@ -417,6 +418,30 @@ export function emitCliProxyStatusLogs(
     warn('⚠️  CLI proxy enabled but no GitHub token found in environment');
     warn('   The external DIFC proxy handles token authentication');
   }
+}
+
+/**
+ * Warns when a classic GitHub PAT (ghp_* prefix) is used alongside COPILOT_MODEL.
+ * Copilot CLI 1.0.21+ performs a GET /models validation at startup when COPILOT_MODEL
+ * is set. This endpoint rejects classic PATs, causing the agent to fail with exit code 1
+ * before any useful work begins.
+ * Accepts booleans (not actual tokens/values) to prevent sensitive data from flowing
+ * through to log output (CodeQL: clear-text logging of sensitive information).
+ * @param isClassicPAT - Whether COPILOT_GITHUB_TOKEN starts with 'ghp_' (classic PAT)
+ * @param hasCopilotModel - Whether COPILOT_MODEL is set in the agent environment
+ * @param warn - Function to emit a warning message
+ */
+export function warnClassicPATWithCopilotModel(
+  isClassicPAT: boolean,
+  hasCopilotModel: boolean,
+  warn: (msg: string) => void,
+): void {
+  if (!isClassicPAT || !hasCopilotModel) return;
+
+  warn('⚠️  COPILOT_MODEL is set with a classic PAT (ghp_* token)');
+  warn('   Copilot CLI 1.0.21+ validates COPILOT_MODEL via GET /models at startup.');
+  warn('   Classic PATs are rejected by this endpoint — the agent will likely fail with exit code 1.');
+  warn('   Use a fine-grained PAT or OAuth token, or unset COPILOT_MODEL to skip model validation.');
 }
 
 /**
@@ -1532,6 +1557,13 @@ program
     '--session-state-dir <path>',
     'Directory to save Copilot CLI session state (events.jsonl, session data)'
   )
+  .option(
+    '--diagnostic-logs',
+    'Collect container logs, exit state, and sanitized config on non-zero exit.\n' +
+    '                                       Useful for debugging container startup failures (e.g. Squid crashes in DinD).\n' +
+    '                                       Written to <workDir>/diagnostics/ (or <audit-dir>/diagnostics/ when set).',
+    false
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)')
   .action(async (args: string[], options) => {
     // Require -- separator for passing command arguments
@@ -1882,6 +1914,7 @@ program
       difcProxyHost: options.difcProxyHost,
       difcProxyCaCert: options.difcProxyCaCert,
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+      diagnosticLogs: options.diagnosticLogs || false,
     };
 
     // Parse and validate --agent-timeout
@@ -1982,6 +2015,39 @@ program
     // Log CLI proxy status
     emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
+    // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
+    const hasCopilotModelInEnvFiles = (envFile: unknown): boolean => {
+      const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
+      for (const candidate of envFiles) {
+        if (typeof candidate !== 'string' || candidate.trim() === '') continue;
+        try {
+          const envFilePath = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+          const envFileContents = fs.readFileSync(envFilePath, 'utf8');
+          for (const line of envFileContents.split(/\r?\n/)) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+            if (/^(?:export\s+)?COPILOT_MODEL\s*=/.test(trimmedLine)) {
+              return true;
+            }
+          }
+        } catch {
+          // Ignore unreadable env files here; this check is only for a pre-flight warning.
+        }
+      }
+      return false;
+    };
+
+    // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
+    // Check if COPILOT_MODEL is set via --env/-e flags, host env (when --env-all is active), or --env-file
+    const copilotModelFromFlags = !!(additionalEnv['COPILOT_MODEL']);
+    const copilotModelInHostEnv = !!(config.envAll && process.env.COPILOT_MODEL);
+    const copilotModelInEnvFile = hasCopilotModelInEnvFiles((config as { envFile?: unknown }).envFile);
+    warnClassicPATWithCopilotModel(
+      config.copilotGithubToken?.startsWith('ghp_') ?? false,
+      copilotModelFromFlags || copilotModelInHostEnv || copilotModelInEnvFile,
+      logger.warn.bind(logger)
+    );
+
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
     const redactedConfig: Record<string, unknown> = {};
@@ -2062,6 +2128,7 @@ program
           writeConfigs,
           startContainers,
           runAgentCommand,
+          collectDiagnosticLogs,
         },
         {
           logger,
