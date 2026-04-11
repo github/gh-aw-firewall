@@ -80,8 +80,9 @@ For each **unprocessed** issue:
    - Reference specific source files. See `AGENTS.md` for component descriptions.
 
 2. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
-
    > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/{NUMBER}
+
+   where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 
    where `{NUMBER}` is replaced with **only the numeric issue number** (e.g., `1896`). Do NOT include the repository name, hash symbols, or any other text — just the number in the URL path. Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 

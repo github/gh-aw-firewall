@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, warnClassicPATWithCopilotModel, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2109,6 +2109,46 @@ describe('cli', () => {
       expect(infos.length).toBeGreaterThanOrEqual(1);
       expect(warns.length).toBeGreaterThanOrEqual(1);
       expect(warns[0]).toContain('no GitHub token found');
+    });
+  });
+
+  describe('warnClassicPATWithCopilotModel', () => {
+    it('should emit warnings when classic PAT and COPILOT_MODEL are both set', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(true, true, (msg) => warns.push(msg));
+      expect(warns.length).toBeGreaterThan(0);
+      expect(warns[0]).toContain('COPILOT_MODEL');
+      expect(warns.some(w => w.includes('classic PAT'))).toBe(true);
+    });
+
+    it('should not warn when token is not a classic PAT', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(false, true, (msg) => warns.push(msg));
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should not warn when COPILOT_MODEL is not set', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(true, false, (msg) => warns.push(msg));
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should not warn when neither condition holds', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(false, false, (msg) => warns.push(msg));
+      expect(warns).toHaveLength(0);
+    });
+
+    it('should mention /models endpoint in warning', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(true, true, (msg) => warns.push(msg));
+      expect(warns.some(w => w.includes('/models'))).toBe(true);
+    });
+
+    it('should mention exit code 1 in warning', () => {
+      const warns: string[] = [];
+      warnClassicPATWithCopilotModel(true, true, (msg) => warns.push(msg));
+      expect(warns.some(w => w.includes('exit code 1'))).toBe(true);
     });
   });
 

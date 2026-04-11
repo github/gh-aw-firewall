@@ -88,6 +88,32 @@ sudo -E awf --allow-domains github.com 'copilot --prompt "..."'
 - Working with untrusted code
 - In production/CI environments
 
+## `COPILOT_GITHUB_TOKEN` and Classic PAT Compatibility
+
+When `COPILOT_GITHUB_TOKEN` is set in the host environment, AWF injects it into the agent container so the Copilot CLI can authenticate against the GitHub Copilot API.
+
+### ⚠️ Classic PAT + `COPILOT_MODEL` Incompatibility (Copilot CLI 1.0.21+)
+
+Copilot CLI 1.0.21 introduced a startup model validation step: when `COPILOT_MODEL` is set, the CLI calls `GET /models` before executing any task. **This endpoint does not accept classic PATs** (`ghp_*` tokens), causing the agent to fail at startup with exit code 1 — before any useful work begins.
+
+**Affected combination:**
+- `COPILOT_GITHUB_TOKEN` is a classic PAT (prefixed with `ghp_`)
+- `COPILOT_MODEL` is set in the agent environment (e.g., via `--env COPILOT_MODEL=...`, `--env-file`, or `--env-all`)
+
+**Unaffected:** Workflows that do not set `COPILOT_MODEL` are not affected — the `/models` validation is only triggered when `COPILOT_MODEL` is set.
+
+**AWF detects this combination at startup** and emits a `[WARN]` message:
+```
+⚠️  COPILOT_MODEL is set with a classic PAT (ghp_* token)
+   Copilot CLI 1.0.21+ validates COPILOT_MODEL via GET /models at startup.
+   Classic PATs are rejected by this endpoint — the agent will likely fail with exit code 1.
+   Use a fine-grained PAT or OAuth token, or unset COPILOT_MODEL to skip model validation.
+```
+
+**Remediation options:**
+1. Replace the classic PAT with a **fine-grained PAT** or **OAuth token** (these are accepted by the `/models` endpoint).
+2. Remove `COPILOT_MODEL` from the agent environment to skip model validation entirely.
+
 ## Internal Environment Variables
 
 The following environment variables are set internally by the firewall and used by container scripts:
