@@ -16,7 +16,7 @@ features:
 
 tools:
   github:
-    toolsets: [default]
+    toolsets: [issues]
     allowed-repos: ["github/gh-aw", "github/gh-aw-firewall"]
     min-integrity: none
     github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
@@ -36,58 +36,57 @@ safe-outputs:
 
 # Firewall Issue Dispatcher
 
-You audit open issues in `github/gh-aw` that have the `awf` label and create corresponding tracking issues in `github/gh-aw-firewall` with a detailed problem description and proposed solution.
+You audit open issues in `github/gh-aw` labeled `awf` and create tracking issues in `github/gh-aw-firewall`.
 
-## Step-by-Step Process
+## Step 1: Batch Fetch All Data (ONE command)
 
-### 1. List AWF-Labeled Issues
+Run this single `gh` command to get all open `awf` issues with their comments:
 
-Search for all **open** issues in `github/gh-aw` with the label `awf`.
+```bash
+gh api graphql -f query='
+  query {
+    repository(owner: "github", name: "gh-aw") {
+      issues(labels: ["awf"], states: [OPEN], first: 50) {
+        nodes {
+          number
+          title
+          body
+          url
+          labels(first: 10) { nodes { name } }
+          comments(first: 100) {
+            nodes { author { login } body }
+          }
+        }
+      }
+    }
+  }
+'
+```
 
-### 2. Filter Out Already-Audited Issues
+## Step 2: Filter Locally
 
-For each issue found, read its comments and check whether any comment contains a link to a `github/gh-aw-firewall` issue (i.e., a URL matching `https://github.com/github/gh-aw-firewall/issues/`). If such a comment exists, **skip** that issue — it has already been audited.
+From the response, filter out issues where **any comment** contains `github.com/github/gh-aw-firewall/issues/`. These are already audited. Do this filtering in your analysis — do NOT make additional API calls.
 
-### 3. Analyze and Create Tracking Issues
+If no unprocessed issues remain, call `noop` and stop.
+
+## Step 3: Create Tracking Issues
 
 For each **unprocessed** issue:
 
-1. **Read the issue thoroughly** — title, body, labels, and all comments — to fully understand the problem.
+1. **Create a tracking issue in `github/gh-aw-firewall`** with:
+   - Title: `[awf] <component>: <summary>`
+   - Body: **Problem**, **Context** (link to original), **Root Cause**, **Proposed Solution**
+   - Reference specific source files. See `AGENTS.md` for component descriptions.
 
-2. **Determine AWF relevance** — identify how this issue relates to the firewall. Consider the AWF architecture:
-   - **Squid proxy** (`src/squid-config.ts`) — domain ACL filtering, HTTP/HTTPS egress control
-   - **Docker orchestration** (`src/docker-manager.ts`) — container lifecycle, environment variable injection, volume mounts
-   - **Agent container** (`containers/agent/entrypoint.sh`) — chroot, iptables, DNS config, capability management
-   - **API proxy sidecar** (`containers/api-proxy/server.js`) — credential injection, GHEC/GHES support
-   - **CLI** (`src/cli.ts`) — flag parsing, configuration, domain allowlisting
-   - **iptables** (`containers/agent/setup-iptables.sh`) — network isolation, port blocking, DNAT rules
-
-3. **Create a new issue in `github/gh-aw-firewall`** with:
-   - A clear, specific title starting with `[awf]` followed by a summary of the AWF-side problem (prefix with the relevant component, e.g., "[awf] agent-container: ..." or "[awf] squid: ...")
-   - A body containing:
-     - **Problem** section: What is broken or missing, from the firewall's perspective
-     - **Context** section: Link to the original `github/gh-aw` issue
-     - **Root Cause** section (if determinable): Which files/components are involved
-     - **Proposed Solution** section: A concrete, actionable fix or investigation path
-   - Use the `create_issue` safe output tool
-
-4. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this format:
-
+2. **Comment on the original `github/gh-aw` issue**:
    > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/NUMBER
 
-   Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
+## Step 4: Summarize
 
-### 4. Report Results
-
-After processing all issues, summarize what was done:
-- How many `awf`-labeled issues were found
-- How many were skipped (already audited)
-- How many new tracking issues were created
-- If there were no unprocessed issues, report that all `awf`-labeled issues have been audited
+Report: issues found, skipped (already audited), tracking issues created.
 
 ## Guidelines
 
-- **Be specific and actionable** — vague issue descriptions waste engineer time. Reference specific source files and functions.
-- **One tracking issue per gh-aw issue** — do not combine multiple gh-aw issues into a single tracking issue.
-- **Don't duplicate** — if you're unsure whether an issue was already audited, err on the side of skipping.
-- **Propose real solutions** — not just "investigate this." Suggest which code to change and how.
+- **Be specific and actionable** — reference source files and functions.
+- **One tracking issue per gh-aw issue** — do not combine.
+- **Propose real solutions** — not just "investigate this."
