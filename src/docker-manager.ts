@@ -747,7 +747,8 @@ export function generateDockerCompose(
     // it gets a placeholder value set earlier (line ~362) for credential isolation
     if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
     // COPILOT_API_KEY (BYOK) — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
-    // it is excluded from agent env (held securely in api-proxy sidecar)
+    // the real key is not forwarded to the agent env and a placeholder may still be present
+    // for credential isolation while the real key is held securely in the api-proxy sidecar
     if (process.env.COPILOT_API_KEY && !config.enableApiProxy) environment.COPILOT_API_KEY = process.env.COPILOT_API_KEY;
     if (process.env.USER) environment.USER = process.env.USER;
     // When --tty is set, we use TERM=xterm-256color (set above); otherwise inherit host TERM

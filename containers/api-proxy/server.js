@@ -63,8 +63,20 @@ const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim() || undefined;
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
 const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
 const COPILOT_API_KEY = (process.env.COPILOT_API_KEY || '').trim() || undefined;
-// BYOK: use COPILOT_GITHUB_TOKEN (GitHub OAuth) or COPILOT_API_KEY (direct key), GitHub token takes precedence
-const COPILOT_AUTH_TOKEN = COPILOT_GITHUB_TOKEN || COPILOT_API_KEY;
+
+/**
+ * Resolves the Copilot auth token from environment variables.
+ * COPILOT_GITHUB_TOKEN (GitHub OAuth) takes precedence over COPILOT_API_KEY (direct key).
+ * @param {Record<string, string|undefined>} env - Environment variables to inspect
+ * @returns {string|undefined} The resolved auth token, or undefined if neither is set
+ */
+function resolveCopilotAuthToken(env = process.env) {
+  const githubToken = (env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
+  const apiKey = (env.COPILOT_API_KEY || '').trim() || undefined;
+  return githubToken || apiKey;
+}
+
+const COPILOT_AUTH_TOKEN = resolveCopilotAuthToken(process.env);
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
 /**
@@ -999,4 +1011,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };

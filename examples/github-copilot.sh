@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 # - GitHub Copilot CLI installed: npm install -g @github/copilot
-# - COPILOT_API_KEY environment variable set (for API proxy)
+# - COPILOT_GITHUB_TOKEN or COPILOT_API_KEY environment variable set (for API proxy)
 # - GITHUB_TOKEN environment variable set (for GitHub API access)
 #
 # Usage: sudo -E ./examples/github-copilot.sh
@@ -16,10 +16,12 @@ set -e
 echo "=== AWF GitHub Copilot CLI Example (with API Proxy) ==="
 echo ""
 
-# Check for COPILOT_API_KEY
-if [ -z "$COPILOT_API_KEY" ]; then
-  echo "Error: COPILOT_API_KEY environment variable is not set"
-  echo "Set it with: export COPILOT_API_KEY='your_copilot_api_key'"
+# Check for Copilot credential (COPILOT_GITHUB_TOKEN or COPILOT_API_KEY)
+if [ -z "$COPILOT_GITHUB_TOKEN" ] && [ -z "$COPILOT_API_KEY" ]; then
+  echo "Error: No Copilot credential set"
+  echo "Set one of:"
+  echo "  export COPILOT_GITHUB_TOKEN='your_github_token'"
+  echo "  export COPILOT_API_KEY='your_copilot_api_key'"
   exit 1
 fi
 
@@ -37,8 +39,8 @@ echo "Running GitHub Copilot CLI with API proxy and debug logging enabled..."
 echo ""
 
 # Run Copilot CLI with API proxy enabled
-# Use sudo -E to preserve environment variables (COPILOT_API_KEY, GITHUB_TOKEN, AWF_ONE_SHOT_TOKEN_DEBUG)
-# The api-proxy sidecar holds the real COPILOT_API_KEY and injects it into requests.
+# Use sudo -E to preserve environment variables (COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, GITHUB_TOKEN, AWF_ONE_SHOT_TOKEN_DEBUG)
+# The api-proxy sidecar holds the real Copilot credential and injects it into requests.
 # Required domains:
 # - api.githubcopilot.com: Copilot API endpoint (proxied via api-proxy)
 # - github.com: GitHub API access

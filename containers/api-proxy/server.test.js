@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -617,6 +617,46 @@ describe('proxyWebSocket', () => {
         resolve();
       }, 30));
     });
+  });
+});
+
+describe('resolveCopilotAuthToken', () => {
+  it('should return COPILOT_GITHUB_TOKEN when only it is set', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: 'gho_abc123' })).toBe('gho_abc123');
+  });
+
+  it('should return COPILOT_API_KEY when only it is set', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'sk-byok-key' })).toBe('sk-byok-key');
+  });
+
+  it('should prefer COPILOT_GITHUB_TOKEN over COPILOT_API_KEY when both are set', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'gho_abc123',
+      COPILOT_API_KEY: 'sk-byok-key',
+    })).toBe('gho_abc123');
+  });
+
+  it('should return undefined when neither is set', () => {
+    expect(resolveCopilotAuthToken({})).toBeUndefined();
+  });
+
+  it('should return undefined for empty strings', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '', COPILOT_API_KEY: '' })).toBeUndefined();
+  });
+
+  it('should return undefined for whitespace-only values', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '  ', COPILOT_API_KEY: '  \n' })).toBeUndefined();
+  });
+
+  it('should trim whitespace from token values', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: '  sk-byok-key  ' })).toBe('sk-byok-key');
+  });
+
+  it('should fall back to COPILOT_API_KEY when COPILOT_GITHUB_TOKEN is whitespace-only', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: '  ',
+      COPILOT_API_KEY: 'sk-byok-key',
+    })).toBe('sk-byok-key');
   });
 });
 
