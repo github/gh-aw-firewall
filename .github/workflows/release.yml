@@ -511,11 +511,11 @@ jobs:
         run: |
           mkdir -p release
           printf '%s\n' \
-            'ghcr.io/${{ github.repository }}/squid@${{ needs.build-squid.outputs.digest }}' \
-            'ghcr.io/${{ github.repository }}/agent@${{ needs.build-agent.outputs.digest }}' \
-            'ghcr.io/${{ github.repository }}/agent-act@${{ needs.build-agent-act.outputs.digest }}' \
-            'ghcr.io/${{ github.repository }}/api-proxy@${{ needs.build-api-proxy.outputs.digest }}' \
-            'ghcr.io/${{ github.repository }}/cli-proxy@${{ needs.build-cli-proxy.outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/squid@${{ needs[''build-squid''].outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/agent@${{ needs[''build-agent''].outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/agent-act@${{ needs[''build-agent-act''].outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/api-proxy@${{ needs[''build-api-proxy''].outputs.digest }}' \
+            'ghcr.io/${{ github.repository }}/cli-proxy@${{ needs[''build-cli-proxy''].outputs.digest }}' \
             > release/containers.txt
           echo "Generated containers.txt:"
           cat release/containers.txt
