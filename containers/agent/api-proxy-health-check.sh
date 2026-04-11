@@ -127,6 +127,29 @@ if [ -n "$COPILOT_API_URL" ]; then
     echo "[health-check] ✓ COPILOT_TOKEN is placeholder value (correct)"
   fi
 
+  # Verify COPILOT_PROVIDER_API_KEY (offline+BYOK) is placeholder when api-proxy is enabled (if present)
+  if [ -n "$COPILOT_PROVIDER_API_KEY" ]; then
+    if [ "$COPILOT_PROVIDER_API_KEY" != "placeholder-token-for-credential-isolation" ]; then
+      echo "[health-check][ERROR] COPILOT_PROVIDER_API_KEY contains non-placeholder value!"
+      echo "[health-check][ERROR] Token should be 'placeholder-token-for-credential-isolation'"
+      exit 1
+    fi
+    echo "[health-check] ✓ COPILOT_PROVIDER_API_KEY is placeholder value (correct)"
+  fi
+
+  # Verify COPILOT_PROVIDER_BASE_URL matches the sidecar URL when set (offline+BYOK mode)
+  if [ -n "$COPILOT_PROVIDER_BASE_URL" ]; then
+    echo "[health-check] COPILOT_PROVIDER_BASE_URL=$COPILOT_PROVIDER_BASE_URL (offline+BYOK mode)"
+    if [ "$COPILOT_PROVIDER_BASE_URL" != "$COPILOT_API_URL" ]; then
+      echo "[health-check][ERROR] COPILOT_PROVIDER_BASE_URL does not match COPILOT_API_URL"
+      echo "[health-check][ERROR] COPILOT_PROVIDER_BASE_URL=$COPILOT_PROVIDER_BASE_URL"
+      echo "[health-check][ERROR] COPILOT_API_URL=$COPILOT_API_URL"
+      exit 1
+    fi
+    echo "[health-check] ✓ COPILOT_PROVIDER_BASE_URL matches COPILOT_API_URL"
+    echo "[health-check] ✓ Copilot CLI offline+BYOK mode configured"
+  fi
+
   # Perform health check using API URL
   echo "[health-check] Testing connectivity to GitHub Copilot API proxy at $COPILOT_API_URL..."
 

@@ -145,6 +145,9 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `COPILOT_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
 | `COPILOT_GITHUB_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token |
 | `COPILOT_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK placeholder token protected by one-shot-token |
+| `COPILOT_OFFLINE` | `true` | `COPILOT_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
+| `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar |
+| `COPILOT_PROVIDER_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
 | `OPENAI_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `ANTHROPIC_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
