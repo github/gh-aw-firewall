@@ -2633,6 +2633,54 @@ describe('docker-manager', () => {
         expect(env.COPILOT_TOKEN).toBe('placeholder-token-for-credential-isolation');
       });
 
+      it('should set COPILOT_OFFLINE=true in agent when copilotApiKey is provided (offline+BYOK mode)', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_OFFLINE).toBe('true');
+      });
+
+      it('should set COPILOT_PROVIDER_BASE_URL in agent when copilotApiKey is provided (offline+BYOK mode)', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_BASE_URL).toBe('http://172.30.0.30:10002');
+      });
+
+      it('should set COPILOT_PROVIDER_API_KEY placeholder in agent when copilotApiKey is provided (offline+BYOK mode)', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      });
+
+      it('should not set COPILOT_OFFLINE when only copilotGithubToken is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_OFFLINE).toBeUndefined();
+      });
+
+      it('should not set COPILOT_PROVIDER_BASE_URL when only copilotGithubToken is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_BASE_URL).toBeUndefined();
+      });
+
+      it('should include COPILOT_PROVIDER_API_KEY in AWF_ONE_SHOT_TOKENS', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.AWF_ONE_SHOT_TOKENS).toContain('COPILOT_PROVIDER_API_KEY');
+      });
+
       it('should include api-proxy service when enableApiProxy is true with Gemini key', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

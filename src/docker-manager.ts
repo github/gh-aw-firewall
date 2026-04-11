@@ -642,7 +642,7 @@ export function generateDockerCompose(
     }),
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
-    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY',
+    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY,COPILOT_PROVIDER_API_KEY',
   };
 
   // When api-proxy is enabled with Copilot, set placeholder tokens early
@@ -654,6 +654,8 @@ export function generateDockerCompose(
   if (config.enableApiProxy && config.copilotApiKey) {
     environment.COPILOT_API_KEY = 'placeholder-token-for-credential-isolation';
     logger.debug('COPILOT_API_KEY set to placeholder value (early) to prevent --env-all override');
+    environment.COPILOT_PROVIDER_API_KEY = 'placeholder-token-for-credential-isolation';
+    logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value (early) to prevent --env-all override');
   }
 
   // Always set NO_PROXY to prevent HTTP clients from proxying localhost traffic through Squid.
@@ -1635,6 +1637,22 @@ export function generateDockerCompose(
 
       // Note: COPILOT_GITHUB_TOKEN and COPILOT_API_KEY placeholders are set early (before --env-all)
       // to prevent override by host environment variable
+    }
+    if (config.copilotApiKey) {
+      // Enable Copilot CLI offline + BYOK mode so it skips the GitHub OAuth handshake
+      // and talks directly to the sidecar without needing GitHub authentication for inference.
+      // Reference: https://github.blog/changelog/2026-04-07-copilot-cli-now-supports-byok-and-local-models/
+      environment.COPILOT_OFFLINE = 'true';
+      logger.debug('COPILOT_OFFLINE set to true for offline+BYOK mode');
+
+      // Point Copilot CLI's BYOK provider URL at the sidecar, which injects the real API key
+      // and forwards the request through Squid. This is the new canonical BYOK env var.
+      environment.COPILOT_PROVIDER_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
+      logger.debug(`COPILOT_PROVIDER_BASE_URL set to sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
+
+      // COPILOT_PROVIDER_API_KEY placeholder: real key is held by the sidecar, never exposed to agent.
+      // Set early placeholder (before this block) already handled above.
+      logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
     }
     if (config.geminiApiKey) {
       environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
