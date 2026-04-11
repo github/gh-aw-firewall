@@ -383,18 +383,30 @@ jobs:
       # Cache memory file share configuration from frontmatter processed below
       - name: Create cache-memory directory
         run: bash "${RUNNER_TEMP}/gh-aw/actions/create_cache_memory_dir.sh"
+      - name: Compute cache-memory TTL date key
+        run: echo "CACHE_MEMORY_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
       - name: Cache cache-memory file share data
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}
+          key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-${{ github.run_id }}
           path: /tmp/gh-aw/cache-memory
           restore-keys: |
-            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-
+            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-
       - name: Setup cache-memory git repository
         env:
           GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory
           GH_AW_MIN_INTEGRITY: none
         run: bash "${RUNNER_TEMP}/gh-aw/actions/setup_cache_memory_git.sh"
+      - name: Strip execute bits from cache-memory files
+        if: always()
+        env:
+          GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory
+        run: |
+          CACHE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"
+          # Strip execute bits from all non-.git files to prevent execute-bit
+          # persistence of attacker-planted executables across cache restore cycles.
+          find "$CACHE_DIR" -not -path '*/.git/*' -type f -exec chmod a-x {} +
+          echo "Execute bits stripped from cache-memory working tree"
       - name: Configure Git credentials
         env:
           REPO_NAME: ${{ github.repository }}
@@ -915,6 +927,28 @@ jobs:
         run: |
           if [ ! -f /tmp/gh-aw/agent_output.json ]; then
             echo '{"items":[]}' > /tmp/gh-aw/agent_output.json
+          fi
+      - name: Scan cache-memory for instruction-injection content
+        if: always()
+        env:
+          GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory
+        run: |
+          CACHE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"
+          # Remove files containing instruction-shaped content to prevent
+          # cross-run agent-context instruction injection via cache-memory.
+          INJECTION_PATTERN='^(New instruction|SYSTEM|Ignore (all |previous |prior )instructions?|Override|[#]{1,3}[[:space:]]*SYSTEM|<system>)'
+          mapfile -t SUSPICIOUS_FILES < <(
+            find "$CACHE_DIR" -not -path '*/.git/*' -type f \
+              -exec grep -lEi "$INJECTION_PATTERN" {} \; 2>/dev/null || true
+          )
+          if [ ${#SUSPICIOUS_FILES[@]} -gt 0 ]; then
+            for f in "${SUSPICIOUS_FILES[@]}"; do
+              echo "::warning::Removing file with instruction-shaped content: $f"
+              rm -f "$f"
+            done
+            echo "Removed ${#SUSPICIOUS_FILES[@]} file(s) with instruction-shaped content"
+          else
+            echo "No instruction-injection content found in cache-memory"
           fi
       - name: Commit cache-memory changes
         if: always()

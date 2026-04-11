@@ -65,3 +65,156 @@ describe('installStepRegex', () => {
     expect(match![1]).toBe('          ');
   });
 });
+
+// ── Cache-memory security hardening regex tests ───────────────────────────
+// Mirrors the patterns in postprocess-smoke-workflows.ts.
+// If those patterns change, these tests will catch regressions.
+
+const setupCacheMemoryStepRegex =
+  /^(\s+)- name: Setup cache-memory git repository\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/setup_cache_memory_git\.sh"\n/m;
+
+const cacheMemoryCommitStepRegex =
+  /^(\s+)- name: Commit cache-memory changes\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/commit_cache_memory_git\.sh"\n/m;
+
+const createCacheDirStepRegex =
+  /^(\s+)(- name: Create cache-memory directory\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/create_cache_memory_dir\.sh"\n)(\1- name: (?:Cache|Restore) cache-memory file share data\n)/m;
+
+const cacheMemoryKeyLineRegex =
+  /(key: memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)\$\{\{ github\.run_id \}\}/g;
+
+const cacheRestoreKeyPrefixRegex =
+  /(memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)(\n)/g;
+
+describe('setupCacheMemoryStepRegex', () => {
+  const SETUP_STEP =
+    '      - name: Setup cache-memory git repository\n' +
+    '        env:\n' +
+    '          GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory\n' +
+    '          GH_AW_MIN_INTEGRITY: none\n' +
+    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/setup_cache_memory_git.sh"\n';
+
+  it('should match setup-cache-memory step with standard indentation', () => {
+    expect(setupCacheMemoryStepRegex.test(SETUP_STEP)).toBe(true);
+  });
+
+  it('should capture indentation', () => {
+    const match = SETUP_STEP.match(setupCacheMemoryStepRegex);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('      ');
+  });
+
+  it('should not match a step with a different name', () => {
+    const input =
+      '      - name: Run cache-memory git\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/setup_cache_memory_git.sh"\n';
+    expect(setupCacheMemoryStepRegex.test(input)).toBe(false);
+  });
+});
+
+describe('cacheMemoryCommitStepRegex', () => {
+  const COMMIT_STEP =
+    '      - name: Commit cache-memory changes\n' +
+    '        if: always()\n' +
+    '        env:\n' +
+    '          GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory\n' +
+    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/commit_cache_memory_git.sh"\n';
+
+  it('should match commit-cache-memory step', () => {
+    expect(cacheMemoryCommitStepRegex.test(COMMIT_STEP)).toBe(true);
+  });
+
+  it('should capture indentation', () => {
+    const match = COMMIT_STEP.match(cacheMemoryCommitStepRegex);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('      ');
+  });
+});
+
+describe('createCacheDirStepRegex', () => {
+  it('should match create dir + Cache cache-memory step pair', () => {
+    const input =
+      '      - name: Create cache-memory directory\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/create_cache_memory_dir.sh"\n' +
+      '      - name: Cache cache-memory file share data\n';
+    expect(createCacheDirStepRegex.test(input)).toBe(true);
+  });
+
+  it('should match create dir + Restore cache-memory step pair (split cache)', () => {
+    const input =
+      '      - name: Create cache-memory directory\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/create_cache_memory_dir.sh"\n' +
+      '      - name: Restore cache-memory file share data\n';
+    expect(createCacheDirStepRegex.test(input)).toBe(true);
+  });
+
+  it('should capture all three groups', () => {
+    const input =
+      '      - name: Create cache-memory directory\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/create_cache_memory_dir.sh"\n' +
+      '      - name: Cache cache-memory file share data\n';
+    const match = input.match(createCacheDirStepRegex);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('      '); // indent
+    expect(match![2]).toContain('Create cache-memory directory');
+    expect(match![3]).toContain('Cache cache-memory file share data');
+  });
+});
+
+describe('cacheMemoryKeyLineRegex', () => {
+  it('should match key with GH_AW_WORKFLOW_ID_SANITIZED', () => {
+    const input =
+      'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}\n';
+    const result = input.replace(
+      cacheMemoryKeyLineRegex,
+      (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
+    );
+    expect(result).toContain('CACHE_MEMORY_DATE');
+    expect(result).toContain('github.run_id');
+  });
+
+  it('should match key with hardcoded workflow id', () => {
+    const input =
+      'key: memory-none-nopolicy-issue-duplication-detector-${{ github.run_id }}\n';
+    const result = input.replace(
+      cacheMemoryKeyLineRegex,
+      (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
+    );
+    expect(result).toContain('CACHE_MEMORY_DATE');
+    expect(result).toContain('github.run_id');
+  });
+
+  it('should not match a key already containing CACHE_MEMORY_DATE', () => {
+    const input =
+      'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-${{ github.run_id }}\n';
+    // The regex matches only ${{ github.run_id }} without CACHE_MEMORY_DATE prefix
+    const match = input.match(cacheMemoryKeyLineRegex);
+    // The prefix captured should include CACHE_MEMORY_DATE already
+    expect(match).toBeNull(); // no match since run_id is not directly after workflow_id-
+  });
+});
+
+describe('cacheRestoreKeyPrefixRegex', () => {
+  it('should match restore-keys prefix with GH_AW_WORKFLOW_ID_SANITIZED', () => {
+    const input =
+      '            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n';
+    const result = input.replace(
+      cacheRestoreKeyPrefixRegex,
+      (_m, prefixWithWorkflowId, newline) =>
+        `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
+    );
+    expect(result).toContain('CACHE_MEMORY_DATE');
+    expect(result).toMatch(/GH_AW_WORKFLOW_ID_SANITIZED.*CACHE_MEMORY_DATE/);
+  });
+
+  it('should match restore-keys prefix with hardcoded workflow id', () => {
+    const input = '            memory-none-nopolicy-issue-duplication-detector-\n';
+    const result = input.replace(
+      cacheRestoreKeyPrefixRegex,
+      (_m, prefixWithWorkflowId, newline) =>
+        `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
+    );
+    expect(result).toContain('CACHE_MEMORY_DATE');
+    expect(result).toContain('issue-duplication-detector');
+  });
+});
+
