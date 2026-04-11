@@ -54,10 +54,10 @@ runs:
         BINARY_NAME="awf-linux-x64"
         INSTALL_DIR="${RUNNER_TEMP}/awf-bin"
 
-        # Build auth header for GitHub API to avoid rate limits
+        # Build auth headers for GitHub API (Bearer is the recommended format for GITHUB_TOKEN)
         AUTH_HEADER=()
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-          AUTH_HEADER=(-H "Authorization: token ${GITHUB_TOKEN}")
+          AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
         fi
 
         # Create install directory
@@ -66,11 +66,18 @@ runs:
         # Determine version
         if [ "$INPUT_VERSION" = "latest" ] || [ -z "$INPUT_VERSION" ]; then
           echo "Fetching latest release version..."
-          # Use jq if available, fallback to grep/sed
-          if command -v jq &> /dev/null; then
-            VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
-          else
-            VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION=""
+          # Try gh CLI first (pre-installed on GitHub Actions runners, handles auth natively)
+          if command -v gh &> /dev/null && [ -n "${GITHUB_TOKEN:-}" ]; then
+            VERSION=$(gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+          fi
+          # Fall back to curl with GitHub API
+          if [ -z "${VERSION:-}" ] || [ "$VERSION" = "null" ]; then
+            if command -v jq &> /dev/null; then
+              VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')
+            else
+              VERSION=$(curl -fsSL "${AUTH_HEADER[@]}" "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            fi
           fi
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
             echo "::error::Failed to fetch latest version from GitHub API"
