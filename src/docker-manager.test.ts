@@ -1382,6 +1382,78 @@ describe('docker-manager', () => {
       expect(env.ANOTHER_VAR).toBe('another_value');
     });
 
+    it('should never pass ACTIONS_RUNTIME_TOKEN to agent container', () => {
+      const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
+      process.env.ACTIONS_RUNTIME_TOKEN = 'test-runtime-token-value';
+
+      try {
+        // Should not be passed in default mode
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_RUNTIME_TOKEN).toBeUndefined();
+      } finally {
+        if (originalToken !== undefined) {
+          process.env.ACTIONS_RUNTIME_TOKEN = originalToken;
+        } else {
+          delete process.env.ACTIONS_RUNTIME_TOKEN;
+        }
+      }
+    });
+
+    it('should never pass ACTIONS_RESULTS_URL to agent container', () => {
+      const originalUrl = process.env.ACTIONS_RESULTS_URL;
+      process.env.ACTIONS_RESULTS_URL = 'https://results-receiver.actions.githubusercontent.com/';
+
+      try {
+        // Should not be passed in default mode
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_RESULTS_URL).toBeUndefined();
+      } finally {
+        if (originalUrl !== undefined) {
+          process.env.ACTIONS_RESULTS_URL = originalUrl;
+        } else {
+          delete process.env.ACTIONS_RESULTS_URL;
+        }
+      }
+    });
+
+    it('should exclude ACTIONS_RUNTIME_TOKEN from env-all passthrough', () => {
+      const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
+      process.env.ACTIONS_RUNTIME_TOKEN = 'test-runtime-token-value';
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_RUNTIME_TOKEN).toBeUndefined();
+      } finally {
+        if (originalToken !== undefined) {
+          process.env.ACTIONS_RUNTIME_TOKEN = originalToken;
+        } else {
+          delete process.env.ACTIONS_RUNTIME_TOKEN;
+        }
+      }
+    });
+
+    it('should exclude ACTIONS_RESULTS_URL from env-all passthrough', () => {
+      const originalUrl = process.env.ACTIONS_RESULTS_URL;
+      process.env.ACTIONS_RESULTS_URL = 'https://results-receiver.actions.githubusercontent.com/';
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.ACTIONS_RESULTS_URL).toBeUndefined();
+      } finally {
+        if (originalUrl !== undefined) {
+          process.env.ACTIONS_RESULTS_URL = originalUrl;
+        } else {
+          delete process.env.ACTIONS_RESULTS_URL;
+        }
+      }
+    });
+
     it('should exclude system variables when envAll is enabled', () => {
       const originalPath = process.env.PATH;
       process.env.CUSTOM_HOST_VAR = 'test_value';
