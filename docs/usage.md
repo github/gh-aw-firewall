@@ -789,6 +789,43 @@ sudo awf --allow-domains echo.websocket.events "wscat -c wss://echo.websocket.ev
 sudo awf --allow-domains github.com "npm install -g wscat && wscat -c wss://echo.websocket.events"
 ```
 
+### Workflow-Scope DinD Incompatibility
+
+Setting `DOCKER_HOST` to an external TCP daemon (e.g. a DinD service container) at
+**workflow scope** is incompatible with AWF and will be rejected at startup with an
+error like:
+
+```
+❌ DOCKER_HOST is set to an external daemon (tcp://localhost:2375). AWF requires the
+local Docker daemon (default socket). Workflow-scope DinD is incompatible with AWF's
+network isolation model.
+```
+
+**Why it is incompatible:**
+
+AWF manages its own Docker network (`172.30.0.0/24`) and iptables NAT rules that must
+run on the host runner's network namespace.  When `DOCKER_HOST` points at a DinD TCP
+daemon, `docker compose` routes all container creation through that daemon's isolated
+network namespace, which breaks:
+
+- AWF's fixed subnet routing (the subnet is inside the DinD namespace, unreachable from the runner)
+- The iptables DNAT rules configured by `awf-iptables-init` (they run in the wrong namespace)
+- Port-binding expectations used for container-to-container communication
+
+**Workaround:**
+
+If the agent command itself needs to run Docker, use `--enable-dind` to mount the host
+Docker socket into the agent container rather than configuring DinD at workflow scope:
+
+```bash
+# ✓ Use --enable-dind to allow docker commands inside the agent
+sudo awf --enable-dind --allow-domains registry-1.docker.io -- docker run hello-world
+```
+
+> **⚠️ Security warning:** `--enable-dind` allows the agent to bypass firewall
+> restrictions by spawning containers that are not subject to the firewall's network
+> rules.  Only enable it for trusted workloads that genuinely need Docker access.
+
 ## IP-Based Access
 
 Direct IP access (without domain names) is blocked:
