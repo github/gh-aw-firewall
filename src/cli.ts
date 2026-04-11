@@ -1951,13 +1951,35 @@ program
     emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
     // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
-    // Check if COPILOT_MODEL is set via --env/-e flags or host env (when --env-all is active)
-    const copilotModelFromFlags = Object.prototype.hasOwnProperty.call(additionalEnv, 'COPILOT_MODEL');
-    const copilotModelInHostEnv =
-      config.envAll && Object.prototype.hasOwnProperty.call(process.env, 'COPILOT_MODEL');
+    const hasCopilotModelInEnvFiles = (envFile: unknown): boolean => {
+      const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
+      for (const candidate of envFiles) {
+        if (typeof candidate !== 'string' || candidate.trim() === '') continue;
+        try {
+          const envFilePath = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+          const envFileContents = fs.readFileSync(envFilePath, 'utf8');
+          for (const line of envFileContents.split(/\r?\n/)) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+            if (/^(?:export\s+)?COPILOT_MODEL\s*=/.test(trimmedLine)) {
+              return true;
+            }
+          }
+        } catch {
+          // Ignore unreadable env files here; this check is only for a pre-flight warning.
+        }
+      }
+      return false;
+    };
+
+    // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
+    // Check if COPILOT_MODEL is set via --env/-e flags, host env (when --env-all is active), or --env-file
+    const copilotModelFromFlags = !!(additionalEnv['COPILOT_MODEL']);
+    const copilotModelInHostEnv = !!(config.envAll && process.env.COPILOT_MODEL);
+    const copilotModelInEnvFile = hasCopilotModelInEnvFiles((config as { envFile?: unknown }).envFile);
     warnClassicPATWithCopilotModel(
       config.copilotGithubToken?.startsWith('ghp_') ?? false,
-      copilotModelFromFlags || copilotModelInHostEnv,
+      copilotModelFromFlags || copilotModelInHostEnv || copilotModelInEnvFile,
       logger.warn.bind(logger)
     );
 
