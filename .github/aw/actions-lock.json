@@ -10,6 +10,11 @@
       "version": "v8",
       "sha": "ed597411d8f924073f98dfc5c65a23a2325f34cd"
     },
+    "actions/github-script@v9": {
+      "repo": "actions/github-script",
+      "version": "v9",
+      "sha": "373c709c69115d41ff229c7e5df9f8788daa9553"
+    },
     "actions/github-script@v9.0.0": {
       "repo": "actions/github-script",
       "version": "v9.0.0",
@@ -20,15 +25,15 @@
       "version": "v6.3.0",
       "sha": "53b83947a5a98c8d113130e565377fae1a50d02f"
     },
-    "actions/upload-artifact@v7.0.0": {
+    "actions/upload-artifact@v7.0.1": {
       "repo": "actions/upload-artifact",
-      "version": "v7.0.0",
-      "sha": "bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
+      "version": "v7.0.1",
+      "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     },
-    "docker/build-push-action@v7.0.0": {
+    "docker/build-push-action@v7.1.0": {
       "repo": "docker/build-push-action",
-      "version": "v7.0.0",
-      "sha": "d08e5c354a6adb9ed34480a06d141179aa583294"
+      "version": "v7.1.0",
+      "sha": "bcafcacb16a39f128d818304e6c9c0c18556b85f"
     },
     "docker/login-action@v4.1.0": {
       "repo": "docker/login-action",
@@ -40,20 +45,20 @@
       "version": "v4.0.0",
       "sha": "4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd"
     },
-    "github/gh-aw-actions/setup-cli@v0.68.0": {
+    "github/gh-aw-actions/setup-cli@v0.68.1": {
       "repo": "github/gh-aw-actions/setup-cli",
-      "version": "v0.68.0",
-      "sha": "0acfb4a691fe207cd8bc982ea5cb9d750d57a702"
+      "version": "v0.68.1",
+      "sha": "2fe53acc038ba01c3bbdc767d4b25df31ca5bdfc"
     },
-    "github/gh-aw-actions/setup@v0.68.0": {
+    "github/gh-aw-actions/setup@v0.68.1": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.68.0",
-      "sha": "0acfb4a691fe207cd8bc982ea5cb9d750d57a702"
+      "version": "v0.68.1",
+      "sha": "2fe53acc038ba01c3bbdc767d4b25df31ca5bdfc"
     },
-    "github/gh-aw/actions/setup@v0.68.0": {
+    "github/gh-aw/actions/setup@v0.68.1": {
       "repo": "github/gh-aw/actions/setup",
-      "version": "v0.68.0",
-      "sha": "f3d301231ec6de850c2b3320f3ba896ab1e8a8ff"
+      "version": "v0.68.1",
+      "sha": "5a06d310cf45161bde77d070065a1e1489fc411c"
     },
     "softprops/action-gh-release@v2.6.1": {
       "repo": "softprops/action-gh-release",
