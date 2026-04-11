@@ -62,6 +62,9 @@ function shouldStripHeader(name) {
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim() || undefined;
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
 const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
+const COPILOT_API_KEY = (process.env.COPILOT_API_KEY || '').trim() || undefined;
+// BYOK: use COPILOT_GITHUB_TOKEN (GitHub OAuth) or COPILOT_API_KEY (direct key), GitHub token takes precedence
+const COPILOT_AUTH_TOKEN = COPILOT_GITHUB_TOKEN || COPILOT_API_KEY;
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
 /**
@@ -213,7 +216,9 @@ logRequest('info', 'startup', {
     openai: !!OPENAI_API_KEY,
     anthropic: !!ANTHROPIC_API_KEY,
     gemini: !!GEMINI_API_KEY,
-    copilot: !!COPILOT_GITHUB_TOKEN,
+    copilot: !!COPILOT_AUTH_TOKEN,
+    copilot_github_token: !!COPILOT_GITHUB_TOKEN,
+    copilot_api_key: !!COPILOT_API_KEY,
   },
 });
 
@@ -752,7 +757,7 @@ function healthResponse() {
       openai: !!OPENAI_API_KEY,
       anthropic: !!ANTHROPIC_API_KEY,
       gemini: !!GEMINI_API_KEY,
-      copilot: !!COPILOT_GITHUB_TOKEN,
+      copilot: !!COPILOT_AUTH_TOKEN,
     },
     metrics_summary: metrics.getSummary(),
     rate_limits: limiter.getAllStatus(),
@@ -857,7 +862,9 @@ if (require.main === module) {
 
 
   // GitHub Copilot API proxy (port 10002)
-  if (COPILOT_GITHUB_TOKEN) {
+  // Supports COPILOT_GITHUB_TOKEN (GitHub OAuth) and COPILOT_API_KEY (BYOK direct key).
+  // COPILOT_GITHUB_TOKEN takes precedence when both are set.
+  if (COPILOT_AUTH_TOKEN) {
     const copilotServer = http.createServer((req, res) => {
       // Health check endpoint
       if (req.url === '/health' && req.method === 'GET') {
@@ -870,13 +877,13 @@ if (require.main === module) {
       if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
       proxyRequest(req, res, COPILOT_API_TARGET, {
-        'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+        'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
       }, 'copilot');
     });
 
     copilotServer.on('upgrade', (req, socket, head) => {
       proxyWebSocket(req, socket, head, COPILOT_API_TARGET, {
-        'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+        'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
       }, 'copilot');
     });
 

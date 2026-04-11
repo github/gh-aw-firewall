@@ -595,13 +595,14 @@ export interface WrapperConfig {
    * variables are set in the agent container:
    * - OPENAI_BASE_URL=http://api-proxy:10000/v1 (set when OPENAI_API_KEY is provided)
    * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided)
-   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN is provided)
+   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN or COPILOT_API_KEY is provided)
    * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided)
    *
    * API keys are passed via environment variables:
    * - OPENAI_API_KEY - Optional OpenAI API key for Codex
    * - ANTHROPIC_API_KEY - Optional Anthropic API key for Claude
    * - COPILOT_GITHUB_TOKEN - Optional GitHub token for Copilot
+   * - COPILOT_API_KEY - Optional direct Copilot API key (BYOK)
    *
    * @default false
    * @example
@@ -610,6 +611,7 @@ export interface WrapperConfig {
    * export OPENAI_API_KEY="sk-..."
    * export ANTHROPIC_API_KEY="sk-ant-..."
    * export COPILOT_GITHUB_TOKEN="ghp_..."
+   * export COPILOT_API_KEY="your-copilot-api-key..."
    * awf --enable-api-proxy --allow-domains api.openai.com,api.anthropic.com,api.githubcopilot.com -- command
    * ```
    * @see API_PROXY_PORTS for port configuration
@@ -662,6 +664,21 @@ export interface WrapperConfig {
    * @default undefined
    */
   copilotGithubToken?: string;
+
+  /**
+   * Direct Copilot API key for BYOK (Bring Your Own Key) authentication
+   *
+   * When enableApiProxy is true, this key is injected into the Node.js sidecar
+   * container and used to authenticate requests to api.githubcopilot.com.
+   *
+   * This is an alternative to copilotGithubToken for direct API key authentication
+   * (BYOK mode) without requiring GitHub OAuth token exchange.
+   *
+   * The key is NOT exposed to the agent container - only the proxy URL is provided.
+   *
+   * @default undefined
+   */
+  copilotApiKey?: string;
 
   /**
    * Google Gemini API key (used by API proxy sidecar)

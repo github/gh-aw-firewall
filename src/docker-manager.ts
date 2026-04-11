@@ -592,7 +592,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     EXCLUDED_ENV_VARS.add('GEMINI_API_KEY');
-    // COPILOT_GITHUB_TOKEN gets a placeholder (not excluded), protected by one-shot-token
+    // COPILOT_GITHUB_TOKEN and COPILOT_API_KEY get placeholders (not excluded), protected by one-shot-token
     // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
     // through COPILOT_API_URL → api-proxy regardless of GITHUB_API_URL being set.
@@ -636,7 +636,7 @@ export function generateDockerCompose(
     }),
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
-    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY',
+    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY',
   };
 
   // When api-proxy is enabled with Copilot, set placeholder tokens early
@@ -644,6 +644,10 @@ export function generateDockerCompose(
   if (config.enableApiProxy && config.copilotGithubToken) {
     environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
+  }
+  if (config.enableApiProxy && config.copilotApiKey) {
+    environment.COPILOT_API_KEY = 'placeholder-token-for-credential-isolation';
+    logger.debug('COPILOT_API_KEY set to placeholder value (early) to prevent --env-all override');
   }
 
   // Always set NO_PROXY to prevent HTTP clients from proxying localhost traffic through Squid.
@@ -742,6 +746,9 @@ export function generateDockerCompose(
     // COPILOT_GITHUB_TOKEN — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
     // it gets a placeholder value set earlier (line ~362) for credential isolation
     if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
+    // COPILOT_API_KEY (BYOK) — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
+    // it is excluded from agent env (held securely in api-proxy sidecar)
+    if (process.env.COPILOT_API_KEY && !config.enableApiProxy) environment.COPILOT_API_KEY = process.env.COPILOT_API_KEY;
     if (process.env.USER) environment.USER = process.env.USER;
     // When --tty is set, we use TERM=xterm-256color (set above); otherwise inherit host TERM
     if (process.env.TERM && !config.tty) environment.TERM = process.env.TERM;
@@ -1504,6 +1511,7 @@ export function generateDockerCompose(
         ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
         ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
         ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
+        ...(config.copilotApiKey && { COPILOT_API_KEY: config.copilotApiKey }),
         ...(config.geminiApiKey && { GEMINI_API_KEY: config.geminiApiKey }),
         // Configurable API targets (for GHES/GHEC / custom endpoints)
         // Strip any scheme prefix — server.js also normalizes defensively, but
@@ -1606,7 +1614,7 @@ export function generateDockerCompose(
       environment.CLAUDE_CODE_API_KEY_HELPER = '/usr/local/bin/get-claude-key.sh';
       logger.debug('Claude Code API key helper configured: /usr/local/bin/get-claude-key.sh');
     }
-    if (config.copilotGithubToken) {
+    if (config.copilotGithubToken || config.copilotApiKey) {
       environment.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
       logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);
       if (config.copilotApiTarget) {
@@ -1618,7 +1626,7 @@ export function generateDockerCompose(
       environment.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
       logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
 
-      // Note: COPILOT_GITHUB_TOKEN placeholder is set early (before --env-all)
+      // Note: COPILOT_GITHUB_TOKEN and COPILOT_API_KEY placeholders are set early (before --env-all)
       // to prevent override by host environment variable
     }
     if (config.geminiApiKey) {

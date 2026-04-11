@@ -1397,6 +1397,7 @@ describe('cli', () => {
       expect(result.enabled).toBe(true);
       expect(result.warnings).toHaveLength(2);
       expect(result.warnings[0]).toContain('no API keys found');
+      expect(result.warnings[1]).toContain('COPILOT_API_KEY');
       expect(result.warnings[1]).toContain('GEMINI_API_KEY');
       expect(result.debugMessages).toEqual([]);
     });

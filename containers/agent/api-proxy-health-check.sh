@@ -107,6 +107,16 @@ if [ -n "$COPILOT_API_URL" ]; then
     echo "[health-check] ✓ COPILOT_GITHUB_TOKEN is placeholder value (correct)"
   fi
 
+  # Verify COPILOT_API_KEY (BYOK) is placeholder when api-proxy is enabled (if present)
+  if [ -n "$COPILOT_API_KEY" ]; then
+    if [ "$COPILOT_API_KEY" != "placeholder-token-for-credential-isolation" ]; then
+      echo "[health-check][ERROR] COPILOT_API_KEY contains non-placeholder value!"
+      echo "[health-check][ERROR] Token should be 'placeholder-token-for-credential-isolation'"
+      exit 1
+    fi
+    echo "[health-check] ✓ COPILOT_API_KEY is placeholder value (correct)"
+  fi
+
   # Verify COPILOT_TOKEN is placeholder (if present)
   if [ -n "$COPILOT_TOKEN" ]; then
     if [ "$COPILOT_TOKEN" != "placeholder-token-for-credential-isolation" ]; then

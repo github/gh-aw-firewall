@@ -675,6 +675,7 @@ sudo -E awf --enable-api-proxy \
 | `OPENAI_API_KEY` | OpenAI / Codex |
 | `ANTHROPIC_API_KEY` | Anthropic / Claude |
 | `COPILOT_GITHUB_TOKEN` | GitHub Copilot |
+| `COPILOT_API_KEY` | GitHub Copilot (BYOK) |
 
 **Sidecar ports:**
 

@@ -297,7 +297,7 @@ export function validateApiProxyConfig(
 
   if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey) {
     warnings.push('⚠️  API proxy enabled but no API keys found in environment');
-    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or GEMINI_API_KEY to use the proxy');
+    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, or GEMINI_API_KEY to use the proxy');
   }
   if (hasOpenaiKey) {
     debugMessages.push('OpenAI API key detected - will be held securely in sidecar');
@@ -1903,6 +1903,7 @@ program
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
+      copilotApiKey: process.env.COPILOT_API_KEY,
       geminiApiKey: process.env.GEMINI_API_KEY,
       copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
       openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
@@ -1993,13 +1994,13 @@ program
       config.enableApiProxy || false,
       !!config.openaiApiKey,
       !!config.anthropicApiKey,
-      !!config.copilotGithubToken,
+      !!(config.copilotGithubToken || config.copilotApiKey),
       !!config.geminiApiKey
     );
 
     // Log API proxy status at info level for visibility
     if (config.enableApiProxy) {
-      logger.info(`API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!config.copilotGithubToken}, Gemini=${!!config.geminiApiKey}`);
+      logger.info(`API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!(config.copilotGithubToken || config.copilotApiKey)}, Gemini=${!!config.geminiApiKey}`);
     }
 
     for (const warning of apiProxyValidation.warnings) {
@@ -2052,7 +2053,7 @@ program
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
     const redactedConfig: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(config)) {
-      if (key === 'openaiApiKey' || key === 'anthropicApiKey' || key === 'copilotGithubToken' || key === 'geminiApiKey') continue;
+      if (key === 'openaiApiKey' || key === 'anthropicApiKey' || key === 'copilotGithubToken' || key === 'copilotApiKey' || key === 'geminiApiKey') continue;
       redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
     }
     logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
