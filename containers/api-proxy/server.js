@@ -233,7 +233,26 @@ function deriveGitHubApiTarget() {
   }
   return 'api.github.com';
 }
+
+/**
+ * Extract the base path from GITHUB_API_URL for GHES deployments
+ * (e.g. https://ghes.example.com/api/v3 → '/api/v3').
+ * Returns '' for github.com or when no path component is present.
+ */
+function deriveGitHubApiBasePath() {
+  const raw = process.env.GITHUB_API_URL;
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.trim().startsWith('http') ? raw.trim() : `https://${raw.trim()}`);
+    const p = parsed.pathname.replace(/\/+$/, '');
+    return p === '/' ? '' : p;
+  } catch {
+    return '';
+  }
+}
+
 const GITHUB_API_TARGET = deriveGitHubApiTarget();
+const GITHUB_API_BASE_PATH = deriveGitHubApiBasePath();
 
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
@@ -921,12 +940,19 @@ if (require.main === module) {
       // This endpoint is part of the GitHub REST API (GITHUB_API_TARGET), not the Copilot
       // inference API (COPILOT_API_TARGET). Route it to the correct target using the raw
       // GitHub token so the validation succeeds with a fine-grained PAT or OAuth token.
-      const reqPathname = new URL(req.url, 'http://localhost').pathname;
+      let reqPathname;
+      try {
+        reqPathname = new URL(req.url, 'http://localhost').pathname;
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid request URL' }));
+        return;
+      }
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
-      if (isModelsPath && COPILOT_GITHUB_TOKEN) {
+      if (isModelsPath && req.method === 'GET' && COPILOT_GITHUB_TOKEN) {
         proxyRequest(req, res, GITHUB_API_TARGET, {
           'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
-        }, 'copilot-models');
+        }, 'copilot', GITHUB_API_BASE_PATH);
         return;
       }
 
@@ -1053,4 +1079,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };

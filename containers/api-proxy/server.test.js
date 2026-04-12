@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -242,6 +242,47 @@ describe('deriveGitHubApiTarget', () => {
       process.env.GITHUB_SERVER_URL = 'not-a-valid-url';
       expect(deriveGitHubApiTarget()).toBe('api.github.com');
     });
+  });
+});
+
+describe('deriveGitHubApiBasePath', () => {
+  const savedEnv = {};
+
+  beforeEach(() => {
+    savedEnv.GITHUB_API_URL = process.env.GITHUB_API_URL;
+    delete process.env.GITHUB_API_URL;
+  });
+
+  afterEach(() => {
+    if (savedEnv.GITHUB_API_URL !== undefined) {
+      process.env.GITHUB_API_URL = savedEnv.GITHUB_API_URL;
+    } else {
+      delete process.env.GITHUB_API_URL;
+    }
+  });
+
+  it('should return empty string when GITHUB_API_URL is not set', () => {
+    expect(deriveGitHubApiBasePath()).toBe('');
+  });
+
+  it('should extract /api/v3 from GHES-style GITHUB_API_URL', () => {
+    process.env.GITHUB_API_URL = 'https://ghes.example.com/api/v3';
+    expect(deriveGitHubApiBasePath()).toBe('/api/v3');
+  });
+
+  it('should return empty string for github.com API URL (no path)', () => {
+    process.env.GITHUB_API_URL = 'https://api.github.com';
+    expect(deriveGitHubApiBasePath()).toBe('');
+  });
+
+  it('should strip trailing slashes', () => {
+    process.env.GITHUB_API_URL = 'https://ghes.example.com/api/v3/';
+    expect(deriveGitHubApiBasePath()).toBe('/api/v3');
+  });
+
+  it('should return empty string for invalid URL', () => {
+    process.env.GITHUB_API_URL = '://invalid';
+    expect(deriveGitHubApiBasePath()).toBe('');
   });
 });
 
