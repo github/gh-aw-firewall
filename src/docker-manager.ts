@@ -30,6 +30,59 @@ const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
  */
 let agentExternallyKilled = false;
 
+/**
+ * Optional override for the Docker host used by AWF's own container operations.
+ * Set via setAwfDockerHost() from the CLI --docker-host flag.
+ * When undefined, AWF auto-selects the local socket (see getLocalDockerEnv).
+ */
+let awfDockerHostOverride: string | undefined;
+
+/**
+ * Sets the Docker host to use for AWF's own container operations.
+ *
+ * When set, overrides DOCKER_HOST for all docker CLI calls made by AWF
+ * (compose up/down, docker wait, docker logs, etc.).
+ *
+ * When not set, AWF auto-detects:
+ *  - unix:// DOCKER_HOST values are kept as-is (local socket).
+ *  - TCP DOCKER_HOST values (e.g. DinD) are cleared so docker falls back
+ *    to the system default socket.
+ *
+ * @internal Called from cli.ts when --docker-host flag is provided.
+ */
+export function setAwfDockerHost(host: string | undefined): void {
+  awfDockerHostOverride = host;
+}
+
+/**
+ * Returns an environment object suitable for AWF's own docker CLI calls.
+ *
+ * When DOCKER_HOST is set to an external TCP daemon (e.g. a workflow-scope
+ * DinD sidecar), it is removed so docker/docker-compose use the local Unix
+ * socket instead.  When --docker-host was provided via the CLI, that value
+ * is used regardless of the environment.
+ *
+ * The original DOCKER_HOST value is NOT removed from the agent container's
+ * environment — see generateDockerCompose for the passthrough logic.
+ */
+function getLocalDockerEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+
+  if (awfDockerHostOverride !== undefined) {
+    // Explicit CLI override — always use this socket for AWF operations
+    env.DOCKER_HOST = awfDockerHostOverride;
+  } else {
+    const dockerHost = env.DOCKER_HOST;
+    if (dockerHost && !dockerHost.startsWith('unix://')) {
+      // Non-unix DOCKER_HOST (e.g. tcp://localhost:2375 from a DinD sidecar).
+      // Clear it so AWF's docker commands target the local daemon, not the DinD one.
+      delete env.DOCKER_HOST;
+    }
+  }
+
+  return env;
+}
+
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
 // builds the identifier remains undeclared, so the typeof check below is safe.
@@ -270,7 +323,7 @@ export function readEnvFile(filePath: string): Record<string, string> {
 async function getExistingDockerSubnets(): Promise<string[]> {
   try {
     // Get all network IDs
-    const { stdout: networkIds } = await execa('docker', ['network', 'ls', '-q']);
+    const { stdout: networkIds } = await execa('docker', ['network', 'ls', '-q'], { env: getLocalDockerEnv() });
     if (!networkIds.trim()) {
       return [];
     }
@@ -281,7 +334,7 @@ async function getExistingDockerSubnets(): Promise<string[]> {
       'inspect',
       '--format={{range .IPAM.Config}}{{.Subnet}} {{end}}',
       ...networkIds.trim().split('\n'),
-    ]);
+    ], { env: getLocalDockerEnv() });
 
     // Parse subnets from output (format: "172.17.0.0/16 172.18.0.0/16 ")
     const subnets = stdout
@@ -774,6 +827,11 @@ export function generateDockerCompose(
     // GitHub Actions OIDC — required for MCP servers with auth.type: 'github-oidc'
     if (process.env.ACTIONS_ID_TOKEN_REQUEST_URL) environment.ACTIONS_ID_TOKEN_REQUEST_URL = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     if (process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+
+    // Forward DOCKER_HOST so the agent workload can reach a DinD daemon or custom Docker socket.
+    // AWF itself uses the local socket (see getLocalDockerEnv), but the agent container should
+    // inherit the original value so docker commands inside the agent work as expected.
+    if (process.env.DOCKER_HOST) environment.DOCKER_HOST = process.env.DOCKER_HOST;
 
   }
 
@@ -2189,6 +2247,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   try {
     await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, CLI_PROXY_CONTAINER_NAME], {
       reject: false,
+      env: getLocalDockerEnv(),
     });
   } catch {
     // Ignore errors if containers don't exist
@@ -2211,6 +2270,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       cwd: workDir,
       stdout: process.stderr,
       stderr: 'inherit',
+      env: getLocalDockerEnv(),
     });
     logger.success('Containers started successfully');
   } catch (error) {
@@ -2283,6 +2343,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
     const logsProcess = execa('docker', ['logs', '-f', AGENT_CONTAINER_NAME], {
       stdio: 'inherit',
       reject: false,
+      env: getLocalDockerEnv(),
     });
 
     let exitCode: number;
@@ -2292,7 +2353,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
 
       // Race docker wait against a timeout
-      const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME]).then(result => ({
+      const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
         type: 'completed' as const,
         exitCodeStr: result.stdout,
       }));
@@ -2307,7 +2368,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       if (raceResult.type === 'timeout') {
         logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
         // Stop the container gracefully (10 second grace period before SIGKILL)
-        await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false });
+        await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
         exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
       } else {
         // Clear the timeout timer so it doesn't keep the event loop alive
@@ -2316,7 +2377,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
       }
     } else {
       // No timeout - wait indefinitely
-      const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME]);
+      const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() });
       exitCode = parseInt(exitCodeStr.trim(), 10);
     }
 
@@ -2400,6 +2461,7 @@ export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<vo
     await execa('docker', ['stop', '-t', String(stopTimeoutSeconds), AGENT_CONTAINER_NAME], {
       reject: false,
       timeout: (stopTimeoutSeconds + 5) * 1000, // hard deadline on the stop command itself
+      env: getLocalDockerEnv(),
     });
   } catch {
     // Best-effort — if docker CLI is unavailable or hangs, we still proceed
@@ -2523,7 +2585,7 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
   for (const container of containers) {
     // Collect stdout+stderr from docker logs
     try {
-      const result = await execa('docker', ['logs', container], { reject: false });
+      const result = await execa('docker', ['logs', container], { reject: false, env: getLocalDockerEnv() });
       if (result.exitCode === 0) {
         const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
         if (combined) {
@@ -2539,7 +2601,7 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
       const result = await execa(
         'docker',
         ['inspect', '--format', '{{.State.ExitCode}} {{.State.Error}}', container],
-        { reject: false }
+        { reject: false, env: getLocalDockerEnv() }
       );
       const state = result.stdout.trim();
       if (state) {
@@ -2554,7 +2616,7 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
       const result = await execa(
         'docker',
         ['inspect', '--format', '{{json .Mounts}}', container],
-        { reject: false }
+        { reject: false, env: getLocalDockerEnv() }
       );
       const mounts = result.stdout.trim();
       if (mounts && mounts !== 'null') {
@@ -2598,6 +2660,7 @@ export async function stopContainers(workDir: string, keepContainers: boolean): 
       cwd: workDir,
       stdout: process.stderr,
       stderr: 'inherit',
+      env: getLocalDockerEnv(),
     });
     logger.success('Containers stopped successfully');
   } catch (error) {

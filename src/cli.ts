@@ -16,6 +16,7 @@ import {
   preserveIptablesAudit,
   fastKillAgentContainer,
   collectDiagnosticLogs,
+  setAwfDockerHost,
 } from './docker-manager';
 import {
   ensureFirewallNetwork,
@@ -1370,6 +1371,12 @@ program
     'Use local images without pulling from registry (requires pre-downloaded images)',
     false
   )
+  .option(
+    '--docker-host <socket>',
+    'Docker socket for AWF\'s own containers (default: auto-detect from DOCKER_HOST env).\n' +
+    '                                       Use when Docker is at a non-standard path.\n' +
+    '                                       Example: unix:///run/user/1000/docker.sock'
+  )
 
   // -- Container Configuration --
   .option(
@@ -1602,12 +1609,15 @@ program
 
     logger.setLevel(logLevel);
 
-    // Fail fast when DOCKER_HOST points at an external daemon (e.g. workflow-scope DinD).
-    // AWF's network isolation depends on direct access to the local Docker socket.
+    // When DOCKER_HOST points at an external TCP daemon (e.g. workflow-scope DinD),
+    // AWF redirects its own docker calls to the local socket automatically.
+    // The original DOCKER_HOST value is forwarded into the agent container so the
+    // agent workload can still reach the DinD daemon.
     const dockerHostCheck = checkDockerHost();
     if (!dockerHostCheck.valid) {
-      logger.error(`❌ ${dockerHostCheck.error}`);
-      process.exit(1);
+      logger.warn(`⚠️  ${dockerHostCheck.error}`);
+      logger.warn('   AWF will use the local Docker socket for its own containers.');
+      logger.warn('   The original DOCKER_HOST is forwarded into the agent container.');
     }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
@@ -1909,7 +1919,12 @@ program
       difcProxyCaCert: options.difcProxyCaCert,
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
       diagnosticLogs: options.diagnosticLogs || false,
+      awfDockerHost: options.dockerHost,
     };
+
+    // Apply --docker-host override for AWF's own container operations.
+    // This must be called before startContainers/stopContainers/runAgentCommand.
+    setAwfDockerHost(config.awfDockerHost);
 
     // Parse and validate --agent-timeout
     applyAgentTimeout(options.agentTimeout, config, logger);
