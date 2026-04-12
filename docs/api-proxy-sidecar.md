@@ -124,6 +124,7 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
 | `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token (injected into requests) |
 | `COPILOT_API_KEY` | Real API key | `--enable-api-proxy` and env set | GitHub Copilot BYOK key (injected into requests) |
+| `GEMINI_API_KEY` | Real API key | `--enable-api-proxy` and env set | Google Gemini API key (injected into requests) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 
@@ -148,6 +149,8 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `COPILOT_OFFLINE` | `true` | `COPILOT_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
 | `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar |
 | `COPILOT_PROVIDER_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
+| `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `--enable-api-proxy` always | Redirects Gemini CLI to proxy (set unconditionally — see note below) |
+| `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `--enable-api-proxy` always | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
 | `OPENAI_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `ANTHROPIC_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
@@ -155,6 +158,14 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `NO_PROXY` | `localhost,127.0.0.1,172.30.0.30` | `--enable-api-proxy` | Bypass proxy for localhost and api-proxy |
 | `AWF_API_PROXY_IP` | `172.30.0.30` | `--enable-api-proxy` | Used by iptables setup script |
 | `AWF_ONE_SHOT_TOKENS` | `COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,...` | Always | Tokens protected by one-shot-token library |
+
+:::note[Gemini always redirected to proxy]
+Unlike OpenAI, Anthropic, and Copilot, `GEMINI_API_BASE_URL` and the `GEMINI_API_KEY` placeholder are **always** set in the agent when `--enable-api-proxy` is active, regardless of whether `GEMINI_API_KEY` is present in the runner environment.
+
+This prevents the Gemini CLI from failing with exit code 41 ("no auth method") when the real API key is only available as a GitHub Actions secret (not as a runner-level environment variable). In that case the api-proxy sidecar will return `503` for Gemini requests — a clear, actionable failure rather than a confusing missing-auth error.
+
+**Important**: `GEMINI_API_KEY` must be set as a **runner-level environment variable** (e.g. `env: GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}` in the workflow step), not only as a GitHub Actions secret. The AWF process running on the runner must be able to read it so it can pass the key to the api-proxy sidecar container.
+:::
 
 :::tip[Placeholder tokens]
 Token variables in the agent are set to `placeholder-token-for-credential-isolation` instead of real values. This ensures:
@@ -262,6 +273,24 @@ sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 **Required environment variables** (at least one):
 - `OPENAI_API_KEY` — OpenAI API key
 - `ANTHROPIC_API_KEY` — Anthropic API key
+- `GEMINI_API_KEY` — Google Gemini API key
+- `COPILOT_GITHUB_TOKEN` — GitHub Copilot access token
+- `COPILOT_API_KEY` — GitHub Copilot API key (BYOK)
+
+:::caution[GitHub Actions: expose keys as runner env vars]
+When running AWF in a GitHub Actions workflow, API keys must be available as **runner-level environment variables** — not just as GitHub Actions secrets. AWF reads the key from the environment at startup to pass it to the api-proxy sidecar container. Use `env:` in the workflow step and `sudo --preserve-env` to ensure keys pass through:
+
+```yaml
+- name: Run agent
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  run: sudo --preserve-env=GEMINI_API_KEY awf --enable-api-proxy ...
+```
+
+> **Note:** `sudo` strips most environment variables by default. Use `--preserve-env=VAR` (or `sudo -E` to preserve all) to ensure API keys are visible to the AWF process.
+
+If the key is present only in `secrets.*` but not exported into the step's `env:`, AWF will warn that no Gemini key was found and the api-proxy Gemini listener will return `503`.
+:::
 
 **Recommended domain whitelist**:
 - `api.openai.com` — for OpenAI/Codex
@@ -283,7 +312,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ### Health check
@@ -296,14 +325,33 @@ Docker healthcheck on the `/health` endpoint (port 10000):
 
 ## Troubleshooting
 
+### Gemini proxy returns 503
+
+When `--enable-api-proxy` is active, `GEMINI_API_BASE_URL` and a placeholder `GEMINI_API_KEY` are always injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the api-proxy Gemini listener (port 10003) responds with **503** to all requests.
+
+**Solution**: Export `GEMINI_API_KEY` in the runner environment before invoking AWF. In GitHub Actions, add it to the step's `env:` block and use `sudo --preserve-env`:
+
+```yaml
+- name: Run Gemini agent
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  run: |
+    sudo --preserve-env=GEMINI_API_KEY \
+      awf --enable-api-proxy \
+          --allow-domains generativelanguage.googleapis.com \
+          -- gemini ...
+```
+
+> **Note:** Exit code 41 ("no auth method") should no longer occur with `--enable-api-proxy` since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, ensure `--enable-api-proxy` is active.
+
 ### API keys not detected
 
 ```
 ⚠️  API proxy enabled but no API keys found in environment
-   Set OPENAI_API_KEY or ANTHROPIC_API_KEY to use the proxy
+   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY to use the proxy
 ```
 
-**Solution**: Export API keys before running awf:
+**Solution**: Export API keys before running awf (use `sudo --preserve-env` in CI):
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -343,9 +391,8 @@ docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 
 ## Limitations
 
-- Only supports OpenAI and Anthropic APIs
 - Keys must be set as environment variables (not file-based)
-- No support for Azure OpenAI endpoints
+- No support for Azure OpenAI endpoints (use `--openai-api-target` for custom endpoints)
 - No request/response logging (by design, for security)
 
 ## Related documentation

@@ -936,14 +936,19 @@ if (require.main === module) {
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
       if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
-      // Copilot CLI 1.0.21+ calls GET /models at startup when COPILOT_MODEL is set.
-      // This endpoint is part of the GitHub REST API (GITHUB_API_TARGET), not the Copilot
-      // inference API (COPILOT_API_TARGET). Route it to the correct target using the raw
-      // GitHub token so the validation succeeds with a fine-grained PAT or OAuth token.
+      // Copilot CLI 1.0.21+ calls GET /models at startup (to list or validate models).
+      // The /models endpoint lives on the Copilot inference API (COPILOT_API_TARGET),
+      // NOT on the GitHub REST API. Explicitly use COPILOT_GITHUB_TOKEN for this
+      // request so the GitHub OAuth token is used even when both COPILOT_GITHUB_TOKEN
+      // and COPILOT_API_KEY are configured (COPILOT_API_KEY alone is not accepted by
+      // the /models endpoint).
       let reqPathname;
       try {
         reqPathname = new URL(req.url, 'http://localhost').pathname;
       } catch {
+        logRequest('warn', 'copilot_proxy_malformed_url', {
+          message: 'Malformed request URL in Copilot proxy — rejecting with 400',
+        });
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid request URL' }));
         return;
