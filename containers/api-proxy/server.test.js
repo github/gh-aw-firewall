@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -162,6 +162,127 @@ describe('deriveCopilotApiTarget', () => {
       process.env.GITHUB_SERVER_URL = 'ht!tp://bad-url';
       expect(deriveCopilotApiTarget()).toBe('api.githubcopilot.com');
     });
+  });
+});
+
+describe('deriveGitHubApiTarget', () => {
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = {
+      GITHUB_API_URL: process.env.GITHUB_API_URL,
+      GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL,
+    };
+    delete process.env.GITHUB_API_URL;
+    delete process.env.GITHUB_SERVER_URL;
+  });
+
+  afterEach(() => {
+    if (originalEnv.GITHUB_API_URL !== undefined) {
+      process.env.GITHUB_API_URL = originalEnv.GITHUB_API_URL;
+    } else {
+      delete process.env.GITHUB_API_URL;
+    }
+    if (originalEnv.GITHUB_SERVER_URL !== undefined) {
+      process.env.GITHUB_SERVER_URL = originalEnv.GITHUB_SERVER_URL;
+    } else {
+      delete process.env.GITHUB_SERVER_URL;
+    }
+  });
+
+  describe('GITHUB_API_URL env var (highest priority)', () => {
+    it('should return hostname from GITHUB_API_URL full URL', () => {
+      process.env.GITHUB_API_URL = 'https://api.github.com';
+      expect(deriveGitHubApiTarget()).toBe('api.github.com');
+    });
+
+    it('should return hostname from GITHUB_API_URL for GHES', () => {
+      process.env.GITHUB_API_URL = 'https://github.internal/api/v3';
+      expect(deriveGitHubApiTarget()).toBe('github.internal');
+    });
+
+    it('should prefer GITHUB_API_URL over GITHUB_SERVER_URL', () => {
+      process.env.GITHUB_API_URL = 'https://api.mycompany.ghe.com';
+      process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
+      expect(deriveGitHubApiTarget()).toBe('api.mycompany.ghe.com');
+    });
+  });
+
+  describe('GHEC (*.ghe.com)', () => {
+    it('should return api.<subdomain>.ghe.com for GHEC tenant', () => {
+      process.env.GITHUB_SERVER_URL = 'https://mycompany.ghe.com';
+      expect(deriveGitHubApiTarget()).toBe('api.mycompany.ghe.com');
+    });
+
+    it('should handle multiple-level subdomains', () => {
+      process.env.GITHUB_SERVER_URL = 'https://sub.example.ghe.com';
+      expect(deriveGitHubApiTarget()).toBe('api.sub.example.ghe.com');
+    });
+  });
+
+  describe('Default behavior', () => {
+    it('should return api.github.com when no env vars are set', () => {
+      expect(deriveGitHubApiTarget()).toBe('api.github.com');
+    });
+
+    it('should return api.github.com for github.com GITHUB_SERVER_URL', () => {
+      process.env.GITHUB_SERVER_URL = 'https://github.com';
+      expect(deriveGitHubApiTarget()).toBe('api.github.com');
+    });
+
+    it('should return api.github.com for GHES without GITHUB_API_URL', () => {
+      // GHES without an explicit GITHUB_API_URL falls back to api.github.com.
+      // This is a known limitation: GHES deployments should set GITHUB_API_URL explicitly
+      // so deriveGitHubApiTarget() resolves to the correct enterprise API hostname.
+      process.env.GITHUB_SERVER_URL = 'https://github.internal';
+      expect(deriveGitHubApiTarget()).toBe('api.github.com');
+    });
+
+    it('should return api.github.com when GITHUB_SERVER_URL is invalid', () => {
+      process.env.GITHUB_SERVER_URL = 'not-a-valid-url';
+      expect(deriveGitHubApiTarget()).toBe('api.github.com');
+    });
+  });
+});
+
+describe('deriveGitHubApiBasePath', () => {
+  const savedEnv = {};
+
+  beforeEach(() => {
+    savedEnv.GITHUB_API_URL = process.env.GITHUB_API_URL;
+    delete process.env.GITHUB_API_URL;
+  });
+
+  afterEach(() => {
+    if (savedEnv.GITHUB_API_URL !== undefined) {
+      process.env.GITHUB_API_URL = savedEnv.GITHUB_API_URL;
+    } else {
+      delete process.env.GITHUB_API_URL;
+    }
+  });
+
+  it('should return empty string when GITHUB_API_URL is not set', () => {
+    expect(deriveGitHubApiBasePath()).toBe('');
+  });
+
+  it('should extract /api/v3 from GHES-style GITHUB_API_URL', () => {
+    process.env.GITHUB_API_URL = 'https://ghes.example.com/api/v3';
+    expect(deriveGitHubApiBasePath()).toBe('/api/v3');
+  });
+
+  it('should return empty string for github.com API URL (no path)', () => {
+    process.env.GITHUB_API_URL = 'https://api.github.com';
+    expect(deriveGitHubApiBasePath()).toBe('');
+  });
+
+  it('should strip trailing slashes', () => {
+    process.env.GITHUB_API_URL = 'https://ghes.example.com/api/v3/';
+    expect(deriveGitHubApiBasePath()).toBe('/api/v3');
+  });
+
+  it('should return empty string for invalid URL', () => {
+    process.env.GITHUB_API_URL = '://invalid';
+    expect(deriveGitHubApiBasePath()).toBe('');
   });
 });
 
