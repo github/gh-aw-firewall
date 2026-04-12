@@ -50,7 +50,7 @@ steps:
       SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|containers/"
       COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
         --paginate --jq '.[].filename' \
-        | grep -cE "$SECURITY_RE" || echo "0")
+        | grep -cE "$SECURITY_RE" || true)
       echo "security_files_changed=$COUNT" >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
