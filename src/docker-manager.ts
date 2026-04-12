@@ -2521,9 +2521,9 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
   ];
 
   for (const container of containers) {
-    // Collect stdout+stderr from docker logs
+    // Collect stdout+stderr from docker logs (last 200 lines to keep files manageable)
     try {
-      const result = await execa('docker', ['logs', container], { reject: false });
+      const result = await execa('docker', ['logs', '--tail', '200', container], { reject: false });
       if (result.exitCode === 0) {
         const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
         if (combined) {
