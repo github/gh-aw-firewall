@@ -2,6 +2,7 @@ import execa from 'execa';
 import { logger } from './logger';
 import { API_PROXY_PORTS } from './types';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
+import { getLocalDockerEnv } from './docker-manager';
 
 const NETWORK_NAME = 'awf-net';
 const CHAIN_NAME = 'FW_WRAPPER';
@@ -71,7 +72,7 @@ async function getNetworkBridgeName(): Promise<string | null> {
       NETWORK_NAME,
       '-f',
       '{{index .Options "com.docker.network.bridge.name"}}',
-    ]);
+    ], { env: getLocalDockerEnv() });
     const bridgeName = stdout.trim();
     return bridgeName || null;
   } catch (error) {
@@ -89,7 +90,7 @@ export async function getDockerBridgeGateway(): Promise<string | null> {
     const { stdout } = await execa('docker', [
       'network', 'inspect', 'bridge',
       '-f', '{{(index .IPAM.Config 0).Gateway}}',
-    ]);
+    ], { env: getLocalDockerEnv() });
     const gateway = stdout.trim();
     if (!gateway) return null;
     // Validate IPv4 format before using in iptables rules
@@ -173,7 +174,7 @@ export async function ensureFirewallNetwork(): Promise<{
   // Check if network already exists
   let networkExists = false;
   try {
-    await execa('docker', ['network', 'inspect', NETWORK_NAME]);
+    await execa('docker', ['network', 'inspect', NETWORK_NAME], { env: getLocalDockerEnv() });
     networkExists = true;
     logger.debug(`Network '${NETWORK_NAME}' already exists`);
   } catch {
@@ -191,7 +192,7 @@ export async function ensureFirewallNetwork(): Promise<{
       NETWORK_SUBNET,
       '--opt',
       'com.docker.network.bridge.name=fw-bridge',
-    ]);
+    ], { env: getLocalDockerEnv() });
     logger.success(`Created network '${NETWORK_NAME}' with bridge 'fw-bridge'`);
   }
 
@@ -693,7 +694,7 @@ export async function cleanupFirewallNetwork(): Promise<void> {
   logger.debug(`Removing firewall network '${NETWORK_NAME}'...`);
 
   try {
-    await execa('docker', ['network', 'rm', NETWORK_NAME], { reject: false });
+    await execa('docker', ['network', 'rm', NETWORK_NAME], { reject: false, env: getLocalDockerEnv() });
     logger.debug('Firewall network removed');
   } catch (error) {
     logger.debug('Error removing firewall network:', error);

@@ -565,6 +565,28 @@ export interface WrapperConfig {
   enableDind?: boolean;
 
   /**
+   * Docker host (socket) to use for AWF's own container operations
+   *
+   * When set, overrides the `DOCKER_HOST` environment variable for all
+   * docker CLI calls made by AWF itself (compose up/down, docker wait, etc.).
+   *
+   * Use this when you need to point AWF at a specific local Unix socket that
+   * is not the system default (`/var/run/docker.sock`).
+   *
+   * When not set, AWF auto-detects the Docker host:
+   * - If `DOCKER_HOST` is a Unix socket, it is used as-is.
+   * - If `DOCKER_HOST` is a TCP address (e.g. a Docker-in-Docker (DinD) daemon),
+   *   AWF clears it and falls back to the system default socket.
+   *
+   * The original `DOCKER_HOST` value (if any) is always forwarded into the
+   * agent container so the agent workload can still reach the DinD daemon.
+   *
+   * @example 'unix:///var/run/docker.sock'
+   * @example 'unix:///run/user/1000/docker.sock'
+   */
+  awfDockerHost?: string;
+
+  /**
    * URL patterns to allow for HTTPS traffic (requires sslBump: true)
    *
    * When SSL Bump is enabled, these patterns are used to filter HTTPS

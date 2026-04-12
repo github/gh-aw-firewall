@@ -186,6 +186,66 @@ When enabled, the library logs:
 
 **Note:** Debug output goes to stderr and does not interfere with command stdout. See `containers/agent/one-shot-token/README.md` for complete documentation.
 
+## Workflow-Scope Docker-in-Docker (`DOCKER_HOST`)
+
+When a GitHub Actions workflow enables Docker-in-Docker (DinD) at the **workflow scope** — for example by starting a `docker:dind` service container and setting `DOCKER_HOST: tcp://localhost:2375` in the runner's environment — AWF handles the conflict automatically.
+
+### What happens
+
+AWF's container orchestration (Squid proxy, agent, iptables-init) must run on the **local** Docker daemon so that:
+- bind mounts from the runner host filesystem work correctly,
+- AWF's fixed subnet (`172.30.0.0/24`) and iptables DNAT rules are created in the right network namespace, and
+- port binding expectations between containers are satisfied.
+
+When `DOCKER_HOST` is set to a TCP address, AWF:
+
+1. **Emits a warning** (not an error) informing you that the local socket will be used for AWF's own containers.
+2. **Clears `DOCKER_HOST`** for all `docker` / `docker compose` calls it makes internally, so they target the local daemon.
+3. **Forwards the original `DOCKER_HOST`** into the agent container's environment, so Docker commands run *by the agent* still reach the DinD daemon.
+
+### Example workflow structure
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      dind:
+        image: docker:dind
+        options: --privileged
+        ports:
+          - 2375:2375
+    env:
+      DOCKER_HOST: tcp://localhost:2375
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run agent with AWF
+        run: |
+          # AWF warns about DOCKER_HOST but proceeds with local socket for its own containers.
+          # The agent can run `docker build` / `docker run` and they will reach the DinD daemon
+          # via the forwarded DOCKER_HOST inside the container.
+          awf --allow-domains registry-1.docker.io,ghcr.io -- docker build -t myapp .
+```
+
+### Explicit socket override
+
+If your local Docker daemon is at a non-standard Unix socket path, use `--docker-host`:
+
+```bash
+awf --docker-host unix:///run/user/1000/docker.sock \
+    --allow-domains github.com \
+    -- agent-command
+```
+
+This overrides the socket used for AWF's own operations without affecting the agent's `DOCKER_HOST`.
+
+### Limitation
+
+The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runner host's localhost interface. From *inside* the agent container, `localhost` resolves to the container's own loopback interface, not the host's. To make docker commands inside the agent reach the DinD daemon you need one of:
+
+- **`--enable-host-access`** — allows the agent to reach `host.docker.internal` and set `DOCKER_HOST=tcp://host.docker.internal:2375` inside the agent.
+- **`--enable-dind`** — mounts the local Docker socket (`/var/run/docker.sock`) directly into the agent container (only works when using the local daemon, not a remote DinD TCP socket).
+
 ## Troubleshooting
 
 **Variable not accessible:** Use `sudo -E` or pass explicitly with `--env VAR="$VAR"`

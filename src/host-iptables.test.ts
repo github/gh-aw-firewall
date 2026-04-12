@@ -5,6 +5,11 @@ import execa from 'execa';
 jest.mock('execa');
 const mockedExeca = execa as jest.MockedFunction<typeof execa>;
 
+// Mock getLocalDockerEnv to return a predictable env for assertions
+jest.mock('./docker-manager', () => ({
+  getLocalDockerEnv: () => process.env,
+}));
+
 // Mock logger to avoid console output during tests
 jest.mock('./logger', () => ({
   logger: {
@@ -41,8 +46,8 @@ describe('host-iptables', () => {
       });
 
       // Should only check if network exists, not create it
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net']);
-      expect(mockedExeca).not.toHaveBeenCalledWith('docker', expect.arrayContaining(['network', 'create']));
+      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
+      expect(mockedExeca).not.toHaveBeenCalledWith('docker', expect.arrayContaining(['network', 'create']), expect.anything());
     });
 
     it('should create network when it does not exist', async () => {
@@ -65,7 +70,7 @@ describe('host-iptables', () => {
         proxyIp: '172.30.0.30',
       });
 
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net']);
+      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
       expect(mockedExeca).toHaveBeenCalledWith('docker', [
         'network',
         'create',
@@ -74,7 +79,7 @@ describe('host-iptables', () => {
         '172.30.0.0/24',
         '--opt',
         'com.docker.network.bridge.name=fw-bridge',
-      ]);
+      ], { env: expect.any(Object) });
     });
   });
 
@@ -1101,7 +1106,7 @@ describe('host-iptables', () => {
 
       await cleanupFirewallNetwork();
 
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'rm', 'awf-net'], { reject: false });
+      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'rm', 'awf-net'], { reject: false, env: expect.any(Object) });
     });
 
     it('should not throw on errors (best-effort cleanup)', async () => {

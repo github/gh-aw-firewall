@@ -207,6 +207,53 @@ function deriveCopilotApiTarget() {
 }
 const COPILOT_API_TARGET = deriveCopilotApiTarget();
 
+// GitHub REST API target host for endpoints that need the GitHub REST API
+// (e.g., enterprise-specific endpoints). Currently unused — /models is served
+// by the Copilot API, not the REST API — but kept for future GHES/GHEC needs.
+// Priority: GITHUB_API_URL env var (hostname extracted) > auto-derive from GITHUB_SERVER_URL > default
+function deriveGitHubApiTarget() {
+  // Explicit GITHUB_API_URL takes priority — this is the canonical source for enterprise deployments
+  if (process.env.GITHUB_API_URL) {
+    const target = normalizeApiTarget(process.env.GITHUB_API_URL);
+    if (target) return target;
+  }
+  // Auto-derive from GITHUB_SERVER_URL for GHEC tenants (*.ghe.com)
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  if (serverUrl) {
+    try {
+      const hostname = new URL(serverUrl).hostname;
+      if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
+        // GHEC: GitHub REST API lives at api.<subdomain>.ghe.com
+        const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
+        return `api.${subdomain}.ghe.com`;
+      }
+    } catch {
+      // Invalid URL — fall through to default
+    }
+  }
+  return 'api.github.com';
+}
+
+/**
+ * Extract the base path from GITHUB_API_URL for GHES deployments
+ * (e.g. https://ghes.example.com/api/v3 → '/api/v3').
+ * Returns '' for github.com or when no path component is present.
+ */
+function deriveGitHubApiBasePath() {
+  const raw = process.env.GITHUB_API_URL;
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.trim().startsWith('http') ? raw.trim() : `https://${raw.trim()}`);
+    const p = parsed.pathname.replace(/\/+$/, '');
+    return p === '/' ? '' : p;
+  } catch {
+    return '';
+  }
+}
+
+const GITHUB_API_TARGET = deriveGitHubApiTarget();
+const GITHUB_API_BASE_PATH = deriveGitHubApiBasePath();
+
 // Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 
@@ -218,6 +265,7 @@ logRequest('info', 'startup', {
     anthropic: ANTHROPIC_API_TARGET,
     gemini: GEMINI_API_TARGET,
     copilot: COPILOT_API_TARGET,
+    github: GITHUB_API_TARGET,
   },
   api_base_paths: {
     openai: OPENAI_API_BASE_PATH || '(none)',
@@ -888,6 +936,31 @@ if (require.main === module) {
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
       if (checkRateLimit(req, res, 'copilot', contentLength)) return;
 
+      // Copilot CLI 1.0.21+ calls GET /models at startup (to list or validate models).
+      // The /models endpoint lives on the Copilot inference API (COPILOT_API_TARGET),
+      // NOT on the GitHub REST API. Explicitly use COPILOT_GITHUB_TOKEN for this
+      // request so the GitHub OAuth token is used even when both COPILOT_GITHUB_TOKEN
+      // and COPILOT_API_KEY are configured (COPILOT_API_KEY alone is not accepted by
+      // the /models endpoint).
+      let reqPathname;
+      try {
+        reqPathname = new URL(req.url, 'http://localhost').pathname;
+      } catch {
+        logRequest('warn', 'copilot_proxy_malformed_url', {
+          message: 'Malformed request URL in Copilot proxy — rejecting with 400',
+        });
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid request URL' }));
+        return;
+      }
+      const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
+      if (isModelsPath && req.method === 'GET' && COPILOT_GITHUB_TOKEN) {
+        proxyRequest(req, res, COPILOT_API_TARGET, {
+          'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+        }, 'copilot');
+        return;
+      }
+
       proxyRequest(req, res, COPILOT_API_TARGET, {
         'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
       }, 'copilot');
@@ -1011,4 +1084,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };

@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs, setAwfDockerHost } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1382,6 +1382,56 @@ describe('docker-manager', () => {
           process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
         } else {
           delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+        }
+      }
+    });
+
+    it('should forward DOCKER_HOST into agent container when set (TCP address)', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        // Agent must receive the original DOCKER_HOST so it can reach the DinD daemon
+        expect(env.DOCKER_HOST).toBe('tcp://localhost:2375');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should forward DOCKER_HOST into agent container when set (unix socket)', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'unix:///var/run/docker.sock';
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.DOCKER_HOST).toBe('unix:///var/run/docker.sock');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should not set DOCKER_HOST in agent container when not in host environment', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      delete process.env.DOCKER_HOST;
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.DOCKER_HOST).toBeUndefined();
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
         }
       }
     });
@@ -3489,7 +3539,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy', 'awf-cli-proxy'],
-        { reject: false }
+        expect.objectContaining({ reject: false })
       );
     });
 
@@ -3505,7 +3555,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -3518,7 +3568,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -3531,7 +3581,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d', '--pull', 'never'],
-        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -3544,7 +3594,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -3599,7 +3649,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v', '-t', '1'],
-        { cwd: testDir, stdout: process.stderr, stderr: 'inherit' }
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -3624,7 +3674,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['stop', '-t', '3', AGENT_CONTAINER_NAME],
-        { reject: false, timeout: 8000 }
+        expect.objectContaining({ reject: false, timeout: 8000 })
       );
     });
 
@@ -3636,7 +3686,7 @@ describe('docker-manager', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['stop', '-t', '5', AGENT_CONTAINER_NAME],
-        { reject: false, timeout: 10000 }
+        expect.objectContaining({ reject: false, timeout: 10000 })
       );
     });
 
@@ -3659,6 +3709,86 @@ describe('docker-manager', () => {
 
       await fastKillAgentContainer();
       expect(isAgentExternallyKilled()).toBe(true);
+    });
+  });
+
+  describe('setAwfDockerHost / getLocalDockerEnv (DOCKER_HOST isolation)', () => {
+    const originalDockerHost = process.env.DOCKER_HOST;
+
+    afterEach(() => {
+      // Restore env and reset override after each test
+      if (originalDockerHost === undefined) {
+        delete process.env.DOCKER_HOST;
+      } else {
+        process.env.DOCKER_HOST = originalDockerHost;
+      }
+      setAwfDockerHost(undefined);
+      jest.clearAllMocks();
+    });
+
+    it('docker compose up should NOT forward a TCP DOCKER_HOST to the docker CLI', async () => {
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+      const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
+      try {
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker compose up
+
+        await startContainers(testDir, ['github.com']);
+
+        const composeCalls = mockExecaFn.mock.calls.filter(
+          (call: any[]) => call[1]?.[0] === 'compose'
+        );
+        expect(composeCalls.length).toBeGreaterThan(0);
+        const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
+        // DOCKER_HOST must be absent from the env passed to docker compose
+        expect(composeEnv).toBeDefined();
+        expect(composeEnv!.DOCKER_HOST).toBeUndefined();
+      } finally {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('docker compose up should keep a unix:// DOCKER_HOST in the env', async () => {
+      process.env.DOCKER_HOST = 'unix:///var/run/docker.sock';
+      const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
+      try {
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker compose up
+
+        await startContainers(testDir, ['github.com']);
+
+        const composeCalls = mockExecaFn.mock.calls.filter(
+          (call: any[]) => call[1]?.[0] === 'compose'
+        );
+        expect(composeCalls.length).toBeGreaterThan(0);
+        const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
+        expect(composeEnv).toBeDefined();
+        expect(composeEnv!.DOCKER_HOST).toBe('unix:///var/run/docker.sock');
+      } finally {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('setAwfDockerHost should override DOCKER_HOST for AWF operations', async () => {
+      process.env.DOCKER_HOST = 'tcp://localhost:2375'; // Would normally be cleared
+      setAwfDockerHost('unix:///run/user/1000/docker.sock');
+      const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
+      try {
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker compose up
+
+        await startContainers(testDir, ['github.com']);
+
+        const composeCalls = mockExecaFn.mock.calls.filter(
+          (call: any[]) => call[1]?.[0] === 'compose'
+        );
+        expect(composeCalls.length).toBeGreaterThan(0);
+        const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
+        expect(composeEnv).toBeDefined();
+        expect(composeEnv!.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
+      } finally {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -3820,7 +3950,7 @@ describe('docker-manager', () => {
 
       expect(result.exitCode).toBe(124);
       // Verify docker stop was called
-      expect(mockExecaFn).toHaveBeenCalledWith('docker', ['stop', '-t', '10', 'awf-agent'], { reject: false });
+      expect(mockExecaFn).toHaveBeenCalledWith('docker', ['stop', '-t', '10', 'awf-agent'], expect.objectContaining({ reject: false }));
 
       jest.useRealTimers();
     });
