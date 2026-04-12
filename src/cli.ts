@@ -1615,9 +1615,8 @@ program
     // agent workload can still reach the DinD daemon.
     const dockerHostCheck = checkDockerHost();
     if (!dockerHostCheck.valid) {
-      logger.warn(`⚠️  ${dockerHostCheck.error}`);
-      logger.warn('   AWF will use the local Docker socket for its own containers.');
-      logger.warn('   The original DOCKER_HOST is forwarded into the agent container.');
+      logger.warn('⚠️  External DOCKER_HOST detected. AWF will redirect its own Docker calls to the local socket.');
+      logger.warn('   The original DOCKER_HOST (and related Docker client env vars) are forwarded into the agent container.');
     }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
@@ -1924,6 +1923,11 @@ program
 
     // Apply --docker-host override for AWF's own container operations.
     // This must be called before startContainers/stopContainers/runAgentCommand.
+    if (config.awfDockerHost && !config.awfDockerHost.startsWith('unix://')) {
+      logger.error(`❌ --docker-host must be a unix:// socket URI, got: ${config.awfDockerHost}`);
+      logger.error('   Example: --docker-host unix:///run/user/1000/docker.sock');
+      process.exit(1);
+    }
     setAwfDockerHost(config.awfDockerHost);
 
     // Parse and validate --agent-timeout

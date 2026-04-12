@@ -65,7 +65,7 @@ export function setAwfDockerHost(host: string | undefined): void {
  * The original DOCKER_HOST value is NOT removed from the agent container's
  * environment — see generateDockerCompose for the passthrough logic.
  */
-function getLocalDockerEnv(): NodeJS.ProcessEnv {
+export function getLocalDockerEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   if (awfDockerHostOverride !== undefined) {
@@ -828,10 +828,23 @@ export function generateDockerCompose(
     if (process.env.ACTIONS_ID_TOKEN_REQUEST_URL) environment.ACTIONS_ID_TOKEN_REQUEST_URL = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     if (process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
 
-    // Forward DOCKER_HOST so the agent workload can reach a DinD daemon or custom Docker socket.
-    // AWF itself uses the local socket (see getLocalDockerEnv), but the agent container should
-    // inherit the original value so docker commands inside the agent work as expected.
-    if (process.env.DOCKER_HOST) environment.DOCKER_HOST = process.env.DOCKER_HOST;
+    // Forward Docker client environment so the agent workload can reach the same DinD daemon,
+    // custom Docker socket, or TCP endpoint as the parent process. DOCKER_HOST alone is not
+    // sufficient for TLS/authenticated daemons; the companion Docker client variables must also
+    // be preserved so docker commands inside the agent work as expected.
+    const dockerClientEnvVars = [
+      'DOCKER_HOST',
+      'DOCKER_TLS',
+      'DOCKER_TLS_VERIFY',
+      'DOCKER_CERT_PATH',
+      'DOCKER_CONTEXT',
+      'DOCKER_CONFIG',
+      'DOCKER_API_VERSION',
+      'DOCKER_DEFAULT_PLATFORM',
+    ] as const;
+    for (const dockerEnvVar of dockerClientEnvVars) {
+      if (process.env[dockerEnvVar]) environment[dockerEnvVar] = process.env[dockerEnvVar]!;
+    }
 
   }
 
