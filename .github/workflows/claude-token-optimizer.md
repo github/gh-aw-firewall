@@ -30,7 +30,7 @@ safe-outputs:
     title-prefix: "\u26a1 Claude Token Optimization"
     labels: [claude-token-optimization]
     close-older-issues: true
-timeout-minutes: 10
+timeout-minutes: 15
 strict: true
 steps:
   - name: Download recent Claude workflow logs
