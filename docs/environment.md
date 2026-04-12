@@ -241,7 +241,7 @@ This overrides the socket used for AWF's own operations without affecting the ag
 
 ### Limitation
 
-The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runner's localhost from outside the container. From *inside* the agent container, `localhost` resolves to the container's own loopback interface, not the host's. To make docker commands inside the agent reach the DinD daemon you need one of:
+The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runner host's localhost interface. From *inside* the agent container, `localhost` resolves to the container's own loopback interface, not the host's. To make docker commands inside the agent reach the DinD daemon you need one of:
 
 - **`--enable-host-access`** — allows the agent to reach `host.docker.internal` and set `DOCKER_HOST=tcp://host.docker.internal:2375` inside the agent.
 - **`--enable-dind`** — mounts the local Docker socket (`/var/run/docker.sock`) directly into the agent container (only works when using the local daemon, not a remote DinD TCP socket).

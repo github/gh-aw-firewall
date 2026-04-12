@@ -575,8 +575,8 @@ export interface WrapperConfig {
    *
    * When not set, AWF auto-detects the Docker host:
    * - If `DOCKER_HOST` is a Unix socket, it is used as-is.
-   * - If `DOCKER_HOST` is a TCP address (e.g. a DinD daemon), AWF clears it
-   *   and falls back to the system default socket.
+   * - If `DOCKER_HOST` is a TCP address (e.g. a Docker-in-Docker (DinD) daemon),
+   *   AWF clears it and falls back to the system default socket.
    *
    * The original `DOCKER_HOST` value (if any) is always forwarded into the
    * agent container so the agent workload can still reach the DinD daemon.
