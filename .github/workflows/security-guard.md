@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 25
+  max-turns: 8
 tools:
   github:
     toolsets: [pull_requests, repos]
@@ -23,7 +23,7 @@ safe-outputs:
     enabled: false
   add-comment:
     max: 1
-timeout-minutes: 10
+timeout-minutes: 15
 steps:
   - name: Fetch PR changed files
     id: pr-diff
@@ -42,13 +42,33 @@ steps:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REPO: ${{ github.repository }}
+
+  - name: Check security relevance
+    id: security-relevance
+    if: github.event.pull_request.number
+    run: |
+      SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|containers/"
+      COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+        --paginate --jq '.[].filename' \
+        | grep -cE "$SECURITY_RE" || true)
+      echo "security_files_changed=$COUNT" >> "$GITHUB_OUTPUT"
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_REPO: ${{ github.repository }}
 ---
 
 # Security Guard
 
-You are a security-focused AI agent that carefully reviews pull requests in this repository to identify changes that could weaken the security posture or extend the security boundaries of the Agentic Workflow Firewall (AWF).
+## Security Relevance Check
+
+**Security-critical files changed in this PR:** ${{ steps.security-relevance.outputs.security_files_changed }}
+
+> If this value is `0`, no security-critical files were modified. Use `noop` immediately without further analysis — this PR does not require a security review.
 
 ## Repository Context
+
+You are a security-focused AI agent that carefully reviews pull requests in this repository to identify changes that could weaken the security posture or extend the security boundaries of the Agentic Workflow Firewall (AWF).
 
 This repository implements a **network firewall for AI agents** that provides L7 (HTTP/HTTPS) egress control using Squid proxy and Docker containers. The firewall restricts network access to a whitelist of approved domains.
 
@@ -133,6 +153,8 @@ Look for these types of security-weakening changes:
 - Dependency updates that introduce known vulnerabilities
 
 ## Output Format
+
+**IMPORTANT: Be concise.** Report each security finding in ≤ 150 words. Maximum 5 findings total.
 
 If you find security concerns:
 1. Add a comment to the PR explaining each concern
