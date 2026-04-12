@@ -1654,24 +1654,31 @@ export function generateDockerCompose(
       // Set early placeholder (before this block) already handled above.
       logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
     }
+    // Always set GEMINI_API_BASE_URL and placeholder key when api-proxy is active,
+    // even when GEMINI_API_KEY is not present in the AWF runner environment (e.g. held
+    // as a CI secret not forwarded to the AWF process). Without GEMINI_API_BASE_URL the
+    // Gemini CLI falls back to direct auth and exits with code 41 ("no authentication
+    // configured") because GEMINI_API_KEY has already been excluded from the agent env.
+    // The api-proxy returns 503 when GEMINI_API_KEY is absent — an actionable error.
+    environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
+    logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
+
+    // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
+    // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
+    environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
+    logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
+
     if (config.geminiApiKey) {
-      environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
-      logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
       if (config.geminiApiTarget) {
         logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
       }
       if (config.geminiApiBasePath) {
         logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
       }
-
-      // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
-      // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
-      environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
-      logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
     } else {
-      logger.warn('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
-      logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will start in fallback mode and return 503 responses until GEMINI_API_KEY is set.`);
-      logger.warn('   Set GEMINI_API_KEY in the AWF runner environment to enable Gemini credential isolation.');
+      logger.error('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
+      logger.error(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will start in fallback mode and return 503 responses until GEMINI_API_KEY is set.`);
+      logger.error('   Set GEMINI_API_KEY in the AWF runner environment to enable Gemini credential isolation.');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');

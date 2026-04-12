@@ -2713,12 +2713,23 @@ describe('docker-manager', () => {
         expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
       });
 
-      it('should not set GEMINI_API_BASE_URL in agent when geminiApiKey is not provided', () => {
+      it('should set GEMINI_API_BASE_URL in agent even when geminiApiKey is not provided', () => {
+        // GEMINI_API_BASE_URL must always point at the api-proxy so that the Gemini CLI
+        // does not exit with code 41 ("no auth") when the key is held as a CI secret
+        // (not forwarded to the AWF runner). The api-proxy returns 503 in that case.
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
-        expect(env.GEMINI_API_BASE_URL).toBeUndefined();
+        expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+      });
+
+      it('should set GEMINI_API_KEY placeholder in agent even when geminiApiKey is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
       });
 
       it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled', () => {
