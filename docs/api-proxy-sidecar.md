@@ -274,16 +274,20 @@ sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 - `OPENAI_API_KEY` — OpenAI API key
 - `ANTHROPIC_API_KEY` — Anthropic API key
 - `GEMINI_API_KEY` — Google Gemini API key
+- `COPILOT_GITHUB_TOKEN` — GitHub Copilot access token
+- `COPILOT_API_KEY` — GitHub Copilot API key (BYOK)
 
 :::caution[GitHub Actions: expose keys as runner env vars]
-When running AWF in a GitHub Actions workflow, API keys must be available as **runner-level environment variables** — not just as GitHub Actions secrets. AWF reads the key from the environment at startup to pass it to the api-proxy sidecar container. Use `env:` in the workflow step:
+When running AWF in a GitHub Actions workflow, API keys must be available as **runner-level environment variables** — not just as GitHub Actions secrets. AWF reads the key from the environment at startup to pass it to the api-proxy sidecar container. Use `env:` in the workflow step and `sudo --preserve-env` to ensure keys pass through:
 
 ```yaml
 - name: Run agent
   env:
     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-  run: sudo awf --enable-api-proxy ...
+  run: sudo --preserve-env=GEMINI_API_KEY awf --enable-api-proxy ...
 ```
+
+> **Note:** `sudo` strips most environment variables by default. Use `--preserve-env=VAR` (or `sudo -E` to preserve all) to ensure API keys are visible to the AWF process.
 
 If the key is present only in `secrets.*` but not exported into the step's `env:`, AWF will warn that no Gemini key was found and the api-proxy Gemini listener will return `503`.
 :::
@@ -321,16 +325,11 @@ Docker healthcheck on the `/health` endpoint (port 10000):
 
 ## Troubleshooting
 
-### Gemini CLI exits with "no auth method" (exit code 41)
+### Gemini proxy returns 503
 
-```
-Please set an Auth method in your settings.json or specify one of the following
-environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA
-```
+When `--enable-api-proxy` is active, `GEMINI_API_BASE_URL` and a placeholder `GEMINI_API_KEY` are always injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the api-proxy Gemini listener (port 10003) responds with **503** to all requests.
 
-This error occurs when `GEMINI_API_KEY` is not set in the runner environment — the proxy placeholder is present but the sidecar has no real key to authenticate with.
-
-**Solution**: Export `GEMINI_API_KEY` in the runner environment before invoking AWF. In GitHub Actions, this means adding it to the step's `env:` block, not only storing it as a secret:
+**Solution**: Export `GEMINI_API_KEY` in the runner environment before invoking AWF. In GitHub Actions, add it to the step's `env:` block and use `sudo --preserve-env`:
 
 ```yaml
 - name: Run Gemini agent
@@ -343,14 +342,16 @@ This error occurs when `GEMINI_API_KEY` is not set in the runner environment —
           -- gemini ...
 ```
 
+> **Note:** Exit code 41 ("no auth method") should no longer occur with `--enable-api-proxy` since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, ensure `--enable-api-proxy` is active.
+
 ### API keys not detected
 
 ```
 ⚠️  API proxy enabled but no API keys found in environment
-   Set OPENAI_API_KEY or ANTHROPIC_API_KEY to use the proxy
+   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY to use the proxy
 ```
 
-**Solution**: Export API keys before running awf:
+**Solution**: Export API keys before running awf (use `sudo --preserve-env` in CI):
 
 ```bash
 export OPENAI_API_KEY="sk-..."
