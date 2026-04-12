@@ -207,9 +207,9 @@ function deriveCopilotApiTarget() {
 }
 const COPILOT_API_TARGET = deriveCopilotApiTarget();
 
-// GitHub REST API target host for endpoints that live on the REST API, not the Copilot API.
-// Used for model validation calls (GET /models) made by Copilot CLI 1.0.21+ when COPILOT_MODEL
-// is set. The /models endpoint is part of the GitHub REST API, not the Copilot inference API.
+// GitHub REST API target host for endpoints that need the GitHub REST API
+// (e.g., enterprise-specific endpoints). Currently unused — /models is served
+// by the Copilot API, not the REST API — but kept for future GHES/GHEC needs.
 // Priority: GITHUB_API_URL env var (hostname extracted) > auto-derive from GITHUB_SERVER_URL > default
 function deriveGitHubApiTarget() {
   // Explicit GITHUB_API_URL takes priority — this is the canonical source for enterprise deployments
@@ -955,9 +955,9 @@ if (require.main === module) {
       }
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
       if (isModelsPath && req.method === 'GET' && COPILOT_GITHUB_TOKEN) {
-        proxyRequest(req, res, GITHUB_API_TARGET, {
+        proxyRequest(req, res, COPILOT_API_TARGET, {
           'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
-        }, 'copilot', GITHUB_API_BASE_PATH);
+        }, 'copilot');
         return;
       }
 
