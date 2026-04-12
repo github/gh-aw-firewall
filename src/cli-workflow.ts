@@ -74,6 +74,11 @@ export async function runMainWorkflow(
   try {
     await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull);
   } catch (startError) {
+    // Signal that containers may have been partially created so the caller's
+    // cleanup (stopContainers / docker compose down -v) will tear them down
+    // instead of leaving orphaned containers and networks.
+    onContainersStarted?.();
+
     // Collect diagnostics for startup failures before containers are torn down.
     // Must happen before performCleanup() / stopContainers() destroys them.
     if (config.diagnosticLogs && dependencies.collectDiagnosticLogs) {

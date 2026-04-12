@@ -328,7 +328,7 @@ describe('runMainWorkflow', () => {
     };
     const logger = createLogger();
 
-    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).rejects.toThrow(startError);
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).rejects.toBe(startError);
 
     expect(collectDiagnosticLogs).toHaveBeenCalledWith(configWithDiagnostics.workDir);
     expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
@@ -347,7 +347,7 @@ describe('runMainWorkflow', () => {
     };
     const logger = createLogger();
 
-    await expect(runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() })).rejects.toThrow(startError);
+    await expect(runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() })).rejects.toBe(startError);
 
     expect(collectDiagnosticLogs).not.toHaveBeenCalled();
   });
@@ -369,7 +369,7 @@ describe('runMainWorkflow', () => {
     };
     const logger = createLogger();
 
-    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup })).rejects.toThrow(startError);
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup })).rejects.toBe(startError);
     // performCleanup should NOT be called — that is the caller's (cli.ts) responsibility
     expect(performCleanup).not.toHaveBeenCalled();
   });
