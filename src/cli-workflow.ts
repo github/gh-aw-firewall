@@ -71,7 +71,25 @@ export async function runMainWorkflow(
   await dependencies.writeConfigs(config);
 
   // Step 2: Start containers
-  await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull);
+  try {
+    await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull);
+  } catch (startError) {
+    // Signal that containers may have been partially created so the caller's
+    // cleanup (stopContainers / docker compose down -v) will tear them down
+    // instead of leaving orphaned containers and networks.
+    onContainersStarted?.();
+
+    // Collect diagnostics for startup failures before containers are torn down.
+    // Must happen before performCleanup() / stopContainers() destroys them.
+    if (config.diagnosticLogs && dependencies.collectDiagnosticLogs) {
+      try {
+        await dependencies.collectDiagnosticLogs(config.workDir);
+      } catch (diagError) {
+        logger.warn('Failed to collect diagnostic logs; continuing with cleanup.', diagError);
+      }
+    }
+    throw startError;
+  }
   onContainersStarted?.();
 
   // Step 3: Wait for agent to complete

@@ -310,4 +310,67 @@ describe('runMainWorkflow', () => {
 
     await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).resolves.toBe(1);
   });
+
+  it('calls collectDiagnosticLogs on startContainers failure when diagnosticLogs is enabled', async () => {
+    const startError = new Error('Squid container is unhealthy');
+    const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockRejectedValue(startError),
+      runAgentCommand: jest.fn(),
+      collectDiagnosticLogs,
+    };
+    const logger = createLogger();
+
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).rejects.toBe(startError);
+
+    expect(collectDiagnosticLogs).toHaveBeenCalledWith(configWithDiagnostics.workDir);
+    expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not call collectDiagnosticLogs on startContainers failure when diagnosticLogs is disabled', async () => {
+    const startError = new Error('Squid container is unhealthy');
+    const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockRejectedValue(startError),
+      runAgentCommand: jest.fn(),
+      collectDiagnosticLogs,
+    };
+    const logger = createLogger();
+
+    await expect(runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() })).rejects.toBe(startError);
+
+    expect(collectDiagnosticLogs).not.toHaveBeenCalled();
+  });
+
+  it('rethrows startContainers error after collecting diagnostics', async () => {
+    const startError = new Error('docker compose failed');
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockRejectedValue(startError),
+      runAgentCommand: jest.fn(),
+      collectDiagnosticLogs: jest.fn().mockResolvedValue(undefined),
+    };
+    const logger = createLogger();
+
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup })).rejects.toBe(startError);
+    // performCleanup should NOT be called — that is the caller's (cli.ts) responsibility
+    expect(performCleanup).not.toHaveBeenCalled();
+  });
 });
