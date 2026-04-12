@@ -1654,28 +1654,26 @@ export function generateDockerCompose(
       // Set early placeholder (before this block) already handled above.
       logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
     }
-    // Always set GEMINI_API_BASE_URL and placeholder key when api-proxy is active,
-    // even when GEMINI_API_KEY is not present in the AWF runner environment (e.g. held
-    // as a CI secret not forwarded to the AWF process). Without GEMINI_API_BASE_URL the
-    // Gemini CLI falls back to direct auth and exits with code 41 ("no authentication
-    // configured") because GEMINI_API_KEY has already been excluded from the agent env.
-    // The api-proxy returns 503 when GEMINI_API_KEY is absent — an actionable error.
+    // Always point the agent at the Gemini sidecar whenever --enable-api-proxy is active,
+    // regardless of whether GEMINI_API_KEY is present in the AWF runner environment.
+    // This prevents the Gemini CLI from failing with "no auth method" (exit code 41)
+    // when the key is only available as a GitHub Actions secret (not an env var visible
+    // to the AWF process itself).  The sidecar returns 503 when the key is absent —
+    // a clear, actionable failure rather than a confusing missing-auth error.
     environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
     logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
+    if (config.geminiApiTarget) {
+      logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
+    }
+    if (config.geminiApiBasePath) {
+      logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
+    }
 
     // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
     // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
     environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
     logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
-
-    if (config.geminiApiKey) {
-      if (config.geminiApiTarget) {
-        logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
-      }
-      if (config.geminiApiBasePath) {
-        logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
-      }
-    } else {
+    if (!config.geminiApiKey) {
       logger.warn('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
       logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will return 503 responses until GEMINI_API_KEY is provided.`);
       logger.warn('   This is expected when Gemini is not being used.');
@@ -2528,9 +2526,9 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
   ];
 
   for (const container of containers) {
-    // Collect stdout+stderr from docker logs
+    // Collect stdout+stderr from docker logs (last 200 lines to keep files manageable)
     try {
-      const result = await execa('docker', ['logs', container], { reject: false });
+      const result = await execa('docker', ['logs', '--tail', '200', container], { reject: false });
       if (result.exitCode === 0) {
         const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
         if (combined) {

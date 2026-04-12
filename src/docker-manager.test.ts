@@ -2713,22 +2713,23 @@ describe('docker-manager', () => {
         expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
       });
 
-      it('should set GEMINI_API_BASE_URL in agent even when geminiApiKey is not provided', () => {
-        // GEMINI_API_BASE_URL must always point at the api-proxy so that the Gemini CLI
-        // does not exit with code 41 ("no auth") when the key is held as a CI secret
-        // (not forwarded to the AWF runner). The api-proxy returns 503 in that case.
+      it('should always set GEMINI_API_BASE_URL in agent when api-proxy is enabled (regardless of geminiApiKey)', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
+        // GEMINI_API_BASE_URL must be set even without a geminiApiKey so that the
+        // Gemini CLI does not fail with exit code 41 ("no auth method") when the
+        // GEMINI_API_KEY is only available as a GitHub Actions secret.
         expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
       });
 
-      it('should set GEMINI_API_KEY placeholder in agent even when geminiApiKey is not provided', () => {
+      it('should set GEMINI_API_KEY placeholder in agent when api-proxy is enabled without geminiApiKey', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
+        // Placeholder is required so Gemini CLI's startup auth check passes (exit code 41).
         expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
       });
 
