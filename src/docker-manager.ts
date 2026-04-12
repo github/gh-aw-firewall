@@ -1535,6 +1535,9 @@ export function generateDockerCompose(
         ...(config.geminiApiBasePath && { GEMINI_API_BASE_PATH: config.geminiApiBasePath }),
         // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
         ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
+        // Forward GITHUB_API_URL so api-proxy can use the correct GitHub REST API hostname
+        // on GHES/GHEC (e.g. https://ghes.example.com/api/v3 or api.mycompany.ghe.com)
+        ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
