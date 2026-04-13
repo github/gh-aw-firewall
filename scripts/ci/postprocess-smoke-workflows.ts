@@ -84,6 +84,49 @@ const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
 // instead of pre-built GHCR images that may be stale.
 const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
+// Inject --session-state-dir into AWF invocations so Copilot CLI session-state
+// (events.jsonl) is written to a predictable host path that artifact upload can
+// read.  We anchor to --audit-dir (which is always present in compiled lock
+// files) and use a negative lookahead so the transform is idempotent.
+// A global regex is used because some lock files contain two agent jobs (e.g.
+// secret-digger-copilot runs two separate AWF invocations).
+const sessionStateDirInjectionRegex =
+  /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
+const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
+
+// Sentinel used to detect whether the "Copy Copilot session state" step has
+// already been replaced with the AWF-aware inline script.
+const copySessionStateSentinel = 'SESSION_STATE_SRC=';
+
+// Matches the original "Copy Copilot session state files to logs" step emitted
+// by the gh-aw compiler — which reads from $HOME/.copilot/session-state on the
+// runner host (empty when Copilot CLI ran inside an AWF Docker container).
+const copySessionStateStepRegex =
+  /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
+
+// Builds the replacement step that copies session state from the AWF-managed
+// host path (populated via --session-state-dir) into the agent logs directory
+// so it is captured by the existing artifact upload step.
+function buildCopySessionStateStep(indent: string): string {
+  const i = indent;
+  const ri = `${i}    `;
+  return (
+    `${i}- name: Copy Copilot session state files to logs\n` +
+    `${i}  if: always()\n` +
+    `${i}  continue-on-error: true\n` +
+    `${i}  run: |\n` +
+    `${ri}SESSION_STATE_SRC="${SESSION_STATE_DIR}"\n` +
+    `${ri}LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"\n` +
+    `${ri}if [ -d "$SESSION_STATE_SRC" ] && [ -n "$(ls -A "$SESSION_STATE_SRC" 2>/dev/null)" ]; then\n` +
+    `${ri}  mkdir -p "$LOGS_DIR/session-state"\n` +
+    `${ri}  cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"\n` +
+    `${ri}  echo "Copied session state to $LOGS_DIR/session-state"\n` +
+    `${ri}else\n` +
+    `${ri}  echo "No session state found at $SESSION_STATE_SRC"\n` +
+    `${ri}fi\n`
+  );
+}
+
 // Remove the "Setup Scripts" step from update_cache_memory jobs.
 // This step downloads the private github/gh-aw action but is never used in
 // update_cache_memory (no subsequent steps reference /opt/gh-aw/actions/).
@@ -334,6 +377,41 @@ for (const workflowPath of workflowPaths) {
     content = content.replace(imageTagRegex, '--build-local');
     modified = true;
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+  }
+
+  // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
+  // (events.jsonl) is written to a predictable host path accessible for artifact
+  // upload.  The negative lookahead in the regex ensures idempotency: re-running
+  // the script after the flag is already present is a no-op.
+  sessionStateDirInjectionRegex.lastIndex = 0; // reset global regex state
+  const sessionStateDirMatches = content.match(sessionStateDirInjectionRegex);
+  if (sessionStateDirMatches) {
+    content = content.replace(
+      sessionStateDirInjectionRegex,
+      `--audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    modified = true;
+    console.log(
+      `  Injected --session-state-dir in ${sessionStateDirMatches.length} awf invocation(s)`
+    );
+  } else {
+    console.log(`  --session-state-dir already present (or no awf invocation found)`);
+  }
+
+  // Replace the "Copy Copilot session state files to logs" step with an inline
+  // script that reads from the AWF-managed session-state path instead of
+  // $HOME/.copilot/session-state (which is empty when Copilot CLI ran inside
+  // the AWF Docker container).
+  if (!content.includes(copySessionStateSentinel)) {
+    const copyMatch = content.match(copySessionStateStepRegex);
+    if (copyMatch) {
+      const indent = copyMatch[1];
+      content = content.replace(copySessionStateStepRegex, buildCopySessionStateStep(indent));
+      modified = true;
+      console.log(`  Replaced 'Copy Copilot session state' step with AWF-path inline script`);
+    }
+  } else {
+    console.log(`  'Copy Copilot session state' step already updated`);
   }
 
   // Exclude unused Playwright/browser tools from Copilot CLI for smoke-copilot.
