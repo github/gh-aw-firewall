@@ -234,3 +234,124 @@ describe('cacheRestoreKeyPrefixRegex', () => {
   });
 });
 
+// ── Session state dir injection and Copy step replacement tests ──────────────
+// Mirrors the patterns in postprocess-smoke-workflows.ts.
+
+const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
+
+const sessionStateDirInjectionRegex =
+  /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
+
+const copySessionStateStepRegex =
+  /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
+
+function buildCopySessionStateStep(indent: string): string {
+  const i = indent;
+  const ri = `${i}    `;
+  return (
+    `${i}- name: Copy Copilot session state files to logs\n` +
+    `${i}  if: always()\n` +
+    `${i}  continue-on-error: true\n` +
+    `${i}  run: |\n` +
+    `${ri}SESSION_STATE_SRC="${SESSION_STATE_DIR}"\n` +
+    `${ri}LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"\n` +
+    `${ri}if [ -d "$SESSION_STATE_SRC" ] && [ -n "$(ls -A "$SESSION_STATE_SRC" 2>/dev/null)" ]; then\n` +
+    `${ri}  mkdir -p "$LOGS_DIR/session-state"\n` +
+    `${ri}  cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"\n` +
+    `${ri}  echo "Copied session state to $LOGS_DIR/session-state"\n` +
+    `${ri}else\n` +
+    `${ri}  echo "No session state found at $SESSION_STATE_SRC"\n` +
+    `${ri}fi\n`
+  );
+}
+
+describe('sessionStateDirInjectionRegex', () => {
+  beforeEach(() => {
+    sessionStateDirInjectionRegex.lastIndex = 0;
+  });
+
+  it('should match --audit-dir without --session-state-dir', () => {
+    const input =
+      '          sudo -E awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit --enable-host-access';
+    expect(sessionStateDirInjectionRegex.test(input)).toBe(true);
+  });
+
+  it('should NOT match --audit-dir already followed by --session-state-dir (idempotent)', () => {
+    sessionStateDirInjectionRegex.lastIndex = 0;
+    const input =
+      '          sudo -E awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit' +
+      ` --session-state-dir ${SESSION_STATE_DIR} --enable-host-access`;
+    expect(sessionStateDirInjectionRegex.test(input)).toBe(false);
+  });
+
+  it('should inject --session-state-dir after --audit-dir', () => {
+    sessionStateDirInjectionRegex.lastIndex = 0;
+    const input =
+      '          sudo -E awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit --enable-host-access';
+    const result = input.replace(
+      sessionStateDirInjectionRegex,
+      `--audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    expect(result).toContain(`--session-state-dir ${SESSION_STATE_DIR}`);
+    expect(result).toContain('--enable-host-access');
+  });
+
+  it('should inject in all occurrences (global flag)', () => {
+    sessionStateDirInjectionRegex.lastIndex = 0;
+    const input =
+      '          sudo -E awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit --build-local\n' +
+      '          sudo -E awf --audit-dir /tmp/gh-aw/sandbox/firewall/audit --build-local\n';
+    const result = input.replace(
+      sessionStateDirInjectionRegex,
+      `--audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    const count = (result.match(/--session-state-dir/g) || []).length;
+    expect(count).toBe(2);
+  });
+});
+
+describe('copySessionStateStepRegex', () => {
+  const ORIGINAL_STEP =
+    '      - name: Copy Copilot session state files to logs\n' +
+    '        if: always()\n' +
+    '        continue-on-error: true\n' +
+    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"\n';
+
+  it('should match the original compiler-generated step', () => {
+    expect(copySessionStateStepRegex.test(ORIGINAL_STEP)).toBe(true);
+  });
+
+  it('should capture indentation', () => {
+    const match = ORIGINAL_STEP.match(copySessionStateStepRegex);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('      ');
+  });
+
+  it('should NOT match after replacement (sentinel check)', () => {
+    const replaced = buildCopySessionStateStep('      ');
+    expect(replaced).toContain('SESSION_STATE_SRC=');
+    expect(copySessionStateStepRegex.test(replaced)).toBe(false);
+  });
+});
+
+describe('buildCopySessionStateStep', () => {
+  it('should emit inline script reading from AWF session-state path', () => {
+    const result = buildCopySessionStateStep('      ');
+    expect(result).toContain(`SESSION_STATE_SRC="${SESSION_STATE_DIR}"`);
+    expect(result).toContain('LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"');
+    expect(result).toContain('cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"');
+  });
+
+  it('should use correct YAML indentation', () => {
+    const result = buildCopySessionStateStep('      ');
+    expect(result).toMatch(/^      - name: Copy Copilot session state files to logs\n/);
+    expect(result).toContain('        run: |\n');
+    expect(result).toContain('          SESSION_STATE_SRC=');
+  });
+
+  it('should be idempotent — sentinel is present in output', () => {
+    const result = buildCopySessionStateStep('      ');
+    expect(result).toContain('SESSION_STATE_SRC=');
+  });
+});
+
