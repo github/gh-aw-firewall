@@ -47,7 +47,7 @@
 name: "Daily Copilot Token Usage Analyzer"
 "on":
   schedule:
-  - cron: "9 10 * * *"
+  - cron: "39 22 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

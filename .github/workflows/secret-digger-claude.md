@@ -17,7 +17,6 @@ engine:
     GH_AW_MODEL_AGENT_CLAUDE: "claude-haiku-4-5-20251001"
 imports:
   - shared/secret-audit.md
-  - shared/version-reporting.md
 tools:
   cache-memory: true
   bash: true

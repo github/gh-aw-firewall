@@ -48,7 +48,7 @@
 name: "Dependency Security Monitor"
 "on":
   schedule:
-  - cron: "18 23 * * *"
+  - cron: "33 19 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

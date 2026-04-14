@@ -41,7 +41,7 @@
 name: "CLI Flag Consistency Checker"
 "on":
   schedule:
-  - cron: "49 21 * * 0"
+  - cron: "50 22 * * 1"
     # Friendly format: weekly (scattered)
   workflow_dispatch:
     inputs:
