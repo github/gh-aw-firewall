@@ -813,8 +813,9 @@ export function generateDockerCompose(
         // Skip oversized values to prevent E2BIG (Argument list too long) errors.
         // The Linux kernel enforces ARG_MAX (~2MB) on argv+envp combined; large env
         // vars can exhaust this budget, especially when combined with large prompts.
-        if (value.length > MAX_ENV_VALUE_SIZE) {
-          skippedLargeVars.push(`${key} (${(value.length / 1024).toFixed(0)} KB)`);
+        const valueSizeBytes = Buffer.byteLength(value, 'utf8');
+        if (valueSizeBytes > MAX_ENV_VALUE_SIZE) {
+          skippedLargeVars.push(`${key} (${(valueSizeBytes / 1024).toFixed(0)} KB)`);
           continue;
         }
         environment[key] = value;
