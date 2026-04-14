@@ -28,11 +28,13 @@ function generateUpstreamProxySection(upstream: UpstreamProxyConfig): string {
     lines.push('');
     lines.push('# Bypass upstream proxy for these domains (from host no_proxy)');
     for (const domain of upstream.noProxy) {
-      // Domain suffixes: .corp.com matches *.corp.com
-      // Exact domains: internal.corp.com matches only that host
+      // All entries are treated as suffix matches (domain + subdomains),
+      // matching standard no_proxy semantics:
+      //   .corp.com  → *.corp.com
+      //   internal.corp.com → internal.corp.com AND *.internal.corp.com
       const squidDomain = domain.startsWith('.') ? domain : `.${domain}`;
       lines.push(`acl upstream_bypass dstdomain ${squidDomain}`);
-      // Also add exact match for non-wildcard domains
+      // For non-dot entries, also add the exact domain for Squid dstdomain matching
       if (!domain.startsWith('.')) {
         lines.push(`acl upstream_bypass dstdomain ${domain}`);
       }

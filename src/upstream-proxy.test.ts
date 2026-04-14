@@ -76,6 +76,8 @@ describe('parseProxyUrl', () => {
   it('rejects loopback addresses', () => {
     expect(() => parseProxyUrl('http://localhost:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://127.0.0.1:3128')).toThrow('loopback');
+    expect(() => parseProxyUrl('http://127.0.1.1:3128')).toThrow('loopback');
+    expect(() => parseProxyUrl('http://127.255.255.255:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://0.0.0.0:3128')).toThrow('loopback');
   });
 
@@ -109,8 +111,8 @@ describe('parseNoProxy', () => {
     expect(parseNoProxy('  ')).toEqual([]);
   });
 
-  it('skips loopback entries', () => {
-    expect(parseNoProxy('localhost,127.0.0.1,.corp.com')).toEqual(['.corp.com']);
+  it('skips loopback entries including full 127.x range', () => {
+    expect(parseNoProxy('localhost,127.0.0.1,127.0.1.1,.corp.com')).toEqual(['.corp.com']);
   });
 
   it('skips wildcard *', () => {

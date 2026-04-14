@@ -40,7 +40,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 
 **Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
 
-**Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy` (and their lowercase/uppercase variants) from the host are ignored when using `--env-all` because the firewall always sets these to point to Squid. Host proxy settings cannot be passed through as they would conflict with the firewall's traffic routing.
+**Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, and `FTP_PROXY` (all case variants) from the host are **excluded from container passthrough** when using `--env-all`. The firewall sets its own proxy variables pointing to Squid inside the container. However, host proxy variables **are read** for upstream proxy auto-detection — if the host has `https_proxy`/`http_proxy` set, AWF configures Squid to chain outbound traffic through that corporate proxy (see [Upstream Proxy Support](#upstream-corporate-proxy-support)).
 
 ## `--env-file` Support
 

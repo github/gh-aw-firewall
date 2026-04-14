@@ -26,6 +26,25 @@ export const PROXY_ENV_VARS = [
 ] as const;
 
 /**
+ * Checks whether an address is a loopback address.
+ * Covers localhost, the full 127.0.0.0/8 range, IPv6 ::1 variants, and 0.0.0.0.
+ */
+function isLoopback(host: string): boolean {
+  const lower = host.toLowerCase();
+  if (lower === 'localhost' || lower === '0.0.0.0') return true;
+
+  // IPv6 loopback — handles ::1, [::1], 0:0:0:0:0:0:0:1
+  const bare = lower.replace(/^\[|\]$/g, '');
+  if (bare === '::1' || bare === '0:0:0:0:0:0:0:1') return true;
+
+  // IPv4 127.0.0.0/8 — any address starting with 127.x.x.x
+  const ipv4Match = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match && parseInt(ipv4Match[1], 10) === 127) return true;
+
+  return false;
+}
+
+/**
  * Parses a proxy URL into host and port. Rejects unsupported features.
  *
  * @param url - Proxy URL (e.g., "http://proxy.corp.com:3128")
@@ -78,8 +97,7 @@ export function parseProxyUrl(url: string): { host: string; port: number } {
   }
 
   // Reject loopback addresses — Squid runs in a container and localhost != host localhost
-  const loopbackPatterns = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
-  if (loopbackPatterns.includes(host.toLowerCase())) {
+  if (isLoopback(host)) {
     throw new Error(
       `Upstream proxy "${host}" is a loopback address. Squid runs in a Docker container ` +
       'where localhost refers to the container, not the host. ' +
@@ -110,7 +128,7 @@ export function parseNoProxy(noProxy: string): string[] {
 
   for (const entry of entries) {
     // Skip loopback (irrelevant for Squid upstream bypass)
-    if (['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(entry.toLowerCase())) {
+    if (isLoopback(entry)) {
       continue;
     }
 
