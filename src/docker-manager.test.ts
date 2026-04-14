@@ -1616,6 +1616,35 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should exclude host proxy env vars from env-all passthrough to prevent routing conflicts', () => {
+      const saved: Record<string, string | undefined> = {};
+      const proxyVars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy'];
+
+      for (const v of proxyVars) {
+        saved[v] = process.env[v];
+        process.env[v] = `http://host-proxy.corp.com:3128`;
+      }
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // Host proxy vars must not leak — AWF sets its own proxy vars pointing to Squid
+        for (const v of proxyVars) {
+          // The value should either be absent or overwritten to Squid's address
+          if (env[v] !== undefined) {
+            expect(env[v]).not.toBe('http://host-proxy.corp.com:3128');
+          }
+        }
+      } finally {
+        for (const v of proxyVars) {
+          if (saved[v] !== undefined) process.env[v] = saved[v];
+          else delete process.env[v];
+        }
+      }
+    });
+
     it('should auto-inject GH_HOST from GITHUB_SERVER_URL when envAll is true', () => {
       const prevServerUrl = process.env.GITHUB_SERVER_URL;
       const prevGhHost = process.env.GH_HOST;

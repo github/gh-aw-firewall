@@ -246,6 +246,46 @@ The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runn
 - **`--enable-host-access`** — allows the agent to reach `host.docker.internal` and set `DOCKER_HOST=tcp://host.docker.internal:2375` inside the agent.
 - **`--enable-dind`** — mounts the local Docker socket (`/var/run/docker.sock`) directly into the agent container (only works when using the local daemon, not a remote DinD TCP socket).
 
+## Upstream (Corporate) Proxy Support
+
+When running on self-hosted runners behind a corporate proxy, AWF can chain Squid
+through the upstream proxy using the `cache_peer` directive.
+
+### Auto-detection
+
+If the host has `https_proxy`/`HTTPS_PROXY` or `http_proxy`/`HTTP_PROXY` set, AWF
+automatically configures Squid to route outbound traffic through that proxy.
+`no_proxy`/`NO_PROXY` domain suffixes are honored as bypass rules (`always_direct`).
+
+```bash
+# Auto-detected — no flags needed when host proxy env vars are set
+export https_proxy=http://proxy.corp.com:3128
+export no_proxy=.internal.corp.com,localhost
+awf --allow-domains github.com 'curl https://api.github.com'
+```
+
+### Explicit override
+
+Use `--upstream-proxy <url>` to specify the proxy explicitly (overrides auto-detection):
+
+```bash
+awf --upstream-proxy http://proxy.corp.com:3128 --allow-domains github.com 'curl https://api.github.com'
+```
+
+### Limitations (v1)
+
+- **HTTP proxies only** — Squid `cache_peer` requires an HTTP proxy (HTTPS tunneling uses CONNECT)
+- **No proxy credentials** — `user:pass@proxy` URLs are rejected; configure auth on the proxy server
+- **No loopback** — `localhost`/`127.0.0.1` proxies are rejected (Squid is in a container)
+- **Single proxy** — If `http_proxy` and `https_proxy` differ, use `--upstream-proxy` to disambiguate
+- **Domain-only bypass** — `no_proxy` IPs, CIDRs, and wildcards are ignored (only domain suffixes work)
+
+### Proxy environment variable exclusion
+
+Host proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`,
+`ALL_PROXY`, `NO_PROXY`, etc.) are **always excluded** from container passthrough, even with
+`--env-all`. AWF sets its own proxy variables pointing to Squid (`172.30.0.10:3128`).
+
 ## Troubleshooting
 
 **Variable not accessible:** Use `sudo -E` or pass explicitly with `--env VAR="$VAR"`

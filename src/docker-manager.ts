@@ -8,6 +8,7 @@ import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
+import { PROXY_ENV_VARS } from './upstream-proxy';
 
 const SQUID_PORT = 3128;
 
@@ -640,6 +641,10 @@ export function generateDockerCompose(
     // Actions runner itself, not by the agent.
     'ACTIONS_RUNTIME_TOKEN',
     'ACTIONS_RESULTS_URL',
+    // Proxy environment variables — excluded to prevent host proxy settings from
+    // conflicting with AWF's internal routing (agent → Squid → internet).
+    // AWF sets its own HTTP_PROXY/HTTPS_PROXY pointing to Squid.
+    ...PROXY_ENV_VARS,
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment
@@ -2132,6 +2137,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     allowHostPorts: config.allowHostPorts,
     enableDlp: config.enableDlp,
     dnsServers: config.dnsServers,
+    upstreamProxy: config.upstreamProxy,
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
   fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
