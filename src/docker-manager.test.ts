@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs, setAwfDockerHost } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs, setAwfDockerHost } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -4325,6 +4325,185 @@ describe('docker-manager', () => {
         } else {
           delete process.env.GITHUB_PATH;
         }
+      }
+    });
+  });
+
+  describe('parseGitHubEnvFile', () => {
+    it('should parse simple KEY=VALUE entries', () => {
+      const result = parseGitHubEnvFile('GOROOT=/usr/local/go\nJAVA_HOME=/usr/lib/jvm/java-17\n');
+      expect(result).toEqual({
+        GOROOT: '/usr/local/go',
+        JAVA_HOME: '/usr/lib/jvm/java-17',
+      });
+    });
+
+    it('should handle values containing = characters', () => {
+      const result = parseGitHubEnvFile('MY_VAR=key=value=extra\n');
+      expect(result).toEqual({ MY_VAR: 'key=value=extra' });
+    });
+
+    it('should handle heredoc multiline values', () => {
+      const content = 'MULTI_LINE<<EOF\nline1\nline2\nline3\nEOF\n';
+      const result = parseGitHubEnvFile(content);
+      expect(result).toEqual({ MULTI_LINE: 'line1\nline2\nline3' });
+    });
+
+    it('should handle CRLF line endings', () => {
+      const result = parseGitHubEnvFile('GOROOT=/usr/local/go\r\nJAVA_HOME=/usr/lib/jvm\r\n');
+      expect(result).toEqual({
+        GOROOT: '/usr/local/go',
+        JAVA_HOME: '/usr/lib/jvm',
+      });
+    });
+
+    it('should handle mixed simple and heredoc entries', () => {
+      const content = 'SIMPLE=value\nHEREDOC<<END\nmulti\nline\nEND\nANOTHER=val2\n';
+      const result = parseGitHubEnvFile(content);
+      expect(result).toEqual({
+        SIMPLE: 'value',
+        HEREDOC: 'multi\nline',
+        ANOTHER: 'val2',
+      });
+    });
+
+    it('should skip empty lines', () => {
+      const result = parseGitHubEnvFile('\n\nGOROOT=/go\n\n');
+      expect(result).toEqual({ GOROOT: '/go' });
+    });
+
+    it('should return empty object for empty content', () => {
+      expect(parseGitHubEnvFile('')).toEqual({});
+    });
+
+    it('should handle unterminated heredoc gracefully', () => {
+      const content = 'BROKEN<<EOF\nline1\nline2';
+      const result = parseGitHubEnvFile(content);
+      expect(result).toEqual({ BROKEN: 'line1\nline2' });
+    });
+  });
+
+  describe('readGitHubEnvEntries', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-github-env-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should return empty object when GITHUB_ENV is not set', () => {
+      const original = process.env.GITHUB_ENV;
+      delete process.env.GITHUB_ENV;
+
+      try {
+        const result = readGitHubEnvEntries();
+        expect(result).toEqual({});
+      } finally {
+        if (original !== undefined) process.env.GITHUB_ENV = original;
+        else delete process.env.GITHUB_ENV;
+      }
+    });
+
+    it('should read entries from GITHUB_ENV file', () => {
+      const original = process.env.GITHUB_ENV;
+      const envFile = path.join(tmpDir, 'github_env');
+      fs.writeFileSync(envFile, 'GOROOT=/usr/local/go\nCARGO_HOME=/home/.cargo\n');
+      process.env.GITHUB_ENV = envFile;
+
+      try {
+        const result = readGitHubEnvEntries();
+        expect(result.GOROOT).toBe('/usr/local/go');
+        expect(result.CARGO_HOME).toBe('/home/.cargo');
+      } finally {
+        if (original !== undefined) process.env.GITHUB_ENV = original;
+        else delete process.env.GITHUB_ENV;
+      }
+    });
+
+    it('should return empty object when file does not exist', () => {
+      const original = process.env.GITHUB_ENV;
+      process.env.GITHUB_ENV = '/nonexistent/path/github_env';
+
+      try {
+        const result = readGitHubEnvEntries();
+        expect(result).toEqual({});
+      } finally {
+        if (original !== undefined) process.env.GITHUB_ENV = original;
+        else delete process.env.GITHUB_ENV;
+      }
+    });
+  });
+
+  describe('toolchain var fallback to GITHUB_ENV', () => {
+    let tmpDir: string;
+    const testConfig: WrapperConfig = {
+      allowedDomains: ['github.com'],
+      agentCommand: 'echo "test"',
+      logLevel: 'info',
+      keepContainers: false,
+      workDir: '/tmp/awf-toolchain-test',
+      buildLocal: false,
+      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    };
+    const testNetworkConfig = {
+      subnet: '172.30.0.0/24',
+      squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20',
+    };
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-toolchain-'));
+      fs.mkdirSync(testConfig.workDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(testConfig.workDir, { recursive: true, force: true });
+    });
+
+    it('should recover AWF_GOROOT from GITHUB_ENV when process.env.GOROOT is absent', () => {
+      const savedGoroot = process.env.GOROOT;
+      const savedGithubEnv = process.env.GITHUB_ENV;
+      delete process.env.GOROOT;
+
+      const envFile = path.join(tmpDir, 'github_env');
+      fs.writeFileSync(envFile, 'GOROOT=/opt/hostedtoolcache/go/1.22/x64\n');
+      process.env.GITHUB_ENV = envFile;
+
+      try {
+        const result = generateDockerCompose(testConfig, testNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.AWF_GOROOT).toBe('/opt/hostedtoolcache/go/1.22/x64');
+      } finally {
+        if (savedGoroot !== undefined) process.env.GOROOT = savedGoroot;
+        else delete process.env.GOROOT;
+        if (savedGithubEnv !== undefined) process.env.GITHUB_ENV = savedGithubEnv;
+        else delete process.env.GITHUB_ENV;
+      }
+    });
+
+    it('should prefer process.env over GITHUB_ENV for toolchain vars', () => {
+      const savedGoroot = process.env.GOROOT;
+      const savedGithubEnv = process.env.GITHUB_ENV;
+      process.env.GOROOT = '/usr/local/go-from-env';
+
+      const envFile = path.join(tmpDir, 'github_env');
+      fs.writeFileSync(envFile, 'GOROOT=/opt/go-from-file\n');
+      process.env.GITHUB_ENV = envFile;
+
+      try {
+        const result = generateDockerCompose(testConfig, testNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.AWF_GOROOT).toBe('/usr/local/go-from-env');
+      } finally {
+        if (savedGoroot !== undefined) process.env.GOROOT = savedGoroot;
+        else delete process.env.GOROOT;
+        if (savedGithubEnv !== undefined) process.env.GITHUB_ENV = savedGithubEnv;
+        else delete process.env.GITHUB_ENV;
       }
     });
   });

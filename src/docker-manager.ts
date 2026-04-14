@@ -260,6 +260,104 @@ export function readGitHubPathEntries(): string[] {
 }
 
 /**
+ * Reads key-value environment entries from the $GITHUB_ENV file.
+ *
+ * The Actions runner writes to this file when steps call `core.exportVariable()`.
+ * When AWF runs via `sudo`, non-standard env vars may be stripped. This function
+ * reads the file directly to recover them.
+ *
+ * Supports both formats used by the Actions runner:
+ * - Simple: `KEY=VALUE` (value may contain `=`)
+ * - Heredoc: `KEY<<DELIMITER\nVALUE_LINES\nDELIMITER`
+ *
+ * @returns Map of environment variable names to values
+ * @internal Exported for testing
+ */
+export function readGitHubEnvEntries(): Record<string, string> {
+  const githubEnvFile = process.env.GITHUB_ENV;
+  if (!githubEnvFile) {
+    logger.debug('GITHUB_ENV env var is not set; skipping $GITHUB_ENV file read');
+    return {};
+  }
+
+  try {
+    const content = fs.readFileSync(githubEnvFile, 'utf-8');
+    return parseGitHubEnvFile(content);
+  } catch {
+    logger.debug(`GITHUB_ENV file at '${githubEnvFile}' could not be read; skipping`);
+    return {};
+  }
+}
+
+/**
+ * Parses the content of a $GITHUB_ENV file into key-value pairs.
+ * @internal Exported for testing
+ */
+export function parseGitHubEnvFile(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  // Normalize CRLF to LF
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Skip empty lines
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Check for heredoc format: KEY<<DELIMITER
+    const heredocMatch = line.match(/^([^=]+)<<(.+)$/);
+    if (heredocMatch) {
+      const key = heredocMatch[1];
+      const delimiter = heredocMatch[2];
+      const valueLines: string[] = [];
+      i++;
+
+      // Collect lines until we find the delimiter
+      while (i < lines.length && lines[i] !== delimiter) {
+        valueLines.push(lines[i]);
+        i++;
+      }
+      // Skip the closing delimiter line
+      if (i < lines.length) i++;
+
+      result[key] = valueLines.join('\n');
+      continue;
+    }
+
+    // Simple format: KEY=VALUE (split on first = only)
+    const eqIdx = line.indexOf('=');
+    if (eqIdx > 0) {
+      const key = line.slice(0, eqIdx);
+      const value = line.slice(eqIdx + 1);
+      result[key] = value;
+    }
+
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Toolchain environment variables that should be recovered from $GITHUB_ENV
+ * when sudo strips them from process.env. These are set by setup-* actions
+ * (setup-go, setup-java, setup-dotnet, etc.) and are needed for correct
+ * tool resolution inside the agent container.
+ */
+const TOOLCHAIN_ENV_VARS = [
+  'GOROOT',
+  'CARGO_HOME',
+  'RUSTUP_HOME',
+  'JAVA_HOME',
+  'DOTNET_ROOT',
+  'BUN_INSTALL',
+] as const;
+
+/**
  * Merges path entries from the $GITHUB_PATH file into a PATH string.
  * Entries from $GITHUB_PATH are prepended (they have higher priority, matching
  * how the Actions runner processes them). Duplicate entries are removed.
@@ -757,32 +855,18 @@ export function generateDockerCompose(
       logger.debug(`Merged ${githubPathEntries.length} path(s) from $GITHUB_PATH into AWF_HOST_PATH`);
     }
   }
-  // Go on GitHub Actions uses trimmed binaries that require GOROOT to be set
-  // Pass GOROOT as AWF_GOROOT so entrypoint.sh can export it in the chroot script
-  if (process.env.GOROOT) {
-    environment.AWF_GOROOT = process.env.GOROOT;
-  }
-  // Rust: Pass CARGO_HOME so entrypoint can add $CARGO_HOME/bin to PATH
-  if (process.env.CARGO_HOME) {
-    environment.AWF_CARGO_HOME = process.env.CARGO_HOME;
-  }
-  // Rust: Pass RUSTUP_HOME so rustc/cargo can find the toolchain
-  if (process.env.RUSTUP_HOME) {
-    environment.AWF_RUSTUP_HOME = process.env.RUSTUP_HOME;
-  }
-  // Java: Pass JAVA_HOME so entrypoint can add $JAVA_HOME/bin to PATH and set JAVA_HOME
-  if (process.env.JAVA_HOME) {
-    environment.AWF_JAVA_HOME = process.env.JAVA_HOME;
-  }
-  // .NET: Pass DOTNET_ROOT so entrypoint can add it to PATH and set DOTNET_ROOT
-  if (process.env.DOTNET_ROOT) {
-    environment.AWF_DOTNET_ROOT = process.env.DOTNET_ROOT;
-  }
-  // Bun: Pass BUN_INSTALL so entrypoint can add $BUN_INSTALL/bin to PATH
-  // Bun crashes with core dump when installed inside chroot (restricted /proc access),
-  // so it must be pre-installed on the host via setup-bun action
-  if (process.env.BUN_INSTALL) {
-    environment.AWF_BUN_INSTALL = process.env.BUN_INSTALL;
+  // Toolchain variables (GOROOT, CARGO_HOME, JAVA_HOME, etc.) set by setup-* actions.
+  // When AWF runs via sudo, these may be stripped from process.env. Fall back to
+  // reading $GITHUB_ENV file directly (analogous to readGitHubPathEntries for $GITHUB_PATH).
+  const githubEnvEntries = readGitHubEnvEntries();
+  for (const varName of TOOLCHAIN_ENV_VARS) {
+    const value = process.env[varName] || githubEnvEntries[varName];
+    if (value) {
+      environment[`AWF_${varName}`] = value;
+      if (!process.env[varName] && githubEnvEntries[varName]) {
+        logger.debug(`Recovered ${varName} from $GITHUB_ENV (sudo likely stripped it from process.env)`);
+      }
+    }
   }
 
   // If --exclude-env names were specified, add them to the excluded set
