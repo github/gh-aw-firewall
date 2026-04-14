@@ -1645,6 +1645,42 @@ describe('docker-manager', () => {
       }
     });
 
+    it('should skip env vars exceeding MAX_ENV_VALUE_SIZE from env-all passthrough', () => {
+      const largeVarName = 'AWF_TEST_OVERSIZED_VAR';
+      const saved = process.env[largeVarName];
+      // Create a value larger than 64KB
+      process.env[largeVarName] = 'x'.repeat(65 * 1024);
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        // Oversized var should be skipped
+        expect(env[largeVarName]).toBeUndefined();
+      } finally {
+        if (saved !== undefined) process.env[largeVarName] = saved;
+        else delete process.env[largeVarName];
+      }
+    });
+
+    it('should pass env vars under MAX_ENV_VALUE_SIZE from env-all passthrough', () => {
+      const normalVarName = 'AWF_TEST_NORMAL_VAR';
+      const saved = process.env[normalVarName];
+      process.env[normalVarName] = 'normal_value';
+
+      try {
+        const configWithEnvAll = { ...mockConfig, envAll: true };
+        const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env[normalVarName]).toBe('normal_value');
+      } finally {
+        if (saved !== undefined) process.env[normalVarName] = saved;
+        else delete process.env[normalVarName];
+      }
+    });
+
     it('should auto-inject GH_HOST from GITHUB_SERVER_URL when envAll is true', () => {
       const prevServerUrl = process.env.GITHUB_SERVER_URL;
       const prevGhHost = process.env.GH_HOST;
