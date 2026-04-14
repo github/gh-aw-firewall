@@ -858,12 +858,14 @@ export function generateDockerCompose(
   // Toolchain variables (GOROOT, CARGO_HOME, JAVA_HOME, etc.) set by setup-* actions.
   // When AWF runs via sudo, these may be stripped from process.env. Fall back to
   // reading $GITHUB_ENV file directly (analogous to readGitHubPathEntries for $GITHUB_PATH).
-  const githubEnvEntries = readGitHubEnvEntries();
+  const runningUnderSudo =
+    process.getuid?.() === 0 && (Boolean(process.env.SUDO_UID) || Boolean(process.env.SUDO_USER));
+  const githubEnvEntries = runningUnderSudo ? readGitHubEnvEntries() : {};
   for (const varName of TOOLCHAIN_ENV_VARS) {
-    const value = process.env[varName] || githubEnvEntries[varName];
+    const value = process.env[varName] || (runningUnderSudo ? githubEnvEntries[varName] : undefined);
     if (value) {
       environment[`AWF_${varName}`] = value;
-      if (!process.env[varName] && githubEnvEntries[varName]) {
+      if (!process.env[varName] && runningUnderSudo && githubEnvEntries[varName]) {
         logger.debug(`Recovered ${varName} from $GITHUB_ENV (sudo likely stripped it from process.env)`);
       }
     }
