@@ -40,8 +40,8 @@ export const API_PROXY_PORTS = {
   GEMINI: 10003,
 
   /**
-   * OpenCode API proxy port (routes to Anthropic by default)
-   * OpenCode is BYOK — defaults to Anthropic as the primary provider
+   * OpenCode API proxy port (defaults to Copilot/OpenAI routing; falls back to Anthropic)
+   * OpenCode is BYOK — credential priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > COPILOT_AUTH_TOKEN
    * @see containers/api-proxy/server.js
    */
   OPENCODE: 10004,
@@ -611,7 +611,7 @@ export interface WrapperConfig {
    * - http://api-proxy:10000 - OpenAI API proxy (for Codex) {@link API_PROXY_PORTS.OPENAI}
    * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
    * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
-   * - http://api-proxy:10004 - OpenCode API proxy (routes to Anthropic) {@link API_PROXY_PORTS.OPENCODE}
+   * - http://api-proxy:10004 - OpenCode API proxy (defaults to Copilot/OpenAI routing) {@link API_PROXY_PORTS.OPENCODE}
    *
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
