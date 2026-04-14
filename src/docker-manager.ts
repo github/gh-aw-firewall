@@ -25,6 +25,19 @@ const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
 const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
 
 /**
+ * Maximum size (bytes) of a single environment variable value allowed through
+ * --env-all passthrough. Variables exceeding this are skipped with a warning
+ * to prevent E2BIG errors from ARG_MAX exhaustion.
+ */
+const MAX_ENV_VALUE_SIZE = 64 * 1024; // 64 KB
+
+/**
+ * Total environment size (bytes) threshold for issuing an ARG_MAX warning.
+ * Linux ARG_MAX is ~2 MB for argv + envp combined; warn well before that.
+ */
+const ENV_SIZE_WARNING_THRESHOLD = 1_500_000; // ~1.5 MB
+
+/**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
  * the container was externally stopped. When true, runAgentCommand() skips
  * its own docker wait / log collection to avoid racing with the signal handler.
@@ -794,10 +807,25 @@ export function generateDockerCompose(
 
   // If --env-all is specified, pass through all host environment variables (except excluded ones)
   if (config.envAll) {
+    const skippedLargeVars: string[] = [];
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && !EXCLUDED_ENV_VARS.has(key) && !Object.prototype.hasOwnProperty.call(environment, key)) {
+        // Skip oversized values to prevent E2BIG (Argument list too long) errors.
+        // The Linux kernel enforces ARG_MAX (~2MB) on argv+envp combined; large env
+        // vars can exhaust this budget, especially when combined with large prompts.
+        if (value.length > MAX_ENV_VALUE_SIZE) {
+          skippedLargeVars.push(`${key} (${(value.length / 1024).toFixed(0)} KB)`);
+          continue;
+        }
         environment[key] = value;
       }
+    }
+    if (skippedLargeVars.length > 0) {
+      logger.warn(`Skipped ${skippedLargeVars.length} oversized env var(s) from --env-all passthrough (>${(MAX_ENV_VALUE_SIZE / 1024).toFixed(0)} KB each):`);
+      for (const entry of skippedLargeVars) {
+        logger.warn(`  - ${entry}`);
+      }
+      logger.warn('Use --env VAR="$VAR" to explicitly pass large values if needed.');
     }
   } else {
     // Default behavior: selectively pass through specific variables
@@ -900,6 +928,21 @@ export function generateDockerCompose(
       environment.no_proxy = environment.NO_PROXY;
     } else if (config.additionalEnv?.no_proxy) {
       environment.NO_PROXY = environment.no_proxy;
+    }
+  }
+
+  // Warn when total environment size approaches ARG_MAX (~2MB).
+  // Linux enforces a combined argv+envp limit; large environments can cause E2BIG errors
+  // when execve() is called inside the container.
+  if (config.envAll) {
+    const totalEnvBytes = Object.entries(environment)
+      .reduce((sum, [k, v]) => sum + k.length + (v?.length ?? 0) + 2, 0); // +2 for '=' and null
+    if (totalEnvBytes > ENV_SIZE_WARNING_THRESHOLD) {
+      logger.warn(
+        `⚠️  Total container environment size is ${(totalEnvBytes / 1024).toFixed(0)} KB — ` +
+        'may cause E2BIG (Argument list too long) errors when combined with large command arguments'
+      );
+      logger.warn('   Consider using --exclude-env to remove unnecessary variables');
     }
   }
 
