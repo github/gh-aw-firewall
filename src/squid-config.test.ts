@@ -1868,4 +1868,55 @@ describe('generatePolicyManifest', () => {
     const denyRule = manifest.rules.find(r => r.id === 'deny-default');
     expect(httpRule!.order).toBeLessThan(denyRule!.order);
   });
+
+  describe('Upstream Proxy Configuration', () => {
+    it('generates cache_peer directive for upstream proxy', () => {
+      const config: SquidConfig = {
+        domains: ['github.com'],
+        port: defaultPort,
+        upstreamProxy: { host: 'proxy.corp.com', port: 3128 },
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain('cache_peer proxy.corp.com parent 3128 0 no-query default');
+      expect(result).toContain('never_direct allow all');
+    });
+
+    it('generates always_direct bypass for noProxy domains', () => {
+      const config: SquidConfig = {
+        domains: ['github.com'],
+        port: defaultPort,
+        upstreamProxy: {
+          host: 'proxy.corp.com',
+          port: 3128,
+          noProxy: ['.corp.com', 'internal.example.com'],
+        },
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain('acl upstream_bypass dstdomain .corp.com');
+      expect(result).toContain('acl upstream_bypass dstdomain internal.example.com');
+      expect(result).toContain('acl upstream_bypass dstdomain .internal.example.com');
+      expect(result).toContain('always_direct allow upstream_bypass');
+      expect(result).toContain('never_direct allow all');
+    });
+
+    it('omits upstream proxy section when not configured', () => {
+      const config: SquidConfig = {
+        domains: ['github.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).not.toContain('cache_peer');
+      expect(result).not.toContain('never_direct');
+    });
+
+    it('generates upstream proxy with custom port', () => {
+      const config: SquidConfig = {
+        domains: ['github.com'],
+        port: defaultPort,
+        upstreamProxy: { host: '10.0.0.50', port: 8080 },
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain('cache_peer 10.0.0.50 parent 8080 0 no-query default');
+    });
+  });
 });

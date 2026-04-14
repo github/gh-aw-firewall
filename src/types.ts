@@ -920,6 +920,38 @@ export interface WrapperConfig {
    * @example 45
    */
   agentTimeout?: number;
+
+  /**
+   * Upstream (corporate) proxy for Squid to route outbound traffic through.
+   *
+   * When set, Squid uses `cache_peer` to forward all outbound HTTP/HTTPS
+   * traffic through this parent proxy instead of connecting directly to the
+   * internet. This is required on self-hosted runners behind corporate proxies
+   * where direct egress is blocked.
+   *
+   * Auto-detected from host `https_proxy`/`HTTPS_PROXY`/`http_proxy`/`HTTP_PROXY`
+   * environment variables, or explicitly set via `--upstream-proxy <url>`.
+   *
+   * @example { host: 'proxy.corp.com', port: 3128 }
+   */
+  upstreamProxy?: UpstreamProxyConfig;
+}
+
+/**
+ * Upstream proxy configuration for Squid cache_peer routing
+ */
+export interface UpstreamProxyConfig {
+  /** Hostname or IP of the upstream proxy (e.g., 'proxy.corp.com') */
+  host: string;
+  /** Port of the upstream proxy (e.g., 3128) */
+  port: number;
+  /**
+   * Domains that should bypass the upstream proxy and connect directly.
+   * Parsed from host `no_proxy`/`NO_PROXY`. Only domain suffixes are
+   * supported (e.g., '.corp.com', 'internal.example.com').
+   * IPs, CIDRs, and wildcards are ignored with a warning.
+   */
+  noProxy?: string[];
 }
 
 /**
@@ -1067,6 +1099,14 @@ export interface SquidConfig {
    * @default ['8.8.8.8', '8.8.4.4']
    */
   dnsServers?: string[];
+
+  /**
+   * Upstream (corporate) proxy for Squid to chain outbound traffic through.
+   *
+   * When set, generates `cache_peer` / `never_direct` / `always_direct`
+   * directives so Squid forwards traffic through the parent proxy.
+   */
+  upstreamProxy?: UpstreamProxyConfig;
 }
 
 /**

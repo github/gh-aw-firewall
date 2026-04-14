@@ -28,6 +28,7 @@ import { redactSecrets } from './redact-secrets';
 import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from './domain-patterns';
 import { loadAndMergeDomains } from './rules';
 import { detectHostDnsServers } from './dns-resolver';
+import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from './upstream-proxy';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -1236,6 +1237,7 @@ const optionGroupHeaders: Record<string, string> = {
   'build-local': 'Image Management:',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
+  'upstream-proxy': 'Network & Security:',
   'enable-api-proxy': 'API Proxy:',
   'log-level': 'Logging & Debug:',
 };
@@ -1429,6 +1431,12 @@ program
   .option(
     '--dns-over-https [resolver-url]',
     'Enable DNS-over-HTTPS via sidecar proxy (default: https://dns.google/dns-query)'
+  )
+  .option(
+    '--upstream-proxy <url>',
+    'Upstream (corporate) proxy URL for Squid to chain through.\n' +
+    '                                       Auto-detected from host https_proxy/http_proxy if not set.\n' +
+    '                                       Example: http://proxy.corp.com:3128'
   )
   .option(
     '--enable-host-access',
@@ -1785,6 +1793,31 @@ program
       logger.info(`DNS-over-HTTPS enabled: ${dnsOverHttps}`);
     }
 
+    // Detect or parse upstream proxy configuration
+    let upstreamProxy: import('./types').UpstreamProxyConfig | undefined;
+    if (options.upstreamProxy) {
+      // Explicit --upstream-proxy flag
+      try {
+        const { host, port } = parseProxyUrl(options.upstreamProxy);
+        // Parse no_proxy from environment even when --upstream-proxy is explicit
+        const noProxyStr = (process.env.no_proxy || process.env.NO_PROXY || '').trim();
+        const noProxy = noProxyStr ? parseNoProxy(noProxyStr) : [];
+        upstreamProxy = { host, port, ...(noProxy.length > 0 ? { noProxy } : {}) };
+        logger.info(`Upstream proxy (explicit): ${host}:${port}`);
+      } catch (error) {
+        logger.error(`Invalid --upstream-proxy: ${error instanceof Error ? error.message : error}`);
+        process.exit(1);
+      }
+    } else {
+      // Auto-detect from host environment variables
+      try {
+        upstreamProxy = detectUpstreamProxy();
+      } catch (error) {
+        logger.error(`Upstream proxy auto-detection failed: ${error instanceof Error ? error.message : error}`);
+        process.exit(1);
+      }
+    }
+
     // Parse --allow-urls for SSL Bump mode
     let allowedUrls: string[] | undefined;
     if (options.allowUrls) {
@@ -1919,6 +1952,7 @@ program
       githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
       diagnosticLogs: options.diagnosticLogs || false,
       awfDockerHost: options.dockerHost,
+      upstreamProxy,
     };
 
     // Apply --docker-host override for AWF's own container operations.

@@ -40,7 +40,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 
 **Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
 
-**Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy` (and their lowercase/uppercase variants) from the host are ignored when using `--env-all` because the firewall always sets these to point to Squid. Host proxy settings cannot be passed through as they would conflict with the firewall's traffic routing.
+**Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, and `FTP_PROXY` (all case variants) from the host are **excluded from container passthrough** when using `--env-all`. The firewall sets its own proxy variables pointing to Squid inside the container. However, host proxy variables **are read** for upstream proxy auto-detection — if the host has `https_proxy`/`http_proxy` set, AWF configures Squid to chain outbound traffic through that corporate proxy (see [Upstream Proxy Support](#upstream-corporate-proxy-support)).
 
 ## `--env-file` Support
 
@@ -245,6 +245,46 @@ The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runn
 
 - **`--enable-host-access`** — allows the agent to reach `host.docker.internal` and set `DOCKER_HOST=tcp://host.docker.internal:2375` inside the agent.
 - **`--enable-dind`** — mounts the local Docker socket (`/var/run/docker.sock`) directly into the agent container (only works when using the local daemon, not a remote DinD TCP socket).
+
+## Upstream (Corporate) Proxy Support
+
+When running on self-hosted runners behind a corporate proxy, AWF can chain Squid
+through the upstream proxy using the `cache_peer` directive.
+
+### Auto-detection
+
+If the host has `https_proxy`/`HTTPS_PROXY` or `http_proxy`/`HTTP_PROXY` set, AWF
+automatically configures Squid to route outbound traffic through that proxy.
+`no_proxy`/`NO_PROXY` domain suffixes are honored as bypass rules (`always_direct`).
+
+```bash
+# Auto-detected — no flags needed when host proxy env vars are set
+export https_proxy=http://proxy.corp.com:3128
+export no_proxy=.internal.corp.com,localhost
+awf --allow-domains github.com 'curl https://api.github.com'
+```
+
+### Explicit override
+
+Use `--upstream-proxy <url>` to specify the proxy explicitly (overrides auto-detection):
+
+```bash
+awf --upstream-proxy http://proxy.corp.com:3128 --allow-domains github.com 'curl https://api.github.com'
+```
+
+### Limitations (v1)
+
+- **HTTP proxies only** — Squid `cache_peer` requires an HTTP proxy (HTTPS tunneling uses CONNECT)
+- **No proxy credentials** — `user:pass@proxy` URLs are rejected; configure auth on the proxy server
+- **No loopback** — `localhost`/`127.0.0.1` proxies are rejected (Squid is in a container)
+- **Single proxy** — If `http_proxy` and `https_proxy` differ, use `--upstream-proxy` to disambiguate
+- **Domain-only bypass** — `no_proxy` IPs, CIDRs, and wildcards are ignored (only domain suffixes work)
+
+### Proxy environment variable exclusion
+
+Host proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`,
+`ALL_PROXY`, `NO_PROXY`, etc.) are **always excluded** from container passthrough, even with
+`--env-all`. AWF sets its own proxy variables pointing to Squid (`172.30.0.10:3128`).
 
 ## Troubleshooting
 
