@@ -1033,9 +1033,9 @@ if (require.main === module) {
   // rate limiting and metrics isolation.
   //
   // Credential priority (first available wins):
-  //   1. OPENAI_API_KEY  → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
-  //   2. ANTHROPIC_API_KEY → Anthropic BYOK route (ANTHROPIC_API_TARGET)
-  //   3. COPILOT_GITHUB_TOKEN / COPILOT_API_KEY → Copilot route (COPILOT_API_TARGET)
+  //   1. OPENAI_API_KEY      → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
+  //   2. ANTHROPIC_API_KEY   → Anthropic BYOK route (ANTHROPIC_API_TARGET)
+  //   3. COPILOT_AUTH_TOKEN  → Copilot route (COPILOT_API_TARGET)
   if (OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN) {
     const opencodeServer = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
