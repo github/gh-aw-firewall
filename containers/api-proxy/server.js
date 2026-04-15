@@ -1060,9 +1060,10 @@ if (require.main === module) {
   // rate limiting and metrics isolation.
   //
   // Credential priority (first available wins):
-  //   1. OPENAI_API_KEY      → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
-  //   2. ANTHROPIC_API_KEY   → Anthropic BYOK route (ANTHROPIC_API_TARGET)
-  //   3. COPILOT_AUTH_TOKEN  → Copilot route (COPILOT_API_TARGET)
+  //   1. OPENAI_API_KEY                  → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
+  //   2. ANTHROPIC_API_KEY               → Anthropic BYOK route (ANTHROPIC_API_TARGET)
+  //   3. COPILOT_GITHUB_TOKEN/API_KEY    → Copilot route (COPILOT_API_TARGET),
+  //                                        resolved internally to COPILOT_AUTH_TOKEN
   const opencodeStartupRoute = resolveOpenCodeRoute(
     OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
     OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
