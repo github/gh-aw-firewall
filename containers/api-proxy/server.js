@@ -182,12 +182,15 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
  */
 function stripGeminiKeyParam(reqUrl) {
   // Only operate on relative request paths that begin with exactly one slash.
-  // Returning other inputs unchanged preserves downstream validation behavior.
+  // Returning other inputs unchanged lets proxyRequest's relative-URL check reject them.
+  // The guard prevents absolute URLs (e.g. 'http://evil.com/path?key=…') and
+  // protocol-relative URLs ('//host/path') from being normalized into a relative path.
   if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
     return reqUrl;
   }
   const parsed = new URL(reqUrl, 'http://localhost');
   parsed.searchParams.delete('key');
+  // Reconstruct relative path only — never emit the scheme/host from the dummy base.
   return parsed.pathname + parsed.search;
 }
 
@@ -509,7 +512,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     Object.assign(headers, injectHeaders);
 
     // Log auth header injection for debugging credential-isolation issues
-    const injectedKey = injectHeaders['x-api-key'] || injectHeaders['authorization'] || injectHeaders['x-goog-api-key'];
+    // Use case-insensitive lookup since providers use mixed casing (e.g. 'Authorization' vs 'authorization')
+    const injectedKey = Object.entries(injectHeaders).find(([k]) => ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase()))?.[1];
     if (injectedKey) {
       const keyPreview = injectedKey.length > 8
         ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
