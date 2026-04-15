@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -778,6 +778,106 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_GITHUB_TOKEN: '  ',
       COPILOT_API_KEY: 'sk-byok-key',
     })).toBe('sk-byok-key');
+  });
+});
+
+describe('resolveOpenCodeRoute', () => {
+  const OPENAI_TARGET = 'api.openai.com';
+  const ANTHROPIC_TARGET = 'api.anthropic.com';
+  const COPILOT_TARGET = 'api.githubcopilot.com';
+  const OPENAI_BASE = '/v1';
+  const ANTHROPIC_BASE = '';
+
+  it('should route to OpenAI when OPENAI_API_KEY is set (highest priority)', () => {
+    const route = resolveOpenCodeRoute(
+      'sk-openai-key', 'sk-anthropic-key', 'gho_copilot-token',
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.target).toBe(OPENAI_TARGET);
+    expect(route.headers['Authorization']).toBe('Bearer sk-openai-key');
+    expect(route.basePath).toBe(OPENAI_BASE);
+    expect(route.needsAnthropicVersion).toBe(false);
+  });
+
+  it('should route to Anthropic when only ANTHROPIC_API_KEY is set', () => {
+    const route = resolveOpenCodeRoute(
+      undefined, 'sk-anthropic-key', undefined,
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.target).toBe(ANTHROPIC_TARGET);
+    expect(route.headers['x-api-key']).toBe('sk-anthropic-key');
+    expect(route.basePath).toBe(ANTHROPIC_BASE);
+    expect(route.needsAnthropicVersion).toBe(true);
+  });
+
+  it('should prefer OpenAI over Anthropic when both are set', () => {
+    const route = resolveOpenCodeRoute(
+      'sk-openai-key', 'sk-anthropic-key', undefined,
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.target).toBe(OPENAI_TARGET);
+    expect(route.headers['Authorization']).toBe('Bearer sk-openai-key');
+    expect(route.needsAnthropicVersion).toBe(false);
+  });
+
+  it('should route to Copilot when only copilotToken is set', () => {
+    const route = resolveOpenCodeRoute(
+      undefined, undefined, 'gho_copilot-token',
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.target).toBe(COPILOT_TARGET);
+    expect(route.headers['Authorization']).toBe('Bearer gho_copilot-token');
+    expect(route.basePath).toBeUndefined();
+    expect(route.needsAnthropicVersion).toBe(false);
+  });
+
+  it('should prefer Anthropic over Copilot when both are set', () => {
+    const route = resolveOpenCodeRoute(
+      undefined, 'sk-anthropic-key', 'gho_copilot-token',
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.target).toBe(ANTHROPIC_TARGET);
+    expect(route.headers['x-api-key']).toBe('sk-anthropic-key');
+    expect(route.needsAnthropicVersion).toBe(true);
+  });
+
+  it('should return null when no credentials are available', () => {
+    const route = resolveOpenCodeRoute(
+      undefined, undefined, undefined,
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).toBeNull();
+  });
+
+  it('should not set Authorization header for Anthropic route', () => {
+    const route = resolveOpenCodeRoute(
+      undefined, 'sk-anthropic-key', undefined,
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.headers['Authorization']).toBeUndefined();
+  });
+
+  it('should not set x-api-key header for OpenAI route', () => {
+    const route = resolveOpenCodeRoute(
+      'sk-openai-key', undefined, undefined,
+      OPENAI_TARGET, ANTHROPIC_TARGET, COPILOT_TARGET,
+      OPENAI_BASE, ANTHROPIC_BASE
+    );
+    expect(route).not.toBeNull();
+    expect(route.headers['x-api-key']).toBeUndefined();
   });
 });
 

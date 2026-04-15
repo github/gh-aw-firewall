@@ -289,6 +289,33 @@ if (!proxyAgent) {
 }
 
 /**
+ * Resolves the OpenCode routing configuration based on available credentials.
+ * Priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > copilotToken (COPILOT_GITHUB_TOKEN / COPILOT_API_KEY)
+ *
+ * @param {string|undefined} openaiKey
+ * @param {string|undefined} anthropicKey
+ * @param {string|undefined} copilotToken
+ * @param {string} openaiTarget
+ * @param {string} anthropicTarget
+ * @param {string} copilotTarget
+ * @param {string} [openaiBasePath]
+ * @param {string} [anthropicBasePath]
+ * @returns {{ target: string, headers: Record<string,string>, basePath: string|undefined, needsAnthropicVersion: boolean } | null}
+ */
+function resolveOpenCodeRoute(openaiKey, anthropicKey, copilotToken, openaiTarget, anthropicTarget, copilotTarget, openaiBasePath, anthropicBasePath) {
+  if (openaiKey) {
+    return { target: openaiTarget, headers: { 'Authorization': `Bearer ${openaiKey}` }, basePath: openaiBasePath, needsAnthropicVersion: false };
+  }
+  if (anthropicKey) {
+    return { target: anthropicTarget, headers: { 'x-api-key': anthropicKey }, basePath: anthropicBasePath, needsAnthropicVersion: true };
+  }
+  if (copilotToken) {
+    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}` }, basePath: undefined, needsAnthropicVersion: false };
+  }
+  return null;
+}
+
+/**
  * Check rate limit and send 429 if exceeded.
  * Returns true if request was rate-limited (caller should return early).
  */
@@ -1033,10 +1060,16 @@ if (require.main === module) {
   // rate limiting and metrics isolation.
   //
   // Credential priority (first available wins):
-  //   1. OPENAI_API_KEY      → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
-  //   2. ANTHROPIC_API_KEY   → Anthropic BYOK route (ANTHROPIC_API_TARGET)
-  //   3. COPILOT_AUTH_TOKEN  → Copilot route (COPILOT_API_TARGET)
-  if (OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN) {
+  //   1. OPENAI_API_KEY                  → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
+  //   2. ANTHROPIC_API_KEY               → Anthropic BYOK route (ANTHROPIC_API_TARGET)
+  //   3. COPILOT_GITHUB_TOKEN/API_KEY    → Copilot route (COPILOT_API_TARGET),
+  //                                        resolved internally to COPILOT_AUTH_TOKEN
+  const opencodeStartupRoute = resolveOpenCodeRoute(
+    OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
+    OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
+    OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
+  );
+  if (opencodeStartupRoute) {
     const opencodeServer = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1052,61 +1085,58 @@ if (require.main === module) {
         url: logUrl,
       });
 
-      if (OPENAI_API_KEY) {
-        logRequest('info', 'opencode_proxy_header_injection', {
-          message: '[OpenCode Proxy] Routing to OpenAI/Copilot via OPENAI_API_KEY',
-          target: OPENAI_API_TARGET,
-        });
-        proxyRequest(req, res, OPENAI_API_TARGET, {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        }, 'opencode', OPENAI_API_BASE_PATH);
-      } else if (ANTHROPIC_API_KEY) {
-        logRequest('info', 'opencode_proxy_header_injection', {
-          message: '[OpenCode Proxy] Routing to Anthropic via ANTHROPIC_API_KEY',
-          target: ANTHROPIC_API_TARGET,
-        });
-        const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-        if (!req.headers['anthropic-version']) {
-          anthropicHeaders['anthropic-version'] = '2023-06-01';
-        }
-        proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'opencode', ANTHROPIC_API_BASE_PATH);
-      } else {
-        // COPILOT_AUTH_TOKEN only — route to Copilot API target
-        logRequest('info', 'opencode_proxy_header_injection', {
-          message: '[OpenCode Proxy] Routing to Copilot via COPILOT_AUTH_TOKEN',
-          target: COPILOT_API_TARGET,
-        });
-        proxyRequest(req, res, COPILOT_API_TARGET, {
-          'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
-        }, 'opencode');
+      const parsedContentLength = Number(req.headers['content-length']);
+      const contentLength = Number.isFinite(parsedContentLength) && parsedContentLength > 0 ? parsedContentLength : 0;
+      if (checkRateLimit(req, res, 'opencode', contentLength)) {
+        return;
       }
+
+      const route = resolveOpenCodeRoute(
+        OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
+        OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
+        OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
+      );
+      if (!route) {
+        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot route request' });
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'OpenCode proxy has no credentials configured' }));
+        return;
+      }
+
+      logRequest('info', 'opencode_proxy_routing_target', {
+        message: `[OpenCode Proxy] Routing to ${route.target}`,
+        target: route.target,
+      });
+
+      const headers = Object.assign({}, route.headers);
+      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
+        headers['anthropic-version'] = '2023-06-01';
+      }
+      proxyRequest(req, res, route.target, headers, 'opencode', route.basePath);
     });
 
     opencodeServer.on('upgrade', (req, socket, head) => {
-      if (OPENAI_API_KEY) {
-        proxyWebSocket(req, socket, head, OPENAI_API_TARGET, {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        }, 'opencode', OPENAI_API_BASE_PATH);
-      } else if (ANTHROPIC_API_KEY) {
-        const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-        if (!req.headers['anthropic-version']) {
-          anthropicHeaders['anthropic-version'] = '2023-06-01';
-        }
-        proxyWebSocket(req, socket, head, ANTHROPIC_API_TARGET, anthropicHeaders, 'opencode', ANTHROPIC_API_BASE_PATH);
-      } else {
-        proxyWebSocket(req, socket, head, COPILOT_API_TARGET, {
-          'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
-        }, 'opencode');
+      const route = resolveOpenCodeRoute(
+        OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
+        OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
+        OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
+      );
+      if (!route) {
+        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot upgrade WebSocket' });
+        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
       }
+
+      const headers = Object.assign({}, route.headers);
+      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
+        headers['anthropic-version'] = '2023-06-01';
+      }
+      proxyWebSocket(req, socket, head, route.target, headers, 'opencode', route.basePath);
     });
 
     opencodeServer.listen(10004, '0.0.0.0', () => {
-      const routingTarget = OPENAI_API_KEY
-        ? `OpenAI/Copilot at ${OPENAI_API_TARGET}`
-        : ANTHROPIC_API_KEY
-          ? `Anthropic at ${ANTHROPIC_API_TARGET}`
-          : `Copilot at ${COPILOT_API_TARGET}`;
-      logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${routingTarget})` });
+      logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${opencodeStartupRoute.target})` });
     });
   }
 
@@ -1125,4 +1155,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute };

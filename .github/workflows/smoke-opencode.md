@@ -66,6 +66,11 @@ post-steps:
       echo "Safe output validation passed"
 ---
 
+> **Note:** This workflow has not yet been compiled to a `.lock.yml` file and is **not active** in GitHub Actions.
+> Compilation is pending `opencode` engine support in gh-aw. Once the engine is supported, run
+> `gh-aw compile .github/workflows/smoke-opencode.md` followed by
+> `npx tsx scripts/ci/postprocess-smoke-workflows.ts` to generate the lock file.
+
 # Smoke Test: OpenCode Engine Validation
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
