@@ -1090,7 +1090,12 @@ if (require.main === module) {
         OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
         OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
       );
-      if (!route) return;
+      if (!route) {
+        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot route request' });
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'OpenCode proxy has no credentials configured' }));
+        return;
+      }
 
       logRequest('info', 'opencode_proxy_header_injection', {
         message: `[OpenCode Proxy] Routing to ${route.target}`,
@@ -1110,7 +1115,12 @@ if (require.main === module) {
         OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
         OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
       );
-      if (!route) return;
+      if (!route) {
+        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot upgrade WebSocket' });
+        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
 
       const headers = Object.assign({}, route.headers);
       if (ANTHROPIC_API_KEY && !OPENAI_API_KEY && !req.headers['anthropic-version']) {
