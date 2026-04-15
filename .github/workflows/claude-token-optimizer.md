@@ -66,7 +66,7 @@ steps:
 
 You are an AI agent that reads the latest Claude token usage report and produces **concrete, actionable optimization recommendations** for the most token-intensive Claude-engine workflow.
 
-**IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not explore unrelated workflows or files beyond the single target workflow. Use only the pre-downloaded data and the target workflow file.
+**IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not read or explore unrelated workflow files. You may use: (1) the pre-downloaded run data at `/tmp/gh-aw/token-audit/`, (2) the token usage report issue fetched via the `gh issue` commands below, and (3) the single target workflow `.md` file identified in Step 3.
 
 ## Step 1: Find the Latest Token Usage Report
 
@@ -120,7 +120,7 @@ Analyze:
 - **Prompt length** \u2014 Estimate the markdown body size. Is it verbose?
 - **Pre-agent steps** \u2014 Does it use `steps:` to pre-compute deterministic work?
 
-Read **only** the target workflow file. Do not explore other workflow files.
+Read **only** the target workflow file. Do not open or read other workflow files (the `grep` above may scan filenames to resolve the correct file, but do not read their contents).
 
 ## Step 4: Analyze Recent Run Data
 
