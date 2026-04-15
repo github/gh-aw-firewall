@@ -36,11 +36,6 @@ const MAX_ENV_VALUE_SIZE = 64 * 1024; // 64 KB
  * Linux ARG_MAX is ~2 MB for argv + envp combined; warn well before that.
  */
 const ENV_SIZE_WARNING_THRESHOLD = 1_500_000; // ~1.5 MB
-// Matches inline prompt expansion patterns emitted by gh-aw style commands, e.g.:
-//   --prompt "$(cat /tmp/gh-aw/aw-prompts/prompt.txt)"
-//   --prompt $(cat /tmp/gh-aw/aw-prompts/prompt.txt)
-// Supports quoted and unquoted cat paths.
-const INLINE_PROMPT_CAT_REGEX = /--prompt\s+"?\$\(cat\s+((?:"[^"]+"|'[^']+'|[^)])+)\s*\)"?/;
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
@@ -74,6 +69,40 @@ function trimMatchingOuterQuotes(value: string): string {
   return trimmed;
 }
 
+function findInlinePromptCatRange(command: string): { start: number; end: number; promptPath: string } | null {
+  // Variant 1: --prompt "$(cat /path/to/prompt.txt)"
+  const quotedPrefix = '--prompt "$(cat ';
+  const quotedStart = command.indexOf(quotedPrefix);
+  if (quotedStart !== -1) {
+    const pathStart = quotedStart + quotedPrefix.length;
+    const pathEnd = command.indexOf(')"', pathStart);
+    if (pathEnd !== -1) {
+      return {
+        start: quotedStart,
+        end: pathEnd + 2,
+        promptPath: trimMatchingOuterQuotes(command.slice(pathStart, pathEnd)),
+      };
+    }
+  }
+
+  // Variant 2: --prompt $(cat /path/to/prompt.txt)
+  const unquotedPrefix = '--prompt $(cat ';
+  const unquotedStart = command.indexOf(unquotedPrefix);
+  if (unquotedStart !== -1) {
+    const pathStart = unquotedStart + unquotedPrefix.length;
+    const pathEnd = command.indexOf(')', pathStart);
+    if (pathEnd !== -1) {
+      return {
+        start: unquotedStart,
+        end: pathEnd + 1,
+        promptPath: trimMatchingOuterQuotes(command.slice(pathStart, pathEnd)),
+      };
+    }
+  }
+
+  return null;
+}
+
 /**
  * Rewrites inline prompt expansions of the form:
  *   --prompt "$(cat /path/to/prompt.txt)"
@@ -84,13 +113,13 @@ function trimMatchingOuterQuotes(value: string): string {
  * failures when workflows inline big prompt files.
  */
 function rewriteInlinePromptCatToStdin(agentCommand: string): string {
-  const match = agentCommand.match(INLINE_PROMPT_CAT_REGEX);
-  if (!match) return agentCommand;
+  const inlinePrompt = findInlinePromptCatRange(agentCommand);
+  if (!inlinePrompt) return agentCommand;
 
-  const promptPath = trimMatchingOuterQuotes(match[1] ?? '');
+  const promptPath = inlinePrompt.promptPath;
   if (!promptPath) return agentCommand;
 
-  const rewrittenCommand = agentCommand.replace(INLINE_PROMPT_CAT_REGEX, '--prompt -');
+  const rewrittenCommand = `${agentCommand.slice(0, inlinePrompt.start)}--prompt -${agentCommand.slice(inlinePrompt.end)}`;
   if (rewrittenCommand === agentCommand) return agentCommand;
 
   logger.warn(`Rewriting inline prompt expansion to stdin pipe to avoid ARG_MAX/E2BIG: ${promptPath}`);
@@ -1072,7 +1101,7 @@ export function generateDockerCompose(
     const totalEnvBytes = Object.entries(environment)
       .reduce((sum, [k, v]) => sum + k.length + (v?.length ?? 0) + 2, 0); // +2 for '=' and null
     const argvBytes = ['/bin/bash', '-c', rewrittenAgentCommand]
-      .reduce((sum, arg) => sum + arg.length + 1, 0);
+      .reduce((sum, arg) => sum + arg.length + 1, 0); // +1 for each argv null terminator
     const totalArgvEnvBytes = totalEnvBytes + argvBytes;
     if (totalArgvEnvBytes > ENV_SIZE_WARNING_THRESHOLD) {
       logger.warn(
