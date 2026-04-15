@@ -39,7 +39,8 @@ const ENV_SIZE_WARNING_THRESHOLD = 1_500_000; // ~1.5 MB
 // Matches inline prompt expansion patterns emitted by gh-aw style commands, e.g.:
 //   --prompt "$(cat /tmp/gh-aw/aw-prompts/prompt.txt)"
 //   --prompt $(cat /tmp/gh-aw/aw-prompts/prompt.txt)
-const INLINE_PROMPT_CAT_REGEX = /--prompt\s+"?\$\(cat\s+([^)]+?)\s*\)"?/;
+// Supports quoted and unquoted cat paths.
+const INLINE_PROMPT_CAT_REGEX = /--prompt\s+"?\$\(cat\s+((?:"[^"]+"|'[^']+'|[^)])+)\s*\)"?/;
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
@@ -58,7 +59,19 @@ let awfDockerHostOverride: string | undefined;
 function shellQuote(value: string): string {
   // POSIX single-quote escaping: close quote, emit escaped single quote, reopen.
   // Example: a'b -> 'a'\''b'
+  // Replacement token '\'' means: end quote + escaped single quote + reopen quote.
   return `'${value.replace(/'/g, '\'\\\'\'')}'`;
+}
+
+function trimMatchingOuterQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('\'') && trimmed.endsWith('\'')) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 /**
@@ -74,7 +87,7 @@ function rewriteInlinePromptCatToStdin(agentCommand: string): string {
   const match = agentCommand.match(INLINE_PROMPT_CAT_REGEX);
   if (!match) return agentCommand;
 
-  const promptPath = match[1]?.trim().replace(/^['"]|['"]$/g, '');
+  const promptPath = trimMatchingOuterQuotes(match[1] ?? '');
   if (!promptPath) return agentCommand;
 
   const rewrittenCommand = agentCommand.replace(INLINE_PROMPT_CAT_REGEX, '--prompt -');
@@ -1059,7 +1072,7 @@ export function generateDockerCompose(
     const totalEnvBytes = Object.entries(environment)
       .reduce((sum, [k, v]) => sum + k.length + (v?.length ?? 0) + 2, 0); // +2 for '=' and null
     const argvBytes = ['/bin/bash', '-c', rewrittenAgentCommand]
-      .reduce((sum, arg) => sum + arg.length + 1, 1); // +1 null terminator
+      .reduce((sum, arg) => sum + arg.length + 1, 0);
     const totalArgvEnvBytes = totalEnvBytes + argvBytes;
     if (totalArgvEnvBytes > ENV_SIZE_WARNING_THRESHOLD) {
       logger.warn(

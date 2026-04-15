@@ -1310,6 +1310,21 @@ describe('docker-manager', () => {
       ]);
     });
 
+    it('should rewrite inline --prompt $(cat ...) when cat path is single-quoted', () => {
+      const configWithQuotedPath = {
+        ...mockConfig,
+        agentCommand: 'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt "$(cat \'/tmp/gh-aw/aw-prompts/prompt with spaces.txt\')" --allow-all-tools',
+      };
+      const result = generateDockerCompose(configWithQuotedPath, mockNetworkConfig);
+      const agent = result.services.agent;
+
+      expect(agent.command).toEqual([
+        '/bin/bash',
+        '-c',
+        'cat \'/tmp/gh-aw/aw-prompts/prompt with spaces.txt\' | node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - --allow-all-tools',
+      ]);
+    });
+
     it('should not rewrite regular literal --prompt values', () => {
       const configWithLiteralPrompt = {
         ...mockConfig,
