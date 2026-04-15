@@ -300,17 +300,17 @@ if (!proxyAgent) {
  * @param {string} copilotTarget
  * @param {string} [openaiBasePath]
  * @param {string} [anthropicBasePath]
- * @returns {{ target: string, headers: Record<string,string>, basePath: string|undefined } | null}
+ * @returns {{ target: string, headers: Record<string,string>, basePath: string|undefined, needsAnthropicVersion: boolean } | null}
  */
 function resolveOpenCodeRoute(openaiKey, anthropicKey, copilotToken, openaiTarget, anthropicTarget, copilotTarget, openaiBasePath, anthropicBasePath) {
   if (openaiKey) {
-    return { target: openaiTarget, headers: { 'Authorization': `Bearer ${openaiKey}` }, basePath: openaiBasePath };
+    return { target: openaiTarget, headers: { 'Authorization': `Bearer ${openaiKey}` }, basePath: openaiBasePath, needsAnthropicVersion: false };
   }
   if (anthropicKey) {
-    return { target: anthropicTarget, headers: { 'x-api-key': anthropicKey }, basePath: anthropicBasePath };
+    return { target: anthropicTarget, headers: { 'x-api-key': anthropicKey }, basePath: anthropicBasePath, needsAnthropicVersion: true };
   }
   if (copilotToken) {
-    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}` }, basePath: undefined };
+    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}` }, basePath: undefined, needsAnthropicVersion: false };
   }
   return null;
 }
@@ -1063,7 +1063,12 @@ if (require.main === module) {
   //   1. OPENAI_API_KEY      → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
   //   2. ANTHROPIC_API_KEY   → Anthropic BYOK route (ANTHROPIC_API_TARGET)
   //   3. COPILOT_AUTH_TOKEN  → Copilot route (COPILOT_API_TARGET)
-  if (OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN) {
+  const opencodeStartupRoute = resolveOpenCodeRoute(
+    OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
+    OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
+    OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
+  );
+  if (opencodeStartupRoute) {
     const opencodeServer = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1103,7 +1108,7 @@ if (require.main === module) {
       });
 
       const headers = Object.assign({}, route.headers);
-      if (ANTHROPIC_API_KEY && !OPENAI_API_KEY && !req.headers['anthropic-version']) {
+      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
         headers['anthropic-version'] = '2023-06-01';
       }
       proxyRequest(req, res, route.target, headers, 'opencode', route.basePath);
@@ -1123,19 +1128,14 @@ if (require.main === module) {
       }
 
       const headers = Object.assign({}, route.headers);
-      if (ANTHROPIC_API_KEY && !OPENAI_API_KEY && !req.headers['anthropic-version']) {
+      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
         headers['anthropic-version'] = '2023-06-01';
       }
       proxyWebSocket(req, socket, head, route.target, headers, 'opencode', route.basePath);
     });
 
     opencodeServer.listen(10004, '0.0.0.0', () => {
-      const routingTarget = OPENAI_API_KEY
-        ? `OpenAI/Copilot at ${OPENAI_API_TARGET}`
-        : ANTHROPIC_API_KEY
-          ? `Anthropic at ${ANTHROPIC_API_TARGET}`
-          : `Copilot at ${COPILOT_API_TARGET}`;
-      logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${routingTarget})` });
+      logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${opencodeStartupRoute.target})` });
     });
   }
 

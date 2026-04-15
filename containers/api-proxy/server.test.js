@@ -798,6 +798,7 @@ describe('resolveOpenCodeRoute', () => {
     expect(route.target).toBe(OPENAI_TARGET);
     expect(route.headers['Authorization']).toBe('Bearer sk-openai-key');
     expect(route.basePath).toBe(OPENAI_BASE);
+    expect(route.needsAnthropicVersion).toBe(false);
   });
 
   it('should route to Anthropic when only ANTHROPIC_API_KEY is set', () => {
@@ -810,6 +811,7 @@ describe('resolveOpenCodeRoute', () => {
     expect(route.target).toBe(ANTHROPIC_TARGET);
     expect(route.headers['x-api-key']).toBe('sk-anthropic-key');
     expect(route.basePath).toBe(ANTHROPIC_BASE);
+    expect(route.needsAnthropicVersion).toBe(true);
   });
 
   it('should prefer OpenAI over Anthropic when both are set', () => {
@@ -821,6 +823,7 @@ describe('resolveOpenCodeRoute', () => {
     expect(route).not.toBeNull();
     expect(route.target).toBe(OPENAI_TARGET);
     expect(route.headers['Authorization']).toBe('Bearer sk-openai-key');
+    expect(route.needsAnthropicVersion).toBe(false);
   });
 
   it('should route to Copilot when only copilotToken is set', () => {
@@ -833,6 +836,7 @@ describe('resolveOpenCodeRoute', () => {
     expect(route.target).toBe(COPILOT_TARGET);
     expect(route.headers['Authorization']).toBe('Bearer gho_copilot-token');
     expect(route.basePath).toBeUndefined();
+    expect(route.needsAnthropicVersion).toBe(false);
   });
 
   it('should prefer Anthropic over Copilot when both are set', () => {
@@ -844,6 +848,7 @@ describe('resolveOpenCodeRoute', () => {
     expect(route).not.toBeNull();
     expect(route.target).toBe(ANTHROPIC_TARGET);
     expect(route.headers['x-api-key']).toBe('sk-anthropic-key');
+    expect(route.needsAnthropicVersion).toBe(true);
   });
 
   it('should return null when no credentials are available', () => {
