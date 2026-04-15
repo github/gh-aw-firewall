@@ -1102,7 +1102,7 @@ if (require.main === module) {
         return;
       }
 
-      logRequest('info', 'opencode_proxy_header_injection', {
+      logRequest('info', 'opencode_proxy_routing_target', {
         message: `[OpenCode Proxy] Routing to ${route.target}`,
         target: route.target,
       });
