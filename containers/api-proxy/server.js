@@ -177,10 +177,15 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
  * value must be removed before forwarding to Google to prevent
  * API_KEY_INVALID errors.
  *
- * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @param {string} reqUrl - The incoming request URL (must start with exactly one '/')
  * @returns {string} URL with the `key` query parameter removed
  */
 function stripGeminiKeyParam(reqUrl) {
+  // Only operate on relative request paths that begin with exactly one slash.
+  // Returning other inputs unchanged preserves downstream validation behavior.
+  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
+    return reqUrl;
+  }
   const parsed = new URL(reqUrl, 'http://localhost');
   parsed.searchParams.delete('key');
   return parsed.pathname + parsed.search;
