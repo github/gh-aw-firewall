@@ -36,6 +36,9 @@ const MAX_ENV_VALUE_SIZE = 64 * 1024; // 64 KB
  * Linux ARG_MAX is ~2 MB for argv + envp combined; warn well before that.
  */
 const ENV_SIZE_WARNING_THRESHOLD = 1_500_000; // ~1.5 MB
+// Matches inline prompt expansion patterns emitted by gh-aw style commands, e.g.:
+//   --prompt "$(cat /tmp/gh-aw/aw-prompts/prompt.txt)"
+//   --prompt $(cat /tmp/gh-aw/aw-prompts/prompt.txt)
 const INLINE_PROMPT_CAT_REGEX = /--prompt\s+"?\$\(cat\s+([^)]+?)\s*\)"?/;
 
 /**
@@ -53,9 +56,20 @@ let agentExternallyKilled = false;
 let awfDockerHostOverride: string | undefined;
 
 function shellQuote(value: string): string {
+  // POSIX single-quote escaping: close quote, emit escaped single quote, reopen.
+  // Example: a'b -> 'a'\''b'
   return `'${value.replace(/'/g, '\'\\\'\'')}'`;
 }
 
+/**
+ * Rewrites inline prompt expansions of the form:
+ *   --prompt "$(cat /path/to/prompt.txt)"
+ * to:
+ *   cat '/path/to/prompt.txt' | ... --prompt -
+ *
+ * This keeps large prompts out of argv at execve time, reducing ARG_MAX/E2BIG
+ * failures when workflows inline big prompt files.
+ */
 function rewriteInlinePromptCatToStdin(agentCommand: string): string {
   const match = agentCommand.match(INLINE_PROMPT_CAT_REGEX);
   if (!match) return agentCommand;
