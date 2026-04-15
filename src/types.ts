@@ -41,7 +41,7 @@ export const API_PROXY_PORTS = {
 
   /**
    * OpenCode API proxy port (defaults to Copilot/OpenAI routing; falls back to Anthropic)
-   * OpenCode is BYOK — credential priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > COPILOT_AUTH_TOKEN
+   * OpenCode is BYOK — credential priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > COPILOT_GITHUB_TOKEN/COPILOT_API_KEY
    * @see containers/api-proxy/server.js
    */
   OPENCODE: 10004,
