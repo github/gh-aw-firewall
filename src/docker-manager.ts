@@ -36,6 +36,7 @@ const MAX_ENV_VALUE_SIZE = 64 * 1024; // 64 KB
  * Linux ARG_MAX is ~2 MB for argv + envp combined; warn well before that.
  */
 const ENV_SIZE_WARNING_THRESHOLD = 1_500_000; // ~1.5 MB
+const INLINE_PROMPT_CAT_REGEX = /--prompt\s+"?\$\(cat\s+([^)]+?)\s*\)"?/;
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
@@ -50,6 +51,24 @@ let agentExternallyKilled = false;
  * When undefined, AWF auto-selects the local socket (see getLocalDockerEnv).
  */
 let awfDockerHostOverride: string | undefined;
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, '\'\\\'\'')}'`;
+}
+
+function rewriteInlinePromptCatToStdin(agentCommand: string): string {
+  const match = agentCommand.match(INLINE_PROMPT_CAT_REGEX);
+  if (!match) return agentCommand;
+
+  const promptPath = match[1]?.trim().replace(/^['"]|['"]$/g, '');
+  if (!promptPath) return agentCommand;
+
+  const rewrittenCommand = agentCommand.replace(INLINE_PROMPT_CAT_REGEX, '--prompt -');
+  if (rewrittenCommand === agentCommand) return agentCommand;
+
+  logger.warn(`Rewriting inline prompt expansion to stdin pipe to avoid ARG_MAX/E2BIG: ${promptPath}`);
+  return `cat ${shellQuote(promptPath)} | ${rewrittenCommand}`;
+}
 
 /**
  * Sets the Docker host to use for AWF's own container operations.
@@ -602,6 +621,7 @@ export function generateDockerCompose(
   squidConfigContent?: string
 ): DockerComposeConfig {
   const projectRoot = path.join(__dirname, '..');
+  const rewrittenAgentCommand = rewriteInlinePromptCatToStdin(config.agentCommand);
 
   // Guard: --build-local requires full repo checkout (not available in standalone bundle)
   if (config.buildLocal) {
@@ -1024,10 +1044,14 @@ export function generateDockerCompose(
   if (config.envAll) {
     const totalEnvBytes = Object.entries(environment)
       .reduce((sum, [k, v]) => sum + k.length + (v?.length ?? 0) + 2, 0); // +2 for '=' and null
-    if (totalEnvBytes > ENV_SIZE_WARNING_THRESHOLD) {
+    const argvBytes = ['/bin/bash', '-c', rewrittenAgentCommand]
+      .reduce((sum, arg) => sum + arg.length + 1, 1); // +1 null terminator
+    const totalArgvEnvBytes = totalEnvBytes + argvBytes;
+    if (totalArgvEnvBytes > ENV_SIZE_WARNING_THRESHOLD) {
       logger.warn(
-        `⚠️  Total container environment size is ${(totalEnvBytes / 1024).toFixed(0)} KB — ` +
-        'may cause E2BIG (Argument list too long) errors when combined with large command arguments'
+        `⚠️  Estimated argv+env size is ${(totalArgvEnvBytes / 1024).toFixed(0)} KB ` +
+        `(env ${(totalEnvBytes / 1024).toFixed(0)} KB, argv ${(argvBytes / 1024).toFixed(0)} KB) — ` +
+        'may cause E2BIG (Argument list too long) errors'
       );
       logger.warn('   Consider using --exclude-env to remove unnecessary variables');
     }
@@ -1565,7 +1589,7 @@ export function generateDockerCompose(
       start_period: '1s',
     },
     // Escape $ with $$ for Docker Compose variable interpolation
-    command: ['/bin/bash', '-c', config.agentCommand.replace(/\$/g, '$$$$')],
+    command: ['/bin/bash', '-c', rewrittenAgentCommand.replace(/\$/g, '$$$$')],
   };
 
   // Set working directory if specified (overrides Dockerfile WORKDIR)

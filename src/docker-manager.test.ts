@@ -1295,6 +1295,32 @@ describe('docker-manager', () => {
       expect(agent.command).toEqual(['/bin/bash', '-c', 'echo $$HOME && echo $${USER}']);
     });
 
+    it('should rewrite inline --prompt $(cat ...) to stdin pipe to avoid ARG_MAX expansion', () => {
+      const configWithInlinePrompt = {
+        ...mockConfig,
+        agentCommand: 'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt "$(cat /tmp/gh-aw/aw-prompts/prompt.txt)" --allow-all-tools',
+      };
+      const result = generateDockerCompose(configWithInlinePrompt, mockNetworkConfig);
+      const agent = result.services.agent;
+
+      expect(agent.command).toEqual([
+        '/bin/bash',
+        '-c',
+        'cat \'/tmp/gh-aw/aw-prompts/prompt.txt\' | node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - --allow-all-tools',
+      ]);
+    });
+
+    it('should not rewrite regular literal --prompt values', () => {
+      const configWithLiteralPrompt = {
+        ...mockConfig,
+        agentCommand: 'copilot --prompt "hello world"',
+      };
+      const result = generateDockerCompose(configWithLiteralPrompt, mockNetworkConfig);
+      const agent = result.services.agent;
+
+      expect(agent.command).toEqual(['/bin/bash', '-c', 'copilot --prompt "hello world"']);
+    });
+
     it('should pass through GITHUB_TOKEN when present in environment', () => {
       const originalEnv = process.env.GITHUB_TOKEN;
       process.env.GITHUB_TOKEN = 'ghp_testtoken123';
