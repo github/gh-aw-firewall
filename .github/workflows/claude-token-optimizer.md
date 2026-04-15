@@ -30,7 +30,7 @@ safe-outputs:
     title-prefix: "\u26a1 Claude Token Optimization"
     labels: [claude-token-optimization]
     close-older-issues: true
-timeout-minutes: 15
+timeout-minutes: 25
 strict: true
 steps:
   - name: Download recent Claude workflow logs
@@ -65,6 +65,8 @@ steps:
 # Daily Claude Token Optimization Advisor
 
 You are an AI agent that reads the latest Claude token usage report and produces **concrete, actionable optimization recommendations** for the most token-intensive Claude-engine workflow.
+
+**IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not explore unrelated workflows or files beyond the single target workflow. Use only the pre-downloaded data and the target workflow file.
 
 ## Step 1: Find the Latest Token Usage Report
 
@@ -117,28 +119,19 @@ Analyze:
 - **Network groups** \u2014 List network groups in `network.allowed:`. Flag unused ones.
 - **Prompt length** \u2014 Estimate the markdown body size. Is it verbose?
 - **Pre-agent steps** \u2014 Does it use `steps:` to pre-compute deterministic work?
-- **Post-agent steps** \u2014 Does it use `post-steps:` for validation?
+
+Read **only** the target workflow file. Do not explore other workflow files.
 
 ## Step 4: Analyze Recent Run Data
 
-The pre-agent step downloaded the last 7 days of Claude workflow logs to `/tmp/gh-aw/token-audit/claude-logs.json`. Filter this data for the target workflow:
+The pre-agent step downloaded the last 7 days of Claude workflow logs to `/tmp/gh-aw/token-audit/claude-logs.json`. Filter for the target workflow:
 
 ```bash
-# Extract runs for the target workflow
 cat /tmp/gh-aw/token-audit/claude-logs.json | \
   jq --arg name "$WORKFLOW_NAME" '[.runs[] | select(.workflow_name == $name)]'
 ```
 
-From the run data, determine:
-- **Per-run token breakdown** (token_usage, estimated_cost per run)
-- **Average turns** per run
-- **Error/warning patterns**
-- **Token usage summary** (per-model breakdown from `token_usage_summary` if available)
-- **Cache write vs read ratio** \u2014 Anthropic charges 12.5x more for cache writes than reads
-
-Also check the `tool_usage` and `mcp_tool_usage` fields in the JSON to identify which tools are actually being used vs loaded.
-
-Clean up is not needed \u2014 data is pre-downloaded to /tmp.
+Determine per-run token breakdown, average turns, error patterns, cache write vs read ratio, and which tools are actually used vs loaded (`tool_usage` and `mcp_tool_usage` fields).
 
 ## Step 5: Generate Optimization Recommendations
 
