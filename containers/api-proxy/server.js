@@ -46,6 +46,7 @@ const STRIPPED_HEADERS = new Set([
   'authorization',
   'proxy-authorization',
   'x-api-key',
+  'x-goog-api-key',
   'forwarded',
   'via',
 ]);
@@ -165,6 +166,24 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
   const targetUrl = new URL(reqUrl, `https://${targetHost}`);
   const prefix = basePath === '/' ? '' : basePath;
   return prefix + targetUrl.pathname + targetUrl.search;
+}
+
+/**
+ * Strip the `key` query parameter from a Gemini request URL.
+ *
+ * The @google/genai SDK (and older Gemini SDK versions) may append `?key=<value>`
+ * to every request URL in addition to setting the `x-goog-api-key` header.
+ * The proxy injects the real key via the header, so the placeholder `key=`
+ * value must be removed before forwarding to Google to prevent
+ * API_KEY_INVALID errors.
+ *
+ * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @returns {string} URL with the `key` query parameter removed
+ */
+function stripGeminiKeyParam(reqUrl) {
+  const parsed = new URL(reqUrl, 'http://localhost');
+  parsed.searchParams.delete('key');
+  return parsed.pathname + parsed.search;
 }
 
 // Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
@@ -485,7 +504,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     Object.assign(headers, injectHeaders);
 
     // Log auth header injection for debugging credential-isolation issues
-    const injectedKey = injectHeaders['x-api-key'] || injectHeaders['authorization'];
+    const injectedKey = injectHeaders['x-api-key'] || injectHeaders['authorization'] || injectHeaders['x-goog-api-key'];
     if (injectedKey) {
       const keyPreview = injectedKey.length > 8
         ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
@@ -1016,12 +1035,18 @@ if (require.main === module) {
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
       if (checkRateLimit(req, res, 'gemini', contentLength)) return;
 
+      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      // The proxy injects the real key via x-goog-api-key header instead.
+      req.url = stripGeminiKeyParam(req.url);
+
       proxyRequest(req, res, GEMINI_API_TARGET, {
         'x-goog-api-key': GEMINI_API_KEY,
       }, 'gemini', GEMINI_API_BASE_PATH);
     });
 
     geminiServer.on('upgrade', (req, socket, head) => {
+      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      req.url = stripGeminiKeyParam(req.url);
       proxyWebSocket(req, socket, head, GEMINI_API_TARGET, {
         'x-goog-api-key': GEMINI_API_KEY,
       }, 'gemini', GEMINI_API_BASE_PATH);
@@ -1155,4 +1180,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam };

@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -446,6 +446,72 @@ describe('buildUpstreamPath', () => {
       // Node parses this as hostname='https', not 'my-gateway.example.com'
       expect(targetUrl.hostname).not.toBe('my-gateway.example.com');
     });
+  });
+});
+
+describe('shouldStripHeader', () => {
+  it('should strip authorization header', () => {
+    expect(shouldStripHeader('authorization')).toBe(true);
+    expect(shouldStripHeader('Authorization')).toBe(true);
+  });
+
+  it('should strip x-api-key header', () => {
+    expect(shouldStripHeader('x-api-key')).toBe(true);
+    expect(shouldStripHeader('X-Api-Key')).toBe(true);
+  });
+
+  it('should strip x-goog-api-key header (Gemini placeholder must be stripped)', () => {
+    expect(shouldStripHeader('x-goog-api-key')).toBe(true);
+    expect(shouldStripHeader('X-Goog-Api-Key')).toBe(true);
+  });
+
+  it('should strip proxy-authorization header', () => {
+    expect(shouldStripHeader('proxy-authorization')).toBe(true);
+  });
+
+  it('should strip x-forwarded-* headers', () => {
+    expect(shouldStripHeader('x-forwarded-for')).toBe(true);
+    expect(shouldStripHeader('x-forwarded-host')).toBe(true);
+  });
+
+  it('should not strip content-type header', () => {
+    expect(shouldStripHeader('content-type')).toBe(false);
+  });
+
+  it('should not strip anthropic-version header', () => {
+    expect(shouldStripHeader('anthropic-version')).toBe(false);
+  });
+});
+
+describe('stripGeminiKeyParam', () => {
+  it('should remove the key= query parameter', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?key=placeholder'))
+      .toBe('/v1/models/gemini-pro:generateContent');
+  });
+
+  it('should remove key= while preserving other query parameters', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?key=placeholder&alt=json'))
+      .toBe('/v1/models/gemini-pro:generateContent?alt=json');
+  });
+
+  it('should return path unchanged when no key= parameter is present', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent'))
+      .toBe('/v1/models/gemini-pro:generateContent');
+  });
+
+  it('should return path unchanged when only unrelated query parameters exist', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?alt=json&stream=true'))
+      .toBe('/v1/models/gemini-pro:generateContent?alt=json&stream=true');
+  });
+
+  it('should handle root path without key param', () => {
+    expect(stripGeminiKeyParam('/')).toBe('/');
+  });
+
+  it('should handle path with only key= param, leaving no trailing ?', () => {
+    // URL.search returns '' when no params remain after deletion
+    const result = stripGeminiKeyParam('/v1/generateContent?key=abc');
+    expect(result).toBe('/v1/generateContent');
   });
 });
 
