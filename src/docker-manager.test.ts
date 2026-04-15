@@ -4504,7 +4504,13 @@ describe('docker-manager', () => {
     it('should recover AWF_GOROOT from GITHUB_ENV when process.env.GOROOT is absent', () => {
       const savedGoroot = process.env.GOROOT;
       const savedGithubEnv = process.env.GITHUB_ENV;
+      const savedSudoUid = process.env.SUDO_UID;
       delete process.env.GOROOT;
+
+      // Simulate sudo context: getuid() === 0 && SUDO_UID is set
+      const origGetuid = process.getuid;
+      process.getuid = () => 0;
+      process.env.SUDO_UID = '1000';
 
       const envFile = path.join(tmpDir, 'github_env');
       fs.writeFileSync(envFile, 'GOROOT=/opt/hostedtoolcache/go/1.22/x64\n');
@@ -4515,10 +4521,13 @@ describe('docker-manager', () => {
         const env = result.services.agent.environment as Record<string, string>;
         expect(env.AWF_GOROOT).toBe('/opt/hostedtoolcache/go/1.22/x64');
       } finally {
+        process.getuid = origGetuid;
         if (savedGoroot !== undefined) process.env.GOROOT = savedGoroot;
         else delete process.env.GOROOT;
         if (savedGithubEnv !== undefined) process.env.GITHUB_ENV = savedGithubEnv;
         else delete process.env.GITHUB_ENV;
+        if (savedSudoUid !== undefined) process.env.SUDO_UID = savedSudoUid;
+        else delete process.env.SUDO_UID;
       }
     });
 
