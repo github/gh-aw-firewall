@@ -51,13 +51,6 @@ let agentExternallyKilled = false;
  */
 let awfDockerHostOverride: string | undefined;
 
-function shellQuote(value: string): string {
-  // POSIX single-quote escaping: close quote, emit escaped single quote, reopen.
-  // Example: a'b -> 'a'\''b'
-  // Replacement token '\'' means: end quote + escaped single quote + reopen quote.
-  return `'${value.replace(/'/g, '\'\\\'\'')}'`;
-}
-
 function trimMatchingOuterQuotes(value: string): string {
   const trimmed = value.trim();
   if (
@@ -69,7 +62,7 @@ function trimMatchingOuterQuotes(value: string): string {
   return trimmed;
 }
 
-function findInlinePromptCatRange(command: string): { start: number; end: number; promptPath: string } | null {
+function findInlinePromptCatRange(command: string): { start: number; end: number; promptPath: string; rawPromptPath: string } | null {
   // Variant 1: --prompt "$(cat /path/to/prompt.txt)"
   const quotedPrefix = '--prompt "$(cat ';
   const quotedStart = command.indexOf(quotedPrefix);
@@ -81,6 +74,7 @@ function findInlinePromptCatRange(command: string): { start: number; end: number
         start: quotedStart,
         end: pathEnd + 2,
         promptPath: trimMatchingOuterQuotes(command.slice(pathStart, pathEnd)),
+        rawPromptPath: command.slice(pathStart, pathEnd).trim(),
       };
     }
   }
@@ -96,6 +90,7 @@ function findInlinePromptCatRange(command: string): { start: number; end: number
         start: unquotedStart,
         end: pathEnd + 1,
         promptPath: trimMatchingOuterQuotes(command.slice(pathStart, pathEnd)),
+        rawPromptPath: command.slice(pathStart, pathEnd).trim(),
       };
     }
   }
@@ -107,23 +102,25 @@ function findInlinePromptCatRange(command: string): { start: number; end: number
  * Rewrites inline prompt expansions of the form:
  *   --prompt "$(cat /path/to/prompt.txt)"
  * to:
- *   cat '/path/to/prompt.txt' | ... --prompt -
+ *   --prompt - < /path/to/prompt.txt
  *
- * This keeps large prompts out of argv at execve time, reducing ARG_MAX/E2BIG
- * failures when workflows inline big prompt files.
+ * Uses in-place input redirection (`< file`) instead of prepending `cat |`,
+ * which preserves shell semantics for compound commands (pipes, `&&`, `;`).
+ * The original path quoting/expansion is preserved so env-var paths like
+ * `"$GH_AW_PROMPT"` continue to expand correctly.
  */
 function rewriteInlinePromptCatToStdin(agentCommand: string): string {
   const inlinePrompt = findInlinePromptCatRange(agentCommand);
   if (!inlinePrompt) return agentCommand;
 
-  const promptPath = inlinePrompt.promptPath;
-  if (!promptPath) return agentCommand;
+  const rawPath = inlinePrompt.rawPromptPath;
+  if (!rawPath) return agentCommand;
 
-  const rewrittenCommand = `${agentCommand.slice(0, inlinePrompt.start)}--prompt -${agentCommand.slice(inlinePrompt.end)}`;
+  const rewrittenCommand = `${agentCommand.slice(0, inlinePrompt.start)}--prompt - < ${rawPath}${agentCommand.slice(inlinePrompt.end)}`;
   if (rewrittenCommand === agentCommand) return agentCommand;
 
-  logger.warn(`Rewriting inline prompt expansion to stdin pipe to avoid ARG_MAX/E2BIG: ${promptPath}`);
-  return `cat ${shellQuote(promptPath)} | ${rewrittenCommand}`;
+  logger.warn(`Rewriting inline prompt expansion to stdin redirect to avoid ARG_MAX/E2BIG: ${rawPath}`);
+  return rewrittenCommand;
 }
 
 /**

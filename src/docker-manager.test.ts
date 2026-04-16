@@ -1295,7 +1295,7 @@ describe('docker-manager', () => {
       expect(agent.command).toEqual(['/bin/bash', '-c', 'echo $$HOME && echo $${USER}']);
     });
 
-    it('should rewrite inline --prompt $(cat ...) to stdin pipe to avoid ARG_MAX expansion', () => {
+    it('should rewrite inline --prompt $(cat ...) to stdin redirect to avoid ARG_MAX expansion', () => {
       const configWithInlinePrompt = {
         ...mockConfig,
         agentCommand: 'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt "$(cat /tmp/gh-aw/aw-prompts/prompt.txt)" --allow-all-tools',
@@ -1306,7 +1306,7 @@ describe('docker-manager', () => {
       expect(agent.command).toEqual([
         '/bin/bash',
         '-c',
-        'cat \'/tmp/gh-aw/aw-prompts/prompt.txt\' | node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - --allow-all-tools',
+        'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - < /tmp/gh-aw/aw-prompts/prompt.txt --allow-all-tools',
       ]);
     });
 
@@ -1321,7 +1321,7 @@ describe('docker-manager', () => {
       expect(agent.command).toEqual([
         '/bin/bash',
         '-c',
-        'cat \'/tmp/gh-aw/aw-prompts/prompt with spaces.txt\' | node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - --allow-all-tools',
+        'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - < \'/tmp/gh-aw/aw-prompts/prompt with spaces.txt\' --allow-all-tools',
       ]);
     });
 
@@ -1336,7 +1336,7 @@ describe('docker-manager', () => {
       expect(agent.command).toEqual([
         '/bin/bash',
         '-c',
-        'cat \'/tmp/gh-aw/aw-prompts/prompt.txt\' | node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - --allow-all-tools',
+        'node /tmp/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --prompt - < /tmp/gh-aw/aw-prompts/prompt.txt --allow-all-tools',
       ]);
     });
 
@@ -1349,6 +1349,38 @@ describe('docker-manager', () => {
       const agent = result.services.agent;
 
       expect(agent.command).toEqual(['/bin/bash', '-c', 'copilot --prompt "hello world"']);
+    });
+
+    it('should preserve shell variable expansion in prompt paths', () => {
+      const configWithVarPath = {
+        ...mockConfig,
+        agentCommand: 'node driver.cjs copilot --prompt "$(cat "$RUNNER_TEMP/prompt.txt")" --allow-all-tools',
+      };
+      const result = generateDockerCompose(configWithVarPath, mockNetworkConfig);
+      const agent = result.services.agent;
+
+      // Env-var path must NOT be single-quoted; $RUNNER_TEMP must expand at runtime
+      expect(agent.command).toEqual([
+        '/bin/bash',
+        '-c',
+        'node driver.cjs copilot --prompt - < "$$RUNNER_TEMP/prompt.txt" --allow-all-tools',
+      ]);
+    });
+
+    it('should preserve compound command semantics when rewriting prompt', () => {
+      const configWithPipeline = {
+        ...mockConfig,
+        agentCommand: 'node driver.cjs copilot --prompt "$(cat /tmp/prompt.txt)" --allow-all-tools 2>&1 | tee -a /tmp/agent-stdio.log',
+      };
+      const result = generateDockerCompose(configWithPipeline, mockNetworkConfig);
+      const agent = result.services.agent;
+
+      // Input redirection is in-place; the trailing pipeline is preserved
+      expect(agent.command).toEqual([
+        '/bin/bash',
+        '-c',
+        'node driver.cjs copilot --prompt - < /tmp/prompt.txt --allow-all-tools 2>&1 | tee -a /tmp/agent-stdio.log',
+      ]);
     });
 
     it('should pass through GITHUB_TOKEN when present in environment', () => {
