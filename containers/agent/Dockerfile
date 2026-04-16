@@ -11,10 +11,10 @@ FROM ${BASE_IMAGE}
 
 # Install required packages and Node.js 22
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
-# Retry logic handles transient 404s when Ubuntu archive supersedes package versions mid-build
+# Retry logic handles transient mirror hash-mismatches and 404s during apt-get update/install
 RUN set -eux; \
     PKGS="iptables curl ca-certificates git gh gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
-    apt-get update && \
+    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
     ( apt-get install -y --no-install-recommends $PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
        rm -rf /var/lib/apt/lists/* && \
@@ -40,7 +40,7 @@ RUN set -eux; \
 # See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
 RUN set -eux; \
     PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
-    apt-get update && \
+    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
     ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
        rm -rf /var/lib/apt/lists/* && \
@@ -51,7 +51,8 @@ RUN set -eux; \
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 # Retry logic handles transient mirror sync failures during apt-get update
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
+RUN ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
+    apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
     (echo "apt-get upgrade failed, retrying with fresh package index..." && \
      rm -rf /var/lib/apt/lists/* && \
      apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)

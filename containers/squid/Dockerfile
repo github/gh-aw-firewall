@@ -1,10 +1,10 @@
 FROM ubuntu/squid:latest
 
 # Install additional tools for debugging, healthcheck, and SSL Bump
-# Retry logic handles transient 404s when Ubuntu archive supersedes package versions mid-build
+# Retry logic handles transient mirror hash-mismatches and 404s during apt-get update/install
 RUN set -eux; \
     PKGS="curl dnsutils net-tools netcat-openbsd openssl squid-openssl"; \
-    apt-get update && \
+    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
     apt-get install -y --only-upgrade gpgv && \
     ( apt-get install -y --no-install-recommends $PKGS || \
       (rm -rf /var/lib/apt/lists/* && apt-get update && \
