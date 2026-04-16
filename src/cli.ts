@@ -1623,6 +1623,8 @@ program
         applyConfigOptionsWithCliPrecedence(
           options as Record<string, unknown>,
           fileDerivedOptions,
+          // Commander marks explicit user flags with source "cli".
+          // We only apply config values when a flag was not explicitly provided.
           (optionName: string) => program.getOptionValueSource(optionName) === 'cli'
         );
       } catch (error) {

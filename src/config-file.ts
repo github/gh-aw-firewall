@@ -109,6 +109,10 @@ function validateProviderTarget(value: unknown, location: string, errors: string
   }
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
 export function validateAwfFileConfig(config: unknown): string[] {
   const errors: string[] = [];
 
@@ -201,7 +205,7 @@ export function validateAwfFileConfig(config: unknown): string[] {
         errors
       );
       if (config.container.memoryLimit !== undefined && typeof config.container.memoryLimit !== 'string') errors.push('config.container.memoryLimit must be a string');
-      if (config.container.agentTimeout !== undefined && (typeof config.container.agentTimeout !== 'number' || !Number.isInteger(config.container.agentTimeout) || config.container.agentTimeout <= 0)) {
+      if (config.container.agentTimeout !== undefined && !isPositiveInteger(config.container.agentTimeout)) {
         errors.push('config.container.agentTimeout must be a positive integer');
       }
       if (config.container.enableDind !== undefined && typeof config.container.enableDind !== 'boolean') errors.push('config.container.enableDind must be a boolean');
@@ -249,13 +253,13 @@ export function validateAwfFileConfig(config: unknown): string[] {
     } else {
       validateKnownKeys(config.rateLimiting, ['enabled', 'requestsPerMinute', 'requestsPerHour', 'bytesPerMinute'], 'config.rateLimiting', errors);
       if (config.rateLimiting.enabled !== undefined && typeof config.rateLimiting.enabled !== 'boolean') errors.push('config.rateLimiting.enabled must be a boolean');
-      if (config.rateLimiting.requestsPerMinute !== undefined && (typeof config.rateLimiting.requestsPerMinute !== 'number' || !Number.isInteger(config.rateLimiting.requestsPerMinute) || config.rateLimiting.requestsPerMinute <= 0)) {
+      if (config.rateLimiting.requestsPerMinute !== undefined && !isPositiveInteger(config.rateLimiting.requestsPerMinute)) {
         errors.push('config.rateLimiting.requestsPerMinute must be a positive integer');
       }
-      if (config.rateLimiting.requestsPerHour !== undefined && (typeof config.rateLimiting.requestsPerHour !== 'number' || !Number.isInteger(config.rateLimiting.requestsPerHour) || config.rateLimiting.requestsPerHour <= 0)) {
+      if (config.rateLimiting.requestsPerHour !== undefined && !isPositiveInteger(config.rateLimiting.requestsPerHour)) {
         errors.push('config.rateLimiting.requestsPerHour must be a positive integer');
       }
-      if (config.rateLimiting.bytesPerMinute !== undefined && (typeof config.rateLimiting.bytesPerMinute !== 'number' || !Number.isInteger(config.rateLimiting.bytesPerMinute) || config.rateLimiting.bytesPerMinute <= 0)) {
+      if (config.rateLimiting.bytesPerMinute !== undefined && !isPositiveInteger(config.rateLimiting.bytesPerMinute)) {
         errors.push('config.rateLimiting.bytesPerMinute must be a positive integer');
       }
     }
@@ -264,7 +268,9 @@ export function validateAwfFileConfig(config: unknown): string[] {
   return errors;
 }
 
-export function loadAwfFileConfig(configPath: string, readStdin: () => string = () => fs.readFileSync(0, 'utf8')): AwfFileConfig {
+const readStdinSync = (): string => fs.readFileSync(0, 'utf8');
+
+export function loadAwfFileConfig(configPath: string, readStdin: () => string = readStdinSync): AwfFileConfig {
   let rawContent: string;
   let sourceLabel = configPath;
 
@@ -287,6 +293,7 @@ export function loadAwfFileConfig(configPath: string, readStdin: () => string = 
     } else if (isYaml) {
       parsed = yaml.load(rawContent);
     } else {
+      // For stdin/extensionless input, prefer JSON first (strict) then YAML.
       try {
         parsed = JSON.parse(rawContent);
       } catch {
@@ -315,6 +322,10 @@ function joinPorts(value: string[] | string | undefined): string | undefined {
   return Array.isArray(value) ? value.join(',') : value;
 }
 
+function toStringIfDefined(value: number | undefined): string | undefined {
+  return value !== undefined ? String(value) : undefined;
+}
+
 export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<string, unknown> {
   return {
     allowDomains: joinComma(config.network?.allowDomains),
@@ -340,7 +351,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     difcProxyCaCert: config.security?.difcProxy?.caCert,
 
     memoryLimit: config.container?.memoryLimit,
-    agentTimeout: config.container?.agentTimeout !== undefined ? String(config.container.agentTimeout) : undefined,
+    agentTimeout: toStringIfDefined(config.container?.agentTimeout),
     enableDind: config.container?.enableDind,
     workDir: config.container?.workDir,
     containerWorkdir: config.container?.containerWorkDir,
@@ -363,9 +374,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     sessionStateDir: config.logging?.sessionStateDir,
 
     rateLimit: config.rateLimiting?.enabled === false ? false : undefined,
-    rateLimitRpm: config.rateLimiting?.requestsPerMinute !== undefined ? String(config.rateLimiting.requestsPerMinute) : undefined,
-    rateLimitRph: config.rateLimiting?.requestsPerHour !== undefined ? String(config.rateLimiting.requestsPerHour) : undefined,
-    rateLimitBytesPm: config.rateLimiting?.bytesPerMinute !== undefined ? String(config.rateLimiting.bytesPerMinute) : undefined,
+    rateLimitRpm: toStringIfDefined(config.rateLimiting?.requestsPerMinute),
+    rateLimitRph: toStringIfDefined(config.rateLimiting?.requestsPerHour),
+    rateLimitBytesPm: toStringIfDefined(config.rateLimiting?.bytesPerMinute),
   };
 }
 

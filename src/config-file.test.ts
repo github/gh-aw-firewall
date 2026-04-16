@@ -43,7 +43,7 @@ describe('config-file', () => {
     let testDir: string;
 
     beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-config-test-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-config-file-test-'));
     });
 
     afterEach(() => {
