@@ -268,7 +268,7 @@ export function validateAwfFileConfig(config: unknown): string[] {
   return errors;
 }
 
-const readStdinSync = (): string => fs.readFileSync(0, 'utf8');
+const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');
 
 export function loadAwfFileConfig(configPath: string, readStdin: () => string = readStdinSync): AwfFileConfig {
   let rawContent: string;
@@ -286,14 +286,22 @@ export function loadAwfFileConfig(configPath: string, readStdin: () => string = 
   let parsed: unknown;
   const isJson = configPath.endsWith('.json');
   const isYaml = configPath.endsWith('.yaml') || configPath.endsWith('.yml');
+  const isStdin = configPath === '-';
 
   try {
     if (isJson) {
       parsed = JSON.parse(rawContent);
     } else if (isYaml) {
       parsed = yaml.load(rawContent);
+    } else if (isStdin) {
+      // stdin intentionally supports both formats; prefer strict JSON parse first.
+      try {
+        parsed = JSON.parse(rawContent);
+      } catch {
+        parsed = yaml.load(rawContent);
+      }
     } else {
-      // For stdin/extensionless input, prefer JSON first (strict) then YAML.
+      // For extensionless paths, prefer JSON first (strict) then YAML.
       try {
         parsed = JSON.parse(rawContent);
       } catch {
@@ -373,6 +381,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     proxyLogsDir: config.logging?.proxyLogsDir,
     sessionStateDir: config.logging?.sessionStateDir,
 
+    // CLI has a negated flag (--no-rate-limit). Only explicit false maps to that flag.
     rateLimit: config.rateLimiting?.enabled === false ? false : undefined,
     rateLimitRpm: toStringIfDefined(config.rateLimiting?.requestsPerMinute),
     rateLimitRph: toStringIfDefined(config.rateLimiting?.requestsPerHour),

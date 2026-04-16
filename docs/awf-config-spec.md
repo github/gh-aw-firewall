@@ -14,7 +14,7 @@ The machine-readable schema is published at:
 
 ## 1. Conformance
 
-Keywords **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are to be interpreted as described in RFC 2119.
+The normative keywords in this document are to be interpreted as described in RFC 2119.
 
 An AWF config document is conforming when:
 
