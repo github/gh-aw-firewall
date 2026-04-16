@@ -272,7 +272,7 @@ const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');
 
 export function loadAwfFileConfig(configPath: string, readStdin: () => string = readStdinSync): AwfFileConfig {
   let rawContent: string;
-  let sourceLabel = configPath;
+  let sourceLabel: string;
 
   if (configPath === '-') {
     rawContent = readStdin();
