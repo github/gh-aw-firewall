@@ -38,7 +38,7 @@ safe-outputs:
 timeout-minutes: 5
 env:
   COPILOT_API_KEY: dummy-byok-key-for-offline-mode
-  COPILOT_MODEL: gpt-5.4
+  COPILOT_MODEL: gpt-5.3-codex
 features:
   cli-proxy: true
 strict: true
