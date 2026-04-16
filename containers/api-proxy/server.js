@@ -78,6 +78,7 @@ function resolveCopilotAuthToken(env = process.env) {
 }
 
 const COPILOT_AUTH_TOKEN = resolveCopilotAuthToken(process.env);
+const COPILOT_INTEGRATION_ID = process.env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
 
 /**
@@ -337,7 +338,7 @@ function resolveOpenCodeRoute(openaiKey, anthropicKey, copilotToken, openaiTarge
     return { target: anthropicTarget, headers: { 'x-api-key': anthropicKey }, basePath: anthropicBasePath, needsAnthropicVersion: true };
   }
   if (copilotToken) {
-    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}` }, basePath: undefined, needsAnthropicVersion: false };
+    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}`, 'Copilot-Integration-Id': COPILOT_INTEGRATION_ID }, basePath: undefined, needsAnthropicVersion: false };
   }
   return null;
 }
@@ -1012,18 +1013,21 @@ if (require.main === module) {
       if (isModelsPath && req.method === 'GET' && COPILOT_GITHUB_TOKEN) {
         proxyRequest(req, res, COPILOT_API_TARGET, {
           'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
+          'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
         }, 'copilot');
         return;
       }
 
       proxyRequest(req, res, COPILOT_API_TARGET, {
         'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
+        'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
       }, 'copilot');
     });
 
     copilotServer.on('upgrade', (req, socket, head) => {
       proxyWebSocket(req, socket, head, COPILOT_API_TARGET, {
         'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
+        'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
       }, 'copilot');
     });
 
