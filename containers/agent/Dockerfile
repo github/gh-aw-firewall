@@ -9,6 +9,20 @@ ARG BASE_IMAGE=ubuntu:22.04
 
 FROM ${BASE_IMAGE}
 
+# Switch to Azure apt mirror for faster, more reliable package fetches in CI
+# GitHub Actions runners are Azure-hosted; azure.archive.ubuntu.com is geographically closer
+# Handles both traditional sources.list (jammy) and DEB822 format (noble+)
+RUN if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+      sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+    fi && \
+    if [ -d /etc/apt/sources.list.d ]; then \
+      find /etc/apt/sources.list.d -name '*.sources' -exec \
+        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+      find /etc/apt/sources.list.d -name '*.sources' -exec \
+        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+    fi
+
 # Install required packages and Node.js 22
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff to survive prolonged mirror syncs
