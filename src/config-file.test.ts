@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  applyConfigOptionsWithCliPrecedence,
+  applyConfigOptionsInPlaceWithCliPrecedence,
   loadAwfFileConfig,
   mapAwfFileConfigToCliOptions,
   validateAwfFileConfig,
@@ -105,12 +105,12 @@ describe('config-file', () => {
     });
   });
 
-  describe('applyConfigOptionsWithCliPrecedence', () => {
+  describe('applyConfigOptionsInPlaceWithCliPrecedence', () => {
     it('does not overwrite explicitly provided CLI options', () => {
       const options: Record<string, unknown> = { logLevel: 'warn', memoryLimit: '4g' };
       const configOptions: Record<string, unknown> = { logLevel: 'debug', memoryLimit: '8g', imageTag: 'latest' };
 
-      applyConfigOptionsWithCliPrecedence(options, configOptions, (name) => name === 'logLevel');
+      applyConfigOptionsInPlaceWithCliPrecedence(options, configOptions, (name) => name === 'logLevel');
 
       expect(options).toEqual({ logLevel: 'warn', memoryLimit: '8g', imageTag: 'latest' });
     });

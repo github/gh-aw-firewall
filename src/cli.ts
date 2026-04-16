@@ -29,7 +29,7 @@ import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from './domain-pattern
 import { loadAndMergeDomains } from './rules';
 import { detectHostDnsServers } from './dns-resolver';
 import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from './upstream-proxy';
-import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsWithCliPrecedence } from './config-file';
+import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsInPlaceWithCliPrecedence } from './config-file';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -1620,7 +1620,7 @@ program
       try {
         const fileConfig = loadAwfFileConfig(options.config);
         const fileDerivedOptions = mapAwfFileConfigToCliOptions(fileConfig);
-        applyConfigOptionsWithCliPrecedence(
+        applyConfigOptionsInPlaceWithCliPrecedence(
           options as Record<string, unknown>,
           fileDerivedOptions,
           // Commander marks explicit user flags with source "cli".

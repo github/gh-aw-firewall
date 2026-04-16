@@ -321,6 +321,7 @@ export function loadAwfFileConfig(configPath: string, readStdin: () => string = 
 }
 
 function joinComma(value: string[] | undefined): string | undefined {
+  // Empty arrays intentionally map to undefined so they don't override defaults with "".
   if (!value || value.length === 0) return undefined;
   return value.join(',');
 }
@@ -389,7 +390,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
   };
 }
 
-export function applyConfigOptionsWithCliPrecedence(
+export function applyConfigOptionsInPlaceWithCliPrecedence(
   options: Record<string, unknown>,
   configOptions: Record<string, unknown>,
   isCliProvided: (optionName: string) => boolean
