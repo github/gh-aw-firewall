@@ -1,13 +1,19 @@
 FROM ubuntu/squid:latest
 
 # Install additional tools for debugging, healthcheck, and SSL Bump
-# Retry logic handles transient mirror hash-mismatches and 404s during apt-get update/install
+# apt_update_retry: retries up to 3 times with backoff to survive prolonged mirror syncs
 RUN set -eux; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
     PKGS="curl dnsutils net-tools netcat-openbsd openssl squid-openssl"; \
-    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
+    apt_update_retry && \
     apt-get install -y --only-upgrade gpgv && \
     ( apt-get install -y --no-install-recommends $PKGS || \
-      (rm -rf /var/lib/apt/lists/* && apt-get update && \
+      (apt_update_retry && \
        apt-get install -y --no-install-recommends $PKGS) ) && \
     rm -rf /var/lib/apt/lists/*
 

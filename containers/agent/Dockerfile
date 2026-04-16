@@ -11,14 +11,19 @@ FROM ${BASE_IMAGE}
 
 # Install required packages and Node.js 22
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
-# Retry logic handles transient mirror hash-mismatches and 404s during apt-get update/install
+# apt_update_retry: retries up to 3 times with backoff to survive prolonged mirror syncs
 RUN set -eux; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
     PKGS="iptables curl ca-certificates git gh gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
-    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
+    apt_update_retry && \
     ( apt-get install -y --no-install-recommends $PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
-       rm -rf /var/lib/apt/lists/* && \
-       apt-get update && \
+       apt_update_retry && \
        apt-get install -y --no-install-recommends $PKGS) ) && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
@@ -39,23 +44,33 @@ RUN set -eux; \
 # These packages are commonly needed by workflows and avoid agents spending time installing them manually
 # See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
 RUN set -eux; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
     PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
-    ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
+    apt_update_retry && \
     ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
-       rm -rf /var/lib/apt/lists/* && \
-       apt-get update && \
+       apt_update_retry && \
        apt-get install -y --no-install-recommends $PARITY_PKGS) ) && \
     rm -rf /var/lib/apt/lists/*
 
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 # Retry logic handles transient mirror sync failures during apt-get update
-RUN ( apt-get update || (sleep 5 && rm -rf /var/lib/apt/lists/* && apt-get update) ) && \
+RUN apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
+    apt_update_retry && \
     apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
     (echo "apt-get upgrade failed, retrying with fresh package index..." && \
-     rm -rf /var/lib/apt/lists/* && \
-     apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
+     apt_update_retry && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
 
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
