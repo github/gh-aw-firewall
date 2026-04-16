@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json",
+  "title": "AWF Configuration",
+  "description": "JSON/YAML configuration for awf CLI. CLI flags override config file values.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowDomains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blockDomains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dnsServers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "upstreamProxy": {
+          "type": "string"
+        }
+      }
+    },
+    "apiProxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "openai": { "$ref": "#/$defs/providerTarget" },
+            "anthropic": { "$ref": "#/$defs/providerTarget" },
+            "copilot": { "$ref": "#/$defs/providerHostOnlyTarget" },
+            "gemini": { "$ref": "#/$defs/providerTarget" }
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sslBump": { "type": "boolean" },
+        "enableDlp": { "type": "boolean" },
+        "enableHostAccess": { "type": "boolean" },
+        "allowHostPorts": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "allowHostServicePorts": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "difcProxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "caCert": { "type": "string" }
+          }
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memoryLimit": { "type": "string" },
+        "agentTimeout": { "type": "integer", "minimum": 1 },
+        "enableDind": { "type": "boolean" },
+        "workDir": { "type": "string" },
+        "containerWorkDir": { "type": "string" },
+        "imageRegistry": { "type": "string" },
+        "imageTag": { "type": "string" },
+        "skipPull": { "type": "boolean" },
+        "buildLocal": { "type": "boolean" },
+        "agentImage": { "type": "string" },
+        "tty": { "type": "boolean" },
+        "dockerHost": { "type": "string" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "envFile": { "type": "string" },
+        "envAll": { "type": "boolean" },
+        "excludeEnv": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"]
+        },
+        "diagnosticLogs": { "type": "boolean" },
+        "auditDir": { "type": "string" },
+        "proxyLogsDir": { "type": "string" },
+        "sessionStateDir": { "type": "string" }
+      }
+    },
+    "rateLimiting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "requestsPerMinute": { "type": "integer", "minimum": 1 },
+        "requestsPerHour": { "type": "integer", "minimum": 1 },
+        "bytesPerMinute": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "providerTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" },
+        "basePath": { "type": "string" }
+      }
+    },
+    "providerHostOnlyTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" }
+      }
+    }
+  }
+}

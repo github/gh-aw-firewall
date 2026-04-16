@@ -29,6 +29,7 @@ import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from './domain-pattern
 import { loadAndMergeDomains } from './rules';
 import { detectHostDnsServers } from './dns-resolver';
 import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from './upstream-proxy';
+import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsInPlaceWithCliPrecedence } from './config-file';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
 
@@ -1233,6 +1234,7 @@ export const program = new Command();
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
 const optionGroupHeaders: Record<string, string> = {
+  'config': 'Configuration:',
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
   'env': 'Container Configuration:',
@@ -1297,6 +1299,11 @@ program
       return output.join('\n') + '\n';
     }
   })
+
+  .option(
+    '--config <path>',
+    'Path to AWF JSON/YAML config file (use "-" to read from stdin)'
+  )
 
   // -- Domain Filtering --
   .option(
@@ -1608,6 +1615,24 @@ program
     // - The $$$$  escaping pattern requires literal $ preservation
     //
     const agentCommand = args.length === 1 ? args[0] : joinShellArgs(args);
+
+    if (options.config) {
+      try {
+        const fileConfig = loadAwfFileConfig(options.config);
+        const fileDerivedOptions = mapAwfFileConfigToCliOptions(fileConfig);
+        applyConfigOptionsInPlaceWithCliPrecedence(
+          options as Record<string, unknown>,
+          fileDerivedOptions,
+          // Commander marks explicit user flags with source "cli".
+          // We only apply config values when a flag was not explicitly provided.
+          (optionName: string) => program.getOptionValueSource(optionName) === 'cli'
+        );
+      } catch (error) {
+        console.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    }
+
     // Parse and validate options
     const logLevel = options.logLevel as LogLevel;
     if (!['debug', 'info', 'warn', 'error'].includes(logLevel)) {

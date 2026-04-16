@@ -9,16 +9,35 @@ ARG BASE_IMAGE=ubuntu:22.04
 
 FROM ${BASE_IMAGE}
 
+# Switch to Azure apt mirror for faster, more reliable package fetches in CI
+# GitHub Actions runners are Azure-hosted; azure.archive.ubuntu.com is geographically closer
+# Handles both traditional sources.list (jammy) and DEB822 format (noble+)
+RUN if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+      sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+    fi && \
+    if [ -d /etc/apt/sources.list.d ]; then \
+      find /etc/apt/sources.list.d -name '*.sources' -exec \
+        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+      find /etc/apt/sources.list.d -name '*.sources' -exec \
+        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+    fi
+
 # Install required packages and Node.js 22
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
-# Retry logic handles transient 404s when Ubuntu archive supersedes package versions mid-build
+# apt_update_retry: retries up to 3 times with backoff to survive prolonged mirror syncs
 RUN set -eux; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
     PKGS="iptables curl ca-certificates git gh gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
-    apt-get update && \
+    apt_update_retry && \
     ( apt-get install -y --no-install-recommends $PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
-       rm -rf /var/lib/apt/lists/* && \
-       apt-get update && \
+       apt_update_retry && \
        apt-get install -y --no-install-recommends $PKGS) ) && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
@@ -39,22 +58,33 @@ RUN set -eux; \
 # These packages are commonly needed by workflows and avoid agents spending time installing them manually
 # See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
 RUN set -eux; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
     PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
-    apt-get update && \
+    apt_update_retry && \
     ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
       (echo "apt-get install failed, retrying with fresh package index..." && \
-       rm -rf /var/lib/apt/lists/* && \
-       apt-get update && \
+       apt_update_retry && \
        apt-get install -y --no-install-recommends $PARITY_PKGS) ) && \
     rm -rf /var/lib/apt/lists/*
 
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 # Retry logic handles transient mirror sync failures during apt-get update
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
+RUN apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update && return 0; \
+        echo "apt-get update attempt $i/3 failed, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; return 1; \
+    }; \
+    apt_update_retry && \
+    apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
     (echo "apt-get upgrade failed, retrying with fresh package index..." && \
-     rm -rf /var/lib/apt/lists/* && \
-     apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
+     apt_update_retry && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
 
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
