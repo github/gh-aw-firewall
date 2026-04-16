@@ -97,9 +97,11 @@ post-steps:
 
 ## Output
 
-Add a **very brief** comment (max 5-10 lines) to the current pull request with:
+**If triggered by a pull request**, add a **very brief** comment (max 5-10 lines) to the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
 
 If all tests pass, add the label `smoke-claude` to the pull request.
+
+**If triggered by workflow_dispatch or schedule** (no PR context), use a noop safe output to report the test results summary instead. Do NOT attempt to add comments or labels when there is no pull request.
