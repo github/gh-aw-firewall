@@ -38,6 +38,8 @@ safe-outputs:
     title-prefix: "[Deps] "
     labels: [dependencies, automated]
     draft: true
+    allowed-files: [package.json, package-lock.json]
+    protected-files: fallback-to-issue
   add-comment:
     max: 5
     target: "*"
