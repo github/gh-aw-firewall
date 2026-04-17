@@ -37,7 +37,7 @@ safe-outputs:
     run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
 timeout-minutes: 5
 features:
-  cli-proxy: true
+  byok-copilot: true
 strict: true
 steps:
   - name: Pre-compute smoke test data
