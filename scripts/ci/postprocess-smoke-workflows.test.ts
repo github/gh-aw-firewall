@@ -359,22 +359,30 @@ describe('buildCopySessionStateStep', () => {
 });
 
 describe('copilotModelEmptyFallbackRegex', () => {
+  const EXPECTED_COPILOT_MODEL_FALLBACK = 'claude-opus-4.6';
+
   beforeEach(() => {
     copilotModelEmptyFallbackRegex.lastIndex = 0;
   });
 
   it('should replace empty fallback with claude-opus-4.6 fallback', () => {
     const input = "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}\n";
-    const result = input.replace(copilotModelEmptyFallbackRegex, "$1'claude-opus-4.6'$2");
+    const result = input.replace(
+      copilotModelEmptyFallbackRegex,
+      `$1'${EXPECTED_COPILOT_MODEL_FALLBACK}'$2`
+    );
     expect(result).toBe(
-      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n"
+      `          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '${EXPECTED_COPILOT_MODEL_FALLBACK}' }}\n`
     );
   });
 
   it('should not modify already-correct fallback', () => {
     const input =
-      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n";
-    const result = input.replace(copilotModelEmptyFallbackRegex, "$1'claude-opus-4.6'$2");
+      `          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '${EXPECTED_COPILOT_MODEL_FALLBACK}' }}\n`;
+    const result = input.replace(
+      copilotModelEmptyFallbackRegex,
+      `$1'${EXPECTED_COPILOT_MODEL_FALLBACK}'$2`
+    );
     expect(result).toBe(input);
   });
 });
