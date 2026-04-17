@@ -39,7 +39,7 @@ safe-outputs:
       run-started: "🔌 [{workflow_name}]({run_url}) is testing service connectivity for this {event_type}..."
       run-success: "🔌 [{workflow_name}]({run_url}) — All services reachable! ✅"
       run-failure: "🔌 [{workflow_name}]({run_url}) — Service connectivity {status} ⚠️"
-timeout-minutes: 5
+timeout-minutes: 15
 strict: true
 post-steps:
   - name: Validate safe outputs were invoked
