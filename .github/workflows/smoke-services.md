@@ -15,7 +15,7 @@ permissions:
 name: Smoke Services
 engine: copilot
 features:
-  cli-proxy: true
+  byok-copilot: true
 network:
   allowed:
     - defaults
