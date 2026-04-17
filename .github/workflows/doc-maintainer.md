@@ -10,6 +10,8 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
+features:
+  byok-copilot: true
 tools:
   edit:
   bash: true

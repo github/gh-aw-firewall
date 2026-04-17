@@ -12,7 +12,7 @@ permissions:
   pull-requests: read
 
 features:
-  cli-proxy: true
+  byok-copilot: true
 
 tools:
   github:

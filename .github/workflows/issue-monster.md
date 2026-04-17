@@ -18,6 +18,8 @@ permissions:
   pull-requests: read
 
 engine: copilot
+features:
+  byok-copilot: true
 timeout-minutes: 30
 
 tools:

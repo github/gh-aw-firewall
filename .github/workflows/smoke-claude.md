@@ -16,6 +16,8 @@ name: Smoke Claude
 engine:
   id: claude
   max-turns: 12
+features:
+  cli-proxy: true
 strict: true
 network:
   allowed:

@@ -9,6 +9,8 @@ permissions:
   issues: read
   pull-requests: read
   discussions: read
+features:
+  byok-copilot: true
 tools:
   agentic-workflows:
   bash:

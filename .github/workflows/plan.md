@@ -11,6 +11,8 @@ permissions:
   issues: read
   pull-requests: read
 engine: copilot
+features:
+  byok-copilot: true
 tools:
   github:
     toolsets: [default, discussions]

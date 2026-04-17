@@ -12,6 +12,8 @@ permissions:
 engine:
   id: claude
   max-turns: 8
+features:
+  cli-proxy: true
 tools:
   github:
     toolsets: [pull_requests, repos]

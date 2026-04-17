@@ -10,6 +10,8 @@ permissions:
   pull-requests: read
   discussions: read
   security-events: read
+features:
+  byok-copilot: true
 imports:
   - shared/mcp-pagination.md
 tools:

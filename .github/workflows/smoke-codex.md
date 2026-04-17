@@ -14,6 +14,8 @@ permissions:
   discussions: read
 name: Smoke Codex
 engine: codex
+features:
+  cli-proxy: true
 strict: true
 imports:
   - shared/gh.md

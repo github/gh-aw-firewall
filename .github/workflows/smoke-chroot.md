@@ -19,6 +19,8 @@ permissions:
 name: Smoke Chroot
 engine:
   id: copilot
+features:
+  cli-proxy: true
 strict: true
 network:
   allowed:
