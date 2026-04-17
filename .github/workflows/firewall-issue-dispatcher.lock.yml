@@ -361,9 +361,10 @@ jobs:
             const { main } = require('${{ runner.temp }}/gh-aw/actions/checkout_pr_branch.cjs');
             await main();
       - name: Install GitHub Copilot CLI
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" latest
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" "${COPILOT_CLI_VERSION}"
         env:
           GH_HOST: github.com
+          COPILOT_CLI_VERSION: "1.0.0"
       - name: Install awf dependencies
         run: npm ci
       - name: Build awf
