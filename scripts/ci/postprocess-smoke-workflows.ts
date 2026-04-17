@@ -94,6 +94,14 @@ const sessionStateDirInjectionRegex =
   /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
 const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 
+// Work around gh-aw compiler bug (gh-aw#26565) where Copilot model fallback is
+// emitted as an empty string:
+//   COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}
+// In BYOK smoke workflows, this overrides workflow-level COPILOT_MODEL when the
+// repo variable is unset, causing Copilot CLI startup failure.
+const copilotModelEmptyFallbackRegex =
+  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)''(\s*\}\})/g;
+
 // Sentinel used to detect whether the "Copy Copilot session state" step has
 // already been replaced with the AWF-aware inline script.
 const copySessionStateSentinel = 'SESSION_STATE_SRC=';
@@ -442,6 +450,24 @@ for (const workflowPath of workflowPaths) {
       );
       modified = true;
       console.log(`  Injected --excluded-tools (21 browser tools) in ${allowAllToolsCount} location(s)`);
+    }
+  }
+
+  // For smoke-copilot-byok: replace empty model fallbacks with the workflow-
+  // level COPILOT_MODEL env so the generated step inherits the shared default
+  // without hardcoding a duplicate model string here.
+  const isCopilotByokSmoke = workflowPath.includes('smoke-copilot-byok.lock.yml');
+  if (isCopilotByokSmoke) {
+    const emptyFallbackMatches = content.match(copilotModelEmptyFallbackRegex);
+    if (emptyFallbackMatches) {
+      content = content.replace(
+        copilotModelEmptyFallbackRegex,
+        '$1env.COPILOT_MODEL$2'
+      );
+      modified = true;
+      console.log(
+        `  Replaced ${emptyFallbackMatches.length} empty COPILOT_MODEL fallback(s) for BYOK smoke`
+      );
     }
   }
 
