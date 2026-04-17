@@ -28,8 +28,8 @@ const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || 
 
 // Environment keys that agents are not allowed to override via the /exec env field.
 // GH_HOST / GH_TOKEN / GITHUB_TOKEN — prevent auth/routing hijack.
-// NODE_EXTRA_CA_CERTS / SSL_CERT_FILE — prevent TLS trust-store bypass.
-const _PROTECTED_ENV_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE']);
+// NODE_EXTRA_CA_CERTS / SSL_CERT_FILE / GIT_SSL_CAINFO — prevent TLS trust-store bypass.
+const _PROTECTED_ENV_KEYS = new Set(['GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'GIT_SSL_CAINFO']);
 const PROTECTED_ENV_KEYS = Object.freeze({
   has(key) { return _PROTECTED_ENV_KEYS.has(key); },
   get size() { return _PROTECTED_ENV_KEYS.size; },
