@@ -378,7 +378,7 @@ describe('copilotModelEmptyFallbackRegex', () => {
 
   it('should not modify already-correct fallback', () => {
     const input =
-      `          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '${EXPECTED_COPILOT_MODEL_FALLBACK}' }}\n`;
+      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n";
     const result = input.replace(
       copilotModelEmptyFallbackRegex,
       `$1'${EXPECTED_COPILOT_MODEL_FALLBACK}'$2`
