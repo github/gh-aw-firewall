@@ -372,7 +372,7 @@ describe('copilotModelEmptyFallbackRegex', () => {
       `$1'${EXPECTED_COPILOT_MODEL_FALLBACK}'$2`
     );
     expect(result).toBe(
-      `          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '${EXPECTED_COPILOT_MODEL_FALLBACK}' }}\n`
+      `          COPILOT_MODEL: \${{ vars.GH_AW_MODEL_AGENT_COPILOT || '${EXPECTED_COPILOT_MODEL_FALLBACK}' }}\n`
     );
   });
 
