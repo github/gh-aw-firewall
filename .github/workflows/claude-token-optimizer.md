@@ -14,6 +14,8 @@ permissions:
   actions: read
   issues: read
   pull-requests: read
+features:
+  byok-copilot: true
 imports:
   - uses: shared/mcp/gh-aw.md
 network:

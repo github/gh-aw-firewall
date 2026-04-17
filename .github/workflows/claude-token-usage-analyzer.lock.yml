@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"a7d0caf5b1458d6324d8b2d0caec9300469f49e1fb2e500b87bbe82c2b9db3ff","compiler_version":"v0.68.7","strict":true,"agent_id":"copilot"}
-# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"de0fac2e4500dabe0009e67214ff5f5447ce83dd","version":"v6.0.2"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"f52802884d655622f0a2dfd6d6a2250983c95523","version":"v0.68.7"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.25.23"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.25.23"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.25.23"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.2.22"},{"image":"ghcr.io/github/github-mcp-server:v0.32.0","digest":"sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28","pinned_image":"ghcr.io/github/github-mcp-server:v0.32.0@sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28"},{"image":"node:lts-alpine","digest":"sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f","pinned_image":"node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f"}]}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"bef6f9da610dd25287501be58350391fed6723a4e702cfe6ae7b4ba2b24df4fe","compiler_version":"v0.68.7","strict":true,"agent_id":"copilot"}
+# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"de0fac2e4500dabe0009e67214ff5f5447ce83dd","version":"v6.0.2"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"f52802884d655622f0a2dfd6d6a2250983c95523","version":"v0.68.7"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.25.23"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.25.23"},{"image":"ghcr.io/github/gh-aw-firewall/cli-proxy:0.25.23"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.25.23"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.2.22"},{"image":"ghcr.io/github/github-mcp-server:v0.32.0","digest":"sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28","pinned_image":"ghcr.io/github/github-mcp-server:v0.32.0@sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28"},{"image":"node:lts-alpine","digest":"sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f","pinned_image":"node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f"}]}
 #    ___                   _   _      
 #   / _ \                 | | (_)     
 #  | |_| | __ _  ___ _ __ | |_ _  ___ 
@@ -46,6 +46,7 @@
 # Container images used:
 #   - ghcr.io/github/gh-aw-firewall/agent:0.25.23
 #   - ghcr.io/github/gh-aw-firewall/api-proxy:0.25.23
+#   - ghcr.io/github/gh-aw-firewall/cli-proxy:0.25.23
 #   - ghcr.io/github/gh-aw-firewall/squid:0.25.23
 #   - ghcr.io/github/gh-aw-mcpg:v0.2.22
 #   - ghcr.io/github/github-mcp-server:v0.32.0@sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28
@@ -173,14 +174,14 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
-          cat << 'GH_AW_PROMPT_40ebcd58a3c69179_EOF'
+          cat << 'GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF'
           <system>
-          GH_AW_PROMPT_40ebcd58a3c69179_EOF
+          GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_40ebcd58a3c69179_EOF'
+          cat << 'GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF'
           <safe-output-tools>
           Tools: create_issue, missing_tool, missing_data, noop
           </safe-output-tools>
@@ -212,15 +213,15 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_40ebcd58a3c69179_EOF
-          cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_40ebcd58a3c69179_EOF'
+          GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF
+          cat "${RUNNER_TEMP}/gh-aw/prompts/cli_proxy_with_safeoutputs_prompt.md"
+          cat << 'GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF'
           </system>
           {{#runtime-import .github/workflows/shared/mcp/gh-aw.md}}
           {{#runtime-import .github/workflows/shared/mcp-pagination.md}}
           {{#runtime-import .github/workflows/shared/reporting.md}}
           {{#runtime-import .github/workflows/claude-token-usage-analyzer.md}}
-          GH_AW_PROMPT_40ebcd58a3c69179_EOF
+          GH_AW_PROMPT_cd65ebc8e4c4af6d_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -380,7 +381,7 @@ jobs:
             const { main } = require('${{ runner.temp }}/gh-aw/actions/checkout_pr_branch.cjs');
             await main();
       - name: Install GitHub Copilot CLI
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.21
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" latest
         env:
           GH_HOST: github.com
       - name: Install awf dependencies
@@ -419,15 +420,15 @@ jobs:
             const determineAutomaticLockdown = require('${{ runner.temp }}/gh-aw/actions/determine_automatic_lockdown.cjs');
             await determineAutomaticLockdown(github, context, core);
       - name: Download container images
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-firewall/agent:0.25.23 ghcr.io/github/gh-aw-firewall/api-proxy:0.25.23 ghcr.io/github/gh-aw-firewall/squid:0.25.23 ghcr.io/github/gh-aw-mcpg:v0.2.22 ghcr.io/github/github-mcp-server:v0.32.0@sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28 node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-firewall/agent:0.25.23 ghcr.io/github/gh-aw-firewall/api-proxy:0.25.23 ghcr.io/github/gh-aw-firewall/cli-proxy:0.25.23 ghcr.io/github/gh-aw-firewall/squid:0.25.23 ghcr.io/github/gh-aw-mcpg:v0.2.22 ghcr.io/github/github-mcp-server:v0.32.0@sha256:2763823c63bcca718ce53850a1d7fcf2f501ec84028394f1b63ce7e9f4f9be28 node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
       - name: Write Safe Outputs Config
         run: |
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_e48d782af51aeb4d_EOF'
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_31299fda56db2310_EOF'
           {"create_issue":{"close_older_issues":true,"labels":["claude-token-usage-report"],"max":1,"title_prefix":"📊 Claude Token Usage Report"},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_e48d782af51aeb4d_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_31299fda56db2310_EOF
       - name: Write Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
@@ -600,9 +601,6 @@ jobs:
           GH_AW_SAFE_OUTPUTS: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
           GH_AW_SAFE_OUTPUTS_API_KEY: ${{ steps.safe-outputs-start.outputs.api_key }}
           GH_AW_SAFE_OUTPUTS_PORT: ${{ steps.safe-outputs-start.outputs.port }}
-          GITHUB_MCP_GUARD_MIN_INTEGRITY: ${{ steps.determine-automatic-lockdown.outputs.min_integrity }}
-          GITHUB_MCP_GUARD_REPOS: ${{ steps.determine-automatic-lockdown.outputs.repos }}
-          GITHUB_MCP_SERVER_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -eo pipefail
           mkdir -p "${RUNNER_TEMP}/gh-aw/mcp-config"
@@ -624,25 +622,9 @@ jobs:
           
           mkdir -p /home/runner/.copilot
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_43459be5eadcdeb5_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_e153fc3b3f2f25f6_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
-              "github": {
-                "type": "stdio",
-                "container": "ghcr.io/github/github-mcp-server:v0.32.0",
-                "env": {
-                  "GITHUB_HOST": "\${GITHUB_SERVER_URL}",
-                  "GITHUB_PERSONAL_ACCESS_TOKEN": "\${GITHUB_MCP_SERVER_TOKEN}",
-                  "GITHUB_READ_ONLY": "1",
-                  "GITHUB_TOOLSETS": "context,repos,issues,pull_requests,actions"
-                },
-                "guard-policies": {
-                  "allow-only": {
-                    "min-integrity": "$GITHUB_MCP_GUARD_MIN_INTEGRITY",
-                    "repos": "$GITHUB_MCP_GUARD_REPOS"
-                  }
-                }
-              },
               "safeoutputs": {
                 "type": "http",
                 "url": "http://host.docker.internal:$GH_AW_SAFE_OUTPUTS_PORT",
@@ -665,7 +647,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_43459be5eadcdeb5_EOF
+          GH_AW_MCP_CONFIG_e153fc3b3f2f25f6_EOF
       - name: Download activation artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -680,6 +662,14 @@ jobs:
       - name: Clean git credentials
         continue-on-error: true
         run: bash "${RUNNER_TEMP}/gh-aw/actions/clean_git_credentials.sh"
+      - name: Start CLI proxy
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          CLI_PROXY_POLICY: '{"allow-only":{"repos":"all","min-integrity":"none"}}'
+          CLI_PROXY_IMAGE: 'ghcr.io/github/gh-aw-mcpg:v0.2.22'
+        run: |
+          bash "${RUNNER_TEMP}/gh-aw/actions/start_cli_proxy.sh"
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
@@ -691,17 +681,19 @@ jobs:
           export GH_AW_NODE_BIN
           (umask 177 && touch /tmp/gh-aw/agent-stdio.log)
           # shellcheck disable=SC1003
-          sudo -E awf --container-workdir "${GITHUB_WORKSPACE}" --mount "${RUNNER_TEMP}/gh-aw:${RUNNER_TEMP}/gh-aw:ro" --mount "${RUNNER_TEMP}/gh-aw:/host${RUNNER_TEMP}/gh-aw:ro" --env-all --exclude-env COPILOT_GITHUB_TOKEN --exclude-env GITHUB_MCP_SERVER_TOKEN --exclude-env MCP_GATEWAY_API_KEY --allow-domains '*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,codeload.github.com,docs.github.com,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,host.docker.internal,lfs.github.com,objects.githubusercontent.com,raw.githubusercontent.com,registry.npmjs.org,telemetry.enterprise.githubcopilot.com' --log-level info --proxy-logs-dir /tmp/gh-aw/sandbox/firewall/logs --audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir /tmp/gh-aw/sandbox/agent/session-state --enable-host-access --build-local --enable-api-proxy \
+          sudo -E awf --container-workdir "${GITHUB_WORKSPACE}" --mount "${RUNNER_TEMP}/gh-aw:${RUNNER_TEMP}/gh-aw:ro" --mount "${RUNNER_TEMP}/gh-aw:/host${RUNNER_TEMP}/gh-aw:ro" --env-all --exclude-env COPILOT_GITHUB_TOKEN --exclude-env GH_TOKEN --exclude-env GITHUB_MCP_SERVER_TOKEN --exclude-env MCP_GATEWAY_API_KEY --allow-domains '*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,codeload.github.com,docs.github.com,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,host.docker.internal,lfs.github.com,objects.githubusercontent.com,raw.githubusercontent.com,registry.npmjs.org,telemetry.enterprise.githubcopilot.com' --log-level info --proxy-logs-dir /tmp/gh-aw/sandbox/firewall/logs --audit-dir /tmp/gh-aw/sandbox/firewall/audit --session-state-dir /tmp/gh-aw/sandbox/agent/session-state --enable-host-access --build-local --enable-api-proxy --difc-proxy-host host.docker.internal:18443 --difc-proxy-ca-cert /tmp/gh-aw/difc-proxy-tls/ca.crt \
             -- /bin/bash -c '${GH_AW_NODE_BIN:-node} ${RUNNER_TEMP}/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --add-dir /tmp/gh-aw/ --log-level all --log-dir /tmp/gh-aw/sandbox/agent/logs/ --disable-builtin-mcps --no-ask-user --allow-all-tools --allow-all-paths --add-dir "${GITHUB_WORKSPACE}" --prompt-file /tmp/gh-aw/aw-prompts/prompt.txt' 2>&1 | tee -a /tmp/gh-aw/agent-stdio.log
         env:
           COPILOT_AGENT_RUNNER_TYPE: STANDALONE
+          COPILOT_API_KEY: dummy-byok-key-for-offline-mode
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}
+          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-sonnet-4.6' }}
           GH_AW_MCP_CONFIG: /home/runner/.copilot/mcp-config.json
           GH_AW_PHASE: agent
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_SAFE_OUTPUTS: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
           GH_AW_VERSION: v0.68.7
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN || github.token }}
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_AW: true
           GITHUB_COPILOT_INTEGRATION_ID: agentic-workflows
@@ -716,6 +708,10 @@ jobs:
           GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           XDG_CONFIG_HOME: /home/runner
+      - name: Stop CLI proxy
+        if: always()
+        continue-on-error: true
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/stop_cli_proxy.sh"
       - name: Detect Copilot errors
         id: detect-copilot-errors
         if: always()

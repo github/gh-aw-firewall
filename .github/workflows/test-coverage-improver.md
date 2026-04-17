@@ -21,6 +21,8 @@ network:
   allowed:
     - github
 
+features:
+  byok-copilot: true
 tools:
   github:
     toolsets: [default]

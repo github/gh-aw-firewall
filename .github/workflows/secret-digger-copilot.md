@@ -9,6 +9,8 @@ permissions:
   issues: read
   pull-requests: read
 engine: copilot
+features:
+  byok-copilot: true
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md

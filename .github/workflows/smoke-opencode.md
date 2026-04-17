@@ -14,6 +14,8 @@ permissions:
   discussions: read
 name: Smoke OpenCode
 engine: opencode
+features:
+  cli-proxy: true
 strict: true
 imports:
   - shared/gh.md
