@@ -453,16 +453,16 @@ for (const workflowPath of workflowPaths) {
     }
   }
 
-  // For smoke-copilot-byok: preserve explicit model fallback when the repo
-  // variable is unset. This keeps BYOK startup stable until upstream compiler
-  // emits a non-empty fallback.
+  // For smoke-copilot-byok: replace empty model fallbacks with the workflow-
+  // level COPILOT_MODEL env so the generated step inherits the shared default
+  // without hardcoding a duplicate model string here.
   const isCopilotByokSmoke = workflowPath.includes('smoke-copilot-byok.lock.yml');
   if (isCopilotByokSmoke) {
     const emptyFallbackMatches = content.match(copilotModelEmptyFallbackRegex);
     if (emptyFallbackMatches) {
       content = content.replace(
         copilotModelEmptyFallbackRegex,
-        "$1'claude-opus-4.6'$2"
+        '$1env.COPILOT_MODEL$2'
       );
       modified = true;
       console.log(
