@@ -245,6 +245,9 @@ const sessionStateDirInjectionRegex =
 const copySessionStateStepRegex =
   /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
 
+const copilotModelEmptyFallbackRegex =
+  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)''(\s*\}\})/g;
+
 function buildCopySessionStateStep(indent: string): string {
   const i = indent;
   const ri = `${i}    `;
@@ -355,3 +358,23 @@ describe('buildCopySessionStateStep', () => {
   });
 });
 
+describe('copilotModelEmptyFallbackRegex', () => {
+  beforeEach(() => {
+    copilotModelEmptyFallbackRegex.lastIndex = 0;
+  });
+
+  it('should replace empty fallback with claude-opus-4.6 fallback', () => {
+    const input = "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}\n";
+    const result = input.replace(copilotModelEmptyFallbackRegex, "$1'claude-opus-4.6'$2");
+    expect(result).toBe(
+      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n"
+    );
+  });
+
+  it('should not modify already-correct fallback', () => {
+    const input =
+      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n";
+    const result = input.replace(copilotModelEmptyFallbackRegex, "$1'claude-opus-4.6'$2");
+    expect(result).toBe(input);
+  });
+});
