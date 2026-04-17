@@ -40,7 +40,7 @@ env:
   COPILOT_API_KEY: dummy-byok-key-for-offline-mode
   COPILOT_MODEL: claude-opus-4.6
 features:
-  cli-proxy: true
+  byok-copilot: true
 strict: true
 steps:
   - name: Pre-compute BYOK smoke test data
