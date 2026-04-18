@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 12
+  max-turns: 10
 features:
   cli-proxy: true
 tools:
@@ -32,14 +32,21 @@ steps:
     if: github.event.pull_request.number
     run: |
       DELIM="GHAW_PR_FILES_$(date +%s)"
+      DIFF_TMP="$(mktemp)"
       {
         echo "PR_FILES<<${DELIM}"
         gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
           --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
-          | head -c 8000 || true
+          > "$DIFF_TMP" || true
+        DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
+        head -c 5000 "$DIFF_TMP" || true
+        if [ "$DIFF_SIZE" -gt 5000 ]; then
+          echo -e "\n[DIFF TRUNCATED at 5000 chars — use get_file_contents for full context]"
+        fi
         echo ""
         echo "${DELIM}"
       } >> "$GITHUB_OUTPUT"
+      rm -f "$DIFF_TMP"
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -100,14 +107,6 @@ This repository implements a **network firewall for AI agents** that provides L7
 5. **Domain pattern validation** (`src/domain-patterns.ts`)
    - Wildcard pattern security (prevents overly broad patterns)
    - Protocol prefix handling
-
-## Changed Files (Pre-fetched)
-
-The following PR diff has been pre-computed. Focus your security analysis on these changes:
-
-```
-${{ steps.pr-diff.outputs.PR_FILES }}
-```
 
 ## Your Task
 
@@ -171,3 +170,11 @@ If no security issues are found:
 - The PR passes the security review
 
 **SECURITY**: Be thorough but avoid false positives. Focus on actual security weakening, not code style or refactoring that maintains the same security level.
+
+## Changed Files (Pre-fetched)
+
+The following PR diff has been pre-computed. Focus your security analysis on these changes:
+
+```
+${{ steps.pr-diff.outputs.PR_FILES }}
+```
