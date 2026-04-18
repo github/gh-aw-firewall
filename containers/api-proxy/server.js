@@ -174,8 +174,16 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
   // clients (for example Codex CLI with OPENAI_BASE_URL pointing at the sidecar)
   // send unversioned paths like /responses. Add /v1 only for the default
   // OpenAI host when no explicit base path is configured.
-  if (!prefix && targetHost === 'api.openai.com') {
-    prefix = '/v1';
+  if (!prefix) {
+    let normalizedTargetHost = targetHost;
+    try {
+      normalizedTargetHost = new URL(`https://${targetHost}`).hostname;
+    } catch {
+      // Fall back to the raw host value if parsing fails.
+    }
+    if (normalizedTargetHost === 'api.openai.com') {
+      prefix = '/v1';
+    }
   }
 
   if (prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {

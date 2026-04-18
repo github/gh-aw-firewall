@@ -416,6 +416,11 @@ describe('buildUpstreamPath', () => {
         .toBe('/v1/responses');
     });
 
+    it('should map unversioned /responses to /v1/responses when OpenAI host includes port', () => {
+      expect(buildUpstreamPath('/responses', 'api.openai.com:443', ''))
+        .toBe('/v1/responses');
+    });
+
     it('should preserve /v1/messages exactly (Anthropic standard path)', () => {
       expect(buildUpstreamPath('/v1/messages', 'api.anthropic.com', ''))
         .toBe('/v1/messages');
