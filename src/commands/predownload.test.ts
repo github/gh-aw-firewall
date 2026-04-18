@@ -74,6 +74,27 @@ describe('predownload', () => {
       ]);
     });
 
+    it('should append per-image digests from image-tag metadata', () => {
+      const images = resolveImages({
+        ...defaults,
+        imageTag: [
+          '0.25.18',
+          'squid=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'agent=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          'api-proxy=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+          'cli-proxy=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+        ].join(','),
+        enableApiProxy: true,
+        difcProxy: true,
+      });
+      expect(images).toEqual([
+        'ghcr.io/github/gh-aw-firewall/squid:0.25.18@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'ghcr.io/github/gh-aw-firewall/agent:0.25.18@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        'ghcr.io/github/gh-aw-firewall/api-proxy:0.25.18@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        'ghcr.io/github/gh-aw-firewall/cli-proxy:0.25.18@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+      ]);
+    });
+
     it('should use custom agent image as-is', () => {
       const images = resolveImages({ ...defaults, agentImage: 'ubuntu:22.04' });
       expect(images).toEqual([
@@ -92,6 +113,12 @@ describe('predownload', () => {
       expect(() => resolveImages({ ...defaults, agentImage: 'ubuntu 22.04' })).toThrow(
         'must not contain whitespace',
       );
+    });
+
+    it('should reject invalid image-tag digest metadata', () => {
+      expect(() =>
+        resolveImages({ ...defaults, imageTag: '0.25.18,squid=sha256:not-a-real-digest' })
+      ).toThrow('Invalid --image-tag digest');
     });
   });
 

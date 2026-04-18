@@ -60,9 +60,10 @@ jobs:
             echo "::error::Version mismatch! Expected v0.7.0, got ${{ steps.setup-awf.outputs.version }}"
             exit 1
           fi
-          # Verify image tag is set correctly (without 'v' prefix)
-          if [[ "${{ steps.setup-awf.outputs.image-tag }}" != "0.7.0" ]]; then
-            echo "::error::Image tag mismatch! Expected 0.7.0, got ${{ steps.setup-awf.outputs.image-tag }}"
+          # Verify image tag metadata starts with the expected base tag (without 'v' prefix)
+          # and may include optional digest metadata entries.
+          if [[ "${{ steps.setup-awf.outputs.image-tag }}" != 0.7.0* ]]; then
+            echo "::error::Image tag metadata mismatch! Expected prefix 0.7.0, got ${{ steps.setup-awf.outputs.image-tag }}"
             exit 1
           fi
 

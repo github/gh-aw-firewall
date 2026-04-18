@@ -9,6 +9,7 @@ import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { PROXY_ENV_VARS } from './upstream-proxy';
+import { parseImageTag, buildRuntimeImageRef } from './image-tag';
 
 const SQUID_PORT = 3128;
 
@@ -618,7 +619,7 @@ export function generateDockerCompose(
   // Default to GHCR images unless buildLocal is explicitly set
   const useGHCR = !config.buildLocal;
   const registry = config.imageRegistry || 'ghcr.io/github/gh-aw-firewall';
-  const tag = config.imageTag || 'latest';
+  const parsedImageTag = parseImageTag(config.imageTag || 'latest');
 
   // Squid logs path: use proxyLogsDir if specified (direct write), otherwise workDir/squid-logs
   const squidLogsPath = config.proxyLogsDir || `${config.workDir}/squid-logs`;
@@ -726,7 +727,7 @@ export function generateDockerCompose(
   // Use GHCR image or build locally
   // For SSL Bump, we always build locally to include OpenSSL tools
   if (useGHCR && !config.sslBump) {
-    squidService.image = `${registry}/squid:${tag}`;
+    squidService.image = buildRuntimeImageRef(registry, 'squid', parsedImageTag);
   } else {
     squidService.build = {
       context: path.join(projectRoot, 'containers/squid'),
@@ -1590,8 +1591,8 @@ export function generateDockerCompose(
     // Use pre-built GHCR image for preset images
     // The GHCR images already have the necessary setup for chroot mode
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    agentService.image = `${registry}/${imageName}:${tag}`;
-    logger.debug(`Using GHCR image ${imageName}:${tag}`);
+    agentService.image = buildRuntimeImageRef(registry, imageName, parsedImageTag);
+    logger.debug(`Using GHCR image ${agentService.image}`);
   } else if (config.buildLocal || !isPreset) {
     // Build locally when:
     // 1. --build-local is explicitly specified, OR
@@ -1781,7 +1782,7 @@ export function generateDockerCompose(
 
     // Use GHCR image or build locally
     if (useGHCR) {
-      proxyService.image = `${registry}/api-proxy:${tag}`;
+      proxyService.image = buildRuntimeImageRef(registry, 'api-proxy', parsedImageTag);
     } else {
       proxyService.build = {
         context: path.join(projectRoot, 'containers/api-proxy'),
@@ -1993,7 +1994,7 @@ export function generateDockerCompose(
 
     // Use GHCR image or build locally for the Node.js HTTP server container
     if (useGHCR) {
-      cliProxyService.image = `${registry}/cli-proxy:${tag}`;
+      cliProxyService.image = buildRuntimeImageRef(registry, 'cli-proxy', parsedImageTag);
     } else {
       cliProxyService.build = {
         context: path.join(projectRoot, 'containers/cli-proxy'),

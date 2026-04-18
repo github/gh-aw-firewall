@@ -36,7 +36,7 @@ The action:
 | Output | Description |
 |--------|-------------|
 | `version` | The version that was installed (e.g., `v0.7.0`) |
-| `image-tag` | The image tag matching the version (e.g., `0.7.0`) |
+| `image-tag` | Image tag metadata for runtime containers. Format: `0.7.0` or `0.7.0,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...` |
 
 #### Pinning Docker Image Versions
 

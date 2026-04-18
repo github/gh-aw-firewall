@@ -1,5 +1,6 @@
 import execa from 'execa';
 import { logger } from '../logger';
+import { buildRuntimeImageRef, parseImageTag } from '../image-tag';
 
 export interface PredownloadOptions {
   imageRegistry: string;
@@ -27,16 +28,17 @@ function validateImageReference(image: string): void {
  */
 export function resolveImages(options: PredownloadOptions): string[] {
   const { imageRegistry, imageTag, agentImage, enableApiProxy } = options;
+  const parsedImageTag = parseImageTag(imageTag);
   const images: string[] = [];
 
   // Always pull squid
-  images.push(`${imageRegistry}/squid:${imageTag}`);
+  images.push(buildRuntimeImageRef(imageRegistry, 'squid', parsedImageTag));
 
   // Pull agent image based on preset
   const isPreset = agentImage === 'default' || agentImage === 'act';
   if (isPreset) {
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    images.push(`${imageRegistry}/${imageName}:${imageTag}`);
+    images.push(buildRuntimeImageRef(imageRegistry, imageName, parsedImageTag));
   } else {
     // Custom image - validate and pull as-is
     validateImageReference(agentImage);
@@ -45,12 +47,12 @@ export function resolveImages(options: PredownloadOptions): string[] {
 
   // Optionally pull api-proxy
   if (enableApiProxy) {
-    images.push(`${imageRegistry}/api-proxy:${imageTag}`);
+    images.push(buildRuntimeImageRef(imageRegistry, 'api-proxy', parsedImageTag));
   }
 
   // Optionally pull cli-proxy (mcpg is now started externally by the compiler)
   if (options.difcProxy) {
-    images.push(`${imageRegistry}/cli-proxy:${imageTag}`);
+    images.push(buildRuntimeImageRef(imageRegistry, 'cli-proxy', parsedImageTag));
   }
 
   return images;

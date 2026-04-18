@@ -486,6 +486,37 @@ describe('docker-manager', () => {
       expect(result.services.agent.build).toBeUndefined();
     });
 
+    it('should append per-image digests from image-tag metadata', () => {
+      const customConfig = {
+        ...mockConfig,
+        enableApiProxy: true,
+        imageTag: [
+          'v1.0.0',
+          'squid=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'agent=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          'api-proxy=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        ].join(','),
+      };
+      const networkWithProxy = {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      };
+      const result = generateDockerCompose(customConfig, networkWithProxy);
+
+      expect(result.services['squid-proxy'].image).toBe(
+        'ghcr.io/github/gh-aw-firewall/squid:v1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      );
+      expect(result.services.agent.image).toBe(
+        'ghcr.io/github/gh-aw-firewall/agent:v1.0.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      );
+      expect(result.services['iptables-init'].image).toBe(
+        'ghcr.io/github/gh-aw-firewall/agent:v1.0.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      );
+      expect(result.services['api-proxy'].image).toBe(
+        'ghcr.io/github/gh-aw-firewall/api-proxy:v1.0.0@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+      );
+    });
+
     it('should build locally with custom catthehacker full image', () => {
       const customConfig = {
         ...mockConfig,

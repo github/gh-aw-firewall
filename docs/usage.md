@@ -36,9 +36,11 @@ Options:
                                  ghcr.io/catthehacker/ubuntu:full-XX.XX
   --image-registry <registry>  Container image registry (default: ghcr.io/github/gh-aw-firewall)
   --image-tag <tag>            Container image tag (default: latest)
-                               Image name varies by --agent-image preset:
-                                 default → agent:<tag>
-                                 act     → agent-act:<tag>
+                               Optional digest metadata:
+                                 <tag>,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...
+                                Image name varies by --agent-image preset:
+                                  default → agent:<tag>
+                                  act     → agent-act:<tag>
   --skip-pull                  Use local images without pulling from registry (requires images to be
                                pre-downloaded) (default: false)
   -e, --env <KEY=VALUE>        Additional environment variables to pass to container (can be

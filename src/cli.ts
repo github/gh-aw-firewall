@@ -1370,6 +1370,8 @@ program
   .option(
     '--image-tag <tag>',
     'Container image tag (applies to both squid and agent images)\n' +
+    '                                       Optional digest metadata format:\n' +
+    '                                         <tag>,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...\n' +
     '                                       Image name varies by --agent-image preset:\n' +
     '                                         default → agent:<tag>\n' +
     '                                         act     → agent-act:<tag>',
@@ -2270,7 +2272,11 @@ program
     'Container image registry',
     'ghcr.io/github/gh-aw-firewall'
   )
-  .option('--image-tag <tag>', 'Container image tag (applies to squid, agent, and api-proxy images)', 'latest')
+  .option(
+    '--image-tag <tag>',
+    'Container image tag. Supports optional digest metadata: <tag>,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...',
+    'latest'
+  )
   .option(
     '--agent-image <value>',
     'Agent image preset (default, act) or custom image',
