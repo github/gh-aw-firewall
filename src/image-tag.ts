@@ -51,7 +51,7 @@ export function parseImageTag(imageTag: string): ParsedImageTag {
 
     if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
       throw new Error(
-        `Invalid --image-tag digest "${digest}" for "${key}". Expected sha256:<64 lowercase hex>`
+        `Invalid --image-tag digest "${digest}" for "${key}". Expected lowercase sha256:<64-hex>`
       );
     }
 

@@ -151,7 +151,8 @@ runs:
             IMAGE_TAG_WITH_DIGESTS="${IMAGE_TAG},${DIGEST_CSV}"
             echo "Discovered digest pins for ${#DIGEST_ENTRIES[@]} image(s)"
           else
-            echo "::warning::containers.txt was downloaded, but no valid digest entries matched ghcr.io/${REPO}/<image>@sha256:<digest>; file may be malformed or from an unexpected repository format. Falling back to tag-only image metadata."
+            echo "::warning::containers.txt downloaded but no valid digest entries were parsed."
+            echo "::warning::Expected format: ghcr.io/${REPO}/<image>@sha256:<digest>. Falling back to tag-only image metadata."
           fi
         else
           echo "::warning::No containers.txt found for ${VERSION}; falling back to tag-only image metadata"
