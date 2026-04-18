@@ -15,7 +15,8 @@ permissions:
 name: Smoke Claude
 engine:
   id: claude
-  max-turns: 12
+  model: claude-haiku-4-5
+  max-turns: 8
 features:
   cli-proxy: true
 strict: true
@@ -26,7 +27,7 @@ network:
     - playwright
 tools:
   github:
-    toolsets: [repos, pull_requests]
+    toolsets: [pull_requests]
   playwright:
   bash:
     - "*"
