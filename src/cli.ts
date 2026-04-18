@@ -1369,9 +1369,9 @@ program
   )
   .option(
     '--image-tag <tag>',
-    'Container image tag (applies to both squid and agent images)\n' +
+    'Container image tag (applies to squid, agent/agent-act, api-proxy, and cli-proxy when enabled)\n' +
     '                                       Optional digest metadata format:\n' +
-    '                                         <tag>,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...\n' +
+    '                                         <tag>,squid=sha256:...,agent=sha256:...,agent-act=sha256:...,api-proxy=sha256:...,cli-proxy=sha256:...\n' +
     '                                       Image name varies by --agent-image preset:\n' +
     '                                         default → agent:<tag>\n' +
     '                                         act     → agent-act:<tag>',
