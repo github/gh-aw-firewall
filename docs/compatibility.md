@@ -9,10 +9,10 @@ This document outlines the supported Node.js versions, operating systems, and ot
 | Version | Status | Notes |
 |---------|--------|-------|
 | Node.js 22.x | ✅ Fully Supported | Active LTS (recommended) |
-| Node.js 20.x | ✅ Fully Supported | Maintenance LTS (minimum: 20.12.0) |
-| Node.js < 20.12 | ❌ Not Supported | Below minimum engine requirement |
+| Node.js 20.x | ✅ Fully Supported | Maintenance LTS (minimum: 20.19.0) |
+| Node.js < 20.19 | ❌ Not Supported | Below minimum engine requirement |
 
-The minimum Node.js version is specified in `package.json` under `engines.node: ">=20.12.0"`.
+The minimum Node.js version is specified in `package.json` under `engines.node: ">=20.19.0"`.
 
 ### Ubuntu / Linux
 
@@ -79,7 +79,7 @@ To check if your environment meets the requirements:
 
 ```bash
 # Check Node.js version
-node --version  # Should be v20.12.0 or higher
+node --version  # Should be v20.19.0 or higher
 
 # Check Docker version
 docker --version  # Should be 20.10 or higher
