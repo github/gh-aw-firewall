@@ -128,8 +128,9 @@ runs:
         if curl -fsSL "$CONTAINERS_URL" -o "$INSTALL_DIR/containers.txt"; then
           extract_digest() {
             local image_name="$1"
-            grep -E "^ghcr\\.io/${REPO}/${image_name}@sha256:[a-f0-9]{64}$" "$INSTALL_DIR/containers.txt" \
-              | sed -E 's#.*@(sha256:[a-f0-9]{64})#\1#' \
+            grep -E "^ghcr\\.io/${REPO}/${image_name}@sha256:[a-fA-F0-9]{64}$" "$INSTALL_DIR/containers.txt" \
+              | sed -E 's#.*@(sha256:[a-fA-F0-9]{64})#\1#' \
+              | tr '[:upper:]' '[:lower:]' \
               | head -n 1
           }
 
@@ -151,8 +152,7 @@ runs:
             IMAGE_TAG_WITH_DIGESTS="${IMAGE_TAG},${DIGEST_CSV}"
             echo "Discovered digest pins for ${#DIGEST_ENTRIES[@]} image(s)"
           else
-            echo "::warning::containers.txt downloaded but no valid digest entries were parsed."
-            echo "::warning::Expected format: ghcr.io/${REPO}/<image>@sha256:<digest>. Falling back to tag-only image metadata."
+            echo "::warning::containers.txt downloaded but no valid digest entries matched ghcr.io/${REPO}/<image>@sha256:<digest>; falling back to tag-only image metadata."
           fi
         else
           echo "::warning::No containers.txt found for ${VERSION}; falling back to tag-only image metadata"
@@ -226,7 +226,7 @@ runs:
         BASE_TAG="${IMAGE_TAG%%,*}"
         extract_digest_from_tag() {
           local key="$1"
-          echo "$IMAGE_TAG" | tr ',' '\n' | grep -E "^${key}=sha256:[a-f0-9]{64}$" | cut -d'=' -f2 | head -n 1
+          echo "$IMAGE_TAG" | tr ',' '\n' | grep -E "^${key}=sha256:[a-fA-F0-9]{64}$" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]' | head -n 1
         }
         SQUID_DIGEST="$(extract_digest_from_tag squid || true)"
         AGENT_DIGEST="$(extract_digest_from_tag agent || true)"

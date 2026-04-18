@@ -66,6 +66,12 @@ export function buildRuntimeImageRef(
   imageName: string,
   parsedTag: ParsedImageTag
 ): string {
+  if (!IMAGE_DIGEST_KEYS.includes(imageName as ImageDigestKey)) {
+    throw new Error(
+      `Invalid runtime image name "${imageName}". Supported names: ${IMAGE_DIGEST_KEYS.join(', ')}`
+    );
+  }
+
   const digest = parsedTag.digests[imageName as ImageDigestKey];
   return `${imageRegistry}/${imageName}:${parsedTag.tag}${digest ? `@${digest}` : ''}`;
 }
