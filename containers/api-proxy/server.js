@@ -149,24 +149,44 @@ function normalizeBasePath(rawPath) {
 
 /**
  * Build the full upstream path by joining basePath, reqUrl's pathname, and query string.
+ * Applies provider-safe defaults and avoids duplicate prefixing when the incoming
+ * path already includes the configured base path.
  *
  * Examples:
- *   buildUpstreamPath('/v1/chat/completions', 'api.openai.com', '')
- *     → '/v1/chat/completions'
+ *   buildUpstreamPath('/responses', 'api.openai.com', '')
+ *     → '/v1/responses'
  *   buildUpstreamPath('/v1/chat/completions', 'host.databricks.com', '/serving-endpoints')
  *     → '/serving-endpoints/v1/chat/completions'
  *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
  *     → '/anthropic/v1/messages?stream=true'
  *
- * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @param {string} reqUrl - The incoming request URL (must start with '/' and not '//')
  * @param {string} targetHost - The upstream hostname (used only to parse the URL)
  * @param {string} basePath - Normalized base path prefix (e.g. '/serving-endpoints' or '')
  * @returns {string} Full upstream path including query string
  */
 function buildUpstreamPath(reqUrl, targetHost, basePath) {
+  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
+    throw new Error('URL must be a relative origin-form path');
+  }
+
   const targetUrl = new URL(reqUrl, `https://${targetHost}`);
-  const prefix = basePath === '/' ? '' : basePath;
-  return prefix + targetUrl.pathname + targetUrl.search;
+  const pathname = targetUrl.pathname;
+  let prefix = basePath === '/' ? '' : basePath;
+
+  // OpenAI's canonical API paths are versioned under /v1, while some newer
+  // clients (for example Codex CLI with OPENAI_BASE_URL pointing at the sidecar)
+  // send unversioned paths like /responses. Add /v1 only for the default
+  // OpenAI host when no explicit base path is configured.
+  if (!prefix && targetUrl.hostname === 'api.openai.com') {
+    prefix = '/v1';
+  }
+
+  if (prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return pathname + targetUrl.search;
+  }
+
+  return prefix + pathname + targetUrl.search;
 }
 
 /**
@@ -418,7 +438,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   });
 
   // Validate that req.url is a relative path (prevent open-redirect / SSRF)
-  if (!req.url || !req.url.startsWith('/')) {
+  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
     metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
@@ -687,7 +707,7 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
   }
 
   // ── Validate: relative path only (prevent SSRF) ────────────────────────
-  if (!req.url || !req.url.startsWith('/')) {
+  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     logRequest('warn', 'websocket_upgrade_rejected', {
       request_id: requestId,
       provider,

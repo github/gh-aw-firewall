@@ -347,6 +347,11 @@ describe('buildUpstreamPath', () => {
     it('should handle root path with no base path', () => {
       expect(buildUpstreamPath('/', HOST, '')).toBe('/');
     });
+
+    it('should reject protocol-relative URLs to prevent host override', () => {
+      expect(() => buildUpstreamPath('//evil.com/v1/chat/completions', HOST, ''))
+        .toThrow('URL must be a relative origin-form path');
+    });
   });
 
   describe('Databricks serving-endpoints (single-segment base path)', () => {
@@ -406,6 +411,21 @@ describe('buildUpstreamPath', () => {
         .toBe('/v1/chat/completions');
     });
 
+    it('should map unversioned /responses to /v1/responses for api.openai.com', () => {
+      expect(buildUpstreamPath('/responses', 'api.openai.com', ''))
+        .toBe('/v1/responses');
+    });
+
+    it('should preserve already-versioned OpenAI responses path', () => {
+      expect(buildUpstreamPath('/v1/responses', 'api.openai.com', ''))
+        .toBe('/v1/responses');
+    });
+
+    it('should map unversioned /responses to /v1/responses when OpenAI host includes port', () => {
+      expect(buildUpstreamPath('/responses', 'api.openai.com:443', ''))
+        .toBe('/v1/responses');
+    });
+
     it('should preserve /v1/messages exactly (Anthropic standard path)', () => {
       expect(buildUpstreamPath('/v1/messages', 'api.anthropic.com', ''))
         .toBe('/v1/messages');
@@ -436,6 +456,12 @@ describe('buildUpstreamPath', () => {
       const target = 'my-gateway.example.com';
       expect(buildUpstreamPath('/v1/messages', target, ''))
         .toBe('/v1/messages');
+    });
+
+    it('should not force /v1 for non-OpenAI custom targets', () => {
+      const target = 'my-gateway.example.com';
+      expect(buildUpstreamPath('/responses', target, ''))
+        .toBe('/responses');
     });
 
     it('should produce wrong hostname if scheme is NOT stripped (demonstrating the bug)', () => {
@@ -571,6 +597,13 @@ describe('proxyWebSocket', () => {
     it('rejects an absolute URL with 400 (SSRF prevention)', () => {
       const socket = makeMockSocket();
       proxyWebSocket(makeUpgradeReq({ url: 'https://evil.com/v1/responses' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
+      expect(socket.destroy).toHaveBeenCalled();
+    });
+
+    it('rejects a protocol-relative URL with 400 (SSRF prevention)', () => {
+      const socket = makeMockSocket();
+      proxyWebSocket(makeUpgradeReq({ url: '//evil.com/v1/responses' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
       expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
       expect(socket.destroy).toHaveBeenCalled();
     });
@@ -946,4 +979,3 @@ describe('resolveOpenCodeRoute', () => {
     expect(route.headers['x-api-key']).toBeUndefined();
   });
 });
-
