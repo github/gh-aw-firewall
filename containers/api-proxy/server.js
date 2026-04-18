@@ -149,10 +149,12 @@ function normalizeBasePath(rawPath) {
 
 /**
  * Build the full upstream path by joining basePath, reqUrl's pathname, and query string.
+ * Applies provider-safe defaults and avoids duplicate prefixing when the incoming
+ * path already includes the configured base path.
  *
  * Examples:
- *   buildUpstreamPath('/v1/chat/completions', 'api.openai.com', '')
- *     → '/v1/chat/completions'
+ *   buildUpstreamPath('/responses', 'api.openai.com', '')
+ *     → '/v1/responses'
  *   buildUpstreamPath('/v1/chat/completions', 'host.databricks.com', '/serving-endpoints')
  *     → '/serving-endpoints/v1/chat/completions'
  *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
@@ -165,8 +167,22 @@ function normalizeBasePath(rawPath) {
  */
 function buildUpstreamPath(reqUrl, targetHost, basePath) {
   const targetUrl = new URL(reqUrl, `https://${targetHost}`);
-  const prefix = basePath === '/' ? '' : basePath;
-  return prefix + targetUrl.pathname + targetUrl.search;
+  const pathname = targetUrl.pathname;
+  let prefix = basePath === '/' ? '' : basePath;
+
+  // OpenAI's canonical API paths are versioned under /v1, while some newer
+  // clients (for example Codex CLI with OPENAI_BASE_URL pointing at the sidecar)
+  // send unversioned paths like /responses. Add /v1 only for the default
+  // OpenAI host when no explicit base path is configured.
+  if (!prefix && targetHost === 'api.openai.com') {
+    prefix = '/v1';
+  }
+
+  if (prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return pathname + targetUrl.search;
+  }
+
+  return prefix + pathname + targetUrl.search;
 }
 
 /**

@@ -406,6 +406,16 @@ describe('buildUpstreamPath', () => {
         .toBe('/v1/chat/completions');
     });
 
+    it('should map unversioned /responses to /v1/responses for api.openai.com', () => {
+      expect(buildUpstreamPath('/responses', 'api.openai.com', ''))
+        .toBe('/v1/responses');
+    });
+
+    it('should preserve already-versioned OpenAI responses path', () => {
+      expect(buildUpstreamPath('/v1/responses', 'api.openai.com', ''))
+        .toBe('/v1/responses');
+    });
+
     it('should preserve /v1/messages exactly (Anthropic standard path)', () => {
       expect(buildUpstreamPath('/v1/messages', 'api.anthropic.com', ''))
         .toBe('/v1/messages');
@@ -436,6 +446,12 @@ describe('buildUpstreamPath', () => {
       const target = 'my-gateway.example.com';
       expect(buildUpstreamPath('/v1/messages', target, ''))
         .toBe('/v1/messages');
+    });
+
+    it('should not force /v1 for non-OpenAI custom targets', () => {
+      const target = 'my-gateway.example.com';
+      expect(buildUpstreamPath('/responses', target, ''))
+        .toBe('/responses');
     });
 
     it('should produce wrong hostname if scheme is NOT stripped (demonstrating the bug)', () => {
@@ -946,4 +962,3 @@ describe('resolveOpenCodeRoute', () => {
     expect(route.headers['x-api-key']).toBeUndefined();
   });
 });
-
