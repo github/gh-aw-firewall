@@ -1802,8 +1802,8 @@ export function generateDockerCompose(
     // container names in chroot mode
     environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
     if (config.openaiApiKey) {
-      environment.OPENAI_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`;
-      logger.debug(`OpenAI API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}/v1`);
+      environment.OPENAI_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}`;
+      logger.debug(`OpenAI API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.OPENAI}`);
       if (config.openaiApiTarget) {
         logger.debug(`OpenAI API target overridden to: ${config.openaiApiTarget}`);
       }

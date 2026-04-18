@@ -2345,7 +2345,7 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
-        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
       });
 
       it('should configure HTTP_PROXY and HTTPS_PROXY in api-proxy to route through Squid', () => {
@@ -2372,7 +2372,7 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
-        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         expect(env.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
         expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
         expect(env.CLAUDE_CODE_API_KEY_HELPER).toBe('/usr/local/bin/get-claude-key.sh');
@@ -2395,7 +2395,7 @@ describe('docker-manager', () => {
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
         expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
-        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+        expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
       });
 
       it('should set AWF_API_PROXY_IP in agent environment', () => {
@@ -2467,7 +2467,7 @@ describe('docker-manager', () => {
           // Agent should NOT have the raw API key — only the sidecar gets it
           expect(env.OPENAI_API_KEY).toBeUndefined();
           // Agent should have OPENAI_BASE_URL to proxy through sidecar
-          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
           if (origKey !== undefined) {
             process.env.OPENAI_API_KEY = origKey;
@@ -2490,7 +2490,7 @@ describe('docker-manager', () => {
           // CODEX_API_KEY should NOT be passed to agent when api-proxy is enabled
           expect(env.CODEX_API_KEY).toBeUndefined();
           // OPENAI_BASE_URL should be set when api-proxy is enabled with openaiApiKey
-          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
           if (origKey !== undefined) {
             process.env.CODEX_API_KEY = origKey;
@@ -2512,7 +2512,7 @@ describe('docker-manager', () => {
           // Even with envAll, agent should NOT have OPENAI_API_KEY when api-proxy is enabled
           expect(env.OPENAI_API_KEY).toBeUndefined();
           // Agent should have OPENAI_BASE_URL to proxy through sidecar
-          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000/v1');
+          expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
           if (origKey !== undefined) {
             process.env.OPENAI_API_KEY = origKey;

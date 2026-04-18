@@ -33,7 +33,7 @@ When enabled, the API proxy sidecar:
 │         │  │      Agent Container         │    │
 │         │  │      172.30.0.20             │    │
 │         │  │  OPENAI_BASE_URL=            │    │
-│         │  │   http://172.30.0.30:10000/v1│────┘
+│         │  │   http://172.30.0.30:10000   │────┘
 │         │  │  ANTHROPIC_BASE_URL=         │
 │         │  │   http://172.30.0.30:10001   │
 │         │  └──────────────────────────────┘
@@ -76,7 +76,7 @@ sudo awf --enable-api-proxy \
   -- npx @openai/codex -p "write a hello world function"
 ```
 
-The agent container automatically uses `http://172.30.0.30:10000/v1` as the OpenAI base URL.
+The agent container automatically uses `http://172.30.0.30:10000` as the OpenAI base URL.
 
 ### Claude Code example
 
@@ -138,7 +138,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 
 | Variable | Value | When set | Description |
 |----------|-------|----------|-------------|
-| `OPENAI_BASE_URL` | `http://172.30.0.30:10000/v1` | `OPENAI_API_KEY` provided to host | Redirects OpenAI SDK to proxy |
+| `OPENAI_BASE_URL` | `http://172.30.0.30:10000` | `OPENAI_API_KEY` provided to host | Redirects OpenAI SDK to proxy |
 | `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` provided to host | Redirects Anthropic SDK to proxy |
 | `ANTHROPIC_AUTH_TOKEN` | `placeholder-token-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host | Placeholder token (real auth via BASE_URL) |
 | `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
@@ -231,7 +231,7 @@ When you pass `--enable-api-proxy`:
 
 ```
 Agent Code
-  ↓ (HTTP request to 172.30.0.30:10000/v1)
+  ↓ (HTTP request to 172.30.0.30:10000)
 Node.js API Proxy
   ↓ (strips client auth headers)
   ↓ (injects Authorization: Bearer $OPENAI_API_KEY)

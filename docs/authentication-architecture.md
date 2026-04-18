@@ -41,7 +41,7 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ ✓ HTTP_PROXY=172.30.0.10:3128   │       │ ✓ ANTHROPIC_BASE_URL=            │
 │ ✓ HTTPS_PROXY=172.30.0.10:3128  │       │     http://172.30.0.30:10001    │
 │                                  │       │ ✓ OPENAI_BASE_URL=               │
-│ Ports:                           │       │     http://172.30.0.30:10000/v1 │
+│ Ports:                           │       │     http://172.30.0.30:10000    │
 │ - 10000 (OpenAI proxy)          │◄──────│ ✓ GITHUB_TOKEN=ghp_...           │
 │ - 10001 (Anthropic proxy)       │       │   (protected by one-shot-token)  │
 │                                  │       │                                  │
@@ -113,7 +113,7 @@ agent:
   environment:
     # NO API KEYS - only base URLs pointing to api-proxy
     - ANTHROPIC_BASE_URL=http://172.30.0.30:10001
-    - OPENAI_BASE_URL=http://172.30.0.30:10000/v1
+    - OPENAI_BASE_URL=http://172.30.0.30:10000
     # GitHub token for MCP servers (protected separately)
     - GITHUB_TOKEN=ghp_...
   networks:
@@ -174,7 +174,7 @@ The agent container sees these environment variables:
 
 ```bash
 ANTHROPIC_BASE_URL=http://172.30.0.30:10001
-OPENAI_BASE_URL=http://172.30.0.30:10000/v1
+OPENAI_BASE_URL=http://172.30.0.30:10000
 ```
 
 These are standard environment variables recognized by the official SDKs:
@@ -209,7 +209,7 @@ import openai
 
 client = openai.OpenAI()
 # SDK reads OPENAI_BASE_URL from environment
-# Sends request to http://172.30.0.30:10000/v1 instead of api.openai.com
+# Sends request to http://172.30.0.30:10000 instead of api.openai.com
 
 response = client.chat.completions.create(
     model="gpt-4",
@@ -250,7 +250,7 @@ Without the NAT `RETURN` rule, traffic to `172.30.0.30` would be redirected to S
 
 **Traffic flow for OpenAI/Codex:**
 
-1. Agent SDK makes HTTP request to `172.30.0.30:10000/v1`
+1. Agent SDK makes HTTP request to `172.30.0.30:10000`
 2. iptables allows direct TCP connection (NAT `RETURN` rule)
 3. API proxy receives request on port 10000
 4. API proxy injects `Authorization: Bearer sk-...` header
