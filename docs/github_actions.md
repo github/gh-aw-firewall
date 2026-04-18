@@ -36,7 +36,7 @@ The action:
 | Output | Description |
 |--------|-------------|
 | `version` | The version that was installed (e.g., `v0.7.0`) |
-| `image-tag` | Image tag metadata for runtime containers. Format: `0.7.0` or `0.7.0,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...` |
+| `image-tag` | Image tag metadata for runtime containers. Format: `0.7.0` or `0.7.0,squid=sha256:...,agent=sha256:...,api-proxy=sha256:...,agent-act=sha256:...,cli-proxy=sha256:...`. Supported digest keys currently include `squid`, `agent`, `api-proxy`, `agent-act`, and `cli-proxy`; additional keys may appear in future releases. |
 
 #### Pinning Docker Image Versions
 
