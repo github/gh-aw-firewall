@@ -28,7 +28,7 @@ Thank you for your interest in contributing! We welcome contributions from the c
 
 ### Prerequisites
 - **Docker**: Must be running for integration tests
-- **Node.js**: v20.12.0+ and npm
+- **Node.js**: v20.19.0+ and npm
 - **Root/Sudo Access**: Required for testing iptables functionality
 - **Git**: For version control
 

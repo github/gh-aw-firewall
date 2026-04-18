@@ -16,7 +16,7 @@ A network firewall for agentic workflows that restricts outbound HTTP/HTTPS to a
 ## Requirements
 
 - **Docker**: 20.10+ with Docker Compose v2
-- **Node.js**: 20.12.0+ (for building from source)
+- **Node.js**: 20.19.0+ (for building from source)
 - **OS**: Ubuntu 22.04+ or compatible Linux distribution
 
 See [Compatibility](docs/compatibility.md) for full details on supported versions and tested configurations.
