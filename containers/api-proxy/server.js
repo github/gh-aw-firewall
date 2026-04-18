@@ -160,12 +160,16 @@ function normalizeBasePath(rawPath) {
  *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
  *     → '/anthropic/v1/messages?stream=true'
  *
- * @param {string} reqUrl - The incoming request URL (must start with '/')
+ * @param {string} reqUrl - The incoming request URL (must start with '/' and not '//')
  * @param {string} targetHost - The upstream hostname (used only to parse the URL)
  * @param {string} basePath - Normalized base path prefix (e.g. '/serving-endpoints' or '')
  * @returns {string} Full upstream path including query string
  */
 function buildUpstreamPath(reqUrl, targetHost, basePath) {
+  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
+    throw new Error('URL must be a relative origin-form path');
+  }
+
   const targetUrl = new URL(reqUrl, `https://${targetHost}`);
   const pathname = targetUrl.pathname;
   let prefix = basePath === '/' ? '' : basePath;
@@ -174,16 +178,8 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
   // clients (for example Codex CLI with OPENAI_BASE_URL pointing at the sidecar)
   // send unversioned paths like /responses. Add /v1 only for the default
   // OpenAI host when no explicit base path is configured.
-  if (!prefix) {
-    let normalizedTargetHost = targetHost;
-    try {
-      normalizedTargetHost = new URL(`https://${targetHost}`).hostname;
-    } catch {
-      // Fall back to the raw host value if parsing fails.
-    }
-    if (normalizedTargetHost === 'api.openai.com') {
-      prefix = '/v1';
-    }
+  if (!prefix && targetUrl.hostname === 'api.openai.com') {
+    prefix = '/v1';
   }
 
   if (prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {
@@ -442,7 +438,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   });
 
   // Validate that req.url is a relative path (prevent open-redirect / SSRF)
-  if (!req.url || !req.url.startsWith('/')) {
+  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
     metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
@@ -711,7 +707,7 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
   }
 
   // ── Validate: relative path only (prevent SSRF) ────────────────────────
-  if (!req.url || !req.url.startsWith('/')) {
+  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     logRequest('warn', 'websocket_upgrade_rejected', {
       request_id: requestId,
       provider,

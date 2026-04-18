@@ -347,6 +347,11 @@ describe('buildUpstreamPath', () => {
     it('should handle root path with no base path', () => {
       expect(buildUpstreamPath('/', HOST, '')).toBe('/');
     });
+
+    it('should reject protocol-relative URLs to prevent host override', () => {
+      expect(() => buildUpstreamPath('//evil.com/v1/chat/completions', HOST, ''))
+        .toThrow('URL must be a relative origin-form path');
+    });
   });
 
   describe('Databricks serving-endpoints (single-segment base path)', () => {
@@ -592,6 +597,13 @@ describe('proxyWebSocket', () => {
     it('rejects an absolute URL with 400 (SSRF prevention)', () => {
       const socket = makeMockSocket();
       proxyWebSocket(makeUpgradeReq({ url: 'https://evil.com/v1/responses' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
+      expect(socket.destroy).toHaveBeenCalled();
+    });
+
+    it('rejects a protocol-relative URL with 400 (SSRF prevention)', () => {
+      const socket = makeMockSocket();
+      proxyWebSocket(makeUpgradeReq({ url: '//evil.com/v1/responses' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
       expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
       expect(socket.destroy).toHaveBeenCalled();
     });
