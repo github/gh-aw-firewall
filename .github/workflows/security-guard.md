@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 8
+  max-turns: 12
 features:
   cli-proxy: true
 tools:

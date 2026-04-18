@@ -48,9 +48,11 @@ echo "[cli-proxy] Combined CA bundle created at ${COMBINED_CA}"
 export GH_HOST="localhost:${DIFC_PORT}"
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
 # Node.js (server.js / tcp-tunnel.js) uses NODE_EXTRA_CA_CERTS;
-# gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle.
+# gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle;
+# git (called by `gh repo clone`) uses GIT_SSL_CAINFO for OpenSSL verification.
 export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
 export SSL_CERT_FILE="${COMBINED_CA}"
+export GIT_SSL_CAINFO="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 
