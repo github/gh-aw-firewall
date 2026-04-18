@@ -32,6 +32,7 @@ steps:
     if: github.event.pull_request.number
     run: |
       DELIM="GHAW_PR_FILES_$(date +%s)"
+      DIFF_LIMIT=5000
       DIFF_TMP="$(mktemp)"
       {
         echo "PR_FILES<<${DELIM}"
@@ -39,9 +40,9 @@ steps:
           --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
           > "$DIFF_TMP" || true
         DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
-        head -c 5000 "$DIFF_TMP" || true
-        if [ "$DIFF_SIZE" -gt 5000 ]; then
-          echo -e "\n[DIFF TRUNCATED at 5000 chars — use get_file_contents for full context]"
+        head -c "$DIFF_LIMIT" "$DIFF_TMP" || true
+        if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
+          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — use get_file_contents for full context]"
         fi
         echo ""
         echo "${DELIM}"
