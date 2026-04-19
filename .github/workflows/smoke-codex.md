@@ -25,6 +25,7 @@ imports:
 network:
   allowed:
     - defaults
+    - chatgpt.com
     - github
     - playwright
 tools:
