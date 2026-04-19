@@ -33,7 +33,7 @@ awf [options] -- <command>
 | `--work-dir <dir>` | string | `/tmp/awf-<timestamp>` | Working directory for temporary files |
 | `--build-local` | flag | `false` | Build containers locally instead of pulling from registry |
 | `--image-registry <url>` | string | `ghcr.io/github/gh-aw-firewall` | Container image registry |
-| `--image-tag <tag>` | string | `latest` | Container image tag |
+| `--image-tag <tag>` | string | `latest` | Container image tag. Supports optional per-image digest pinning: `<tag>,squid=sha256:...,agent=sha256:...,agent-act=sha256:...,api-proxy=sha256:...,cli-proxy=sha256:...` |
 | `--skip-pull` | flag | `false` | Use local images without pulling from registry |
 | `-e, --env <KEY=VALUE>` | string | `[]` | Environment variable (repeatable) |
 | `--env-all` | flag | `false` | Pass all host environment variables |
@@ -333,7 +333,17 @@ Custom container image registry URL.
 
 ### `--image-tag <tag>`
 
-Container image tag to use.
+Container image tag to use. Supports an optional digest-aware format for cryptographic image pinning:
+
+```
+<tag>,squid=sha256:...,agent=sha256:...,agent-act=sha256:...,api-proxy=sha256:...,cli-proxy=sha256:...
+```
+
+Digest keys correspond to each runtime container image. When a digest is provided, the image reference is pinned to `<registry>/<image>:<tag>@<digest>`, preventing tag mutation attacks. The setup action's `image-tag` output produces this format automatically when `pull-images: true` is set.
+
+Which agent image key is used depends on the `--agent-image` preset:
+- `default` → `agent`
+- `act` → `agent-act`
 
 ### `--skip-pull`
 
@@ -950,7 +960,7 @@ awf predownload [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--image-registry <registry>` | string | `ghcr.io/github/gh-aw-firewall` | Container image registry |
-| `--image-tag <tag>` | string | `latest` | Container image tag (applies to squid, agent, and api-proxy images) |
+| `--image-tag <tag>` | string | `latest` | Container image tag (applies to squid, agent, agent-act, api-proxy, and cli-proxy images). Supports optional digest metadata — see [`--image-tag`](#--image-tag-tag) for format details. |
 | `--agent-image <value>` | string | `default` | Agent image preset (`default`, `act`) or custom image |
 | `--enable-api-proxy` | flag | `false` | Also download the API proxy image |
 
