@@ -792,10 +792,15 @@ jobs:
                   "grep": "allow",
                   "write": "allow",
                   "webfetch": "allow",
-                  "websearch": "allow"
+                  "websearch": "allow",
+                  "mcp": "allow",
+                  "external_directory": "allow"
                 }
               }
-            }
+            },
+            "instructions": [
+              "IMPORTANT: You have MCP tools from the 'safeoutputs' server. Use the add_comment MCP tool to post comments on PRs. Do NOT use gh CLI for writing. You MUST call the add_comment MCP tool before finishing."
+            ]
           }
           OCEOF
           )
