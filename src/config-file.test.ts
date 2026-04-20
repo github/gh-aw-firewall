@@ -443,7 +443,7 @@ describe('config-file', () => {
 
     it('throws on invalid YAML file', () => {
       const filePath = path.join(testDir, 'awf.yaml');
-      // YAML that parses to a non-object (e.g., just a string value after colon)
+      // Intentionally malformed YAML to exercise parse-error handling
       fs.writeFileSync(filePath, ': invalid yaml\n  bad indent:\n');
 
       // May throw on parse or validation
