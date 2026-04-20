@@ -1076,7 +1076,7 @@ awf predownload [options]
 | `--image-tag <tag>` | string | `latest` | Container image tag (applies to squid, agent, agent-act, api-proxy, and cli-proxy images). Supports optional digest metadata — see [`--image-tag`](#--image-tag-tag) for format details. |
 | `--agent-image <value>` | string | `default` | Agent image preset (`default`, `act`) or custom image |
 | `--enable-api-proxy` | flag | `false` | Also download the API proxy image |
-| `--difc-proxy` | flag | `false` | Also download the CLI proxy image (for `--difc-proxy-host`) |
+| `--difc-proxy` | flag | `false` | Also download the CLI proxy image used when runtime flag `--difc-proxy-host` is set |
 
 :::tip
 After pre-downloading, use `--skip-pull` on subsequent runs to skip pulling images at runtime.

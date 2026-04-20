@@ -101,8 +101,8 @@ Options:
   --rate-limit-rph <n>         Max requests per hour per provider (requires --enable-api-proxy)
   --rate-limit-bytes-pm <n>    Max request bytes per minute per provider (requires --enable-api-proxy)
   --no-rate-limit              Disable rate limiting in the API proxy (requires --enable-api-proxy)
-  --difc-proxy-host <host:port> Connect to an external DIFC proxy (mcpg) and enable the CLI
-                               proxy sidecar for gh command routing
+  --difc-proxy-host <host:port> Connect to an external DIFC proxy (Multi-Cloud Proxy Gateway, "mcpg")
+                               and enable the CLI proxy sidecar for gh command routing
   --difc-proxy-ca-cert <path>  Path to TLS CA cert written by external DIFC proxy
   --ruleset-file <path>        YAML rule file for domain allowlisting (repeatable).
                                 Schema: version: 1, rules: [{domain, subdomains}]
