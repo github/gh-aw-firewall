@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 10
+  max-turns: 6
 features:
   cli-proxy: true
 tools:
@@ -20,6 +20,31 @@ tools:
 network:
   allowed:
     - github
+if: needs.check_security_relevance.outputs.security_files_changed != '0'
+jobs:
+  check_security_relevance:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      security_files_changed: ${{ steps.check.outputs.count }}
+    steps:
+      - name: Check security relevance
+        id: check
+        run: |
+          if [ -z "${PR_NUMBER}" ]; then
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|containers/"
+          COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' \
+            | grep -cE "$SECURITY_RE" || true)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_REPO: ${{ github.repository }}
 safe-outputs:
   threat-detection:
     enabled: false
@@ -66,6 +91,7 @@ steps:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REPO: ${{ github.repository }}
+
 ---
 
 # Security Guard
@@ -74,7 +100,7 @@ steps:
 
 **Security-critical files changed in this PR:** ${{ steps.security-relevance.outputs.security_files_changed }}
 
-> If this value is `0`, no security-critical files were modified. Use `noop` immediately without further analysis — this PR does not require a security review.
+> If this value is `0`, the workflow skips the agent job.
 
 ## Repository Context
 
@@ -119,40 +145,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 ## Security Checks
 
-Look for these types of security-weakening changes:
-
-### iptables and Network Filtering
-- Changes that add new ACCEPT rules without proper justification
-- Removal or weakening of DROP/REJECT rules
-- Changes to the firewall chain structure (FW_WRAPPER, DOCKER-USER)
-- DNS exfiltration prevention bypasses (allowing arbitrary DNS servers)
-- IPv6 filtering gaps that could allow bypasses
-
-### Squid Proxy Configuration
-- Changes to ACL rule ordering that could allow blocked traffic
-- Removal of domain blocking functionality
-- Addition of overly permissive domain patterns (e.g., `*.*`)
-- Changes that allow non-standard ports (only 80/443 should be allowed)
-- Timeout changes that could enable connection-based attacks
-
-### Container Security
-- Removal or weakening of capability dropping (cap_drop)
-- Addition of dangerous capabilities (SYS_ADMIN, NET_RAW readdition)
-- Changes to seccomp profile that allow dangerous syscalls
-- Removal of resource limits
-- Changes that run as root instead of unprivileged user
-
-### Domain Pattern Security
-- Removal of wildcard pattern validation
-- Allowing overly broad patterns like `*` or `*.*`
-- Changes to protocol handling that could bypass restrictions
-
-### General Security
-- Hardcoded credentials or secrets
-- Removal of input validation
-- Introduction of command injection vulnerabilities
-- Changes that disable security features via environment variables
-- Dependency updates that introduce known vulnerabilities
+Check for these security-weakening changes: new/expanded ACCEPT rules, weakened DROP/REJECT, firewall chain rewiring, DNS or IPv6 bypasses, Squid ACL/order regressions, non-80/443 egress allowances, wildcard/domain validation bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxations, removal of resource/user hardening, input validation removal, command injection risk, hardcoded secrets, security-disabling env var changes, or risky dependency updates.
 
 ## Output Format
 
