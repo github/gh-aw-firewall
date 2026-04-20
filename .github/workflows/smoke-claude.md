@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 8
+  max-turns: 12
 features:
   cli-proxy: true
 strict: true
