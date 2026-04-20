@@ -6,6 +6,7 @@
 sudo awf [options] -- <command>
 
 Options:
+  --config <path>              Path to AWF JSON/YAML config file (use "-" to read from stdin)
   -d, --allow-domains <domains>  Comma-separated list of allowed domains. Supports wildcards and protocol prefixes:
                              - github.com: exact domain + subdomains (HTTP & HTTPS)
                              - *.github.com: any subdomain of github.com
@@ -43,31 +44,44 @@ Options:
                                    default → agent:<tag>
                                    act     → agent-act:<tag>
   --skip-pull                  Use local images without pulling from registry (requires images to be
-                               pre-downloaded) (default: false)
+                                pre-downloaded) (default: false)
+  --docker-host <socket>       Docker socket for AWF's own containers (default: auto-detect from
+                               DOCKER_HOST env). Example: unix:///run/user/1000/docker.sock
   -e, --env <KEY=VALUE>        Additional environment variables to pass to container (can be
-                               specified multiple times)
+                                specified multiple times)
   --env-all                    Pass all host environment variables to container (excludes system vars
-                               like PATH) (default: false)
+                                like PATH) (default: false)
+  --exclude-env <name>         Exclude a specific environment variable from --env-all passthrough
+                               (can be specified multiple times)
+  --env-file <path>            Read environment variables from a file (KEY=VALUE format, one per line)
   -v, --mount <path:path>      Volume mount (can be specified multiple times). Format:
-                               host_path:container_path[:ro|rw]
+                                host_path:container_path[:ro|rw]
   --container-workdir <dir>    Working directory inside the container (should match GITHUB_WORKSPACE
                                for path consistency)
   --dns-servers <servers>      Comma-separated list of trusted DNS servers. DNS traffic is ONLY
-                               allowed to these servers (default: 8.8.8.8,8.8.4.4)
+                               allowed to these servers (default: auto-detected from host resolvers,
+                               falls back to 8.8.8.8,8.8.4.4)
+  --upstream-proxy <url>       Upstream (corporate) proxy URL for Squid to chain through.
+                               Auto-detected from host https_proxy/http_proxy if not set.
   --proxy-logs-dir <path>      Directory to save Squid proxy logs to (writes access.log directly to
-                               this directory)
+                                this directory)
+  --audit-dir <path>           Directory for firewall audit artifacts (configs, policy manifest,
+                               iptables state)
   --session-state-dir <path>   Directory to save Copilot CLI session state (events.jsonl, session
-                               data). Writes directly during execution (timeout-safe, predictable
-                               path). Also configurable via AWF_SESSION_STATE_DIR env var.
+                                data). Writes directly during execution (timeout-safe, predictable
+                                path). Also configurable via AWF_SESSION_STATE_DIR env var.
   --enable-host-access         Enable access to host services via host.docker.internal. Security
                                warning: When combined with --allow-domains host.docker.internal,
                                containers can access ANY service on the host machine. (default: false)
   --allow-host-ports <ports>   Comma-separated list of ports or port ranges to allow when using
-                               --enable-host-access. By default, only ports 80 and 443 are allowed.
-                               Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or
-                               --allow-host-ports 3000-3010,8000-8090
+                                --enable-host-access. By default, only ports 80 and 443 are allowed.
+                                Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or
+                                --allow-host-ports 3000-3010,8000-8090
+  --allow-host-service-ports <ports> Comma-separated ports to allow ONLY to host gateway
+                               (for GitHub Actions services). Auto-enables host access.
+                               Example: --allow-host-service-ports 5432,6379
   --ssl-bump                   Enable SSL Bump for HTTPS content inspection (allows URL path
-                               filtering for HTTPS) (default: false)
+                                filtering for HTTPS) (default: false)
   --allow-urls <urls>          Comma-separated list of allowed URL patterns for HTTPS (requires --ssl-bump).
                                Supports wildcards: https://github.com/myorg/*
   --enable-api-proxy           Enable API proxy sidecar for holding authentication credentials.
@@ -76,22 +90,32 @@ Options:
   --copilot-api-target <host>  Target hostname for Copilot API requests
                                (default: api.githubcopilot.com)
   --openai-api-target <host>   Target hostname for OpenAI API requests (default: api.openai.com)
+  --openai-api-base-path <path> Base path prefix for OpenAI API requests
   --anthropic-api-target <host> Target hostname for Anthropic API requests
-                               (default: api.anthropic.com)
+                                (default: api.anthropic.com)
+  --anthropic-api-base-path <path> Base path prefix for Anthropic API requests
+  --gemini-api-target <host>   Target hostname for Gemini API requests
+                               (default: generativelanguage.googleapis.com)
+  --gemini-api-base-path <path> Base path prefix for Gemini API requests
   --rate-limit-rpm <n>         Max requests per minute per provider (requires --enable-api-proxy)
   --rate-limit-rph <n>         Max requests per hour per provider (requires --enable-api-proxy)
   --rate-limit-bytes-pm <n>    Max request bytes per minute per provider (requires --enable-api-proxy)
   --no-rate-limit              Disable rate limiting in the API proxy (requires --enable-api-proxy)
+  --difc-proxy-host <host:port> Connect to an external DIFC proxy (mcpg) and enable the CLI
+                               proxy sidecar for gh command routing
+  --difc-proxy-ca-cert <path>  Path to TLS CA cert written by external DIFC proxy
   --ruleset-file <path>        YAML rule file for domain allowlisting (repeatable).
-                               Schema: version: 1, rules: [{domain, subdomains}]
+                                Schema: version: 1, rules: [{domain, subdomains}]
   --dns-over-https [url]       Enable DNS-over-HTTPS via sidecar proxy
                                (default: https://dns.google/dns-query)
-  --memory-limit <limit>       Memory limit for the agent container (default: 2g)
-                               Examples: 1g, 4g, 512m
+  --memory-limit <limit>       Memory limit for the agent container (default: 6g)
+                                Examples: 1g, 4g, 512m
   --enable-dind                Enable Docker-in-Docker by exposing host Docker socket.
                                WARNING: allows firewall bypass via docker run (default: false)
   --enable-dlp                 Enable DLP (Data Loss Prevention) scanning to block credential
-                               exfiltration in outbound request URLs. (default: false)
+                                exfiltration in outbound request URLs. (default: false)
+  --diagnostic-logs            Collect container logs, exit state, and sanitized config on non-zero
+                               exit. Written to <workDir>/diagnostics/ (or <audit-dir>/diagnostics/)
   -V, --version                Output the version number
   -h, --help                   Display help for command
 
@@ -99,6 +123,13 @@ Arguments:
   command                      Command to execute (wrap in quotes, use -- separator)
 
 Commands:
+  predownload [options]        Pre-download Docker images for offline use or faster startup
+    --image-registry <registry> Container image registry (default: ghcr.io/github/gh-aw-firewall)
+    --image-tag <tag>          Container image tag (default: latest)
+    --agent-image <value>      Agent image preset (default, act) or custom image
+    --enable-api-proxy         Also download the API proxy image
+    --difc-proxy               Also download the CLI proxy image (for --difc-proxy-host)
+
   logs [options]               View and analyze Squid proxy logs
     -f, --follow               Follow log output in real-time (like tail -f)
     --format <format>          Output format: raw, pretty (colorized), json
@@ -113,6 +144,13 @@ Commands:
   logs summary [options]       Generate summary report (markdown by default)
     --format <format>          Output format: json, markdown, pretty
     --source <path>            Path to log directory or "running" for live container
+
+  logs audit [options]         Show firewall audit with policy rule matching
+    --format <format>          Output format: json, markdown, pretty
+    --source <path>            Path to log directory or "running" for live container
+    --rule <id>                Filter to specific rule ID
+    --domain <domain>          Filter to specific domain
+    --decision <decision>      Filter to "allowed" or "denied"
 ```
 
 ## Basic Examples

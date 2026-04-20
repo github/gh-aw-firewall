@@ -19,6 +19,7 @@ awf [options] -- <command>
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `--config <path>` | string | — | Path to AWF JSON/YAML config file (use `-` to read from stdin) |
 | `--allow-domains <domains>` | string | — | Comma-separated list of allowed domains (optional; if not specified, all network access is blocked) |
 | `--allow-domains-file <path>` | string | — | Path to file containing allowed domains |
 | `--ruleset-file <path>` | string | `[]` | YAML rule file for domain allowlisting (repeatable) |
@@ -35,6 +36,7 @@ awf [options] -- <command>
 | `--image-registry <url>` | string | `ghcr.io/github/gh-aw-firewall` | Container image registry |
 | `--image-tag <tag>` | string | `latest` | Container image tag. Supports optional per-image digest pinning: `<tag>,squid=sha256:...,agent=sha256:...,agent-act=sha256:...,api-proxy=sha256:...,cli-proxy=sha256:...` |
 | `--skip-pull` | flag | `false` | Use local images without pulling from registry |
+| `--docker-host <socket>` | string | auto-detected | Docker socket for AWF's own containers |
 | `-e, --env <KEY=VALUE>` | string | `[]` | Environment variable (repeatable) |
 | `--env-all` | flag | `false` | Pass all host environment variables |
 | `--exclude-env <name>` | string | `[]` | Exclude a variable from `--env-all` passthrough (repeatable) |
@@ -44,8 +46,10 @@ awf [options] -- <command>
 | `--memory-limit <limit>` | string | `6g` | Memory limit for the agent container |
 | `--dns-servers <servers>` | string | Auto-detected | Trusted DNS servers (comma-separated; auto-detected from host, falls back to `8.8.8.8,8.8.4.4`) |
 | `--dns-over-https [resolver-url]` | optional string | `https://dns.google/dns-query` | Enable DNS-over-HTTPS via sidecar proxy |
+| `--upstream-proxy <url>` | string | auto-detected | Upstream (corporate) proxy URL for Squid to chain through |
 | `--proxy-logs-dir <path>` | string | — | Directory to save Squid proxy logs to |
 | `--audit-dir <path>` | string | — | Directory for firewall audit artifacts |
+| `--session-state-dir <path>` | string | — | Directory to save Copilot CLI session state |
 | `--enable-host-access` | flag | `false` | Enable access to host services via host.docker.internal |
 | `--allow-host-ports <ports>` | string | `80,443` | Ports to allow when using --enable-host-access |
 | `--allow-host-service-ports <ports>` | string | — | Ports to allow ONLY to host gateway (for GitHub Actions `services:`) |
@@ -58,14 +62,33 @@ awf [options] -- <command>
 | `--openai-api-base-path <path>` | string | — | Base path prefix for OpenAI API requests |
 | `--anthropic-api-target <host>` | string | `api.anthropic.com` | Target hostname for Anthropic API requests |
 | `--anthropic-api-base-path <path>` | string | — | Base path prefix for Anthropic API requests |
+| `--gemini-api-target <host>` | string | `generativelanguage.googleapis.com` | Target hostname for Gemini API requests |
+| `--gemini-api-base-path <path>` | string | — | Base path prefix for Gemini API requests |
 | `--rate-limit-rpm <n>` | number | `600` | Max requests per minute per provider |
 | `--rate-limit-rph <n>` | number | `10000` | Max requests per hour per provider |
 | `--rate-limit-bytes-pm <n>` | number | `52428800` (~50 MB) | Max request bytes per minute per provider |
 | `--no-rate-limit` | flag | — | Disable rate limiting in API proxy |
+| `--difc-proxy-host <host:port>` | string | — | Connect to external DIFC proxy and enable CLI proxy sidecar |
+| `--difc-proxy-ca-cert <path>` | string | — | Path to TLS CA cert for external DIFC proxy verification |
+| `--diagnostic-logs` | flag | `false` | Collect diagnostics on non-zero exit |
 | `-V, --version` | flag | — | Display version |
 | `-h, --help` | flag | — | Display help |
 
 ## Options Details
+
+### `--config <path>`
+
+Load AWF options from a JSON or YAML config file. Use `-` to read config from stdin.
+
+CLI flags always take precedence over values loaded from the config file.
+
+```bash
+# Load from file
+sudo awf --config ./awf.yml -- curl https://api.github.com
+
+# Load from stdin
+cat awf.yml | sudo awf --config - -- curl https://api.github.com
+```
 
 ### `--allow-domains <domains>`
 
@@ -370,6 +393,18 @@ When using `--skip-pull`, you are responsible for verifying image authenticity. 
 The `--skip-pull` flag cannot be used with `--build-local` since building images requires pulling base images from the registry.
 :::
 
+### `--docker-host <socket>`
+
+Override the Docker socket used by AWF for its own container operations.
+
+```bash
+sudo awf --docker-host unix:///run/user/1000/docker.sock \
+  --allow-domains github.com \
+  -- curl https://api.github.com
+```
+
+The value must be a `unix://` socket URI.
+
 ### `-e, --env <KEY=VALUE>`
 
 Pass environment variable to container. Can be specified multiple times.
@@ -508,6 +543,18 @@ Enable DNS-over-HTTPS (DoH) via a sidecar proxy. When enabled, DNS queries are e
 Use `--dns-over-https` without a value to use the Google DNS default. Provide a custom URL only if your environment requires a specific resolver.
 :::
 
+### `--upstream-proxy <url>`
+
+Configure Squid to chain outbound traffic through an upstream corporate proxy.
+
+```bash
+sudo awf --upstream-proxy http://proxy.corp.com:3128 \
+  --allow-domains github.com \
+  -- curl https://api.github.com
+```
+
+If omitted, AWF auto-detects host `https_proxy`/`http_proxy` settings.
+
 ### `--enable-host-access`
 
 Enable access to host services via `host.docker.internal`. This allows containers to connect to services running on the host machine (e.g., local development servers, MCP gateways).
@@ -604,6 +651,16 @@ ls ./audit/
 :::tip
 Use `--audit-dir` in CI/CD pipelines to capture firewall configuration for audit trails. Can also be set via the `AWF_AUDIT_DIR` environment variable.
 :::
+
+### `--session-state-dir <path>`
+
+Directory to persist Copilot CLI session state (such as `events.jsonl`) during execution.
+
+```bash
+sudo awf --session-state-dir ./session-state \
+  --allow-domains github.com \
+  -- copilot --prompt "hello"
+```
 
 ### `--agent-image <value>`
 
@@ -777,6 +834,35 @@ sudo -E awf --enable-api-proxy \
   -- command
 ```
 
+### `--gemini-api-target <host>`
+
+Target hostname for Gemini API requests. Useful for private gateways or compatible Gemini endpoints.
+
+- **Default:** `generativelanguage.googleapis.com`
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --gemini-api-target ai-gateway.internal.example.com \
+  --allow-domains ai-gateway.internal.example.com \
+  -- command
+```
+
+### `--gemini-api-base-path <path>`
+
+Base path prefix prepended to Gemini API requests.
+
+- **Default:** none
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --gemini-api-target ai-gateway.internal.example.com \
+  --gemini-api-base-path /gemini \
+  --allow-domains ai-gateway.internal.example.com \
+  -- command
+```
+
 ### `--rate-limit-rpm <n>`
 
 Maximum number of requests per minute per provider. Rate limiting is opt-in — it is only enabled when at least one `--rate-limit-*` flag is provided.
@@ -830,6 +916,33 @@ sudo -E awf --enable-api-proxy --no-rate-limit \
   --allow-domains api.anthropic.com \
   -- command
 ```
+
+### `--difc-proxy-host <host:port>`
+
+Connect to an external DIFC proxy (`mcpg`) and enable the CLI proxy sidecar for `gh` command routing.
+
+```bash
+sudo awf --difc-proxy-host 127.0.0.1:5555 \
+  --allow-domains github.com \
+  -- gh repo view github/gh-aw-firewall
+```
+
+### `--difc-proxy-ca-cert <path>`
+
+Path to a CA certificate written by the external DIFC proxy. Recommended when using `--difc-proxy-host` over TLS.
+
+```bash
+sudo awf --difc-proxy-host 127.0.0.1:5555 \
+  --difc-proxy-ca-cert /tmp/mcpg-ca.crt \
+  --allow-domains github.com \
+  -- gh repo view github/gh-aw-firewall
+```
+
+### `--diagnostic-logs`
+
+Collect container logs, exit state, and a sanitized config snapshot when the wrapped command exits non-zero.
+
+Diagnostic artifacts are written to `<workDir>/diagnostics/` (or `<audit-dir>/diagnostics/` when `--audit-dir` is set).
 
 :::caution
 When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF emits a warning if a custom target is set but not in the allowlist.
@@ -963,6 +1076,7 @@ awf predownload [options]
 | `--image-tag <tag>` | string | `latest` | Container image tag (applies to squid, agent, agent-act, api-proxy, and cli-proxy images). Supports optional digest metadata — see [`--image-tag`](#--image-tag-tag) for format details. |
 | `--agent-image <value>` | string | `default` | Agent image preset (`default`, `act`) or custom image |
 | `--enable-api-proxy` | flag | `false` | Also download the API proxy image |
+| `--difc-proxy` | flag | `false` | Also download the CLI proxy image (for `--difc-proxy-host`) |
 
 :::tip
 After pre-downloading, use `--skip-pull` on subsequent runs to skip pulling images at runtime.
@@ -976,6 +1090,9 @@ awf predownload
 
 # Pre-download including the API proxy image
 awf predownload --enable-api-proxy
+
+# Pre-download including the CLI proxy image
+awf predownload --difc-proxy
 
 # Pre-download a specific version
 awf predownload --image-tag v0.3.0
