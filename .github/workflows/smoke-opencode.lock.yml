@@ -773,7 +773,7 @@ jobs:
                 "npm": "@ai-sdk/openai-compatible",
                 "name": "Copilot API Proxy",
                 "options": {
-                  "baseURL": "http://host.docker.internal:10004/v1"
+                  "baseURL": "http://172.30.0.30:10004/v1"
                 },
                 "models": {
                   "gpt-4.1": { "name": "GPT-4.1" }
