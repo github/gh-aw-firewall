@@ -54,7 +54,7 @@ Options:
   --exclude-env <name>         Exclude a specific environment variable from --env-all passthrough
                                (can be specified multiple times)
   --env-file <path>            Read environment variables from a file (KEY=VALUE format, one per line)
-  -v, --mount <path:path>      Volume mount (can be specified multiple times). Format:
+  -v, --mount <host_path:container_path[:ro|rw]>  Volume mount (can be specified multiple times). Format:
                                 host_path:container_path[:ro|rw]
   --container-workdir <dir>    Working directory inside the container (should match GITHUB_WORKSPACE
                                for path consistency)
