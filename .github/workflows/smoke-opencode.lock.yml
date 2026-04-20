@@ -763,7 +763,7 @@ jobs:
           umask 077
           mkdir -p "$GITHUB_WORKSPACE"
           CONFIG="$GITHUB_WORKSPACE/opencode.jsonc"
-          BASE_CONFIG='{"agent":{"build":{"permissions":{"bash":"allow","edit":"allow","read":"allow","glob":"allow","grep":"allow","write":"allow","webfetch":"allow","websearch":"allow"}}}}'
+          BASE_CONFIG='{"model":"openai/gpt-4.1","agent":{"build":{"permissions":{"bash":"allow","edit":"allow","read":"allow","glob":"allow","grep":"allow","write":"allow","webfetch":"allow","websearch":"allow"}}}}'
           if [ -f "$CONFIG" ]; then
             MERGED=$(jq -n --argjson base "$BASE_CONFIG" --argjson existing "$(cat "$CONFIG")" '$existing * $base')
             echo "$MERGED" > "$CONFIG"
