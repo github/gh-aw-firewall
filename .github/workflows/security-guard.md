@@ -33,10 +33,10 @@ jobs:
         id: check
         run: |
           if [ -z "${PR_NUMBER}" ]; then
-            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "count=1" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|containers/"
+          SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/"
           COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
             --paginate --jq '.[].filename' \
             | grep -cE "$SECURITY_RE" || true)
@@ -82,7 +82,7 @@ steps:
     id: security-relevance
     if: github.event.pull_request.number
     run: |
-      SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|containers/"
+      SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/"
       COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
         --paginate --jq '.[].filename' \
         | grep -cE "$SECURITY_RE" || true)
