@@ -25,6 +25,12 @@ When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOK
 
 The following are always set/overridden: `PATH` (container values).
 
+### Self-hosted runner home directory support
+
+AWF derives the effective home directory at runtime from the host environment (`$HOME`, with sudo-aware handling), not from a hardcoded `/home/runner` path.
+
+This means self-hosted Linux runners with non-standard service-account homes are supported, as long as `$HOME` is set correctly before invoking `awf`.
+
 Variables from `--env` flags override everything else.
 
 **Proxy variables set automatically:** `HTTP_PROXY`, `HTTPS_PROXY`, and `https_proxy` are always set to point to the Squid proxy (`http://172.30.0.10:3128`). Note that lowercase `http_proxy` is intentionally **not** set — some curl builds on Ubuntu 22.04 ignore uppercase `HTTP_PROXY` for HTTP URLs (httpoxy mitigation), so HTTP traffic falls through to iptables DNAT interception instead. iptables DNAT serves as a defense-in-depth fallback for both HTTP and HTTPS.

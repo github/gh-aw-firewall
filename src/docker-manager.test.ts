@@ -878,6 +878,38 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
+    it('should support non-standard HOME and create missing .copilot mount source', () => {
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+      const originalHome = process.env.HOME;
+      const originalSudoUser = process.env.SUDO_USER;
+      delete process.env.SUDO_USER;
+      process.env.HOME = fakeHome;
+
+      try {
+        const copilotDir = path.join(fakeHome, '.copilot');
+        expect(fs.existsSync(copilotDir)).toBe(false);
+
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(fs.existsSync(copilotDir)).toBe(true);
+        expect(volumes).toContain(`${mockConfig.workDir}-chroot-home:/host${fakeHome}:rw`);
+        expect(volumes).toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
     it('should use sessionStateDir when specified for chroot mounts', () => {
       const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
       const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);

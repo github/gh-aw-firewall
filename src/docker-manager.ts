@@ -1164,7 +1164,20 @@ export function generateDockerCompose(
     // Mount ~/.copilot for Copilot CLI (package extraction, MCP config, etc.)
     // This is safe as ~/.copilot contains only Copilot CLI state, not credentials.
     // Auth tokens are in COPILOT_GITHUB_TOKEN env var (handled by API proxy sidecar).
-    agentVolumes.push(`${effectiveHome}/.copilot:/host${effectiveHome}/.copilot:rw`);
+    const copilotHomeDir = path.join(effectiveHome, '.copilot');
+    let shouldMountCopilotDir = fs.existsSync(copilotHomeDir);
+    if (!shouldMountCopilotDir) {
+      try {
+        fs.mkdirSync(copilotHomeDir, { recursive: true });
+        shouldMountCopilotDir = true;
+        logger.debug(`Created missing Copilot directory for bind mount: ${copilotHomeDir}`);
+      } catch (error) {
+        logger.warn(`Skipping ~/.copilot host bind mount because directory could not be created: ${copilotHomeDir} (${error instanceof Error ? error.message : String(error)})`);
+      }
+    }
+    if (shouldMountCopilotDir) {
+      agentVolumes.push(`${copilotHomeDir}:/host${effectiveHome}/.copilot:rw`);
+    }
 
     // Overlay session-state and logs from AWF workDir so events.jsonl and logs are
     // captured in the workDir instead of written to the host's ~/.copilot.
