@@ -759,11 +759,44 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/start_cli_proxy.sh"
       - name: Write OpenCode configuration
+        env:
+          OPENAI_API_KEY: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           umask 077
           mkdir -p "$GITHUB_WORKSPACE"
           CONFIG="$GITHUB_WORKSPACE/opencode.jsonc"
-          BASE_CONFIG='{"model":"openai/gpt-4.1","agent":{"build":{"permissions":{"bash":"allow","edit":"allow","read":"allow","glob":"allow","grep":"allow","write":"allow","webfetch":"allow","websearch":"allow"}}}}'
+          BASE_CONFIG=$(cat <<'OCEOF'
+          {
+            "model": "copilot-proxy/gpt-4.1",
+            "provider": {
+              "copilot-proxy": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Copilot API Proxy",
+                "options": {
+                  "baseURL": "http://host.docker.internal:10004/v1"
+                },
+                "models": {
+                  "gpt-4.1": { "name": "GPT-4.1" }
+                }
+              }
+            },
+            "agent": {
+              "build": {
+                "permissions": {
+                  "bash": "allow",
+                  "edit": "allow",
+                  "read": "allow",
+                  "glob": "allow",
+                  "grep": "allow",
+                  "write": "allow",
+                  "webfetch": "allow",
+                  "websearch": "allow"
+                }
+              }
+            }
+          }
+          OCEOF
+          )
           if [ -f "$CONFIG" ]; then
             MERGED=$(jq -n --argjson base "$BASE_CONFIG" --argjson existing "$(cat "$CONFIG")" '$existing * $base')
             echo "$MERGED" > "$CONFIG"
@@ -771,6 +804,14 @@ jobs:
             echo "$BASE_CONFIG" > "$CONFIG"
           fi
           chmod 600 "$CONFIG"
+          echo "[INFO] OpenCode config:"
+          cat "$CONFIG"
+          # Pre-populate OpenCode auth with the Copilot token for the custom provider
+          AUTH_DIR="$HOME/.local/share/opencode"
+          mkdir -p "$AUTH_DIR"
+          jq -n --arg key "$OPENAI_API_KEY" '{"copilot-proxy": $key}' > "$AUTH_DIR/auth.json"
+          chmod 600 "$AUTH_DIR/auth.json"
+          echo "[INFO] OpenCode auth.json written for copilot-proxy provider"
       - name: Execute OpenCode CLI
         id: agentic_execution
         run: |
