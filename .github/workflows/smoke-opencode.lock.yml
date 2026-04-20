@@ -784,7 +784,7 @@ jobs:
             },
             "agent": {
               "build": {
-                "permissions": {
+                "permission": {
                   "bash": "allow",
                   "edit": "allow",
                   "read": "allow",
@@ -793,7 +793,6 @@ jobs:
                   "write": "allow",
                   "webfetch": "allow",
                   "websearch": "allow",
-                  "mcp": "allow",
                   "external_directory": "allow"
                 }
               }
