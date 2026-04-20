@@ -800,8 +800,9 @@ jobs:
           OCEOF
           )
           # Add MCP gateway config with runtime values (port + API key from gateway step)
+          # Gateway uses routed mode: /mcp/<server-name>
           MCP_CONFIG=$(jq -n \
-            --arg url "http://host.docker.internal:${MCP_GATEWAY_PORT}" \
+            --arg url "http://host.docker.internal:${MCP_GATEWAY_PORT}/mcp/safeoutputs" \
             --arg key "${MCP_GATEWAY_API_KEY}" \
             '{mcp: {safeoutputs: {type: "remote", url: $url, headers: {Authorization: $key}, timeout: 30000}}}')
           BASE_CONFIG=$(echo "$BASE_CONFIG" | jq --argjson mcp "$MCP_CONFIG" '. * $mcp')
