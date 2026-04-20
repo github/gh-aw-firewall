@@ -761,6 +761,8 @@ jobs:
       - name: Write OpenCode configuration
         env:
           COPILOT_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          MCP_GATEWAY_PORT: ${{ steps.start-mcp-gateway.outputs.gateway-port }}
+          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}
         run: |
           umask 077
           mkdir -p "$GITHUB_WORKSPACE"
@@ -797,6 +799,12 @@ jobs:
           }
           OCEOF
           )
+          # Add MCP gateway config with runtime values (port + API key from gateway step)
+          MCP_CONFIG=$(jq -n \
+            --arg url "http://host.docker.internal:${MCP_GATEWAY_PORT}" \
+            --arg key "${MCP_GATEWAY_API_KEY}" \
+            '{mcp: {safeoutputs: {type: "remote", url: $url, headers: {Authorization: $key}, timeout: 30000}}}')
+          BASE_CONFIG=$(echo "$BASE_CONFIG" | jq --argjson mcp "$MCP_CONFIG" '. * $mcp')
           if [ -f "$CONFIG" ]; then
             MERGED=$(jq -n --argjson base "$BASE_CONFIG" --argjson existing "$(cat "$CONFIG")" '$existing * $base')
             echo "$MERGED" > "$CONFIG"
