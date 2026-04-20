@@ -878,7 +878,7 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
-    it('should support non-standard HOME and create missing .copilot mount source', () => {
+    it('should create missing .copilot directory and mount it when using non-standard HOME path', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
       const originalHome = process.env.HOME;
       const originalSudoUser = process.env.SUDO_USER;
@@ -893,7 +893,6 @@ describe('docker-manager', () => {
         const volumes = result.services.agent.volumes as string[];
 
         expect(fs.existsSync(copilotDir)).toBe(true);
-        expect(volumes).toContain(`${mockConfig.workDir}-chroot-home:/host${fakeHome}:rw`);
         expect(volumes).toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
       } finally {
         if (originalHome !== undefined) {

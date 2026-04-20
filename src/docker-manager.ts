@@ -1170,7 +1170,7 @@ export function generateDockerCompose(
         fs.mkdirSync(copilotHomeDir, { recursive: true });
         logger.debug(`Created missing Copilot directory for bind mount: ${copilotHomeDir}`);
       } catch (error) {
-        logger.warn(`Skipping ~/.copilot host bind mount because directory could not be created: ${copilotHomeDir} (${error instanceof Error ? error.message : String(error)})`);
+        logger.warn(`Failed to create ~/.copilot directory at ${copilotHomeDir}; skipping host bind mount. Copilot CLI package extraction and persisted host MCP config may be unavailable. Error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     if (fs.existsSync(copilotHomeDir)) {
