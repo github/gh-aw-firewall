@@ -1165,17 +1165,15 @@ export function generateDockerCompose(
     // This is safe as ~/.copilot contains only Copilot CLI state, not credentials.
     // Auth tokens are in COPILOT_GITHUB_TOKEN env var (handled by API proxy sidecar).
     const copilotHomeDir = path.join(effectiveHome, '.copilot');
-    let shouldMountCopilotDir = fs.existsSync(copilotHomeDir);
-    if (!shouldMountCopilotDir) {
+    if (!fs.existsSync(copilotHomeDir)) {
       try {
         fs.mkdirSync(copilotHomeDir, { recursive: true });
-        shouldMountCopilotDir = true;
         logger.debug(`Created missing Copilot directory for bind mount: ${copilotHomeDir}`);
       } catch (error) {
         logger.warn(`Skipping ~/.copilot host bind mount because directory could not be created: ${copilotHomeDir} (${error instanceof Error ? error.message : String(error)})`);
       }
     }
-    if (shouldMountCopilotDir) {
+    if (fs.existsSync(copilotHomeDir)) {
       agentVolumes.push(`${copilotHomeDir}:/host${effectiveHome}/.copilot:rw`);
     }
 
