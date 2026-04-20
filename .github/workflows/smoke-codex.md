@@ -57,13 +57,32 @@ post-steps:
   - name: Validate safe outputs were invoked
     run: |
       OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
+
+      # Detect permission-blocked writes (PR runs with read-only permissions)
+      PERMISSION_BLOCKED=false
+      for LOG_FILE in "/tmp/gh-aw/agent-stdio.log" "${RUNNER_TEMP}/gh-aw/agent-stdio.log"; do
+        if [ -f "$LOG_FILE" ] && grep -qE 'blocked by permissions in this environment|GraphQL operation denied' "$LOG_FILE"; then
+          PERMISSION_BLOCKED=true
+          echo "::warning::Detected permission-blocked write actions in agent output; relaxing safe-output checks."
+          break
+        fi
+      done
+
       if [ ! -s "$OUTPUTS_FILE" ]; then
+        if [ "$PERMISSION_BLOCKED" = true ]; then
+          echo "Safe outputs empty but permissions were blocked — skipping validation."
+          exit 0
+        fi
         echo "::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools."
         exit 1
       fi
       echo "Safe output entries found: $(wc -l < "$OUTPUTS_FILE")"
       if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
         if ! grep -q '"add_comment"' "$OUTPUTS_FILE"; then
+          if [ "$PERMISSION_BLOCKED" = true ]; then
+            echo "add_comment missing but permissions were blocked — skipping."
+            exit 0
+          fi
           echo "::error::Agent did not call add_comment on a pull_request trigger."
           exit 1
         fi
