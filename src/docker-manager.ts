@@ -1821,6 +1821,19 @@ export function generateDockerCompose(
       if (config.openaiApiBasePath) {
         logger.debug(`OpenAI API base path set to: ${config.openaiApiBasePath}`);
       }
+
+      // Inject placeholder API keys for OpenAI/Codex credential isolation.
+      // Codex v0.121+ introduced a CODEX_API_KEY-based WebSocket auth flow: when no
+      // API key is found in the agent env, Codex bypasses OPENAI_BASE_URL and connects
+      // directly to api.openai.com for OAuth, getting a 401. With a placeholder key
+      // present, Codex routes API calls through OPENAI_BASE_URL (the api-proxy sidecar),
+      // which replaces the Authorization header with the real key before forwarding.
+      // The real keys are held securely in the sidecar; when requests are routed
+      // through api-proxy, these placeholders are expected to be overwritten by the
+      // api-proxy's injectHeaders before forwarding upstream.
+      environment.OPENAI_API_KEY = 'sk-placeholder-for-api-proxy';
+      environment.CODEX_API_KEY = 'sk-placeholder-for-api-proxy';
+      logger.debug('OPENAI_API_KEY and CODEX_API_KEY set to placeholder values for credential isolation');
     }
     if (config.anthropicApiKey) {
       environment.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`;

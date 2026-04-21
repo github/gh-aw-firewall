@@ -2526,8 +2526,11 @@ describe('docker-manager', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // Agent should NOT have the raw API key — only the sidecar gets it
-          expect(env.OPENAI_API_KEY).toBeUndefined();
+          // Agent should NOT have the real API key — only the sidecar holds it.
+          // A placeholder is injected so Codex/OpenAI clients route through OPENAI_BASE_URL
+          // (Codex v0.121+ bypasses OPENAI_BASE_URL when no key is present in the env).
+          expect(env.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+          expect(env.OPENAI_API_KEY).not.toBe('sk-secret-key');
           // Agent should have OPENAI_BASE_URL to proxy through sidecar
           expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
@@ -2540,8 +2543,9 @@ describe('docker-manager', () => {
       });
 
       it('should not leak CODEX_API_KEY to agent when api-proxy is enabled with envAll', () => {
-        // Simulate the key being in process.env AND envAll enabled
-        // CODEX_API_KEY is now excluded when api-proxy is enabled for credential isolation
+        // Simulate the key being in process.env AND envAll enabled.
+        // The host's real CODEX_API_KEY must not reach the agent; a placeholder is
+        // injected instead so Codex routes through OPENAI_BASE_URL (api-proxy).
         const origKey = process.env.CODEX_API_KEY;
         process.env.CODEX_API_KEY = 'sk-codex-secret';
         try {
@@ -2549,8 +2553,9 @@ describe('docker-manager', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // CODEX_API_KEY should NOT be passed to agent when api-proxy is enabled
-          expect(env.CODEX_API_KEY).toBeUndefined();
+          // CODEX_API_KEY placeholder is set; the real host key must not be present
+          expect(env.CODEX_API_KEY).toBe('sk-placeholder-for-api-proxy');
+          expect(env.CODEX_API_KEY).not.toBe('sk-codex-secret');
           // OPENAI_BASE_URL should be set when api-proxy is enabled with openaiApiKey
           expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
@@ -2563,7 +2568,8 @@ describe('docker-manager', () => {
       });
 
       it('should not leak OPENAI_API_KEY to agent when api-proxy is enabled with envAll', () => {
-        // Simulate envAll scenario (smoke-codex uses --env-all)
+        // Simulate envAll scenario (smoke-codex uses --env-all).
+        // Even with envAll, the real key must not reach the agent; a placeholder is used instead.
         const origKey = process.env.OPENAI_API_KEY;
         process.env.OPENAI_API_KEY = 'sk-openai-secret';
         try {
@@ -2571,8 +2577,9 @@ describe('docker-manager', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // Even with envAll, agent should NOT have OPENAI_API_KEY when api-proxy is enabled
-          expect(env.OPENAI_API_KEY).toBeUndefined();
+          // Placeholder is set; real key must not be passed to agent
+          expect(env.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+          expect(env.OPENAI_API_KEY).not.toBe('sk-openai-secret');
           // Agent should have OPENAI_BASE_URL to proxy through sidecar
           expect(env.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
         } finally {
