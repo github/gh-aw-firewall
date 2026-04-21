@@ -714,6 +714,27 @@ for (const workflowPath of workflowPaths) {
   }
 }
 
+// Matches the Codex config.toml heredoc opening followed (possibly with
+// previously-injected lines in between) by [shell_environment_policy], so we
+// can inject [model_providers.openai] config at the top of the config.toml
+// before the shell environment policy section. The non-greedy (?:...)* skips
+// any lines previously inserted by earlier versions of this script, making the
+// transformation idempotent and upgradable. The hash in the heredoc delimiter
+// varies across compiler versions, so we match \w+ instead of a literal hash.
+//
+// Codex v0.121+ ignores OPENAI_BASE_URL env var when constructing WebSocket URLs
+// for the responses API (wss://api.openai.com/v1/responses), connecting directly
+// to OpenAI and sending the api-proxy placeholder key → 401 Unauthorized.
+// Setting supports_websockets=false disables WebSocket transport, forcing Codex
+// to use REST for all API calls. REST calls respect OPENAI_BASE_URL (set by AWF's
+// docker-manager to http://172.30.0.30:10000), which routes them through the
+// api-proxy sidecar that injects the real OpenAI API key.
+//
+// See: https://developers.openai.com/codex/config-reference
+const codexConfigTomlHeredocRegex =
+  /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
+const CODEX_OPENAI_BASE_URL_SENTINEL = 'supports_websockets = false';
+
 // Apply Codex-specific transformations to OpenAI/Codex workflow files only.
 // These transformations must not be applied to Claude, Copilot, or other
 // non-OpenAI workflows.
@@ -726,6 +747,37 @@ for (const workflowPath of codexWorkflowPaths) {
     continue;
   }
   let modified = false;
+
+  // Inject [model_providers.openai] with supports_websockets=false into the Codex
+  // config.toml heredoc to disable WebSocket transport for the OpenAI provider.
+  // Codex v0.121+ ignores OPENAI_BASE_URL for WebSocket URL construction and
+  // connects directly to wss://api.openai.com/v1/responses with the api-proxy
+  // placeholder key, causing 401 Unauthorized. With WebSocket disabled, Codex
+  // falls back to REST, which correctly routes through OPENAI_BASE_URL
+  // (http://172.30.0.30:10000) → api-proxy sidecar → real OpenAI API key.
+  if (!content.includes(CODEX_OPENAI_BASE_URL_SENTINEL)) {
+    const heredocMatch = content.match(codexConfigTomlHeredocRegex);
+    if (heredocMatch) {
+      const indent = heredocMatch[1];
+      const modelProvidersBlock =
+        `${indent}[model_providers.openai]\n` +
+        `${indent}${CODEX_OPENAI_BASE_URL_SENTINEL}\n` +
+        `${indent}\n`;
+      content = content.replace(
+        codexConfigTomlHeredocRegex,
+        `$1$2${modelProvidersBlock}$3`
+      );
+      modified = true;
+      console.log(`  Injected [model_providers.openai] supports_websockets=false into Codex config.toml heredoc`);
+    } else {
+      console.warn(
+        `  WARNING: Could not find Codex config.toml heredoc pattern to inject model_providers config. ` +
+          `The compiled lock file may have changed structure. Manual review required.`
+      );
+    }
+  } else {
+    console.log(`  [model_providers.openai] supports_websockets=false already present in Codex config.toml`);
+  }
 
   // Preserve empty lines as truly empty (no trailing whitespace) to keep the
   // YAML block scalar clean and diff-friendly.
