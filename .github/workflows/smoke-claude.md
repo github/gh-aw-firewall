@@ -19,7 +19,10 @@ engine:
   max-turns: 12
 features:
   cli-proxy: true
-strict: true
+sandbox:
+  mcp:
+    version: v0.2.29
+strict: false
 network:
   allowed:
     - defaults

@@ -38,7 +38,10 @@ safe-outputs:
 timeout-minutes: 5
 features:
   byok-copilot: true
-strict: true
+sandbox:
+  mcp:
+    version: v0.2.29
+strict: false
 steps:
   - name: Pre-compute smoke test data
     id: smoke-data

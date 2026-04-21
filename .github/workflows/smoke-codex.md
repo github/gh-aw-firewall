@@ -16,7 +16,10 @@ name: Smoke Codex
 engine: codex
 features:
   cli-proxy: true
-strict: true
+sandbox:
+  mcp:
+    version: v0.2.29
+strict: false
 imports:
   - shared/gh.md
   - shared/mcp/tavily.md
