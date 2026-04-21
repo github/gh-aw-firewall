@@ -55,25 +55,60 @@ interface EpochStats {
   label: string;
   description: string;
   n: number;
-  // total_tokens stats
-  total_mean:  number;
-  total_median: number;
-  total_p25:   number;
-  total_p75:   number;
-  // effective_tokens stats
-  eff_mean:    number;
-  eff_median:  number;
+  // context_tokens stats (total tokens processed, normalised across formats)
+  ctx_mean:    number;
+  ctx_median:  number;
+  ctx_p25:     number;
+  ctx_p75:     number;
   // cache hit rate
   cache_mean:  number;
   // cost
   cost_mean:   number | null;
   cost_total:  number | null;
   // reduction vs baseline (epoch 0)
-  total_reduction_pct: number | null;
-  eff_reduction_pct:   number | null;
+  ctx_reduction_pct: number | null;
 }
 
-// ── Stats helpers ─────────────────────────────────────────────────────────────
+// ── Token field normalization ─────────────────────────────────────────────────
+// The dataset contains two token-field conventions:
+//
+//  CLAUDE format (input = net non-cached, cacheRead is separate):
+//    total_context = input + cacheRead + cacheWrite + output
+//    cache_rate    = cacheRead / total_context
+//    Indicator: cacheRead > input (common case: input=10, cacheRead=300K)
+//
+//  COPILOT format (input = total prompt inclusive of cache hits, cacheRead is subset):
+//    total_context = input + cacheWrite + output
+//    cache_rate    = cacheRead / input
+//    Indicator: cacheRead <= input
+//
+// We detect the format per-record and normalise to a consistent `context_tokens`
+// and `cache_rate` before any analysis.
+
+interface NormRecord extends DatasetRecord {
+  context_tokens: number;  // total tokens processed (comparable across formats)
+  cache_rate:     number;  // 0-1, fraction served from cache
+}
+
+function normalise(r: DatasetRecord): NormRecord {
+  const { input_tokens: inp, output_tokens: out,
+          cache_read_tokens: cR, cache_write_tokens: cW } = r;
+
+  let context: number;
+  let rate: number;
+
+  if (cR > inp) {
+    // Claude format: input is net non-cached; cacheRead is separate
+    context = inp + cR + cW + out;
+    rate    = context > 0 ? cR / context : 0;
+  } else {
+    // Copilot format: input already includes cache reads
+    context = inp + cW + out;
+    rate    = inp > 0 ? cR / inp : 0;
+  }
+
+  return { ...r, context_tokens: context, cache_rate: rate };
+}
 function mean(vals: number[]): number {
   return vals.length === 0 ? 0 : vals.reduce((a, b) => a + b, 0) / vals.length;
 }
@@ -119,18 +154,20 @@ function main() {
     process.exit(1);
   }
 
-  // Load records
-  const records: DatasetRecord[] = fs
+  // Load and normalise records
+  const rawRecords: DatasetRecord[] = fs
     .readFileSync(datasetPath, 'utf8')
     .split('\n')
     .filter(Boolean)
     .map(l => JSON.parse(l) as DatasetRecord)
     .filter(r => !workflow || r.workflow.toLowerCase().includes(workflow.toLowerCase()));
 
-  if (records.length === 0) {
+  if (rawRecords.length === 0) {
     console.error('No records found (check --input path or --workflow filter)');
     process.exit(1);
   }
+
+  const records: NormRecord[] = rawRecords.map(normalise);
 
   const allWorkflows = [...new Set(records.map(r => r.workflow))].sort();
   console.error(`Loaded ${records.length} records across ${allWorkflows.length} workflows`);
@@ -162,9 +199,8 @@ function main() {
     .map(([month, recs]) => ({
       month,
       n: recs.length,
-      avg_total: Math.round(mean(recs.map(r => r.total_tokens))),
-      avg_effective: Math.round(mean(recs.map(r => r.effective_tokens))),
-      avg_cache_rate: Math.round(mean(recs.map(r => r.cache_hit_rate)) * 100),
+      avg_context: Math.round(mean(recs.map(r => r.context_tokens))),
+      avg_cache_pct: Math.round(mean(recs.map(r => r.cache_rate)) * 100),
       total_cost: recs.filter(r => r.cost_usd !== null).reduce((s, r) => s + (r.cost_usd ?? 0), 0) || null,
     }));
 
@@ -194,44 +230,35 @@ function groupBy<T>(arr: T[], key: (item: T) => string | number): Record<string 
 }
 
 function computeEpochStats(
-  epochGroups: Record<string | number, DatasetRecord[]>,
-  allRecs: DatasetRecord[],
+  epochGroups: Record<string | number, NormRecord[]>,
+  _allRecs: NormRecord[],
 ): EpochStats[] {
-  // Find baseline (epoch 0)
   const baselineRecs = epochGroups[0] ?? [];
-  const baselineTotalMedian = median(baselineRecs.map(r => r.total_tokens));
-  const baselineEffMedian   = median(baselineRecs.map(r => r.effective_tokens));
+  const baselineCtxMedian = median(baselineRecs.map(r => r.context_tokens));
 
   return Object.entries(epochGroups)
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([epochStr, recs]) => {
-      const epoch = Number(epochStr);
-      const totals = recs.map(r => r.total_tokens);
-      const effs   = recs.map(r => r.effective_tokens);
-      const caches = recs.map(r => r.cache_hit_rate);
-      const costs  = recs.filter(r => r.cost_usd !== null).map(r => r.cost_usd as number);
-
-      const totalMed = median(totals);
-      const effMed   = median(effs);
+      const epoch   = Number(epochStr);
+      const ctxVals = recs.map(r => r.context_tokens);
+      const caches  = recs.map(r => r.cache_rate);
+      const costs   = recs.filter(r => r.cost_usd !== null).map(r => r.cost_usd as number);
+      const ctxMed  = median(ctxVals);
 
       return {
         epoch,
         label:       recs[0].label,
         description: recs[0].description,
         n: recs.length,
-        total_mean:   Math.round(mean(totals)),
-        total_median: Math.round(totalMed),
-        total_p25:    Math.round(percentile(totals, 25)),
-        total_p75:    Math.round(percentile(totals, 75)),
-        eff_mean:     Math.round(mean(effs)),
-        eff_median:   Math.round(effMed),
-        cache_mean:   Math.round(mean(caches) * 100) / 100,
-        cost_mean:    costs.length > 0 ? Math.round(mean(costs) * 10000) / 10000 : null,
-        cost_total:   costs.length > 0 ? Math.round(costs.reduce((a, b) => a + b, 0) * 100) / 100 : null,
-        total_reduction_pct: epoch === 0 || baselineTotalMedian === 0 ? null
-          : pct(totalMed, baselineTotalMedian),
-        eff_reduction_pct: epoch === 0 || baselineEffMedian === 0 ? null
-          : pct(effMed, baselineEffMedian),
+        ctx_mean:   Math.round(mean(ctxVals)),
+        ctx_median: Math.round(ctxMed),
+        ctx_p25:    Math.round(percentile(ctxVals, 25)),
+        ctx_p75:    Math.round(percentile(ctxVals, 75)),
+        cache_mean: Math.round(mean(caches) * 100) / 100,
+        cost_mean:  costs.length > 0 ? Math.round(mean(costs) * 10000) / 10000 : null,
+        cost_total: costs.length > 0 ? Math.round(costs.reduce((a, b) => a + b, 0) * 100) / 100 : null,
+        ctx_reduction_pct: epoch === 0 || baselineCtxMedian === 0 ? null
+          : pct(ctxMed, baselineCtxMedian),
       };
     });
 }
@@ -240,19 +267,19 @@ function computeEpochStats(
 function printTable(
   overall: EpochStats[],
   byWorkflow: Record<string, EpochStats[]>,
-  monthly: ReturnType<typeof main extends void ? never : any>[],
+  monthly: Array<{ month: string; n: number; avg_context: number; avg_cache_pct: number; total_cost: number | null }>,
   modelCounts: Record<string, number>,
   allWorkflows: string[],
-  records: DatasetRecord[],
+  records: NormRecord[],
 ) {
   const hr = (w = 100) => '─'.repeat(w);
 
   // Overall epoch summary
   console.log('\n' + hr());
-  console.log('OVERALL EPOCH SUMMARY (all workflows combined)');
+  console.log('OVERALL EPOCH SUMMARY (all workflows combined, context_tokens = total tokens processed)');
   console.log(hr());
   console.log(
-    'Ep  Label                n     Med.Total  Med.Eff    Cache%  ΔTotal    ΔEff      Avg$Cost'
+    'Ep  Label                n     Med.Context  p25        p75        Cache%  Δ vs baseline  Avg$Cost'
   );
   console.log(hr());
   for (const s of overall) {
@@ -260,11 +287,11 @@ function printTable(
       String(s.epoch).padStart(2),
       s.label.padEnd(20),
       String(s.n).padStart(5),
-      fmt(s.total_median).padStart(10),
-      fmt(s.eff_median).padStart(10),
+      fmt(s.ctx_median).padStart(12),
+      fmt(s.ctx_p25).padStart(10),
+      fmt(s.ctx_p75).padStart(10),
       `${Math.round(s.cache_mean * 100)}%`.padStart(7),
-      fmtPct(s.total_reduction_pct).padStart(9),
-      fmtPct(s.eff_reduction_pct).padStart(9),
+      fmtPct(s.ctx_reduction_pct).padStart(14),
       s.cost_mean !== null ? `$${s.cost_mean.toFixed(4)}`.padStart(10) : '—'.padStart(10),
     ].join('  ');
     console.log(row);
@@ -274,68 +301,67 @@ function printTable(
   for (const wf of allWorkflows) {
     const stats = byWorkflow[wf];
     if (!stats || stats.length < 2) continue;
-    console.log('\n' + hr(80));
+    console.log('\n' + hr(90));
     console.log(`WORKFLOW: ${wf}`);
-    console.log(hr(80));
-    console.log('Ep  Label                n     Med.Total  Med.Eff    Cache%  ΔTotal    ΔEff');
-    console.log(hr(80));
+    console.log(hr(90));
+    console.log('Ep  Label                n     Med.Context  Cache%  Δ vs baseline  Avg$Cost');
+    console.log(hr(90));
     for (const s of stats) {
       const row = [
         String(s.epoch).padStart(2),
         s.label.padEnd(20),
         String(s.n).padStart(5),
-        fmt(s.total_median).padStart(10),
-        fmt(s.eff_median).padStart(10),
+        fmt(s.ctx_median).padStart(12),
         `${Math.round(s.cache_mean * 100)}%`.padStart(7),
-        fmtPct(s.total_reduction_pct).padStart(9),
-        fmtPct(s.eff_reduction_pct).padStart(9),
+        fmtPct(s.ctx_reduction_pct).padStart(14),
+        s.cost_mean !== null ? `$${s.cost_mean.toFixed(4)}`.padStart(10) : '—'.padStart(10),
       ].join('  ');
       console.log(row);
     }
   }
 
   // Monthly trend
-  console.log('\n' + hr(80));
+  console.log('\n' + hr(70));
   console.log('MONTHLY TREND');
-  console.log(hr(80));
-  console.log('Month       n     Avg.Total  Avg.Eff    Cache%');
-  console.log(hr(80));
-  for (const m of (monthly as any[])) {
+  console.log(hr(70));
+  console.log('Month       n     Avg.Context  Cache%  Total$Cost');
+  console.log(hr(70));
+  for (const m of monthly) {
     console.log(
-      `${m.month}  ${String(m.n).padStart(5)}  ${fmt(m.avg_total).padStart(10)}  ` +
-      `${fmt(m.avg_effective).padStart(10)}  ${String(m.avg_cache_rate)}%`
+      `${m.month}  ${String(m.n).padStart(5)}  ${fmt(m.avg_context).padStart(12)}  ` +
+      `${String(m.avg_cache_pct)}%`.padStart(7) + '  ' +
+      (m.total_cost ? `$${m.total_cost.toFixed(2)}` : '—')
     );
   }
 
   // Model distribution
-  console.log('\n' + hr(50));
+  console.log('\n' + hr(55));
   console.log('MODEL DISTRIBUTION');
-  console.log(hr(50));
+  console.log(hr(55));
   for (const [model, count] of Object.entries(modelCounts).sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${model.padEnd(40)} ${count}`);
+    console.log(`  ${model.padEnd(45)} ${count}`);
   }
 
   // Summary
-  const totalRuns  = records.length;
-  const hasCost    = records.filter(r => r.cost_usd !== null);
-  const totalCost  = hasCost.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
-  const lastEpoch  = overall[overall.length - 1];
-  const baseline   = overall.find(e => e.epoch === 0);
+  const totalRuns = records.length;
+  const hasCost   = records.filter(r => r.cost_usd !== null);
+  const totalCost = hasCost.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
+  const baseline  = overall.find(e => e.epoch === 0);
+  const lastEpoch = overall[overall.length - 1];
 
   console.log('\n' + hr(80));
   console.log('SUMMARY');
   console.log(hr(80));
-  console.log(`  Total runs analyzed:     ${totalRuns}`);
+  console.log(`  Total runs analyzed:       ${totalRuns}`);
   if (baseline) {
-    console.log(`  Baseline median total:   ${fmt(baseline.total_median)} tokens/run`);
-    console.log(`  Latest epoch median:     ${fmt(lastEpoch.total_median)} tokens/run`);
-    const overall_reduction = baseline.total_median > 0
-      ? pct(lastEpoch.total_median, baseline.total_median) : 0;
-    console.log(`  Overall reduction:       ${fmtPct(overall_reduction)} vs baseline`);
+    console.log(`  Baseline median context:   ${fmt(baseline.ctx_median)} tokens/run (epoch 0)`);
+    console.log(`  Latest epoch median:       ${fmt(lastEpoch.ctx_median)} tokens/run (epoch ${lastEpoch.epoch})`);
+    const reduction = baseline.ctx_median > 0 ? pct(lastEpoch.ctx_median, baseline.ctx_median) : 0;
+    console.log(`  Overall reduction:         ${fmtPct(reduction)} vs baseline`);
   }
   if (hasCost.length > 0) {
-    console.log(`  Total cost (sampled):    $${totalCost.toFixed(2)}`);
-    console.log(`  Avg cost/run:            $${(totalCost / hasCost.length).toFixed(4)}`);
+    console.log(`  Total cost (sampled):      $${totalCost.toFixed(2)} across ${hasCost.length} runs`);
+    console.log(`  Avg cost/run:              $${(totalCost / hasCost.length).toFixed(4)}`);
   }
   console.log(hr(80));
 }
