@@ -1,0 +1,622 @@
+{"run_id":24673276337,"workflow":"Security Guard","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24673246762,"workflow":"Security Guard","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24672401933,"workflow":"Security Guard","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24670445401,"workflow":"Security Guard","epoch":6,"gh_cli_calls":5,"gh_cli_success":4,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2114/files":3},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24670276070,"workflow":"Security Guard","epoch":6,"gh_cli_calls":4,"gh_cli_success":3,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2116/files":2},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24670097634,"workflow":"Security Guard","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24651284473,"workflow":"Security Guard","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24640001476,"workflow":"Security Guard","epoch":5,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2102/files":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24629144043,"workflow":"Security Guard","epoch":5,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24615927594,"workflow":"Security Guard","epoch":5,"gh_cli_calls":7,"gh_cli_success":5,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2086/files":5},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24615910447,"workflow":"Security Guard","epoch":5,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2085/files":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24615750573,"workflow":"Security Guard","epoch":5,"gh_cli_calls":6,"gh_cli_success":4,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2085/files":4},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24612740314,"workflow":"Security Guard","epoch":5,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24612543343,"workflow":"Security Guard","epoch":5,"gh_cli_calls":5,"gh_cli_success":4,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2080/files":3},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24610775084,"workflow":"Security Guard","epoch":5,"gh_cli_calls":6,"gh_cli_success":5,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2075/files":4},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24610603509,"workflow":"Security Guard","epoch":5,"gh_cli_calls":6,"gh_cli_success":5,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2075/files":4},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24593695636,"workflow":"Security Guard","epoch":5,"gh_cli_calls":7,"gh_cli_success":5,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2065/files":2,"api /repos/github/gh-aw-firewall/pulls/2065/files":3},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24593538042,"workflow":"Security Guard","epoch":5,"gh_cli_calls":5,"gh_cli_success":4,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2066/files":3},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24593463088,"workflow":"Security Guard","epoch":5,"gh_cli_calls":5,"gh_cli_success":4,"gh_cli_by_cmd":{"pr view":1,"pr diff":1,"api repos/github/gh-aw-firewall/pulls/2065/files":3},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24586966581,"workflow":"Security Guard","epoch":4,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr diff":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24572129848,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24571087217,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24549105710,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24548864415,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24546091734,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24545607047,"workflow":"Security Guard","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24539424005,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24524657150,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24488563668,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24487070340,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24486847234,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24486540170,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24486126487,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24485779131,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24485544681,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24477096733,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24476706294,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24467006862,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24466516283,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24436400421,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24435902104,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24434523401,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24425093481,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24424029736,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24423751314,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24422261516,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24421517420,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24411708762,"workflow":"Security Guard","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24319647097,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24319183550,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24318847668,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24318792239,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24318513148,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24316781082,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24315473875,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24315034277,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24314916428,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314890506,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24314841028,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24314497463,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24314442122,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24314154045,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24312346928,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24310558551,"workflow":"Security Guard","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24292329640,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24292134863,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24292050150,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24291085402,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24290215023,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24290111812,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":14,"squid_gh_calls":0}
+{"run_id":24289182705,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24289175288,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24287824916,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24287094159,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24286946593,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24286910030,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24286885999,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24285997557,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24285974370,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24285926900,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24285565760,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24285399450,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24284801982,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24272439726,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24271368232,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":20,"squid_gh_calls":0}
+{"run_id":24258771879,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24257149617,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24256448112,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24222066729,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24219215681,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":11,"squid_gh_calls":0}
+{"run_id":24214577208,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24214152973,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24211578512,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24210496248,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24206947964,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24173267088,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24170589293,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24168921673,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24167894150,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24167457585,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24167079683,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24166414379,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24165829832,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24165554268,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24161014888,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24160740642,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24158697828,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24157022165,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24153737975,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24153274194,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24152906096,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24149404877,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24148412552,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24147514298,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24147122969,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24146264742,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24144863729,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24144139230,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24142200199,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24114638676,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24113906756,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24113556058,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24112123300,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":11,"squid_gh_calls":0}
+{"run_id":24110398432,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24109835235,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24109529278,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24109086160,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24109078777,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24107878284,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24107839270,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24107801340,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24107778201,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24106990910,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24106961823,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106923629,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24106893085,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24106892881,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24058780094,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24057582152,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24056188642,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24055842273,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24054424507,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":12,"squid_gh_calls":0}
+{"run_id":24052321052,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24052189873,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24051472521,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24051295827,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24051182225,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24050933385,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24048360958,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24048276586,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24044714297,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24044348996,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24042923140,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24042861963,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24042836892,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24042812137,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24040169380,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24039692819,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24036649182,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24017481873,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24017214071,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24013019384,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":23982295405,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":23981897244,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":23966647816,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":23965813987,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":23962697855,"workflow":"Security Guard","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24699078431,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24696048108,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24693917087,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24693738845,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"repo view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24693378629,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24693187587,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24692805243,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24691126103,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24690933107,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24690740053,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24688419410,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24688165488,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24687095878,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24684649496,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24684043333,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1,"api /repos/github/gh-aw-firewall/pulls?state=merged":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24682053949,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24680602688,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24678902585,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":3,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2,"repo view":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24677468112,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24677434575,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24676940934,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24674947892,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24673612618,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24673276282,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24673246665,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24672401913,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24670564560,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24670276095,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24670097659,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24668885123,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24651284507,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24644090473,"workflow":"Smoke Claude","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24640001465,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24630039907,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24629144037,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24618064206,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24615927586,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24615910446,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24615750575,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24612740312,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24612543356,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24610775074,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24610603484,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24605543422,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24593695609,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24593652310,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24593538065,"workflow":"Smoke Claude","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24591315622,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24590789047,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24586966583,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24583912086,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":3,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"api repos/github/gh-aw-firewall/pulls?state=closed":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=2":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24577008385,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":2,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=2":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24572922735,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":2,"api repos/github/gh-aw-firewall/pulls":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24572432517,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":2,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=2":1},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24572129849,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24571087257,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24567220405,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24549105731,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24548864481,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24546091768,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24545607072,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24544776289,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24542800577,"workflow":"Smoke Claude","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24539423992,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24535683334,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24524657144,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24492723038,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24492526139,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24488563705,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24487070324,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24486847211,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24486540184,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24486126479,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24485779159,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24485544682,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24485332546,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24477096714,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24476706364,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24470570566,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24469880182,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24467006847,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24466516318,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24436400540,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24435902136,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24434523391,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24425093415,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24424029719,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24423751372,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24423591401,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24422261479,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24421517493,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24411708847,"workflow":"Smoke Claude","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24319647106,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24319183558,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24318847644,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24318792261,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24318513152,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24316781100,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24315641999,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24315473861,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24315034244,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314916431,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314890524,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314841015,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314497454,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24314442127,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24314154128,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24312346897,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24310558528,"workflow":"Smoke Claude","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24292329628,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24292134862,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24292050173,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24291085395,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24290215008,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24290111810,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24289182699,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24289175294,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24287824928,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24287094163,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24286946585,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24286910024,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24286885994,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24285997561,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24285974365,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24285926885,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24285565769,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24285399453,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24284801988,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24272439720,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24271386279,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24271368226,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24258771915,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24257149635,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24256448107,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24244933707,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24222066731,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24221601046,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24219215695,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24219039648,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24218243708,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24218045430,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24217982683,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24217822439,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24217646404,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24217244196,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24216025232,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24215549177,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24214577220,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24214152972,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24211578450,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24210496314,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24207729222,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24206947985,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24173267129,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24170589321,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24168921662,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24167894155,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24167457603,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24167079667,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24166690630,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24166414353,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24165829842,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24165554236,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24161014883,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24160740661,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24159853461,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24158697843,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24157022218,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24153738011,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24153270491,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24152900341,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24149404892,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24148412522,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24147514339,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24147122962,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24146264722,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24144863679,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24144139289,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24142200186,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24114638692,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24113906806,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24113556109,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24112123276,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24112018856,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24110398427,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24109835227,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24109529335,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24109086107,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24109078764,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24107878288,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24107839261,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24107801334,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24107778191,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106990912,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106961822,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106923639,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106892877,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24106893129,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24082106071,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24058780076,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24057582147,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24056639933,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24056188641,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24055842277,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24055762012,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24054424503,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24052321090,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24052189851,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24051472552,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24051295776,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24051182246,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24050933322,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24048360915,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24048276590,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24044349061,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24042923183,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24042861995,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24042836908,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24042812156,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24040169366,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24039692779,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24036649171,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":6,"squid_gh_calls":0}
+{"run_id":24017481862,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24017214063,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24014586355,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":4,"squid_gh_calls":0}
+{"run_id":24013019416,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24012505996,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23982295391,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23981897210,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23981507985,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23966647833,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23965813992,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":23965257129,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":23964113501,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":23962697824,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":23957630045,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":23935548933,"workflow":"Smoke Claude","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":23925696368,"workflow":"Smoke Claude","epoch":0,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":9,"squid_gh_calls":0}
+{"run_id":24698437822,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24696048110,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24693917070,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24693738833,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24693378579,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":5,"gh_cli_success":3,"gh_cli_by_cmd":{"pr list":1,"pr view":1,"api repos/github/gh-aw-firewall/pulls/2123":1,"api repos/github/gh-aw-firewall/pulls?state=closed":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24693187686,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":6,"gh_cli_success":4,"gh_cli_by_cmd":{"pr list":1,"pr view":1,"api repos/github/gh-aw-firewall/pulls/2123":2,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":2},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24692805222,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24691126121,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":4,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1,"pr view":2,"api repos/github/gh-aw-firewall/pulls/2123":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24690933050,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":3,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":2,"api repos/github/gh-aw-firewall/pulls/2123":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24690739999,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":5,"gh_cli_success":3,"gh_cli_by_cmd":{"pr list":1,"pr view":1,"api repos/github/gh-aw-firewall/pulls/2123":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1,"api repos/github/gh-aw-firewall/actions/runs/24690739999/artifacts":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24690425153,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24688419442,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24688165509,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24687095978,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24684649490,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":4,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1,"api /repos/github/gh-aw-firewall/pulls/2123":1,"api /repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24684043358,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24682053944,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24680602641,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":5,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":2,"api /repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1,"api /repos/github/gh-aw-firewall/pulls/2123":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24678902575,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24677468156,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24677434522,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24676940872,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24674947793,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24673612674,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24673276291,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24673246688,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24672401904,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24670564626,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24670445425,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24670276067,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24670097735,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24667017650,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24651284470,"workflow":"Smoke Copilot","epoch":6,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24640001488,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24629144049,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"api /repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24629015495,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24617759136,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24615927601,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24615910440,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24615750563,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24613306287,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":5,"gh_cli_success":4,"gh_cli_by_cmd":{"pr list":3,"run view":2},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24612740320,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24612543342,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24610775082,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24610603476,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24604621034,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":1,"gh_cli_success":1,"gh_cli_by_cmd":{"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24593695588,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24593538060,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24593463077,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24593072788,"workflow":"Smoke Copilot","epoch":5,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":2},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24591315631,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24590789061,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24586966572,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":2,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24583912103,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":4,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1,"api repos/github/gh-aw-firewall/pulls/2058":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24572922796,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":4,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1,"api /repos/github/gh-aw-firewall/pulls/2058":1,"api /repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24572432509,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24572129867,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr list":1,"pr view":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24571087320,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":4,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"pr list":1,"api repos/github/gh-aw-firewall/pulls/2056":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24565756608,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24549105709,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"api repos/github/gh-aw-firewall/pulls/2050":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24548864369,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":6,"gh_cli_success":4,"gh_cli_by_cmd":{"pr list":1,"pr view":1,"api /repos/github/gh-aw-firewall/pulls/2050":1,"api /repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":2,"api /repos/github/gh-aw-firewall/pulls/2050?fields=title,user,assignees,state":1},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24546091774,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":3,"gh_cli_success":2,"gh_cli_by_cmd":{"pr view":1,"api repos/github/gh-aw-firewall/pulls/2043":1,"api repos/github/gh-aw-firewall/pulls?state=closed&per_page=1":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24545607044,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24544776354,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24542316937,"workflow":"Smoke Copilot","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24539423991,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24535683253,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24524657075,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24492879550,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":2,"gh_cli_success":1,"gh_cli_by_cmd":{"pr view":1,"pr list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24488563663,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24487070380,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24486847192,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24486540144,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24486491567,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24486126478,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24485779135,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24485332531,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24477096752,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24476706320,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24471612919,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24470576010,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24469880171,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24467006852,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24466516327,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24436400429,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24435902129,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24434523406,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24430959324,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24425093424,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24424029728,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24423751371,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24422261475,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24421517417,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24411708834,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24399187160,"workflow":"Smoke Copilot","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24343716626,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24320850993,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24319647100,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24319183555,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24318847646,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24318792229,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24316781075,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24315641993,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24315473886,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24315034276,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24314916415,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24314841032,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24314497466,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24314442117,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24314154055,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24312346906,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24310558543,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24306668159,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24295425664,"workflow":"Smoke Copilot","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24292329645,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24292134878,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24292050158,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24291085389,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24290215001,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24290111825,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24289182698,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24289175314,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24287824924,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24287094158,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24286946600,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24286910027,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24286885992,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24285997575,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24285974367,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24285926883,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24285565780,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24285399454,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24284801989,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24282379467,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24272439730,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24271368224,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":2,"squid_gh_calls":0}
+{"run_id":24166572786,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24161014870,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24160740641,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24159853452,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24158697857,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24157022156,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24153737969,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24153270441,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24152909076,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24146264748,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24144863800,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24144139309,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24142200196,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24114638723,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24113556068,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24112123282,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24111989140,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
+{"run_id":24110398413,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24109835237,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24109529277,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24109086174,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24109078768,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24107878306,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24107839277,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24107801356,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24107778144,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24106990922,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24106961839,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24106923644,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24106893100,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24106892898,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24082066077,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":20,"squid_gh_calls":0}
+{"run_id":24058939825,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24058780075,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24057582192,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24056639925,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24056188603,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24055842274,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24055762003,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24054424495,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24052321074,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24052189910,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24051472504,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24051295813,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24051182184,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24050933324,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":17,"squid_gh_calls":0}
+{"run_id":24048360963,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24048276589,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24044348968,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24042923098,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24042861978,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24042836940,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24042812106,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24040169335,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24039692807,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24036649199,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24031875972,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":8,"squid_gh_calls":0}
+{"run_id":24017481871,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":15,"squid_gh_calls":0}
+{"run_id":24017214052,"workflow":"Smoke Copilot","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":16,"squid_gh_calls":0}
+{"run_id":24173167475,"workflow":"Secret Digger (Claude)","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24095119211,"workflow":"Secret Digger (Claude)","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24081526101,"workflow":"Secret Digger (Claude)","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24688444699,"workflow":"Daily Claude Token Optimization Advisor","epoch":6,"gh_cli_calls":6,"gh_cli_success":0,"gh_cli_by_cmd":{"issue list":5,"search issues":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24638122342,"workflow":"Daily Claude Token Optimization Advisor","epoch":5,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"issue list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24612977751,"workflow":"Daily Claude Token Optimization Advisor","epoch":5,"gh_cli_calls":1,"gh_cli_success":0,"gh_cli_by_cmd":{"issue list":1},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24566435304,"workflow":"Daily Claude Token Optimization Advisor","epoch":4,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24365366709,"workflow":"Daily Claude Token Optimization Advisor","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24315540348,"workflow":"Daily Claude Token Optimization Advisor","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24312479338,"workflow":"Daily Claude Token Optimization Advisor","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24262322621,"workflow":"Daily Claude Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24044400210,"workflow":"Daily Claude Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24678766052,"workflow":"Daily Copilot Token Optimization Advisor","epoch":6,"gh_cli_calls":2,"gh_cli_success":0,"gh_cli_by_cmd":{"issue list":2},"mcp_tool_calls":1,"squid_gh_calls":0}
+{"run_id":24482836610,"workflow":"Daily Copilot Token Optimization Advisor","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24427638400,"workflow":"Daily Copilot Token Optimization Advisor","epoch":3,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24339492680,"workflow":"Daily Copilot Token Optimization Advisor","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24304575106,"workflow":"Daily Copilot Token Optimization Advisor","epoch":2,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24280552425,"workflow":"Daily Copilot Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":3,"squid_gh_calls":0}
+{"run_id":24239331447,"workflow":"Daily Copilot Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24108831416,"workflow":"Daily Copilot Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":5,"squid_gh_calls":0}
+{"run_id":24044415750,"workflow":"Daily Copilot Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":10,"squid_gh_calls":0}
+{"run_id":24028698652,"workflow":"Daily Copilot Token Optimization Advisor","epoch":1,"gh_cli_calls":0,"gh_cli_success":0,"gh_cli_by_cmd":{},"mcp_tool_calls":7,"squid_gh_calls":0}
