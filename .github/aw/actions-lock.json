@@ -40,20 +40,20 @@
       "version": "v4.0.0",
       "sha": "4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd"
     },
-    "github/gh-aw-actions/setup-cli@v0.68.7": {
+    "github/gh-aw-actions/setup-cli@v0.69.2": {
       "repo": "github/gh-aw-actions/setup-cli",
-      "version": "v0.68.7",
-      "sha": "f52802884d655622f0a2dfd6d6a2250983c95523"
+      "version": "v0.69.2",
+      "sha": "dca90cae5e2ec0ef2275f97efcb832793c86e082"
     },
-    "github/gh-aw-actions/setup@v0.68.7": {
+    "github/gh-aw-actions/setup@v0.69.2": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.68.7",
-      "sha": "f52802884d655622f0a2dfd6d6a2250983c95523"
+      "version": "v0.69.2",
+      "sha": "dca90cae5e2ec0ef2275f97efcb832793c86e082"
     },
-    "github/gh-aw/actions/setup@v0.68.7": {
+    "github/gh-aw/actions/setup@v0.69.2": {
       "repo": "github/gh-aw/actions/setup",
-      "version": "v0.68.7",
-      "sha": "f916d5de5199f770e46151d455ab1f0288981cc9"
+      "version": "v0.69.2",
+      "sha": "f0002540c946a84f7f6f0deb67e53d2ea89b9567"
     },
     "softprops/action-gh-release@v3.0.0": {
       "repo": "softprops/action-gh-release",
