@@ -1,20 +1,20 @@
 # Measuring Token Efficiency in Production Agentic Workflows
 
-**Abstract.** We present a measurement study of token consumption in Github Agentic Workflows over a 20-day optimization campaign. Agent Workflows is heavily instrumented and records the token usage of every large language model (LLM) API call for copilot cli and Claude. We track 2,836 workflow runs across five workflow types from April 1–21, 2026, spanning six successive optimization milestones. Across that period, median context tokens per run fell from **196.7 K to 159.5 K (−18.9%)**, and the most-optimized workflow (Security Guard) achieved a **49.1% reduction** (330 K → 168 K). A workload-normalized analysis—comparing LLM call counts, MCP server tool calls, and deterministic `gh`-CLI calls across runs—reveals that different techniques have fundamentally different efficiency profiles: prompt cache alignment and model switching reduce tokens while preserving identical workloads, while turn-budget caps and relevance gating reduce both tokens and the amount of work done. A concurrent migration from MCP server operations (median 15/run in early epochs) to deterministic `gh`-CLI calls (median 2/run in later epochs) redistributes load from stochastic LLM turns to cheap, reliable subprocess calls. Total sampled cost across 2,234 costed runs was **\$962.98** (avg \$0.43/run), down from \$0.49/run at baseline.
+**Abstract.** We present a measurement study of token consumption in Github Agentic Workflows over a 20-day optimization campaign. Agentic Workflows is heavily instrumented and records the token usage of every large language model (LLM) API call for copilot cli and Claude. We track 2,836 workflow runs in one of our GitHub repositories across five workflow types from April 1–21, 2026, spanning six successive optimization milestones. Across that period, median context tokens per run fell from **196.7 K to 159.5 K (−18.9%)**, and the most-optimized workflow (Security Guard) reduced usage by **49.1%** (330 K → 168 K). A workload-normalized analysis—comparing LLM call counts, MCP server tool calls, and deterministic `gh`-CLI calls across runs—reveals that different techniques have different efficiency profiles: prompt cache alignment and model switching reduce tokens while preserving identical workloads, while turn-budget caps and relevance gating reduce both tokens and the amount of work done. A concurrent migration from GitHub MCP tool calls (median 15 calls/run in early epochs) to deterministic `gh`-CLI calls (median 2 calls/run in later epochs) redistributes load from stochastic LLM turns to subprocess calls. Total sampled cost across 2,234 costed runs was **\$962.98** (avg \$0.43/run), down from a baseline of \$0.49/.
 
 ---
 
 ## 1. Introduction
 
-AI coding agents—systems that autonomously read code, call APIs, edit files, and open pull requests—are increasingly deployed as continuous-integration (CI) automation on GitHub Actions. These agents consume context tokens on every LLM API call. At scale, token cost is a first-class engineering constraint: a modest fleet of agentic workflows running on every pull request can easily accumulate hundreds of dollars per day.
+AI coding agents that autonomously read code, call APIs, edit files, and open pull requests—are can be a valuable part of continuous-integration (CI) automation on GitHub Actions. These agents consume context tokens on every LLM API call, and at scale, token cost is a first-class engineering constraint: a modest fleet of agentic workflows running on every pull request can accumulate hundreds of dollars per day.
 
-Reducing token consumption matters for three reasons. First, **cost**: provider APIs charge per token, and workloads that run on every push are price-sensitive. Second, **latency**: context window size directly affects time-to-first-token and completion time, which affects the wall-clock feedback loop for developers. Third, **reliability**: agents given excessively long contexts often produce less focused outputs, increasing the risk of hallucinated tool calls or off-task behavior.
+Reducing token consumption matters for three reasons. First, provider APIs charge per token, and workloads that run on every push are price-sensitive. Second, context window size directly affects time-to-first-token and completion time, which affects the wall-clock feedback loop for developers. Third, agents given excessively long contexts can produce less focused outputs, increasing the risk of hallucinated tool calls or off-task behavior.
 
 Despite the practical importance of token efficiency, there is little published work on *measuring* it in production agentic systems over time, and even less on *attributing* reductions to specific optimization techniques while controlling for workload changes. It is easy to declare that "tokens went down by 20%," but harder to determine whether that reduction reflects the agent doing the same work more cheaply, or doing less work altogether.
 
 This paper makes three contributions:
 
-1. **Infrastructure for continuous token measurement**: AWF's API proxy sidecar intercepts every upstream LLM call and writes structured per-call token records to artifacts, enabling post-hoc analysis of any historical CI run without agent code changes.
+1. **Infrastructure for continuous token measurement**: GitHub Agentic Workflows api proxy intercepts every upstream LLM call and logs structured per-call token records, which enables analysis of any historical CI run.
 
 2. **A workload-normalized analysis methodology**: By additionally capturing MCP server tool call counts, `gh`-CLI subprocess call counts, and LLM API call counts per run, we distinguish *efficiency* improvements (same work, fewer tokens) from *scope* reductions (less work done).
 
@@ -24,29 +24,21 @@ This paper makes three contributions:
 
 ## 2. System Background
 
-### 2.1 Agent Workflow Firewall (AWF)
+The workflows studied are *agentic workflows* compiled by `gh-aw`, a GitHub CLI extension. Each workflow is authored in Markdown with a YAML frontmatter block specifying triggers, tools, permissions, network access, and the AI engine to use. The Markdown body serves as the system prompt. The compiled `.lock.yml` file is a standard GitHub Actions workflow that executes a series of pre-agentic jobs, invokes the AWF harness, and processes and uploads run artifacts.
 
-AWF is an open-source CLI tool (`@github/awf`) that wraps any command inside a pair of Docker containers. The *agent container* runs the user's command—a GitHub Copilot CLI invocation, a Claude CLI invocation, etc.—in a chrooted environment with selective bind-mounts of the host filesystem. The *Squid proxy container* enforces an L7 HTTP/HTTPS egress allowlist: every outbound connection from the agent is CONNECT-proxied through Squid, which applies a domain ACL. Domains not on the allowlist receive HTTP 403.
+AWF is an open-source CLI tool (`@github/gh-aw-firewall`) that runs agentic commands in a harness of Docker containers. The *agent container* runs the user's command, e.g., running GitHub Copilot CLI or Claude CLI, in a chrooted environment with selective bind-mounts of the host filesystem. A *Squid proxy container* enforces an L7 HTTP/HTTPS egress allowlist: every outbound connection from the agent is CONNECT-proxied through Squid, which applies a domain ACL. Domains not on the allowlist receive HTTP 403.
 
 An iptables init-container shares the agent's network namespace and configures DNAT rules that redirect all port-80 and port-443 traffic to Squid even for tools that ignore proxy environment variables. This defense-in-depth approach ensures that a compromised or misconfigured tool cannot exfiltrate data to arbitrary endpoints.
 
 AWF is designed for CI/CD deployment: it runs as a GitHub Actions step, adds approximately 15–30 seconds of overhead (container pull and startup), and preserves the exit code of the wrapped command.
 
-### 2.2 API Proxy Sidecar
+In addition to the agent and squid containers, AWF creates an *api proxy* for proxy LLM calls. Its primary purpose is to isolate authentication tokens like API keys from the agent container to prevent a prompt-injected agent from exfiltrating secrets.  The agent container has no API keys and sends unauthenticated requests to the api proxy (e.g., `http://172.30.0.30:10001` for Anthropic), which injects the real credential header and forwards the request through Squid to the upstream provider.
 
-The API proxy sidecar (port addresses 10000–10004 on `172.30.0.30`) is an optional third container enabled with `--enable-api-proxy`. It implements a credential-injection pattern: the agent container has no API keys in its environment; instead, it sends unauthenticated requests to the sidecar (e.g., `http://172.30.0.30:10001` for Anthropic). The sidecar injects the real credential header and forwards the request through Squid to the upstream provider.
+Crucially for this paper, the api proxy **records every API call** to a log file, i.e., `token-usage.jsonl`. Each record captures: provider, model, input tokens, output tokens, cache-read tokens, cache-write tokens, effective tokens (AWF's own formula: `input + output + cache_write - cache_read`), and cost in USD. This log is uploaded as a GitHub Actions artifact after each workflow run.
 
-Crucially for this paper, the sidecar also **records every API call** to `token-usage.jsonl`. Each record captures: provider, model, input tokens, output tokens, cache-read tokens, cache-write tokens, effective tokens (AWF's own formula: `input + output + cache_write - cache_read`), and cost in USD. This log is uploaded as a GitHub Actions artifact after each workflow run, enabling fleet-wide analysis without modifying any agent code.
+AWF also includes a CLI proxy (`@github/gh-aw-mcpg`) that transparently intercepts `gh` GitHub CLI commands. When enabled, `gh` commands made inside the agent container are routed through a local Unix socket to the proxy, which executes the `gh` command and logs its arguments, exit code, duration, and byte counts to `cli-proxy-logs/access.log`. This log is uploaded as an artifact.
 
-### 2.3 CLI Proxy
-
-The CLI proxy (`cli-proxy`) is a transparent interceptor for the `gh` GitHub CLI. When enabled, `gh` commands made inside the agent container are routed through a local Unix socket, and each execution is logged with its arguments, exit code, duration, and byte counts to `cli-proxy-logs/access.log`. This log is also uploaded as an artifact.
-
-The CLI proxy serves two purposes. First, **security**: it restricts `gh` to a GitHub Actions token with only the permissions the workflow needs, without exposing the token value to the agent. Second, **observability**: it makes all GitHub API operations legible, enabling workload attribution (§5).
-
-### 2.4 Agentic Workflows
-
-The workflows studied here are *agentic workflows* compiled by `gh-aw`, a GitHub CLI extension. Each workflow is authored in Markdown with a YAML frontmatter block specifying triggers, tools, permissions, network access, and the AI engine to use. The Markdown body serves as the system prompt. The compiled `.lock.yml` file is a standard GitHub Actions workflow that invokes AWF with `--enable-api-proxy`, starts the AI engine, and uploads artifacts.
+During the study period, agentic workflows replaced the GitHub MCP server with the CLI proxy. The proxy has several advantages over an MCP server: it is more token efficient, the model is adept at integrating the `gh` into bash commands, and `gh` offers more complete access to GitHub functionality. However, all runs in the study include logs of all GitHub operations whether performed by an MCP server or CLI proxy.
 
 The five workflow types studied:
 
