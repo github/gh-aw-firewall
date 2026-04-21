@@ -50,6 +50,22 @@ interface DatasetRecord {
   cost_usd: number | null;
 }
 
+interface WorkloadRecord {
+  run_id: number;
+  gh_cli_calls: number;
+  gh_cli_success: number;
+  gh_cli_by_cmd: Record<string, number>;
+  mcp_tool_calls: number;
+  squid_gh_calls: number;
+}
+
+// Merged record: DatasetRecord with optional workload fields
+interface MergedRecord extends DatasetRecord {
+  gh_cli_calls?: number;
+  mcp_tool_calls?: number;
+  squid_gh_calls?: number;
+}
+
 interface EpochStats {
   epoch: number;
   label: string;
@@ -85,12 +101,12 @@ interface EpochStats {
 // We detect the format per-record and normalise to a consistent `context_tokens`
 // and `cache_rate` before any analysis.
 
-interface NormRecord extends DatasetRecord {
+interface NormRecord extends MergedRecord {
   context_tokens: number;  // total tokens processed (comparable across formats)
   cache_rate:     number;  // 0-1, fraction served from cache
 }
 
-function normalise(r: DatasetRecord): NormRecord {
+function normalise(r: MergedRecord): NormRecord {
   const { input_tokens: inp, output_tokens: out,
           cache_read_tokens: cR, cache_write_tokens: cW } = r;
 
@@ -162,12 +178,37 @@ function main() {
     .map(l => JSON.parse(l) as DatasetRecord)
     .filter(r => !workflow || r.workflow.toLowerCase().includes(workflow.toLowerCase()));
 
-  if (rawRecords.length === 0) {
+  // Optionally join workload augmentation data (if available)
+  const workloadPath = path.join(inputDir, 'workload-augment.jsonl');
+  const workloadMap = new Map<number, WorkloadRecord>();
+  if (fs.existsSync(workloadPath)) {
+    const lines = fs.readFileSync(workloadPath, 'utf8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const w = JSON.parse(line) as WorkloadRecord;
+        workloadMap.set(w.run_id, w);
+      } catch { /* skip */ }
+    }
+    console.error(`Loaded ${workloadMap.size} workload records from ${workloadPath}`);
+  }
+
+  const mergedRecords: MergedRecord[] = rawRecords.map(r => {
+    const w = workloadMap.get(r.run_id);
+    if (!w) return r;
+    return {
+      ...r,
+      gh_cli_calls: w.gh_cli_calls,
+      mcp_tool_calls: w.mcp_tool_calls,
+      squid_gh_calls: w.squid_gh_calls,
+    };
+  });
+
+  if (mergedRecords.length === 0) {
     console.error('No records found (check --input path or --workflow filter)');
     process.exit(1);
   }
 
-  const records: NormRecord[] = rawRecords.map(normalise);
+  const records: NormRecord[] = mergedRecords.map(normalise);
 
   const allWorkflows = [...new Set(records.map(r => r.workflow))].sort();
   console.error(`Loaded ${records.length} records across ${allWorkflows.length} workflows`);
@@ -204,6 +245,9 @@ function main() {
       total_cost: recs.filter(r => r.cost_usd !== null).reduce((s, r) => s + (r.cost_usd ?? 0), 0) || null,
     }));
 
+  // ── E. Workload analysis (if augment data available) ──────────────────────
+  const hasWorkload = workloadMap.size > 0;
+
   // ── Output ─────────────────────────────────────────────────────────────────
   if (format === 'json') {
     console.log(JSON.stringify({ overall: overallStats, byWorkflow, monthly: monthlyStats, modelCounts }, null, 2));
@@ -216,7 +260,7 @@ function main() {
   }
 
   // Table output
-  printTable(overallStats, byWorkflow, monthlyStats, modelCounts, allWorkflows, records);
+  printTable(overallStats, byWorkflow, monthlyStats, modelCounts, allWorkflows, records, hasWorkload);
 }
 
 // ── Computation ───────────────────────────────────────────────────────────────
@@ -271,6 +315,7 @@ function printTable(
   modelCounts: Record<string, number>,
   allWorkflows: string[],
   records: NormRecord[],
+  hasWorkload: boolean,
 ) {
   const hr = (w = 100) => '─'.repeat(w);
 
@@ -364,6 +409,70 @@ function printTable(
     console.log(`  Avg cost/run:              $${(totalCost / hasCost.length).toFixed(4)}`);
   }
   console.log(hr(80));
+
+  // Workload section (only if augment data loaded)
+  if (hasWorkload) {
+    const augRecords = records.filter(r => r.gh_cli_calls !== undefined);
+    console.log('\n' + hr(110));
+    console.log('WORKLOAD ANALYSIS — are tokens reduced because less work is done, or because work is more efficient?');
+    console.log('gh_cli = GitHub ops via gh CLI (deterministic); mcp = ops via MCP server; tok/call = context tokens per LLM turn');
+    console.log(hr(110));
+    console.log(
+      'Ep  Label                n_aug  LLM calls  gh_cli  mcp  tok/LLM-call      Δtok/call  gh_cli/LLM'
+    );
+    console.log(hr(110));
+
+    const epochWL = groupBy(augRecords, r => r.epoch);
+    const baseEpoch0 = epochWL[0] ?? [];
+    const baseTPC = median(baseEpoch0.filter(r => r.api_calls > 0).map(r => r.context_tokens / r.api_calls));
+
+    for (const epStr of Object.keys(epochWL).sort((a, b) => Number(a) - Number(b))) {
+      const ep = Number(epStr);
+      if (ep < 0) continue;
+      const recs = epochWL[ep];
+      const llmCalls  = median(recs.filter(r => r.api_calls > 0).map(r => r.api_calls));
+      const ghCli     = median(recs.filter(r => (r.gh_cli_calls ?? 0) >= 0).map(r => r.gh_cli_calls ?? 0));
+      const mcp       = median(recs.filter(r => r.mcp_tool_calls !== undefined).map(r => r.mcp_tool_calls ?? 0));
+      const tpc       = median(recs.filter(r => r.api_calls > 0).map(r => r.context_tokens / r.api_calls));
+      const deltaTPC  = (baseTPC && tpc) ? fmtPct(pct(tpc, baseTPC)) : '—';
+      const ghPerLLM  = (llmCalls > 0) ? (ghCli / llmCalls).toFixed(1) : '—';
+
+      console.log(
+        `${String(ep).padStart(2)}  ${recs[0].label.padEnd(20)}  ${String(recs.length).padStart(5)}` +
+        `  ${llmCalls.toFixed(1).padStart(9)}  ${ghCli.toFixed(1).padStart(6)}  ${mcp.toFixed(1).padStart(3)}` +
+        `  ${fmt(tpc).padStart(13)}  ${deltaTPC.padStart(10)}  ${String(ghPerLLM).padStart(10)}`
+      );
+    }
+
+    console.log(hr(110));
+    console.log('  Interpretation:');
+    console.log('    LLM calls stable + tok/call down  → cache / prompt efficiency (same work, fewer tokens)');
+    console.log('    LLM calls down + tok/call stable   → turn-cap / early exit (less work done)');
+    console.log('    gh_cli up + mcp down               → GitHub ops migrated from MCP server to gh CLI');
+    console.log(hr(110));
+
+    // Per-workflow workload breakdown
+    for (const wf of allWorkflows) {
+      const wfRecs = augRecords.filter(r => r.workflow === wf);
+      if (wfRecs.length < 5) continue;
+      const wfEpochs = groupBy(wfRecs, r => r.epoch);
+      const wfBase = wfEpochs[0] ?? [];
+      const wfBaseTPC = median(wfBase.filter(r => r.api_calls > 0).map(r => r.context_tokens / r.api_calls));
+      console.log(`\n  ${wf}:`);
+      console.log(`    ${'Ep'.padEnd(4)} ${'n'.padStart(4)}  ${'LLM'.padStart(6)}  ${'gh_cli'.padStart(8)}  ${'mcp'.padStart(5)}  ${'tok/call'.padStart(10)}  ${'Δ'.padStart(8)}`);
+      for (const epStr of Object.keys(wfEpochs).sort((a, b) => Number(a) - Number(b))) {
+        const ep = Number(epStr);
+        if (ep < 0) continue;
+        const recs = wfEpochs[ep];
+        const llm = median(recs.filter(r => r.api_calls > 0).map(r => r.api_calls));
+        const gh  = median(recs.filter(r => (r.gh_cli_calls ?? 0) >= 0).map(r => r.gh_cli_calls ?? 0));
+        const mc  = median(recs.filter(r => r.mcp_tool_calls !== undefined).map(r => r.mcp_tool_calls ?? 0));
+        const tp  = median(recs.filter(r => r.api_calls > 0).map(r => r.context_tokens / r.api_calls));
+        const dt  = (wfBaseTPC && tp) ? fmtPct(pct(tp, wfBaseTPC)) : '—';
+        console.log(`    ${String(ep).padEnd(4)} ${String(recs.length).padStart(4)}  ${llm.toFixed(1).padStart(6)}  ${gh.toFixed(1).padStart(8)}  ${mc.toFixed(1).padStart(5)}  ${fmt(tp).padStart(10)}  ${dt.padStart(8)}`);
+      }
+    }
+  }
 }
 
 // ── CSV output ────────────────────────────────────────────────────────────────
