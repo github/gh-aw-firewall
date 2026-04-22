@@ -124,20 +124,6 @@ The Daily Community Attribution workflow showed the inverse: configured with 8 G
 
 **Most agent turns are deterministic data-gathering.** Contribution Check and Test Quality Sentinel show the largest proportional gains (−54% and −69%) because their inefficiency was structural: 50–96% of agent turns were spent on reads that required no inference—fetching PR diffs, listing changed files, reading a repository's CONTRIBUTING.md. Moving those reads into pre-agentic `gh` CLI steps before the agent starts eliminated the majority of the LLM work. Test Quality Sentinel went from a 1.0 M-token average to 320 K; Contribution Check from 2.8 M to 1.3 M.
 
-### In our own repository
-
-For the workflows in gh-aw-firewall itself, we have continuous measurement from the token dataset. The advisor workflows—agents built specifically to analyze and reduce token usage—ended up being the most dramatically optimized workflows in the repository:
-
-| Workflow | Before ET | After ET | Change |
-|---|---|---|---|
-| Daily Claude Token Advisor | 1,148 K | 248 K | **−78%** |
-| Daily Copilot Token Advisor | 669 K | 105 K | **−84%** |
-| Smoke Copilot | 170 K | 127 K | **−25%** |
-
-*ET (Effective Tokens) normalizes across models: Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0×.*
-
-For Smoke Copilot—our smoke test that runs on every pull request—replacing 13 MCP data-fetching calls with a single pre-agentic `gh pr view --json` step reduced input tokens from 156 K to 114 K (−27%) with no change to turn count or behavior.
-
 ## What's next?
 
 The techniques described here—API-level observability, automated auditing workflows, MCP tool pruning, and CLI substitution—are all available today in the Agentic Workflows framework. The measurement methodology (workload normalization, effective tokens) is documented in the [Effective Tokens specification](https://github.com/github/gh-aw/blob/main/docs/src/content/docs/reference/effective-tokens-specification.md) and the data and analysis scripts for this study are published in the [gh-aw-firewall repository](https://github.com/github/gh-aw-firewall) on the `token-efficiency-paper` branch.
