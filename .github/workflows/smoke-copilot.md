@@ -13,7 +13,9 @@ permissions:
   issues: read
   actions: read
 name: Smoke Copilot
-engine: copilot
+engine:
+  id: copilot
+  version: 1.0.34
 network:
   allowed:
     - defaults
