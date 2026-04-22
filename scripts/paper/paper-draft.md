@@ -138,7 +138,7 @@ In epoch 3, Secret Digger switched from `claude-sonnet-4-6` to `claude-haiku-4-5
 
 Mechanism: Haiku has a smaller output token budget per turn and tends to produce more concise responses, which reduces both output tokens and downstream context accumulation. The per-token cost is also lower (approximately 5× cheaper per input token at list price).
 
-Trade-off: smaller models may produce lower-quality analyses. For well-scoped tasks with clear ground truth (does this code contain secrets? does this smoke test complete?), the quality difference is acceptable.
+Trade-off: smaller models may produce lower-quality analyses. For well-scoped tasks with clear ground truth (does this code contain secrets? does this smoke test complete?), the quality difference is acceptable. Section §5.6 examines the process-level quality proxies available in our dataset.
 
 ### 4.4 Prompt Cache Alignment
 
@@ -301,7 +301,39 @@ Importantly, cache hit rate and context size are not perfectly correlated. Epoch
 
 **Figure 4.** Prompt cache hit rate by epoch for Claude-based workflows. The dashed line is the median across all three. The E3 dip reflects cache invalidation from the Haiku model switch.
 
-### 5.6 Cost Analysis
+### 5.6 Output Quality Proxies
+
+Token reduction is only valuable if output quality is maintained. A switch to a lighter model that produces incorrect analyses saves tokens but defeats the workflow's purpose. This section examines the proxy signals available in our dataset. No direct outcome metric is available (see §6.4); we rely on process-level indicators.
+
+**Output tokens per LLM call.** A degraded model might produce shorter, less detailed responses. Table 6 shows median output tokens per LLM call for Smoke Claude before and after the Haiku switch.
+
+**Table 6: Smoke Claude — output tokens per LLM call by epoch and model**
+
+| Epoch | Model | Median output/call |
+|---|---|---|
+| 3 | Sonnet | 172 |
+| 4 | Sonnet | 192 |
+| 5 | **Haiku** | 327 |
+| 6 | **Haiku** | 342 |
+
+Haiku's output per call is approximately 75% higher than Sonnet's in comparable epochs. This is counterintuitive: the lighter model is producing *more* output per turn, not less. The most likely explanation is that the Haiku switch coincided with prompt restructuring that elicited more structured (bulleted, numbered) responses, while Sonnet had been producing denser prose. Regardless of cause, there is no evidence of truncated or abbreviated output following the model switch.
+
+**LLM turn counts.** A model that fails to complete its task would exit early (fewer turns) or retry repeatedly (more turns). Table 7 shows median API call counts (LLM turns per run) for the core smoke-test workflows across epochs.
+
+**Table 7: Median LLM turns per run**
+
+| Workflow | Epoch 4 | Epoch 5 | Epoch 6 |
+|---|---|---|---|
+| Smoke Copilot | 5 | 5 | 5 |
+| Smoke Claude | 4 | 4 | 4 |
+
+Both workflows hold perfectly stable turn counts across the pre- and post-Haiku period. Smoke Copilot is particularly informative: it processes the same smoke-test task on every run, so a consistent 5 turns implies consistent task completion regardless of model.
+
+**Security Guard output decline.** Security Guard's median output tokens per LLM call fell from 484 (epoch 0) to 287 (epoch 6), a 41% reduction. This is not a quality regression: it is a direct consequence of the relevance gate (§4.2). Runs that determine a PR is irrelevant exit after 2 `gh` CLI calls (`pr view` + `pr diff`) with minimal LLM output. The remaining full-analysis runs (those where the gate passes) maintain comparable output depth.
+
+**Summary.** The available process signals—output length, turn counts, and tool-call completion—show no evidence of quality degradation following model switches. The reduction in total tokens is attributable to fewer context tokens per turn, not to shorter or incomplete agent outputs.
+
+### 5.7 Cost Analysis
 
 Of the 2,836 runs in the dataset, 2,234 (78.8%) had cost data available. Total cost across these runs was \$962.98, an average of \$0.43/run.
 
@@ -325,7 +357,7 @@ Our workload-normalized analysis reveals a fundamental distinction that is often
 
 **Regime 2: Scope reduction** — less work is done. Mechanisms: turn-budget capping, relevance gating. Observable as: declining LLM call count, declining total GitHub operations, possibly unchanged tokens-per-call. Security Guard's epoch-6 relevance gate is the clearest example: LLM calls fell from 8 to 4, MCP calls fell from 8 to 1, for irrelevant PRs the agent exits after 2 gh CLI calls (pr view + pr diff) with no LLM invocation at all.
 
-Both regimes are valuable, but they have different quality implications. Regime 1 reductions are safe: quality is preserved by construction. Regime 2 reductions require careful validation that the scope reduction is *correct*—that irrelevant PRs are truly irrelevant, that the capped agent actually finishes its task within the budget.
+Both regimes are valuable, but they have different quality implications. Regime 1 reductions are safe: quality is preserved by construction. Regime 2 reductions require careful validation that the scope reduction is *correct*—that irrelevant PRs are truly irrelevant, that the capped agent actually finishes its task within the budget. Section §5.6 presents process-level evidence that the Regime 1 reductions in our study did not degrade output quality; no equivalent evidence is available for Regime 2 without outcome labels.
 
 ### 6.2 The Role of the API Proxy
 
@@ -352,6 +384,8 @@ Practitioners should plan for a cache warm-up period of several runs after any m
 **External validity**: All data is from a single repository (gh-aw-firewall). The optimization techniques are general, but the magnitudes of reduction will vary with the specific task, model, and context structure of other deployments.
 
 **Cost data gap**: Cost data is available for epoch 0 and epoch 1 only (from the two artifact formats that include `total_cost_usd`). Cost comparisons across all epochs rely on extrapolation from token counts and published list prices.
+
+**Goodput gap**: Our dataset contains no outcome metrics — no PR merge rates, no correctness evaluations, no human ratings of agent outputs. Section §5.6 presents process-level proxies (output tokens per call, turn counts) that show no evidence of quality regression, but these proxies cannot substitute for direct measurement. A complete picture of efficiency would require *goodput*: tokens per unit of correct work. Instruments for this — human rater pipelines, automated correctness checks, or downstream task success signals — would need to be added to the AWF telemetry stack and are left for future work.
 
 ---
 
