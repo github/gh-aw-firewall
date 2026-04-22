@@ -86,47 +86,56 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran them against twelve production workflows. Here is what the baseline looked like before any changes were made:
 
 ```
-Workflow                            Tokens/run                               Amount    Projected savings
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-Daily Syntax Error Quality          █████████████████████████████████████    9.3M      −84% (1 tool fix)
-Daily Community Attribution         ████████████████████████                 6.1M
-Glossary Maintainer                 ████████████████                         3.9M      −51% (remove search_repos)
-Workflow Skill Extractor            ██████████████████                       4.4M
-Dead Code Removal Agent             ██████████████████                       4.5M      −35% (deterministic pre-steps)
-Daily Compiler Quality              █████████████                            3.3M      −10% (restrict bash patterns)
-Q (Agentic Optimizer)               █████████████                            3.2M      −44% (timeout cap)
-Contribution Check                  ███████████                              2.8M      −39% (trim research steps)
-Smoke Copilot                       █████                                    1.3M
-Test Quality Sentinel               ████                                     1.0M      −50% (pre-fetch PR data)
-Auto-Triage Issues                  █                                        0.3M      −50% (scoped search)
+Workflow                            Tokens/run
+──────────────────────────────────────────────────────────────
+Daily Syntax Error Quality          █████████████████████████████████████  9.3M
+Daily Community Attribution         ████████████████████████               6.1M
+Workflow Skill Extractor            ██████████████████                     4.4M
+Dead Code Removal Agent             ██████████████████                     4.5M
+Daily Compiler Quality              █████████████                          3.3M
+Q (Agentic Optimizer)               █████████████                          3.2M
+Glossary Maintainer                 ████████████████                       3.9M
+Contribution Check                  ███████████                            2.8M
+Smoke Copilot                       █████                                  1.3M
+Test Quality Sentinel               ████                                   1.0M
+Auto-Triage Issues                  █                                      0.3M
 
 Each █ ≈ 250K tokens. Scale: 0–9.5M tokens/run.
 ```
 
 The numbers were sobering. Across the eleven measured workflows, average consumption was 3.6 M tokens per run. Three patterns dominated the findings.
 
-**A single misconfigured rule can cause runaway loops.** The most extreme case was the Daily Syntax Error Quality workflow at 9.3 M tokens per run—roughly 6× the average for a daily automation. The root cause was a one-line misconfiguration: the workflow copied test files to `/tmp/` then called `gh aw compile *`, but the sandbox's bash allowlist only permitted relative-path glob patterns. Every compile attempt was blocked. Unable to use the tool it needed, the agent fell into a 64-turn fallback loop—manually reading source code to reconstruct what the compiler would have told it. A single fix to the allowed bash patterns projected an 84% token reduction.
+**A single misconfigured rule can cause runaway loops.** The most extreme case was the Daily Syntax Error Quality workflow at 9.3 M tokens per run—roughly 6× the average for a daily automation. The root cause was a one-line misconfiguration: the workflow copied test files to `/tmp/` then called `gh aw compile *`, but the sandbox's bash allowlist only permitted relative-path glob patterns. Every compile attempt was blocked. Unable to use the tool it needed, the agent fell into a 64-turn fallback loop—manually reading source code to reconstruct what the compiler would have told it. One fix to the allowed bash patterns eliminated the problem entirely.
 
-**Unused tools are expensive to carry.** The Glossary Maintainer workflow was spending 3.9 M tokens per run—and a single tool dominated: `search_repositories`, called **342 times in one run**, accounting for 58% of all tool calls. The tool came in as part of the default toolset but was completely unnecessary for a workflow that only scans local file changes. One prompt line ("Do not use `search_repositories`") eliminates the majority of the overhead.
+**Unused tools are expensive to carry.** The Glossary Maintainer workflow was spending 3.9 M tokens per run—and a single tool dominated: `search_repositories`, called **342 times in one run**, accounting for 58% of all tool calls. The tool came in as part of the default toolset but was completely unnecessary for a workflow that only scans local file changes. One prompt line ("Do not use `search_repositories`") eliminated the majority of the overhead.
 
-The Daily Community Attribution workflow showed the inverse: configured with 8 GitHub MCP tools, it made **zero calls to any of them** across an entire run while still spending 6.1 M tokens and 46% of its network requests were blocked. It had silently fallen back to constructing the same GitHub API calls through raw `curl`—manually reconstructing tool functionality in a loop because the registered tooling wasn't exercised by the prompt.
+The Daily Community Attribution workflow showed the inverse: configured with 8 GitHub MCP tools, it made **zero calls to any of them** across an entire run while still spending 6.1 M tokens—46% of its network requests were blocked. It had silently fallen back to reconstructing the same GitHub API calls through raw `curl` in a loop because the registered tooling wasn't exercised by the prompt.
 
 **Most agent turns are deterministic data-gathering.** Across five workflows—Glossary Maintainer, Test Quality Sentinel, Contribution Check, Dead Code Removal Agent, and Q—the optimizer flagged a consistent pattern: 50–96% of agent turns were spent on reads that required no inference at all. Fetching a PR diff, listing changed files, reading a repository's CONTRIBUTING.md—these are fixed-output HTTP calls. Running them through the LLM reasoning loop adds both latency and cost; running them as pre-agentic `gh` CLI setup steps adds neither.
 
 The Test Quality Sentinel was the most consistent signal: across 9 consecutive non-trivial runs, every single run was flagged as having between 50% and 96% of its turns in deterministic data-gathering. A 1.0 M-token average run contained as few as 1–2 turns doing actual analytical work.
 
-### A closed-loop example: Smoke Copilot
+### Actual results in our own workflows
 
-For the workflows in the gh-aw-firewall repository itself—where we have pre- and post-optimization measurements from our own ET dataset—we can show the full round-trip. Smoke Copilot validates the Copilot CLI agent on every pull request. Before optimization, it made 15 MCP tool calls per run to gather PR context; after a pre-agentic `gh pr view --json` setup step and a model selection change, the same workflow runs with 2 MCP calls, 27% fewer context tokens, and a 29% effective token reduction. The workflow still completes in 5 LLM turns. From the outside, nothing changed—only how efficiently it works.
+For the five workflows in the gh-aw-firewall repository, we have continuous pre- and post-optimization measurements from the token dataset. These are the actual numbers:
 
-| | Before | After | Change |
+**Smoke Copilot** runs on every pull request and validates the Copilot CLI agent inside the AWF sandbox. Before optimization, it made 15 MCP tool calls per run to gather PR context; after replacing 13 of those with a single pre-agentic `gh pr view --json` setup step, the same workflow runs with 2 MCP calls and measurably less work.
+
+| | Before (epoch 1) | After (epoch 6) | Change |
 |---|---|---|---|
-| MCP tool calls/run | 15 | 2 | −87% |
-| Context tokens (median) | 156 K | 114 K | −27% |
-| Effective tokens (ET) | 52 K | 37 K | −29% |
+| Input tokens (median) | 156 K | 114 K | −27% |
+| Effective tokens (ET) | 170 K | 127 K | **−25%** |
 | LLM turns/run | 5 | 5 | — |
 
-Across all five gh-aw-firewall workflows in the study, median effective tokens per run fell 25% over the 20-day measurement period.
+The optimizer workflows themselves tell the cleaner story—they were optimized recursively and the dataset captures both ends:
+
+| Workflow | Before ET | After ET | Change |
+|---|---|---|---|
+| Daily Claude Token Advisor | 1,148 K | 248 K | **−78%** |
+| Daily Copilot Token Advisor | 669 K | 105 K | **−84%** |
+| Smoke Copilot | 170 K | 127 K | **−25%** |
+
+The advisor workflows are particularly satisfying: agents that analyze and reduce token usage ended up being the most dramatically optimized workflows in the repository.
 
 ## What's next?
 
