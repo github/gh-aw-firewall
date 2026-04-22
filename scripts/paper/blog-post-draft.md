@@ -85,34 +85,9 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 
 After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran it against twelve production workflows, then downloaded token-usage artifacts from runs before and after each optimization merged to measure actual impact in effective tokens (ET). Seven of the nine implemented optimizations have enough post-fix run history to compare:
 
-```
-Workflow                            Before → After (ET, avg)          Change
-─────────────────────────────────────────────────────────────────────────────────────
-Daily Syntax Error Quality  before  █████████████████████  10.4M ET (n=2)*
-                            after   █████████████  6.27M ET (n=10)      −40%
+![Token savings chart: before vs. after optimization across 7 workflows, measured in effective tokens](token-savings-chart.png)
 
-Daily Community Attribution before  ██████████████  6.75M ET (n=1)*
-                            after   ██████████  4.88M ET (n=3)          −28%
-
-Glossary Maintainer         before  █████████  4.27M ET (n=2)*
-                            after   █████  2.32M ET (n=8)               −46%
-
-Daily Compiler Quality      before  ███████  3.43M ET (n=7)*
-                            after   ████████  3.66M ET (n=6) †          +7%
-
-Contribution Check          before  ███████  3.20M ET (n=2)*
-                            after   ███  1.43M ET (n=20)                −55%
-
-Test Quality Sentinel       before  ██  1.15M ET (n=10)*
-                            after   ▒  0.40M ET (n=20)                  −66%
-
-Auto-Triage Issues          before  ██  0.77M ET (n=8)*
-                            after   ▒  0.15M ET (n=4)                   −81%
-
-Each █ ≈ 500K ET. ET = (inp + cacheWrite) + 0.1×cacheRead + 4×output (Sonnet multiplier = 1.0×).
-* Before values derived from optimizer issue analysis; after values measured from post-fix run artifacts.
-† One outlier post-fix run at 7.68M ET inflates the average; the remaining 5 runs average 2.41M ET (−30%).
-```
+*ET = (inp + cacheWrite) + 0.1×cacheRead + 4×output (Sonnet 1.0×). Before values (n=1–10) derived from optimizer issue analysis; after values measured from post-fix run artifacts. † Daily Compiler Quality: one post-fix outlier run at 7.68M ET inflates the average; the remaining 5 runs average 2.41M ET (−30%).*
 
 The improvements range from modest (Daily Community Attribution, −28%) to dramatic (Auto-Triage Issues, −81%). The variation reflects the nature of the fix applied: simple toolset pruning saves less than eliminating whole categories of work.
 
