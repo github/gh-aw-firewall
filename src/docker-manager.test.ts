@@ -2363,12 +2363,13 @@ describe('docker-manager', () => {
       it('should configure healthcheck for api-proxy', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-        const proxy = result.services['api-proxy'] as any;
+        const proxy = result.services['api-proxy'];
         expect(proxy.healthcheck).toBeDefined();
-        expect(proxy.healthcheck.test).toEqual(['CMD', 'curl', '-f', 'http://localhost:10000/health']);
-        expect(proxy.healthcheck.timeout).toBe('2s');
-        expect(proxy.healthcheck.retries).toBe(10);
-        expect(proxy.healthcheck.start_period).toBe('10s');
+        const healthcheck = proxy.healthcheck!;
+        expect(healthcheck.test).toEqual(['CMD', 'curl', '-f', 'http://localhost:10000/health']);
+        expect(healthcheck.timeout).toBe('2s');
+        expect(healthcheck.retries).toBe(10);
+        expect(healthcheck.start_period).toBe('10s');
       });
 
       it('should drop all capabilities', () => {
