@@ -2,12 +2,18 @@
 """
 Generate paper figures from token-dataset.jsonl and workload-augment.jsonl.
 
+Token metric: Effective Tokens (ET) per the gh-aw Effective Tokens Specification v0.2.0
+  ET = m × (1.0·I + 0.1·C + 4.0·O)
+  where I = newly-processed input, C = cache-read tokens, O = output tokens
+  and m is the model's Copilot Multiplier (relative to claude-sonnet-4 baseline = 1.0).
+
 Outputs PNG files to paper-data/figures/:
-  fig1-overall-epoch-trend.png      -- Overall median context tokens by epoch
-  fig2-per-workflow-epochs.png      -- Per-workflow median context tokens by epoch
+  fig1-overall-epoch-trend.png      -- Overall median ET by epoch
+  fig2-per-workflow-epochs.png      -- Per-workflow median ET by epoch
   fig3-mcp-vs-cli-migration.png     -- MCP tool calls vs gh-CLI calls over epochs
   fig4-cache-hit-rate.png           -- Cache hit rate by epoch (all workflows)
-  fig5-workload-normalized.png      -- Tokens-per-LLM-call for Smoke Copilot/Claude
+  fig5-workload-normalized.png      -- ET-per-LLM-call for Smoke Copilot/Claude
+  fig6-cost-per-run.png             -- Cost per run distribution by epoch
 """
 
 import json
@@ -38,20 +44,76 @@ print("Loading data…")
 records  = load_jsonl(DATA_DIR / 'token-dataset.jsonl')
 workload = load_jsonl(DATA_DIR / 'workload-augment.jsonl')
 
-# ── Token normalisation (matches TypeScript logic) ────────────────────────────
+# ── Effective Tokens Specification v0.2.0 ─────────────────────────────────────
+# https://raw.githubusercontent.com/github/gh-aw/refs/heads/main/docs/src/content/docs/reference/effective-tokens-specification.md
+#
+# ET = m × (w_in·I + w_cache·C + w_out·O + w_reason·R)
+#
+# Default weights:
+W_IN    = 1.0
+W_CACHE = 0.1
+W_OUT   = 4.0
+W_REASON = 4.0  # no reasoning tokens in this dataset
+
+# Model multipliers (relative to claude-sonnet-4 = 1.0 baseline).
+# Based on approximate list-price input-token ratios vs claude-sonnet-4.
+MODEL_MULTIPLIERS = {
+    # Sonnet tier — baseline
+    'claude-sonnet-4-6':           1.0,
+    'claude-sonnet-4.6':           1.0,
+    'claude-sonnet-4-5-20250929':  1.0,
+    # Haiku tier — ~4× cheaper than Sonnet
+    'claude-haiku-4-5-20251001':   0.25,
+    'claude-haiku-4-5':            0.25,
+    # Opus tier — ~5× more expensive than Sonnet
+    'claude-opus-4.6':             5.0,
+    'claude-opus-4-5':             5.0,
+}
+DEFAULT_MULTIPLIER = 1.0  # fallback for unknown models
+
+def model_multiplier(models_list):
+    """Average multiplier over all models used in a run (typically just one)."""
+    if not models_list:
+        return DEFAULT_MULTIPLIER
+    ms = [MODEL_MULTIPLIERS.get(m, DEFAULT_MULTIPLIER) for m in models_list]
+    return sum(ms) / len(ms)
+
+def compute_et(r):
+    """Compute Effective Tokens per the ET spec from a dataset record."""
+    inp = r['input_tokens']
+    out = r['output_tokens']
+    cR  = r['cache_read_tokens']
+    cW  = r['cache_write_tokens']
+
+    if cR > inp:
+        # Anthropic format: input = net non-cached; cache_write = new tokens written to cache
+        # Newly processed (I) = inp + cW;  Cached (C) = cR
+        I = inp + cW
+        C = cR
+    else:
+        # Copilot/OpenAI format: input = total prompt (includes cache hits)
+        # Newly processed (I) = inp - cR;  Cached (C) = cR
+        I = max(inp - cR, 0)
+        C = cR
+
+    O = out
+    m = model_multiplier(r.get('models', []))
+    base = W_IN * I + W_CACHE * C + W_OUT * O
+    return m * base
+
 def normalise(r):
+    """Add context_tokens (raw total), cache_rate, and effective_tokens (ET spec)."""
     inp, out = r['input_tokens'], r['output_tokens']
     cR, cW   = r['cache_read_tokens'], r['cache_write_tokens']
     if cR > inp:
-        # Anthropic format: input is net-non-cached
         ctx  = inp + cR + cW + out
         rate = cR / ctx if ctx > 0 else 0
     else:
-        # OpenAI/Copilot format: input includes cache reads
         ctx  = inp + cW + out
         rate = cR / inp if inp > 0 else 0
-    r['context_tokens'] = ctx
-    r['cache_rate']     = rate
+    r["effective_tokens_spec"]    = ctx
+    r['cache_rate']        = rate
+    r['effective_tokens_spec'] = compute_et(r)
     return r
 
 records = [normalise(r) for r in records]
@@ -106,13 +168,13 @@ def save(name):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Figure 1 – Overall median context tokens by epoch
+# Figure 1 – Overall median effective tokens (ET) by epoch
 # ═══════════════════════════════════════════════════════════════════════════════
 print("Figure 1: overall epoch trend…")
 
 epochs = sorted(df['epoch'].unique())
 stats = (
-    df.groupby('epoch')['context_tokens']
+    df.groupby('epoch')["effective_tokens_spec"]
     .agg(median='median', p25=lambda x: x.quantile(0.25), p75=lambda x: x.quantile(0.75), n='count')
     .reindex(epochs)
 )
@@ -126,7 +188,7 @@ ax.fill_between(
     alpha=0.18, color='steelblue', label='IQR (p25–p75)'
 )
 ax.plot(stats.index, stats['median'] / 1e3, 'o-', color='steelblue',
-        linewidth=2.2, markersize=7, label='Median context tokens')
+        linewidth=2.2, markersize=7, label='Median effective tokens (ET)')
 
 # Annotate final reduction
 e0_med = stats.loc[0, 'median']
@@ -140,9 +202,9 @@ ax.annotate(
 
 ax.set_xticks(epochs)
 ax.set_xticklabels([EPOCH_LABELS[e] for e in epochs], fontsize=9)
-ax.set_ylabel('Context tokens (thousands)')
+ax.set_ylabel('Effective tokens, ET (thousands)')
 ax.set_xlabel('Optimization epoch')
-ax.set_title('Overall median context tokens per run across all workflows')
+ax.set_title('Overall median effective tokens (ET) per run across all workflows')
 ax.set_ylim(bottom=0)
 ax.legend(loc='upper right', fontsize=9)
 
@@ -157,7 +219,7 @@ save('fig1-overall-epoch-trend.png')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Figure 2 – Per-workflow median context tokens by epoch
+# Figure 2 – Per-workflow median effective tokens (ET) by epoch
 # ═══════════════════════════════════════════════════════════════════════════════
 print("Figure 2: per-workflow trends…")
 
@@ -169,16 +231,16 @@ for wfname in WORKFLOWS_MAIN:
     sub = df[df['workflow'] == wfname]
     if sub.empty:
         continue
-    med = sub.groupby('epoch')['context_tokens'].median() / 1e3
+    med = sub.groupby('epoch')["effective_tokens_spec"].median() / 1e3
     color = WORKFLOW_COLORS.get(wfname, 'grey')
     ax.plot(med.index, med.values, 'o-', color=color,
             linewidth=2, markersize=6, label=wfname)
 
 ax.set_xticks(sorted(df['epoch'].unique()))
 ax.set_xticklabels([EPOCH_LABELS[e] for e in sorted(df['epoch'].unique())], fontsize=9)
-ax.set_ylabel('Median context tokens (thousands)')
+ax.set_ylabel('Median effective tokens (ET) (thousands)')
 ax.set_xlabel('Optimization epoch')
-ax.set_title('Per-workflow median context tokens by epoch')
+ax.set_title('Per-workflow median effective tokens (ET) by epoch')
 ax.set_ylim(bottom=0)
 ax.legend(fontsize=9, loc='upper right')
 plt.tight_layout()
@@ -272,7 +334,7 @@ print("Figure 5: workload-normalized tok/call…")
 tok_df = df.dropna(subset=['gh_cli_calls']).copy()
 # Filter to epochs 3+ where api_calls is tracked
 tok_df = tok_df[tok_df['epoch'] >= 3].copy()
-tok_df['tok_per_call'] = tok_df['context_tokens'] / tok_df['api_calls'].replace(0, float('nan'))
+tok_df['tok_per_call'] = tok_df["effective_tokens_spec"] / tok_df['api_calls'].replace(0, float('nan'))
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=False)
 
@@ -301,7 +363,7 @@ for ax, wfname in zip(axes, ['Smoke Copilot', 'Smoke Claude']):
     ax.set_xticks(xs)
     ax.set_xticklabels([EPOCH_SHORT[e] for e in xs], fontsize=9)
     ax.set_xlabel('Epoch')
-    ax.set_ylabel('Context tokens per LLM call (thousands)', fontsize=9)
+    ax.set_ylabel('Effective tokens per LLM call, ET (thousands)', fontsize=9)
     ax.set_ylim(bottom=0)
     ax.set_title(wfname, fontsize=10)
 
@@ -317,7 +379,7 @@ for ax, wfname in zip(axes, ['Smoke Copilot', 'Smoke Claude']):
                     fontsize=10, color=color,
                     bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
 
-fig.suptitle('Workload-normalized context tokens per LLM call', fontsize=12)
+fig.suptitle('Workload-normalized effective tokens (ET) per LLM call', fontsize=12)
 plt.tight_layout()
 save('fig5-workload-normalized.png')
 

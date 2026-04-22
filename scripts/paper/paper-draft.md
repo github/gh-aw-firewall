@@ -92,7 +92,7 @@ cache_rate = cache_read / input
 
 We detect the convention per-record using the heuristic `cache_read > input → Anthropic format`. This covers all cases in our dataset (Anthropic's net-non-cached `input` is always much smaller than `cache_read` when caching is active; OpenAI's cached portion never exceeds the total prompt).
 
-All per-epoch statistics in this paper use the normalized `context_tokens` field.
+All per-epoch statistics in this paper use the normalized `effective_tokens_spec` field (ET spec v0.2.0).
 
 ### 3.4 Optimization Epochs
 
@@ -190,9 +190,9 @@ Median context fell monotonically from 196.7 K to 159.5 K over the 20-day period
 
 The p75–p25 interquartile range also narrowed substantially: from 231.8 K at baseline to 62.7 K at epoch 6. This compression of the distribution reflects the relevance gate eliminating high-token outlier runs (irrelevant PRs previously consumed a full Security Guard analysis).
 
-![Figure 1: Overall median context tokens per run by epoch, with IQR band (p25–p75). The shaded region illustrates the narrowing distribution from epoch 5 onward.](../../paper-data/figures/fig1-overall-epoch-trend.png)
+![Figure 1: Overall median effective tokens (ET) per run by epoch, with IQR band (p25–p75). The shaded region illustrates the narrowing distribution from epoch 5 onward.](../../paper-data/figures/fig1-overall-epoch-trend.png)
 
-**Figure 1.** Overall median context tokens per run by epoch (all workflows combined). Shaded band shows IQR (p25–p75). n counts appear below each epoch.
+**Figure 1.** Overall median effective tokens (ET) per run by epoch (all workflows combined). Shaded band shows IQR (p25–p75). n counts appear below each epoch.
 
 ### 5.2 Per-Workflow Results
 
@@ -254,9 +254,9 @@ Context *increased* in epochs 1–3 before falling in epochs 4–6. The workload
 
 Secret Digger serves as an internal control: its stability across epochs (despite repo-wide changes) validates that our epoch-labeling and normalization methodology does not introduce spurious trends.
 
-![Figure 2: Per-workflow median context tokens by epoch.](../../paper-data/figures/fig2-per-workflow-epochs.png)
+![Figure 2: Per-workflow median effective tokens (ET) by epoch.](../../paper-data/figures/fig2-per-workflow-epochs.png)
 
-**Figure 2.** Per-workflow median context tokens by epoch. Security Guard's E5 spike (cache-align transition) and Smoke Claude's U-shape are visible.
+**Figure 2.** Per-workflow median effective tokens (ET) by epoch. Security Guard's E5 spike (cache-align transition) and Smoke Claude's U-shape are visible.
 
 ### 5.3 Workload-Normalized Analysis
 
@@ -275,7 +275,7 @@ The most practically important result is from Smoke Copilot: **a 23% reduction i
 
 ![Figure 5: Workload-normalized tokens per LLM call for Smoke Copilot and Smoke Claude, epochs 3–6. Bar height (right axis) shows median LLM API calls per run.](../../paper-data/figures/fig5-workload-normalized.png)
 
-**Figure 5.** Context tokens per LLM call (line, left axis) and median LLM API call count (bars, right axis) for Smoke Copilot and Smoke Claude. Smoke Copilot's flat bar height with declining line illustrates the pure-efficiency regime.
+**Figure 5.** Effective tokens (ET) per LLM call (line, left axis) and median LLM API call count (bars, right axis) for Smoke Copilot and Smoke Claude. Smoke Copilot's flat bar height with declining line illustrates the pure-efficiency regime.
 
 ### 5.4 MCP-to-CLI Migration
 
