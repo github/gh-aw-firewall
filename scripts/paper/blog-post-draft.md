@@ -85,7 +85,7 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 
 After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran it against twelve production workflows, then downloaded token-usage artifacts from runs before and after each optimization merged to measure actual impact in effective tokens (ET). Seven of the nine implemented optimizations have enough post-fix run history to compare:
 
-![Token savings chart: before vs. after optimization across 7 workflows, measured in effective tokens](token-savings-chart.png)
+![Token savings chart: before vs. after optimization across 7 workflows, measured in effective tokens](token-savings-chart-v2.png)
 
 *Before values (n=1–10) derived from optimizer issue analysis; after values measured from post-fix run artifacts. † Daily Compiler Quality: one post-fix outlier run (7.68M ET) inflates the average; the remaining 5 runs average 2.41M ET (−30%).*
 
