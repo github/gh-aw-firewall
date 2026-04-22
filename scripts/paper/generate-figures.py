@@ -143,11 +143,13 @@ ax.set_xticklabels([EPOCH_LABELS[e] for e in epochs], fontsize=9)
 ax.set_ylabel('Context tokens (thousands)')
 ax.set_xlabel('Optimization epoch')
 ax.set_title('Overall median context tokens per run across all workflows')
+ax.set_ylim(bottom=0)
 ax.legend(loc='upper right', fontsize=9)
 
-# n labels above x-axis
+# n labels below the p25 band (clamped so they don't go below 0)
 for e in epochs:
-    ax.text(e, stats.loc[e,'p25']/1e3 - 14, f"n={int(stats.loc[e,'n'])}",
+    y = max(stats.loc[e,'p25']/1e3 - 14, 2)
+    ax.text(e, y, f"n={int(stats.loc[e,'n'])}",
             ha='center', fontsize=7.5, color='#777')
 
 plt.tight_layout()
@@ -177,6 +179,7 @@ ax.set_xticklabels([EPOCH_LABELS[e] for e in sorted(df['epoch'].unique())], font
 ax.set_ylabel('Median context tokens (thousands)')
 ax.set_xlabel('Optimization epoch')
 ax.set_title('Per-workflow median context tokens by epoch')
+ax.set_ylim(bottom=0)
 ax.legend(fontsize=9, loc='upper right')
 plt.tight_layout()
 save('fig2-per-workflow-epochs.png')
@@ -215,6 +218,7 @@ for ax, wfname in zip(axes, WFLOWS_WORKLOAD):
     ax.set_xticklabels([EPOCH_SHORT[e] for e in xs], fontsize=9)
     ax.set_title(wfname, fontsize=10)
     ax.set_xlabel('Epoch')
+    ax.set_ylim(bottom=0)
     if ax is axes[0]:
         ax.set_ylabel('Median calls per run')
     ax.legend(fontsize=8)
@@ -287,6 +291,7 @@ for ax, wfname in zip(axes, ['Smoke Copilot', 'Smoke Claude']):
     ax2.bar(xs, [med_calls.get(e, 0) for e in xs],
             color=color, alpha=0.18, width=0.5, label='LLM calls (right)')
     ax2.set_ylabel('Median LLM API calls', fontsize=9, color=color)
+    ax2.set_ylim(bottom=0)
     ax2.tick_params(axis='y', labelcolor=color)
     ax2.spines['right'].set_visible(True)
 
@@ -297,6 +302,7 @@ for ax, wfname in zip(axes, ['Smoke Copilot', 'Smoke Claude']):
     ax.set_xticklabels([EPOCH_SHORT[e] for e in xs], fontsize=9)
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Context tokens per LLM call (thousands)', fontsize=9)
+    ax.set_ylim(bottom=0)
     ax.set_title(wfname, fontsize=10)
 
     # Annotate reduction
@@ -347,6 +353,7 @@ if not cost_df.empty:
     ax.set_ylabel('Cost per run (USD)')
     ax.set_xlabel('Optimization epoch')
     ax.set_title('Distribution of cost per run by epoch (runs with cost data)')
+    ax.set_ylim(bottom=0)
     ax.legend(fontsize=9)
     plt.tight_layout()
     save('fig6-cost-per-run.png')
