@@ -1,37 +1,39 @@
-# Under the hood: Token efficiency in GitHub Agentic Workflows
+# Token efficiency in GitHub Agentic Workflows
 
 *GitHub Blog draft — token-efficiency-paper branch*
 
 ---
 
 **Deck / subtitle:**
-Agentic workflows that run on every pull request can quietly accumulate large API bills. Here's how we instrumented our own production workflows, found the inefficiencies, and built agents that fix them.
+Agentic workflows that run on every pull request can quietly accumulate large API bills. Here's how we instrumented our own production workflows, found the inefficiencies, and built agents to fix them.
 
 ---
 
-Agentic workflows are compelling precisely because they run continuously—on every pull request, every commit, every scheduled cron trigger. That continuous execution is also what makes cost a first-class concern. Unlike a chatbot where a user pays per conversation, an agentic CI workflow compounds across your entire team's activity. Run a workflow with a 150 K-token context on 50 pull requests a day, and you're spending several dollars per day before you've shipped anything.
+GitHub Agentic Workflows are compelling because they are automated. They are like the a team of street sweepers that clean up little messes all over your repo. However, like all agentic work cost is a first-class concern. Unlike a chatbot that works under a user's watchful eye, an agentic workflow runs out of view and can compound across an entire team's activity. Running a workflow with a 150 K-token context on 50 pull requests every a day will eat into budget before anything has shipped.
 
-We build and maintain GitHub Agentic Workflows as a live product in our own repository. That means we're not just designing the system—we're paying its API bills too. Over a 20-day period in April 2026, we ran 2,836 workflow executions spanning five different workflow types, sampled \$962.98 in LLM API costs (averaging \$0.43 per run), and systematically reduced per-run effective token consumption by 29% in our most frequently triggered workflow. This post describes how we did it: what we instrumented, what we found, and what we built to fix it.
+There's a reason CI automation is a better place to start an efficiency campaign than interactive desktop use. A developer's session is hard to measure—the task changes minute to minute, the context is reactive, and there's no clean unit of work to normalize against. A GitHub Actions workflow is the opposite: its task is fully specified in YAML, it runs the same job on every trigger, and every run is an independent, comparable measurement. That repeatability is what makes systematic optimization tractable. You can run the same workflow before and after a change and directly compare the token footprint of each, confident that any difference reflects the change and not a different task.
 
-## We eat our own cooking
+We build and maintain GitHub Agentic Workflows as a live product in our own repository, and we worry about our own token efficiency as much as our users do. Over a 20-day period in April 2026, we ran 2,836 workflow executions spanning five different workflow types, sampled \$962.98 in LLM API costs (averaging \$0.43 per run), and systematically reduced per-run effective token consumption by 29% in our most frequently triggered workflow. This post describes how we did it: what we instrumented, what we found, and what we built to fix it.
 
-The repository that builds GitHub Agentic Workflows uses Agentic Workflows for its own CI. We have a Security Guard workflow that reviews every incoming pull request for security concerns, a Secret Digger that scans for credential leaks, smoke tests that validate the Copilot CLI and Claude CLI against every change, and a pair of daily advisor workflows that surface token usage trends and suggest optimizations. These aren't demos—they run on production hardware, against production GitHub API rate limits, and billed against a real budget.
+## Efficiency dog-fooding
 
-That alignment between builder and user is intentional. The fastest path to understanding the real performance characteristics of a system is to depend on it yourself. When a workflow's context window grows by 20% because we accidentally added an unused MCP tool to the manifest, we feel it in the bill before a user does. Running our own workflows gave us both the incentive to optimize and the data to measure it.
+The repository that builds GitHub Agentic Workflows uses agentic workflows for its own CI. We have a Security Guard workflow that reviews every incoming pull request for security concerns, a Secret Digger that scans for credential leaks, smoke tests that validate the Copilot CLI and Claude CLI against every change, and a pair of daily advisor workflows that surface token usage trends and suggest optimizations. These aren't demos—they run on production hardware, against production GitHub API rate limits, and billed against a real budget.
+
+That alignment between builder and user is intentional. The fastest path to understanding the real performance characteristics of a system is to depend on it yourself. When a workflow's context window grows by 20% because we accidentally added an unused MCP tool to the manifest, we see it in the bill before a user does. Running our own workflows gave us both the incentive to optimize and the data to measure it.
 
 ## Step one: log token usage at the API level
 
 Before you can optimize token consumption, you need to see it. The obvious approach—reading application logs from the agent itself—has a fundamental problem: different agent frameworks (Claude CLI, Copilot CLI, Codex CLI) emit completely different log formats, and usage data is often incomplete or unavailable for historical runs.
 
-We took a different approach. The Agentic Workflows architecture already includes an API proxy sidecar that injects LLM credentials into the agent container without exposing them to the agent process directly. This proxy sits between the agent and every upstream LLM provider call. By adding structured logging to the proxy, we capture token usage for every run, from every agent framework, in a single normalized format—without touching agent code at all.
+We took a different approach. The agentic workflows architecture already includes an API proxy sidecar that injects LLM credentials into the agent container without exposing them to the agent process directly. This proxy sits between the agent and every upstream LLM provider call. By adding structured logging to the proxy, we capture token usage for every run, from every agent framework, in a single normalized format—without touching agent code at all.
 
-Every workflow run now emits a `token-usage.jsonl` artifact: one record per LLM API call, recording input tokens, output tokens, cache-read tokens, cache-write tokens, model, provider, and timestamp. This single change turned token consumption from an invisible cost center into a first-class CI observable.
+Every workflow run now emits a `token-usage.jsonl` artifact: one record per LLM API call, recording input tokens, output tokens, cache-read tokens, cache-write tokens, model, provider, and timestamp. This single change turned token consumption from an invisible cost center into an action artifact.
 
 ## Let agents optimize agents
 
 Token data in hand, the next question was what to do with it. Rather than analyze it manually, we built two optimization workflows that run on a daily schedule.
 
-The **Daily Token Usage Auditor** reads token usage artifacts from all recent workflow runs, aggregates consumption by workflow and by time period, and posts a structured report to a GitHub Discussion. Its job is surveillance: flag any workflow that has significantly increased its token footprint since the last report, surface the most expensive workflows, and note any runs that look anomalous (e.g., a workflow that normally completes in 4 LLM turns taking 18).
+The **Daily Token Usage Auditor** reads token usage artifacts from all recent workflow runs, aggregates consumption by workflow and by time period, and posts a structured report. Its job is surveillance: flag any workflow that has significantly increased its token footprint since the last report, surface the most expensive workflows, and note any runs that look anomalous (e.g., a workflow that normally completes in 4 LLM turns taking 18).
 
 The **Daily Token Optimizer** goes further. When the Auditor flags a heavy workflow, the Optimizer is given that workflow's source (the `.md` file and recent run logs) and asked to identify concrete inefficiencies and propose specific changes. It then creates a pull request with those changes. In practice, the Optimizer has become the highest-leverage tool in our efficiency toolkit: it consistently finds things that human reviewers miss.
 
