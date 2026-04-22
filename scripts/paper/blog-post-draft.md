@@ -81,15 +81,43 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 
 **Does quality change?** This is the hardest question. A lighter model running a more constrained workflow might produce lower-quality output. We looked at the process-level signals available in our dataset: output tokens per LLM call, turn counts per run, and tool-call completion rates. For Smoke Copilot—our most-optimized workflow—all three remained stable across the optimization period even as token consumption fell. The workflow completes in exactly 5 LLM turns every run, before and after the optimizations. But these are process signals, not outcome signals. We cannot directly observe whether the quality of agent output improved, degraded, or stayed flat, because we have no ground-truth labels for what "correct" output looks like. Measuring goodput—tokens per unit of correct work—requires outcome instrumentation that is on our roadmap.
 
-## The numbers: Smoke Copilot
+## The numbers: what the optimizer found
 
-Smoke Copilot is a workflow that runs on every pull request to the gh-aw-firewall repository and validates that the Copilot CLI agent can successfully complete a basic agentic task inside the AWF sandbox. It's a good case study because it has a well-defined, stable workload: the task is the same every run.
+After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran them against twelve production workflows. Here is what the baseline looked like before any changes were made:
 
-At the start of our measurement period, the workflow was making 15 MCP tool calls per run to gather the context it needed: listing pull requests, fetching diff content, reading file state, and checking CI status. Each of those 15 calls contributed a tool-schema JSON block to the system prompt and consumed a full LLM reasoning turn. Median context tokens were 156 K per run.
+```
+Workflow                            Tokens/run                               Amount    Projected savings
+────────────────────────────────────────────────────────────────────────────────────────────────────────
+Daily Syntax Error Quality          █████████████████████████████████████    9.3M      −84% (1 tool fix)
+Daily Community Attribution         ████████████████████████                 6.1M
+Glossary Maintainer                 ████████████████                         3.9M      −51% (remove search_repos)
+Workflow Skill Extractor            ██████████████████                       4.4M
+Dead Code Removal Agent             ██████████████████                       4.5M      −35% (deterministic pre-steps)
+Daily Compiler Quality              █████████████                            3.3M      −10% (restrict bash patterns)
+Q (Agentic Optimizer)               █████████████                            3.2M      −44% (timeout cap)
+Contribution Check                  ███████████                              2.8M      −39% (trim research steps)
+Smoke Copilot                       █████                                    1.3M
+Test Quality Sentinel               ████                                     1.0M      −50% (pre-fetch PR data)
+Auto-Triage Issues                  █                                        0.3M      −50% (scoped search)
 
-A single workflow change replaced 13 of those MCP calls with a single `gh pr view --json` call run as a pre-agentic download step. The JSON output from `gh` is richer than what the MCP calls were returning, the agent reads it directly from the workspace, and no LLM reasoning turns are consumed for data fetching.
+Each █ ≈ 250K tokens. Scale: 0–9.5M tokens/run.
+```
 
-After that change and a subsequent model selection optimization, the same workflow runs with 2 MCP calls per run instead of 15, median context tokens of 114 K (–27%), and a 29% reduction in effective tokens when model cost is factored in. The workflow still completes in 5 LLM turns per run. From the outside, nothing has changed about what it does—only how efficiently it does it.
+The numbers were sobering. Across the eleven measured workflows, average consumption was 3.6 M tokens per run. Three patterns dominated the findings.
+
+**A single misconfigured rule can cause runaway loops.** The most extreme case was the Daily Syntax Error Quality workflow at 9.3 M tokens per run—roughly 6× the average for a daily automation. The root cause was a one-line misconfiguration: the workflow copied test files to `/tmp/` then called `gh aw compile *`, but the sandbox's bash allowlist only permitted relative-path glob patterns. Every compile attempt was blocked. Unable to use the tool it needed, the agent fell into a 64-turn fallback loop—manually reading source code to reconstruct what the compiler would have told it. A single fix to the allowed bash patterns projected an 84% token reduction.
+
+**Unused tools are expensive to carry.** The Glossary Maintainer workflow was spending 3.9 M tokens per run—and a single tool dominated: `search_repositories`, called **342 times in one run**, accounting for 58% of all tool calls. The tool came in as part of the default toolset but was completely unnecessary for a workflow that only scans local file changes. One prompt line ("Do not use `search_repositories`") eliminates the majority of the overhead.
+
+The Daily Community Attribution workflow showed the inverse: configured with 8 GitHub MCP tools, it made **zero calls to any of them** across an entire run while still spending 6.1 M tokens and 46% of its network requests were blocked. It had silently fallen back to constructing the same GitHub API calls through raw `curl`—manually reconstructing tool functionality in a loop because the registered tooling wasn't exercised by the prompt.
+
+**Most agent turns are deterministic data-gathering.** Across five workflows—Glossary Maintainer, Test Quality Sentinel, Contribution Check, Dead Code Removal Agent, and Q—the optimizer flagged a consistent pattern: 50–96% of agent turns were spent on reads that required no inference at all. Fetching a PR diff, listing changed files, reading a repository's CONTRIBUTING.md—these are fixed-output HTTP calls. Running them through the LLM reasoning loop adds both latency and cost; running them as pre-agentic `gh` CLI setup steps adds neither.
+
+The Test Quality Sentinel was the most consistent signal: across 9 consecutive non-trivial runs, every single run was flagged as having between 50% and 96% of its turns in deterministic data-gathering. A 1.0 M-token average run contained as few as 1–2 turns doing actual analytical work.
+
+### A closed-loop example: Smoke Copilot
+
+For the workflows in the gh-aw-firewall repository itself—where we have pre- and post-optimization measurements from our own ET dataset—we can show the full round-trip. Smoke Copilot validates the Copilot CLI agent on every pull request. Before optimization, it made 15 MCP tool calls per run to gather PR context; after a pre-agentic `gh pr view --json` setup step and a model selection change, the same workflow runs with 2 MCP calls, 27% fewer context tokens, and a 29% effective token reduction. The workflow still completes in 5 LLM turns. From the outside, nothing changed—only how efficiently it works.
 
 | | Before | After | Change |
 |---|---|---|---|
@@ -98,7 +126,7 @@ After that change and a subsequent model selection optimization, the same workfl
 | Effective tokens (ET) | 52 K | 37 K | −29% |
 | LLM turns/run | 5 | 5 | — |
 
-Across all five workflows in the study, median effective tokens per run fell 25% over the 20-day period.
+Across all five gh-aw-firewall workflows in the study, median effective tokens per run fell 25% over the 20-day measurement period.
 
 ## What's next?
 
