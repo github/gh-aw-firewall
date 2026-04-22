@@ -190,6 +190,10 @@ Median context fell monotonically from 196.7 K to 159.5 K over the 20-day period
 
 The p75–p25 interquartile range also narrowed substantially: from 231.8 K at baseline to 62.7 K at epoch 6. This compression of the distribution reflects the relevance gate eliminating high-token outlier runs (irrelevant PRs previously consumed a full Security Guard analysis).
 
+![Figure 1: Overall median context tokens per run by epoch, with IQR band (p25–p75). The shaded region illustrates the narrowing distribution from epoch 5 onward.](../../paper-data/figures/fig1-overall-epoch-trend.png)
+
+**Figure 1.** Overall median context tokens per run by epoch (all workflows combined). Shaded band shows IQR (p25–p75). n counts appear below each epoch.
+
 ### 5.2 Per-Workflow Results
 
 **Security Guard** showed the most dramatic reduction. Table 2 shows its per-epoch trajectory.
@@ -250,6 +254,10 @@ Context *increased* in epochs 1–3 before falling in epochs 4–6. The workload
 
 Secret Digger serves as an internal control: its stability across epochs (despite repo-wide changes) validates that our epoch-labeling and normalization methodology does not introduce spurious trends.
 
+![Figure 2: Per-workflow median context tokens by epoch.](../../paper-data/figures/fig2-per-workflow-epochs.png)
+
+**Figure 2.** Per-workflow median context tokens by epoch. Security Guard's E5 spike (cache-align transition) and Smoke Claude's U-shape are visible.
+
 ### 5.3 Workload-Normalized Analysis
 
 A key question for any token efficiency campaign is: **are tokens falling because work is cheaper, or because less work is done?** Table 6 summarizes the mechanism for each workflow's reduction.
@@ -265,9 +273,17 @@ A key question for any token efficiency campaign is: **are tokens falling becaus
 
 The most practically important result is from Smoke Copilot: **a 23% reduction in tokens per LLM call with no reduction in work done**. This represents pure efficiency—the agent completes the same task (end-to-end smoke test, PR creation, verification) with fewer tokens consumed on each API call. This is attributable to prompt cache alignment.
 
+![Figure 5: Workload-normalized tokens per LLM call for Smoke Copilot and Smoke Claude, epochs 3–6. Bar height (right axis) shows median LLM API calls per run.](../../paper-data/figures/fig5-workload-normalized.png)
+
+**Figure 5.** Context tokens per LLM call (line, left axis) and median LLM API call count (bars, right axis) for Smoke Copilot and Smoke Claude. Smoke Copilot's flat bar height with declining line illustrates the pure-efficiency regime.
+
 ### 5.4 MCP-to-CLI Migration
 
-Figure 1 (described in text) shows the migration of GitHub API operations from MCP server tool calls to deterministic `gh`-CLI subprocess calls across epochs.
+Figure 3 shows the migration of GitHub API operations from MCP server tool calls to deterministic `gh`-CLI subprocess calls across epochs.
+
+![Figure 3: Median MCP tool calls vs. gh-CLI subprocess calls per run, by epoch, for three workflows.](../../paper-data/figures/fig3-mcp-vs-cli-migration.png)
+
+**Figure 3.** Median MCP tool calls (red dashed) vs. `gh`-CLI subprocess calls (blue solid) per run, by epoch.
 
 The most dramatic migration is in **Smoke Copilot**: median MCP tool calls dropped from **15 per run** (epoch 1) to **2 per run** (epoch 2), coinciding with a workflow update that replaced 13 MCP `list_*` and `get_*` operations with a single `gh pr view --json` call that returns structured data in one subprocess invocation. Total context tokens dropped correspondingly (157.3 K → 147.1 K, −6.4%).
 
@@ -281,6 +297,10 @@ Cache hit rate improved from 71% at baseline (epoch 0) to 79% at epoch 6. The mo
 
 Importantly, cache hit rate and context size are not perfectly correlated. Epoch 2 showed high cache hit rate (78%) while context was already declining—because the turn cap reduced the number of uncached continuation turns. Epoch 3 (haiku-switch) briefly lowered cache rate (75%) because Haiku uses a different cache key than Sonnet, invalidating previously built cache entries.
 
+![Figure 4: Prompt cache hit rate by epoch for Claude workflows.](../../paper-data/figures/fig4-cache-hit-rate.png)
+
+**Figure 4.** Prompt cache hit rate by epoch for Claude-based workflows. The dashed line is the median across all three. The E3 dip reflects cache invalidation from the Haiku model switch.
+
 ### 5.6 Cost Analysis
 
 Of the 2,836 runs in the dataset, 2,234 (78.8%) had cost data available. Total cost across these runs was \$962.98, an average of \$0.43/run.
@@ -288,6 +308,10 @@ Of the 2,836 runs in the dataset, 2,234 (78.8%) had cost data available. Total c
 At epoch 0 (baseline), average cost was \$0.49/run. The first significant cost reduction came at epoch 1, where average cost fell to \$0.32/run (−34.7%). This large cost drop relative to the 8.1% context reduction reflects two effects: (1) the Haiku model's lower per-token price applied to Secret Digger runs in the same epoch window; and (2) cost is driven more by output tokens and cache miss tokens than by total context, and the turn cap preferentially reduced output-heavy turns.
 
 Projecting the 18.9% context reduction to the pre-study cost basis of \$0.49/run: the same run volume would cost approximately \$0.40/run, a saving of \$0.09/run. At the observed run volume of roughly 50 target workflow runs per day, this represents approximately \$4.50/day or ~\$1,600/year in direct API cost savings.
+
+![Figure 6: Distribution of cost per run by epoch (runs with cost data, epochs 0–1).](../../paper-data/figures/fig6-cost-per-run.png)
+
+**Figure 6.** Cost per run distribution by epoch (box = IQR, whiskers = 5th–95th pct, diamond = mean). Only epochs 0 and 1 have cost data in the current dataset.
 
 ---
 
