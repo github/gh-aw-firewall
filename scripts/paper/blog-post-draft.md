@@ -83,46 +83,47 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 
 ## The numbers: actual results
 
-After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran it against twelve production workflows, then downloaded token-usage artifacts from runs before and after each optimization merged to measure actual impact. Seven of the nine implemented optimizations have enough post-fix run history to compare:
+After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran it against twelve production workflows, then downloaded token-usage artifacts from runs before and after each optimization merged to measure actual impact in effective tokens (ET). Seven of the nine implemented optimizations have enough post-fix run history to compare:
 
 ```
-Workflow                            Before → After                   Change
+Workflow                            Before → After (ET)              Change
 ─────────────────────────────────────────────────────────────────────────────────────
-Daily Syntax Error Quality  before  █████████████████████████████████████  9.3M (n=2)
-                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.4M (n=10)  −42%
+Daily Syntax Error Quality  before  █████████████████████  10.4M ET (n=2)*
+                            after   ████████████  5.95M ET (n=10)      −43%
 
-Daily Community Attribution before  ████████████████████████  6.1M (n=1)
-                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.2M (n=3)   −15%
+Daily Community Attribution before  ██████████████  6.75M ET (n=1)*
+                            after   ████████████  5.81M ET (n=3)       −14%
 
-Glossary Maintainer         before  ███████████████  3.9M (n=2)
-                            after   ▒▒▒▒▒▒▒▒▒  2.2M (n=8)               −44%
+Glossary Maintainer         before  █████████  4.27M ET (n=2)*
+                            after   █████  2.41M ET (n=8)              −44%
 
-Daily Compiler Quality      before  █████████████  3.3M (n=7)
-                            after   ▒▒▒▒▒▒▒▒▒  2.3M (n=6)               −30%
+Daily Compiler Quality      before  ███████  3.43M ET (n=7)*
+                            after   █████  2.55M ET (n=6)              −26%
 
-Contribution Check          before  ███████████  2.8M (n=2)
-                            after   ▒▒▒▒▒  1.3M (n=20)                  −54%
+Contribution Check          before  ███████  3.20M ET (n=2)*
+                            after   ███  1.48M ET (n=20)               −54%
 
-Test Quality Sentinel       before  ████  1.0M (n=10)
-                            after   ▒  0.3M (n=20)                       −69%
+Test Quality Sentinel       before  ██  1.15M ET (n=10)*
+                            after   ▒  0.36M ET (n=20)                 −69%
 
-Auto-Triage Issues          before  ███  0.7M (n=8)
-                            after   ▒  0.1M (n=4)                        −79%
+Auto-Triage Issues          before  ██  0.77M ET (n=8)*
+                            after   ▒  0.15M ET (n=4)                  −81%
 
-Each █/▒ ≈ 250K tokens. Values are medians. Before = optimizer analysis baseline; After = post-fix runs.
+Each █ ≈ 500K ET. ET = (inp + cacheWrite) + 0.1×cacheRead + 4×output (Sonnet multiplier = 1.0×).
+* Before values derived from optimizer issue analysis; after values measured from post-fix run artifacts.
 ```
 
-The improvements range from modest (Daily Community Attribution, −15%) to dramatic (Auto-Triage Issues, −79%). The variation reflects the nature of the fix applied: simple toolset pruning saves less than eliminating whole categories of work.
+The improvements range from modest (Daily Community Attribution, −14%) to dramatic (Auto-Triage Issues, −81%). The variation reflects the nature of the fix applied: simple toolset pruning saves less than eliminating whole categories of work.
 
 Three patterns account for most of the gains.
 
-**A single misconfigured rule can cause runaway loops.** The most extreme case was Daily Syntax Error Quality at 9.3 M tokens per run—roughly 6× the project average. The root cause was a one-line misconfiguration: the workflow copied test files to `/tmp/` then called `gh aw compile *`, but the sandbox's bash allowlist only permitted relative-path glob patterns. Every compile attempt was blocked. Unable to use the tool it needed, the agent fell into a 64-turn fallback loop—manually reading source code to reconstruct what the compiler would have told it. One fix to the allowed bash patterns dropped consumption to 5.4 M (−42%). It's still high because the workflow itself tests many syntax error cases, but the runaway loop is gone.
+**A single misconfigured rule can cause runaway loops.** The most extreme case was Daily Syntax Error Quality at 10.4 M ET per run—roughly 6× the project average. The root cause was a one-line misconfiguration: the workflow copied test files to `/tmp/` then called `gh aw compile *`, but the sandbox's bash allowlist only permitted relative-path glob patterns. Every compile attempt was blocked. Unable to use the tool it needed, the agent fell into a 64-turn fallback loop—manually reading source code to reconstruct what the compiler would have told it. One fix to the allowed bash patterns dropped consumption to 5.95 M ET (−43%). It's still high because the workflow itself tests many syntax error cases, but the runaway loop is gone.
 
-**Unused tools are expensive to carry.** The Glossary Maintainer workflow was spending 3.9 M tokens per run—and a single tool dominated: `search_repositories`, called **342 times in one run**, accounting for 58% of all tool calls. The tool came in as part of the default toolset but was completely unnecessary for a workflow that only scans local file changes. Removing it dropped median consumption to 2.2 M (−44%).
+**Unused tools are expensive to carry.** The Glossary Maintainer workflow was spending 4.27 M ET per run—and a single tool dominated: `search_repositories`, called **342 times in one run**, accounting for 58% of all tool calls. The tool came in as part of the default toolset but was completely unnecessary for a workflow that only scans local file changes. Removing it dropped median consumption to 2.41 M ET (−44%).
 
-The Daily Community Attribution workflow showed the inverse: configured with 8 GitHub MCP tools, it made **zero calls to any of them** across an entire run while still spending 6.1 M tokens—46% of its network requests were blocked. It had silently fallen back to reconstructing the same GitHub API calls through raw `curl` in a loop. The relatively small −15% reduction after optimization reflects that this workflow's cost is largely driven by workload (78 turns of legitimate attribution computation) rather than tooling overhead alone.
+The Daily Community Attribution workflow showed the inverse: configured with 8 GitHub MCP tools, it made **zero calls to any of them** across an entire run while still spending 6.75 M ET—46% of its network requests were blocked. It had silently fallen back to reconstructing the same GitHub API calls through raw `curl` in a loop. The relatively small −14% reduction after optimization reflects that this workflow's cost is largely driven by workload (78 turns of legitimate attribution computation) rather than tooling overhead alone.
 
-**Most agent turns are deterministic data-gathering.** Contribution Check and Test Quality Sentinel show the largest proportional gains (−54% and −69%) because their inefficiency was structural: 50–96% of agent turns were spent on reads that required no inference—fetching PR diffs, listing changed files, reading a repository's CONTRIBUTING.md. Moving those reads into pre-agentic `gh` CLI steps before the agent starts eliminated the majority of the LLM work. Test Quality Sentinel went from a 1.0 M-token average to 320 K; Contribution Check from 2.8 M to 1.3 M.
+**Most agent turns are deterministic data-gathering.** Contribution Check and Test Quality Sentinel show the largest proportional gains (−54% and −69%) because their inefficiency was structural: 50–96% of agent turns were spent on reads that required no inference—fetching PR diffs, listing changed files, reading a repository's CONTRIBUTING.md. Moving those reads into pre-agentic `gh` CLI steps before the agent starts eliminated the majority of the LLM work. Test Quality Sentinel went from 1.15 M ET to 360 K ET; Contribution Check from 3.2 M to 1.48 M.
 
 ## What's next?
 
