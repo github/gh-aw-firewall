@@ -86,30 +86,30 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 After deploying the auditor and optimizer across the gh-aw project and its downstream repositories, we ran it against twelve production workflows, then downloaded token-usage artifacts from runs before and after each optimization merged to measure actual impact. Seven of the nine implemented optimizations have enough post-fix run history to compare:
 
 ```
-Workflow                            Before → After         Change
-─────────────────────────────────────────────────────────────────────────────
-Daily Syntax Error Quality  before  █████████████████████████████████████  9.3M
-                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.4M  (−42%)
+Workflow                            Before → After                   Change
+─────────────────────────────────────────────────────────────────────────────────────
+Daily Syntax Error Quality  before  █████████████████████████████████████  9.3M (n=2)
+                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.4M (n=10)  −42%
 
-Daily Community Attribution before  ████████████████████████  6.1M
-                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.2M  (−15%)
+Daily Community Attribution before  ████████████████████████  6.1M (n=1)
+                            after   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  5.2M (n=3)   −15%
 
-Glossary Maintainer         before  ███████████████  3.9M
-                            after   ▒▒▒▒▒▒▒▒▒  2.2M  (−44%)
+Glossary Maintainer         before  ███████████████  3.9M (n=2)
+                            after   ▒▒▒▒▒▒▒▒▒  2.2M (n=8)               −44%
 
-Daily Compiler Quality      before  █████████████  3.3M
-                            after   ▒▒▒▒▒▒▒▒▒  2.3M  (−30%)
+Daily Compiler Quality      before  █████████████  3.3M (n=7)
+                            after   ▒▒▒▒▒▒▒▒▒  2.3M (n=6)               −30%
 
-Contribution Check          before  ███████████  2.8M
-                            after   ▒▒▒▒▒  1.3M  (−54%)
+Contribution Check          before  ███████████  2.8M (n=2)
+                            after   ▒▒▒▒▒  1.3M (n=20)                  −54%
 
-Test Quality Sentinel       before  ████  1.0M
-                            after   ▒  0.3M  (−69%)
+Test Quality Sentinel       before  ████  1.0M (n=10)
+                            after   ▒  0.3M (n=20)                       −69%
 
-Auto-Triage Issues          before  ███  0.7M
-                            after   ▒  0.1M  (−79%)
+Auto-Triage Issues          before  ███  0.7M (n=8)
+                            after   ▒  0.1M (n=4)                        −79%
 
-Each █/▒ ≈ 250K tokens. Before = issue analysis baseline; After = median of post-fix runs.
+Each █/▒ ≈ 250K tokens. Values are medians. Before = optimizer analysis baseline; After = post-fix runs.
 ```
 
 The improvements range from modest (Daily Community Attribution, −15%) to dramatic (Auto-Triage Issues, −79%). The variation reflects the nature of the fix applied: simple toolset pruning saves less than eliminating whole categories of work.
