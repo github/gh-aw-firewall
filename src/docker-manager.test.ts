@@ -2365,7 +2365,11 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
         expect(proxy.healthcheck).toBeDefined();
-        expect((proxy.healthcheck as any).test).toEqual(['CMD', 'curl', '-f', 'http://localhost:10000/health']);
+        const healthcheck = proxy.healthcheck!;
+        expect(healthcheck.test).toEqual(['CMD', 'curl', '-f', 'http://localhost:10000/health']);
+        expect(healthcheck.timeout).toBe('2s');
+        expect(healthcheck.retries).toBe(10);
+        expect(healthcheck.start_period).toBe('10s');
       });
 
       it('should drop all capabilities', () => {

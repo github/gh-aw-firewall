@@ -1773,9 +1773,9 @@ export function generateDockerCompose(
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
         interval: '1s',
-        timeout: '1s',
-        retries: 5,
-        start_period: '2s',
+        timeout: '2s',
+        retries: 10,
+        start_period: '10s',
       },
       // Security hardening: Drop all capabilities
       cap_drop: ['ALL'],
