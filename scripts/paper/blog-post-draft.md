@@ -87,7 +87,7 @@ After deploying the auditor and optimizer across the gh-aw project and its downs
 
 ![Token savings chart: before vs. after optimization across 7 workflows, measured in effective tokens](token-savings-chart.png)
 
-*ET = (inp + cacheWrite) + 0.1×cacheRead + 4×output (Sonnet 1.0×). Before values (n=1–10) derived from optimizer issue analysis; after values measured from post-fix run artifacts. † Daily Compiler Quality: one post-fix outlier run at 7.68M ET inflates the average; the remaining 5 runs average 2.41M ET (−30%).*
+*Before values (n=1–10) derived from optimizer issue analysis; after values measured from post-fix run artifacts. † Daily Compiler Quality: one post-fix outlier run (7.68M ET) inflates the average; the remaining 5 runs average 2.41M ET (−30%).*
 
 The improvements range from modest (Daily Community Attribution, −28%) to dramatic (Auto-Triage Issues, −81%). The variation reflects the nature of the fix applied: simple toolset pruning saves less than eliminating whole categories of work.
 
