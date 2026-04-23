@@ -5,13 +5,13 @@
 ---
 
 **Deck / subtitle:**
-Agentic workflows that run on every pull request can quietly accumulate large API bills. Here's how we instrumented our own production workflows, found the inefficiencies, and built agents to fix them.
+Agentic workflows that run on every pull request can quietly accumulate large API bills. Here's how we instrumented our production workflows, uncovered inefficiencies, and built agents to fix them.
 
 ---
 
-GitHub Agentic Workflows are like the a team of street sweepers that clean up little messes all over your repo. However, like all agentic work cost is a first-class concern. Chatbots work under a user's watchful eye, but automations like agentic workflows run out of view and costs can compound across an entire team's activity. Thankfully it is easier to improve CI automation efficiency than interactive desktop use. A developer's session can be hard to predict since tasks change minute to minute and context is reactive. An agentic workflow's task is fully specified in YAML and it runs the same job every time, which makes systematic optimization easier. 
+GitHub Agentic Workflows are like the a team of reliable street sweepers that clean up little messes all over your repo. However, like all agentic work, cost is a first-class concern. Chatbots work under a user's watchful eye, but automations like agentic workflows run in the background, and costs can compound across an entire team's activity. Thankfully, improving CI automation efficiency is often easier than optimizing interactive desktop use. A developer's session can be hard to predict, with tasks change minute to minute and context is constantly shifting. In contrast, an agentic workflow is fully specified in YAML and runs the same job every time, making systematic optimization easier. 
 
-We build and maintain GitHub Agentic Workflows as a live product in our own repository, and we worry about our own token efficiency as much as our users do. In early April 2026, we began to systematically optimize the token-usage of the workflows that we rely on every day. This post describes what we instrumented, how we optimized, and the results.
+We build and maintain GitHub Agentic Workflows as a live product in our own repository, and we care about token efficiency as much as our users do. In early April 2026, we began systematically optimizing the token usage of the workflows we rely on every day. This post describes what we instrumented, how we optimized, and the results.
 
 ## Token efficiency 
 
