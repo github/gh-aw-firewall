@@ -818,7 +818,8 @@ export function generateDockerCompose(
   // Copilot CLI requires Node.js. Ask the agent entrypoint to fail fast with a
   // clear diagnostic if node is not reachable inside the chroot before startup.
   const commandExecutable = config.agentCommand.trim().split(/\s+/, 1)[0] || '';
-  const isCopilotCommand = /(^|\/)copilot$/i.test(commandExecutable);
+  const commandExecutableBase = path.posix.basename(commandExecutable.replace(/\\/g, '/'));
+  const isCopilotCommand = commandExecutableBase.toLowerCase() === 'copilot';
   if (config.copilotGithubToken || config.copilotApiKey || isCopilotCommand) {
     environment.AWF_REQUIRE_NODE = '1';
   }
