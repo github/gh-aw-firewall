@@ -815,6 +815,16 @@ export function generateDockerCompose(
     AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY,COPILOT_PROVIDER_API_KEY',
   };
 
+  // Copilot CLI requires Node.js. Ask the agent entrypoint to fail fast with a
+  // clear diagnostic if node is not reachable inside the chroot before startup.
+  if (
+    config.copilotGithubToken
+    || config.copilotApiKey
+    || /\bcopilot\b/.test(config.agentCommand)
+  ) {
+    environment.AWF_REQUIRE_NODE = '1';
+  }
+
   // When api-proxy is enabled with Copilot, set placeholder tokens early
   // so --env-all won't override them with real values from host environment
   if (config.enableApiProxy && config.copilotGithubToken) {
@@ -1221,6 +1231,9 @@ export function generateDockerCompose(
     // Mount ~/.npm for npm cache directory access
     // npm requires write access to ~/.npm for caching packages and writing logs
     agentVolumes.push(`${effectiveHome}/.npm:/host${effectiveHome}/.npm:rw`);
+
+    // Mount ~/.nvm for Node.js installations managed by nvm on self-hosted runners
+    agentVolumes.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
     // Minimal /etc - only what's needed for runtime
     // Note: /etc/shadow is NOT mounted (contains password hashes)
@@ -2202,7 +2215,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // Ensure source directories for subdirectory mounts exist with correct ownership
     const chrootHomeDirs = [
       '.copilot', '.cache', '.config', '.local',
-      '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm',
+      '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm', '.nvm',
     ];
     for (const dir of chrootHomeDirs) {
       const dirPath = path.join(effectiveHome, dir);
