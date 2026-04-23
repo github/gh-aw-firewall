@@ -392,7 +392,8 @@ describe('copilotModelEmptyFallbackRegex', () => {
 
 const openAiProxyTomlSectionRegex =
   /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\])/m;
-const openAiProxySupportsWebsocketsRegex = /^(\s+supports_websockets\s*=\s*)(true|false)\s*$/m;
+const openAiProxySupportsWebsocketsRegex =
+  /^(\s+supports_websockets\s*=\s*)(true|false)(\r?\n|$)/m;
 
 function ensureOpenAiProxySupportsWebsocketsFalse(input: string): string {
   const match = input.match(openAiProxyTomlSectionRegex);
@@ -403,7 +404,7 @@ function ensureOpenAiProxySupportsWebsocketsFalse(input: string): string {
   if (openAiProxySupportsWebsocketsRegex.test(sectionBody)) {
     const updatedSectionBody = sectionBody.replace(
       openAiProxySupportsWebsocketsRegex,
-      '$1false'
+      '$1false$3'
     );
     return input.replace(
       openAiProxyTomlSectionRegex,
