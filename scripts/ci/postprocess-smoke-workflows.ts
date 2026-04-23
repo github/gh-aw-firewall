@@ -739,6 +739,9 @@ for (const workflowPath of workflowPaths) {
 const codexConfigTomlHeredocRegex =
   /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
 const CODEX_PROXY_PROVIDER_SENTINEL = 'model_providers.openai-proxy';
+const openAiProxyTomlSectionRegex =
+  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\])/m;
+const openAiProxySupportsWebsocketsRegex = /^(\s+supports_websockets\s*=\s*)(true|false)\s*$/m;
 
 // Apply Codex-specific transformations to OpenAI/Codex workflow files only.
 // These transformations must not be applied to Claude, Copilot, or other
@@ -783,6 +786,40 @@ for (const workflowPath of codexWorkflowPaths) {
     }
   } else {
     console.log(`  openai-proxy custom provider already present in Codex config.toml`);
+  }
+
+  // Ensure the openai-proxy provider always disables websockets, including when
+  // older lock files already contain the section but are missing this key.
+  const openAiProxyMatch = content.match(openAiProxyTomlSectionRegex);
+  if (openAiProxyMatch) {
+    const sectionIndent = openAiProxyMatch[1];
+    const sectionBody = openAiProxyMatch[2];
+    if (openAiProxySupportsWebsocketsRegex.test(sectionBody)) {
+      const updatedSectionBody = sectionBody.replace(
+        openAiProxySupportsWebsocketsRegex,
+        '$1false'
+      );
+      if (updatedSectionBody !== sectionBody) {
+        content = content.replace(
+          openAiProxyTomlSectionRegex,
+          `${sectionIndent}${updatedSectionBody}$3`
+        );
+        modified = true;
+        console.log(`  Updated openai-proxy supports_websockets to false`);
+      }
+    } else {
+      content = content.replace(
+        openAiProxyTomlSectionRegex,
+        `${sectionIndent}${sectionBody}${sectionIndent}supports_websockets = false\n$3`
+      );
+      modified = true;
+      console.log(`  Added openai-proxy supports_websockets = false`);
+    }
+  } else if (content.includes(CODEX_PROXY_PROVIDER_SENTINEL)) {
+    console.warn(
+      `  WARNING: Could not find [model_providers.openai-proxy] section to enforce supports_websockets=false. ` +
+        `The compiled lock file may have changed structure. Manual review required.`
+    );
   }
 
   // Preserve empty lines as truly empty (no trailing whitespace) to keep the

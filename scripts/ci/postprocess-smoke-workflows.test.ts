@@ -386,3 +386,79 @@ describe('copilotModelEmptyFallbackRegex', () => {
     expect(result).toBe(input);
   });
 });
+
+// ── Codex openai-proxy config.toml websocket enforcement tests ────────────────
+// Mirrors the patterns in postprocess-smoke-workflows.ts.
+
+const openAiProxyTomlSectionRegex =
+  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\])/m;
+const openAiProxySupportsWebsocketsRegex = /^(\s+supports_websockets\s*=\s*)(true|false)\s*$/m;
+
+function ensureOpenAiProxySupportsWebsocketsFalse(input: string): string {
+  const match = input.match(openAiProxyTomlSectionRegex);
+  if (!match) return input;
+
+  const sectionIndent = match[1];
+  const sectionBody = match[2];
+  if (openAiProxySupportsWebsocketsRegex.test(sectionBody)) {
+    const updatedSectionBody = sectionBody.replace(
+      openAiProxySupportsWebsocketsRegex,
+      '$1false'
+    );
+    return input.replace(
+      openAiProxyTomlSectionRegex,
+      `${sectionIndent}${updatedSectionBody}$3`
+    );
+  }
+
+  return input.replace(
+    openAiProxyTomlSectionRegex,
+    `${sectionIndent}${sectionBody}${sectionIndent}supports_websockets = false\n$3`
+  );
+}
+
+describe('openAiProxyTomlSectionRegex', () => {
+  it('matches an openai-proxy section before shell_environment_policy', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          name = "OpenAI AWF proxy"\n' +
+      '          base_url = "http://172.30.0.30:10000"\n' +
+      '          env_key = "OPENAI_API_KEY"\n' +
+      '          [shell_environment_policy]\n';
+    const match = input.match(openAiProxyTomlSectionRegex);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe('          ');
+  });
+});
+
+describe('ensureOpenAiProxySupportsWebsocketsFalse', () => {
+  it('adds supports_websockets = false when missing', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          name = "OpenAI AWF proxy"\n' +
+      '          base_url = "http://172.30.0.30:10000"\n' +
+      '          env_key = "OPENAI_API_KEY"\n' +
+      '          [shell_environment_policy]\n';
+    const result = ensureOpenAiProxySupportsWebsocketsFalse(input);
+    expect(result).toContain('          supports_websockets = false\n');
+  });
+
+  it('updates supports_websockets = true to false', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          supports_websockets = true\n' +
+      '          [shell_environment_policy]\n';
+    const result = ensureOpenAiProxySupportsWebsocketsFalse(input);
+    expect(result).toContain('          supports_websockets = false\n');
+    expect(result).not.toContain('supports_websockets = true');
+  });
+
+  it('is idempotent when already set to false', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          supports_websockets = false\n' +
+      '          [shell_environment_policy]\n';
+    const result = ensureOpenAiProxySupportsWebsocketsFalse(input);
+    expect(result).toBe(input);
+  });
+});
