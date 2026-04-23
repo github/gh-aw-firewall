@@ -820,7 +820,7 @@ export function generateDockerCompose(
   if (
     config.copilotGithubToken
     || config.copilotApiKey
-    || /\bcopilot\b/.test(config.agentCommand)
+    || /\bcopilot\b/i.test(config.agentCommand)
   ) {
     environment.AWF_REQUIRE_NODE = '1';
   }

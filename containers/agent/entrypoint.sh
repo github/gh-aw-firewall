@@ -711,7 +711,8 @@ AWFEOF
 if ! command -v node >/dev/null 2>&1; then
   echo "[entrypoint][ERROR] Copilot CLI requires Node.js, but 'node' is not available inside AWF chroot."
   echo "[entrypoint][ERROR] Ensure Node.js is installed on the runner and reachable from PATH inside the chroot."
-  echo "[entrypoint][ERROR] Common locations: /opt/hostedtoolcache/... or \$HOME/.nvm/..."
+  echo "[entrypoint][ERROR] Common locations: /opt/hostedtoolcache/... or \$HOME/.nvm/... (bind-mounted by AWF)."
+  echo "[entrypoint][ERROR] Verify \$HOME/.nvm exists on the host and contains an installed Node.js version."
   exit 127
 fi
 AWFEOF
