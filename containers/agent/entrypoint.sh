@@ -706,6 +706,17 @@ AWFEOF
   echo 'fi' >> "/host${SCRIPT_FILE}"
   echo 'mkdir -p "$NPM_CONFIG_PREFIX/bin" 2>/dev/null' >> "/host${SCRIPT_FILE}"
   echo 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >> "/host${SCRIPT_FILE}"
+  if [ "${AWF_REQUIRE_NODE:-}" = "1" ]; then
+    cat >> "/host${SCRIPT_FILE}" << 'AWFEOF'
+if ! command -v node >/dev/null 2>&1; then
+  echo "[entrypoint][ERROR] Copilot CLI requires Node.js, but 'node' is not available inside AWF chroot." >&2
+  echo "[entrypoint][ERROR] Ensure Node.js is installed on the runner and reachable from PATH inside the chroot." >&2
+  echo "[entrypoint][ERROR] If using setup-node or nvm, verify the install path is present and bind-mounted into /host." >&2
+  echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/... and $HOME/.nvm/..." >&2
+  exit 127
+fi
+AWFEOF
+  fi
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates

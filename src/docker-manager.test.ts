@@ -857,7 +857,7 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`${workspaceDir}:/host${workspaceDir}:rw`);
     });
 
-    it('should mount Rust toolchain, npm cache, and CLI state directories', () => {
+    it('should mount Rust toolchain, Node/npm caches, and CLI state directories', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
@@ -868,6 +868,8 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`${homeDir}/.rustup:/host${homeDir}/.rustup:rw`);
       // npm cache
       expect(volumes).toContain(`${homeDir}/.npm:/host${homeDir}/.npm:rw`);
+      // nvm-managed Node.js cache/installations
+      expect(volumes).toContain(`${homeDir}/.nvm:/host${homeDir}/.nvm:rw`);
       // CLI state directories
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
@@ -942,6 +944,39 @@ describe('docker-manager', () => {
       const environment = agent.environment as Record<string, string>;
 
       expect(environment.AWF_CHROOT_ENABLED).toBe('true');
+    });
+
+    it('should set AWF_REQUIRE_NODE when running Copilot CLI command', () => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'copilot --version' },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_REQUIRE_NODE).toBe('1');
+    });
+
+    it.each([
+      { copilotGithubToken: 'ghu_test_token' },
+      { copilotApiKey: 'cpat_test_key' },
+    ])('should set AWF_REQUIRE_NODE when Copilot auth config is present: %o', (copilotConfig) => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'echo test', ...copilotConfig },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_REQUIRE_NODE).toBe('1');
+    });
+
+    it('should not set AWF_REQUIRE_NODE for non-Copilot commands', () => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'echo test' },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_REQUIRE_NODE).toBeUndefined();
     });
 
     it('should pass GOROOT, CARGO_HOME, RUSTUP_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
@@ -3641,7 +3676,7 @@ describe('docker-manager', () => {
       // Verify chroot home subdirectories were created
       const expectedDirs = [
         '.copilot', '.cache', '.config', '.local',
-        '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm',
+        '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm', '.nvm',
       ];
       for (const dir of expectedDirs) {
         expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);
