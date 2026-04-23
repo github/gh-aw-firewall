@@ -391,7 +391,7 @@ describe('copilotModelEmptyFallbackRegex', () => {
 // Mirrors the patterns in postprocess-smoke-workflows.ts.
 
 const openAiProxyTomlSectionRegex =
-  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\])/m;
+  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\]|$)/m;
 const openAiProxySupportsWebsocketsRegex =
   /^(\s+supports_websockets\s*=\s*)(true|false)(\r?\n|$)/m;
 
@@ -430,6 +430,17 @@ describe('openAiProxyTomlSectionRegex', () => {
     expect(match).not.toBeNull();
     expect(match![1]).toBe('          ');
   });
+
+  it('matches when openai-proxy section is last in the toml', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          name = "OpenAI AWF proxy"\n' +
+      '          base_url = "http://172.30.0.30:10000"\n' +
+      '          env_key = "OPENAI_API_KEY"\n';
+    const match = input.match(openAiProxyTomlSectionRegex);
+    expect(match).not.toBeNull();
+    expect(match![3]).toBe('');
+  });
 });
 
 describe('ensureOpenAiProxySupportsWebsocketsFalse', () => {
@@ -461,5 +472,14 @@ describe('ensureOpenAiProxySupportsWebsocketsFalse', () => {
       '          [shell_environment_policy]\n';
     const result = ensureOpenAiProxySupportsWebsocketsFalse(input);
     expect(result).toBe(input);
+  });
+
+  it('adds supports_websockets=false when section is last', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          name = "OpenAI AWF proxy"\n' +
+      '          env_key = "OPENAI_API_KEY"\n';
+    const result = ensureOpenAiProxySupportsWebsocketsFalse(input);
+    expect(result).toContain('          supports_websockets = false\n');
   });
 });

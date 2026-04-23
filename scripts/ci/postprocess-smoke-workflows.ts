@@ -740,7 +740,7 @@ const codexConfigTomlHeredocRegex =
   /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
 const CODEX_PROXY_PROVIDER_SENTINEL = 'model_providers.openai-proxy';
 const openAiProxyTomlSectionRegex =
-  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\])/m;
+  /^(\s+)(\[model_providers\.openai-proxy\]\n(?:\1[^\n]*\n)*?)(\1\[[^\n]+\]|$)/m;
 const openAiProxySupportsWebsocketsRegex =
   /^(\s+supports_websockets\s*=\s*)(true|false)(\r?\n|$)/m;
 
