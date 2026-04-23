@@ -956,6 +956,19 @@ describe('docker-manager', () => {
       expect(environment.AWF_REQUIRE_NODE).toBe('1');
     });
 
+    it.each([
+      { copilotGithubToken: 'ghu_test_token' },
+      { copilotApiKey: 'cpat_test_key' },
+    ])('should set AWF_REQUIRE_NODE when Copilot auth config is present: %o', (copilotConfig) => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'echo test', ...copilotConfig },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_REQUIRE_NODE).toBe('1');
+    });
+
     it('should not set AWF_REQUIRE_NODE for non-Copilot commands', () => {
       const result = generateDockerCompose(
         { ...mockConfig, agentCommand: 'echo test' },
