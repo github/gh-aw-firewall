@@ -31,7 +31,7 @@ Once we had token data, the next question was what to do with it. Rather than an
 
 A [Daily Token Usage Auditor]() reads token usage artifacts from recent workflow runs, aggregates consumption by workflow and time period, and posts a structured report. It flags workflows whose token usage footprint has increased since the last report, surfaces the most expensive workflows, and highlights anomalous runs such as a workflow that normally completes in 4 LLM turns taking 18.
 
-A [**Daily Token Optimizer**]() goes further. When the Auditor flags a heavy workflow,it examines the workflow's source and recent run logs, then creates a new issue decribing concrete inefficiencies and recommended changes. It has consistently found inefficiencies that we had missed.
+A [**Daily Token Optimizer**]() goes further. When the Auditor flags a heavy workflow,it examines the workflow's source and recent run logs, then creates a new issue describing concrete inefficiencies and recommended changes. It has consistently found inefficiencies that we had missed.
 
 Of course, these are agentic workflows themselves, and their token usage also appears in the daily reports, creating a small virtuous cycle.
 
