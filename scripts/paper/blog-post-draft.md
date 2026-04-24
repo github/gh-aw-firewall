@@ -21,17 +21,17 @@ Using these workflows in our own CI makes inefficiencies hard to ignore. If a co
 
 ## Logging token usage 
 
-Before you can optimize token consumption, you need to see it. However, each agent framework that we support (Claude CLI, Copilot CLI, Codex CLI) emits a  different log formats, and usage data can be incomplete or unavailable for historical runs. Thankfully, the agentic workflows architecture already includes an API proxy that injects LLM credentials into the agent container to prevent the agent process from directly accessing them. Adding structured logging to the API proxy captures token usage for every run, from every agent framework, in a single normalized format—without touching any agent code.
+Before we could optimize token consumption, we needed to see it. Each agent framework we support, including Claude CLI, Copilot CLI, Codex CLI, emits a  different log format, and usage data can be incomplete or unavailable for historical runs. Fortunately, the agentic workflows architecture already includes an API proxy that injects LLM credentials into the agent container without exposing them to the agent process. By adding structured logging to the API proxy, we capture token usage for every run across all supported agent frameworks in a single normalized format, with no changes to agent code.
 
-Every workflow run now emits a `token-usage.jsonl` artifact with one record per LLM API call that records input tokens, output tokens, cache-read tokens, cache-write tokens, model, provider, and timestamp. Combining this data with the rest of the logs collected during an workflow run allows us to optimize the agent's token usage.
+Every workflow run now emits a `token-usage.jsonl` artifact with one record per LLM API call, including input tokens, output tokens, cache-read tokens, cache-write tokens, model, provider, and timestamp. Combined with the rest of the logs collected during a workflow run, this gives us the data we need to analyze and optimize token usage.
 
 ## Agents optimizing agents
 
-Token data in hand, the next question was what to do with it. Rather than analyze it manually, we built two optimization workflows that run on a daily schedule.
+Once we had token data, the next question was what to do with it. Rather than analyze it manually, we built two optimization workflows that run daily.
 
-A **Daily Token Usage Auditor** reads token usage artifacts from all recent workflow runs, aggregates consumption by workflow and time period, and posts a structured report. Its job is to flag any workflow that has significantly increased its token footprint since the last report, surface the most expensive workflows, and note any runs that look anomalous (e.g., a workflow that normally completes in 4 LLM turns taking 18).
+A [Daily Token Usage Auditor]() reads token usage artifacts from recent workflow runs, aggregates consumption by workflow and time period, and posts a structured report. It flags workflows whose token usage footprint has increased since the last report, surfaces the most expensive workflows, and highlights anomalous runs such as a workflow that normally completes in 4 LLM turns taking 18.
 
-A **Daily Token Optimizer** goes further. When an Auditor flags a heavy workflow, the Optimizer looks at the workflow's source and recent run logs and creates a new issue with concrete inefficiencies and specific changes. The Optimizer has consistently found many workflow inefficiencies that we had missed.
+A [**Daily Token Optimizer**]() goes further. When the Auditor flags a heavy workflow,it examines the workflow's source and recent run logs, then creates a new issue decribing concrete inefficiencies and recommended changes. It has consistently found inefficiencies that we had missed.
 
 Of course, these are agentic workflows themselves, and their token usage also appears in the daily reports, creating a small virtuous cycle.
 
