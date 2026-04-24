@@ -190,16 +190,16 @@ function buildUpstreamPath(reqUrl, targetHost, basePath) {
 }
 
 /**
- * Strip the `key` query parameter from a Gemini request URL.
+ * Strip all known Gemini API-key query parameters from a request URL.
  *
- * The @google/genai SDK (and older Gemini SDK versions) may append `?key=<value>`
- * to every request URL in addition to setting the `x-goog-api-key` header.
- * The proxy injects the real key via the header, so the placeholder `key=`
- * value must be removed before forwarding to Google to prevent
- * API_KEY_INVALID errors.
+ * The @google/genai SDK (and older Gemini SDK versions) may append auth params
+ * (`?key=`, `?apiKey=`, or `?api_key=`) to every request URL in addition to
+ * setting the `x-goog-api-key` header.  The proxy injects the real key via the
+ * header, so any placeholder param must be removed before forwarding to Google
+ * to prevent API_KEY_INVALID errors.
  *
  * @param {string} reqUrl - The incoming request URL (must start with exactly one '/')
- * @returns {string} URL with the `key` query parameter removed
+ * @returns {string} URL with all Gemini auth query parameters removed
  */
 function stripGeminiKeyParam(reqUrl) {
   // Only operate on relative request paths that begin with exactly one slash.
@@ -211,6 +211,8 @@ function stripGeminiKeyParam(reqUrl) {
   }
   const parsed = new URL(reqUrl, 'http://localhost');
   parsed.searchParams.delete('key');
+  parsed.searchParams.delete('apiKey');
+  parsed.searchParams.delete('api_key');
   // Reconstruct relative path only — never emit the scheme/host from the dummy base.
   return parsed.pathname + parsed.search;
 }
@@ -1355,7 +1357,7 @@ if (require.main === module) {
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
       if (checkRateLimit(req, res, 'gemini', contentLength)) return;
 
-      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
       // The proxy injects the real key via x-goog-api-key header instead.
       req.url = stripGeminiKeyParam(req.url);
 
@@ -1365,13 +1367,14 @@ if (require.main === module) {
     });
 
     geminiServer.on('upgrade', (req, socket, head) => {
-      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
       req.url = stripGeminiKeyParam(req.url);
       proxyWebSocket(req, socket, head, GEMINI_API_TARGET, {
         'x-goog-api-key': GEMINI_API_KEY,
       }, 'gemini', GEMINI_API_BASE_PATH);
     });
 
+    logRequest('info', 'server_start', { message: `GEMINI_API_KEY configured (length=${GEMINI_API_KEY.length})` });
     geminiServer.listen(10003, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Google Gemini proxy listening on port 10003', target: GEMINI_API_TARGET });
       onListenerReady();
@@ -1395,6 +1398,7 @@ if (require.main === module) {
       socket.destroy();
     });
 
+    logRequest('warn', 'server_start', { message: 'GEMINI_API_KEY not set — Gemini proxy will return 503' });
     geminiServer.listen(10003, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Gemini endpoint listening on port 10003 (Gemini not configured — returning 503)' });
     });
