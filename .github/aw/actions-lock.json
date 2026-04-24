@@ -49,6 +49,16 @@
       "repo": "softprops/action-gh-release",
       "version": "v3.0.0",
       "sha": "b4309332981a82ec1c5618f44dd2e27cc8bfbfda"
+    },
+    "github/gh-aw-actions/setup@v0.69.3": {
+      "repo": "github/gh-aw-actions/setup",
+      "version": "v0.69.3",
+      "sha": "006ffd856b868b71df342dbe0ba082a963249b31"
+    },
+    "github/gh-aw-actions/setup-cli@v0.69.3": {
+      "repo": "github/gh-aw-actions/setup-cli",
+      "version": "v0.69.3",
+      "sha": "006ffd856b868b71df342dbe0ba082a963249b31"
     }
   },
   "containers": {
