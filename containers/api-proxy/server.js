@@ -900,6 +900,14 @@ const keyValidationResults = {};
 /** Set to true once validateApiKeys() has finished (regardless of outcome). */
 let keyValidationComplete = false;
 
+/** Reset validation state (used in tests). */
+function resetKeyValidationState() {
+  for (const key of Object.keys(keyValidationResults)) {
+    delete keyValidationResults[key];
+  }
+  keyValidationComplete = false;
+}
+
 /**
  * Perform a lightweight probe against the provider's API to check if the
  * configured key is still accepted.  Results are logged and stored in
@@ -911,8 +919,22 @@ let keyValidationComplete = false;
  *
  * Only validates against known default targets.  Custom/enterprise targets
  * are skipped because we don't know what probe endpoints they expose.
+ *
+ * @param {object} [overrides={}] - Optional key/target overrides (used in tests)
+ * @param {string} [overrides.openaiKey] - Override OPENAI_API_KEY
+ * @param {string} [overrides.openaiTarget] - Override OPENAI_API_TARGET
+ * @param {string} [overrides.anthropicKey] - Override ANTHROPIC_API_KEY
+ * @param {string} [overrides.anthropicTarget] - Override ANTHROPIC_API_TARGET
+ * @param {string} [overrides.copilotGithubToken] - Override COPILOT_GITHUB_TOKEN
+ * @param {string} [overrides.copilotApiKey] - Override COPILOT_API_KEY
+ * @param {string} [overrides.copilotAuthToken] - Override COPILOT_AUTH_TOKEN
+ * @param {string} [overrides.copilotTarget] - Override COPILOT_API_TARGET
+ * @param {string} [overrides.copilotIntegrationId] - Override COPILOT_INTEGRATION_ID
+ * @param {string} [overrides.geminiKey] - Override GEMINI_API_KEY
+ * @param {string} [overrides.geminiTarget] - Override GEMINI_API_TARGET
+ * @param {number} [overrides.timeoutMs] - Override probe timeout
  */
-async function validateApiKeys() {
+async function validateApiKeys(overrides = {}) {
   const mode = (process.env.AWF_VALIDATE_KEYS || 'warn').toLowerCase(); // off | warn | strict
   if (mode === 'off') {
     logRequest('info', 'key_validation', { message: 'Key validation disabled (AWF_VALIDATE_KEYS=off)' });
@@ -920,52 +942,65 @@ async function validateApiKeys() {
     return;
   }
 
-  const TIMEOUT_MS = 10_000;
+  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
+  const openaiKey = ov('openaiKey', OPENAI_API_KEY);
+  const openaiTarget = ov('openaiTarget', OPENAI_API_TARGET);
+  const anthropicKey = ov('anthropicKey', ANTHROPIC_API_KEY);
+  const anthropicTarget = ov('anthropicTarget', ANTHROPIC_API_TARGET);
+  const copilotGithubToken = ov('copilotGithubToken', COPILOT_GITHUB_TOKEN);
+  const copilotApiKey = ov('copilotApiKey', COPILOT_API_KEY);
+  const copilotAuthToken = ov('copilotAuthToken', COPILOT_AUTH_TOKEN);
+  const copilotTarget = ov('copilotTarget', COPILOT_API_TARGET);
+  const copilotIntegrationId = ov('copilotIntegrationId', COPILOT_INTEGRATION_ID);
+  const geminiKey = ov('geminiKey', GEMINI_API_KEY);
+  const geminiTarget = ov('geminiTarget', GEMINI_API_TARGET);
+  const TIMEOUT_MS = ov('timeoutMs', 10_000);
+
   const probes = [];
 
   // --- Copilot (COPILOT_GITHUB_TOKEN only — COPILOT_API_KEY has no probe endpoint) ---
-  if (COPILOT_GITHUB_TOKEN) {
-    if (COPILOT_API_TARGET !== 'api.githubcopilot.com') {
-      keyValidationResults.copilot = { status: 'skipped', message: `Custom target ${COPILOT_API_TARGET}; validation skipped` };
+  if (copilotGithubToken) {
+    if (copilotTarget !== 'api.githubcopilot.com') {
+      keyValidationResults.copilot = { status: 'skipped', message: `Custom target ${copilotTarget}; validation skipped` };
       logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
     } else {
-      probes.push(probeProvider('copilot', `https://${COPILOT_API_TARGET}/models`, {
+      probes.push(probeProvider('copilot', `https://${copilotTarget}/models`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
-          'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
+          'Authorization': `Bearer ${copilotGithubToken}`,
+          'Copilot-Integration-Id': copilotIntegrationId,
         },
       }, TIMEOUT_MS));
     }
-  } else if (COPILOT_API_KEY && !COPILOT_GITHUB_TOKEN) {
+  } else if (copilotApiKey && !copilotGithubToken) {
     keyValidationResults.copilot = { status: 'skipped', message: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode' };
     logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
   }
 
   // --- OpenAI ---
-  if (OPENAI_API_KEY) {
-    if (OPENAI_API_TARGET !== 'api.openai.com') {
-      keyValidationResults.openai = { status: 'skipped', message: `Custom target ${OPENAI_API_TARGET}; validation skipped` };
+  if (openaiKey) {
+    if (openaiTarget !== 'api.openai.com') {
+      keyValidationResults.openai = { status: 'skipped', message: `Custom target ${openaiTarget}; validation skipped` };
       logRequest('info', 'key_validation', { provider: 'openai', ...keyValidationResults.openai });
     } else {
-      probes.push(probeProvider('openai', `https://${OPENAI_API_TARGET}/v1/models`, {
+      probes.push(probeProvider('openai', `https://${openaiTarget}/v1/models`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+        headers: { 'Authorization': `Bearer ${openaiKey}` },
       }, TIMEOUT_MS));
     }
   }
 
   // --- Anthropic ---
-  if (ANTHROPIC_API_KEY) {
-    if (ANTHROPIC_API_TARGET !== 'api.anthropic.com') {
-      keyValidationResults.anthropic = { status: 'skipped', message: `Custom target ${ANTHROPIC_API_TARGET}; validation skipped` };
+  if (anthropicKey) {
+    if (anthropicTarget !== 'api.anthropic.com') {
+      keyValidationResults.anthropic = { status: 'skipped', message: `Custom target ${anthropicTarget}; validation skipped` };
       logRequest('info', 'key_validation', { provider: 'anthropic', ...keyValidationResults.anthropic });
     } else {
       // POST /v1/messages with an empty body — 400 = key valid (bad body), 401 = key invalid
-      probes.push(probeProvider('anthropic', `https://${ANTHROPIC_API_TARGET}/v1/messages`, {
+      probes.push(probeProvider('anthropic', `https://${anthropicTarget}/v1/messages`, {
         method: 'POST',
         headers: {
-          'x-api-key': ANTHROPIC_API_KEY,
+          'x-api-key': anthropicKey,
           'anthropic-version': '2023-06-01',
           'content-type': 'application/json',
         },
@@ -975,14 +1010,14 @@ async function validateApiKeys() {
   }
 
   // --- Gemini ---
-  if (GEMINI_API_KEY) {
-    if (GEMINI_API_TARGET !== 'generativelanguage.googleapis.com') {
-      keyValidationResults.gemini = { status: 'skipped', message: `Custom target ${GEMINI_API_TARGET}; validation skipped` };
+  if (geminiKey) {
+    if (geminiTarget !== 'generativelanguage.googleapis.com') {
+      keyValidationResults.gemini = { status: 'skipped', message: `Custom target ${geminiTarget}; validation skipped` };
       logRequest('info', 'key_validation', { provider: 'gemini', ...keyValidationResults.gemini });
     } else {
-      probes.push(probeProvider('gemini', `https://${GEMINI_API_TARGET}/v1beta/models`, {
+      probes.push(probeProvider('gemini', `https://${geminiTarget}/v1beta/models`, {
         method: 'GET',
-        headers: { 'x-goog-api-key': GEMINI_API_KEY },
+        headers: { 'x-goog-api-key': geminiKey },
       }, TIMEOUT_MS));
     }
   }
@@ -1451,4 +1486,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState };
