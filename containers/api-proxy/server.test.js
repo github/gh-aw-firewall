@@ -5,7 +5,7 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -977,5 +977,89 @@ describe('resolveOpenCodeRoute', () => {
     );
     expect(route).not.toBeNull();
     expect(route.headers['x-api-key']).toBeUndefined();
+  });
+});
+
+describe('httpProbe', () => {
+  let server;
+  let serverPort;
+
+  afterEach((done) => {
+    if (server) {
+      server.close(done);
+      server = null;
+    } else {
+      done();
+    }
+  });
+
+  function startServer(statusCode, body) {
+    return new Promise((resolve) => {
+      server = http.createServer((req, res) => {
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(body || '{}');
+      });
+      server.listen(0, '127.0.0.1', () => {
+        serverPort = server.address().port;
+        resolve();
+      });
+    });
+  }
+
+  it('should return status code 200 for a healthy endpoint', async () => {
+    await startServer(200, '{"ok":true}');
+    const status = await httpProbe(`http://127.0.0.1:${serverPort}/health`, {
+      method: 'GET',
+      headers: {},
+    }, 5000);
+    expect(status).toBe(200);
+  });
+
+  it('should return status code 401 for unauthorized', async () => {
+    await startServer(401, '{"error":"unauthorized"}');
+    const status = await httpProbe(`http://127.0.0.1:${serverPort}/models`, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer bad-token' },
+    }, 5000);
+    expect(status).toBe(401);
+  });
+
+  it('should return status code 400 for bad request (Anthropic key valid probe)', async () => {
+    await startServer(400, '{"error":"bad request"}');
+    const status = await httpProbe(`http://127.0.0.1:${serverPort}/v1/messages`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'test-key', 'content-type': 'application/json' },
+      body: '{}',
+    }, 5000);
+    expect(status).toBe(400);
+  });
+
+  it('should reject on connection refused', async () => {
+    await expect(
+      httpProbe('http://127.0.0.1:19999/health', {
+        method: 'GET',
+        headers: {},
+      }, 5000)
+    ).rejects.toThrow();
+  });
+
+  it('should reject on timeout', async () => {
+    // Start a server that never responds
+    server = http.createServer(() => {
+      // intentionally never respond
+    });
+    await new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        serverPort = server.address().port;
+        resolve();
+      });
+    });
+
+    await expect(
+      httpProbe(`http://127.0.0.1:${serverPort}/slow`, {
+        method: 'GET',
+        headers: {},
+      }, 100) // 100ms timeout
+    ).rejects.toThrow(/timed out/i);
   });
 });
