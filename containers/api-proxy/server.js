@@ -444,6 +444,7 @@ async function validateApiKeys(overrides = {}) {
   const geminiTarget = overrides.geminiTarget !== undefined ? overrides.geminiTarget : GEMINI_API_TARGET;
   const geminiBasePath = overrides.geminiBasePath !== undefined ? overrides.geminiBasePath : GEMINI_API_BASE_PATH;
   const probeOpts = overrides.timeoutMs !== undefined ? { timeoutMs: overrides.timeoutMs } : {};
+  const timeoutSecs = Math.round((probeOpts.timeoutMs || 10000) / 1000);
 
   const tasks = [];
 
@@ -464,7 +465,7 @@ async function validateApiKeys(overrides = {}) {
           } else if (r.result === 'failed') {
             logRequest('error', 'key_validation_failed', { provider: 'openai', status: r.status, message: 'OpenAI API key is invalid or expired. Requests to this provider will fail.' });
           } else if (r.result === 'timeout') {
-            logRequest('warn', 'key_validation_timeout', { provider: 'openai', message: 'Key validation timed out after 10s — network may not be ready' });
+            logRequest('warn', 'key_validation_timeout', { provider: 'openai', message: `Key validation timed out after ${timeoutSecs}s — network may not be ready` });
           } else {
             logRequest('warn', 'key_validation_error', { provider: 'openai', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
           }
@@ -497,7 +498,7 @@ async function validateApiKeys(overrides = {}) {
           } else if (r.result === 'failed') {
             logRequest('error', 'key_validation_failed', { provider: 'anthropic', status: r.status, message: 'Anthropic API key is invalid or expired. Requests to this provider will fail.' });
           } else if (r.result === 'timeout') {
-            logRequest('warn', 'key_validation_timeout', { provider: 'anthropic', message: 'Key validation timed out after 10s — network may not be ready' });
+            logRequest('warn', 'key_validation_timeout', { provider: 'anthropic', message: `Key validation timed out after ${timeoutSecs}s — network may not be ready` });
           } else {
             logRequest('warn', 'key_validation_error', { provider: 'anthropic', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
           }
@@ -525,7 +526,7 @@ async function validateApiKeys(overrides = {}) {
           } else if (r.result === 'failed') {
             logRequest('error', 'key_validation_failed', { provider: 'copilot', status: r.status, message: 'Copilot GitHub token is invalid or expired. Requests to this provider will fail.' });
           } else if (r.result === 'timeout') {
-            logRequest('warn', 'key_validation_timeout', { provider: 'copilot', message: 'Key validation timed out after 10s — network may not be ready' });
+            logRequest('warn', 'key_validation_timeout', { provider: 'copilot', message: `Key validation timed out after ${timeoutSecs}s — network may not be ready` });
           } else {
             logRequest('warn', 'key_validation_error', { provider: 'copilot', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
           }
@@ -558,7 +559,7 @@ async function validateApiKeys(overrides = {}) {
           } else if (r.result === 'failed') {
             logRequest('error', 'key_validation_failed', { provider: 'gemini', status: r.status, message: 'Gemini API key is invalid or expired. Requests to this provider will fail.' });
           } else if (r.result === 'timeout') {
-            logRequest('warn', 'key_validation_timeout', { provider: 'gemini', message: 'Key validation timed out after 10s — network may not be ready' });
+            logRequest('warn', 'key_validation_timeout', { provider: 'gemini', message: `Key validation timed out after ${timeoutSecs}s — network may not be ready` });
           } else {
             logRequest('warn', 'key_validation_error', { provider: 'gemini', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
           }
