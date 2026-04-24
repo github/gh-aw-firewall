@@ -21,7 +21,7 @@ Using these workflows in our own CI makes inefficiencies hard to ignore. If a co
 
 ## Logging token usage 
 
-Before we could optimize token consumption, we needed to see it. Each agent framework we support, including Claude CLI, Copilot CLI, Codex CLI, emits a  different log format, and usage data can be incomplete or unavailable for historical runs. Fortunately, the agentic workflows architecture already includes an API proxy that injects LLM credentials into the agent container without exposing them to the agent process. By adding structured logging to the API proxy, we capture token usage for every run across all supported agent frameworks in a single normalized format, with no changes to agent code.
+Before we could optimize token consumption, we needed to see it. Each agent framework we support, including Claude CLI, Copilot CLI, Codex CLI, emits a different log format, and usage data can be incomplete or unavailable for historical runs. Fortunately, the agentic workflows architecture already includes an API proxy that injects LLM credentials into the agent container without exposing them to the agent process. By adding structured logging to the API proxy, we capture token usage for every run across all supported agent frameworks in a single normalized format, with no changes to agent code.
 
 Every workflow run now emits a `token-usage.jsonl` artifact with one record per LLM API call, including input tokens, output tokens, cache-read tokens, cache-write tokens, model, provider, and timestamp. Combined with the rest of the logs collected during a workflow run, this gives us the data we need to analyze and optimize token usage.
 
