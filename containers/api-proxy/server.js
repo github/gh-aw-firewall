@@ -336,12 +336,18 @@ if (!proxyAgent) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
 }
 
+// Default per-probe timeout for key validation (10 seconds).
+// Validation runs after startup and before the agent processes any requests,
+// so a short timeout is acceptable. If the network isn't ready yet, the probe
+// will time out and log a warning rather than blocking startup indefinitely.
+const DEFAULT_VALIDATION_TIMEOUT_MS = 10000;
+
 /**
  * Send a lightweight probe request to validate an API key.
  * Routes through proxyAgent (Squid) for the same path as real requests.
  * Never throws — all errors are captured in the result.
  *
- * @param {string} provider - Provider name for logging
+ * @param {string} provider - Provider name used for log context only; does not affect validation behavior
  * @param {string} target - Upstream hostname (e.g. 'api.openai.com')
  * @param {string} path - URL path for the probe (e.g. '/v1/models')
  * @param {string} method - HTTP method ('GET' or 'POST')
@@ -350,11 +356,11 @@ if (!proxyAgent) {
  * @param {number[]} successStatuses - Status codes that indicate the key is valid
  * @param {number[]} failStatuses - Status codes that indicate the key is invalid/rejected
  * @param {object} [opts={}] - Options
- * @param {number} [opts.timeoutMs=10000] - Per-request timeout in milliseconds
+ * @param {number} [opts.timeoutMs] - Per-request timeout in ms (default: DEFAULT_VALIDATION_TIMEOUT_MS)
  * @returns {Promise<{result: 'success'|'failed'|'timeout'|'error', status?: number, duration_ms: number, error?: string}>}
  */
 function validateKey(provider, target, path, method, body, headers, successStatuses, failStatuses, opts = {}) {
-  const timeoutMs = opts.timeoutMs || 10000;
+  const timeoutMs = opts.timeoutMs || DEFAULT_VALIDATION_TIMEOUT_MS;
   const startTime = Date.now();
 
   return new Promise((resolve) => {
@@ -444,7 +450,7 @@ async function validateApiKeys(overrides = {}) {
   const geminiTarget = overrides.geminiTarget !== undefined ? overrides.geminiTarget : GEMINI_API_TARGET;
   const geminiBasePath = overrides.geminiBasePath !== undefined ? overrides.geminiBasePath : GEMINI_API_BASE_PATH;
   const probeOpts = overrides.timeoutMs !== undefined ? { timeoutMs: overrides.timeoutMs } : {};
-  const timeoutSecs = Math.round((probeOpts.timeoutMs || 10000) / 1000);
+  const timeoutSecs = Math.round((probeOpts.timeoutMs || DEFAULT_VALIDATION_TIMEOUT_MS) / 1000);
 
   const tasks = [];
 
