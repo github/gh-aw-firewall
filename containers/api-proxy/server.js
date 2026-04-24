@@ -337,6 +337,240 @@ if (!proxyAgent) {
 }
 
 /**
+ * Send a lightweight probe request to validate an API key.
+ * Routes through proxyAgent (Squid) for the same path as real requests.
+ * Never throws — all errors are captured in the result.
+ *
+ * @param {string} provider - Provider name for logging
+ * @param {string} target - Upstream hostname (e.g. 'api.openai.com')
+ * @param {string} path - URL path for the probe (e.g. '/v1/models')
+ * @param {string} method - HTTP method ('GET' or 'POST')
+ * @param {Buffer|null} body - Optional request body (null for GET requests)
+ * @param {Record<string,string>} headers - Request headers to inject
+ * @param {number[]} successStatuses - Status codes that indicate the key is valid
+ * @param {number[]} failStatuses - Status codes that indicate the key is invalid/rejected
+ * @param {object} [opts={}] - Options
+ * @param {number} [opts.timeoutMs=10000] - Per-request timeout in milliseconds
+ * @returns {Promise<{result: 'success'|'failed'|'timeout'|'error', status?: number, duration_ms: number, error?: string}>}
+ */
+function validateKey(provider, target, path, method, body, headers, successStatuses, failStatuses, opts = {}) {
+  const timeoutMs = opts.timeoutMs || 10000;
+  const startTime = Date.now();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ...result, duration_ms: Date.now() - startTime });
+    };
+
+    const reqHeaders = { ...headers };
+    if (body && body.length > 0) {
+      reqHeaders['content-length'] = String(body.length);
+    }
+
+    const options = {
+      hostname: target,
+      port: 443,
+      path,
+      method,
+      headers: reqHeaders,
+      agent: proxyAgent,
+    };
+
+    let timer;
+    const req = https.request(options, (res) => {
+      res.resume();
+      res.on('end', () => {
+        clearTimeout(timer);
+        const status = res.statusCode;
+        if (successStatuses.includes(status)) {
+          finish({ result: 'success', status });
+        } else if (failStatuses.includes(status)) {
+          finish({ result: 'failed', status });
+        } else {
+          finish({ result: 'error', status });
+        }
+      });
+      res.on('error', () => {
+        clearTimeout(timer);
+        finish({ result: 'error' });
+      });
+    });
+
+    timer = setTimeout(() => {
+      req.destroy();
+      finish({ result: 'timeout' });
+    }, timeoutMs);
+
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      finish({ result: 'error', error: err.message });
+    });
+
+    if (body && body.length > 0) {
+      req.write(body);
+    }
+    req.end();
+  });
+}
+
+/**
+ * Validate API keys at startup by sending lightweight probe requests to each configured provider.
+ * Called once after all proxy servers have started listening.
+ * Never throws or crashes the process — all errors are logged and the proxy continues running.
+ *
+ * Validation is skipped for:
+ *  - Custom API targets (non-default hostnames or non-empty base paths)
+ *  - Copilot classic PATs (ghp_*) and COPILOT_API_KEY BYOK mode
+ *
+ * @param {object} [overrides={}] - Optional key/target overrides (used in tests)
+ * @param {number} [overrides.timeoutMs=10000] - Per-probe timeout in milliseconds
+ */
+async function validateApiKeys(overrides = {}) {
+  const openaiKey = overrides.openaiKey !== undefined ? overrides.openaiKey : OPENAI_API_KEY;
+  const openaiTarget = overrides.openaiTarget !== undefined ? overrides.openaiTarget : OPENAI_API_TARGET;
+  const openaiBasePath = overrides.openaiBasePath !== undefined ? overrides.openaiBasePath : OPENAI_API_BASE_PATH;
+  const anthropicKey = overrides.anthropicKey !== undefined ? overrides.anthropicKey : ANTHROPIC_API_KEY;
+  const anthropicTarget = overrides.anthropicTarget !== undefined ? overrides.anthropicTarget : ANTHROPIC_API_TARGET;
+  const anthropicBasePath = overrides.anthropicBasePath !== undefined ? overrides.anthropicBasePath : ANTHROPIC_API_BASE_PATH;
+  const copilotGithubToken = overrides.copilotGithubToken !== undefined ? overrides.copilotGithubToken : COPILOT_GITHUB_TOKEN;
+  const copilotAuthToken = overrides.copilotAuthToken !== undefined ? overrides.copilotAuthToken : COPILOT_AUTH_TOKEN;
+  const copilotTarget = overrides.copilotTarget !== undefined ? overrides.copilotTarget : COPILOT_API_TARGET;
+  const copilotTargetOverridden = overrides.copilotTargetOverridden !== undefined ? overrides.copilotTargetOverridden : !!process.env.COPILOT_API_TARGET;
+  const copilotIntegrationId = overrides.copilotIntegrationId !== undefined ? overrides.copilotIntegrationId : COPILOT_INTEGRATION_ID;
+  const geminiKey = overrides.geminiKey !== undefined ? overrides.geminiKey : GEMINI_API_KEY;
+  const geminiTarget = overrides.geminiTarget !== undefined ? overrides.geminiTarget : GEMINI_API_TARGET;
+  const geminiBasePath = overrides.geminiBasePath !== undefined ? overrides.geminiBasePath : GEMINI_API_BASE_PATH;
+  const probeOpts = overrides.timeoutMs !== undefined ? { timeoutMs: overrides.timeoutMs } : {};
+
+  const tasks = [];
+
+  // ── OpenAI (GET /v1/models → 200 valid, 401 invalid) ────────────────────────
+  if (openaiKey) {
+    if (openaiTarget !== 'api.openai.com' || openaiBasePath) {
+      logRequest('warn', 'key_validation_skipped', {
+        provider: 'openai',
+        message: `Validation skipped — custom API target (${openaiTarget})`,
+      });
+    } else {
+      tasks.push(
+        validateKey('openai', 'api.openai.com', '/v1/models', 'GET', null,
+          { 'Authorization': `Bearer ${openaiKey}` }, [200], [401], probeOpts,
+        ).then(r => {
+          if (r.result === 'success') {
+            logRequest('info', 'key_validation_success', { provider: 'openai', message: 'OpenAI API key validated successfully', duration_ms: r.duration_ms });
+          } else if (r.result === 'failed') {
+            logRequest('error', 'key_validation_failed', { provider: 'openai', status: r.status, message: 'OpenAI API key is invalid or expired. Requests to this provider will fail.' });
+          } else if (r.result === 'timeout') {
+            logRequest('warn', 'key_validation_timeout', { provider: 'openai', message: 'Key validation timed out after 10s — network may not be ready' });
+          } else {
+            logRequest('warn', 'key_validation_error', { provider: 'openai', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
+          }
+        })
+      );
+    }
+  }
+
+  // ── Anthropic (POST /v1/messages — 400 = key valid, 401/403 = key rejected) ─
+  if (anthropicKey) {
+    if (anthropicTarget !== 'api.anthropic.com' || anthropicBasePath) {
+      logRequest('warn', 'key_validation_skipped', {
+        provider: 'anthropic',
+        message: `Validation skipped — custom API target (${anthropicTarget})`,
+      });
+    } else {
+      const probeBody = Buffer.from(JSON.stringify({}));
+      tasks.push(
+        validateKey('anthropic', 'api.anthropic.com', '/v1/messages', 'POST', probeBody,
+          { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          [400], [401, 403], probeOpts,
+        ).then(r => {
+          if (r.result === 'success') {
+            // 400 = key accepted, request body is incomplete (expected for this minimal probe)
+            logRequest('info', 'key_validation_success', {
+              provider: 'anthropic',
+              message: 'Anthropic API key accepted (probe returned 400 — key valid, request body incomplete as expected)',
+              duration_ms: r.duration_ms,
+            });
+          } else if (r.result === 'failed') {
+            logRequest('error', 'key_validation_failed', { provider: 'anthropic', status: r.status, message: 'Anthropic API key is invalid or expired. Requests to this provider will fail.' });
+          } else if (r.result === 'timeout') {
+            logRequest('warn', 'key_validation_timeout', { provider: 'anthropic', message: 'Key validation timed out after 10s — network may not be ready' });
+          } else {
+            logRequest('warn', 'key_validation_error', { provider: 'anthropic', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
+          }
+        })
+      );
+    }
+  }
+
+  // ── Copilot (GET /models — only for non-classic COPILOT_GITHUB_TOKEN) ────────
+  if (copilotAuthToken) {
+    if (copilotTargetOverridden) {
+      logRequest('warn', 'key_validation_skipped', {
+        provider: 'copilot',
+        message: `Validation skipped — custom API target (${copilotTarget})`,
+      });
+    } else if (copilotGithubToken && !copilotGithubToken.startsWith('ghp_')) {
+      // Non-classic GitHub token (ghu_, gho_, github_pat_, etc.) — can probe /models
+      tasks.push(
+        validateKey('copilot', copilotTarget, '/models', 'GET', null,
+          { 'Authorization': `Bearer ${copilotGithubToken}`, 'Copilot-Integration-Id': copilotIntegrationId },
+          [200], [401], probeOpts,
+        ).then(r => {
+          if (r.result === 'success') {
+            logRequest('info', 'key_validation_success', { provider: 'copilot', message: 'Copilot GitHub token validated successfully', duration_ms: r.duration_ms });
+          } else if (r.result === 'failed') {
+            logRequest('error', 'key_validation_failed', { provider: 'copilot', status: r.status, message: 'Copilot GitHub token is invalid or expired. Requests to this provider will fail.' });
+          } else if (r.result === 'timeout') {
+            logRequest('warn', 'key_validation_timeout', { provider: 'copilot', message: 'Key validation timed out after 10s — network may not be ready' });
+          } else {
+            logRequest('warn', 'key_validation_error', { provider: 'copilot', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
+          }
+        })
+      );
+    } else {
+      // Classic ghp_* PAT or COPILOT_API_KEY BYOK — validation not supported for this auth mode
+      logRequest('warn', 'key_validation_skipped', {
+        provider: 'copilot',
+        message: 'Validation skipped — COPILOT_API_KEY auth mode does not support probe endpoint',
+      });
+    }
+  }
+
+  // ── Gemini (GET /v1beta/models → 200 valid, 400/403 invalid) ────────────────
+  if (geminiKey) {
+    if (geminiTarget !== 'generativelanguage.googleapis.com' || geminiBasePath) {
+      logRequest('warn', 'key_validation_skipped', {
+        provider: 'gemini',
+        message: `Validation skipped — custom API target (${geminiTarget})`,
+      });
+    } else {
+      tasks.push(
+        validateKey('gemini', 'generativelanguage.googleapis.com', '/v1beta/models', 'GET', null,
+          { 'x-goog-api-key': geminiKey },
+          [200], [400, 403], probeOpts,
+        ).then(r => {
+          if (r.result === 'success') {
+            logRequest('info', 'key_validation_success', { provider: 'gemini', message: 'Gemini API key validated successfully', duration_ms: r.duration_ms });
+          } else if (r.result === 'failed') {
+            logRequest('error', 'key_validation_failed', { provider: 'gemini', status: r.status, message: 'Gemini API key is invalid or expired. Requests to this provider will fail.' });
+          } else if (r.result === 'timeout') {
+            logRequest('warn', 'key_validation_timeout', { provider: 'gemini', message: 'Key validation timed out after 10s — network may not be ready' });
+          } else {
+            logRequest('warn', 'key_validation_error', { provider: 'gemini', message: `Key validation probe failed unexpectedly (status: ${r.status}, error: ${r.error || 'unknown'})` });
+          }
+        })
+      );
+    }
+  }
+
+  await Promise.all(tasks);
+}
+
+/**
  * Resolves the OpenCode routing configuration based on available credentials.
  * Priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > copilotToken (COPILOT_GITHUB_TOKEN / COPILOT_API_KEY)
  *
@@ -923,6 +1157,9 @@ if (require.main === module) {
   // Health port is always 10000 — this is what Docker healthcheck hits
   const HEALTH_PORT = 10000;
 
+  // Collect listen promises so we can fire key validation after all servers are ready
+  const listenPromises = [];
+
   // OpenAI API proxy (port 10000)
   if (OPENAI_API_KEY) {
     const server = http.createServer((req, res) => {
@@ -941,6 +1178,7 @@ if (require.main === module) {
       }, 'openai', OPENAI_API_BASE_PATH);
     });
 
+    listenPromises.push(new Promise(r => server.once('listening', r)));
     server.listen(HEALTH_PORT, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
     });
@@ -958,6 +1196,7 @@ if (require.main === module) {
       socket.destroy();
     });
 
+    listenPromises.push(new Promise(r => server.once('listening', r)));
     server.listen(HEALTH_PORT, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: `Health endpoint listening on port ${HEALTH_PORT} (OpenAI not configured)` });
     });
@@ -991,6 +1230,7 @@ if (require.main === module) {
       proxyWebSocket(req, socket, head, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
     });
 
+    listenPromises.push(new Promise(r => server.once('listening', r)));
     server.listen(10001, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
     });
@@ -1051,6 +1291,7 @@ if (require.main === module) {
       }, 'copilot');
     });
 
+    listenPromises.push(new Promise(r => copilotServer.once('listening', r)));
     copilotServer.listen(10002, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
     });
@@ -1085,6 +1326,7 @@ if (require.main === module) {
       }, 'gemini', GEMINI_API_BASE_PATH);
     });
 
+    listenPromises.push(new Promise(r => geminiServer.once('listening', r)));
     geminiServer.listen(10003, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Google Gemini proxy listening on port 10003', target: GEMINI_API_TARGET });
     });
@@ -1107,6 +1349,7 @@ if (require.main === module) {
       socket.destroy();
     });
 
+    listenPromises.push(new Promise(r => geminiServer.once('listening', r)));
     geminiServer.listen(10003, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: 'Gemini endpoint listening on port 10003 (Gemini not configured — returning 503)' });
     });
@@ -1193,10 +1436,15 @@ if (require.main === module) {
       proxyWebSocket(req, socket, head, route.target, headers, 'opencode', route.basePath);
     });
 
+    listenPromises.push(new Promise(r => opencodeServer.once('listening', r)));
     opencodeServer.listen(10004, '0.0.0.0', () => {
       logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${opencodeStartupRoute.target})` });
     });
   }
+
+  // After all servers are listening, fire key validation as a background task.
+  // This ensures the Docker healthcheck port (10000) passes before validation begins.
+  Promise.all(listenPromises).then(() => validateApiKeys());
 
   // Graceful shutdown
   process.on('SIGTERM', async () => {
@@ -1213,4 +1461,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateKey, validateApiKeys };
