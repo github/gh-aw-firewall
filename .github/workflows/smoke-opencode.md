@@ -13,9 +13,9 @@ permissions:
   pull-requests: read
   discussions: read
 name: Smoke OpenCode
-engine: opencode
-features:
-  cli-proxy: true
+engine:
+  id: opencode
+  model: copilot/gpt-4.1
 strict: true
 imports:
   - shared/gh.md
@@ -27,6 +27,7 @@ network:
 tools:
   cache-memory: true
   github:
+    mode: gh-proxy
     toolsets: [repos, pull_requests]
   edit:
   bash:

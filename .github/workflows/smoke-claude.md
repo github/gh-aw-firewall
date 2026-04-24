@@ -17,8 +17,6 @@ engine:
   id: claude
   model: claude-haiku-4-5
   max-turns: 12
-features:
-  cli-proxy: true
 sandbox:
   mcp:
     version: v0.2.29
@@ -30,6 +28,7 @@ network:
     - playwright
 tools:
   github:
+    mode: gh-proxy
     toolsets: [pull_requests]
   playwright:
   bash:

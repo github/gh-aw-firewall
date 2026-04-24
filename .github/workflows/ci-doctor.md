@@ -47,8 +47,6 @@ permissions:
   pull-requests: read
   issues: read
 
-features:
-  byok-copilot: true
 imports:
   - shared/mcp-pagination.md
 

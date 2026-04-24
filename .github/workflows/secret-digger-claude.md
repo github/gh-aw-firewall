@@ -15,8 +15,6 @@ engine:
     BASH_DEFAULT_TIMEOUT_MS: "1800000"  # 30 minutes for bash commands
     BASH_MAX_TIMEOUT_MS: "1800000"      # 30 minutes max timeout
     GH_AW_MODEL_AGENT_CLAUDE: "claude-haiku-4-5-20251001"
-features:
-  cli-proxy: true
 imports:
   - shared/secret-audit.md
 tools:

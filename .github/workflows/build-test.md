@@ -51,8 +51,6 @@ safe-outputs:
   messages:
     run-failure: "**Build Test Failed** [{workflow_name}]({run_url}) - See logs for details"
 timeout-minutes: 45
-features:
-  byok-copilot: true
 strict: true
 ---
 

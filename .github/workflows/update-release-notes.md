@@ -8,8 +8,6 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
-features:
-  byok-copilot: true
 tools:
   github:
     toolsets: [default]

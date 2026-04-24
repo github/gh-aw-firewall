@@ -9,12 +9,13 @@ permissions:
   issues: read
   pull-requests: read
 engine: codex
-features:
-  cli-proxy: true
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md
 timeout-minutes: 30
+tools:
+  github:
+    mode: gh-proxy
 ---
 
 ## Current Run Context

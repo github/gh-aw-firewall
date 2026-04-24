@@ -14,8 +14,6 @@ permissions:
   actions: read
 name: Smoke Services
 engine: copilot
-features:
-  byok-copilot: true
 network:
   allowed:
     - defaults
@@ -83,4 +81,3 @@ Then run each of the following connectivity checks:
 ## Output
 
 Post a brief comment on the current pull request summarizing which checks succeeded and which failed. If every check succeeded, also apply the `smoke-services` label.
-

@@ -7,8 +7,6 @@ on:
 permissions:
   contents: read
   issues: read
-features:
-  byok-copilot: true
 imports:
   - shared/mcp-pagination.md
 tools:

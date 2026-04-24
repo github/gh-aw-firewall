@@ -19,8 +19,6 @@ permissions:
 name: Smoke Chroot
 engine:
   id: copilot
-features:
-  cli-proxy: true
 strict: true
 network:
   allowed:
@@ -28,6 +26,7 @@ network:
     - github
 tools:
   github:
+    mode: gh-proxy
     toolsets: [repos, pull_requests]
   bash:
     - "*"

@@ -14,8 +14,6 @@ permissions:
   discussions: read
 name: Smoke Codex
 engine: codex
-features:
-  cli-proxy: true
 sandbox:
   mcp:
     version: v0.2.29
@@ -34,6 +32,7 @@ network:
 tools:
   cache-memory: true
   github:
+    mode: gh-proxy
   playwright:
   edit:
   bash:

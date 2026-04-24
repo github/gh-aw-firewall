@@ -12,10 +12,9 @@ permissions:
 engine:
   id: claude
   max-turns: 6
-features:
-  cli-proxy: true
 tools:
   github:
+    mode: gh-proxy
     toolsets: [pull_requests, repos]
 network:
   allowed:
