@@ -94,6 +94,8 @@ The four workflows with sufficient data show a range of outcomes:
 
 Auto-Triage Issues shows a clear, sustained reduction of 44% across 62 post-fix runs. Daily Compiler Quality shows a modest 5% improvement that is difficult to separate from workload variation. And Daily Community Attribution and Contribution Check show no meaningful improvement in the data we collected.
 
+Run frequency matters as much as per-run savings. Auto-Triage Issues fires on every new issue—averaging 6.5 runs per day with peaks of 15—while the daily quality checks run once per day. Contribution Check fires on every PR at about 4 runs per day. A 44% reduction at 6.5 runs/day compounds quickly: over the observation period, Auto-Triage's optimization saved roughly 3.2 M ET in aggregate, dwarfing the other workflows combined. When prioritizing which workflows to optimize, run frequency is at least as important as per-run consumption.
+
 This range is itself an important finding. Not every optimization the agent recommends translates into measurable ET reduction, especially over short observation windows on a live repository where workload varies day to day. The workflow with the strongest signal is the one where the optimization eliminated a clearly pathological behavior rather than shaving a few percent off normal operation.
 
 From these results and the excluded workflows, we highlight three patterns.
