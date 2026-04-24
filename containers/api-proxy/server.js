@@ -1111,16 +1111,30 @@ function httpProbe(url, opts, timeoutMs) {
       timeout: timeoutMs,
     };
 
+    let settled = false;
+    const resolveOnce = (statusCode) => {
+      if (settled) return;
+      settled = true;
+      resolve(statusCode);
+    };
+    const rejectOnce = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
     const req = mod.request(reqOpts, (res) => {
       // Consume body to free the socket
       res.resume();
-      res.on('end', () => resolve(res.statusCode));
+      res.on('end', () => resolveOnce(res.statusCode));
+      res.on('error', rejectOnce);
+      res.on('close', () => resolveOnce(res.statusCode));
     });
 
     req.on('timeout', () => {
       req.destroy(new Error(`Probe timed out after ${timeoutMs}ms`));
     });
-    req.on('error', reject);
+    req.on('error', rejectOnce);
 
     if (opts.body) {
       req.write(opts.body);
@@ -1172,7 +1186,9 @@ if (require.main === module) {
   // Health port is always 10000 — this is what Docker healthcheck hits
   const HEALTH_PORT = 10000;
 
-  // Startup latch: count expected listeners, run validation when all are ready
+  // Startup latch: count listeners that participate in key validation.
+  // The no-key Gemini 503 handler binds port 10003 but doesn't participate
+  // in validation, so it's intentionally excluded from the count.
   let expectedListeners = 1; // port 10000 (always)
   if (ANTHROPIC_API_KEY) expectedListeners++;
   if (COPILOT_AUTH_TOKEN) expectedListeners++;
@@ -1182,7 +1198,7 @@ if (require.main === module) {
   function onListenerReady() {
     readyListeners++;
     if (readyListeners === expectedListeners) {
-      logRequest('info', 'startup_complete', { message: `All ${expectedListeners} listeners ready, starting key validation` });
+      logRequest('info', 'startup_complete', { message: `All ${expectedListeners} validation-participating listeners ready, starting key validation` });
       validateApiKeys().catch((err) => {
         logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
         keyValidationComplete = true;

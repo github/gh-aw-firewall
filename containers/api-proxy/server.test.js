@@ -1036,8 +1036,16 @@ describe('httpProbe', () => {
   });
 
   it('should reject on connection refused', async () => {
+    // Allocate a port, then close it — guarantees nothing is listening
+    const tmpServer = http.createServer();
+    const refusedPort = await new Promise((resolve) => {
+      tmpServer.listen(0, '127.0.0.1', () => {
+        resolve(tmpServer.address().port);
+        tmpServer.close();
+      });
+    });
     await expect(
-      httpProbe('http://127.0.0.1:19999/health', {
+      httpProbe(`http://127.0.0.1:${refusedPort}/health`, {
         method: 'GET',
         headers: {},
       }, 5000)
