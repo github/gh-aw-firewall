@@ -539,6 +539,31 @@ describe('stripGeminiKeyParam', () => {
     const result = stripGeminiKeyParam('/v1/generateContent?key=abc');
     expect(result).toBe('/v1/generateContent');
   });
+
+  it('should remove the apiKey= query parameter', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?apiKey=placeholder'))
+      .toBe('/v1/models/gemini-pro:generateContent');
+  });
+
+  it('should remove the api_key= query parameter', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?api_key=placeholder'))
+      .toBe('/v1/models/gemini-pro:generateContent');
+  });
+
+  it('should remove apiKey= while preserving other query parameters', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?apiKey=placeholder&alt=json'))
+      .toBe('/v1/models/gemini-pro:generateContent?alt=json');
+  });
+
+  it('should remove api_key= while preserving other query parameters', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?api_key=placeholder&alt=json'))
+      .toBe('/v1/models/gemini-pro:generateContent?alt=json');
+  });
+
+  it('should remove all auth params when multiple variants are present', () => {
+    expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?key=foo&apiKey=bar&api_key=baz&alt=json'))
+      .toBe('/v1/models/gemini-pro:generateContent?alt=json');
+  });
 });
 
 // ── Helpers for proxyWebSocket tests ──────────────────────────────────────────
