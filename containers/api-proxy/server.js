@@ -1070,7 +1070,7 @@ if (require.main === module) {
       const contentLength = parseInt(req.headers['content-length'], 10) || 0;
       if (checkRateLimit(req, res, 'gemini', contentLength)) return;
 
-      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
       // The proxy injects the real key via x-goog-api-key header instead.
       req.url = stripGeminiKeyParam(req.url);
 
@@ -1080,7 +1080,7 @@ if (require.main === module) {
     });
 
     geminiServer.on('upgrade', (req, socket, head) => {
-      // Strip any ?key= query parameter — the @google/genai SDK may append it to the URL.
+      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
       req.url = stripGeminiKeyParam(req.url);
       proxyWebSocket(req, socket, head, GEMINI_API_TARGET, {
         'x-goog-api-key': GEMINI_API_KEY,

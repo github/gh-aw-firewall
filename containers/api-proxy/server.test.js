@@ -564,6 +564,11 @@ describe('stripGeminiKeyParam', () => {
     expect(stripGeminiKeyParam('/v1/models/gemini-pro:generateContent?key=foo&apiKey=bar&api_key=baz&alt=json'))
       .toBe('/v1/models/gemini-pro:generateContent?alt=json');
   });
+
+  it('should handle path with only api_key= param, leaving no trailing ?', () => {
+    const result = stripGeminiKeyParam('/v1/generateContent?api_key=abc');
+    expect(result).toBe('/v1/generateContent');
+  });
 });
 
 // ── Helpers for proxyWebSocket tests ──────────────────────────────────────────
