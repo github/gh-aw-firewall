@@ -81,6 +81,8 @@ where *m* is a model cost multiplier (Haiku = 0.25×, Sonnet = 1.0×, Opus = 5.0
 
 After deploying the auditor and optimizer across twelve production workflows in the gh-aw project, we downloaded token-usage artifacts from runs before and after each optimization and computed ET for each run. Seven of the nine implemented optimizations have enough post-fix run history to compare:
 
+![Before vs. after optimization across 7 workflows, measured in effective tokens](token-savings-chart-v2.png)
+
 | Workflow | Runs (pre) | Avg ET (pre) | Runs (post) | Avg ET (post) | Change |
 |---|---|---|---|---|---|
 | Auto-Triage Issues | 61 | 115 K | 62 | 64 K | **−44%** |
