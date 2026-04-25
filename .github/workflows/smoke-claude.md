@@ -19,7 +19,7 @@ engine:
   max-turns: 12
 sandbox:
   mcp:
-    version: v0.2.29
+    version: v0.3.0
 strict: false
 network:
   allowed:
