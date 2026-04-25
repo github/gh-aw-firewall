@@ -40,7 +40,7 @@ safe-outputs:
 timeout-minutes: 5
 sandbox:
   mcp:
-    version: v0.2.29
+    version: v0.3.0
 strict: false
 steps:
   - name: Pre-compute smoke test data

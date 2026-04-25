@@ -16,7 +16,7 @@ name: Smoke Codex
 engine: codex
 sandbox:
   mcp:
-    version: v0.2.29
+    version: v0.3.0
 strict: false
 imports:
   - shared/gh.md
