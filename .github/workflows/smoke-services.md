@@ -17,11 +17,8 @@ engine: copilot
 network:
   allowed:
     - defaults
-    - node
     - github
 tools:
-  agentic-workflows:
-  cache-memory: true
   bash:
     - "*"
   github:
@@ -37,8 +34,14 @@ safe-outputs:
       run-started: "🔌 [{workflow_name}]({run_url}) is testing service connectivity for this {event_type}..."
       run-success: "🔌 [{workflow_name}]({run_url}) — All services reachable! ✅"
       run-failure: "🔌 [{workflow_name}]({run_url}) — Service connectivity {status} ⚠️"
-timeout-minutes: 15
+timeout-minutes: 10
 strict: true
+steps:
+  - name: Pre-install service client tools
+    run: |
+      sudo apt-get update -qq && sudo apt-get install -y -qq redis-tools postgresql-client
+      echo "redis-cli: $(redis-cli --version)"
+      echo "psql: $(psql --version)"
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -64,20 +67,22 @@ post-steps:
 
 ## Test Requirements
 
-You need to verify that the AWF sandbox can reach GitHub Actions service containers running on the host. These services are exposed via `host.docker.internal`.
+Verify that the AWF sandbox can reach GitHub Actions service containers running on the host via `host.docker.internal`. The `redis-cli` and `psql` binaries are already installed — do NOT run `apt-get`.
 
-Install the required client tools first:
+Run all connectivity checks in a **single bash command**:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y redis-tools postgresql-client
+REDIS=$(redis-cli -h host.docker.internal -p 6379 PING 2>&1); \
+PG_READY=$(pg_isready -h host.docker.internal -p 5432 -U postgres 2>&1); \
+PG_QUERY=$(PGPASSWORD=testpass psql -h host.docker.internal -p 5432 -U postgres -d smoketest -c "SELECT 1" -t -A 2>&1); \
+echo "REDIS=$REDIS"; echo "PG_READY=$PG_READY"; echo "PG_QUERY=$PG_QUERY"
 ```
 
-Then run each of the following connectivity checks:
-
-1. Use `redis-cli` to ping the Redis server at `host.docker.internal` on port 6379. A successful response is `PONG`.
-2. Use `pg_isready` to check whether the PostgreSQL server at `host.docker.internal` on port 5432 is accepting connections.
-3. Use `psql` to execute `SELECT 1` against the `smoketest` database on `host.docker.internal:5432` as user `postgres` with password `testpass`.
+Interpret results:
+- Redis: ✅ if output contains `PONG`
+- PostgreSQL pg_isready: ✅ if output contains `accepting connections`
+- PostgreSQL SELECT 1: ✅ if output is `1`
 
 ## Output
 
-Post a brief comment on the current pull request summarizing which checks succeeded and which failed. If every check succeeded, also apply the `smoke-services` label.
+Post a brief comment (max 5-10 lines) summarizing which checks succeeded (✅) and which failed (❌), plus overall PASS or FAIL. If every check succeeded, also apply the `smoke-services` label.
