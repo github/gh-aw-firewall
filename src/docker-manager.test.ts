@@ -874,13 +874,16 @@ describe('docker-manager', () => {
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
       expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
-      // ~/.copilot is mounted from host, with session-state and logs overlaid from AWF workDir
-      expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
+      // ~/.copilot is only mounted if it already exists on the host
+      if (fs.existsSync(path.join(homeDir, '.copilot'))) {
+        expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
+      }
+      // session-state and logs are always overlaid from AWF workDir
       expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
       expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
-    it('should create missing .copilot directory and mount it when using non-standard HOME path', () => {
+    it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
       const originalHome = process.env.HOME;
       const originalSudoUser = process.env.SUDO_USER;
@@ -894,8 +897,13 @@ describe('docker-manager', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
 
-        expect(fs.existsSync(copilotDir)).toBe(true);
-        expect(volumes).toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+        // Directory should NOT be auto-created (changed in #2114)
+        expect(fs.existsSync(copilotDir)).toBe(false);
+        // The blanket .copilot mount should be absent
+        expect(volumes).not.toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+        // But session-state and logs overlays are always present
+        expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/session-state:rw`));
+        expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/logs:rw`));
       } finally {
         if (originalHome !== undefined) {
           process.env.HOME = originalHome;
