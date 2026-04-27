@@ -18,6 +18,13 @@ jobs:
       contents: read
 
     steps:
+      # Ensure Node.js is available on all runner types (including GPU runners
+      # where it may not be pre-installed). Copilot engine workflows require
+      # Node.js to invoke the Copilot CLI binary.
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '20'
       - name: Install gh-aw extension
         run: |
           curl -fsSL https://raw.githubusercontent.com/github/gh-aw/refs/heads/main/install-gh-aw.sh | bash
