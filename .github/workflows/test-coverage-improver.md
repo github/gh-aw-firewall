@@ -66,30 +66,36 @@ steps:
   - name: Read coverage summary JSON
     id: coverage-summary
     run: |
-      echo "COVERAGE_JSON<<EOF" >> $GITHUB_OUTPUT
-      cat coverage/coverage-summary.json
-      echo "EOF" >> $GITHUB_OUTPUT
+      {
+        echo "COVERAGE_JSON<<EOF"
+        cat coverage/coverage-summary.json
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 
   - name: Read COVERAGE_SUMMARY.md
     id: coverage-md
     run: |
-      echo "COVERAGE_MD<<EOF" >> $GITHUB_OUTPUT
-      cat COVERAGE_SUMMARY.md 2>/dev/null || echo "(COVERAGE_SUMMARY.md not found)"
-      echo "EOF" >> $GITHUB_OUTPUT
+      {
+        echo "COVERAGE_MD<<EOF"
+        cat COVERAGE_SUMMARY.md 2>/dev/null || echo "(COVERAGE_SUMMARY.md not found)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 
   - name: List files below 80% coverage
     id: low-coverage
     run: |
-      echo "LOW_COVERAGE<<EOF" >> $GITHUB_OUTPUT
-      node -e "
-        const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-        const low = Object.entries(d)
-          .filter(([k, v]) => k !== 'total' && v.statements.pct < 80)
-          .sort((a, b) => a[1].statements.pct - b[1].statements.pct);
-        if (low.length === 0) { console.log('All files are above 80% coverage.'); }
-        else { low.forEach(([k, v]) => console.log(k + ' — ' + v.statements.pct + '%')); }
-      " 2>/dev/null || echo "(coverage summary not available)"
-      echo "EOF" >> $GITHUB_OUTPUT
+      {
+        echo "LOW_COVERAGE<<EOF"
+        node -e "
+          const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
+          const low = Object.entries(d)
+            .filter(([k, v]) => k !== 'total' && v.statements.pct < 80)
+            .sort((a, b) => a[1].statements.pct - b[1].statements.pct);
+          if (low.length === 0) { console.log('All files are above 80% coverage.'); }
+          else { low.forEach(([k, v]) => console.log(k + ' \u2014 ' + v.statements.pct + '%')); }
+        " 2>/dev/null || echo "(coverage summary not available)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 ---
 
 # Weekly Test Coverage Improver
