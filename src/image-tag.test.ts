@@ -25,13 +25,14 @@ describe('parseImageTag', () => {
     });
 
     it('should handle all supported digest keys', () => {
-      const entries = IMAGE_DIGEST_KEYS.map((k, i) => `${k}=sha256:${'a'.repeat(63)}${i}`).join(
-        ','
-      );
+      const expectedDigests = Object.fromEntries(
+        IMAGE_DIGEST_KEYS.map((key, i) => [key, `sha256:${'a'.repeat(63)}${i}`])
+      ) as Record<(typeof IMAGE_DIGEST_KEYS)[number], string>;
+      const entries = IMAGE_DIGEST_KEYS.map((key) => `${key}=${expectedDigests[key]}`).join(',');
       const result = parseImageTag(`latest,${entries}`);
       expect(result.tag).toBe('latest');
       for (const key of IMAGE_DIGEST_KEYS) {
-        expect(result.digests[key]).toBeDefined();
+        expect(result.digests[key]).toBe(expectedDigests[key]);
       }
     });
 
