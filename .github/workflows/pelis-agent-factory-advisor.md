@@ -72,7 +72,7 @@ steps:
         find .github/workflows -name "*.md" -type f | sort | while IFS= read -r f; do
           name=$(basename "$f" .md)
           desc=$(grep -m1 "^description:" "$f" 2>/dev/null | sed 's/^description: *//' | cut -c1-100)
-          triggers=$(grep -E "^  (schedule|workflow_dispatch|pull_request|push|issues|workflow_run|issue_comment):" "$f" 2>/dev/null \
+          triggers=$(grep -E "^  (schedule|workflow_dispatch|pull_request|push|issues|workflow_run|issue_comment|release|slash_command):" "$f" 2>/dev/null \
             | sed 's/^  //' | tr -d ':' | tr '\n' ',' | sed 's/,$//')
           printf "%-45s | %-100s | %s\n" "$name" "${desc:-(no description)}" "${triggers:-(none)}"
         done
