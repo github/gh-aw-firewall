@@ -23,12 +23,21 @@ network:
 
 tools:
   github:
-    toolsets: [default]
+    toolsets: [repos, pull_requests]
   bash:
-    - "npm ci"
-    - "npm run:*"
-    - "cat:*"
-    - "ls:*"
+    - "npm run build"
+    - "npm run test"
+    - "npm run test:coverage"
+    - "npm run lint"
+    - "cat:src/*.test.ts"
+    - "cat:src/*.ts"
+    - "cat:tests/**"
+    - "cat:coverage/coverage-summary.json"
+    - "cat:jest.config.js"
+    - "cat:jest.config.ts"
+    - "ls:src"
+    - "ls:tests"
+    - "ls:coverage"
     - "head:*"
     - "tail:*"
 
@@ -42,6 +51,45 @@ safe-outputs:
     target: "*"
 
 timeout-minutes: 25
+
+steps:
+  - name: Install dependencies
+    run: npm ci
+
+  - name: Build
+    run: npm run build
+
+  - name: Run coverage
+    run: npm run test:coverage 2>&1 | tail -10
+    id: coverage
+
+  - name: Read coverage summary JSON
+    id: coverage-summary
+    run: |
+      echo "COVERAGE_JSON<<EOF" >> $GITHUB_OUTPUT
+      cat coverage/coverage-summary.json
+      echo "EOF" >> $GITHUB_OUTPUT
+
+  - name: Read COVERAGE_SUMMARY.md
+    id: coverage-md
+    run: |
+      echo "COVERAGE_MD<<EOF" >> $GITHUB_OUTPUT
+      cat COVERAGE_SUMMARY.md 2>/dev/null || echo "(COVERAGE_SUMMARY.md not found)"
+      echo "EOF" >> $GITHUB_OUTPUT
+
+  - name: List files below 80% coverage
+    id: low-coverage
+    run: |
+      echo "LOW_COVERAGE<<EOF" >> $GITHUB_OUTPUT
+      node -e "
+        const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
+        const low = Object.entries(d)
+          .filter(([k, v]) => k !== 'total' && v.statements.pct < 80)
+          .sort((a, b) => a[1].statements.pct - b[1].statements.pct);
+        if (low.length === 0) { console.log('All files are above 80% coverage.'); }
+        else { low.forEach(([k, v]) => console.log(k + ' — ' + v.statements.pct + '%')); }
+      " 2>/dev/null || echo "(coverage summary not available)"
+      echo "EOF" >> $GITHUB_OUTPUT
 ---
 
 # Weekly Test Coverage Improver
@@ -57,15 +105,32 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI that provi
 - **Container security** - Capability dropping, seccomp profiles
 - **Domain validation** - Pattern matching and injection prevention
 
-## Current Coverage Baseline
+## Guidelines
 
-Check COVERAGE_SUMMARY.md for current coverage metrics. Key files needing attention:
+- **ONE focused PR** - Pick one file or area to improve, don't try to cover everything
+- **Quality over quantity** - Well-designed tests for critical paths are better than many shallow tests
+- **Security focus** - Prioritize tests for security-critical code
+- **Maintain CI** - All existing tests must continue to pass
+- **Document findings** - If you find bugs while testing, note them in the PR description
+- **Target improvement** - Aim for +2-5% coverage improvement per PR
 
-| File | Expected Coverage | Priority |
-|------|-------------------|----------|
-| `src/docker-manager.ts` | <20% | High (container lifecycle) |
-| `src/cli.ts` | 0% | High (entry point) |
-| `src/host-iptables.ts` | ~84% | Medium (edge cases) |
+## Test Quality Criteria
+
+Good tests should:
+- ✅ Test one specific behavior
+- ✅ Have descriptive names
+- ✅ Include edge cases
+- ✅ Cover error handling
+- ✅ Be deterministic (no flaky tests)
+- ✅ Run quickly (mock external dependencies)
+
+## Do Not
+
+- ❌ Create tests that require Docker to run (use mocks)
+- ❌ Create tests that modify real iptables rules
+- ❌ Submit failing tests
+- ❌ Reduce coverage in any file
+- ❌ Remove or modify existing passing tests
 
 ## Your Task
 
@@ -77,24 +142,19 @@ Before starting, check if there's already an open PR with test coverage improvem
 2. If one exists, **exit early** - do not create duplicate work
 3. Only proceed if no matching open PR exists
 
-### Phase 1: Analyze Current Coverage
+### Phase 1: Review Pre-Computed Coverage
 
-1. **Run the coverage report**:
-   ```bash
-   npm ci
-   npm run build
-   npm run test:coverage
-   ```
+The build, test run, and coverage report have already been executed as pre-steps. Use the pre-computed results below instead of running them again.
 
-2. **Examine the coverage output** in `coverage/coverage-summary.json` and identify:
-   - Files with statement coverage below 80%
-   - Functions with 0% coverage
-   - Uncovered branch conditions (especially error handling)
+**Examine the coverage data** and identify:
+- Files with statement coverage below 80%
+- Functions with 0% coverage
+- Uncovered branch conditions (especially error handling)
 
-3. **Read existing tests** to understand testing patterns:
-   - `src/*.test.ts` - Unit tests
-   - `tests/integration/` - Integration tests
-   - Check `jest.config.js` for test configuration
+**Read existing tests** to understand testing patterns:
+- `src/*.test.ts` - Unit tests
+- `tests/integration/` - Integration tests
+- Check `jest.config.js` for test configuration
 
 ### Phase 2: Identify Security-Critical Gaps
 
@@ -182,29 +242,28 @@ describe('functionName', () => {
    - List of security-critical paths now covered
    - Any edge cases or error handling added
 
-## Guidelines
+## Current Coverage Status
 
-- **ONE focused PR** - Pick one file or area to improve, don't try to cover everything
-- **Quality over quantity** - Well-designed tests for critical paths are better than many shallow tests
-- **Security focus** - Prioritize tests for security-critical code
-- **Maintain CI** - All existing tests must continue to pass
-- **Document findings** - If you find bugs while testing, note them in the PR description
-- **Target improvement** - Aim for +2-5% coverage improvement per PR
+### COVERAGE_SUMMARY.md
 
-## Test Quality Criteria
+```
+${{ steps.coverage-md.outputs.COVERAGE_MD }}
+```
 
-Good tests should:
-- ✅ Test one specific behavior
-- ✅ Have descriptive names
-- ✅ Include edge cases
-- ✅ Cover error handling
-- ✅ Be deterministic (no flaky tests)
-- ✅ Run quickly (mock external dependencies)
+### Coverage JSON (full)
 
-## Do Not
+```json
+${{ steps.coverage-summary.outputs.COVERAGE_JSON }}
+```
 
-- ❌ Create tests that require Docker to run (use mocks)
-- ❌ Create tests that modify real iptables rules
-- ❌ Submit failing tests
-- ❌ Reduce coverage in any file
-- ❌ Remove or modify existing passing tests
+### Files Below 80% Coverage
+
+```
+${{ steps.low-coverage.outputs.LOW_COVERAGE }}
+```
+
+| File | Expected Coverage | Priority |
+|------|-------------------|----------|
+| `src/docker-manager.ts` | <20% | High (container lifecycle) |
+| `src/cli.ts` | 0% | High (entry point) |
+| `src/host-iptables.ts` | ~84% | Medium (edge cases) |
