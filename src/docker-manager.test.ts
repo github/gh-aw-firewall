@@ -1980,6 +1980,15 @@ describe('docker-manager', () => {
 
         expect(env.AWF_ENABLE_HOST_ACCESS).toBeUndefined();
       });
+
+      it('should set AWF_ENABLE_HOST_ACCESS to 1 via safety net when allowHostServicePorts is set without enableHostAccess', () => {
+        const config = { ...mockConfig, allowHostServicePorts: '5432,6379' };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.AWF_ENABLE_HOST_ACCESS).toBe('1');
+        expect(env.AWF_HOST_SERVICE_PORTS).toBe('5432,6379');
+      });
     });
 
     describe('NO_PROXY baseline', () => {
