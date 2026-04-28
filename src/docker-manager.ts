@@ -757,6 +757,9 @@ export function generateDockerCompose(
     // conflicting with AWF's internal routing (agent → Squid → internet).
     // AWF sets its own HTTP_PROXY/HTTPS_PROXY pointing to Squid.
     ...PROXY_ENV_VARS,
+    // Internal AWF control knobs — must never be inherited from the host environment
+    // via --env-all; they are set explicitly by generateDockerCompose when needed.
+    'AWF_PREFLIGHT_BINARY',
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment

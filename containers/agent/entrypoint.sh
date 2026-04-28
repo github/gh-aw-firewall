@@ -721,10 +721,12 @@ AWFEOF
   # chroot before exec'ing the user command. This provides a fast, human-readable
   # diagnostic when the runner slot lacks the binary (e.g. codex not installed).
   if [ -n "${AWF_PREFLIGHT_BINARY:-}" ]; then
-    # Validate the binary name contains only safe characters to prevent shell injection
-    # in the generated chroot startup script.
-    if [[ "${AWF_PREFLIGHT_BINARY}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
-      printf 'if ! command -v %s >/dev/null 2>&1; then\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
+    # Validate the binary name: must start with an alphanumeric char or underscore,
+    # then contain only [a-zA-Z0-9_.-] — prevents option injection (e.g. "-v")
+    # and shell meta-characters in the generated chroot startup script.
+    if [[ "${AWF_PREFLIGHT_BINARY}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]]; then
+      # Use "command -v -- <binary>" so the name is never parsed as an option.
+      printf 'if ! command -v -- %s >/dev/null 2>&1; then\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
       printf '  echo "[entrypoint][ERROR] Required binary '"'"'%s'"'"' is not available inside AWF chroot." >&2\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
       printf '  echo "[entrypoint][ERROR] Ensure '"'"'%s'"'"' is installed on the runner and present in a PATH directory bind-mounted into /host." >&2\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
       printf '  echo "[entrypoint][ERROR] Standard bind-mounted PATH directories: /usr/local/bin, /usr/bin, /bin, /opt." >&2\n' >> "/host${SCRIPT_FILE}"
