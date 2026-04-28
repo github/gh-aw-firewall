@@ -323,6 +323,70 @@ Docker healthcheck on the `/health` endpoint (port 10000):
 - **Retries**: 5
 - **Start period**: 2s
 
+### Reflection endpoint
+
+The management port (10000) also exposes a `GET /reflect` endpoint for dynamic provider and model discovery. This allows agent harnesses to query which providers are configured and which models are available at runtime.
+
+```bash
+curl http://172.30.0.30:10000/reflect
+```
+
+**Example response:**
+
+```json
+{
+  "endpoints": [
+    {
+      "provider": "openai",
+      "port": 10000,
+      "base_url": "http://api-proxy:10000",
+      "configured": true,
+      "models": ["gpt-4o", "gpt-4o-mini"],
+      "models_url": "http://api-proxy:10000/v1/models"
+    },
+    {
+      "provider": "anthropic",
+      "port": 10001,
+      "base_url": "http://api-proxy:10001",
+      "configured": false,
+      "models": null,
+      "models_url": "http://api-proxy:10001/v1/models"
+    },
+    {
+      "provider": "copilot",
+      "port": 10002,
+      "base_url": "http://api-proxy:10002",
+      "configured": true,
+      "models": ["gpt-4o", "claude-3.5-sonnet"],
+      "models_url": "http://api-proxy:10002/models"
+    },
+    {
+      "provider": "gemini",
+      "port": 10003,
+      "base_url": "http://api-proxy:10003",
+      "configured": false,
+      "models": null,
+      "models_url": "http://api-proxy:10003/v1beta/models"
+    },
+    {
+      "provider": "opencode",
+      "port": 10004,
+      "base_url": "http://api-proxy:10004",
+      "configured": true,
+      "models": null,
+      "models_url": null
+    }
+  ],
+  "models_fetch_complete": true
+}
+```
+
+Fields:
+- `configured` — `true` if an API key for this provider was found at startup
+- `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
+- `models_fetch_complete` — `true` once the startup model-fetch pass has finished
+- `models_url` — URL to query for the live model list; `null` for OpenCode (which routes to other providers)
+
 ## Troubleshooting
 
 ### Gemini proxy returns 503
