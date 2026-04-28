@@ -189,11 +189,9 @@
         "munlock",
         "munlockall",
         "munmap",
-        "name_to_handle_at",
         "nanosleep",
         "newfstatat",
         "open",
-        "open_by_handle_at",
         "openat",
         "openat2",
         "pause",
@@ -395,7 +393,9 @@
         "get_kernel_syms",
         "query_module",
         "create_module",
-        "nfsservctl"
+        "nfsservctl",
+        "name_to_handle_at",
+        "open_by_handle_at"
       ],
       "action": "SCMP_ACT_ERRNO",
       "errnoRet": 1,
