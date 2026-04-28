@@ -1414,6 +1414,26 @@ describe('fetchJson', () => {
     const result = await fetchJson('not-a-url', { method: 'GET', headers: {} }, 5000);
     expect(result).toBeNull();
   });
+
+  it('should return null when connection drops mid-body (res emits close without end)', async () => {
+    // Server writes partial body then destroys the socket
+    server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"dat'); // partial body — never completes
+      res.destroy();      // simulate connection drop
+    });
+    await new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        serverPort = server.address().port;
+        resolve();
+      });
+    });
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET',
+      headers: {},
+    }, 5000);
+    expect(result).toBeNull();
+  }, 5000);
 });
 
 // ── extractModelIds ────────────────────────────────────────────────────────
@@ -1529,6 +1549,19 @@ describe('fetchStartupModels', () => {
     expect(cachedModels.openai).toBeNull();
     const reflect = reflectEndpoints();
     expect(reflect.models_fetch_complete).toBe(true);
+  });
+
+  it('should skip Copilot models fetch when only BYOK key (no GitHub token) is configured', async () => {
+    const spy = jest.spyOn(https, 'request');
+    await fetchStartupModels({
+      copilotGithubToken: undefined,
+      copilotAuthToken: 'sk-byok-copilot-key', // BYOK — derived from COPILOT_API_KEY
+      copilotTarget: 'api.githubcopilot.com',
+      timeoutMs: 5000,
+    });
+    // No HTTPS request should have been made for the copilot models endpoint
+    expect(spy).not.toHaveBeenCalled();
+    expect(cachedModels.copilot).toBeUndefined();
   });
 
   it('should skip fetching when no keys are configured', async () => {

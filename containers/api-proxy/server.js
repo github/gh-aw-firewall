@@ -1201,6 +1201,8 @@ function fetchJson(url, opts, timeoutMs) {
         logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
         resolveOnce(null);
       });
+      // Guard against connection drops mid-body that never emit 'end' or 'error'
+      res.on('close', () => resolveOnce(null));
     });
 
     req.on('timeout', () => {
@@ -1320,14 +1322,14 @@ async function fetchStartupModels(overrides = {}) {
     );
   }
 
-  // Use COPILOT_GITHUB_TOKEN for /models if available (COPILOT_API_KEY is not accepted)
-  const copilotToken = copilotGithubToken || copilotAuthToken;
-  if (copilotToken) {
+  // Only use COPILOT_GITHUB_TOKEN (GitHub OAuth) for /models — COPILOT_API_KEY (BYOK) is not
+  // accepted by the Copilot /models endpoint (consistent with validateApiKeys behaviour).
+  if (copilotGithubToken) {
     fetches.push(
       fetchJson(`https://${copilotTarget}/models`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${copilotToken}`,
+          'Authorization': `Bearer ${copilotGithubToken}`,
           'Copilot-Integration-Id': copilotIntegrationId,
         },
       }, TIMEOUT_MS).then((json) => {
