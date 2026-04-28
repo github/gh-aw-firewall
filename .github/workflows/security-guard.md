@@ -135,7 +135,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
 3. **Use `mcp__github__get_pull_request_diff`** only when the diff below is truncated and you need the remainder
-4. **Use `get_file_contents`** only for files not changed in this PR (e.g., to understand adjacent security context)
+4. **Use `mcp__github__get_file_contents`** only for files not changed in this PR (e.g., to understand adjacent security context)
 5. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
