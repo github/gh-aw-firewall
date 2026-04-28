@@ -79,6 +79,7 @@ describe('seccomp-profile', () => {
       'pivot_root', 'umount', 'umount2',
       'swapon', 'swapoff', 'syslog',
       'add_key', 'request_key', 'keyctl',
+      'name_to_handle_at', 'open_by_handle_at',
     ];
 
     for (const syscall of dangerousSyscalls) {
@@ -119,6 +120,25 @@ describe('seccomp-profile', () => {
     for (const blocked of blockedSyscalls) {
       expect(allowedSyscalls.has(blocked)).toBe(false);
     }
+  });
+
+  test('should block Shocker container-escape syscalls (CVE-2014-9357)', () => {
+    const allowedSyscalls = new Set(
+      profile.syscalls
+        .filter(r => r.action === 'SCMP_ACT_ALLOW')
+        .flatMap(r => r.names)
+    );
+
+    const blockedSyscalls = profile.syscalls
+      .filter(r => r.action === 'SCMP_ACT_ERRNO')
+      .flatMap(r => r.names);
+
+    // Explicitly listed in ERRNO rules for defense-in-depth regression protection
+    // (deny-by-default means absence alone would block them, but explicit denial is more robust)
+    expect(blockedSyscalls).toContain('name_to_handle_at');
+    expect(blockedSyscalls).toContain('open_by_handle_at');
+    expect(allowedSyscalls.has('name_to_handle_at')).toBe(false);
+    expect(allowedSyscalls.has('open_by_handle_at')).toBe(false);
   });
 
   test('should have valid JSON structure', () => {
