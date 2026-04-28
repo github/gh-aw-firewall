@@ -43,8 +43,6 @@ timeout-minutes: 5
 sandbox:
   agent:
     version: v0.25.29
-  mcp:
-    version: v0.3.1
 strict: true
 steps:
   - name: Pre-compute smoke test data
