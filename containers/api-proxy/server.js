@@ -1197,16 +1197,30 @@ function fetchJson(url, opts, timeoutMs) {
           resolveOnce(null);
         }
       });
-      res.on('error', () => resolveOnce(null));
+      res.on('error', (err) => {
+        logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
+        resolveOnce(null);
+      });
     });
 
     req.on('timeout', () => {
-      req.destroy(new Error(`fetchJson timed out after ${timeoutMs}ms`));
+      const err = new Error(`fetchJson timed out after ${timeoutMs}ms`);
+      logRequest('debug', 'fetch_json_timeout', { url: sanitizeForLog(url), timeout_ms: timeoutMs });
+      req.destroy(err);
     });
-    req.on('error', () => resolveOnce(null));
+    req.on('error', (err) => {
+      logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
+      resolveOnce(null);
+    });
     req.end();
   });
 }
+
+/**
+ * Prefix used by the Gemini models API in model name fields.
+ * Example: { name: "models/gemini-1.5-pro" } → "gemini-1.5-pro"
+ */
+const GEMINI_MODEL_NAME_PREFIX = 'models/';
 
 /**
  * Extract model IDs from a provider API response.
@@ -1231,7 +1245,9 @@ function extractModelIds(json) {
   // Gemini format: { models: [{ name: "models/gemini-1.5-pro", ... }, ...] }
   if (Array.isArray(json.models)) {
     const ids = json.models
-      .map((m) => m && m.name ? m.name.replace(/^models\//, '') : null)
+      .map((m) => m && m.name && m.name.startsWith(GEMINI_MODEL_NAME_PREFIX)
+        ? m.name.slice(GEMINI_MODEL_NAME_PREFIX.length)
+        : (m && m.name) || null)
       .filter(Boolean);
     return ids.length > 0 ? ids.sort() : null;
   }

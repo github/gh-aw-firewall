@@ -1434,6 +1434,11 @@ describe('extractModelIds', () => {
     expect(extractModelIds(json)).toEqual(['gemini-1.5-flash', 'gemini-1.5-pro']);
   });
 
+  it('should keep Gemini model names that do not start with models/ prefix as-is', () => {
+    const json = { models: [{ name: 'gemini-2.0-flash-exp' }] };
+    expect(extractModelIds(json)).toEqual(['gemini-2.0-flash-exp']);
+  });
+
   it('should return sorted model IDs', () => {
     const json = { data: [{ id: 'z-model' }, { id: 'a-model' }, { id: 'm-model' }] };
     expect(extractModelIds(json)).toEqual(['a-model', 'm-model', 'z-model']);
