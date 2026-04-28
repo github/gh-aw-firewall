@@ -1784,10 +1784,10 @@ export function generateDockerCompose(
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
-        interval: '1s',
-        timeout: '2s',
-        retries: 10,
-        start_period: '10s',
+        interval: '2s',
+        timeout: '3s',
+        retries: 15,
+        start_period: '30s',
       },
       // Security hardening: Drop all capabilities
       cap_drop: ['ALL'],
@@ -2425,6 +2425,34 @@ async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{
 }
 
 /**
+ * Returns true when the Docker Compose error message indicates that the
+ * api-proxy container specifically failed its health check.
+ */
+function isApiProxyUnhealthyError(errorMsg: string): boolean {
+  return (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) &&
+    errorMsg.includes(API_PROXY_CONTAINER_NAME);
+}
+
+/**
+ * Dumps the tail of a container's logs to stderr for diagnosis.
+ * Silently skips if the container does not exist or logs are unavailable.
+ */
+async function logContainerLogsToStderr(containerName: string): Promise<void> {
+  try {
+    const result = await execa('docker', ['logs', '--tail', '50', containerName], {
+      reject: false,
+      env: getLocalDockerEnv(),
+    });
+    const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    if (combined) {
+      logger.error(`${containerName} container logs (last 50 lines):\n${combined}`);
+    }
+  } catch {
+    logger.debug(`Could not retrieve logs for container ${containerName}`);
+  }
+}
+
+/**
  * Starts Docker Compose services
  * @param workDir - Working directory containing Docker Compose config
  * @param allowedDomains - List of allowed domains for error reporting
@@ -2447,12 +2475,13 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     logger.debug('No existing containers to remove (this is normal)');
   }
 
-  try {
-    const composeArgs = ['compose', 'up', '-d'];
-    if (skipPull) {
-      composeArgs.push('--pull', 'never');
-      logger.debug('Using --pull never (skip-pull mode)');
-    }
+  const composeArgs = ['compose', 'up', '-d'];
+  if (skipPull) {
+    composeArgs.push('--pull', 'never');
+    logger.debug('Using --pull never (skip-pull mode)');
+  }
+
+  const runDockerComposeUp = async (): Promise<void> => {
     // Redirect Docker Compose stdout to stderr so it doesn't pollute the
     // agent command's stdout. Docker Compose outputs build progress and
     // container creation status to stdout, which would be captured by test
@@ -2465,12 +2494,59 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       stderr: 'inherit',
       env: getLocalDockerEnv(),
     });
+  };
+
+  try {
+    await runDockerComposeUp();
     logger.success('Containers started successfully');
-  } catch (error) {
-    // Check if this is a healthcheck failure
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    if (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) {
-      // Check Squid logs to see if it's actually working and blocking traffic
+  } catch (firstError) {
+    const firstErrorMsg = firstError instanceof Error ? firstError.message : String(firstError);
+
+    // When api-proxy specifically fails its health check, retry once.
+    // Transient failures are common on slow or busy runners (e.g. Azure-hosted runners)
+    // where the Node.js process inside the container takes longer to bind its port.
+    if (isApiProxyUnhealthyError(firstErrorMsg)) {
+      logger.warn(`${API_PROXY_CONTAINER_NAME} failed its health check — this may be a transient startup failure, retrying once...`);
+      await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
+
+      // Tear down before retry so Docker Compose starts fresh
+      try {
+        await execa('docker', ['compose', 'down', '-v', '-t', '1'], {
+          cwd: workDir,
+          stdout: process.stderr,
+          stderr: 'inherit',
+          env: getLocalDockerEnv(),
+          reject: false,
+        });
+      } catch {
+        // Best-effort cleanup — proceed with retry regardless
+      }
+
+      try {
+        await runDockerComposeUp();
+        logger.success('Containers started successfully (retry succeeded)');
+        return;
+      } catch (retryError) {
+        const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+        if (isApiProxyUnhealthyError(retryErrorMsg)) {
+          // Surface api-proxy logs and emit a clear, unambiguous error so
+          // downstream parse steps don't blame the model for never running.
+          await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
+          throw new Error(
+            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed its health check on both attempts. ` +
+            `The agent was never invoked. ` +
+            `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
+          );
+        }
+        // Other error during retry — fall through to generic handler below
+        logger.error('Failed to start containers (retry):', retryError);
+        throw retryError;
+      }
+    }
+
+    // For all other healthcheck failures, check Squid logs to see if it's
+    // actually working and blocking traffic
+    if (firstErrorMsg.includes('is unhealthy') || firstErrorMsg.includes('dependency failed')) {
       const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);
 
       if (hasDenials) {
@@ -2519,8 +2595,8 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       }
     }
 
-    logger.error('Failed to start containers:', error);
-    throw error;
+    logger.error('Failed to start containers:', firstError);
+    throw firstError;
   }
 }
 
