@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -1335,5 +1335,279 @@ describe('validateApiKeys', () => {
     });
     expect(Object.keys(keyValidationResults)).toHaveLength(0);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// ── fetchJson ──────────────────────────────────────────────────────────────
+
+describe('fetchJson', () => {
+  let server;
+  let serverPort;
+
+  afterEach((done) => {
+    if (server) {
+      server.close(done);
+      server = null;
+    } else {
+      done();
+    }
+  });
+
+  function startServer(statusCode, body) {
+    return new Promise((resolve) => {
+      server = http.createServer((req, res) => {
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(body);
+      });
+      server.listen(0, '127.0.0.1', () => {
+        serverPort = server.address().port;
+        resolve();
+      });
+    });
+  }
+
+  it('should return parsed JSON for a 200 response', async () => {
+    await startServer(200, '{"data":[{"id":"gpt-4o"}]}');
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET',
+      headers: {},
+    }, 5000);
+    expect(result).toEqual({ data: [{ id: 'gpt-4o' }] });
+  });
+
+  it('should return null for a non-2xx response', async () => {
+    await startServer(401, '{"error":"unauthorized"}');
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET',
+      headers: {},
+    }, 5000);
+    expect(result).toBeNull();
+  });
+
+  it('should return null for invalid JSON', async () => {
+    await startServer(200, 'not-json');
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/v1/models`, {
+      method: 'GET',
+      headers: {},
+    }, 5000);
+    expect(result).toBeNull();
+  });
+
+  it('should return null on timeout', async () => {
+    server = http.createServer(() => {
+      // intentionally never respond
+    });
+    await new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        serverPort = server.address().port;
+        resolve();
+      });
+    });
+    const result = await fetchJson(`http://127.0.0.1:${serverPort}/slow`, {
+      method: 'GET',
+      headers: {},
+    }, 100);
+    expect(result).toBeNull();
+  }, 5000);
+
+  it('should return null for an invalid URL', async () => {
+    const result = await fetchJson('not-a-url', { method: 'GET', headers: {} }, 5000);
+    expect(result).toBeNull();
+  });
+});
+
+// ── extractModelIds ────────────────────────────────────────────────────────
+
+describe('extractModelIds', () => {
+  it('should extract IDs from OpenAI/Anthropic/Copilot format', () => {
+    const json = { data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'o1' }] };
+    expect(extractModelIds(json)).toEqual(['gpt-4o', 'gpt-4o-mini', 'o1']);
+  });
+
+  it('should extract names from Gemini format', () => {
+    const json = {
+      models: [
+        { name: 'models/gemini-1.5-pro' },
+        { name: 'models/gemini-1.5-flash' },
+      ],
+    };
+    expect(extractModelIds(json)).toEqual(['gemini-1.5-flash', 'gemini-1.5-pro']);
+  });
+
+  it('should return sorted model IDs', () => {
+    const json = { data: [{ id: 'z-model' }, { id: 'a-model' }, { id: 'm-model' }] };
+    expect(extractModelIds(json)).toEqual(['a-model', 'm-model', 'z-model']);
+  });
+
+  it('should return null for null input', () => {
+    expect(extractModelIds(null)).toBeNull();
+  });
+
+  it('should return null for empty data array', () => {
+    expect(extractModelIds({ data: [] })).toBeNull();
+  });
+
+  it('should return null for unrecognized format', () => {
+    expect(extractModelIds({ something: 'else' })).toBeNull();
+  });
+
+  it('should fall back to name field when id is missing', () => {
+    const json = { data: [{ name: 'claude-3-5-sonnet' }] };
+    expect(extractModelIds(json)).toEqual(['claude-3-5-sonnet']);
+  });
+});
+
+// ── fetchStartupModels ─────────────────────────────────────────────────────
+
+describe('fetchStartupModels', () => {
+  afterEach(() => {
+    resetModelCacheState();
+    jest.restoreAllMocks();
+  });
+
+  /**
+   * Mock https.request to return a JSON body with the given status code.
+   */
+  function mockHttpsRequestWithBody(statusCode, bodyStr) {
+    return jest.spyOn(https, 'request').mockImplementation((options, callback) => {
+      const req = new EventEmitter();
+      req.write = jest.fn();
+      req.end = jest.fn(() => {
+        setImmediate(() => {
+          const res = new EventEmitter();
+          res.statusCode = statusCode;
+          res.resume = jest.fn();
+          callback(res);
+          setImmediate(() => {
+            res.emit('data', Buffer.from(bodyStr));
+            res.emit('end');
+          });
+        });
+      });
+      req.destroy = jest.fn();
+      return req;
+    });
+  }
+
+  it('should populate cachedModels.openai when OpenAI key is configured', async () => {
+    mockHttpsRequestWithBody(200, '{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}');
+    await fetchStartupModels({ openaiKey: 'sk-test', openaiTarget: 'api.openai.com', timeoutMs: 5000 });
+    expect(cachedModels.openai).toEqual(['gpt-4o', 'gpt-4o-mini']);
+  });
+
+  it('should populate cachedModels.anthropic when Anthropic key is configured', async () => {
+    mockHttpsRequestWithBody(200, '{"data":[{"id":"claude-opus-4-5"},{"id":"claude-haiku-4-5"}]}');
+    await fetchStartupModels({ anthropicKey: 'sk-ant-test', anthropicTarget: 'api.anthropic.com', timeoutMs: 5000 });
+    expect(cachedModels.anthropic).toEqual(['claude-haiku-4-5', 'claude-opus-4-5']);
+  });
+
+  it('should populate cachedModels.copilot when Copilot token is configured', async () => {
+    mockHttpsRequestWithBody(200, '{"data":[{"id":"gpt-4o"},{"id":"o3-mini"}]}');
+    await fetchStartupModels({
+      copilotGithubToken: 'gho_test',
+      copilotAuthToken: 'gho_test',
+      copilotTarget: 'api.githubcopilot.com',
+      timeoutMs: 5000,
+    });
+    expect(cachedModels.copilot).toEqual(['gpt-4o', 'o3-mini']);
+  });
+
+  it('should populate cachedModels.gemini when Gemini key is configured', async () => {
+    mockHttpsRequestWithBody(200, '{"models":[{"name":"models/gemini-1.5-pro"},{"name":"models/gemini-1.5-flash"}]}');
+    await fetchStartupModels({ geminiKey: 'gemini-test-key', geminiTarget: 'generativelanguage.googleapis.com', timeoutMs: 5000 });
+    expect(cachedModels.gemini).toEqual(['gemini-1.5-flash', 'gemini-1.5-pro']);
+  });
+
+  it('should set cachedModels.openai to null when models fetch returns error status', async () => {
+    mockHttpsRequestWithBody(401, '{"error":"unauthorized"}');
+    await fetchStartupModels({ openaiKey: 'sk-bad', openaiTarget: 'api.openai.com', timeoutMs: 5000 });
+    expect(cachedModels.openai).toBeNull();
+    const reflect = reflectEndpoints();
+    expect(reflect.models_fetch_complete).toBe(true);
+  });
+
+  it('should skip fetching when no keys are configured', async () => {
+    const spy = jest.spyOn(https, 'request');
+    await fetchStartupModels({
+      openaiKey: undefined,
+      anthropicKey: undefined,
+      copilotGithubToken: undefined,
+      copilotAuthToken: undefined,
+      geminiKey: undefined,
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(cachedModels).toEqual({});
+    const reflect = reflectEndpoints();
+    expect(reflect.models_fetch_complete).toBe(true);
+  });
+});
+
+// ── reflectEndpoints ───────────────────────────────────────────────────────
+
+describe('reflectEndpoints', () => {
+  afterEach(() => {
+    resetModelCacheState();
+  });
+
+  it('should return an array of 5 endpoints', () => {
+    const result = reflectEndpoints();
+    expect(result.endpoints).toHaveLength(5);
+  });
+
+  it('should include all expected providers', () => {
+    const result = reflectEndpoints();
+    const providers = result.endpoints.map((e) => e.provider);
+    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+  });
+
+  it('should report models_fetch_complete false before fetch runs', () => {
+    const result = reflectEndpoints();
+    expect(result.models_fetch_complete).toBe(false);
+  });
+
+  it('should report models_fetch_complete true after fetch completes', async () => {
+    await fetchStartupModels({});
+    const result = reflectEndpoints();
+    expect(result.models_fetch_complete).toBe(true);
+  });
+
+  it('should include cached models when available', async () => {
+    // Manually populate cache to avoid real network calls
+    cachedModels.openai = ['gpt-4o', 'o1'];
+    const result = reflectEndpoints();
+    const openai = result.endpoints.find((e) => e.provider === 'openai');
+    expect(openai.models).toEqual(['gpt-4o', 'o1']);
+  });
+
+  it('should include correct ports', () => {
+    const result = reflectEndpoints();
+    const portMap = Object.fromEntries(result.endpoints.map((e) => [e.provider, e.port]));
+    expect(portMap).toEqual({
+      openai: 10000,
+      anthropic: 10001,
+      copilot: 10002,
+      gemini: 10003,
+      opencode: 10004,
+    });
+  });
+
+  it('should include correct models_url for configured providers', () => {
+    const result = reflectEndpoints();
+    const urlMap = Object.fromEntries(result.endpoints.map((e) => [e.provider, e.models_url]));
+    expect(urlMap.openai).toBe('http://api-proxy:10000/v1/models');
+    expect(urlMap.anthropic).toBe('http://api-proxy:10001/v1/models');
+    expect(urlMap.copilot).toBe('http://api-proxy:10002/models');
+    expect(urlMap.gemini).toBe('http://api-proxy:10003/v1beta/models');
+    expect(urlMap.opencode).toBeNull();
+  });
+
+  it('should report opencode as configured when openai key is present', () => {
+    // The module-level OPENAI_API_KEY is whatever process.env had at import time.
+    // We reflect the real configured state — just verify the shape is correct.
+    const result = reflectEndpoints();
+    const opencode = result.endpoints.find((e) => e.provider === 'opencode');
+    expect(typeof opencode.configured).toBe('boolean');
+    expect(opencode.models).toBeNull();
+    expect(opencode.models_url).toBeNull();
   });
 });

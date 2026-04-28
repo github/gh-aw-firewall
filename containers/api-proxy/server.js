@@ -1145,6 +1145,255 @@ function httpProbe(url, opts, timeoutMs) {
   });
 }
 
+/**
+ * Make an HTTPS/HTTP request through the proxy and return parsed JSON response.
+ * Returns null on any error, non-2xx status, or parse failure.
+ *
+ * @param {string} url
+ * @param {{ method: string, headers: Record<string,string> }} opts
+ * @param {number} timeoutMs
+ * @returns {Promise<object|null>}
+ */
+function fetchJson(url, opts, timeoutMs) {
+  return new Promise((resolve) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const isHttps = parsed.protocol === 'https:';
+    const mod = isHttps ? https : http;
+    const reqOpts = {
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: opts.method,
+      headers: { ...opts.headers },
+      ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
+      timeout: timeoutMs,
+    };
+
+    let settled = false;
+    const resolveOnce = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const req = mod.request(reqOpts, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        resolveOnce(null);
+        return;
+      }
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        try {
+          resolveOnce(JSON.parse(Buffer.concat(chunks).toString()));
+        } catch {
+          resolveOnce(null);
+        }
+      });
+      res.on('error', () => resolveOnce(null));
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`fetchJson timed out after ${timeoutMs}ms`));
+    });
+    req.on('error', () => resolveOnce(null));
+    req.end();
+  });
+}
+
+/**
+ * Extract model IDs from a provider API response.
+ * Handles:
+ *   - OpenAI / Anthropic / Copilot format: { data: [{ id }, ...] }
+ *   - Gemini format: { models: [{ name: "models/gemini-1.5-pro" }, ...] }
+ *
+ * @param {object|null} json - Parsed API response
+ * @returns {string[]|null} Sorted array of model IDs, or null if unavailable
+ */
+function extractModelIds(json) {
+  if (!json || typeof json !== 'object') return null;
+
+  // OpenAI / Anthropic / Copilot format: { data: [{ id: "..." }, ...] }
+  if (Array.isArray(json.data)) {
+    const ids = json.data
+      .map((m) => m && (m.id || m.name))
+      .filter(Boolean);
+    return ids.length > 0 ? ids.sort() : null;
+  }
+
+  // Gemini format: { models: [{ name: "models/gemini-1.5-pro", ... }, ...] }
+  if (Array.isArray(json.models)) {
+    const ids = json.models
+      .map((m) => m && m.name ? m.name.replace(/^models\//, '') : null)
+      .filter(Boolean);
+    return ids.length > 0 ? ids.sort() : null;
+  }
+
+  return null;
+}
+
+/**
+ * Cache for available models per provider, populated at startup by fetchStartupModels.
+ * null = not yet fetched or fetch failed for this provider.
+ * @type {Record<string, string[]|null>}
+ */
+const cachedModels = {};
+
+/** Set to true once fetchStartupModels() has run (regardless of success). */
+let modelFetchComplete = false;
+
+/** Reset model cache state (used in tests). */
+function resetModelCacheState() {
+  for (const key of Object.keys(cachedModels)) {
+    delete cachedModels[key];
+  }
+  modelFetchComplete = false;
+}
+
+/**
+ * Fetch available models for each configured provider and cache them.
+ * Called at startup alongside key validation.
+ *
+ * Accepts the same override map as validateApiKeys() so tests can inject
+ * custom keys and targets without touching process.env.
+ *
+ * @param {object} [overrides={}] - Optional key/target overrides (used in tests)
+ */
+async function fetchStartupModels(overrides = {}) {
+  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
+  const openaiKey = ov('openaiKey', OPENAI_API_KEY);
+  const openaiTarget = ov('openaiTarget', OPENAI_API_TARGET);
+  const anthropicKey = ov('anthropicKey', ANTHROPIC_API_KEY);
+  const anthropicTarget = ov('anthropicTarget', ANTHROPIC_API_TARGET);
+  const copilotGithubToken = ov('copilotGithubToken', COPILOT_GITHUB_TOKEN);
+  const copilotAuthToken = ov('copilotAuthToken', COPILOT_AUTH_TOKEN);
+  const copilotTarget = ov('copilotTarget', COPILOT_API_TARGET);
+  const copilotIntegrationId = ov('copilotIntegrationId', COPILOT_INTEGRATION_ID);
+  const geminiKey = ov('geminiKey', GEMINI_API_KEY);
+  const geminiTarget = ov('geminiTarget', GEMINI_API_TARGET);
+  const TIMEOUT_MS = ov('timeoutMs', 10_000);
+
+  const fetches = [];
+
+  if (openaiKey) {
+    fetches.push(
+      fetchJson(`https://${openaiTarget}/v1/models`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${openaiKey}` },
+      }, TIMEOUT_MS).then((json) => {
+        cachedModels.openai = extractModelIds(json);
+      })
+    );
+  }
+
+  if (anthropicKey) {
+    fetches.push(
+      fetchJson(`https://${anthropicTarget}/v1/models`, {
+        method: 'GET',
+        headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+      }, TIMEOUT_MS).then((json) => {
+        cachedModels.anthropic = extractModelIds(json);
+      })
+    );
+  }
+
+  // Use COPILOT_GITHUB_TOKEN for /models if available (COPILOT_API_KEY is not accepted)
+  const copilotToken = copilotGithubToken || copilotAuthToken;
+  if (copilotToken) {
+    fetches.push(
+      fetchJson(`https://${copilotTarget}/models`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${copilotToken}`,
+          'Copilot-Integration-Id': copilotIntegrationId,
+        },
+      }, TIMEOUT_MS).then((json) => {
+        cachedModels.copilot = extractModelIds(json);
+      })
+    );
+  }
+
+  if (geminiKey) {
+    fetches.push(
+      fetchJson(`https://${geminiTarget}/v1beta/models`, {
+        method: 'GET',
+        headers: { 'x-goog-api-key': geminiKey },
+      }, TIMEOUT_MS).then((json) => {
+        cachedModels.gemini = extractModelIds(json);
+      })
+    );
+  }
+
+  await Promise.allSettled(fetches);
+  modelFetchComplete = true;
+}
+
+/**
+ * Build the reflection response describing all proxy endpoints and their available models.
+ *
+ * The reflection endpoint allows agent harnesses to dynamically discover which
+ * LLM providers are configured and what models are available, enabling intelligent
+ * provider and model selection based on the task at hand.
+ *
+ * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean }}
+ */
+function reflectEndpoints() {
+  const opencodeConfigured = !!(OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN);
+  return {
+    endpoints: [
+      {
+        provider: 'openai',
+        port: 10000,
+        base_url: 'http://api-proxy:10000',
+        configured: !!OPENAI_API_KEY,
+        models: cachedModels.openai || null,
+        models_url: 'http://api-proxy:10000/v1/models',
+      },
+      {
+        provider: 'anthropic',
+        port: 10001,
+        base_url: 'http://api-proxy:10001',
+        configured: !!ANTHROPIC_API_KEY,
+        models: cachedModels.anthropic || null,
+        models_url: 'http://api-proxy:10001/v1/models',
+      },
+      {
+        provider: 'copilot',
+        port: 10002,
+        base_url: 'http://api-proxy:10002',
+        configured: !!COPILOT_AUTH_TOKEN,
+        models: cachedModels.copilot || null,
+        models_url: 'http://api-proxy:10002/models',
+      },
+      {
+        provider: 'gemini',
+        port: 10003,
+        base_url: 'http://api-proxy:10003',
+        configured: !!GEMINI_API_KEY,
+        models: cachedModels.gemini || null,
+        models_url: 'http://api-proxy:10003/v1beta/models',
+      },
+      {
+        provider: 'opencode',
+        port: 10004,
+        base_url: 'http://api-proxy:10004',
+        configured: opencodeConfigured,
+        // OpenCode routes to one of the above providers; query them directly for models
+        models: null,
+        models_url: null,
+      },
+    ],
+    models_fetch_complete: modelFetchComplete,
+  };
+}
+
 function healthResponse() {
   return {
     status: 'healthy',
@@ -1166,7 +1415,7 @@ function healthResponse() {
 }
 
 /**
- * Handle management endpoints on port 10000 (/health, /metrics).
+ * Handle management endpoints on port 10000 (/health, /metrics, /reflect).
  * Returns true if the request was handled, false otherwise.
  */
 function handleManagementEndpoint(req, res) {
@@ -1178,6 +1427,11 @@ function handleManagementEndpoint(req, res) {
   if (req.method === 'GET' && req.url === '/metrics') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(metrics.getMetrics()));
+    return true;
+  }
+  if (req.method === 'GET' && req.url === '/reflect') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(reflectEndpoints()));
     return true;
   }
   return false;
@@ -1204,6 +1458,10 @@ if (require.main === module) {
       validateApiKeys().catch((err) => {
         logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
         keyValidationComplete = true;
+      });
+      fetchStartupModels().catch((err) => {
+        logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
+        modelFetchComplete = true;
       });
     }
   }
@@ -1506,4 +1764,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState };
