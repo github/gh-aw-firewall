@@ -133,7 +133,8 @@ describe('seccomp-profile', () => {
       .filter(r => r.action === 'SCMP_ACT_ERRNO')
       .flatMap(r => r.names);
 
-    // Both syscalls must be explicitly denied, not just absent from allow list
+    // Explicitly listed in ERRNO rules for defense-in-depth regression protection
+    // (deny-by-default means absence alone would block them, but explicit denial is more robust)
     expect(blockedSyscalls).toContain('name_to_handle_at');
     expect(blockedSyscalls).toContain('open_by_handle_at');
     expect(allowedSyscalls.has('name_to_handle_at')).toBe(false);
