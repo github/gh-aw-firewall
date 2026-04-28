@@ -813,19 +813,22 @@ AWFEOF
     fi
   fi
 
-  # Ensure ~/.gemini exists and is owned by the chroot user.
+  # Ensure ~/.gemini exists and is owned by the chroot user — only when Gemini is in use.
   # If Docker created this directory as root:root (because it did not exist on the
   # host at container start time), the Gemini CLI cannot write its project registry
   # (atomic rename of projects.json.tmp → projects.json fails with ENOENT).
   # AWF pre-creates this directory host-side in writeConfigs(), but on first run or
   # after a previous failed run the directory may still be root-owned.
   # We fix ownership here (as root, before privilege drop) as a defense-in-depth measure.
-  GEMINI_DIR="/host${HOME}/.gemini"
-  mkdir -p "${GEMINI_DIR}" 2>/dev/null || true
-  if chown "${HOST_UID}:${HOST_GID}" "${GEMINI_DIR}" 2>/dev/null; then
-    echo "[entrypoint] Ensured ~/.gemini ownership for chroot user (${HOST_UID}:${HOST_GID})"
-  else
-    echo "[entrypoint][WARN] Could not set ~/.gemini ownership to chroot user (${HOST_UID}:${HOST_GID})"
+  # Skip entirely in non-Gemini runs (e.g. Copilot-only) to avoid spurious log entries.
+  if [ -n "${AWF_GEMINI_ENABLED}" ]; then
+    GEMINI_DIR="/host${HOME}/.gemini"
+    mkdir -p "${GEMINI_DIR}" 2>/dev/null || true
+    if chown "${HOST_UID}:${HOST_GID}" "${GEMINI_DIR}" 2>/dev/null; then
+      echo "[entrypoint] Ensured ~/.gemini ownership for chroot user (${HOST_UID}:${HOST_GID})"
+    else
+      echo "[entrypoint][WARN] Could not set ~/.gemini ownership to chroot user (${HOST_UID}:${HOST_GID})"
+    fi
   fi
 
   # Build LD_PRELOAD command for one-shot token protection

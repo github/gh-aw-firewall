@@ -1100,6 +1100,13 @@ export function generateDockerCompose(
   environment.AWF_USER_GID = getSafeHostGid();
   // Note: UID/GID values are logged by the container entrypoint if needed for debugging
 
+  // Signal to entrypoint.sh that Gemini CLI is expected — only when geminiApiKey is configured.
+  // This guards the ~/.gemini ownership fix and avoids spurious Gemini-related log output in
+  // Copilot (or other non-Gemini) runs.
+  if (config.geminiApiKey) {
+    environment.AWF_GEMINI_ENABLED = '1';
+  }
+
   // Build volumes list for agent execution container
   // Use the real user's home (not /root when running with sudo)
   const effectiveHome = getRealUserHome();
@@ -1219,9 +1226,11 @@ export function generateDockerCompose(
     // This is safe as ~/.claude contains only Claude-specific state, not credentials
     agentVolumes.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
 
-    // Mount ~/.gemini for Gemini CLI state and project registry
+    // Mount ~/.gemini for Gemini CLI state and project registry (only when Gemini API key is configured)
     // This is safe as ~/.gemini contains only Gemini-specific state, not credentials
-    agentVolumes.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
+    if (config.geminiApiKey) {
+      agentVolumes.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
+    }
 
     // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
     // prevent atomic writes (temp file + rename), which Claude Code requires.
@@ -1910,29 +1919,24 @@ export function generateDockerCompose(
       // Set early placeholder (before this block) already handled above.
       logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
     }
-    // Always point the agent at the Gemini sidecar whenever --enable-api-proxy is active,
-    // regardless of whether GEMINI_API_KEY is present in the AWF runner environment.
-    // This prevents the Gemini CLI from failing with "no auth method" (exit code 41)
-    // when the key is only available as a GitHub Actions secret (not an env var visible
-    // to the AWF process itself).  The sidecar returns 503 when the key is absent —
-    // a clear, actionable failure rather than a confusing missing-auth error.
-    environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
-    logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
-    if (config.geminiApiTarget) {
-      logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
-    }
-    if (config.geminiApiBasePath) {
-      logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
-    }
+    // Only configure Gemini proxy routing when a Gemini API key is provided.
+    // Previously this was unconditional, which caused the Gemini CLI's ~/.gemini
+    // directory and GEMINI_API_KEY placeholder to appear in non-Gemini runs (e.g.
+    // Copilot-only runs), producing suspicious-looking log entries.
+    if (config.geminiApiKey) {
+      environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
+      logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
+      if (config.geminiApiTarget) {
+        logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
+      }
+      if (config.geminiApiBasePath) {
+        logger.debug(`Gemini API base path set to: ${config.geminiApiBasePath}`);
+      }
 
-    // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
-    // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
-    environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
-    logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
-    if (!config.geminiApiKey) {
-      logger.warn('--enable-api-proxy is active but GEMINI_API_KEY is not set.');
-      logger.warn(`   The api-proxy Gemini listener (port ${API_PROXY_PORTS.GEMINI}) will return 503 responses until GEMINI_API_KEY is provided.`);
-      logger.warn('   This is expected when Gemini is not being used.');
+      // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
+      // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
+      environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
+      logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
     }
 
     logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');
@@ -2225,7 +2229,8 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // Ensure source directories for subdirectory mounts exist with correct ownership
     const chrootHomeDirs = [
       '.copilot', '.cache', '.config', '.local',
-      '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm', '.nvm',
+      '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
+      ...(config.geminiApiKey ? ['.gemini'] : []),
     ];
     for (const dir of chrootHomeDirs) {
       const dirPath = path.join(effectiveHome, dir);

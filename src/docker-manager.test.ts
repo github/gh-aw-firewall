@@ -873,7 +873,8 @@ describe('docker-manager', () => {
       // CLI state directories
       expect(volumes).toContain(`${homeDir}/.claude:/host${homeDir}/.claude:rw`);
       expect(volumes).toContain(`${homeDir}/.anthropic:/host${homeDir}/.anthropic:rw`);
-      expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
+      // ~/.gemini is NOT mounted when geminiApiKey is absent (fixes suspicious log in Copilot runs)
+      expect(volumes).not.toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
       // ~/.copilot is only mounted if it already exists on the host
       if (fs.existsSync(path.join(homeDir, '.copilot'))) {
         expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
@@ -881,6 +882,15 @@ describe('docker-manager', () => {
       // session-state and logs are always overlaid from AWF workDir
       expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
       expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
+    });
+
+    it('should mount ~/.gemini when geminiApiKey is configured', () => {
+      const configWithGemini = { ...mockConfig, geminiApiKey: 'AIza-test-gemini-key' };
+      const result = generateDockerCompose(configWithGemini, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+
+      const homeDir = process.env.HOME || '/root';
+      expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
     });
 
     it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {
@@ -2973,24 +2983,37 @@ describe('docker-manager', () => {
         expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
       });
 
-      it('should always set GEMINI_API_BASE_URL in agent when api-proxy is enabled (regardless of geminiApiKey)', () => {
-        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+      it('should set AWF_GEMINI_ENABLED in agent when geminiApiKey is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-        const agent = result.services.agent;
-        const env = agent.environment as Record<string, string>;
-        // GEMINI_API_BASE_URL must be set even without a geminiApiKey so that the
-        // Gemini CLI does not fail with exit code 41 ("no auth method") when the
-        // GEMINI_API_KEY is only available as a GitHub Actions secret.
-        expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.AWF_GEMINI_ENABLED).toBe('1');
       });
 
-      it('should set GEMINI_API_KEY placeholder in agent when api-proxy is enabled without geminiApiKey', () => {
+      it('should NOT set AWF_GEMINI_ENABLED in agent when geminiApiKey is absent', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.AWF_GEMINI_ENABLED).toBeUndefined();
+      });
+
+      it('should NOT set GEMINI_API_BASE_URL in agent when api-proxy is enabled without geminiApiKey', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
-        // Placeholder is required so Gemini CLI's startup auth check passes (exit code 41).
-        expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+        // GEMINI_API_BASE_URL must NOT be set when geminiApiKey is absent — it was previously
+        // set unconditionally which caused spurious Gemini-related log entries in Copilot runs.
+        expect(env.GEMINI_API_BASE_URL).toBeUndefined();
+      });
+
+      it('should NOT set GEMINI_API_KEY placeholder in agent when api-proxy is enabled without geminiApiKey', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        // Placeholder must NOT be set when Gemini is not in use to avoid polluting non-Gemini runs.
+        expect(env.GEMINI_API_KEY).toBeUndefined();
       });
 
       it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled', () => {
@@ -3713,11 +3736,44 @@ describe('docker-manager', () => {
       // Verify chroot home subdirectories were created
       const expectedDirs = [
         '.copilot', '.cache', '.config', '.local',
-        '.anthropic', '.claude', '.gemini', '.cargo', '.rustup', '.npm', '.nvm',
+        '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
       ];
       for (const dir of expectedDirs) {
         expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);
       }
+      // ~/.gemini is only pre-created when geminiApiKey is configured
+      expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(false);
+
+      process.env.HOME = originalHome;
+      if (originalSudoUser) {
+        process.env.SUDO_USER = originalSudoUser;
+      }
+    });
+
+    it('should pre-create ~/.gemini when geminiApiKey is configured', async () => {
+      const fakeHome = path.join(testDir, 'fakehome-gemini');
+      fs.mkdirSync(fakeHome, { recursive: true });
+      const originalHome = process.env.HOME;
+      const originalSudoUser = process.env.SUDO_USER;
+      process.env.HOME = fakeHome;
+      delete process.env.SUDO_USER;
+
+      const config: WrapperConfig = {
+        allowedDomains: ['github.com'],
+        agentCommand: 'echo test',
+        logLevel: 'info',
+        keepContainers: false,
+        workDir: testDir,
+        geminiApiKey: 'AIza-test-key',
+      };
+
+      try {
+        await writeConfigs(config);
+      } catch {
+        // May fail after writing configs
+      }
+
+      expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(true);
 
       process.env.HOME = originalHome;
       if (originalSudoUser) {
