@@ -2445,9 +2445,16 @@ async function logContainerLogsToStderr(containerName: string): Promise<void> {
       reject: false,
       env: getLocalDockerEnv(),
     });
-    const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-    if (combined) {
-      logger.error(`${containerName} container logs (last 50 lines):\n${combined}`);
+    // Only emit stdout/stderr from a successful docker logs invocation.
+    // When the container does not exist, docker logs exits non-zero and writes
+    // "No such container" to stderr — skip that noise entirely.
+    if (result.exitCode === 0) {
+      const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+      if (combined) {
+        logger.error(`${containerName} container logs (last 50 lines):\n${combined}`);
+      }
+    } else {
+      logger.debug(`docker logs exited with ${result.exitCode} for container ${containerName} — container may not exist`);
     }
   } catch (error) {
     logger.debug(`Could not retrieve logs for container ${containerName}:`, error);
@@ -2541,66 +2548,79 @@ export async function startContainers(workDir: string, allowedDomains: string[],
             `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
           );
         }
-        // Other error during retry — fall through to generic handler below
-        logger.error('Failed to start containers (retry):', retryError);
-        throw retryError;
+        // Any other retry error (e.g. squid healthcheck or domain blockage) falls
+        // through to the Squid log diagnostic path below as if it were the first error.
+        // Re-assign so the shared handler at the end of the catch block can process it.
+        return await handleHealthcheckError(retryErrorMsg, retryError as Error, workDir, proxyLogsDir, allowedDomains);
       }
     }
 
-    // For all other healthcheck failures, check Squid logs to see if it's
-    // actually working and blocking traffic
-    if (firstErrorMsg.includes('is unhealthy') || firstErrorMsg.includes('dependency failed')) {
-      const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);
-
-      if (hasDenials) {
-        logger.error('Firewall blocked domains during startup:');
-
-        const missingDomains: string[] = [];
-        const portIssues: BlockedTarget[] = [];
-
-        blockedTargets.forEach(blocked => {
-          const isAllowed = allowedDomains.some(allowed =>
-            blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
-          );
-
-          if (!isAllowed) {
-            // Domain not in allowlist
-            logger.error(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
-            missingDomains.push(blocked.domain);
-          } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
-            // Domain is allowed but port is not
-            logger.error(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
-            portIssues.push(blocked);
-          } else {
-            // Other reason (shouldn't happen often)
-            logger.error(`  - Blocked: ${blocked.target}`);
-          }
-        });
-
-        logger.error('Allowed domains:');
-        allowedDomains.forEach(domain => {
-          logger.error(`  - Allowed: ${domain}`);
-        });
-
-        if (missingDomains.length > 0) {
-          logger.error(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
-        }
-        if (portIssues.length > 0) {
-          logger.error('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
-        }
-
-        // Create a more user-friendly error
-        const blockedList = blockedTargets.map(b => `"${b.target}"`).join(', ');
-        throw new Error(
-          `Firewall blocked access to: ${blockedList}. ` +
-          `Check error messages above for details.`
-        );
-      }
-    }
-
-    logger.error('Failed to start containers:', firstError);
-    throw firstError;
+    return await handleHealthcheckError(firstErrorMsg, firstError as Error, workDir, proxyLogsDir, allowedDomains);
   }
+}
+
+/**
+ * Runs the Squid-log diagnostic check and re-throws with a user-friendly message
+ * when blocked domains are found, or rethrows the original error otherwise.
+ */
+async function handleHealthcheckError(
+  errorMsg: string,
+  error: Error,
+  workDir: string,
+  proxyLogsDir: string | undefined,
+  allowedDomains: string[]
+): Promise<never> {
+  if (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) {
+    const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);
+
+    if (hasDenials) {
+      logger.error('Firewall blocked domains during startup:');
+
+      const missingDomains: string[] = [];
+      const portIssues: BlockedTarget[] = [];
+
+      blockedTargets.forEach(blocked => {
+        const isAllowed = allowedDomains.some(allowed =>
+          blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
+        );
+
+        if (!isAllowed) {
+          // Domain not in allowlist
+          logger.error(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
+          missingDomains.push(blocked.domain);
+        } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
+          // Domain is allowed but port is not
+          logger.error(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
+          portIssues.push(blocked);
+        } else {
+          // Other reason (shouldn't happen often)
+          logger.error(`  - Blocked: ${blocked.target}`);
+        }
+      });
+
+      logger.error('Allowed domains:');
+      allowedDomains.forEach(domain => {
+        logger.error(`  - Allowed: ${domain}`);
+      });
+
+      if (missingDomains.length > 0) {
+        logger.error(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
+      }
+      if (portIssues.length > 0) {
+        logger.error('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
+      }
+
+      // Create a more user-friendly error
+      const blockedList = blockedTargets.map(b => `"${b.target}"`).join(', ');
+      throw new Error(
+        `Firewall blocked access to: ${blockedList}. ` +
+        `Check error messages above for details.`
+      );
+    }
+  }
+
+  logger.error('Failed to start containers:', error);
+  throw error;
 }
 
 /**

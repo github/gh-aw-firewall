@@ -3864,6 +3864,46 @@ describe('docker-manager', () => {
       );
       expect(upCalls).toHaveLength(1);
     });
+
+    it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
+      // Create access.log with denied entries so Squid diagnostics fire
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 blocked.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE blocked.com:443 "curl/7.81.0"\n'
+      );
+
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - fails with api-proxy unhealthy)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy is unhealthy'));
+      // 3. docker logs (diagnosis before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'some logs', stderr: '', exitCode: 0 } as any);
+      // 4. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose up (retry - fails with a different, non-api-proxy error)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-squid is unhealthy'));
+
+      // Should surface the Squid blocked-domain error, not a raw throw
+      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow('Firewall blocked access to:');
+    });
+
+    it('should not emit container logs when docker logs exits non-zero (container not found)', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (fails with api-proxy unhealthy)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy is unhealthy'));
+      // 3. docker logs returns non-zero (container not found)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: 'No such container: awf-api-proxy', exitCode: 1 } as any);
+      // 4. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose up (retry - succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      // Should succeed without emitting "No such container" noise at error level
+      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+    });
   });
 
   describe('stopContainers', () => {
