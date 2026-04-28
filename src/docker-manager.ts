@@ -757,6 +757,9 @@ export function generateDockerCompose(
     // conflicting with AWF's internal routing (agent → Squid → internet).
     // AWF sets its own HTTP_PROXY/HTTPS_PROXY pointing to Squid.
     ...PROXY_ENV_VARS,
+    // Internal AWF control knobs — must never be inherited from the host environment
+    // via --env-all; they are set explicitly by generateDockerCompose when needed.
+    'AWF_PREFLIGHT_BINARY',
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment
@@ -822,6 +825,14 @@ export function generateDockerCompose(
   const isCopilotCommand = commandExecutableBase.toLowerCase() === 'copilot';
   if (config.copilotGithubToken || config.copilotApiKey || isCopilotCommand) {
     environment.AWF_REQUIRE_NODE = '1';
+  }
+
+  // For commands whose binary may be absent on some runner slots (e.g. codex), ask the
+  // agent entrypoint to verify the binary exists inside the chroot before exec'ing, so
+  // the failure is a clear diagnostic instead of a cryptic shell error.
+  const isCodexCommand = commandExecutableBase.toLowerCase() === 'codex';
+  if (isCodexCommand) {
+    environment.AWF_PREFLIGHT_BINARY = 'codex';
   }
 
   // When api-proxy is enabled with Copilot, set placeholder tokens early
