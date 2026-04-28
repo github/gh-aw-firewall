@@ -987,6 +987,26 @@ describe('docker-manager', () => {
       expect(environment.AWF_REQUIRE_NODE).toBeUndefined();
     });
 
+    it('should set AWF_PREFLIGHT_BINARY=codex when running codex command', () => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'codex --version' },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_PREFLIGHT_BINARY).toBe('codex');
+    });
+
+    it('should not set AWF_PREFLIGHT_BINARY for non-codex commands', () => {
+      const result = generateDockerCompose(
+        { ...mockConfig, agentCommand: 'echo test' },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
+
+      expect(environment.AWF_PREFLIGHT_BINARY).toBeUndefined();
+    });
+
     it('should pass GOROOT, CARGO_HOME, RUSTUP_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
       const originalGoroot = process.env.GOROOT;
       const originalCargoHome = process.env.CARGO_HOME;

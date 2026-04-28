@@ -824,6 +824,14 @@ export function generateDockerCompose(
     environment.AWF_REQUIRE_NODE = '1';
   }
 
+  // For commands whose binary may be absent on some runner slots (e.g. codex), ask the
+  // agent entrypoint to verify the binary exists inside the chroot before exec'ing, so
+  // the failure is a clear diagnostic instead of a cryptic shell error.
+  const isCodexCommand = commandExecutableBase.toLowerCase() === 'codex';
+  if (isCodexCommand) {
+    environment.AWF_PREFLIGHT_BINARY = 'codex';
+  }
+
   // When api-proxy is enabled with Copilot, set placeholder tokens early
   // so --env-all won't override them with real values from host environment
   if (config.enableApiProxy && config.copilotGithubToken) {
