@@ -35,6 +35,9 @@ safe-outputs:
       run-success: "🔌 [{workflow_name}]({run_url}) — All services reachable! ✅"
       run-failure: "🔌 [{workflow_name}]({run_url}) — Service connectivity {status} ⚠️"
 timeout-minutes: 10
+sandbox:
+  agent:
+    version: v0.25.29
 strict: true
 steps:
   - name: Pre-install service client tools

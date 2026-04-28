@@ -11,6 +11,9 @@ permissions:
   issues: read
   pull-requests: read
 engine: copilot
+sandbox:
+  agent:
+    version: v0.25.29
 tools:
   github:
     toolsets: [default, discussions]

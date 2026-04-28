@@ -19,6 +19,9 @@ tools:
   cache-memory: true
   github:
     toolsets: [context]
+sandbox:
+  agent:
+    version: v0.25.29
 network:
   allowed:
     - "github.github.io"

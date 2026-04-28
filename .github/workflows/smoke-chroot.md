@@ -19,6 +19,9 @@ permissions:
 name: Smoke Chroot
 engine:
   id: copilot
+sandbox:
+  agent:
+    version: v0.25.29
 strict: true
 network:
   allowed:

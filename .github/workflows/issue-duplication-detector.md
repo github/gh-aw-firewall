@@ -9,6 +9,9 @@ permissions:
   issues: read
 imports:
   - shared/mcp-pagination.md
+sandbox:
+  agent:
+    version: v0.25.29
 tools:
   github:
     toolsets: [issues, repos, search]

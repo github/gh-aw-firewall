@@ -39,8 +39,10 @@ safe-outputs:
     run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
 timeout-minutes: 5
 sandbox:
+  agent:
+    version: v0.25.29
   mcp:
-    version: v0.3.0
+    version: v0.3.1
 strict: false
 steps:
   - name: Pre-compute smoke test data

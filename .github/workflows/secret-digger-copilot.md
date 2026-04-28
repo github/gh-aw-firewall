@@ -12,6 +12,9 @@ engine: copilot
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md
+sandbox:
+  agent:
+    version: v0.25.29
 timeout-minutes: 15
 ---
 

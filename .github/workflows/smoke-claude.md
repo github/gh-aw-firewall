@@ -18,8 +18,10 @@ engine:
   model: claude-haiku-4-5
   max-turns: 12
 sandbox:
+  agent:
+    version: v0.25.29
   mcp:
-    version: v0.3.0
+    version: v0.3.1
 strict: false
 network:
   allowed:

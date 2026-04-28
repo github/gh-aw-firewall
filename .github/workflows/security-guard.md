@@ -16,6 +16,9 @@ tools:
   github:
     mode: gh-proxy
     toolsets: [pull_requests, repos]
+sandbox:
+  agent:
+    version: v0.25.29
 network:
   allowed:
     - github

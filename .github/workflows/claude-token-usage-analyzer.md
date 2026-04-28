@@ -12,6 +12,9 @@ imports:
   - uses: shared/mcp/gh-aw.md
   - shared/mcp-pagination.md
   - shared/reporting.md
+sandbox:
+  agent:
+    version: v0.25.29
 network:
   allowed:
     - github

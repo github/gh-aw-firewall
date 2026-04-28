@@ -31,6 +31,9 @@ safe-outputs:
     labels: [claude-token-optimization]
     close-older-issues: true
 timeout-minutes: 25
+sandbox:
+  agent:
+    version: v0.25.29
 strict: true
 steps:
   - name: Download recent Claude workflow logs

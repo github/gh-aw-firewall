@@ -55,6 +55,9 @@ tools:
     toolsets: [default, actions]
   cache-memory: true
 
+sandbox:
+  agent:
+    version: v0.25.29
 network:
   allowed:
     - github

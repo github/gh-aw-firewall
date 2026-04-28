@@ -10,6 +10,9 @@ permissions:
   pull-requests: read
 imports:
   - shared/mcp-pagination.md
+sandbox:
+  agent:
+    version: v0.25.29
 tools:
   agentic-workflows:
   github:

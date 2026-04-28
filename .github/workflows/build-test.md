@@ -51,6 +51,9 @@ safe-outputs:
   messages:
     run-failure: "**Build Test Failed** [{workflow_name}]({run_url}) - See logs for details"
 timeout-minutes: 45
+sandbox:
+  agent:
+    version: v0.25.29
 strict: true
 ---
 

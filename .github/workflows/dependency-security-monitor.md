@@ -23,6 +23,9 @@ tools:
     toolsets: [default, code_security, dependabot]
   bash: true
 
+sandbox:
+  agent:
+    version: v0.25.29
 network:
   allowed:
     - node

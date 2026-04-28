@@ -31,6 +31,9 @@ safe-outputs:
     labels: [copilot-token-optimization]
     close-older-issues: true
 timeout-minutes: 10
+sandbox:
+  agent:
+    version: v0.25.29
 strict: true
 steps:
   - name: Download recent Copilot workflow logs

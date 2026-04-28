@@ -20,6 +20,9 @@ permissions:
 engine: copilot
 timeout-minutes: 30
 
+sandbox:
+  agent:
+    version: v0.25.29
 tools:
   github:
     toolsets: [default, pull_requests]
