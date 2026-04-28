@@ -59,7 +59,7 @@ steps:
     if: github.event.pull_request.number
     run: |
       DELIM="GHAW_PR_FILES_$(date +%s)"
-      DIFF_LIMIT=5000
+      DIFF_LIMIT=100000
       DIFF_TMP="$(mktemp)"
       {
         echo "PR_FILES<<${DELIM}"
@@ -69,7 +69,7 @@ steps:
         DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
         head -c "$DIFF_LIMIT" "$DIFF_TMP" || true
         if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
-          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — use get_file_contents for full context]"
+          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — use mcp__github__get_pull_request_diff for full context]"
         fi
         echo ""
         echo "${DELIM}"
@@ -80,19 +80,10 @@ steps:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REPO: ${{ github.repository }}
 
-  - name: Check security relevance
+  - name: Set security relevance count
     id: security-relevance
-    if: github.event.pull_request.number
     run: |
-      SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/"
-      COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
-        --paginate --jq '.[].filename' \
-        | grep -cE "$SECURITY_RE" || true)
-      echo "security_files_changed=$COUNT" >> "$GITHUB_OUTPUT"
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      GH_REPO: ${{ github.repository }}
+      echo "security_files_changed=${{ needs.check_security_relevance.outputs.security_files_changed }}" >> "$GITHUB_OUTPUT"
 
 ---
 
@@ -141,9 +132,11 @@ This repository implements a **network firewall for AI agents** that provides L7
 
 Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
 
-1. **Review the pre-fetched diff above** to understand what files changed
-2. **Use `get_file_contents`** only if you need full context beyond the diff
-3. **Collect evidence** with specific file names, line numbers, and code snippets
+1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
+2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
+3. **Use `mcp__github__get_pull_request_diff`** only when the diff below is truncated and you need the remainder
+4. **Use `get_file_contents`** only for files not changed in this PR (e.g., to understand adjacent security context)
+5. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
 
@@ -167,7 +160,7 @@ If no security issues are found:
 
 **SECURITY**: Be thorough but avoid false positives. Focus on actual security weakening, not code style or refactoring that maintains the same security level.
 
-## Changed Files (Pre-fetched)
+## Changed Files (Pre-fetched, up to 100 KB)
 
 The following PR diff has been pre-computed. Focus your security analysis on these changes:
 
