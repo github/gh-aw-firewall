@@ -760,6 +760,7 @@ export function generateDockerCompose(
     // Internal AWF control knobs — must never be inherited from the host environment
     // via --env-all; they are set explicitly by generateDockerCompose when needed.
     'AWF_PREFLIGHT_BINARY',
+    'AWF_GEMINI_ENABLED',
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment

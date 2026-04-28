@@ -2997,6 +2997,24 @@ describe('docker-manager', () => {
         expect(env.AWF_GEMINI_ENABLED).toBeUndefined();
       });
 
+      it('should not inherit AWF_GEMINI_ENABLED from host env via envAll when geminiApiKey is absent', () => {
+        const origVal = process.env.AWF_GEMINI_ENABLED;
+        process.env.AWF_GEMINI_ENABLED = '1';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          // AWF_GEMINI_ENABLED is in EXCLUDED_ENV_VARS so it must not be inherited from host
+          expect(env.AWF_GEMINI_ENABLED).toBeUndefined();
+        } finally {
+          if (origVal !== undefined) {
+            process.env.AWF_GEMINI_ENABLED = origVal;
+          } else {
+            delete process.env.AWF_GEMINI_ENABLED;
+          }
+        }
+      });
+
       it('should NOT set GEMINI_API_BASE_URL in agent when api-proxy is enabled without geminiApiKey', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
@@ -3744,9 +3762,15 @@ describe('docker-manager', () => {
       // ~/.gemini is only pre-created when geminiApiKey is configured
       expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(false);
 
-      process.env.HOME = originalHome;
-      if (originalSudoUser) {
+      if (originalHome !== undefined) {
+        process.env.HOME = originalHome;
+      } else {
+        delete process.env.HOME;
+      }
+      if (originalSudoUser !== undefined) {
         process.env.SUDO_USER = originalSudoUser;
+      } else {
+        delete process.env.SUDO_USER;
       }
     });
 
@@ -3775,9 +3799,15 @@ describe('docker-manager', () => {
 
       expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(true);
 
-      process.env.HOME = originalHome;
-      if (originalSudoUser) {
+      if (originalHome !== undefined) {
+        process.env.HOME = originalHome;
+      } else {
+        delete process.env.HOME;
+      }
+      if (originalSudoUser !== undefined) {
         process.env.SUDO_USER = originalSudoUser;
+      } else {
+        delete process.env.SUDO_USER;
       }
     });
   });
