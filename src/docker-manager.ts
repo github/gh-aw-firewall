@@ -2427,9 +2427,11 @@ async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{
 /**
  * Returns true when the Docker Compose error message indicates that the
  * api-proxy container specifically failed its health check.
+ * Docker emits "dependency failed to start: container <name> is unhealthy"
+ * when a dependent container's health check does not pass.
  */
 function isApiProxyUnhealthyError(errorMsg: string): boolean {
-  return (errorMsg.includes('is unhealthy') || errorMsg.includes('dependency failed')) &&
+  return errorMsg.includes('is unhealthy') &&
     errorMsg.includes(API_PROXY_CONTAINER_NAME);
 }
 
@@ -2447,8 +2449,8 @@ async function logContainerLogsToStderr(containerName: string): Promise<void> {
     if (combined) {
       logger.error(`${containerName} container logs (last 50 lines):\n${combined}`);
     }
-  } catch {
-    logger.debug(`Could not retrieve logs for container ${containerName}`);
+  } catch (error) {
+    logger.debug(`Could not retrieve logs for container ${containerName}:`, error);
   }
 }
 
@@ -2518,8 +2520,9 @@ export async function startContainers(workDir: string, allowedDomains: string[],
           env: getLocalDockerEnv(),
           reject: false,
         });
-      } catch {
+      } catch (cleanupError) {
         // Best-effort cleanup — proceed with retry regardless
+        logger.debug('Cleanup before retry failed (proceeding anyway):', cleanupError);
       }
 
       try {
