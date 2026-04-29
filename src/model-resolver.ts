@@ -83,7 +83,7 @@ function modelSatisfiesConstraints(
     }
   }
 
-  if (constraints.max_context_window != null) {
+  if (constraints.max_context_window !== undefined && constraints.max_context_window !== null) {
     if (
       model.context_window === undefined ||
       model.context_window > constraints.max_context_window
@@ -99,13 +99,15 @@ function modelSatisfiesConstraints(
   return true;
 }
 
+function matchesSpec(m: AvailableModel, spec: ModelSpec): boolean {
+  return m.id === spec.id && (spec.provider === undefined || m.provider === spec.provider);
+}
+
 function findAvailableModel(
   spec: ModelSpec,
   available: AvailableModel[]
 ): AvailableModel | undefined {
-  return available.find(
-    m => m.id === spec.id && (spec.provider === undefined || m.provider === spec.provider)
-  );
+  return available.find(m => matchesSpec(m, spec));
 }
 
 function findBestAvailable(
