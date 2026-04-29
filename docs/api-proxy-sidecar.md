@@ -149,8 +149,8 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `COPILOT_OFFLINE` | `true` | `COPILOT_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
 | `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar |
 | `COPILOT_PROVIDER_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
-| `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `--enable-api-proxy` always | Redirects Gemini CLI to proxy (set unconditionally — see note below) |
-| `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `--enable-api-proxy` always | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
+| `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini CLI to proxy |
+| `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` provided to host | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
 | `OPENAI_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `ANTHROPIC_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
@@ -159,10 +159,8 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `AWF_API_PROXY_IP` | `172.30.0.30` | `--enable-api-proxy` | Used by iptables setup script |
 | `AWF_ONE_SHOT_TOKENS` | `COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,...` | Always | Tokens protected by one-shot-token library |
 
-:::note[Gemini always redirected to proxy]
-Unlike OpenAI, Anthropic, and Copilot, `GEMINI_API_BASE_URL` and the `GEMINI_API_KEY` placeholder are **always** set in the agent when `--enable-api-proxy` is active, regardless of whether `GEMINI_API_KEY` is present in the runner environment.
-
-This prevents the Gemini CLI from failing with exit code 41 ("no auth method") when the real API key is only available as a GitHub Actions secret (not as a runner-level environment variable). In that case the api-proxy sidecar will return `503` for Gemini requests — a clear, actionable failure rather than a confusing missing-auth error.
+:::note[Gemini setup is conditional]
+`GEMINI_API_BASE_URL`, the `GEMINI_API_KEY` placeholder, the `~/.gemini` home directory mount, and the `AWF_GEMINI_ENABLED` signal are only configured when `GEMINI_API_KEY` is provided to the host AWF process. This avoids spurious log entries and unnecessary directory setup in non-Gemini runs (e.g. Copilot-only workflows).
 
 **Important**: `GEMINI_API_KEY` must be set as a **runner-level environment variable** (e.g. `env: GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}` in the workflow step), not only as a GitHub Actions secret. The AWF process running on the runner must be able to read it so it can pass the key to the api-proxy sidecar container.
 :::
