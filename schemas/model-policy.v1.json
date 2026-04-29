@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/model-policy.v1.json",
+  "title": "AWF Model Selection Policy",
+  "description": "Declarative model-selection policy for agentic workflows. Consumed by the gh-aw compiler (serialised into lock files) and enforced by AWF at container startup.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "model"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URI of the JSON Schema that validates this document."
+    },
+    "version": {
+      "const": "1",
+      "description": "Policy schema version. MUST be the string \"1\"."
+    },
+    "model": {
+      "$ref": "#/$defs/modelSpec",
+      "description": "Primary model to request. AWF attempts this model first."
+    },
+    "fallback": {
+      "type": "array",
+      "description": "Ordered fallback chain tried when the primary model is unavailable. Evaluated left to right. A \"{ strategy: auto }\" sentinel causes AWF to select the best available model satisfying the active constraints.",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/fallbackEntry"
+      }
+    },
+    "constraints": {
+      "$ref": "#/$defs/modelConstraints",
+      "description": "Constraints applied to every candidate in the resolution chain (primary and all fallbacks). A candidate that fails any constraint is skipped."
+    },
+    "on_unavailable": {
+      "type": "string",
+      "enum": ["fail", "warn-and-use-best", "queue"],
+      "description": "Behaviour when no model in the chain satisfies all constraints. \"fail\" (default) aborts with a non-zero exit code. \"warn-and-use-best\" logs a warning and uses the highest-ranked available model regardless of constraints. \"queue\" is reserved for future runtime queuing support."
+    },
+    "audit": {
+      "$ref": "#/$defs/modelPolicyAudit",
+      "description": "Observability settings for model-selection decisions."
+    }
+  },
+  "$defs": {
+    "modelProvider": {
+      "type": "string",
+      "enum": ["copilot", "anthropic", "openai", "custom"],
+      "description": "Provider that hosts the model."
+    },
+    "reasoningEffort": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Engine-specific reasoning effort hint. Only applicable to models that support a reasoning-effort parameter."
+    },
+    "modelCapability": {
+      "type": "string",
+      "enum": ["tool-use", "vision", "code-execution", "image-generation"],
+      "description": "A discrete capability that a model may or may not support."
+    },
+    "costTier": {
+      "type": "string",
+      "enum": ["economy", "standard", "premium"],
+      "description": "Billing tier bucket used to constrain model selection by cost."
+    },
+    "modelSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "description": "Identifies a specific model to use.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model identifier as understood by the provider (e.g., \"gpt-5.2\", \"claude-sonnet-4-20250514\")."
+        },
+        "provider": {
+          "$ref": "#/$defs/modelProvider"
+        },
+        "reasoning_effort": {
+          "$ref": "#/$defs/reasoningEffort"
+        }
+      }
+    },
+    "autoStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "description": "Sentinel entry that instructs AWF to select the best available model satisfying the active constraints.",
+      "properties": {
+        "strategy": {
+          "const": "auto"
+        }
+      }
+    },
+    "fallbackEntry": {
+      "oneOf": [
+        { "$ref": "#/$defs/modelSpec" },
+        { "$ref": "#/$defs/autoStrategy" }
+      ],
+      "description": "One entry in the fallback chain: either a concrete model specification or the \"auto\" sentinel."
+    },
+    "modelConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Constraints that every candidate in the resolution chain must satisfy.",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modelCapability" },
+          "uniqueItems": true,
+          "description": "Set of capabilities the resolved model MUST support. An empty array imposes no capability constraint."
+        },
+        "max_context_window": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ],
+          "description": "Maximum context-window size (in tokens) the resolved model may have. null means no upper bound."
+        },
+        "min_context_window": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum context-window size (in tokens) the resolved model must provide."
+        },
+        "cost_tier": {
+          "$ref": "#/$defs/costTier",
+          "description": "The resolved model's cost tier MUST equal this value."
+        }
+      }
+    },
+    "modelPolicyAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Controls which model-selection events are written to the audit log.",
+      "properties": {
+        "log_selection": {
+          "type": "boolean",
+          "description": "When true, AWF emits an audit-log entry recording which model was selected and the resolution source (primary | fallback | auto)."
+        },
+        "log_fallback_reason": {
+          "type": "boolean",
+          "description": "When true, AWF emits an audit-log entry explaining why the primary (or each preceding fallback) was skipped."
+        }
+      }
+    }
+  }
+}
