@@ -40,7 +40,7 @@ You audit open issues in `github/gh-aw` labeled `awf` and create tracking issues
 
 ## Step 1: Batch Fetch All Data (ONE command)
 
-Run this single `gh` command to get all open `awf` issues with their comments:
+Run this single `gh` command to get all open `awf` issues with their first 10 comments:
 
 ```bash
 gh api graphql -f query='
@@ -52,8 +52,7 @@ gh api graphql -f query='
           title
           body
           url
-          labels(first: 10) { nodes { name } }
-          comments(first: 100) {
+          comments(first: 10) {
             nodes { author { login } body }
           }
         }
@@ -75,9 +74,8 @@ For each **unprocessed** issue:
 
 1. **Create a tracking issue in `github/gh-aw-firewall`** using the `create_issue` safe output with:
    - Title: `[awf] <component>: <summary>`
-   - Body: **Problem**, **Context** (link to original), **Root Cause**, **Proposed Solution**
+   - Body: **Problem**, **Context** (link to original), **Root Cause**, **Proposed Solution** — keep to 200 words maximum
    - Labels: `awf-triage`
-   - Reference specific source files. See `AGENTS.md` for component descriptions.
 
 2. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
    > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/{NUMBER}
@@ -98,3 +96,5 @@ Report: issues found, skipped (already audited), tracking issues created.
 - **Be specific and actionable** — reference source files and functions.
 - **One tracking issue per gh-aw issue** — do not combine.
 - **Propose real solutions** — not just "investigate this."
+- **No extra reads** — do not open `AGENTS.md`, source files, or any workspace files; all needed context is in the GraphQL response above.
+- **Don't retry without diagnosing** — analyze the error before retrying any failed tool call.
