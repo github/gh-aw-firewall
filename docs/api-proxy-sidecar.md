@@ -327,10 +327,12 @@ The `/health` endpoint returns a JSON object that includes a `models_fetch_compl
 {
   "status": "healthy",
   "service": "awf-api-proxy",
+  "squid_proxy": "http://172.30.0.10:3128",
   "providers": { "openai": true, "anthropic": false, "gemini": false, "copilot": false },
   "key_validation": { "complete": true, "results": { "openai": "valid" } },
   "models_fetch_complete": true,
-  ...
+  "metrics_summary": { "total_requests": 0, "success_rate": 100, "avg_latency_ms": 0 },
+  "rate_limits": {}
 }
 ```
 
