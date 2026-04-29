@@ -310,7 +310,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (OpenCode)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ### Health check
@@ -320,6 +320,44 @@ Docker healthcheck on the `/health` endpoint (port 10000):
 - **Timeout**: 1s
 - **Retries**: 5
 - **Start period**: 2s
+
+The `/health` endpoint returns a JSON object that includes a `models_fetch_complete` field, indicating whether the startup model-discovery pass has finished:
+
+```json
+{
+  "status": "healthy",
+  "service": "awf-api-proxy",
+  "providers": { "openai": true, "anthropic": false, "gemini": false, "copilot": false },
+  "key_validation": { "complete": true, "results": { "openai": "valid" } },
+  "models_fetch_complete": true,
+  ...
+}
+```
+
+Use `models_fetch_complete` as a readiness gate before submitting the first inference request, ensuring model lists are warm. See the [Readiness polling](#readiness-polling) recipe below.
+
+### Readiness polling
+
+Poll `/health` (or `/reflect`) until `models_fetch_complete: true` before launching the agent command, so model lists are fully cached:
+
+```bash
+# Wait up to 30 seconds for model discovery to complete
+for i in $(seq 1 30); do
+  result=$(curl -sf http://172.30.0.30:10000/health 2>/dev/null)
+  if [ "$(echo "$result" | jq -r '.models_fetch_complete')" = "true" ]; then
+    echo "Model discovery complete"
+    break
+  fi
+  echo "Waiting for model discovery... ($i/30)"
+  sleep 1
+done
+```
+
+Or use `/reflect` directly if you also need the model lists:
+
+```bash
+curl -sf http://172.30.0.30:10000/reflect | jq '.models_fetch_complete, .endpoints[].models'
+```
 
 ### Reflection endpoint
 

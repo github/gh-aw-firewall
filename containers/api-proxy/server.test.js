@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -1647,5 +1647,33 @@ describe('reflectEndpoints', () => {
     expect(typeof opencode.configured).toBe('boolean');
     expect(opencode.models).toBeNull();
     expect(opencode.models_url).toBeNull();
+  });
+});
+
+// ── healthResponse ─────────────────────────────────────────────────────────
+
+describe('healthResponse', () => {
+  afterEach(() => {
+    resetModelCacheState();
+  });
+
+  it('should include models_fetch_complete: false before model fetch runs', () => {
+    const result = healthResponse();
+    expect(result.models_fetch_complete).toBe(false);
+  });
+
+  it('should include models_fetch_complete: true after model fetch completes', async () => {
+    await fetchStartupModels({});
+    const result = healthResponse();
+    expect(result.models_fetch_complete).toBe(true);
+  });
+
+  it('should include required top-level fields', () => {
+    const result = healthResponse();
+    expect(result.status).toBe('healthy');
+    expect(result.service).toBe('awf-api-proxy');
+    expect(typeof result.providers).toBe('object');
+    expect(typeof result.key_validation).toBe('object');
+    expect(typeof result.models_fetch_complete).toBe('boolean');
   });
 });

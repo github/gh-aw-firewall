@@ -26,7 +26,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Enabled via `--enable-api-proxy`; not started otherwise
 - Injects real API credentials (OpenAI, Anthropic, Copilot) that the agent never sees
 - Agent calls the sidecar with no auth (e.g., `http://172.30.0.30:10001` for Anthropic); sidecar injects the real key and forwards via Squid
-- Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10004 (OpenCode) — these are discrete ports, not a contiguous range
+- Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10003 (Gemini), 10004 (OpenCode) — these are discrete ports, not a contiguous range
 
 ### Documentation Files
 
@@ -152,7 +152,7 @@ The codebase follows a modular architecture with clear separation of concerns:
 - `SYS_CHROOT` and `SYS_ADMIN` dropped via `capsh` before user code runs; `NET_ADMIN` never granted to agent (only to the iptables-init init container)
 
 **API Proxy Sidecar** (`containers/api-proxy/`) — *optional, requires `--enable-api-proxy`*
-- Node.js HTTP proxy at `172.30.0.30`; listens on ports 10000, 10001, 10002, 10004
+- Node.js HTTP proxy at `172.30.0.30`; listens on ports 10000, 10001, 10002, 10003, 10004
 - Agent sends unauthenticated requests; sidecar injects the real API key before forwarding
 - All upstream traffic goes through Squid (`HTTP_PROXY` env set inside sidecar)
 - Agent container's `depends_on` adds `api-proxy: service_healthy` when enabled
