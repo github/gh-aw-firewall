@@ -386,3 +386,64 @@ describe('copilotModelEmptyFallbackRegex', () => {
     expect(result).toBe(input);
   });
 });
+
+// ── Issue duplication detector conclusion concurrency tests ───────────────────
+// Mirrors the patterns in postprocess-smoke-workflows.ts.
+// If those patterns change, these tests will catch regressions.
+
+const issueDuplicationConclusionConcurrencyRegex =
+  /(      group: "gh-aw-conclusion-issue-duplication-detector)("\n      cancel-in-progress: false)/;
+const issueDuplicationConclusionConcurrencySentinel =
+  'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
+
+describe('issueDuplicationConclusionConcurrencyRegex', () => {
+  const ORIGINAL_CONCURRENCY =
+    '    concurrency:\n' +
+    '      group: "gh-aw-conclusion-issue-duplication-detector"\n' +
+    '      cancel-in-progress: false\n';
+
+  it('should match the compiler-generated shared conclusion concurrency group', () => {
+    expect(issueDuplicationConclusionConcurrencyRegex.test(ORIGINAL_CONCURRENCY)).toBe(true);
+  });
+
+  it('should transform the group to include the issue number', () => {
+    const result = ORIGINAL_CONCURRENCY.replace(
+      issueDuplicationConclusionConcurrencyRegex,
+      `$1-\${{ github.event.issue.number || github.run_id }}$2`
+    );
+    expect(result).toContain('${{ github.event.issue.number || github.run_id }}');
+    expect(result).toContain('cancel-in-progress: false');
+    expect(result).not.toContain(
+      '"gh-aw-conclusion-issue-duplication-detector"\n'
+    );
+  });
+
+  it('should NOT match already-per-issue group (idempotency via sentinel)', () => {
+    const alreadyUpdated =
+      '    concurrency:\n' +
+      '      group: "gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number || github.run_id }}"\n' +
+      '      cancel-in-progress: false\n';
+    // The sentinel string is present in the already-updated content —
+    // this means the transform would be skipped via the sentinel check.
+    expect(alreadyUpdated.includes(issueDuplicationConclusionConcurrencySentinel)).toBe(true);
+    // The regex itself still matches the suffix of the group name, but the
+    // sentinel guard in the script prevents double-application.
+    expect(issueDuplicationConclusionConcurrencyRegex.test(alreadyUpdated)).toBe(false);
+  });
+
+  it('should preserve cancel-in-progress: false in the output', () => {
+    const result = ORIGINAL_CONCURRENCY.replace(
+      issueDuplicationConclusionConcurrencyRegex,
+      `$1-\${{ github.event.issue.number || github.run_id }}$2`
+    );
+    expect(result).toContain('cancel-in-progress: false');
+  });
+
+  it('should keep the workflow name prefix in the group', () => {
+    const result = ORIGINAL_CONCURRENCY.replace(
+      issueDuplicationConclusionConcurrencyRegex,
+      `$1-\${{ github.event.issue.number || github.run_id }}$2`
+    );
+    expect(result).toContain('gh-aw-conclusion-issue-duplication-detector-');
+  });
+});

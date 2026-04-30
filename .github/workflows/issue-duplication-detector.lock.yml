@@ -955,7 +955,7 @@ jobs:
       issues: write
       pull-requests: write
     concurrency:
-      group: "gh-aw-conclusion-issue-duplication-detector"
+      group: "gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number || github.run_id }}"
       cancel-in-progress: false
     outputs:
       incomplete_count: ${{ steps.report_incomplete.outputs.incomplete_count }}
