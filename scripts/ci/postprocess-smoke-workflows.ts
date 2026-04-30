@@ -195,7 +195,7 @@ const cacheDateRestoreKeySentinel = 'env.CACHE_MEMORY_DATE }}';
 // Change: "gh-aw-conclusion-issue-duplication-detector"
 //      → "gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number || github.run_id }}"
 const issueDuplicationConclusionConcurrencyRegex =
-  /(      group: "gh-aw-conclusion-issue-duplication-detector)("\n      cancel-in-progress: false)/;
+  /([ ]+group: "gh-aw-conclusion-issue-duplication-detector)("\n[ ]+cancel-in-progress: false)/;
 const issueDuplicationConclusionConcurrencySentinel =
   'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
 

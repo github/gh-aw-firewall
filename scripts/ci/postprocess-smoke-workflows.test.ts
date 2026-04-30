@@ -392,7 +392,7 @@ describe('copilotModelEmptyFallbackRegex', () => {
 // If those patterns change, these tests will catch regressions.
 
 const issueDuplicationConclusionConcurrencyRegex =
-  /(      group: "gh-aw-conclusion-issue-duplication-detector)("\n      cancel-in-progress: false)/;
+  /([ ]+group: "gh-aw-conclusion-issue-duplication-detector)("\n[ ]+cancel-in-progress: false)/;
 const issueDuplicationConclusionConcurrencySentinel =
   'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
 
