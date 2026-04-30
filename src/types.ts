@@ -847,6 +847,36 @@ export interface WrapperConfig {
   geminiApiBasePath?: string;
 
   /**
+   * Model alias map for the API proxy sidecar
+   *
+   * When enableApiProxy is true and model aliases are configured, the proxy
+   * intercepts POST/PUT request bodies containing a "model" field and rewrites
+   * the model name using the alias resolution chain before forwarding to upstream.
+   *
+   * Alias map format: each key is an alias name (or "" for the default policy),
+   * and the value is an ordered list of candidates. Candidates can be:
+   * - "provider/modelpattern" — match against available models for that provider
+   *   using case-insensitive glob patterns (* wildcard)
+   * - "alias-name" — recursively expand another alias (loop detection applies)
+   *
+   * Resolution picks the highest-version matching model (semver semantics).
+   * Only models for the receiving provider's port are considered (e.g., the
+   * Copilot proxy at port 10002 only matches "copilot/*" patterns).
+   *
+   * Set via the `apiProxy.models` section of the AWF config file.
+   *
+   * @example
+   * ```json
+   * {
+   *   "sonnet": ["copilot/*sonnet*", "anthropic/*sonnet*"],
+   *   "gpt-5-codex": ["copilot/gpt-5*-codex", "openai/gpt-5*-codex"],
+   *   "": ["sonnet", "gpt-5*-codex"]
+   * }
+   * ```
+   */
+  modelAliases?: Record<string, string[]>;
+
+  /**
    * Enable CLI proxy sidecar for secure gh CLI access
    *
    * When true, deploys a CLI proxy sidecar container that:

@@ -18,6 +18,7 @@ export interface AwfFileConfig {
       copilot?: { host?: string; basePath?: string };
       gemini?: { host?: string; basePath?: string };
     };
+    models?: Record<string, string[]>;
   };
   security?: {
     sslBump?: boolean;
@@ -149,7 +150,7 @@ export function validateAwfFileConfig(config: unknown): string[] {
     if (!isRecord(config.apiProxy)) {
       errors.push('config.apiProxy must be an object');
     } else {
-      validateKnownKeys(config.apiProxy, ['enabled', 'targets'], 'config.apiProxy', errors);
+      validateKnownKeys(config.apiProxy, ['enabled', 'targets', 'models'], 'config.apiProxy', errors);
       if (config.apiProxy.enabled !== undefined && typeof config.apiProxy.enabled !== 'boolean') {
         errors.push('config.apiProxy.enabled must be a boolean');
       }
@@ -162,6 +163,17 @@ export function validateAwfFileConfig(config: unknown): string[] {
           if (config.apiProxy.targets.anthropic !== undefined) validateProviderTarget(config.apiProxy.targets.anthropic, 'config.apiProxy.targets.anthropic', errors);
           if (config.apiProxy.targets.copilot !== undefined) validateProviderTarget(config.apiProxy.targets.copilot, 'config.apiProxy.targets.copilot', errors, false);
           if (config.apiProxy.targets.gemini !== undefined) validateProviderTarget(config.apiProxy.targets.gemini, 'config.apiProxy.targets.gemini', errors);
+        }
+      }
+      if (config.apiProxy.models !== undefined) {
+        if (!isRecord(config.apiProxy.models)) {
+          errors.push('config.apiProxy.models must be an object');
+        } else {
+          for (const [key, value] of Object.entries(config.apiProxy.models)) {
+            if (!Array.isArray(value) || value.some(v => typeof v !== 'string')) {
+              errors.push(`config.apiProxy.models["${key}"] must be an array of strings`);
+            }
+          }
         }
       }
     }
@@ -350,6 +362,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
     geminiApiTarget: config.apiProxy?.targets?.gemini?.host,
     geminiApiBasePath: config.apiProxy?.targets?.gemini?.basePath,
+    modelAliases: config.apiProxy?.models !== undefined ? config.apiProxy.models : undefined,
 
     sslBump: config.security?.sslBump,
     enableDlp: config.security?.enableDlp,

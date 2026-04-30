@@ -18,6 +18,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
+const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
 let closeLogStream;
@@ -338,6 +339,51 @@ if (!proxyAgent) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
 }
 
+// ── Model alias resolution ─────────────────────────────────────────────────
+// Loaded from AWF_MODEL_ALIASES env var (JSON string).
+// When configured, POST/PUT request bodies are inspected for a "model" field
+// and rewritten to a concrete model name before forwarding to upstream.
+const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
+const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
+if (MODEL_ALIASES) {
+  logRequest('info', 'startup', {
+    message: 'Model aliases loaded',
+    alias_count: Object.keys(MODEL_ALIASES.models).length,
+    aliases: Object.keys(MODEL_ALIASES.models),
+  });
+} else if (MODEL_ALIASES_RAW) {
+  logRequest('warn', 'startup', {
+    message: 'AWF_MODEL_ALIASES is set but could not be parsed — model aliasing disabled',
+  });
+}
+
+/**
+ * Build a body-transform function for a given provider that rewrites the
+ * "model" field in JSON request bodies using the configured alias map.
+ *
+ * Returns null when model aliasing is not configured.
+ *
+ * @param {string} provider - Provider name (e.g. "copilot")
+ * @returns {((body: Buffer) => Buffer | null) | null}
+ */
+function makeModelBodyTransform(provider) {
+  if (!MODEL_ALIASES) return null;
+  return (body) => {
+    const result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels);
+    if (!result) return null;
+    // Log the full resolution chain
+    for (const line of result.log) {
+      logRequest('info', 'model_resolution', { message: line, provider });
+    }
+    logRequest('info', 'model_rewrite', {
+      provider,
+      original_model: sanitizeForLog(result.originalModel) || '(none)',
+      resolved_model: sanitizeForLog(result.resolvedModel),
+    });
+    return result.body;
+  };
+}
+
 /**
  * Resolves the OpenCode routing configuration based on available credentials.
  * Priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > copilotToken (COPILOT_GITHUB_TOKEN / COPILOT_API_KEY)
@@ -420,7 +466,7 @@ function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
 }
 
-function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '') {
+function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null) {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
@@ -518,8 +564,16 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
   req.on('end', () => {
     if (rejected || errored) return;
-    const body = Buffer.concat(chunks);
+    let body = Buffer.concat(chunks);
     const requestBytes = body.length;
+
+    // Apply optional body transform (e.g. model alias rewriting) for mutating methods
+    if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
+      const transformed = bodyTransform(body);
+      if (transformed) {
+        body = transformed;
+      }
+    }
 
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
@@ -533,6 +587,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     // Ensure X-Request-ID is forwarded to upstream
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
+
+    // Update content-length when the body was rewritten (model alias substitution changes the size)
+    if (body.length !== requestBytes) {
+      headers['content-length'] = String(body.length);
+    }
 
     // Log auth header injection for debugging credential-isolation issues
     // Use case-insensitive lookup since providers use mixed casing (e.g. 'Authorization' vs 'authorization')
@@ -1360,7 +1419,7 @@ async function fetchStartupModels(overrides = {}) {
  * LLM providers are configured and what models are available, enabling intelligent
  * provider and model selection based on the task at hand.
  *
- * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean }}
+ * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean, model_aliases: Record<string, string[]>|null }}
  */
 function reflectEndpoints() {
   const opencodeConfigured = !!(OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN);
@@ -1409,6 +1468,7 @@ function reflectEndpoints() {
       },
     ],
     models_fetch_complete: modelFetchComplete,
+    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
   };
 }
 
@@ -1494,7 +1554,7 @@ if (require.main === module) {
 
       proxyRequest(req, res, OPENAI_API_TARGET, {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      }, 'openai', OPENAI_API_BASE_PATH);
+      }, 'openai', OPENAI_API_BASE_PATH, makeModelBodyTransform('openai'));
     });
 
     server.on('upgrade', (req, socket, head) => {
@@ -1544,7 +1604,7 @@ if (require.main === module) {
       if (!req.headers['anthropic-version']) {
         anthropicHeaders['anthropic-version'] = '2023-06-01';
       }
-      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, makeModelBodyTransform('anthropic'));
     });
 
     server.on('upgrade', (req, socket, head) => {
@@ -1606,7 +1666,7 @@ if (require.main === module) {
       proxyRequest(req, res, COPILOT_API_TARGET, {
         'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
         'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
-      }, 'copilot');
+      }, 'copilot', '', makeModelBodyTransform('copilot'));
     });
 
     copilotServer.on('upgrade', (req, socket, head) => {
@@ -1640,7 +1700,7 @@ if (require.main === module) {
 
       proxyRequest(req, res, GEMINI_API_TARGET, {
         'x-goog-api-key': GEMINI_API_KEY,
-      }, 'gemini', GEMINI_API_BASE_PATH);
+      }, 'gemini', GEMINI_API_BASE_PATH, makeModelBodyTransform('gemini'));
     });
 
     geminiServer.on('upgrade', (req, socket, head) => {
@@ -1783,4 +1843,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES };

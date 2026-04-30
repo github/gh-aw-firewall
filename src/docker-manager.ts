@@ -1802,6 +1802,10 @@ export function generateDockerCompose(
           AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
           AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
         }),
+        // Model alias configuration
+        ...(config.modelAliases && {
+          AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
+        }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],

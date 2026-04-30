@@ -1962,6 +1962,7 @@ program
       enableDlp: options.enableDlp,
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
+      modelAliases: (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
