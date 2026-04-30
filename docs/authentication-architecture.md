@@ -6,7 +6,15 @@ description: How AWF isolates LLM API tokens using a multi-container credential 
 AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains the complete authentication flow, token isolation mechanisms, and network routing for both OpenAI/Codex and Anthropic/Claude APIs.
 
 :::note
-Both OpenAI/Codex and Anthropic/Claude use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and both providers route through the same Squid proxy for domain filtering. The only differences are the port numbers (10000 for OpenAI, 10001 for Anthropic) and authentication header formats (`Authorization: Bearer` vs `x-api-key`).
+All LLM providers use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and all providers route through the same Squid proxy for domain filtering. Providers are differentiated by port number and authentication header format:
+
+| Port  | Provider           | Auth header                     |
+|-------|--------------------|---------------------------------|
+| 10000 | OpenAI             | `Authorization: Bearer`         |
+| 10001 | Anthropic (Claude) | `x-api-key`                     |
+| 10002 | GitHub Copilot     | `Authorization: Bearer`         |
+| 10003 | Google Gemini      | `x-goog-api-key`                |
+| 10004 | OpenCode           | Dynamic (routes to other ports) |
 :::
 
 ## Architecture components
@@ -42,9 +50,11 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ ✓ HTTPS_PROXY=172.30.0.10:3128  │       │     http://172.30.0.30:10001    │
 │                                  │       │ ✓ OPENAI_BASE_URL=               │
 │ Ports:                           │       │     http://172.30.0.30:10000    │
-│ - 10000 (OpenAI proxy)          │◄──────│ ✓ GITHUB_TOKEN=ghp_...           │
-│ - 10001 (Anthropic proxy)       │       │   (protected by one-shot-token)  │
-│                                  │       │                                  │
+│ - 10000 (OpenAI proxy)          │◄──────│ ✓ COPILOT_API_URL=               │
+│ - 10001 (Anthropic proxy)       │       │     http://172.30.0.30:10002    │
+│ - 10002 (Copilot proxy)         │       │ ✓ GITHUB_TOKEN=ghp_...           │
+│ - 10003 (Gemini proxy)          │       │   (protected by one-shot-token)  │
+│ - 10004 (OpenCode proxy)        │       │                                  │
 │ Injects auth headers:            │       │ User command execution:          │
 │ - x-api-key: sk-ant-...         │       │   claude-code, copilot, etc.     │
 │ - Authorization: Bearer sk-...   │       └──────────────────────────────────┘
@@ -114,6 +124,8 @@ agent:
     # NO API KEYS - only base URLs pointing to api-proxy
     - ANTHROPIC_BASE_URL=http://172.30.0.30:10001
     - OPENAI_BASE_URL=http://172.30.0.30:10000
+    - COPILOT_API_URL=http://172.30.0.30:10002
+    - GEMINI_API_BASE_URL=http://172.30.0.30:10003
     # GitHub token for MCP servers (protected separately)
     - GITHUB_TOKEN=ghp_...
   networks:
@@ -129,7 +141,7 @@ API keys are intentionally excluded from the agent container environment. When `
 
 **Source:** `containers/api-proxy/server.js`
 
-The api-proxy container runs two HTTP servers:
+The api-proxy container runs five HTTP servers:
 
 #### Port 10000: OpenAI proxy
 
@@ -162,6 +174,18 @@ http.createServer((req, res) => {
 });
 ```
 
+#### Port 10002: GitHub Copilot proxy
+
+Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Copilot auth token (`COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY`), forwarding to `api.githubcopilot.com`.
+
+#### Port 10003: Google Gemini proxy
+
+Handles requests from the agent using `GEMINI_API_BASE_URL`. Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured.
+
+#### Port 10004: OpenCode proxy
+
+Dynamic provider routing — forwards to OpenAI (port 10000), Anthropic (port 10001), or Copilot (port 10002) based on whichever key is configured. Agent uses `OPENAI_BASE_URL` pointing to this port.
+
 The `proxyRequest` function copies incoming headers, strips sensitive/proxy headers, injects the authentication headers, and forwards the request to the target API through Squid using `HttpsProxyAgent`.
 
 :::caution
@@ -175,6 +199,8 @@ The agent container sees these environment variables:
 ```bash
 ANTHROPIC_BASE_URL=http://172.30.0.30:10001
 OPENAI_BASE_URL=http://172.30.0.30:10000
+COPILOT_API_URL=http://172.30.0.30:10002
+GEMINI_API_BASE_URL=http://172.30.0.30:10003
 ```
 
 These are standard environment variables recognized by the official SDKs:
@@ -184,6 +210,8 @@ These are standard environment variables recognized by the official SDKs:
 - OpenAI Node.js SDK (`openai`)
 - Claude Code CLI
 - Codex CLI
+- GitHub Copilot CLI (`gh copilot`)
+- Google Gemini CLI
 
 When the agent code makes an API call:
 
@@ -272,7 +300,7 @@ environment:
 Squid's domain whitelist ACLs control which API domains the sidecar can reach. For example, if only `api.anthropic.com` is whitelisted, the sidecar can only connect to that domain — even if a compromised sidecar tried to connect to a malicious domain, Squid would block it.
 
 :::note
-The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000 and 10001 are only used for internal agent-to-proxy communication within the Docker network.
+The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10004 are only used for internal agent-to-proxy communication within the Docker network.
 :::
 
 ## Additional token protection mechanisms
@@ -365,7 +393,7 @@ This prevents tokens from being visible in `/proc/1/environ` after the agent sta
 1. **Layer 1:** Agent cannot make direct internet connections (iptables blocks non-whitelisted traffic)
 2. **Layer 2:** Agent can only reach api-proxy IP (`172.30.0.30`) for API calls
 3. **Layer 3:** API proxy routes all traffic through Squid (enforced via `HTTP_PROXY` env)
-4. **Layer 4:** Squid enforces the domain whitelist (only `api.anthropic.com`, `api.openai.com`)
+4. **Layer 4:** Squid enforces the domain whitelist (only explicitly allowed domains, e.g., `api.anthropic.com`, `api.openai.com`, `api.githubcopilot.com`)
 5. **Layer 5:** Host-level iptables provide additional egress control
 
 **Attack scenario: what if the agent tries to bypass the proxy?**
