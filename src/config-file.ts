@@ -362,7 +362,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
     geminiApiTarget: config.apiProxy?.targets?.gemini?.host,
     geminiApiBasePath: config.apiProxy?.targets?.gemini?.basePath,
-    modelAliases: config.apiProxy?.models !== undefined ? config.apiProxy.models : undefined,
+    modelAliases: config.apiProxy?.models,
 
     sslBump: config.security?.sslBump,
     enableDlp: config.security?.enableDlp,

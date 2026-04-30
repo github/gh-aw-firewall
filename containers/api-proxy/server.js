@@ -460,6 +460,15 @@ function checkRateLimit(req, res, provider, requestBytes) {
 
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse} res
+ * @param {string} targetHost - Upstream hostname
+ * @param {object} injectHeaders - Auth headers to inject
+ * @param {string} provider - Provider name for logging and metrics
+ * @param {string} [basePath=''] - Optional base-path prefix
+ * @param {((body: Buffer) => Buffer | null) | null} [bodyTransform=null] - Optional body transform
+ *   applied for POST/PUT/PATCH requests (e.g. model alias rewriting)
  */
 /** Validate that a request ID is safe (alphanumeric, dashes, dots, max 128 chars). */
 function isValidRequestId(id) {

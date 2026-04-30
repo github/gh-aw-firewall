@@ -1642,6 +1642,10 @@ program
       process.exit(1);
     }
 
+    // Model aliases may be injected via config file (not a Commander option),
+    // so access through a Record cast with a proper type annotation.
+    const modelAliases = (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined;
+
     logger.setLevel(logLevel);
 
     // When DOCKER_HOST points at an external TCP daemon (e.g. workflow-scope DinD),
@@ -1962,7 +1966,7 @@ program
       enableDlp: options.enableDlp,
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
-      modelAliases: (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined,
+      modelAliases,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
