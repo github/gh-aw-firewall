@@ -12,6 +12,9 @@ import * as schema from './awf-config-schema.json';
 // Compile once (module-level singleton). allErrors collects every violation.
 // verbose=true provides parentSchema on errors for richer formatting.
 const ajv = new Ajv2020({ allErrors: true, verbose: true });
+// 'version' is a metadata keyword (not a standard JSON Schema keyword); register
+// it so Ajv strict mode does not reject the schema.
+ajv.addKeyword({ keyword: 'version' });
 const validate = ajv.compile(schema);
 
 /**
