@@ -1801,11 +1801,15 @@ if (require.main === module) {
         const existing = req.headers['anthropic-beta'];
         if (!existing) {
           anthropicHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
-        } else if (!existing.split(',').map(s => s.trim()).includes(EXTENDED_CACHE_BETA)) {
-          anthropicHeaders['anthropic-beta'] = `${existing},${EXTENDED_CACHE_BETA}`;
+        } else {
+          // Parse once and check for membership before building the merged string
+          const existingBetas = existing.split(',').map(s => s.trim());
+          if (!existingBetas.includes(EXTENDED_CACHE_BETA)) {
+            anthropicHeaders['anthropic-beta'] = `${existing},${EXTENDED_CACHE_BETA}`;
+          }
+          // If the client already includes the beta flag, it passes through unchanged
+          // (copied from req.headers before injectHeaders is applied in proxyRequest).
         }
-        // If the client already includes the beta flag, it passes through unchanged
-        // (copied from req.headers before injectHeaders is applied in proxyRequest).
       }
 
       proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, anthropicProxyTransform);

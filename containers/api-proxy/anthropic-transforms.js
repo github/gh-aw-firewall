@@ -54,6 +54,22 @@ function withCacheControl(block, cacheControl) {
   return { ...block, cache_control: cacheControl };
 }
 
+/**
+ * Build a regex that matches any of the given tool names as whole words
+ * (not as substrings of longer identifiers).
+ *
+ * Note: JavaScript's `g`-flag RegExp objects track `lastIndex` but
+ * `String.prototype.replace` resets it to 0 before each use, so the
+ * same compiled pattern is safe to reuse across multiple calls.
+ *
+ * @param {string[]} toolNames
+ * @returns {RegExp}
+ */
+function buildToolScrubPattern(toolNames) {
+  const escaped = toolNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`(?<![\\w])(?:${escaped.join('|')})(?![\\w])`, 'g');
+}
+
 // ── Feature 4: Strip ANSI from tool_result blocks ────────────────────────────
 
 /**
@@ -111,9 +127,13 @@ function applyAnsiStrip(body) {
  *
  * @param {object} body - Parsed /v1/messages request body
  * @param {string[]} toolNames - Tool names to drop (exact string match)
+ * @param {RegExp} [scrubPattern] - Pre-compiled regex for system-prompt scrubbing.
+ *   When omitted the pattern is derived from toolNames on each call.
+ *   Pass a pre-compiled pattern (from makeAnthropicTransform) to avoid per-request
+ *   regex compilation overhead.
  * @returns {object} New body object with the specified tools removed
  */
-function applyToolDrop(body, toolNames) {
+function applyToolDrop(body, toolNames, scrubPattern = null) {
   if (!toolNames || toolNames.length === 0) return body;
 
   const dropSet = new Set(toolNames);
@@ -136,8 +156,7 @@ function applyToolDrop(body, toolNames) {
   // We remove bare occurrences; surrounding punctuation/whitespace is left intact
   // to avoid corrupting sentence structure.
   if (Array.isArray(result.system)) {
-    const escapedNames = [...dropSet].map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const pattern = new RegExp(`(?<![\\w])(?:${escapedNames.join('|')})(?![\\w])`, 'g');
+    const pattern = scrubPattern || buildToolScrubPattern([...dropSet]);
     result.system = result.system.map(block => {
       if (block.type !== 'text' || typeof block.text !== 'string') return block;
       const scrubbed = block.text.replace(pattern, '');
@@ -386,6 +405,9 @@ function makeAnthropicTransform(options = {}) {
     return null; // Nothing to do
   }
 
+  // Pre-compile the tool-drop scrub pattern once so it is not rebuilt on every request.
+  const toolScrubPattern = hasDropTools ? buildToolScrubPattern(dropTools) : null;
+
   return (bodyBuffer) => {
     let parsed;
     try {
@@ -407,7 +429,7 @@ function makeAnthropicTransform(options = {}) {
     }
 
     if (hasDropTools) {
-      body = applyToolDrop(body, dropTools);
+      body = applyToolDrop(body, dropTools, toolScrubPattern);
     }
 
     if (autoCache) {
@@ -440,6 +462,7 @@ module.exports = {
   stripAnsi,
   applyAnsiStrip,
   applyToolDrop,
+  buildToolScrubPattern,
   injectCacheBreakpoints,
   upgradeEphemeralTtl,
   loadCustomTransform,

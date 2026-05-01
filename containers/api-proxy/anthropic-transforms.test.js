@@ -16,6 +16,7 @@ const {
   stripAnsi,
   applyAnsiStrip,
   applyToolDrop,
+  buildToolScrubPattern,
   injectCacheBreakpoints,
   upgradeEphemeralTtl,
   loadCustomTransform,
@@ -85,6 +86,13 @@ describe('stripAnsi', () => {
     // ESC[?25l (cursor hide) doesn't end with 'm' — leave it untouched
     const input = '\x1B[?25l visible \x1B[?25h';
     expect(stripAnsi(input)).toBe('\x1B[?25l visible \x1B[?25h');
+  });
+
+  it('strips SGR sequences while preserving non-SGR ESC sequences in the same string', () => {
+    // Mix of SGR (ends with 'm') and non-SGR (cursor hide, ends with 'l') sequences
+    const input = '\x1B[?25l\x1B[31mred text\x1B[0m\x1B[?25h';
+    // Only the SGR sequences should be stripped
+    expect(stripAnsi(input)).toBe('\x1B[?25lred text\x1B[?25h');
   });
 });
 
@@ -224,6 +232,42 @@ describe('applyToolDrop', () => {
     const body = { messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] };
     const result = applyToolDrop(body, ['NotebookEdit']);
     expect(result.tools).toBeUndefined();
+  });
+
+  it('accepts a pre-compiled scrubPattern and uses it instead of building a new one', () => {
+    const pattern = buildToolScrubPattern(['NotebookEdit']);
+    const body = makeBody(['NotebookEdit'], 'Use NotebookEdit here.');
+    const result = applyToolDrop(body, ['NotebookEdit'], pattern);
+    expect(result.system[0].text).not.toContain('NotebookEdit');
+    expect(result.tools).toBeUndefined();
+  });
+});
+
+// ── buildToolScrubPattern ─────────────────────────────────────────────────────
+
+describe('buildToolScrubPattern', () => {
+  it('matches a standalone tool name', () => {
+    const pattern = buildToolScrubPattern(['NotebookEdit']);
+    expect('Use NotebookEdit here.'.replace(pattern, '')).toBe('Use  here.');
+  });
+
+  it('does not match the tool name as a substring of a longer identifier', () => {
+    const pattern = buildToolScrubPattern(['Monitor']);
+    expect('Use MonitorService.'.replace(pattern, '')).toBe('Use MonitorService.');
+  });
+
+  it('matches multiple tool names in a single pass', () => {
+    const pattern = buildToolScrubPattern(['CronCreate', 'CronDelete']);
+    const text = 'Use CronCreate and CronDelete.';
+    expect(text.replace(pattern, '')).toBe('Use  and .');
+  });
+
+  it('is safe to reuse (String.replace resets lastIndex before each use)', () => {
+    const pattern = buildToolScrubPattern(['Bash']);
+    const input = 'Bash is available.';
+    expect(input.replace(pattern, '')).toBe(' is available.');
+    // Second call with the same pattern must still work
+    expect(input.replace(pattern, '')).toBe(' is available.');
   });
 });
 
