@@ -528,7 +528,11 @@ function composeBodyTransforms(first, second) {
 // AWF_ANTHROPIC_CACHE_TAIL_TTL=5m|1h — TTL for the rolling-tail slot (default: 5m)
 // AWF_ANTHROPIC_DROP_TOOLS=A,B,C      — drop named tools from the tools array
 // AWF_ANTHROPIC_STRIP_ANSI=1          — strip ANSI SGR codes from tool_result text
-// AWF_ANTHROPIC_TRANSFORM_FILE=/path  — custom JS transform hook (file inside container)
+// AWF_ANTHROPIC_TRANSFORM_FILE=/path  — custom JS transform hook; path must resolve
+//                                       inside the container image (pre-baked).  This env
+//                                       var is intentionally not forwarded from the host
+//                                       by AWF to avoid arbitrary code execution in the
+//                                       credential-holding api-proxy sidecar.
 
 const AWF_ANTHROPIC_AUTO_CACHE = (
   process.env.AWF_ANTHROPIC_AUTO_CACHE === '1' ||
