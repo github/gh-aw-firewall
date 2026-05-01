@@ -125,6 +125,7 @@ agent:
     - ANTHROPIC_BASE_URL=http://172.30.0.30:10001
     - OPENAI_BASE_URL=http://172.30.0.30:10000
     - COPILOT_API_URL=http://172.30.0.30:10002
+    - GOOGLE_GEMINI_BASE_URL=http://172.30.0.30:10003
     - GEMINI_API_BASE_URL=http://172.30.0.30:10003
     # GitHub token for MCP servers (protected separately)
     - GITHUB_TOKEN=ghp_...
@@ -180,7 +181,7 @@ Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Co
 
 #### Port 10003: Google Gemini proxy
 
-Handles requests from the agent using `GEMINI_API_BASE_URL`. Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured.
+Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured.
 
 #### Port 10004: OpenCode proxy
 
@@ -200,6 +201,7 @@ The agent container sees these environment variables:
 ANTHROPIC_BASE_URL=http://172.30.0.30:10001
 OPENAI_BASE_URL=http://172.30.0.30:10000
 COPILOT_API_URL=http://172.30.0.30:10002
+GOOGLE_GEMINI_BASE_URL=http://172.30.0.30:10003
 GEMINI_API_BASE_URL=http://172.30.0.30:10003
 ```
 
@@ -211,7 +213,7 @@ These are standard environment variables recognized by the official SDKs:
 - Claude Code CLI
 - Codex CLI
 - GitHub Copilot CLI (`gh copilot`)
-- Google Gemini CLI
+- Google Gemini CLI (reads `GOOGLE_GEMINI_BASE_URL`)
 
 When the agent code makes an API call:
 

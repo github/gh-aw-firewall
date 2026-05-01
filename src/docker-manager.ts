@@ -772,6 +772,8 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     EXCLUDED_ENV_VARS.add('GEMINI_API_KEY');
+    EXCLUDED_ENV_VARS.add('GOOGLE_GEMINI_BASE_URL');
+    EXCLUDED_ENV_VARS.add('GEMINI_API_BASE_URL');
     // COPILOT_GITHUB_TOKEN and COPILOT_API_KEY get placeholders (not excluded), protected by one-shot-token
     // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
@@ -1931,8 +1933,15 @@ export function generateDockerCompose(
     // directory and GEMINI_API_KEY placeholder to appear in non-Gemini runs (e.g.
     // Copilot-only runs), producing suspicious-looking log entries.
     if (config.geminiApiKey) {
-      environment.GEMINI_API_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
-      logger.debug(`Google Gemini API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`);
+      const geminiProxyUrl = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.GEMINI}`;
+      // GOOGLE_GEMINI_BASE_URL is the env var read by the Gemini CLI (google-gemini/gemini-cli)
+      // when authType === USE_GEMINI. Setting it routes all Gemini CLI traffic through
+      // the api-proxy sidecar instead of calling generativelanguage.googleapis.com directly.
+      environment.GOOGLE_GEMINI_BASE_URL = geminiProxyUrl;
+      // GEMINI_API_BASE_URL is kept for backward compatibility with older SDK versions
+      // and other tools that may read it (e.g. @google/generative-ai npm package).
+      environment.GEMINI_API_BASE_URL = geminiProxyUrl;
+      logger.debug(`Google Gemini API will be proxied through sidecar at ${geminiProxyUrl}`);
       if (config.geminiApiTarget) {
         logger.debug(`Gemini API target overridden to: ${config.geminiApiTarget}`);
       }
@@ -1941,7 +1950,7 @@ export function generateDockerCompose(
       }
 
       // Set placeholder key so Gemini CLI's startup auth check passes (exit code 41).
-      // Real authentication happens via GEMINI_API_BASE_URL pointing to api-proxy.
+      // Real authentication happens via GOOGLE_GEMINI_BASE_URL / GEMINI_API_BASE_URL pointing to api-proxy.
       environment.GEMINI_API_KEY = 'gemini-api-key-placeholder-for-credential-isolation';
       logger.debug('GEMINI_API_KEY set to placeholder value for credential isolation');
     }
