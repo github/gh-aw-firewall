@@ -574,7 +574,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   req.on('end', () => {
     if (rejected || errored) return;
     let body = Buffer.concat(chunks);
-    const requestBytes = body.length;
+    const inboundBytes = body.length;
 
     // Apply optional body transform (e.g. model alias rewriting) for mutating methods
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
@@ -584,6 +584,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       }
     }
 
+    const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
     // Copy incoming headers, stripping sensitive/proxy headers, then inject auth
@@ -597,9 +598,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
-    // Update content-length when the body was rewritten (model alias substitution changes the size)
-    if (body.length !== requestBytes) {
+    // When the body was rewritten (model alias substitution), update content-length
+    // and remove any transfer-encoding header — forwarding both is invalid (RFC 7230).
+    if (body.length !== inboundBytes) {
       headers['content-length'] = String(body.length);
+      delete headers['transfer-encoding'];
     }
 
     // Log auth header injection for debugging credential-isolation issues

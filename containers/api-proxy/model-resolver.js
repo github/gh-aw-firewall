@@ -58,10 +58,11 @@ function parseModelAliases(rawConfig) {
 function globMatch(pattern, str) {
   const p = pattern.toLowerCase();
   const s = str.toLowerCase();
-  // Build a regex from the glob pattern:
-  // - Escape all regex special chars except *
-  // - Replace * with .*
-  const regexStr = '^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+  // Build a regex from the glob pattern.
+  // Escape ALL regex metacharacters so they match literally, then restore *→.*.
+  // The documented syntax supports only * as a wildcard; characters like ? that
+  // are regex quantifiers must match literally.
+  const regexStr = '^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
   return new RegExp(regexStr).test(s);
 }
 

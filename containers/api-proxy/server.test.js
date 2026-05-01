@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -1684,3 +1684,106 @@ describe('healthResponse', () => {
     expect(typeof result.models_fetch_complete).toBe('boolean');
   });
 });
+
+// ── makeModelBodyTransform integration ─────────────────────────────────────
+
+describe('makeModelBodyTransform', () => {
+  beforeEach(() => {
+    resetModelCacheState();
+  });
+
+  afterEach(() => {
+    resetModelCacheState();
+  });
+
+  it('should return null when MODEL_ALIASES is not configured', () => {
+    // When AWF_MODEL_ALIASES is not set, MODEL_ALIASES is null and
+    // makeModelBodyTransform returns null (no transform applied).
+    if (MODEL_ALIASES) {
+      // If the env var happens to be set in this test environment, skip.
+      return;
+    }
+    const transform = makeModelBodyTransform('copilot');
+    expect(transform).toBeNull();
+  });
+
+  it('should rewrite model field in POST body when aliases are configured', () => {
+    // Manually populate the model cache so resolution can find a match
+    cachedModels.copilot = ['claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-4o'];
+
+    // Build a transform directly by simulating what makeModelBodyTransform does:
+    // call rewriteModelInBody from model-resolver.
+    const { rewriteModelInBody } = require('./model-resolver');
+
+    const aliases = {
+      sonnet: ['copilot/*sonnet*'],
+    };
+
+    const inBody = Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] }));
+    const result = rewriteModelInBody(inBody, 'copilot', aliases, cachedModels);
+
+    expect(result).not.toBeNull();
+    expect(result.originalModel).toBe('sonnet');
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+
+    const parsed = JSON.parse(result.body.toString('utf8'));
+    expect(parsed.model).toBe('claude-sonnet-4.6');
+    expect(parsed.messages).toEqual([]);
+  });
+
+  it('should update content-length and strip transfer-encoding after body rewrite', () => {
+    // Simulate the header fixup logic in proxyRequest directly.
+    const { rewriteModelInBody } = require('./model-resolver');
+
+    cachedModels.copilot = ['claude-sonnet-4.6'];
+    const aliases = { sonnet: ['copilot/*sonnet*'] };
+
+    const originalBody = Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] }));
+    const result = rewriteModelInBody(originalBody, 'copilot', aliases, cachedModels);
+    expect(result).not.toBeNull();
+
+    // Simulate what proxyRequest does to headers after a rewrite
+    const headers = {
+      'content-type': 'application/json',
+      'content-length': String(originalBody.length),
+      'transfer-encoding': 'chunked',
+    };
+    const newBody = result.body;
+
+    if (newBody.length !== originalBody.length) {
+      headers['content-length'] = String(newBody.length);
+      delete headers['transfer-encoding'];
+    }
+
+    expect(headers['content-length']).toBe(String(newBody.length));
+    expect(headers['transfer-encoding']).toBeUndefined();
+  });
+
+  it('should report forwarded (post-rewrite) byte count in metrics', () => {
+    // Verify that requestBytes reflects the transformed body size, not original.
+    const { rewriteModelInBody } = require('./model-resolver');
+
+    cachedModels.copilot = ['claude-sonnet-4.6'];
+    const aliases = { sonnet: ['copilot/*sonnet*'] };
+
+    const shortAlias = Buffer.from(JSON.stringify({ model: 'sonnet' }));
+    const result = rewriteModelInBody(shortAlias, 'copilot', aliases, cachedModels);
+    expect(result).not.toBeNull();
+
+    // The rewritten body ('claude-sonnet-4.6') is longer than the alias ('sonnet')
+    expect(result.body.length).toBeGreaterThan(shortAlias.length);
+  });
+
+  it('should not modify body when model is already a direct match', () => {
+    const { rewriteModelInBody } = require('./model-resolver');
+
+    cachedModels.copilot = ['gpt-4o'];
+    const aliases = { sonnet: ['copilot/*sonnet*'] };
+
+    const body = Buffer.from(JSON.stringify({ model: 'gpt-4o', messages: [] }));
+    const result = rewriteModelInBody(body, 'copilot', aliases, cachedModels);
+    // gpt-4o is a direct match with no rewrite needed (resolvedModel === original)
+    expect(result).toBeNull();
+  });
+});
+

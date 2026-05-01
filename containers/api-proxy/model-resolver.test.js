@@ -103,6 +103,20 @@ describe('globMatch', () => {
     expect(globMatch('*sonnet*', 'claude-sonnet-4.6')).toBe(true);
     expect(globMatch('*sonnet*', 'claude-sonnet-4.5')).toBe(true);
   });
+
+  it('should treat ? as a literal character, not a regex quantifier', () => {
+    // Pattern with literal '?' should only match a string containing '?'
+    expect(globMatch('model?version', 'model?version')).toBe(true);
+    expect(globMatch('model?version', 'modelXversion')).toBe(false);
+    expect(globMatch('model?version', 'modelversion')).toBe(false);
+  });
+
+  it('should treat other regex metacharacters as literals', () => {
+    expect(globMatch('model.v1', 'modelXv1')).toBe(false);  // '.' is literal, not wildcard
+    expect(globMatch('model.v1', 'model.v1')).toBe(true);
+    expect(globMatch('(test)', '(test)')).toBe(true);
+    expect(globMatch('(test)', 'xtest)')).toBe(false);
+  });
 });
 
 // ── extractVersionNumbers ──────────────────────────────────────────────────

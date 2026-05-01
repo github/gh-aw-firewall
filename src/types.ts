@@ -850,7 +850,7 @@ export interface WrapperConfig {
    * Model alias map for the API proxy sidecar
    *
    * When enableApiProxy is true and model aliases are configured, the proxy
-   * intercepts POST/PUT request bodies containing a "model" field and rewrites
+   * intercepts POST/PUT/PATCH request bodies containing a "model" field and rewrites
    * the model name using the alias resolution chain before forwarding to upstream.
    *
    * Alias map format: each key is an alias name (or "" for the default policy),
@@ -870,7 +870,7 @@ export interface WrapperConfig {
    * {
    *   "sonnet": ["copilot/*sonnet*", "anthropic/*sonnet*"],
    *   "gpt-5-codex": ["copilot/gpt-5*-codex", "openai/gpt-5*-codex"],
-   *   "": ["sonnet", "gpt-5*-codex"]
+   *   "": ["sonnet", "gpt-5-codex"]
    * }
    * ```
    */
