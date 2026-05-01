@@ -289,5 +289,19 @@ describe('log-parser', () => {
       expect(parseAuditJsonlLine('not json')).toBeNull();
       expect(parseAuditJsonlLine('{broken')).toBeNull();
     });
+
+    it('should parse records that include the _schema field', () => {
+      const line = '{"_schema":"audit/v1","ts":1774290908.910,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.116.5:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.timestamp).toBeCloseTo(1774290908.910);
+      expect(entry!.clientIp).toBe('172.30.0.20');
+      expect(entry!.method).toBe('CONNECT');
+      expect(entry!.statusCode).toBe(200);
+      expect(entry!.decision).toBe('TCP_TUNNEL');
+      expect(entry!.domain).toBe('api.github.com');
+      expect(entry!.isAllowed).toBe(true);
+    });
   });
 });

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/gh-aw-firewall/schemas/audit.v1.schema.json",
+  "title": "AWF Audit Log Record",
+  "description": "A single L7 HTTP/HTTPS traffic decision record emitted to audit.jsonl by the AWF Squid proxy.",
+  "version": "1",
+  "type": "object",
+  "required": [
+    "_schema",
+    "ts",
+    "client",
+    "host",
+    "dest",
+    "method",
+    "status",
+    "decision",
+    "url"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "_schema": {
+      "type": "string",
+      "const": "audit/v1",
+      "description": "Schema identifier and version for this record."
+    },
+    "ts": {
+      "type": "number",
+      "description": "Unix timestamp with millisecond precision (e.g. 1761074374.646)."
+    },
+    "client": {
+      "type": "string",
+      "description": "Client IP address that originated the request (e.g. '172.30.0.20')."
+    },
+    "host": {
+      "type": "string",
+      "description": "HTTP Host header value or CONNECT target (e.g. 'api.github.com:443')."
+    },
+    "dest": {
+      "type": "string",
+      "description": "Destination IP address and port resolved by Squid (e.g. '140.82.114.22:443'). '-:-' when the connection was denied before upstream resolution."
+    },
+    "method": {
+      "type": "string",
+      "description": "HTTP method used by the client (e.g. 'CONNECT', 'GET', 'POST')."
+    },
+    "status": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "HTTP response status code. 200 = allowed, 403 = denied."
+    },
+    "decision": {
+      "type": "string",
+      "description": "Squid cache/hierarchy decision code. 'TCP_TUNNEL' = allowed HTTPS CONNECT, 'TCP_DENIED' = blocked, 'TCP_MISS' = allowed cache miss."
+    },
+    "url": {
+      "type": "string",
+      "description": "Request URL (for CONNECT: the domain:port tunnel target; for plain HTTP: the full URL)."
+    }
+  }
+}

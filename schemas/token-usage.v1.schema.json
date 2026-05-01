@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/gh-aw-firewall/schemas/token-usage.v1.schema.json",
+  "title": "AWF Token Usage Record",
+  "description": "A single per-API-call token usage record emitted to token-usage.jsonl by the AWF api-proxy sidecar.",
+  "version": "1",
+  "type": "object",
+  "required": [
+    "_schema",
+    "timestamp",
+    "request_id",
+    "provider",
+    "model",
+    "path",
+    "status",
+    "streaming",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "duration_ms"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "_schema": {
+      "type": "string",
+      "const": "token-usage/v1",
+      "description": "Schema identifier and version for this record."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the API call completed."
+    },
+    "request_id": {
+      "type": "string",
+      "description": "Unique identifier for this API request (UUID or provider-assigned ID)."
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["anthropic", "openai", "copilot", "gemini", "opencode", "unknown"],
+      "description": "LLM provider that handled this request."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model name returned by the provider (e.g. 'gpt-4o', 'claude-sonnet-4-20250514')."
+    },
+    "path": {
+      "type": "string",
+      "description": "API endpoint path for this request (e.g. '/v1/messages', '/v1/chat/completions')."
+    },
+    "status": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599,
+      "description": "HTTP response status code returned by the provider."
+    },
+    "streaming": {
+      "type": "boolean",
+      "description": "Whether the response was a streaming (SSE) response."
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of input/prompt tokens consumed."
+    },
+    "output_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of output/completion tokens generated."
+    },
+    "cache_read_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of tokens read from the provider's prompt cache (Anthropic cache_read_input_tokens or OpenAI cached_tokens)."
+    },
+    "cache_write_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of tokens written to the provider's prompt cache (Anthropic cache_creation_input_tokens)."
+    },
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "End-to-end request duration in milliseconds."
+    },
+    "response_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of bytes in the response body (optional, omitted for WebSocket upgrades)."
+    }
+  }
+}

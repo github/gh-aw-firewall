@@ -600,7 +600,7 @@ logformat firewall_detailed %ts.%03tu %>a:%>p %{Host}>h %<a:%<p %rv %rm %>Hs %Ss
 # Structured JSONL audit log for machine-readable analysis
 # Note: Squid logformat does not JSON-escape strings, so fields like User-Agent
 # could break JSON parsing. We omit User-Agent to reduce breakage risk.
-logformat audit_jsonl {"ts":%ts.%03tu,"client":"%>a","host":"%{Host}>h","dest":"%<a:%<p","method":"%rm","status":%>Hs,"decision":"%Ss","url":"%ru"}
+logformat audit_jsonl {"_schema":"audit/v1","ts":%ts.%03tu,"client":"%>a","host":"%{Host}>h","dest":"%<a:%<p","method":"%rm","status":%>Hs,"decision":"%Ss","url":"%ru"}
 
 # Access log and cache configuration
 # Don't log healthcheck probes from localhost (using ACL filter on access_log)

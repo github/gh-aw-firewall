@@ -85,10 +85,66 @@ function getLogStream() {
 }
 
 /**
+ * Validate a token usage record against the token-usage/v1 schema contract.
+ *
+ * Checks that all required fields are present and have the expected types.
+ * Logs a warning and returns false if the record is non-conformant; does
+ * not throw, so a bad record is dropped rather than crashing the proxy.
+ *
+ * @param {object} record - The record to validate
+ * @returns {boolean} true if the record is valid, false otherwise
+ */
+function validateTokenUsageRecord(record) {
+  const required = [
+    ['_schema', 'string'],
+    ['timestamp', 'string'],
+    ['request_id', 'string'],
+    ['provider', 'string'],
+    ['model', 'string'],
+    ['path', 'string'],
+    ['status', 'number'],
+    ['streaming', 'boolean'],
+    ['input_tokens', 'number'],
+    ['output_tokens', 'number'],
+    ['cache_read_tokens', 'number'],
+    ['cache_write_tokens', 'number'],
+    ['duration_ms', 'number'],
+  ];
+
+  for (const [field, expectedType] of required) {
+    // eslint-disable-next-line valid-typeof
+    if (typeof record[field] !== expectedType) {
+      logRequest('warn', 'token_record_schema_violation', {
+        request_id: record.request_id,
+        field,
+        expected: expectedType,
+        actual: typeof record[field],
+      });
+      return false;
+    }
+  }
+
+  if (record._schema !== 'token-usage/v1') {
+    logRequest('warn', 'token_record_schema_violation', {
+      request_id: record.request_id,
+      field: '_schema',
+      expected: 'token-usage/v1',
+      actual: record._schema,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Write a token usage record to the JSONL log file.
+ * Validates the record against the token-usage/v1 schema before writing.
  * Handles backpressure by dropping writes when the stream buffer is full.
  */
 function writeTokenUsage(record) {
+  if (!validateTokenUsageRecord(record)) return;
+
   const stream = getLogStream();
   if (stream && !stream.writableEnded) {
     const ok = stream.write(JSON.stringify(record) + '\n');
@@ -478,6 +534,7 @@ function trackTokenUsage(proxyRes, opts) {
 
     // Build log record
     const record = {
+      _schema: 'token-usage/v1',
       timestamp: new Date().toISOString(),
       request_id: requestId,
       provider,
@@ -693,6 +750,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     }
 
     const record = {
+      _schema: 'token-usage/v1',
       timestamp: new Date().toISOString(),
       request_id: requestId,
       provider,
@@ -759,6 +817,7 @@ module.exports = {
   normalizeUsage,
   isStreamingResponse,
   isCompressedResponse,
+  validateTokenUsageRecord,
   writeTokenUsage,
   TOKEN_LOG_FILE,
 };

@@ -569,6 +569,46 @@ describe('generateSquidConfig', () => {
       expect(aclIndex).toBeGreaterThan(-1);
       expect(accessLogIndex).toBeGreaterThan(aclIndex);
     });
+
+    it('should include JSONL audit log format (audit_jsonl)', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain('logformat audit_jsonl');
+      expect(result).toContain('access_log /var/log/squid/audit.jsonl audit_jsonl');
+    });
+
+    it('audit_jsonl logformat should include _schema:"audit/v1" field', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      // The audit_jsonl logformat line must embed the schema identifier so that
+      // every emitted record carries the version tag.
+      expect(result).toMatch(/logformat audit_jsonl \{.*"_schema":"audit\/v1"/);
+    });
+
+    it('audit_jsonl logformat should include all required fields', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      // Required fields per audit.v1.schema.json
+      const auditLine = result.split('\n').find(l => l.startsWith('logformat audit_jsonl'));
+      expect(auditLine).toBeDefined();
+      expect(auditLine).toContain('"ts":');
+      expect(auditLine).toContain('"client":');
+      expect(auditLine).toContain('"host":');
+      expect(auditLine).toContain('"dest":');
+      expect(auditLine).toContain('"method":');
+      expect(auditLine).toContain('"status":');
+      expect(auditLine).toContain('"decision":');
+      expect(auditLine).toContain('"url":');
+    });
   });
 
   describe('Streaming/Long-lived Connection Support', () => {
