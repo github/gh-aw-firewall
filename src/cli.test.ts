@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, warnClassicPATWithCopilotModel, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl, checkDockerHost } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateEnableOpenCodeFlag, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, warnClassicPATWithCopilotModel, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl, checkDockerHost } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1542,6 +1542,23 @@ describe('cli', () => {
     it('should pass when all flags used with api proxy enabled', () => {
       const r = validateRateLimitFlags(true, { rateLimitRpm: '10', rateLimitRph: '100', rateLimit: false });
       expect(r.valid).toBe(true);
+    });
+  });
+
+  describe('validateEnableOpenCodeFlag', () => {
+    it('should pass when both --enable-opencode and --enable-api-proxy are set', () => {
+      expect(validateEnableOpenCodeFlag(true, true)).toEqual({ valid: true });
+    });
+    it('should pass when --enable-opencode is false', () => {
+      expect(validateEnableOpenCodeFlag(false, false)).toEqual({ valid: true });
+    });
+    it('should pass when --enable-opencode is false and --enable-api-proxy is true', () => {
+      expect(validateEnableOpenCodeFlag(true, false)).toEqual({ valid: true });
+    });
+    it('should fail when --enable-opencode is true without --enable-api-proxy', () => {
+      const r = validateEnableOpenCodeFlag(false, true);
+      expect(r.valid).toBe(false);
+      expect(r.error).toContain('--enable-api-proxy');
     });
   });
 

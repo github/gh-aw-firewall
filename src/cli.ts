@@ -708,6 +708,16 @@ export function validateRateLimitFlags(enableApiProxy: boolean, options: {
 }
 
 /**
+ * Validates that --enable-opencode is not used without --enable-api-proxy.
+ */
+export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCode: boolean): FlagValidationResult {
+  if (enableOpenCode && !enableApiProxy) {
+    return { valid: false, error: '--enable-opencode requires --enable-api-proxy' };
+  }
+  return { valid: true };
+}
+
+/**
  * Result of validating flag combinations
  */
 export interface FlagValidationResult {
@@ -2021,6 +2031,13 @@ program
     const rateLimitFlagValidation = validateRateLimitFlags(config.enableApiProxy ?? false, options);
     if (!rateLimitFlagValidation.valid) {
       logger.error(rateLimitFlagValidation.error!);
+      process.exit(1);
+    }
+
+    // Error if --enable-opencode is used without --enable-api-proxy
+    const enableOpenCodeValidation = validateEnableOpenCodeFlag(config.enableApiProxy ?? false, config.enableOpenCode ?? false);
+    if (!enableOpenCodeValidation.valid) {
+      logger.error(enableOpenCodeValidation.error!);
       process.exit(1);
     }
 
