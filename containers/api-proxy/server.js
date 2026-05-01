@@ -21,6 +21,11 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
+const {
+  makeAnthropicTransform,
+  loadCustomTransform,
+  EXTENDED_CACHE_BETA,
+} = require('./anthropic-transforms');
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
 let closeLogStream;
@@ -385,6 +390,97 @@ function makeModelBodyTransform(provider) {
     });
     return result.body;
   };
+}
+
+/**
+ * Compose two body-transform functions into a single transform.
+ * Each transform accepts a Buffer and returns a Buffer (modified) or null (no change).
+ *
+ * Chain semantics:
+ *   - If first returns null (no change), pass the original buffer to second.
+ *   - If second returns null, return whatever first returned.
+ *   - If both return null, return null.
+ *
+ * @param {((body: Buffer) => Buffer | null) | null} first
+ * @param {((body: Buffer) => Buffer | null) | null} second
+ * @returns {((body: Buffer) => Buffer | null) | null}
+ */
+function composeBodyTransforms(first, second) {
+  if (!first && !second) return null;
+  if (!first) return second;
+  if (!second) return first;
+  return (body) => {
+    const a = first(body);
+    const b = second(a !== null ? a : body);
+    if (b !== null) return b;
+    if (a !== null) return a;
+    return null;
+  };
+}
+
+// ── Anthropic request optimisations ───────────────────────────────────────────
+// All features are opt-in via environment variables and are applied only to
+// POST /v1/messages requests forwarded through the Anthropic proxy (port 10001).
+//
+// AWF_ANTHROPIC_AUTO_CACHE=1          — inject ≤4 prompt-cache breakpoints +
+//                                       upgrade existing ephemeral TTLs to 1h
+// AWF_ANTHROPIC_CACHE_TAIL_TTL=5m|1h — TTL for the rolling-tail slot (default: 5m)
+// AWF_ANTHROPIC_DROP_TOOLS=A,B,C      — drop named tools from the tools array
+// AWF_ANTHROPIC_STRIP_ANSI=1          — strip ANSI SGR codes from tool_result text
+// AWF_ANTHROPIC_TRANSFORM_FILE=/path  — custom JS transform hook (file inside container)
+
+const AWF_ANTHROPIC_AUTO_CACHE = (
+  process.env.AWF_ANTHROPIC_AUTO_CACHE === '1' ||
+  process.env.AWF_ANTHROPIC_AUTO_CACHE === 'true'
+);
+const AWF_ANTHROPIC_CACHE_TAIL_TTL = (() => {
+  const raw = (process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL || '').trim();
+  return (raw === '1h' || raw === '5m') ? raw : '5m';
+})();
+const AWF_ANTHROPIC_DROP_TOOLS = (() => {
+  const raw = (process.env.AWF_ANTHROPIC_DROP_TOOLS || '').trim();
+  return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+})();
+const AWF_ANTHROPIC_STRIP_ANSI = (
+  process.env.AWF_ANTHROPIC_STRIP_ANSI === '1' ||
+  process.env.AWF_ANTHROPIC_STRIP_ANSI === 'true'
+);
+const AWF_ANTHROPIC_TRANSFORM_FILE = (process.env.AWF_ANTHROPIC_TRANSFORM_FILE || '').trim() || undefined;
+
+const _anthropicCustomTransform = loadCustomTransform(AWF_ANTHROPIC_TRANSFORM_FILE);
+
+// Pre-built Anthropic-specific body transform (null when nothing is enabled).
+const _anthropicOptimisationsTransform = makeAnthropicTransform({
+  autoCache: AWF_ANTHROPIC_AUTO_CACHE,
+  tailTtl: AWF_ANTHROPIC_CACHE_TAIL_TTL,
+  dropTools: AWF_ANTHROPIC_DROP_TOOLS,
+  stripAnsiCodes: AWF_ANTHROPIC_STRIP_ANSI,
+  customTransform: _anthropicCustomTransform,
+});
+
+if (AWF_ANTHROPIC_AUTO_CACHE) {
+  logRequest('info', 'startup', {
+    message: 'Anthropic auto-cache enabled',
+    tail_ttl: AWF_ANTHROPIC_CACHE_TAIL_TTL,
+    extended_cache_beta: EXTENDED_CACHE_BETA,
+  });
+}
+if (AWF_ANTHROPIC_DROP_TOOLS.length > 0) {
+  logRequest('info', 'startup', {
+    message: 'Anthropic tool-drop enabled',
+    tools: AWF_ANTHROPIC_DROP_TOOLS,
+  });
+}
+if (AWF_ANTHROPIC_STRIP_ANSI) {
+  logRequest('info', 'startup', { message: 'Anthropic ANSI-strip enabled' });
+}
+if (AWF_ANTHROPIC_TRANSFORM_FILE) {
+  logRequest('info', 'startup', {
+    message: _anthropicCustomTransform
+      ? 'Anthropic custom transform loaded'
+      : 'Anthropic custom transform failed to load (disabled)',
+    file: AWF_ANTHROPIC_TRANSFORM_FILE,
+  });
 }
 
 /**
@@ -1675,6 +1771,13 @@ if (require.main === module) {
 
   // Anthropic API proxy (port 10001)
   if (ANTHROPIC_API_KEY) {
+    // Compose model-alias rewriting with Anthropic-specific optimisations.
+    // Model aliases run first so the correct model name is visible to subsequent transforms.
+    const anthropicProxyTransform = composeBodyTransforms(
+      makeModelBodyTransform('anthropic'),
+      _anthropicOptimisationsTransform
+    );
+
     const server = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1690,7 +1793,22 @@ if (require.main === module) {
       if (!req.headers['anthropic-version']) {
         anthropicHeaders['anthropic-version'] = '2023-06-01';
       }
-      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, makeModelBodyTransform('anthropic'));
+
+      // When auto-cache is enabled, add the extended-cache-ttl beta header so
+      // Anthropic honours the 1-hour TTL values we inject.  Merge with any
+      // beta flags already set by the client to avoid overwriting them.
+      if (AWF_ANTHROPIC_AUTO_CACHE) {
+        const existing = req.headers['anthropic-beta'];
+        if (!existing) {
+          anthropicHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
+        } else if (!existing.split(',').map(s => s.trim()).includes(EXTENDED_CACHE_BETA)) {
+          anthropicHeaders['anthropic-beta'] = `${existing},${EXTENDED_CACHE_BETA}`;
+        }
+        // If the client already includes the beta flag, it passes through unchanged
+        // (copied from req.headers before injectHeaders is applied in proxyRequest).
+      }
+
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, anthropicProxyTransform);
     });
 
     server.on('upgrade', (req, socket, head) => {
@@ -1933,4 +2051,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, composeBodyTransforms, MODEL_ALIASES, buildModelsJson, writeModelsJson, AWF_ANTHROPIC_AUTO_CACHE, AWF_ANTHROPIC_CACHE_TAIL_TTL, AWF_ANTHROPIC_DROP_TOOLS, AWF_ANTHROPIC_STRIP_ANSI };

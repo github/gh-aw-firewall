@@ -2807,6 +2807,82 @@ describe('docker-manager', () => {
         expect(env.AWF_ENABLE_OPENCODE).toBeUndefined();
       });
 
+      describe('AWF_ANTHROPIC_* env var forwarding', () => {
+        let savedEnv: Record<string, string | undefined>;
+        const anthropicVars = [
+          'AWF_ANTHROPIC_AUTO_CACHE',
+          'AWF_ANTHROPIC_CACHE_TAIL_TTL',
+          'AWF_ANTHROPIC_DROP_TOOLS',
+          'AWF_ANTHROPIC_STRIP_ANSI',
+        ];
+
+        beforeEach(() => {
+          savedEnv = {};
+          for (const key of anthropicVars) {
+            savedEnv[key] = process.env[key];
+            delete process.env[key];
+          }
+        });
+
+        afterEach(() => {
+          for (const key of anthropicVars) {
+            if (savedEnv[key] !== undefined) {
+              process.env[key] = savedEnv[key];
+            } else {
+              delete process.env[key];
+            }
+          }
+        });
+
+        it('should forward AWF_ANTHROPIC_AUTO_CACHE to api-proxy when set', () => {
+          process.env.AWF_ANTHROPIC_AUTO_CACHE = '1';
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ANTHROPIC_AUTO_CACHE).toBe('1');
+        });
+
+        it('should not set AWF_ANTHROPIC_AUTO_CACHE when env var is not set', () => {
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ANTHROPIC_AUTO_CACHE).toBeUndefined();
+        });
+
+        it('should forward AWF_ANTHROPIC_CACHE_TAIL_TTL to api-proxy when set', () => {
+          process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL = '1h';
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ANTHROPIC_CACHE_TAIL_TTL).toBe('1h');
+        });
+
+        it('should forward AWF_ANTHROPIC_DROP_TOOLS to api-proxy when set', () => {
+          process.env.AWF_ANTHROPIC_DROP_TOOLS = 'NotebookEdit,CronCreate';
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ANTHROPIC_DROP_TOOLS).toBe('NotebookEdit,CronCreate');
+        });
+
+        it('should forward AWF_ANTHROPIC_STRIP_ANSI to api-proxy when set', () => {
+          process.env.AWF_ANTHROPIC_STRIP_ANSI = '1';
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ANTHROPIC_STRIP_ANSI).toBe('1');
+        });
+
+        it('should not set any AWF_ANTHROPIC_* vars when none are set in host env', () => {
+          const config = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          for (const key of anthropicVars) {
+            expect(env[key]).toBeUndefined();
+          }
+        });
+      });
+
       it('should set OPENAI_API_TARGET in api-proxy when openaiApiTarget is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiTarget: 'custom.openai-router.internal' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

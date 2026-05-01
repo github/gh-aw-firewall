@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, composeBodyTransforms, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -1934,3 +1934,51 @@ describe('writeModelsJson', () => {
   });
 });
 
+// ── composeBodyTransforms ──────────────────────────────────────────────────────
+
+describe('composeBodyTransforms', () => {
+  const id = (buf) => buf; // identity — no change is signalled by returning the same buffer
+  const upper = (buf) => Buffer.from(buf.toString('utf8').toUpperCase(), 'utf8');
+  const exclaim = (buf) => Buffer.from(`${buf.toString('utf8')}!`, 'utf8');
+  const noOp = () => null; // signals "no change"
+
+  it('returns null when both transforms are null', () => {
+    expect(composeBodyTransforms(null, null)).toBeNull();
+  });
+
+  it('returns the second transform when first is null', () => {
+    const composed = composeBodyTransforms(null, upper);
+    const buf = Buffer.from('hello');
+    expect(composed(buf).toString()).toBe('HELLO');
+  });
+
+  it('returns the first transform when second is null', () => {
+    const composed = composeBodyTransforms(upper, null);
+    const buf = Buffer.from('hello');
+    expect(composed(buf).toString()).toBe('HELLO');
+  });
+
+  it('chains two transforms: first result feeds into second', () => {
+    const composed = composeBodyTransforms(upper, exclaim);
+    const buf = Buffer.from('hello');
+    expect(composed(buf).toString()).toBe('HELLO!');
+  });
+
+  it('when first returns null (no-op), original buffer is passed to second', () => {
+    const composed = composeBodyTransforms(noOp, exclaim);
+    const buf = Buffer.from('hello');
+    // noOp returns null → exclaim receives original 'hello' → 'hello!'
+    expect(composed(buf).toString()).toBe('hello!');
+  });
+
+  it('when first transforms and second returns null, returns first result', () => {
+    const composed = composeBodyTransforms(upper, noOp);
+    const buf = Buffer.from('hello');
+    expect(composed(buf).toString()).toBe('HELLO');
+  });
+
+  it('when both return null, composed returns null', () => {
+    const composed = composeBodyTransforms(noOp, noOp);
+    expect(composed(Buffer.from('hello'))).toBeNull();
+  });
+});
