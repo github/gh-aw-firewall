@@ -92,18 +92,12 @@ function determineArticle(type: string): string {
  */
 function deduplicateErrors(errors: ErrorObject[]): ErrorObject[] {
   const oneOfPaths = new Set<string>();
-  const arrayItemErrorPaths = new Set<string>();
   const result: ErrorObject[] = [];
 
-  // First pass: collect oneOf paths and array item error paths
+  // First pass: collect oneOf paths
   for (const err of errors) {
     if (err.keyword === 'oneOf') {
       oneOfPaths.add(err.instancePath);
-    }
-    // Detect per-item type errors (e.g. /network/blockDomains/0, /1, /2)
-    if (err.keyword === 'type' && /\/\d+$/.test(err.instancePath)) {
-      const parentPath = err.instancePath.replace(/\/\d+$/, '');
-      arrayItemErrorPaths.add(parentPath);
     }
   }
 
