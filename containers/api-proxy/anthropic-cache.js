@@ -215,28 +215,38 @@ function injectBreakpointIfAbsent(body, opts = {}) {
   const { tailTtl = '5m' } = opts;
   const tags = [];
 
-  // Step 0: strip wasteful tiny system breakpoints
+  // Step 0: strip wasteful tiny system breakpoints (may free up slots)
   const stripped = stripSmallSystemBreakpoints(body);
   if (stripped > 0) tags.push(`strip-sys:${stripped}`);
 
+  // Track current breakpoint count locally so we only deep-walk once.
+  // After Step 0 the count may have decreased, so recompute from scratch once.
+  let count = countCacheBreakpoints(body);
+
   // Step 1: tools
-  if (Array.isArray(body.tools) && body.tools.length > 0 && !hasBreakpoint(body.tools)) {
+  if (count < BREAKPOINT_CEILING &&
+      Array.isArray(body.tools) && body.tools.length > 0 && !hasBreakpoint(body.tools)) {
     const last = body.tools[body.tools.length - 1];
     if (last && typeof last === 'object') {
       last.cache_control = { type: 'ephemeral', ttl: '1h' };
+      count++;
       tags.push('tools');
     }
   }
 
   // Step 2: system
-  if (Array.isArray(body.system) && body.system.length > 0 && !hasBreakpoint(body.system)) {
+  if (count < BREAKPOINT_CEILING &&
+      Array.isArray(body.system) && body.system.length > 0 && !hasBreakpoint(body.system)) {
     const last = body.system[body.system.length - 1];
     if (last && typeof last === 'object') {
       last.cache_control = { type: 'ephemeral', ttl: '1h' };
+      count++;
       tags.push('system');
     }
-  } else if (typeof body.system === 'string' && body.system.length > 0) {
+  } else if (count < BREAKPOINT_CEILING &&
+             typeof body.system === 'string' && body.system.length > 0) {
     body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral', ttl: '1h' } }];
+    count++;
     tags.push('system-string');
   }
 
@@ -244,20 +254,21 @@ function injectBreakpointIfAbsent(body, opts = {}) {
   // Only place when there is a distinct tail message to follow; otherwise the
   // tail step below covers it.
   if (
+    count < BREAKPOINT_CEILING &&
     Array.isArray(body.messages) &&
-    body.messages.length > 1 &&
-    countCacheBreakpoints(body) < BREAKPOINT_CEILING
+    body.messages.length > 1
   ) {
     const first = findLastCacheableBlockInMessage(body.messages[0]);
     if (first && !first.cache_control) {
       first.cache_control = { type: 'ephemeral', ttl: '1h' };
+      count++;
       tags.push('msg0');
     }
   }
 
   // Step 4: rolling tail — mark tail blocks first so the 1h rewrite skips them
   const tailBlocks = new Set();
-  if (countCacheBreakpoints(body) < BREAKPOINT_CEILING) {
+  if (count < BREAKPOINT_CEILING) {
     const tail = findLastCacheableMessageBlock(body);
     if (tail && !tail.cache_control) {
       tail.cache_control = { type: 'ephemeral', ttl: tailTtl };

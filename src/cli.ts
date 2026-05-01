@@ -1670,6 +1670,14 @@ program
       process.exit(1);
     }
 
+    // Validate --anthropic-cache-tail-ttl if provided
+    if (options.anthropicCacheTailTtl !== undefined &&
+        options.anthropicCacheTailTtl !== '5m' &&
+        options.anthropicCacheTailTtl !== '1h') {
+      console.error(`Invalid --anthropic-cache-tail-ttl value: "${options.anthropicCacheTailTtl}". Must be "5m" or "1h".`);
+      process.exit(1);
+    }
+
     // Model aliases may be injected via config file (not a Commander option),
     // so access through a Record cast with a proper type annotation.
     const modelAliases = (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined;

@@ -408,6 +408,7 @@ function makeAnthropicBodyTransform(injectHeaders) {
   return (body) => {
     // Step 1: model alias rewriting (operates on raw Buffer, may return a new Buffer)
     let buf = body;
+    let modelAliasRewritten = false;
     if (hasModelAliases) {
       const result = rewriteModelInBody(buf, 'anthropic', MODEL_ALIASES.models, cachedModels);
       if (result) {
@@ -420,6 +421,7 @@ function makeAnthropicBodyTransform(injectHeaders) {
           resolved_model: sanitizeForLog(result.resolvedModel),
         });
         buf = result.body;
+        modelAliasRewritten = true;
       }
     }
 
@@ -432,7 +434,7 @@ function makeAnthropicBodyTransform(injectHeaders) {
         logRequest('warn', 'anthropic_cache_skip', {
           message: 'Failed to parse request body as JSON — skipping cache optimizations',
         });
-        return buf.length !== body.length ? buf : null;
+        return modelAliasRewritten ? buf : null;
       }
 
       const result = applyAnthropicCacheOptimizations(parsed, injectHeaders, { tailTtl: ANTHROPIC_CACHE_TAIL_TTL });
@@ -447,7 +449,7 @@ function makeAnthropicBodyTransform(injectHeaders) {
       return mutated;
     }
 
-    return buf.length !== body.length ? buf : null;
+    return modelAliasRewritten ? buf : null;
   };
 }
 

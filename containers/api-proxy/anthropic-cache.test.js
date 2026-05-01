@@ -40,10 +40,6 @@ function makeTextBlock(text = 'hello', withBreakpoint = false) {
   return b;
 }
 
-function makeToolResultBlock(content = 'result') {
-  return { type: 'tool_result', tool_use_id: 'id1', content };
-}
-
 // ── hasBreakpoint ────────────────────────────────────────────────────────────
 
 describe('hasBreakpoint', () => {
@@ -287,6 +283,27 @@ describe('injectBreakpointIfAbsent', () => {
     injectBreakpointIfAbsent(body);
     // Should not exceed ceiling
     expect(countCacheBreakpoints(body)).toBeLessThanOrEqual(BREAKPOINT_CEILING);
+  });
+
+  it('does not inject tools breakpoint when ceiling already reached', () => {
+    // All 4 slots used by system/messages — tools has no breakpoint but ceiling is full
+    const body = {
+      tools: [makeTool('Bash')],
+      system: [
+        { type: 'text', text: 'x'.repeat(MIN_SYSTEM_CACHE_CHARS), cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: 'y'.repeat(MIN_SYSTEM_CACHE_CHARS), cache_control: { type: 'ephemeral' } },
+      ],
+      messages: [
+        { role: 'user', content: [makeTextBlock('m0', true)] },
+        { role: 'user', content: [makeTextBlock('m1', true)] },
+      ],
+    };
+    expect(countCacheBreakpoints(body)).toBe(BREAKPOINT_CEILING);
+    const { tag } = injectBreakpointIfAbsent(body);
+    // tools was not injected because ceiling was already hit
+    expect(tag).not.toContain('tools');
+    expect(body.tools[0].cache_control).toBeUndefined();
+    expect(countCacheBreakpoints(body)).toBe(BREAKPOINT_CEILING);
   });
 
   it('strips small system breakpoints before injecting', () => {
