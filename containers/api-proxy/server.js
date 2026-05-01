@@ -21,11 +21,20 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
-const {
-  makeAnthropicTransform,
-  loadCustomTransform,
-  EXTENDED_CACHE_BETA,
-} = require('./anthropic-transforms');
+let makeAnthropicTransform;
+let loadCustomTransform;
+let EXTENDED_CACHE_BETA;
+try {
+  ({ makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA } = require('./anthropic-transforms'));
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    makeAnthropicTransform = () => (body) => body;
+    loadCustomTransform = () => null;
+    EXTENDED_CACHE_BETA = undefined;
+  } else {
+    throw err;
+  }
+}
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
 let closeLogStream;
