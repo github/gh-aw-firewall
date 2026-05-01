@@ -15,7 +15,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application files
-COPY server.js logging.js metrics.js rate-limiter.js token-tracker.js ./
+COPY server.js logging.js metrics.js rate-limiter.js token-tracker.js model-resolver.js ./
 
 # Create non-root user
 RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy
