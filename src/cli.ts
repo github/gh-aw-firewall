@@ -319,6 +319,18 @@ export function validateApiProxyConfig(
 }
 
 /**
+ * Validates the value of --anthropic-cache-tail-ttl.
+ * Exits the process with an error if the value is not "5m" or "1h".
+ * @param value - The value provided for --anthropic-cache-tail-ttl (may be undefined)
+ */
+export function validateAnthropicCacheTailTtl(value: string | undefined): void {
+  if (value !== undefined && value !== '5m' && value !== '1h') {
+    console.error(`Invalid --anthropic-cache-tail-ttl value: "${value}". Must be "5m" or "1h".`);
+    process.exit(1);
+  }
+}
+
+/**
  * Validates that a custom API proxy target hostname is covered by the allowed domains list.
  * Returns a warning message if the target domain is not in allowed domains, otherwise null.
  * @param targetHost - The custom target hostname (e.g. "custom.example.com")
@@ -1671,12 +1683,7 @@ program
     }
 
     // Validate --anthropic-cache-tail-ttl if provided
-    if (options.anthropicCacheTailTtl !== undefined &&
-        options.anthropicCacheTailTtl !== '5m' &&
-        options.anthropicCacheTailTtl !== '1h') {
-      console.error(`Invalid --anthropic-cache-tail-ttl value: "${options.anthropicCacheTailTtl}". Must be "5m" or "1h".`);
-      process.exit(1);
-    }
+    validateAnthropicCacheTailTtl(options.anthropicCacheTailTtl);
 
     // Model aliases may be injected via config file (not a Commander option),
     // so access through a Record cast with a proper type annotation.
