@@ -1472,20 +1472,25 @@ function buildModelsJson() {
 /**
  * Write the current model availability snapshot to models.json in the log directory.
  *
- * Called after fetchStartupModels() completes and whenever models are refreshed.
+ * Called after fetchStartupModels() completes.
  * The file is written to the volume-mounted log directory so it is automatically
  * available for artifact upload.
  *
  * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
  */
 function writeModelsJson(logDir = MODELS_LOG_DIR) {
+  const filePath = path.join(logDir, 'models.json');
   try {
     fs.mkdirSync(logDir, { recursive: true });
-    const filePath = path.join(logDir, 'models.json');
     fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(), null, 2) + '\n', 'utf8');
     logRequest('info', 'models_json_written', { path: filePath });
   } catch (err) {
-    logRequest('warn', 'models_json_write_failed', { message: 'Failed to write models.json', error: String(err) });
+    logRequest('warn', 'models_json_write_failed', {
+      message: 'Failed to write models.json',
+      logDir,
+      path: filePath,
+      error: err instanceof Error ? (err.stack || err.message) : String(err),
+    });
   }
 }
 

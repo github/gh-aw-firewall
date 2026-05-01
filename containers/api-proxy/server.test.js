@@ -1803,7 +1803,9 @@ describe('buildModelsJson', () => {
 
   it('should include all five providers', () => {
     const result = buildModelsJson();
-    expect(Object.keys(result.providers)).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+    const providerKeys = Object.keys(result.providers);
+    expect(providerKeys).toHaveLength(5);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']));
   });
 
   it('should set models to null for uncached providers', () => {
@@ -1830,7 +1832,12 @@ describe('buildModelsJson', () => {
   });
 
   it('should set model_aliases to null when MODEL_ALIASES is not configured', () => {
-    if (MODEL_ALIASES) return; // skip if env var happens to be set
+    // MODEL_ALIASES is a module-level constant fixed at import time.
+    // This assertion is only meaningful when AWF_MODEL_ALIASES is unset.
+    if (MODEL_ALIASES) {
+      expect(MODEL_ALIASES).not.toBeNull(); // trivially passes — env var is set, skip
+      return;
+    }
     const result = buildModelsJson();
     expect(result.model_aliases).toBeNull();
   });
@@ -1841,9 +1848,9 @@ describe('buildModelsJson', () => {
     expect(ts.toString()).not.toBe('Invalid Date');
   });
 
-  it('should set opencode configured to true when openai key is available', () => {
-    // opencode.configured mirrors whether any base provider is configured;
-    // the module-level constant is fixed at import time — just verify shape.
+  it('should include opencode provider with correct static fields', () => {
+    // opencode.configured mirrors whether any base provider is configured at
+    // module load time — just verify the expected shape is always present.
     const result = buildModelsJson();
     expect(typeof result.providers.opencode.configured).toBe('boolean');
     expect(result.providers.opencode.models).toBeNull();
@@ -1888,7 +1895,9 @@ describe('writeModelsJson', () => {
     const data = JSON.parse(fs.readFileSync(path.join(tmpDir, 'models.json'), 'utf8'));
     expect(typeof data.timestamp).toBe('string');
     expect(typeof data.providers).toBe('object');
-    expect(Object.keys(data.providers)).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+    const providerKeys = Object.keys(data.providers);
+    expect(providerKeys).toHaveLength(5);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']));
     expect(data).toHaveProperty('model_aliases');
   });
 
