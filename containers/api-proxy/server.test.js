@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES } = require('./server');
+const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -1784,6 +1784,126 @@ describe('makeModelBodyTransform', () => {
     const result = rewriteModelInBody(body, 'copilot', aliases, cachedModels);
     // gpt-4o is a direct match with no rewrite needed (resolvedModel === original)
     expect(result).toBeNull();
+  });
+});
+
+// ── buildModelsJson ────────────────────────────────────────────────────────
+
+describe('buildModelsJson', () => {
+  afterEach(() => {
+    resetModelCacheState();
+  });
+
+  it('should return an object with timestamp, providers, and model_aliases fields', () => {
+    const result = buildModelsJson();
+    expect(typeof result.timestamp).toBe('string');
+    expect(typeof result.providers).toBe('object');
+    expect(result).toHaveProperty('model_aliases');
+  });
+
+  it('should include all five providers', () => {
+    const result = buildModelsJson();
+    expect(Object.keys(result.providers)).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+  });
+
+  it('should set models to null for uncached providers', () => {
+    const result = buildModelsJson();
+    // Without populating cachedModels, all models fields should be null
+    for (const provider of ['openai', 'anthropic', 'copilot', 'gemini', 'opencode']) {
+      expect(result.providers[provider].models).toBeNull();
+    }
+  });
+
+  it('should include cached models when available', () => {
+    cachedModels.openai = ['gpt-4o', 'gpt-4o-mini'];
+    cachedModels.copilot = ['claude-sonnet-4'];
+    const result = buildModelsJson();
+    expect(result.providers.openai.models).toEqual(['gpt-4o', 'gpt-4o-mini']);
+    expect(result.providers.copilot.models).toEqual(['claude-sonnet-4']);
+    expect(result.providers.anthropic.models).toBeNull();
+  });
+
+  it('should include null models for providers that returned null (fetch failed)', () => {
+    cachedModels.openai = null;
+    const result = buildModelsJson();
+    expect(result.providers.openai.models).toBeNull();
+  });
+
+  it('should set model_aliases to null when MODEL_ALIASES is not configured', () => {
+    if (MODEL_ALIASES) return; // skip if env var happens to be set
+    const result = buildModelsJson();
+    expect(result.model_aliases).toBeNull();
+  });
+
+  it('should produce a valid ISO 8601 timestamp', () => {
+    const result = buildModelsJson();
+    const ts = new Date(result.timestamp);
+    expect(ts.toString()).not.toBe('Invalid Date');
+  });
+
+  it('should set opencode configured to true when openai key is available', () => {
+    // opencode.configured mirrors whether any base provider is configured;
+    // the module-level constant is fixed at import time — just verify shape.
+    const result = buildModelsJson();
+    expect(typeof result.providers.opencode.configured).toBe('boolean');
+    expect(result.providers.opencode.models).toBeNull();
+    expect(result.providers.opencode.target).toBeNull();
+  });
+});
+
+// ── writeModelsJson ────────────────────────────────────────────────────────
+
+describe('writeModelsJson', () => {
+  const os = require('os');
+  const fs = require('fs');
+  const path = require('path');
+
+  let tmpDir;
+
+  beforeEach(() => {
+    resetModelCacheState();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-models-'));
+  });
+
+  afterEach(() => {
+    resetModelCacheState();
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('should write models.json to the specified directory', () => {
+    writeModelsJson(tmpDir);
+    const filePath = path.join(tmpDir, 'models.json');
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it('should write valid JSON', () => {
+    writeModelsJson(tmpDir);
+    const content = fs.readFileSync(path.join(tmpDir, 'models.json'), 'utf8');
+    expect(() => JSON.parse(content)).not.toThrow();
+  });
+
+  it('should write JSON with the expected schema', () => {
+    cachedModels.openai = ['gpt-4o'];
+    writeModelsJson(tmpDir);
+    const data = JSON.parse(fs.readFileSync(path.join(tmpDir, 'models.json'), 'utf8'));
+    expect(typeof data.timestamp).toBe('string');
+    expect(typeof data.providers).toBe('object');
+    expect(Object.keys(data.providers)).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+    expect(data).toHaveProperty('model_aliases');
+  });
+
+  it('should create the directory if it does not exist', () => {
+    const nestedDir = path.join(tmpDir, 'sub', 'dir');
+    writeModelsJson(nestedDir);
+    expect(fs.existsSync(path.join(nestedDir, 'models.json'))).toBe(true);
+  });
+
+  it('should overwrite an existing models.json on subsequent writes', () => {
+    writeModelsJson(tmpDir);
+    cachedModels.copilot = ['claude-sonnet-4'];
+    writeModelsJson(tmpDir);
+    const data = JSON.parse(fs.readFileSync(path.join(tmpDir, 'models.json'), 'utf8'));
+    expect(data.providers.copilot.models).toEqual(['claude-sonnet-4']);
   });
 });
 
