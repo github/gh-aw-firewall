@@ -185,6 +185,20 @@ const cacheRestoreKeyPrefixRegex =
   /(memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)(\n)/g;
 const cacheDateRestoreKeySentinel = 'env.CACHE_MEMORY_DATE }}';
 
+// Fix for issue-duplication-detector.lock.yml: make the conclusion job's
+// concurrency group per-issue instead of per-workflow. Without this, when
+// multiple issues are opened simultaneously (batch triggers), all conclusion
+// jobs queue in the same single-slot group. GitHub Actions allows only one
+// pending run per group; a third arriving cancels the current pending one,
+// causing 40%+ error rates in busy periods.
+//
+// Change: "gh-aw-conclusion-issue-duplication-detector"
+//      → "gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number || github.run_id }}"
+const issueDuplicationConclusionConcurrencyRegex =
+  /([ ]+group: "gh-aw-conclusion-issue-duplication-detector)("\n[ ]+cancel-in-progress: false)/;
+const issueDuplicationConclusionConcurrencySentinel =
+  'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
+
 // Builds the YAML for the "Strip execute bits" step.
 function buildStripExecBitsStep(indent: string): string {
   const i = indent;
@@ -420,6 +434,36 @@ for (const workflowPath of workflowPaths) {
     }
   } else {
     console.log(`  'Copy Copilot session state' step already updated`);
+  }
+
+  // For issue-duplication-detector: scope the conclusion job's concurrency
+  // group to the triggering issue number so that concurrent runs for different
+  // issues don't block each other's conclusion jobs. The compiler generates a
+  // single shared group ("gh-aw-conclusion-issue-duplication-detector") which
+  // causes conclusion jobs to queue in a 1-slot group; when more than two
+  // complete simultaneously the pending job is cancelled by the next arrival.
+  const isIssueDuplicationDetector = workflowPath.includes(
+    'issue-duplication-detector.lock.yml'
+  );
+  if (isIssueDuplicationDetector) {
+    if (!content.includes(issueDuplicationConclusionConcurrencySentinel)) {
+      const concMatch = content.match(issueDuplicationConclusionConcurrencyRegex);
+      if (concMatch) {
+        content = content.replace(
+          issueDuplicationConclusionConcurrencyRegex,
+          `$1-\${{ github.event.issue.number || github.run_id }}$2`
+        );
+        modified = true;
+        console.log(`  Scoped conclusion concurrency group to per-issue for issue-duplication-detector`);
+      } else {
+        console.warn(
+          `  WARNING: Could not find conclusion concurrency group in issue-duplication-detector. ` +
+            `The compiled lock file may have changed structure. Manual review required.`
+        );
+      }
+    } else {
+      console.log(`  Conclusion concurrency group already per-issue for issue-duplication-detector`);
+    }
   }
 
   // Exclude unused Playwright/browser tools from Copilot CLI for smoke-copilot.
