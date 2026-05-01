@@ -523,8 +523,7 @@ jobs:
       - name: Generate versioned JSON Schema
         run: |
           mkdir -p release
-          node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }}
-          cp docs/awf-config.schema.json release/awf-config.schema.json
+          node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }} --print > release/awf-config.schema.json
           echo "=== Schema preview (first 10 lines) ==="
           head -10 release/awf-config.schema.json
 
