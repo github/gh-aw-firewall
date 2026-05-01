@@ -14,6 +14,7 @@ const {
   trackWebSocketTokenUsage,
   validateTokenUsageRecord,
   writeTokenUsage,
+  closeLogStream,
 } = require('./token-tracker');
 const { EventEmitter } = require('events');
 const os = require('os');
@@ -1099,18 +1100,69 @@ describe('validateTokenUsageRecord', () => {
     const { model, ...noModel } = validRecord;
     expect(validateTokenUsageRecord(noModel)).toBe(false);
   });
+
+  test('rejects null without throwing', () => {
+    expect(validateTokenUsageRecord(null)).toBe(false);
+  });
+
+  test('rejects undefined without throwing', () => {
+    expect(validateTokenUsageRecord(undefined)).toBe(false);
+  });
+
+  test('rejects a non-object primitive without throwing', () => {
+    expect(validateTokenUsageRecord('not-an-object')).toBe(false);
+    expect(validateTokenUsageRecord(42)).toBe(false);
+  });
 });
 
 // ── JSONL records include _schema field ───────────────────────────────
 
+/**
+ * Build a writable mock stream that captures all written chunks.
+ * The `written` getter parses the accumulated JSONL and returns records.
+ */
+function makeMockStream() {
+  const chunks = [];
+  const stream = {
+    writableEnded: false,
+    write: jest.fn((chunk) => { chunks.push(chunk); return true; }),
+    end: jest.fn((cb) => { stream.writableEnded = true; if (cb) cb(); }),
+    on: jest.fn(),
+    get writtenRecords() {
+      return chunks.map(c => JSON.parse(c.trim()));
+    },
+  };
+  return stream;
+}
+
 describe('token-usage JSONL record schema field', () => {
-  test('writeTokenUsage writes _schema:"token-usage/v1" to JSONL when stream is writable', (done) => {
-    // Since TOKEN_LOG_FILE is computed at module load time (may not be writable
-    // in test env), verify that a valid record (including _schema) is accepted.
+  let mockStream;
+  let mkdirSyncSpy;
+  let createWriteStreamSpy;
+
+  beforeEach(async () => {
+    // Close any open log stream so the next getLogStream() call creates a fresh one.
+    await closeLogStream();
+
+    mockStream = makeMockStream();
+
+    // Redirect fs.mkdirSync and fs.createWriteStream so the module writes to our
+    // in-memory stream rather than the unwritable /var/log/api-proxy path.
+    mkdirSyncSpy = jest.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    createWriteStreamSpy = jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream);
+  });
+
+  afterEach(async () => {
+    mkdirSyncSpy.mockRestore();
+    createWriteStreamSpy.mockRestore();
+    await closeLogStream();
+  });
+
+  test('writeTokenUsage serializes _schema:"token-usage/v1" into the JSONL stream', () => {
     const record = {
       _schema: 'token-usage/v1',
       timestamp: new Date().toISOString(),
-      request_id: 'sentinel-schema-http',
+      request_id: 'direct-write-test',
       provider: 'openai',
       model: 'gpt-4o',
       path: '/v1/chat/completions',
@@ -1121,37 +1173,27 @@ describe('token-usage JSONL record schema field', () => {
       cache_read_tokens: 0,
       cache_write_tokens: 0,
       duration_ms: 10,
-      response_bytes: 42,
     };
 
-    // We have no direct access to the internal logStream singleton.
-    // Instead, verify that writeTokenUsage validates and does NOT throw
-    // when given a valid record (which requires _schema to be correct).
-    // The absence of a thrown error + validateTokenUsageRecord returning true
-    // is the integration proof that _schema is accepted.
-    expect(() => writeTokenUsage(record)).not.toThrow();
-    done();
+    writeTokenUsage(record);
+
+    expect(mockStream.write).toHaveBeenCalledTimes(1);
+    const parsed = mockStream.writtenRecords[0];
+    expect(parsed._schema).toBe('token-usage/v1');
+    expect(parsed.request_id).toBe('direct-write-test');
   });
 
-  test('trackTokenUsage HTTP path: finalizeTracking includes _schema in the record it passes to writeTokenUsage', (done) => {
-    // We verify via validateTokenUsageRecord (exported) that the record produced
-    // by finalizeTracking would pass schema validation.  The combination of:
-    //   1. validateTokenUsageRecord rejects records without _schema (tested above)
-    //   2. trackTokenUsage calls writeTokenUsage which calls validateTokenUsageRecord
-    //   3. metrics.increment IS called (confirming writeTokenUsage was reached)
-    // proves that the record contains _schema.
+  test('trackTokenUsage HTTP path writes _schema:"token-usage/v1" to the stream', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };
     proxyRes.statusCode = 200;
-
-    const metricsRef = { increment: jest.fn() };
 
     trackTokenUsage(proxyRes, {
       requestId: 'schema-field-http',
       provider: 'openai',
       path: '/v1/chat/completions',
       startTime: Date.now(),
-      metrics: metricsRef,
+      metrics: null,
     });
 
     proxyRes.emit('data', Buffer.from(JSON.stringify({
@@ -1161,14 +1203,15 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      // metrics.increment was called, which means the record passed validation
-      // (validateTokenUsageRecord rejects records without _schema), so _schema was present.
-      expect(metricsRef.increment).toHaveBeenCalled();
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed._schema).toBe('token-usage/v1');
+      expect(parsed.request_id).toBe('schema-field-http');
       done();
     }, 20);
   });
 
-  test('trackWebSocketTokenUsage path: finalizeTracking includes _schema in the record it passes to writeTokenUsage', (done) => {
+  test('trackWebSocketTokenUsage path writes _schema:"token-usage/v1" to the stream', (done) => {
     const socket = new EventEmitter();
 
     function buildFrame(text) {
@@ -1189,22 +1232,22 @@ describe('token-usage JSONL record schema field', () => {
       usage: { output_tokens: 8 },
     }));
 
-    const metricsRef = { increment: jest.fn() };
-
     trackWebSocketTokenUsage(socket, {
       requestId: 'schema-field-ws',
       provider: 'anthropic',
       path: '/v1/messages',
       startTime: Date.now(),
-      metrics: metricsRef,
+      metrics: null,
     });
 
     socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
     socket.emit('close');
 
     setTimeout(() => {
-      // Same indirect proof as the HTTP test above.
-      expect(metricsRef.increment).toHaveBeenCalled();
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed._schema).toBe('token-usage/v1');
+      expect(parsed.request_id).toBe('schema-field-ws');
       done();
     }, 20);
   });

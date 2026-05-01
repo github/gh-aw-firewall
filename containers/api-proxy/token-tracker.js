@@ -95,6 +95,15 @@ function getLogStream() {
  * @returns {boolean} true if the record is valid, false otherwise
  */
 function validateTokenUsageRecord(record) {
+  if (!record || typeof record !== 'object') {
+    logRequest('warn', 'token_record_schema_violation', {
+      field: 'record',
+      expected: 'object',
+      actual: record === null ? 'null' : typeof record,
+    });
+    return false;
+  }
+
   const required = [
     ['_schema', 'string'],
     ['timestamp', 'string'],
