@@ -310,7 +310,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (OpenCode)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (OpenCode, requires `--enable-opencode`)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ### Health check

@@ -35,6 +35,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "enableOpenCode": { "type": "boolean" },
         "targets": {
           "type": "object",
           "additionalProperties": false,
