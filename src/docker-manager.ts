@@ -1815,6 +1815,7 @@ export function generateDockerCompose(
         ...(process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL && { AWF_ANTHROPIC_CACHE_TAIL_TTL: process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL }),
         ...(process.env.AWF_ANTHROPIC_DROP_TOOLS && { AWF_ANTHROPIC_DROP_TOOLS: process.env.AWF_ANTHROPIC_DROP_TOOLS }),
         ...(process.env.AWF_ANTHROPIC_STRIP_ANSI && { AWF_ANTHROPIC_STRIP_ANSI: process.env.AWF_ANTHROPIC_STRIP_ANSI }),
+        ...(process.env.AWF_ANTHROPIC_TRANSFORM_FILE && { AWF_ANTHROPIC_TRANSFORM_FILE: process.env.AWF_ANTHROPIC_TRANSFORM_FILE }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
