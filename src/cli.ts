@@ -1530,6 +1530,18 @@ program
     false
   )
   .option(
+    '--anthropic-auto-cache',
+    'Enable Anthropic prompt-cache optimizations in the API proxy (requires --enable-api-proxy).\n' +
+    '                                       Injects cache breakpoints on tools/system/messages, upgrades TTL to 1h,\n' +
+    '                                       and strips ANSI codes — typically saves ~90% on Anthropic API input costs.',
+    false
+  )
+  .option(
+    '--anthropic-cache-tail-ttl <5m|1h>',
+    'TTL for the rolling-tail cache breakpoint when --anthropic-auto-cache is enabled.\n' +
+    '                                       Use "5m" (default) for fast interactive sessions, "1h" for long agentic tasks.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1983,6 +1995,8 @@ program
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
       enableOpenCode: options.enableOpencode,
+      anthropicAutoCache: options.anthropicAutoCache,
+      anthropicCacheTailTtl: options.anthropicCacheTailTtl,
       modelAliases,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,

@@ -21,6 +21,7 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
+const { applyAnthropicCacheOptimizations } = require('./anthropic-cache');
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
 let closeLogStream;
@@ -358,6 +359,96 @@ if (MODEL_ALIASES) {
   logRequest('warn', 'startup', {
     message: 'AWF_MODEL_ALIASES is set but could not be parsed — model aliasing disabled',
   });
+}
+
+// ── Anthropic prompt-cache optimizations ────────────────────────────────────
+// Enabled by setting AWF_ANTHROPIC_AUTO_CACHE=1.
+// When enabled, /v1/messages POST requests are mutated before forwarding:
+//   - Cache breakpoints injected on tools / system / messages[0] / rolling tail
+//   - Existing ephemeral breakpoints upgraded to ttl:"1h" (tail stays at TAIL_TTL)
+//   - anthropic-beta header extended with the extended-cache-ttl-2025-04-11 flag
+//   - ANSI SGR sequences stripped from message text and tool results
+//
+// Tail TTL is controlled by AWF_ANTHROPIC_CACHE_TAIL_TTL (default: "5m").
+// Valid values: "5m", "1h". Use "1h" only for long-running sessions where
+// the tail breakpoint is unlikely to expire within an hour.
+const ANTHROPIC_AUTO_CACHE = process.env.AWF_ANTHROPIC_AUTO_CACHE === '1';
+const ANTHROPIC_CACHE_TAIL_TTL = (() => {
+  const raw = (process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL || '').trim().toLowerCase();
+  return raw === '1h' ? '1h' : '5m';
+})();
+
+if (ANTHROPIC_AUTO_CACHE) {
+  logRequest('info', 'startup', {
+    message: 'Anthropic prompt-cache optimizations enabled (AWF_ANTHROPIC_AUTO_CACHE=1)',
+    tail_ttl: ANTHROPIC_CACHE_TAIL_TTL,
+  });
+}
+
+
+/**
+ * Build a body-transform function for the Anthropic provider that applies:
+ *   1. Model alias rewriting (when AWF_MODEL_ALIASES is configured)
+ *   2. Prompt-cache optimizations (when AWF_ANTHROPIC_AUTO_CACHE=1):
+ *      - Cache breakpoint injection (tools / system / messages[0] / tail)
+ *      - Ephemeral TTL upgrade to 1h (tail stays at ANTHROPIC_CACHE_TAIL_TTL)
+ *      - ANSI escape code stripping
+ *
+ * The `injectHeaders` map is mutated in-place to add the
+ * `anthropic-beta: extended-cache-ttl-2025-04-11` flag when auto-cache is on.
+ *
+ * @param {Record<string,string>} injectHeaders - Outgoing auth headers (mutated in-place)
+ * @returns {((body: Buffer) => Buffer | null) | null}
+ */
+function makeAnthropicBodyTransform(injectHeaders) {
+  const hasModelAliases = !!MODEL_ALIASES;
+  const hasAutoCache = ANTHROPIC_AUTO_CACHE;
+  if (!hasModelAliases && !hasAutoCache) return null;
+
+  return (body) => {
+    // Step 1: model alias rewriting (operates on raw Buffer, may return a new Buffer)
+    let buf = body;
+    if (hasModelAliases) {
+      const result = rewriteModelInBody(buf, 'anthropic', MODEL_ALIASES.models, cachedModels);
+      if (result) {
+        for (const line of result.log) {
+          logRequest('info', 'model_resolution', { message: line, provider: 'anthropic' });
+        }
+        logRequest('info', 'model_rewrite', {
+          provider: 'anthropic',
+          original_model: sanitizeForLog(result.originalModel) || '(none)',
+          resolved_model: sanitizeForLog(result.resolvedModel),
+        });
+        buf = result.body;
+      }
+    }
+
+    // Step 2: prompt-cache optimizations (parse JSON, mutate, re-serialise)
+    if (hasAutoCache) {
+      let parsed;
+      try {
+        parsed = JSON.parse(buf.toString('utf8'));
+      } catch {
+        logRequest('warn', 'anthropic_cache_skip', {
+          message: 'Failed to parse request body as JSON — skipping cache optimizations',
+        });
+        return buf.length !== body.length ? buf : null;
+      }
+
+      const result = applyAnthropicCacheOptimizations(parsed, injectHeaders, { tailTtl: ANTHROPIC_CACHE_TAIL_TTL });
+      logRequest('info', 'anthropic_cache_applied', {
+        injected: result.injected,
+        rewritten: result.rewritten,
+        beta_header: result.betaHeader,
+        ansi_cleaned: result.ansiCleaned,
+      });
+
+      const mutated = Buffer.from(JSON.stringify(parsed), 'utf8');
+      return mutated;
+    }
+
+    return buf.length !== body.length ? buf : null;
+  };
 }
 
 /**
@@ -1690,7 +1781,9 @@ if (require.main === module) {
       if (!req.headers['anthropic-version']) {
         anthropicHeaders['anthropic-version'] = '2023-06-01';
       }
-      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, makeModelBodyTransform('anthropic'));
+      // makeAnthropicBodyTransform receives the headers map so it can inject the
+      // anthropic-beta extended-cache-ttl flag when AWF_ANTHROPIC_AUTO_CACHE=1.
+      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, makeAnthropicBodyTransform(anthropicHeaders));
     });
 
     server.on('upgrade', (req, socket, head) => {
@@ -1933,4 +2026,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, makeAnthropicBodyTransform, ANTHROPIC_AUTO_CACHE, ANTHROPIC_CACHE_TAIL_TTL, MODEL_ALIASES, buildModelsJson, writeModelsJson };
