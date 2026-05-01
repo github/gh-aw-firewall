@@ -224,8 +224,33 @@ async function main() {
   const consolidatedPath = path.join(outputDir, 'token-dataset.jsonl');
   const metaPath = path.join(outputDir, 'run-index.json');
 
+  // Load existing dataset to avoid re-downloading cached runs
+  const existingRecords: DatasetRecord[] = [];
+  const cachedRunIds = new Set<number>();
+  if (fs.existsSync(consolidatedPath)) {
+    for (const line of fs.readFileSync(consolidatedPath, 'utf8').split('\n').filter(Boolean)) {
+      try {
+        const rec = JSON.parse(line) as DatasetRecord;
+        existingRecords.push(rec);
+        cachedRunIds.add(rec.run_id);
+      } catch { /* skip malformed lines */ }
+    }
+  }
+
+  // Also load the skip-cache: runs that were checked but had no usable data
+  const skipCachePath = path.join(outputDir, '.skip-cache.json');
+  let skipCache: number[] = [];
+  if (fs.existsSync(skipCachePath)) {
+    try { skipCache = JSON.parse(fs.readFileSync(skipCachePath, 'utf8')); } catch { /* ignore */ }
+  }
+  const skippedRunIds = new Set<number>(skipCache);
+  for (const id of cachedRunIds) skippedRunIds.add(id); // union of both
+
   log(`Collecting token data from ${REPO} (since ${TOKEN_TRACKING_SINCE})`);
   log(`Output: ${outputDir}`);
+  if (cachedRunIds.size > 0) {
+    log(`Cached: ${cachedRunIds.size} runs already downloaded — will skip`);
+  }
 
   // ── Step 1: List all relevant runs ─────────────────────────────────────────
   // Use per-workflow endpoints (/actions/workflows/{file}/runs) instead of the
@@ -295,6 +320,9 @@ async function main() {
   let skipped = 0;
 
   for (const run of uniqueRuns) {
+    // Skip runs we already have data for or previously checked
+    if (skippedRunIds.has(run.id)) continue;
+
     const runDir = path.join(tmpBase, String(run.id));
     const epochInfo = assignEpoch(run.created_at);
 
@@ -305,11 +333,12 @@ async function main() {
       const { artifacts } = ghApi(`repos/${REPO}/actions/runs/${run.id}/artifacts`) as { artifacts: Artifact[] };
       if (artifacts.some(a => a.name === 'agent'))           artifactName = 'agent';
       else if (artifacts.some(a => a.name === 'agent-artifacts')) artifactName = 'agent-artifacts';
-    } catch { skipped++; continue; }
+    } catch { skipped++; skippedRunIds.add(run.id); continue; }
 
     if (!artifactName) {
       log(`  SKIP ${run.id} (${run.name} @ ${run.created_at.slice(0, 10)}) — no agent artifact`);
       skipped++;
+      skippedRunIds.add(run.id);
       continue;
     }
 
@@ -324,6 +353,7 @@ async function main() {
       if (!usageSummary) {
         log(`    → no token data found, skipping`);
         skipped++;
+        skippedRunIds.add(run.id);
         fs.rmSync(runDir, { recursive: true });
         continue;
       }
@@ -384,16 +414,30 @@ async function main() {
 
   fs.rmSync(tmpBase, { recursive: true, force: true });
 
+  // Persist skip cache for runs with no usable data
+  fs.writeFileSync(skipCachePath, JSON.stringify([...skippedRunIds].filter(id => !cachedRunIds.has(id))));
+
   // ── Step 3: Write output ───────────────────────────────────────────────────
   log('\n[3/3] Writing output files...');
 
-  // Main dataset (JSONL)
-  const jsonl = records.map(r => JSON.stringify(r)).join('\n') + '\n';
-  fs.writeFileSync(consolidatedPath, jsonl);
-  log(`  ${consolidatedPath} (${records.length} records)`);
+  // Merge existing cached records with newly downloaded ones
+  const allRecords = [...existingRecords, ...records];
+  // Sort by created_at for consistent ordering
+  allRecords.sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-  // Run index (JSON for quick inspection)
-  fs.writeFileSync(metaPath, JSON.stringify({ milestones: MILESTONES, runs: runIndex }, null, 2));
+  // Main dataset (JSONL)
+  const jsonl = allRecords.map(r => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(consolidatedPath, jsonl);
+  log(`  ${consolidatedPath} (${allRecords.length} records, ${records.length} new)`);
+
+  // Run index (JSON for quick inspection) — rebuild from all records
+  const allRunIndex: RunMeta[] = allRecords.map(r => ({
+    run_id: r.run_id, workflow: r.workflow, created_at: r.created_at,
+    epoch: r.epoch, label: r.label,
+    total_tokens: r.total_tokens, effective_tokens: r.effective_tokens,
+    cache_hit_rate: r.cache_hit_rate, cost_usd: r.cost_usd ?? null, models: r.models,
+  }));
+  fs.writeFileSync(metaPath, JSON.stringify({ milestones: MILESTONES, runs: allRunIndex }, null, 2));
   log(`  ${metaPath}`);
 
   // ── Quick per-epoch summary ────────────────────────────────────────────────
@@ -402,7 +446,7 @@ async function main() {
   log('------|--------------------|-------------------|----|-----------|-----------|-------');
 
   const byEpochWorkflow = new Map<string, DatasetRecord[]>();
-  for (const r of records) {
+  for (const r of allRecords) {
     const key = `${r.epoch}|${r.workflow}`;
     if (!byEpochWorkflow.has(key)) byEpochWorkflow.set(key, []);
     byEpochWorkflow.get(key)!.push(r);

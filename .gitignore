@@ -27,3 +27,7 @@ design-docs/
 
 # Release build artifacts
 release/
+
+# Paper data collection skip caches (local state)
+paper-data/.skip-cache.json
+paper-data/.gh-aw-skip-cache.json
