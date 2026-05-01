@@ -1105,17 +1105,8 @@ describe('validateTokenUsageRecord', () => {
 
 describe('token-usage JSONL record schema field', () => {
   test('writeTokenUsage writes _schema:"token-usage/v1" to JSONL when stream is writable', (done) => {
-    // Use a custom in-memory stream to capture what writeTokenUsage serialises.
-    const chunks = [];
-    const fakeStream = {
-      writableEnded: false,
-      write(chunk) { chunks.push(chunk); return true; },
-    };
-
-    // Temporarily patch getLogStream to return our fake stream by writing
-    // directly through the exported writeTokenUsage with the stream open.
     // Since TOKEN_LOG_FILE is computed at module load time (may not be writable
-    // in test env), we verify the serialised record instead.
+    // in test env), verify that a valid record (including _schema) is accepted.
     const record = {
       _schema: 'token-usage/v1',
       timestamp: new Date().toISOString(),
