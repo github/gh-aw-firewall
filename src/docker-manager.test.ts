@@ -2999,6 +2999,24 @@ describe('docker-manager', () => {
         expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
       });
 
+      it('should set GOOGLE_GEMINI_BASE_URL in agent when geminiApiKey is provided', () => {
+        // GOOGLE_GEMINI_BASE_URL is the env var read by the Gemini CLI (google-gemini/gemini-cli)
+        // to override the API endpoint. Without it, the CLI bypasses the proxy sidecar.
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
+      });
+
+      it('should set GOOGLE_GEMINI_BASE_URL and GEMINI_API_BASE_URL to the same proxy URL', () => {
+        // Both vars must point to the same proxy so CLI and SDK clients both route through sidecar.
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.GOOGLE_GEMINI_BASE_URL).toBe(env.GEMINI_API_BASE_URL);
+      });
+
       it('should set GEMINI_API_KEY placeholder in agent when geminiApiKey is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-test-gemini-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
@@ -3049,6 +3067,33 @@ describe('docker-manager', () => {
         expect(env.GEMINI_API_BASE_URL).toBeUndefined();
       });
 
+      it('should NOT set GOOGLE_GEMINI_BASE_URL in agent when api-proxy is enabled without geminiApiKey', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        // Must not be set without a Gemini key to avoid polluting non-Gemini runs.
+        expect(env.GOOGLE_GEMINI_BASE_URL).toBeUndefined();
+      });
+
+      it('should not inherit GOOGLE_GEMINI_BASE_URL from host env via envAll when geminiApiKey is absent', () => {
+        const origVal = process.env.GOOGLE_GEMINI_BASE_URL;
+        process.env.GOOGLE_GEMINI_BASE_URL = 'http://some-other-proxy';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          // GOOGLE_GEMINI_BASE_URL is in EXCLUDED_ENV_VARS so it must not be inherited from host
+          expect(env.GOOGLE_GEMINI_BASE_URL).toBeUndefined();
+        } finally {
+          if (origVal !== undefined) {
+            process.env.GOOGLE_GEMINI_BASE_URL = origVal;
+          } else {
+            delete process.env.GOOGLE_GEMINI_BASE_URL;
+          }
+        }
+      });
+
       it('should NOT set GEMINI_API_KEY placeholder in agent when api-proxy is enabled without geminiApiKey', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
@@ -3068,8 +3113,9 @@ describe('docker-manager', () => {
           const env = agent.environment as Record<string, string>;
           // Agent should NOT have the real API key — only the sidecar gets it
           expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
-          // Agent should have GEMINI_API_BASE_URL to proxy through sidecar
+          // Agent should have both base URL vars to proxy through sidecar
           expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+          expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
         } finally {
           if (origKey !== undefined) {
             process.env.GEMINI_API_KEY = origKey;
@@ -3090,6 +3136,7 @@ describe('docker-manager', () => {
           // Even with envAll, agent should NOT have the real GEMINI_API_KEY
           expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
           expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+          expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
         } finally {
           if (origKey !== undefined) {
             process.env.GEMINI_API_KEY = origKey;
