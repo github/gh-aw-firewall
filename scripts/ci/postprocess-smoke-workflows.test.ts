@@ -423,11 +423,11 @@ describe('issueDuplicationConclusionConcurrencyRegex', () => {
       '    concurrency:\n' +
       '      group: "gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number || github.run_id }}"\n' +
       '      cancel-in-progress: false\n';
-    // The sentinel string is present in the already-updated content —
-    // this means the transform would be skipped via the sentinel check.
+    // The sentinel string is present in the already-updated content, so the
+    // postprocess script skips the transform. Additionally, the regex itself
+    // does NOT match the updated form because the closing quote is no longer
+    // immediately after "issue-duplication-detector" — both guards agree.
     expect(alreadyUpdated.includes(issueDuplicationConclusionConcurrencySentinel)).toBe(true);
-    // The regex itself still matches the suffix of the group name, but the
-    // sentinel guard in the script prevents double-application.
     expect(issueDuplicationConclusionConcurrencyRegex.test(alreadyUpdated)).toBe(false);
   });
 

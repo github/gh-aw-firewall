@@ -2339,20 +2339,19 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Write audit artifacts (config snapshots for post-run forensics)
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
   if (!fs.existsSync(auditDir)) {
-    // World-readable so gh-aw post-job scanners can access audit artifacts
-    // (files are already secret-redacted, so 0o755 is safe)
-    fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
+    // Restrictive permissions initially; made readable during cleanup (chmod a+rX)
+    fs.mkdirSync(auditDir, { recursive: true, mode: 0o700 });
   }
 
   // Save squid.conf for audit (no secrets — just domain ACLs and proxy config)
-  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o644 });
+  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o600 });
 
   // Save redacted docker-compose.yml (strip env vars that may contain secrets)
   const redactedCompose = redactDockerComposeSecrets(dockerCompose);
   fs.writeFileSync(
     path.join(auditDir, 'docker-compose.redacted.yml'),
     yaml.dump(redactedCompose, { lineWidth: -1 }),
-    { mode: 0o644 }
+    { mode: 0o600 }
   );
 
   // Generate and save policy manifest (structured description of all firewall rules)
@@ -2369,7 +2368,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   fs.writeFileSync(
     path.join(auditDir, 'policy-manifest.json'),
     JSON.stringify(policyManifest, null, 2),
-    { mode: 0o644 }
+    { mode: 0o600 }
   );
 
   logger.debug(`Audit artifacts written to: ${auditDir}`);
