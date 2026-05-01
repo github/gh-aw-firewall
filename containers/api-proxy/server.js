@@ -10,6 +10,8 @@
  * 4. Respects domain whitelisting enforced by Squid
  */
 
+const fs = require('fs');
+const path = require('path');
 const http = require('http');
 const https = require('https');
 const tls = require('tls');
@@ -1424,6 +1426,74 @@ async function fetchStartupModels(overrides = {}) {
   modelFetchComplete = true;
 }
 
+// Default log directory for models.json (matches the volume mount in docker-compose)
+const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
+
+/**
+ * Build the models.json payload from current cached state.
+ *
+ * @returns {object} The models JSON object with timestamp, providers, and model_aliases
+ */
+function buildModelsJson() {
+  const opencodeConfigured = !!(OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN);
+  return {
+    timestamp: new Date().toISOString(),
+    providers: {
+      openai: {
+        configured: !!OPENAI_API_KEY,
+        models: cachedModels.openai !== undefined ? cachedModels.openai : null,
+        target: OPENAI_API_KEY ? OPENAI_API_TARGET : null,
+      },
+      anthropic: {
+        configured: !!ANTHROPIC_API_KEY,
+        models: cachedModels.anthropic !== undefined ? cachedModels.anthropic : null,
+        target: ANTHROPIC_API_KEY ? ANTHROPIC_API_TARGET : null,
+      },
+      copilot: {
+        configured: !!COPILOT_AUTH_TOKEN,
+        models: cachedModels.copilot !== undefined ? cachedModels.copilot : null,
+        target: COPILOT_AUTH_TOKEN ? COPILOT_API_TARGET : null,
+      },
+      gemini: {
+        configured: !!GEMINI_API_KEY,
+        models: cachedModels.gemini !== undefined ? cachedModels.gemini : null,
+        target: GEMINI_API_KEY ? GEMINI_API_TARGET : null,
+      },
+      opencode: {
+        configured: opencodeConfigured,
+        models: null,
+        target: null,
+      },
+    },
+    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
+  };
+}
+
+/**
+ * Write the current model availability snapshot to models.json in the log directory.
+ *
+ * Called after fetchStartupModels() completes.
+ * The file is written to the volume-mounted log directory so it is automatically
+ * available for artifact upload.
+ *
+ * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
+ */
+function writeModelsJson(logDir = MODELS_LOG_DIR) {
+  const filePath = path.join(logDir, 'models.json');
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(), null, 2) + '\n', 'utf8');
+    logRequest('info', 'models_json_written', { path: filePath });
+  } catch (err) {
+    logRequest('warn', 'models_json_write_failed', {
+      message: 'Failed to write models.json',
+      logDir,
+      path: filePath,
+      error: err instanceof Error ? (err.stack || err.message) : String(err),
+    });
+  }
+}
+
 /**
  * Build the reflection response describing all proxy endpoints and their available models.
  *
@@ -1550,9 +1620,12 @@ if (require.main === module) {
         logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
         keyValidationComplete = true;
       });
-      fetchStartupModels().catch((err) => {
+      fetchStartupModels().then(() => {
+        writeModelsJson();
+      }).catch((err) => {
         logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
         modelFetchComplete = true;
+        writeModelsJson();
       });
     }
   }
@@ -1855,4 +1928,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES };
+module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson };
