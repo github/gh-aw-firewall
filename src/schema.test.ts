@@ -173,4 +173,15 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { models: { 'gpt-4o': ['gpt-4o-2024-11-20'] } } })).toBe(true);
     expect(validate({ apiProxy: { models: { 'gpt-4o': 'not-an-array' } } })).toBe(false);
   });
+
+  it('src/awf-config-schema.json stays in sync with docs/awf-config.schema.json', () => {
+    const srcSchemaPath = path.join(__dirname, 'awf-config-schema.json');
+    const srcSchema = JSON.parse(fs.readFileSync(srcSchemaPath, 'utf8'));
+    // Compare all fields except $id (which differs for versioned releases)
+    const docsRest = { ...schema };
+    delete docsRest.$id;
+    const srcRest = { ...srcSchema };
+    delete srcRest.$id;
+    expect(srcRest).toEqual(docsRest);
+  });
 });

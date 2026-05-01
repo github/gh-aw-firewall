@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { validateWithSchema } from './schema-validator';
 
 export interface AwfFileConfig {
   $schema?: string;
@@ -68,230 +69,16 @@ export interface AwfFileConfig {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function validateKnownKeys(
-  value: Record<string, unknown>,
-  keys: string[],
-  location: string,
-  errors: string[]
-): void {
-  const allowed = new Set(keys);
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) {
-      errors.push(`${location}.${key} is not supported`);
-    }
-  }
-}
-
-function validateStringArray(value: unknown, location: string, errors: string[]): void {
-  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
-    errors.push(`${location} must be an array of strings`);
-  }
-}
-
-function validateStringOrStringArray(value: unknown, location: string, errors: string[]): void {
-  const isValid = typeof value === 'string' || (Array.isArray(value) && value.every(item => typeof item === 'string'));
-  if (!isValid) {
-    errors.push(`${location} must be a string or array of strings`);
-  }
-}
-
-function validateProviderTarget(value: unknown, location: string, errors: string[], allowBasePath = true): void {
-  if (!isRecord(value)) {
-    errors.push(`${location} must be an object`);
-    return;
-  }
-  validateKnownKeys(value, allowBasePath ? ['host', 'basePath'] : ['host'], location, errors);
-  if (value.host !== undefined && typeof value.host !== 'string') {
-    errors.push(`${location}.host must be a string`);
-  }
-  if (allowBasePath && value.basePath !== undefined && typeof value.basePath !== 'string') {
-    errors.push(`${location}.basePath must be a string`);
-  }
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
+/**
+ * Validate an unknown value against the AWF config schema.
+ * Returns an array of human-readable error strings (empty = valid).
+ *
+ * Uses the published JSON Schema (awf-config-schema.json) via ajv for
+ * validation, ensuring the schema is the single source of truth for both
+ * external consumers (gh-aw compiler) and internal validation.
+ */
 export function validateAwfFileConfig(config: unknown): string[] {
-  const errors: string[] = [];
-
-  if (!isRecord(config)) {
-    return ['config root must be an object'];
-  }
-
-  validateKnownKeys(
-    config,
-    ['$schema', 'network', 'apiProxy', 'security', 'container', 'environment', 'logging', 'rateLimiting'],
-    'config',
-    errors
-  );
-
-  if (config.$schema !== undefined && typeof config.$schema !== 'string') {
-    errors.push('config.$schema must be a string');
-  }
-
-  if (config.network !== undefined) {
-    if (!isRecord(config.network)) {
-      errors.push('config.network must be an object');
-    } else {
-      validateKnownKeys(config.network, ['allowDomains', 'blockDomains', 'dnsServers', 'upstreamProxy'], 'config.network', errors);
-      if (config.network.allowDomains !== undefined) validateStringArray(config.network.allowDomains, 'config.network.allowDomains', errors);
-      if (config.network.blockDomains !== undefined) validateStringArray(config.network.blockDomains, 'config.network.blockDomains', errors);
-      if (config.network.dnsServers !== undefined) validateStringArray(config.network.dnsServers, 'config.network.dnsServers', errors);
-      if (config.network.upstreamProxy !== undefined && typeof config.network.upstreamProxy !== 'string') {
-        errors.push('config.network.upstreamProxy must be a string');
-      }
-    }
-  }
-
-  if (config.apiProxy !== undefined) {
-    if (!isRecord(config.apiProxy)) {
-      errors.push('config.apiProxy must be an object');
-    } else {
-      validateKnownKeys(config.apiProxy, ['enabled', 'enableOpenCode', 'anthropicAutoCache', 'anthropicCacheTailTtl', 'targets', 'models'], 'config.apiProxy', errors);
-      if (config.apiProxy.enabled !== undefined && typeof config.apiProxy.enabled !== 'boolean') {
-        errors.push('config.apiProxy.enabled must be a boolean');
-      }
-      if (config.apiProxy.enableOpenCode !== undefined && typeof config.apiProxy.enableOpenCode !== 'boolean') {
-        errors.push('config.apiProxy.enableOpenCode must be a boolean');
-      }
-      if (config.apiProxy.anthropicAutoCache !== undefined && typeof config.apiProxy.anthropicAutoCache !== 'boolean') {
-        errors.push('config.apiProxy.anthropicAutoCache must be a boolean');
-      }
-      if (config.apiProxy.anthropicCacheTailTtl !== undefined) {
-        if (config.apiProxy.anthropicCacheTailTtl !== '5m' && config.apiProxy.anthropicCacheTailTtl !== '1h') {
-          errors.push('config.apiProxy.anthropicCacheTailTtl must be "5m" or "1h"');
-        }
-      }
-      if (config.apiProxy.targets !== undefined) {
-        if (!isRecord(config.apiProxy.targets)) {
-          errors.push('config.apiProxy.targets must be an object');
-        } else {
-          validateKnownKeys(config.apiProxy.targets, ['openai', 'anthropic', 'copilot', 'gemini'], 'config.apiProxy.targets', errors);
-          if (config.apiProxy.targets.openai !== undefined) validateProviderTarget(config.apiProxy.targets.openai, 'config.apiProxy.targets.openai', errors);
-          if (config.apiProxy.targets.anthropic !== undefined) validateProviderTarget(config.apiProxy.targets.anthropic, 'config.apiProxy.targets.anthropic', errors);
-          if (config.apiProxy.targets.copilot !== undefined) validateProviderTarget(config.apiProxy.targets.copilot, 'config.apiProxy.targets.copilot', errors, false);
-          if (config.apiProxy.targets.gemini !== undefined) validateProviderTarget(config.apiProxy.targets.gemini, 'config.apiProxy.targets.gemini', errors);
-        }
-      }
-      if (config.apiProxy.models !== undefined) {
-        if (!isRecord(config.apiProxy.models)) {
-          errors.push('config.apiProxy.models must be an object');
-        } else {
-          for (const [key, value] of Object.entries(config.apiProxy.models)) {
-            if (!Array.isArray(value) || value.some(v => typeof v !== 'string')) {
-              errors.push(`config.apiProxy.models["${key}"] must be an array of strings`);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (config.security !== undefined) {
-    if (!isRecord(config.security)) {
-      errors.push('config.security must be an object');
-    } else {
-      validateKnownKeys(
-        config.security,
-        ['sslBump', 'enableDlp', 'enableHostAccess', 'allowHostPorts', 'allowHostServicePorts', 'difcProxy'],
-        'config.security',
-        errors
-      );
-      if (config.security.sslBump !== undefined && typeof config.security.sslBump !== 'boolean') errors.push('config.security.sslBump must be a boolean');
-      if (config.security.enableDlp !== undefined && typeof config.security.enableDlp !== 'boolean') errors.push('config.security.enableDlp must be a boolean');
-      if (config.security.enableHostAccess !== undefined && typeof config.security.enableHostAccess !== 'boolean') errors.push('config.security.enableHostAccess must be a boolean');
-      if (config.security.allowHostPorts !== undefined) validateStringOrStringArray(config.security.allowHostPorts, 'config.security.allowHostPorts', errors);
-      if (config.security.allowHostServicePorts !== undefined) validateStringOrStringArray(config.security.allowHostServicePorts, 'config.security.allowHostServicePorts', errors);
-      if (config.security.difcProxy !== undefined) {
-        if (!isRecord(config.security.difcProxy)) {
-          errors.push('config.security.difcProxy must be an object');
-        } else {
-          validateKnownKeys(config.security.difcProxy, ['host', 'caCert'], 'config.security.difcProxy', errors);
-          if (config.security.difcProxy.host !== undefined && typeof config.security.difcProxy.host !== 'string') errors.push('config.security.difcProxy.host must be a string');
-          if (config.security.difcProxy.caCert !== undefined && typeof config.security.difcProxy.caCert !== 'string') errors.push('config.security.difcProxy.caCert must be a string');
-        }
-      }
-    }
-  }
-
-  if (config.container !== undefined) {
-    if (!isRecord(config.container)) {
-      errors.push('config.container must be an object');
-    } else {
-      validateKnownKeys(
-        config.container,
-        ['memoryLimit', 'agentTimeout', 'enableDind', 'workDir', 'containerWorkDir', 'imageRegistry', 'imageTag', 'skipPull', 'buildLocal', 'agentImage', 'tty', 'dockerHost'],
-        'config.container',
-        errors
-      );
-      if (config.container.memoryLimit !== undefined && typeof config.container.memoryLimit !== 'string') errors.push('config.container.memoryLimit must be a string');
-      if (config.container.agentTimeout !== undefined && !isPositiveInteger(config.container.agentTimeout)) {
-        errors.push('config.container.agentTimeout must be a positive integer');
-      }
-      if (config.container.enableDind !== undefined && typeof config.container.enableDind !== 'boolean') errors.push('config.container.enableDind must be a boolean');
-      if (config.container.workDir !== undefined && typeof config.container.workDir !== 'string') errors.push('config.container.workDir must be a string');
-      if (config.container.containerWorkDir !== undefined && typeof config.container.containerWorkDir !== 'string') errors.push('config.container.containerWorkDir must be a string');
-      if (config.container.imageRegistry !== undefined && typeof config.container.imageRegistry !== 'string') errors.push('config.container.imageRegistry must be a string');
-      if (config.container.imageTag !== undefined && typeof config.container.imageTag !== 'string') errors.push('config.container.imageTag must be a string');
-      if (config.container.skipPull !== undefined && typeof config.container.skipPull !== 'boolean') errors.push('config.container.skipPull must be a boolean');
-      if (config.container.buildLocal !== undefined && typeof config.container.buildLocal !== 'boolean') errors.push('config.container.buildLocal must be a boolean');
-      if (config.container.agentImage !== undefined && typeof config.container.agentImage !== 'string') errors.push('config.container.agentImage must be a string');
-      if (config.container.tty !== undefined && typeof config.container.tty !== 'boolean') errors.push('config.container.tty must be a boolean');
-      if (config.container.dockerHost !== undefined && typeof config.container.dockerHost !== 'string') errors.push('config.container.dockerHost must be a string');
-    }
-  }
-
-  if (config.environment !== undefined) {
-    if (!isRecord(config.environment)) {
-      errors.push('config.environment must be an object');
-    } else {
-      validateKnownKeys(config.environment, ['envFile', 'envAll', 'excludeEnv'], 'config.environment', errors);
-      if (config.environment.envFile !== undefined && typeof config.environment.envFile !== 'string') errors.push('config.environment.envFile must be a string');
-      if (config.environment.envAll !== undefined && typeof config.environment.envAll !== 'boolean') errors.push('config.environment.envAll must be a boolean');
-      if (config.environment.excludeEnv !== undefined) validateStringArray(config.environment.excludeEnv, 'config.environment.excludeEnv', errors);
-    }
-  }
-
-  if (config.logging !== undefined) {
-    if (!isRecord(config.logging)) {
-      errors.push('config.logging must be an object');
-    } else {
-      validateKnownKeys(config.logging, ['logLevel', 'diagnosticLogs', 'auditDir', 'proxyLogsDir', 'sessionStateDir'], 'config.logging', errors);
-      if (config.logging.logLevel !== undefined && (typeof config.logging.logLevel !== 'string' || !['debug', 'info', 'warn', 'error'].includes(config.logging.logLevel))) {
-        errors.push('config.logging.logLevel must be one of: debug, info, warn, error');
-      }
-      if (config.logging.diagnosticLogs !== undefined && typeof config.logging.diagnosticLogs !== 'boolean') errors.push('config.logging.diagnosticLogs must be a boolean');
-      if (config.logging.auditDir !== undefined && typeof config.logging.auditDir !== 'string') errors.push('config.logging.auditDir must be a string');
-      if (config.logging.proxyLogsDir !== undefined && typeof config.logging.proxyLogsDir !== 'string') errors.push('config.logging.proxyLogsDir must be a string');
-      if (config.logging.sessionStateDir !== undefined && typeof config.logging.sessionStateDir !== 'string') errors.push('config.logging.sessionStateDir must be a string');
-    }
-  }
-
-  if (config.rateLimiting !== undefined) {
-    if (!isRecord(config.rateLimiting)) {
-      errors.push('config.rateLimiting must be an object');
-    } else {
-      validateKnownKeys(config.rateLimiting, ['enabled', 'requestsPerMinute', 'requestsPerHour', 'bytesPerMinute'], 'config.rateLimiting', errors);
-      if (config.rateLimiting.enabled !== undefined && typeof config.rateLimiting.enabled !== 'boolean') errors.push('config.rateLimiting.enabled must be a boolean');
-      if (config.rateLimiting.requestsPerMinute !== undefined && !isPositiveInteger(config.rateLimiting.requestsPerMinute)) {
-        errors.push('config.rateLimiting.requestsPerMinute must be a positive integer');
-      }
-      if (config.rateLimiting.requestsPerHour !== undefined && !isPositiveInteger(config.rateLimiting.requestsPerHour)) {
-        errors.push('config.rateLimiting.requestsPerHour must be a positive integer');
-      }
-      if (config.rateLimiting.bytesPerMinute !== undefined && !isPositiveInteger(config.rateLimiting.bytesPerMinute)) {
-        errors.push('config.rateLimiting.bytesPerMinute must be a positive integer');
-      }
-    }
-  }
-
-  return errors;
+  return validateWithSchema(config);
 }
 
 const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');

@@ -402,4 +402,9 @@ if (printOnly) {
   const outPath = join(docsDir, 'awf-config.schema.json');
   writeFileSync(outPath, output);
   console.log(`Schema written to ${outPath}`);
+
+  // Also write to src/ for runtime bundling (used by schema-validator.ts)
+  const srcPath = join(projectRoot, 'src', 'awf-config-schema.json');
+  writeFileSync(srcPath, output);
+  console.log(`Schema written to ${srcPath}`);
 }
