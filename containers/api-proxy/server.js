@@ -1427,7 +1427,7 @@ async function fetchStartupModels(overrides = {}) {
 }
 
 // Default log directory for models.json (matches the volume mount in docker-compose)
-const MODELS_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
+const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
 
 /**
  * Build the models.json payload from current cached state.
