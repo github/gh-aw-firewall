@@ -1514,6 +1514,12 @@ program
     'Base path prefix for Gemini API requests',
   )
   .option(
+    '--enable-opencode',
+    'Enable OpenCode API proxy listener on port 10004 (requires --enable-api-proxy).\n' +
+    '                                       Only start this when the workflow uses the OpenCode engine.',
+    false
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1966,6 +1972,7 @@ program
       enableDlp: options.enableDlp,
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
+      enableOpenCode: options.enableOpencode,
       modelAliases,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,

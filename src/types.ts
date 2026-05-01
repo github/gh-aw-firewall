@@ -716,6 +716,19 @@ export interface WrapperConfig {
   geminiApiKey?: string;
 
   /**
+   * Enable the OpenCode API proxy listener on port 10004
+   *
+   * When true, the api-proxy sidecar starts the OpenCode listener (port 10004) that
+   * dynamically routes requests to whichever LLM credential is available.
+   * When false (the default), the listener is not started even if other API keys
+   * are present, preventing unnecessary port exposure in workflows that do not use
+   * the OpenCode engine.
+   *
+   * @default false
+   */
+  enableOpenCode?: boolean;
+
+  /**
    * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar

@@ -2783,6 +2783,30 @@ describe('docker-manager', () => {
         expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
       });
 
+      it('should set AWF_ENABLE_OPENCODE=true in api-proxy when enableOpenCode is true', () => {
+        const configWithOpenCode = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', enableOpenCode: true };
+        const result = generateDockerCompose(configWithOpenCode, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_ENABLE_OPENCODE).toBe('true');
+      });
+
+      it('should not set AWF_ENABLE_OPENCODE in api-proxy when enableOpenCode is false', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', enableOpenCode: false };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_ENABLE_OPENCODE).toBeUndefined();
+      });
+
+      it('should not set AWF_ENABLE_OPENCODE in api-proxy when enableOpenCode is undefined', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_ENABLE_OPENCODE).toBeUndefined();
+      });
+
       it('should set OPENAI_API_TARGET in api-proxy when openaiApiTarget is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiTarget: 'custom.openai-router.internal' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

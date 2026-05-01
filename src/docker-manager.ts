@@ -1806,6 +1806,8 @@ export function generateDockerCompose(
         ...(config.modelAliases && {
           AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
         }),
+        // Enable OpenCode listener only when explicitly requested
+        ...(config.enableOpenCode && { AWF_ENABLE_OPENCODE: 'true' }),
       },
       healthcheck: {
         test: ['CMD', 'curl', '-f', `http://localhost:${API_PROXY_HEALTH_PORT}/health`],
