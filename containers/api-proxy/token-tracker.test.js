@@ -12,6 +12,8 @@ const {
   isCompressedResponse,
   trackTokenUsage,
   trackWebSocketTokenUsage,
+  validateTokenUsageRecord,
+  writeTokenUsage,
 } = require('./token-tracker');
 const { EventEmitter } = require('events');
 const os = require('os');
@@ -1047,8 +1049,6 @@ describe('trackWebSocketTokenUsage', () => {
 
 // ── validateTokenUsageRecord ─────────────────────────────────────────
 
-const { validateTokenUsageRecord, writeTokenUsage } = require('./token-tracker');
-
 describe('validateTokenUsageRecord', () => {
   const validRecord = {
     _schema: 'token-usage/v1',
@@ -1106,8 +1106,6 @@ describe('validateTokenUsageRecord', () => {
 describe('token-usage JSONL record schema field', () => {
   test('writeTokenUsage writes _schema:"token-usage/v1" to JSONL when stream is writable', (done) => {
     // Use a custom in-memory stream to capture what writeTokenUsage serialises.
-    const { writeTokenUsage } = require('./token-tracker');
-
     const chunks = [];
     const fakeStream = {
       writableEnded: false,
@@ -1135,15 +1133,12 @@ describe('token-usage JSONL record schema field', () => {
       response_bytes: 42,
     };
 
-    // Inject the fake stream via the module's logStream variable
-    // by calling writeTokenUsage via its Node.js module cache.
-    const mod = require('./token-tracker');
     // We have no direct access to the internal logStream singleton.
     // Instead, verify that writeTokenUsage validates and does NOT throw
     // when given a valid record (which requires _schema to be correct).
     // The absence of a thrown error + validateTokenUsageRecord returning true
     // is the integration proof that _schema is accepted.
-    expect(() => mod.writeTokenUsage(record)).not.toThrow();
+    expect(() => writeTokenUsage(record)).not.toThrow();
     done();
   });
 
