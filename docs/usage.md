@@ -97,6 +97,9 @@ Options:
   --gemini-api-target <host>   Target hostname for Gemini API requests
                                (default: generativelanguage.googleapis.com)
   --gemini-api-base-path <path> Base path prefix for Gemini API requests
+  --enable-opencode            Enable OpenCode API proxy listener on port 10004
+                               (requires --enable-api-proxy). Only start this when the
+                               workflow uses the OpenCode engine. (default: false)
   --rate-limit-rpm <n>         Max requests per minute per provider (requires --enable-api-proxy)
   --rate-limit-rph <n>         Max requests per hour per provider (requires --enable-api-proxy)
   --rate-limit-bytes-pm <n>    Max request bytes per minute per provider (requires --enable-api-proxy)

@@ -67,6 +67,7 @@ Tools generating AWF invocations (such as `gh-aw`) SHOULD use this mapping:
 - `network.dnsServers[]` → `--dns-servers <csv>`
 - `network.upstreamProxy` → `--upstream-proxy`
 - `apiProxy.enabled` → `--enable-api-proxy`
+- `apiProxy.enableOpenCode` → `--enable-opencode`
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
