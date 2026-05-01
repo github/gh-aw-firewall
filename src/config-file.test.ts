@@ -90,6 +90,26 @@ describe('config-file', () => {
       expect(errors).toContain('config.apiProxy.enableOpenCode must be a boolean');
     });
 
+    it('accepts boolean apiProxy.anthropicAutoCache', () => {
+      expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: true } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: false } })).toEqual([]);
+    });
+
+    it('rejects non-boolean apiProxy.anthropicAutoCache', () => {
+      const errors = validateAwfFileConfig({ apiProxy: { anthropicAutoCache: 'yes' } });
+      expect(errors).toContain('config.apiProxy.anthropicAutoCache must be a boolean');
+    });
+
+    it('accepts valid apiProxy.anthropicCacheTailTtl values', () => {
+      expect(validateAwfFileConfig({ apiProxy: { anthropicCacheTailTtl: '5m' } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { anthropicCacheTailTtl: '1h' } })).toEqual([]);
+    });
+
+    it('rejects invalid apiProxy.anthropicCacheTailTtl', () => {
+      const errors = validateAwfFileConfig({ apiProxy: { anthropicCacheTailTtl: '10m' } });
+      expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be "5m" or "1h"');
+    });
+
     it('rejects non-object apiProxy.targets', () => {
       const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
       expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -522,6 +542,23 @@ describe('config-file', () => {
       expect(result.copilotApiTarget).toBe('api.githubcopilot.com');
       expect(result.geminiApiTarget).toBe('generativelanguage.googleapis.com');
       expect(result.geminiApiBasePath).toBe('/v1beta');
+    });
+
+    it('maps anthropicAutoCache and anthropicCacheTailTtl fields', () => {
+      const result = mapAwfFileConfigToCliOptions({
+        apiProxy: {
+          anthropicAutoCache: true,
+          anthropicCacheTailTtl: '1h',
+        },
+      });
+      expect(result.anthropicAutoCache).toBe(true);
+      expect(result.anthropicCacheTailTtl).toBe('1h');
+    });
+
+    it('leaves anthropicAutoCache and anthropicCacheTailTtl undefined when not set', () => {
+      const result = mapAwfFileConfigToCliOptions({});
+      expect(result.anthropicAutoCache).toBeUndefined();
+      expect(result.anthropicCacheTailTtl).toBeUndefined();
     });
 
     it('maps security fields', () => {
