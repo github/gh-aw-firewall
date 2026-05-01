@@ -26,7 +26,8 @@
     "docs:preview": "cd docs-site && npm run preview",
     "benchmark": "npx tsx scripts/ci/benchmark-performance.ts",
     "benchmark:trend": "npx tsx scripts/ci/benchmark-trend.ts",
-    "build:bundle": "npm run build && node scripts/build-bundle.mjs"
+    "build:bundle": "npm run build && node scripts/build-bundle.mjs",
+    "generate:schema": "node scripts/generate-schema.mjs"
   },
   "keywords": [
     "agentic-workflows",

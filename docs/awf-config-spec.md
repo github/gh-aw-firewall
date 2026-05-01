@@ -10,7 +10,9 @@ This document defines the canonical configuration model for AWF (`awf`) and is i
 
 The machine-readable schema is published at:
 
-- `docs/awf-config.schema.json`
+- `docs/awf-config.schema.json` — live schema (always reflects latest `main`)
+- GitHub release asset `awf-config.schema.json` — versioned, stable URL per release
+  (e.g. `https://github.com/github/gh-aw-firewall/releases/download/v0.23.1/awf-config.schema.json`)
 
 ## 1. Conformance
 

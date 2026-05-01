@@ -520,6 +520,14 @@ jobs:
           echo "Generated containers.txt:"
           cat release/containers.txt
 
+      - name: Generate versioned JSON Schema
+        run: |
+          mkdir -p release
+          node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }}
+          cp docs/awf-config.schema.json release/awf-config.schema.json
+          echo "=== Schema preview (first 10 lines) ==="
+          head -10 release/awf-config.schema.json
+
       - name: Generate checksums
         run: |
           cd release
@@ -645,6 +653,7 @@ jobs:
             release/awf-bundle.js
             release/awf.tgz
             release/containers.txt
+            release/awf-config.schema.json
             release/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
