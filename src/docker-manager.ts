@@ -773,6 +773,7 @@ export function generateDockerCompose(
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
     EXCLUDED_ENV_VARS.add('GEMINI_API_KEY');
     EXCLUDED_ENV_VARS.add('GOOGLE_GEMINI_BASE_URL');
+    EXCLUDED_ENV_VARS.add('GEMINI_API_BASE_URL');
     // COPILOT_GITHUB_TOKEN and COPILOT_API_KEY get placeholders (not excluded), protected by one-shot-token
     // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go

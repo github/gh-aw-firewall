@@ -3094,6 +3094,24 @@ describe('docker-manager', () => {
         }
       });
 
+      it('should not inherit GEMINI_API_BASE_URL from host env via envAll when geminiApiKey is absent', () => {
+        const origVal = process.env.GEMINI_API_BASE_URL;
+        process.env.GEMINI_API_BASE_URL = 'http://some-other-proxy';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          // GEMINI_API_BASE_URL is in EXCLUDED_ENV_VARS so it must not be inherited from host
+          expect(env.GEMINI_API_BASE_URL).toBeUndefined();
+        } finally {
+          if (origVal !== undefined) {
+            process.env.GEMINI_API_BASE_URL = origVal;
+          } else {
+            delete process.env.GEMINI_API_BASE_URL;
+          }
+        }
+      });
+
       it('should NOT set GEMINI_API_KEY placeholder in agent when api-proxy is enabled without geminiApiKey', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

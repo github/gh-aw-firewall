@@ -432,7 +432,7 @@ Fields:
 
 ### Gemini proxy returns 503
 
-When `--enable-api-proxy` is active, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, and a placeholder `GEMINI_API_KEY` are always injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the api-proxy Gemini listener (port 10003) responds with **503** to all requests.
+When `--enable-api-proxy` is active **and `GEMINI_API_KEY` is provided to the AWF runner**, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, and a placeholder `GEMINI_API_KEY` are injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the Gemini routing vars are never set and the api-proxy Gemini listener (port 10003) responds with **503** to any requests that do reach it.
 
 **Solution**: Export `GEMINI_API_KEY` in the runner environment before invoking AWF. In GitHub Actions, add it to the step's `env:` block and use `sudo --preserve-env`:
 
