@@ -8,8 +8,9 @@
  *   node scripts/generate-schema.mjs --version v0.23.1        # embeds a versioned $id
  *   node scripts/generate-schema.mjs --print                  # prints to stdout
  *
- * The schema mirrors the AwfFileConfig TypeScript interface in src/config-file.ts.
- * When the interface changes, update this script to match.
+ * The schema reflects the validated config surface defined in src/config-file.ts
+ * (validateAwfFileConfig), not just the AwfFileConfig TypeScript interface.
+ * When validation rules change (e.g. new fields, enum constraints), update this script to match.
  */
 
 import { writeFileSync, mkdirSync } from 'fs';
@@ -22,7 +23,25 @@ const projectRoot = join(__dirname, '..');
 
 // --- Parse CLI args ---
 const args = process.argv.slice(2);
+
+const knownFlags = new Set(['--version', '--print']);
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (!knownFlags.has(arg)) {
+    // Skip the value that follows --version
+    if (args[i - 1] === '--version') continue;
+    console.error(`Error: unknown argument '${arg}'`);
+    console.error('Usage: generate-schema.mjs [--version <vX.Y.Z>] [--print]');
+    process.exit(1);
+  }
+}
+
 const versionIdx = args.indexOf('--version');
+if (versionIdx !== -1 && (versionIdx + 1 >= args.length || args[versionIdx + 1].startsWith('--'))) {
+  console.error('Error: --version requires a value (e.g. --version v0.23.1)');
+  console.error('Usage: generate-schema.mjs [--version <vX.Y.Z>] [--print]');
+  process.exit(1);
+}
 const version = versionIdx !== -1 ? args[versionIdx + 1] : null;
 const printOnly = args.includes('--print');
 
@@ -103,7 +122,7 @@ const schema = {
           enum: ['5m', '1h'],
           description:
             'TTL for Anthropic cache tail optimization. ' +
-            'Requires anthropicAutoCache to be enabled. Allowed values: "5m" or "1h".',
+            'Only applies when anthropicAutoCache is enabled. Allowed values: "5m" or "1h".',
         },
         targets: {
           type: 'object',

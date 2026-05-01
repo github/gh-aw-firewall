@@ -65,7 +65,7 @@
             "5m",
             "1h"
           ],
-          "description": "TTL for Anthropic cache tail optimization. Requires anthropicAutoCache to be enabled. Allowed values: \"5m\" or \"1h\"."
+          "description": "TTL for Anthropic cache tail optimization. Only applies when anthropicAutoCache is enabled. Allowed values: \"5m\" or \"1h\"."
         },
         "targets": {
           "type": "object",
