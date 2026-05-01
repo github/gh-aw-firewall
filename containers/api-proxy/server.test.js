@@ -1937,7 +1937,6 @@ describe('writeModelsJson', () => {
 // ── composeBodyTransforms ──────────────────────────────────────────────────────
 
 describe('composeBodyTransforms', () => {
-  const id = (buf) => buf; // identity — no change is signalled by returning the same buffer
   const upper = (buf) => Buffer.from(buf.toString('utf8').toUpperCase(), 'utf8');
   const exclaim = (buf) => Buffer.from(`${buf.toString('utf8')}!`, 'utf8');
   const noOp = () => null; // signals "no change"
