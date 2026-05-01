@@ -374,6 +374,98 @@ if (MODEL_ALIASES) {
   });
 }
 
+// ── Anthropic prompt-cache optimizations ────────────────────────────────────
+// Enabled by setting AWF_ANTHROPIC_AUTO_CACHE=1.
+// When enabled, /v1/messages POST requests are mutated before forwarding:
+//   - Cache breakpoints injected on tools / system / messages[0] / rolling tail
+//   - Existing ephemeral breakpoints upgraded to ttl:"1h" (tail stays at TAIL_TTL)
+//   - anthropic-beta header extended with the extended-cache-ttl-2025-04-11 flag
+//   - ANSI SGR sequences stripped from message text and tool results
+//
+// Tail TTL is controlled by AWF_ANTHROPIC_CACHE_TAIL_TTL (default: "5m").
+// Valid values: "5m", "1h". Use "1h" only for long-running sessions where
+// the tail breakpoint is unlikely to expire within an hour.
+const ANTHROPIC_AUTO_CACHE = process.env.AWF_ANTHROPIC_AUTO_CACHE === '1';
+const ANTHROPIC_CACHE_TAIL_TTL = (() => {
+  const raw = (process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL || '').trim().toLowerCase();
+  return raw === '1h' ? '1h' : '5m';
+})();
+
+if (ANTHROPIC_AUTO_CACHE) {
+  logRequest('info', 'startup', {
+    message: 'Anthropic prompt-cache optimizations enabled (AWF_ANTHROPIC_AUTO_CACHE=1)',
+    tail_ttl: ANTHROPIC_CACHE_TAIL_TTL,
+  });
+}
+
+
+/**
+ * Build a body-transform function for the Anthropic provider that applies:
+ *   1. Model alias rewriting (when AWF_MODEL_ALIASES is configured)
+ *   2. Prompt-cache optimizations (when AWF_ANTHROPIC_AUTO_CACHE=1):
+ *      - Cache breakpoint injection (tools / system / messages[0] / tail)
+ *      - Ephemeral TTL upgrade to 1h (tail stays at ANTHROPIC_CACHE_TAIL_TTL)
+ *      - ANSI escape code stripping
+ *
+ * The `injectHeaders` map is mutated in-place to add the
+ * `anthropic-beta: extended-cache-ttl-2025-04-11` flag when auto-cache is on.
+ *
+ * @param {Record<string,string>} injectHeaders - Outgoing auth headers (mutated in-place)
+ * @returns {((body: Buffer) => Buffer | null) | null}
+ */
+function makeAnthropicBodyTransform(injectHeaders) {
+  const hasModelAliases = !!MODEL_ALIASES;
+  const hasAutoCache = ANTHROPIC_AUTO_CACHE;
+  if (!hasModelAliases && !hasAutoCache) return null;
+
+  return (body) => {
+    // Step 1: model alias rewriting (operates on raw Buffer, may return a new Buffer)
+    let buf = body;
+    let modelAliasRewritten = false;
+    if (hasModelAliases) {
+      const result = rewriteModelInBody(buf, 'anthropic', MODEL_ALIASES.models, cachedModels);
+      if (result) {
+        for (const line of result.log) {
+          logRequest('info', 'model_resolution', { message: line, provider: 'anthropic' });
+        }
+        logRequest('info', 'model_rewrite', {
+          provider: 'anthropic',
+          original_model: sanitizeForLog(result.originalModel) || '(none)',
+          resolved_model: sanitizeForLog(result.resolvedModel),
+        });
+        buf = result.body;
+        modelAliasRewritten = true;
+      }
+    }
+
+    // Step 2: prompt-cache optimizations (parse JSON, mutate, re-serialise)
+    if (hasAutoCache) {
+      let parsed;
+      try {
+        parsed = JSON.parse(buf.toString('utf8'));
+      } catch {
+        logRequest('warn', 'anthropic_cache_skip', {
+          message: 'Failed to parse request body as JSON — skipping cache optimizations',
+        });
+        return modelAliasRewritten ? buf : null;
+      }
+
+      const result = applyAnthropicCacheOptimizations(parsed, injectHeaders, { tailTtl: ANTHROPIC_CACHE_TAIL_TTL });
+      logRequest('info', 'anthropic_cache_applied', {
+        injected: result.injected,
+        rewritten: result.rewritten,
+        beta_header: result.betaHeader,
+        ansi_cleaned: result.ansiCleaned,
+      });
+
+      const mutated = Buffer.from(JSON.stringify(parsed), 'utf8');
+      return mutated;
+    }
+
+    return modelAliasRewritten ? buf : null;
+  };
+}
+
 /**
  * Build a body-transform function for a given provider that rewrites the
  * "model" field in JSON request bodies using the configured alias map.

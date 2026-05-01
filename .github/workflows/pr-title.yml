@@ -41,5 +41,6 @@ jobs:
             docker
             squid
             proxy
+            api-proxy
             ci
             deps

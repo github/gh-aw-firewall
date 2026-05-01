@@ -13,6 +13,8 @@ export interface AwfFileConfig {
   apiProxy?: {
     enabled?: boolean;
     enableOpenCode?: boolean;
+    anthropicAutoCache?: boolean;
+    anthropicCacheTailTtl?: string;
     targets?: {
       openai?: { host?: string; basePath?: string };
       anthropic?: { host?: string; basePath?: string };
@@ -151,12 +153,20 @@ export function validateAwfFileConfig(config: unknown): string[] {
     if (!isRecord(config.apiProxy)) {
       errors.push('config.apiProxy must be an object');
     } else {
-      validateKnownKeys(config.apiProxy, ['enabled', 'enableOpenCode', 'targets', 'models'], 'config.apiProxy', errors);
+      validateKnownKeys(config.apiProxy, ['enabled', 'enableOpenCode', 'anthropicAutoCache', 'anthropicCacheTailTtl', 'targets', 'models'], 'config.apiProxy', errors);
       if (config.apiProxy.enabled !== undefined && typeof config.apiProxy.enabled !== 'boolean') {
         errors.push('config.apiProxy.enabled must be a boolean');
       }
       if (config.apiProxy.enableOpenCode !== undefined && typeof config.apiProxy.enableOpenCode !== 'boolean') {
         errors.push('config.apiProxy.enableOpenCode must be a boolean');
+      }
+      if (config.apiProxy.anthropicAutoCache !== undefined && typeof config.apiProxy.anthropicAutoCache !== 'boolean') {
+        errors.push('config.apiProxy.anthropicAutoCache must be a boolean');
+      }
+      if (config.apiProxy.anthropicCacheTailTtl !== undefined) {
+        if (config.apiProxy.anthropicCacheTailTtl !== '5m' && config.apiProxy.anthropicCacheTailTtl !== '1h') {
+          errors.push('config.apiProxy.anthropicCacheTailTtl must be "5m" or "1h"');
+        }
       }
       if (config.apiProxy.targets !== undefined) {
         if (!isRecord(config.apiProxy.targets)) {
@@ -360,6 +370,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
 
     enableApiProxy: config.apiProxy?.enabled,
     enableOpencode: config.apiProxy?.enableOpenCode,
+    anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
+    anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateEnableOpenCodeFlag, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, warnClassicPATWithCopilotModel, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl, checkDockerHost } from './cli';
+import { parseEnvironmentVariables, parseDomains, parseDomainsFile, escapeShellArg, joinShellArgs, parseVolumeMounts, isValidIPv4, isValidIPv6, parseDnsServers, parseDnsOverHttps, validateAgentImage, isAgentImagePreset, AGENT_IMAGE_PRESETS, processAgentImageOption, processLocalhostKeyword, validateSkipPullWithBuildLocal, validateAllowHostPorts, validateAllowHostServicePorts, applyHostServicePortsConfig, parseMemoryLimit, validateFormat, validateApiProxyConfig, buildRateLimitConfig, validateRateLimitFlags, validateEnableOpenCodeFlag, hasRateLimitOptions, collectRulesetFile, validateApiTargetInAllowedDomains, DEFAULT_OPENAI_API_TARGET, DEFAULT_ANTHROPIC_API_TARGET, DEFAULT_COPILOT_API_TARGET, DEFAULT_GEMINI_API_TARGET, emitApiProxyTargetWarnings, emitCliProxyStatusLogs, warnClassicPATWithCopilotModel, formatItem, program, parseAgentTimeout, applyAgentTimeout, handlePredownloadAction, resolveApiTargetsToAllowedDomains, extractGhesDomainsFromEngineApiTarget, extractGhecDomainsFromServerUrl, checkDockerHost, validateAnthropicCacheTailTtl } from './cli';
 import { redactSecrets } from './redact-secrets';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -2452,6 +2452,39 @@ describe('cli', () => {
       applyAgentTimeout('abc', config, logger);
       expect(logger.error).toHaveBeenCalledWith('--agent-timeout must be a positive integer (minutes)');
       expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockRestore();
+    });
+  });
+
+  describe('validateAnthropicCacheTailTtl', () => {
+    it('should not call process.exit when value is undefined', () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      validateAnthropicCacheTailTtl(undefined);
+      expect(mockExit).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it('should not call process.exit for valid value "5m"', () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      validateAnthropicCacheTailTtl('5m');
+      expect(mockExit).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it('should not call process.exit for valid value "1h"', () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      validateAnthropicCacheTailTtl('1h');
+      expect(mockExit).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it('should call process.exit(1) for an invalid value', () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      const mockError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      validateAnthropicCacheTailTtl('10m');
+      expect(mockError).toHaveBeenCalledWith('Invalid --anthropic-cache-tail-ttl value: "10m". Must be "5m" or "1h".');
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockError.mockRestore();
       mockExit.mockRestore();
     });
   });

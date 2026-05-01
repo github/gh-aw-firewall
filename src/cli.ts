@@ -319,6 +319,18 @@ export function validateApiProxyConfig(
 }
 
 /**
+ * Validates the value of --anthropic-cache-tail-ttl.
+ * Exits the process with an error if the value is not "5m" or "1h".
+ * @param value - The value provided for --anthropic-cache-tail-ttl (may be undefined)
+ */
+export function validateAnthropicCacheTailTtl(value: string | undefined): void {
+  if (value !== undefined && value !== '5m' && value !== '1h') {
+    console.error(`Invalid --anthropic-cache-tail-ttl value: "${value}". Must be "5m" or "1h".`);
+    process.exit(1);
+  }
+}
+
+/**
  * Validates that a custom API proxy target hostname is covered by the allowed domains list.
  * Returns a warning message if the target domain is not in allowed domains, otherwise null.
  * @param targetHost - The custom target hostname (e.g. "custom.example.com")
@@ -1530,6 +1542,18 @@ program
     false
   )
   .option(
+    '--anthropic-auto-cache',
+    'Enable Anthropic prompt-cache optimizations in the API proxy (requires --enable-api-proxy).\n' +
+    '                                       Injects cache breakpoints on tools/system/messages, upgrades TTL to 1h,\n' +
+    '                                       and strips ANSI codes — typically saves ~90% on Anthropic API input costs.',
+    false
+  )
+  .option(
+    '--anthropic-cache-tail-ttl <5m|1h>',
+    'TTL for the rolling-tail cache breakpoint when --anthropic-auto-cache is enabled.\n' +
+    '                                       Use "5m" (default) for fast interactive sessions, "1h" for long agentic tasks.',
+  )
+  .option(
     '--rate-limit-rpm <n>',
     'Max requests per minute per provider (requires --enable-api-proxy)',
   )
@@ -1657,6 +1681,9 @@ program
       console.error(`Invalid log level: ${logLevel}`);
       process.exit(1);
     }
+
+    // Validate --anthropic-cache-tail-ttl if provided
+    validateAnthropicCacheTailTtl(options.anthropicCacheTailTtl);
 
     // Model aliases may be injected via config file (not a Commander option),
     // so access through a Record cast with a proper type annotation.
@@ -1983,6 +2010,8 @@ program
       allowedUrls,
       enableApiProxy: options.enableApiProxy,
       enableOpenCode: options.enableOpencode,
+      anthropicAutoCache: options.anthropicAutoCache,
+      anthropicCacheTailTtl: options.anthropicCacheTailTtl,
       modelAliases,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,

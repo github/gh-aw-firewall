@@ -1808,6 +1808,11 @@ export function generateDockerCompose(
         ...(config.modelAliases && {
           AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
         }),
+        // Anthropic prompt-cache optimizations
+        ...(config.anthropicAutoCache && {
+          AWF_ANTHROPIC_AUTO_CACHE: '1',
+          ...(config.anthropicCacheTailTtl && { AWF_ANTHROPIC_CACHE_TAIL_TTL: config.anthropicCacheTailTtl }),
+        }),
         // Enable OpenCode listener only when explicitly requested
         ...(config.enableOpenCode && { AWF_ENABLE_OPENCODE: 'true' }),
         // Anthropic request optimisations (all opt-in via env vars on the host)

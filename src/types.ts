@@ -890,6 +890,55 @@ export interface WrapperConfig {
   modelAliases?: Record<string, string[]>;
 
   /**
+   * Enable Anthropic prompt-cache optimizations in the API proxy sidecar.
+   *
+   * When true, the Anthropic proxy (port 10001) automatically mutates every
+   * POST /v1/messages request before forwarding it to api.anthropic.com:
+   *
+   * - Injects prompt-cache breakpoints on tools, system, messages[0], and the
+   *   rolling tail where they are missing — reducing the uncached token count
+   *   for repetitive content to near zero.
+   * - Upgrades existing ephemeral cache TTLs from the implicit 5-minute default
+   *   to 1 hour on stable content (tools, system, messages[0]); the rolling tail
+   *   stays at the shorter TTL configured by `anthropicCacheTailTtl`.
+   * - Adds the `anthropic-beta: extended-cache-ttl-2025-04-11` header required
+   *   by the Anthropic API to honour 1h TTLs.
+   * - Strips ANSI SGR escape sequences from message text and tool results so
+   *   terminal output with colour codes caches cleanly.
+   *
+   * Requires `enableApiProxy: true`. Has no effect without an `ANTHROPIC_API_KEY`.
+   *
+   * Set via:
+   * - CLI flag: `--anthropic-auto-cache`
+   * - Config file: `apiProxy.anthropicAutoCache: true`
+   *
+   * @default false
+   */
+  anthropicAutoCache?: boolean;
+
+  /**
+   * TTL for the rolling-tail cache breakpoint when `anthropicAutoCache` is enabled.
+   *
+   * The rolling tail is the last cacheable block across all messages; it moves every
+   * turn so a shorter TTL is more cost-effective than 1h (avoids paying the 2.0×
+   * write multiplier for a breakpoint that will expire before reuse).
+   *
+   * - `"5m"` (default): 5-minute TTL. Suitable for interactive sessions with
+   *   fast back-and-forth turns.
+   * - `"1h"`: 1-hour TTL. Better for long-running agentic tasks where individual
+   *   turns may take minutes.
+   *
+   * Only used when `anthropicAutoCache` is true.
+   *
+   * Set via:
+   * - CLI flag: `--anthropic-cache-tail-ttl <5m|1h>`
+   * - Config file: `apiProxy.anthropicCacheTailTtl: "1h"`
+   *
+   * @default "5m"
+   */
+  anthropicCacheTailTtl?: '5m' | '1h';
+
+  /**
    * Enable CLI proxy sidecar for secure gh CLI access
    *
    * When true, deploys a CLI proxy sidecar container that:
