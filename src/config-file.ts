@@ -12,6 +12,7 @@ export interface AwfFileConfig {
   };
   apiProxy?: {
     enabled?: boolean;
+    enableOpenCode?: boolean;
     targets?: {
       openai?: { host?: string; basePath?: string };
       anthropic?: { host?: string; basePath?: string };
@@ -150,9 +151,12 @@ export function validateAwfFileConfig(config: unknown): string[] {
     if (!isRecord(config.apiProxy)) {
       errors.push('config.apiProxy must be an object');
     } else {
-      validateKnownKeys(config.apiProxy, ['enabled', 'targets', 'models'], 'config.apiProxy', errors);
+      validateKnownKeys(config.apiProxy, ['enabled', 'enableOpenCode', 'targets', 'models'], 'config.apiProxy', errors);
       if (config.apiProxy.enabled !== undefined && typeof config.apiProxy.enabled !== 'boolean') {
         errors.push('config.apiProxy.enabled must be a boolean');
+      }
+      if (config.apiProxy.enableOpenCode !== undefined && typeof config.apiProxy.enableOpenCode !== 'boolean') {
+        errors.push('config.apiProxy.enableOpenCode must be a boolean');
       }
       if (config.apiProxy.targets !== undefined) {
         if (!isRecord(config.apiProxy.targets)) {
@@ -355,6 +359,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     upstreamProxy: config.network?.upstreamProxy,
 
     enableApiProxy: config.apiProxy?.enabled,
+    enableOpencode: config.apiProxy?.enableOpenCode,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,

@@ -80,6 +80,16 @@ describe('config-file', () => {
       expect(errors).toContain('config.apiProxy.enabled must be a boolean');
     });
 
+    it('accepts boolean apiProxy.enableOpenCode', () => {
+      expect(validateAwfFileConfig({ apiProxy: { enableOpenCode: true } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { enableOpenCode: false } })).toEqual([]);
+    });
+
+    it('rejects non-boolean apiProxy.enableOpenCode', () => {
+      const errors = validateAwfFileConfig({ apiProxy: { enableOpenCode: 'yes' } });
+      expect(errors).toContain('config.apiProxy.enableOpenCode must be a boolean');
+    });
+
     it('rejects non-object apiProxy.targets', () => {
       const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
       expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -497,6 +507,7 @@ describe('config-file', () => {
     it('maps all API proxy target fields', () => {
       const result = mapAwfFileConfigToCliOptions({
         apiProxy: {
+          enableOpenCode: true,
           targets: {
             openai: { host: 'api.openai.com', basePath: '/v1' },
             copilot: { host: 'api.githubcopilot.com' },
@@ -505,6 +516,7 @@ describe('config-file', () => {
         },
       });
 
+      expect(result.enableOpencode).toBe(true);
       expect(result.openaiApiTarget).toBe('api.openai.com');
       expect(result.openaiApiBasePath).toBe('/v1');
       expect(result.copilotApiTarget).toBe('api.githubcopilot.com');
