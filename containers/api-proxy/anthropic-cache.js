@@ -86,11 +86,11 @@ function stripSmallSystemBreakpoints(body) {
 }
 
 /**
- * Find the last cacheable content block in a single message.
- * Cacheable types: text, tool_result, image.
- *
- * If the message content is a plain string it is first normalised to a
- * [{type:"text", text:…}] array so a breakpoint can be attached.
+ * Find the last cacheable content block in a single message, normalising plain
+ * string content to a [{type:"text", text:…}] array first so a breakpoint can
+ * be attached.  The normalisation is an intentional in-place mutation: the
+ * Anthropic API accepts both string and array content, and converting to array
+ * form is required to attach a cache_control object to the content block.
  *
  * @param {object} m
  * @returns {object|null}
@@ -187,6 +187,9 @@ function rewriteCacheControl(node, counter, skip) {
     }
   }
   for (const key of Object.keys(node)) {
+    // Skip cache_control itself — it was already handled above and its children
+    // (type, ttl) will never contain nested cache_control entries.
+    if (key === 'cache_control') continue;
     const v = node[key];
     if (v && typeof v === 'object') rewriteCacheControl(v, counter, skip);
   }
