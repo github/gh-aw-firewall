@@ -691,6 +691,22 @@ jobs:
           else
             echo "$BASE_CONFIG" > "$SETTINGS"
           fi
+
+          # Fix MCP gateway URLs: Gemini runs on the host (not in a container),
+          # so host.docker.internal doesn't resolve. Replace with localhost.
+          if [ -f "$SETTINGS" ] && grep -q "host.docker.internal" "$SETTINGS"; then
+            sed -i 's|host\.docker\.internal|localhost|g' "$SETTINGS"
+            echo "Replaced host.docker.internal with localhost in Gemini settings"
+          fi
+
+          # Ensure MCP servers are trusted (auto-approve tool calls in --yolo mode)
+          if [ -f "$SETTINGS" ] && jq -e '.mcpServers' "$SETTINGS" > /dev/null 2>&1; then
+            jq '.mcpServers |= with_entries(.value.trust = true)' "$SETTINGS" > "${SETTINGS}.tmp" && mv "${SETTINGS}.tmp" "$SETTINGS"
+            echo "Set trust=true on all MCP servers"
+          fi
+
+          echo "Final Gemini settings:"
+          cat "$SETTINGS"
         env:
           GH_AW_GEMINI_BASE_CONFIG: '{"context":{"includeDirectories":["/tmp/"]},"tools":{"core":["glob","grep_search","list_directory","read_file","read_many_files","run_shell_command"]}}'
       - name: Execute Gemini CLI
