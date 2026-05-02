@@ -81,8 +81,11 @@ function createGeminiAdapter(env, deps = {}) {
 
     getModelsFetchConfig() {
       if (!apiKey) return null;
+      // Use the configured base path so Gemini-compatible endpoints with a
+      // path prefix populate /reflect and models.json correctly.
+      const modelsPath = basePath ? `${basePath}/models` : '/v1beta/models';
       return {
-        url: `https://${rawTarget}/v1beta/models`,
+        url: `https://${rawTarget}${modelsPath}`,
         opts: { method: 'GET', headers: { 'x-goog-api-key': apiKey } },
         cacheKey: 'gemini',
       };

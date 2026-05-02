@@ -76,13 +76,16 @@ function createOpenAIAdapter(env, deps = {}) {
 
     /**
      * Returns the model-list fetch config for /reflect model population, or null.
+     * Uses the configured base path so prefixed OpenAI-compatible deployments
+     * (e.g. Databricks, Azure) populate /reflect and models.json correctly.
      *
      * @returns {{ url: string, opts: object, cacheKey: string }|null}
      */
     getModelsFetchConfig() {
       if (!apiKey) return null;
+      const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
       return {
-        url: `https://${rawTarget}/v1/models`,
+        url: `https://${rawTarget}${modelsPath}`,
         opts: { method: 'GET', headers: { 'Authorization': `Bearer ${apiKey}` } },
         cacheKey: 'openai',
       };

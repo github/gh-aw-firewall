@@ -15,7 +15,7 @@ const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, 
 const { resolveOpenCodeRoute } = require('./providers/opencode');
 
 // Core proxy functions that remain in server.js
-const { proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
+const { proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -2123,5 +2123,243 @@ describe('composeBodyTransforms', () => {
   it('when both return null, composed returns null', () => {
     const composed = composeBodyTransforms(noOp, noOp);
     expect(composed(Buffer.from('hello'))).toBeNull();
+  });
+});
+
+// ── createProviderServer tests ────────────────────────────────────────────────
+//
+// Tests that verify the generic proxy server factory honours the ProviderAdapter
+// interface: health routing, unconfigured-stub responses, URL transforms, and
+// adapter-specific auth selection.
+//
+describe('createProviderServer', () => {
+  const servers = [];
+
+  /** Small helper: start a createProviderServer instance and return its port. */
+  function startAdapter(adapter) {
+    return new Promise((resolve) => {
+      const srv = createProviderServer(adapter);
+      srv.listen(0, '127.0.0.1', () => {
+        servers.push(srv);
+        resolve(srv.address().port);
+      });
+    });
+  }
+
+  /** Fetch a path from a server running on localhost and return { status, body }. */
+  function fetch(port, path, opts = {}) {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { hostname: '127.0.0.1', port, path, method: opts.method || 'GET', headers: opts.headers || {} },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => {
+            let parsed;
+            try { parsed = JSON.parse(data); } catch { parsed = data; }
+            resolve({ status: res.statusCode, body: parsed, headers: res.headers });
+          });
+        }
+      );
+      req.on('error', reject);
+      if (opts.body) req.write(opts.body);
+      req.end();
+    });
+  }
+
+  afterEach((done) => {
+    let remaining = servers.length;
+    if (!remaining) { done(); return; }
+    servers.splice(0).forEach((s) => s.close(() => { if (!--remaining) done(); }));
+  });
+
+  // ── /health endpoint — enabled adapter ──────────────────────────────────────
+
+  it('returns 200 /health when adapter is enabled', async () => {
+    const adapter = {
+      name: 'test-enabled', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'api.example.com',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/health');
+    expect(status).toBe(200);
+    expect(body.status).toBe('healthy');
+    expect(body.service).toBe('awf-api-proxy-test-enabled');
+  });
+
+  // ── /health endpoint — disabled adapter (default 503) ───────────────────────
+
+  it('returns default 503 /health when adapter is disabled and has no getUnconfiguredHealthResponse', async () => {
+    const adapter = {
+      name: 'test-disabled', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getUnconfiguredResponse: () => ({ statusCode: 503, body: { error: 'not configured' } }),
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/health');
+    expect(status).toBe(503);
+    expect(body.status).toBe('not_configured');
+    expect(body.service).toBe('awf-api-proxy-test-disabled');
+  });
+
+  // ── /health endpoint — custom unconfigured health response ──────────────────
+
+  it('returns custom getUnconfiguredHealthResponse when adapter is disabled', async () => {
+    const adapter = {
+      name: 'test-custom-health', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getUnconfiguredResponse: () => ({ statusCode: 503, body: { error: 'not configured' } }),
+      getUnconfiguredHealthResponse: () => ({
+        statusCode: 503,
+        body: { status: 'not_configured', service: 'awf-api-proxy-gemini', error: 'GEMINI_API_KEY not configured' },
+      }),
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/health');
+    expect(status).toBe(503);
+    expect(body.service).toBe('awf-api-proxy-gemini');
+    expect(body.error).toMatch(/GEMINI_API_KEY/);
+  });
+
+  // ── Unconfigured stub — non-health request ────────────────────────────────
+
+  it('returns getUnconfiguredResponse body for proxy requests when disabled', async () => {
+    const adapter = {
+      name: 'test-unconfigured', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getUnconfiguredResponse: () => ({
+        statusCode: 503,
+        body: { error: 'proxy not configured (no API key)' },
+      }),
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+    expect(status).toBe(503);
+    expect(body.error).toMatch(/proxy not configured/);
+  });
+
+  it('returns default 503 for proxy requests when disabled and no getUnconfiguredResponse', async () => {
+    const adapter = {
+      name: 'test-no-stub', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/v1/models', { method: 'GET' });
+    expect(status).toBe(503);
+    expect(body.error).toMatch(/test-no-stub.*not configured/);
+  });
+
+  // ── URL transform ─────────────────────────────────────────────────────────
+
+  it('applies transformRequestUrl before proxying', async () => {
+    // Record what the transform was called with; upstream will fail (no real host)
+    // but the transform runs synchronously in the request handler before proxying starts.
+    const calls = [];
+    const adapter = {
+      name: 'test-url-transform', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'api.example.com',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      transformRequestUrl: (url) => {
+        const result = url.replace('?key=placeholder', '');
+        calls.push({ input: url, output: result });
+        return result;
+      },
+    };
+    const port = await startAdapter(adapter);
+    // fetch will return a non-2xx (proxy can't reach api.example.com in test), that's fine.
+    await fetch(port, '/v1/models?key=placeholder').catch(() => {});
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input).toBe('/v1/models?key=placeholder');
+    expect(calls[0].output).toBe('/v1/models');
+  });
+
+  // ── Auth headers ──────────────────────────────────────────────────────────
+
+  it('calls getAuthHeaders() for each proxied request', async () => {
+    // Record the headers returned by getAuthHeaders; upstream will fail (no real host)
+    // but getAuthHeaders is called synchronously in the request handler.
+    const headerCalls = [];
+    const adapter = {
+      name: 'test-auth', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'api.example.com',
+      getBasePath: () => '',
+      getAuthHeaders: (req) => {
+        const h = { 'Authorization': 'Bearer injected-token' };
+        headerCalls.push(h);
+        return h;
+      },
+      getBodyTransform: () => null,
+    };
+    const port = await startAdapter(adapter);
+    await fetch(port, '/v1/models').catch(() => {});
+    expect(headerCalls).toHaveLength(1);
+    expect(headerCalls[0].Authorization).toBe('Bearer injected-token');
+  });
+
+  // ── getBodyTransform called once per request (not per-call) ──────────────
+
+  it('calls getBodyTransform() once per request', async () => {
+    let callCount = 0;
+    const upstream = http.createServer((req, res) => {
+      req.resume();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+    const upstreamPort = await new Promise((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve(upstream.address().port));
+    });
+    servers.push(upstream);
+
+    const adapter = {
+      name: 'test-transform-count', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => `127.0.0.1:${upstreamPort}`,
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => { callCount++; return null; },
+    };
+    const port = await startAdapter(adapter);
+
+    await new Promise((resolve, reject) => {
+      const req = http.request({ hostname: '127.0.0.1', port, path: '/v1/chat/completions', method: 'POST' }, resolve);
+      req.on('error', reject);
+      req.write('{}');
+      req.end();
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(callCount).toBe(1);
   });
 });

@@ -45,7 +45,10 @@ function resolveCopilotAuthToken(env = process.env) {
  */
 function deriveCopilotApiTarget(env = process.env) {
   if (env.COPILOT_API_TARGET) {
-    return normalizeApiTarget(env.COPILOT_API_TARGET);
+    const target = normalizeApiTarget(env.COPILOT_API_TARGET);
+    // Only use the explicit value if it parsed into a valid hostname;
+    // fall through to auto-derivation when the value is malformed.
+    if (target) return target;
   }
   const serverUrl = env.GITHUB_SERVER_URL;
   if (serverUrl) {

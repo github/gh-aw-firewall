@@ -177,8 +177,8 @@ Add the new adapter file to the explicit `COPY` list in `containers/api-proxy/Do
 
 ```dockerfile
 COPY server.js logging.js metrics.js rate-limiter.js token-tracker.js \
-     model-resolver.js proxy-utils.js anthropic-cache.js anthropic-transforms.js \
-     providers/ ./
+     model-resolver.js proxy-utils.js anthropic-cache.js anthropic-transforms.js ./
+COPY providers/ ./providers/
 ```
 
 Also update the `EXPOSE` directive to include the new port:

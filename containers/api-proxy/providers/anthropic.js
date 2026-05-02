@@ -62,6 +62,10 @@ function createAnthropicAdapter(env, deps = {}) {
 
   const bodyTransform = deps.bodyTransform || null;
 
+  // Build the composed transform once at construction time to avoid
+  // re-allocating the wrapper function on every request.
+  const composedBodyTransform = composeBodyTransforms(bodyTransform, optimisationsTransform);
+
   return {
     name: 'anthropic',
     port: 10001,
@@ -104,9 +108,7 @@ function createAnthropicAdapter(env, deps = {}) {
       return headers;
     },
 
-    getBodyTransform() {
-      return composeBodyTransforms(bodyTransform, optimisationsTransform);
-    },
+    getBodyTransform() { return composedBodyTransform; },
 
     getValidationProbe() {
       if (!apiKey) return null;
@@ -130,8 +132,11 @@ function createAnthropicAdapter(env, deps = {}) {
 
     getModelsFetchConfig() {
       if (!apiKey) return null;
+      // Use the configured base path so Anthropic-compatible endpoints with a
+      // path prefix populate /reflect and models.json correctly.
+      const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
       return {
-        url: `https://${rawTarget}/v1/models`,
+        url: `https://${rawTarget}${modelsPath}`,
         opts: {
           method: 'GET',
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },

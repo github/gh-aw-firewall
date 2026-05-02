@@ -31,15 +31,17 @@ function normalizeApiTarget(value) {
     const parsed = new URL(candidate);
 
     if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password || parsed.port) {
+      const safe = trimmed.replace(/[\x00-\x1f\x7f]/g, '?');
       console.warn(
-        `Ignoring unsupported API target URL components in ${trimmed}; ` +
+        `Ignoring unsupported API target URL components in ${safe}; ` +
         'configure path prefixes via the corresponding *_API_BASE_PATH environment variable.'
       );
     }
 
     return parsed.hostname || undefined;
   } catch (err) {
-    console.warn(`Invalid API target ${trimmed}; expected a hostname (e.g. 'api.example.com') or URL`);
+    const safe = trimmed.replace(/[\x00-\x1f\x7f]/g, '?');
+    console.warn(`Invalid API target ${safe}; expected a hostname (e.g. 'api.example.com') or URL`);
     return undefined;
   }
 }
