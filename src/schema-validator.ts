@@ -7,7 +7,7 @@
  */
 
 import Ajv2020, { ErrorObject } from 'ajv/dist/2020';
-import * as schema from './awf-config-schema.json';
+import * as schemaJson from './awf-config-schema.json';
 function loadSchema(): Record<string, unknown> {
   try {
     // Keep the local relative require so source execution works and bundlers can still see it.
