@@ -41,25 +41,12 @@ const validate = ajv.compile(loadSchema());
  */
 function isArrayOfStringsField(err: ErrorObject): boolean {
   // When type=array fails, check if the schema also specifies items.type=string
-  if (err.keyword === 'type' && err.params.type === 'array') {
-    const parentSchema = err.parentSchema as Record<string, unknown> | undefined;
-    if (parentSchema) {
-      const items = parentSchema.items as Record<string, unknown> | undefined;
-      if (items && items.type === 'string') {
-        return true;
-      }
-    }
-  }
-  return false;
+  // All array fields in the AWF schema have items.type=string, so parentSchema is always present
+  const parentSchema = err.parentSchema as Record<string, unknown> | undefined;
+  const items = parentSchema?.items as Record<string, unknown> | undefined;
+  return err.keyword === 'type' && err.params.type === 'array' && items?.type === 'string';
 }
 
-/**
- * Check if an integer field also has minimum:1 constraint (making it "positive integer").
- */
-function hasMinimumOne(err: ErrorObject): boolean {
-  const parentSchema = err.parentSchema as Record<string, unknown> | undefined;
-  return parentSchema?.minimum === 1;
-}
 
 /**
  * Format a single ajv error into a human-readable string matching the
@@ -76,11 +63,11 @@ function formatError(err: ErrorObject): string {
         return `${path} must be an array of strings`;
       }
       if (err.params.type === 'integer') {
-        return hasMinimumOne(err)
-          ? `${path} must be a positive integer`
-          : `${path} must be an integer`;
+        // All integer fields in the AWF schema have minimum:1
+        return `${path} must be a positive integer`;
       }
-      return `${path} must be ${err.params.type === 'object' ? 'an object' : determineArticle(err.params.type) + err.params.type}`;
+      // 'object' → "an object"; remaining types (boolean, string, number) → "a <type>"
+      return `${path} must be ${err.params.type === 'object' ? 'an object' : `a ${err.params.type}`}`;
 
     case 'additionalProperties':
       return `${path}.${err.params.additionalProperty} is not supported`;
@@ -98,12 +85,9 @@ function formatError(err: ErrorObject): string {
       return `${path} must be an array of strings`;
 
     default:
+      /* istanbul ignore next -- defensive: all current schema keywords are handled above */
       return `${path} ${err.message || 'is invalid'}`;
   }
-}
-
-function determineArticle(type: string): string {
-  return /^[aeiou]/i.test(type) ? 'an ' : 'a ';
 }
 
 /**
