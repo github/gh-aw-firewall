@@ -8,9 +8,26 @@
 
 import Ajv2020, { ErrorObject } from 'ajv/dist/2020';
 import * as schema from './awf-config-schema.json';
-
-// Compile once (module-level singleton). allErrors collects every violation.
+function loadSchema(): Record<string, unknown> {
+  try {
+    // Keep the local relative require so source execution works and bundlers can still see it.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('./awf-config-schema.json') as Record<string, unknown>;
+  } catch (error: unknown) {
+    const moduleError = error as { code?: string };
+    if (moduleError.code !== 'MODULE_NOT_FOUND') {
+      throw error;
+    }
 // verbose=true provides parentSchema on errors for richer formatting.
+    // `tsc` does not copy the schema into `dist/`, so compiled JS may need to load
+    // the original file from `src/` when running directly under Node.js.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../src/awf-config-schema.json') as Record<string, unknown>;
+  }
+}
+
+const schema = loadSchema();
+
 const ajv = new Ajv2020({ allErrors: true, verbose: true });
 // 'version' is a metadata keyword (not a standard JSON Schema keyword); register
 // it so Ajv strict mode does not reject the schema.
