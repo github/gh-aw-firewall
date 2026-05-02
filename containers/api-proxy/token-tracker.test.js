@@ -1189,7 +1189,7 @@ describe('token-usage JSONL record schema field', () => {
 
     expect(mockStream.write).toHaveBeenCalledTimes(1);
     const parsed = mockStream.writtenRecords[0];
-    expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
+    expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
     expect(parsed.request_id).toBe('direct-write-test');
   });
 
@@ -1215,7 +1215,7 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+/);
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(parsed.request_id).toBe('schema-field-http');
       done();
     }, 20);
@@ -1256,7 +1256,7 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+/);
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(parsed.request_id).toBe('schema-field-ws');
       done();
     }, 20);
