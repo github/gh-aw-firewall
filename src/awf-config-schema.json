@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.v1.schema.json",
   "title": "AWF Configuration",
   "version": "1",
   "description": "JSON/YAML configuration for awf CLI. CLI flags override config file values. See https://github.com/github/gh-aw-firewall for documentation.",

@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * Generates the JSON Schema for the AWF config file (docs/awf-config.schema.json).
+ * Generates the JSON Schema for the AWF config file.
  *
  * Usage:
- *   node scripts/generate-schema.mjs                          # writes docs/awf-config.schema.json
- *   node scripts/generate-schema.mjs --version v0.23.1        # embeds a versioned $id
+ *   node scripts/generate-schema.mjs                          # writes docs/awf-config.schema.json and docs/awf-config.v1.schema.json
+ *   node scripts/generate-schema.mjs --version v0.23.1        # embeds a versioned $id in release output
  *   node scripts/generate-schema.mjs --print                  # prints to stdout
+ *
+ * Output files:
+ *   docs/awf-config.v1.schema.json  — stable versioned file (canonical source)
+ *   docs/awf-config.schema.json     — latest alias (always points to current version content)
+ *   src/awf-config-schema.json      — bundleable copy for runtime validation
  *
  * The schema reflects the validated config surface defined in src/config-file.ts
  * (validateAwfFileConfig), not just the AwfFileConfig TypeScript interface.
@@ -46,15 +51,20 @@ const version = versionIdx !== -1 ? args[versionIdx + 1] : null;
 const printOnly = args.includes('--print');
 
 // --- Build the schema ---
-const schemaId = version
+// Versioned $id (stable reference for v1 of the config schema)
+const schemaV1Id = version
+  ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/awf-config.v1.schema.json`
+  : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.v1.schema.json';
+
+// Unversioned "latest" $id (always points to the current schema)
+const schemaLatestId = version
   ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/awf-config.schema.json`
   : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json';
 
 /** @type {object} */
-const schema = {
-  $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: schemaId,
+const schemaBody = {
   title: 'AWF Configuration',
+  version: '1',
   description:
     'JSON/YAML configuration for awf CLI. CLI flags override config file values. ' +
     'See https://github.com/github/gh-aw-firewall for documentation.',
@@ -392,14 +402,41 @@ const schema = {
   },
 };
 
-const output = JSON.stringify(schema, null, 2) + '\n';
+// Compose the versioned schema (stable, canonical) and the latest alias
+const schemaV1 = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: schemaV1Id,
+  ...schemaBody,
+};
+
+const schemaLatest = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: schemaLatestId,
+  ...schemaBody,
+};
+
+const outputV1 = JSON.stringify(schemaV1, null, 2) + '\n';
+const outputLatest = JSON.stringify(schemaLatest, null, 2) + '\n';
 
 if (printOnly) {
-  process.stdout.write(output);
+  // --print emits the versioned (v1) schema to stdout
+  process.stdout.write(outputV1);
 } else {
   const docsDir = join(projectRoot, 'docs');
   mkdirSync(docsDir, { recursive: true });
-  const outPath = join(docsDir, 'awf-config.schema.json');
-  writeFileSync(outPath, output);
-  console.log(`Schema written to ${outPath}`);
+
+  // Stable versioned file (canonical)
+  const v1Path = join(docsDir, 'awf-config.v1.schema.json');
+  writeFileSync(v1Path, outputV1);
+  console.log(`Schema written to ${v1Path}`);
+
+  // Unversioned "latest" alias
+  const latestPath = join(docsDir, 'awf-config.schema.json');
+  writeFileSync(latestPath, outputLatest);
+  console.log(`Schema written to ${latestPath}`);
+
+  // Also write to src/ for runtime loading (loaded dynamically by schema-validator.ts at startup)
+  const srcPath = join(projectRoot, 'src', 'awf-config-schema.json');
+  writeFileSync(srcPath, outputV1);
+  console.log(`Schema written to ${srcPath}`);
 }

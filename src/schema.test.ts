@@ -3,6 +3,7 @@ import * as path from 'path';
 import Ajv2020 from 'ajv/dist/2020';
 
 const schemaPath = path.join(__dirname, '..', 'docs', 'awf-config.schema.json');
+const schemaV1Path = path.join(__dirname, '..', 'docs', 'awf-config.v1.schema.json');
 
 describe('awf-config.schema.json', () => {
   let schema: Record<string, unknown>;
@@ -12,6 +13,8 @@ describe('awf-config.schema.json', () => {
     const raw = fs.readFileSync(schemaPath, 'utf8');
     schema = JSON.parse(raw) as Record<string, unknown>;
     const ajv = new Ajv2020();
+    // 'version' is a metadata keyword; register it so strict mode doesn't reject the schema.
+    ajv.addKeyword({ keyword: 'version' });
     validate = ajv.compile(schema);
   });
 
@@ -24,6 +27,10 @@ describe('awf-config.schema.json', () => {
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.type).toBe('object');
     expect(schema.additionalProperties).toBe(false);
+  });
+
+  it('has a version field', () => {
+    expect(schema.version).toBe('1');
   });
 
   it('covers all AwfFileConfig top-level fields', () => {
@@ -172,5 +179,29 @@ describe('awf-config.schema.json', () => {
   it('accepts apiProxy.models as object with string array values', () => {
     expect(validate({ apiProxy: { models: { 'gpt-4o': ['gpt-4o-2024-11-20'] } } })).toBe(true);
     expect(validate({ apiProxy: { models: { 'gpt-4o': 'not-an-array' } } })).toBe(false);
+  });
+
+  it('src/awf-config-schema.json stays in sync with docs/awf-config.schema.json', () => {
+    const srcSchemaPath = path.join(__dirname, 'awf-config-schema.json');
+    const srcSchema = JSON.parse(fs.readFileSync(srcSchemaPath, 'utf8'));
+    // Compare all fields except $id (which differs for versioned releases)
+    const docsRest = { ...schema };
+    delete docsRest.$id;
+    const srcRest = { ...srcSchema };
+    delete srcRest.$id;
+    expect(srcRest).toEqual(docsRest);
+  });
+
+  it('docs/awf-config.v1.schema.json stays in sync with docs/awf-config.schema.json', () => {
+    const v1Schema = JSON.parse(fs.readFileSync(schemaV1Path, 'utf8')) as Record<string, unknown>;
+    // v1 schema must have a versioned $id and match the latest schema (ignoring $id)
+    expect(v1Schema.version).toBe('1');
+    expect(typeof v1Schema.$id).toBe('string');
+    expect(v1Schema.$id as string).toContain('v1');
+    const latestRest = { ...schema };
+    delete latestRest.$id;
+    const v1Rest = { ...v1Schema };
+    delete v1Rest.$id;
+    expect(v1Rest).toEqual(latestRest);
   });
 });

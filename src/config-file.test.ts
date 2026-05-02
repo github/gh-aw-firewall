@@ -107,7 +107,7 @@ describe('config-file', () => {
 
     it('rejects invalid apiProxy.anthropicCacheTailTtl', () => {
       const errors = validateAwfFileConfig({ apiProxy: { anthropicCacheTailTtl: '10m' } });
-      expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be "5m" or "1h"');
+      expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be one of: 5m, 1h');
     });
 
     it('rejects non-object apiProxy.targets', () => {
