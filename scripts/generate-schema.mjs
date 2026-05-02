@@ -411,8 +411,21 @@ const schemaBody = {
 // Read JSONL schemas from the schemas/ directory and update their $id fields
 function buildJsonlSchema(schemaFile, newId) {
   const schemaDir = join(projectRoot, 'schemas');
-  const raw = readFileSync(join(schemaDir, schemaFile), 'utf8');
-  const schema = JSON.parse(raw);
+  const schemaPath = join(schemaDir, schemaFile);
+  let raw;
+  try {
+    raw = readFileSync(schemaPath, 'utf8');
+  } catch (err) {
+    console.error(`Error: could not read schema file '${schemaPath}': ${err.message}`);
+    process.exit(1);
+  }
+  let schema;
+  try {
+    schema = JSON.parse(raw);
+  } catch (err) {
+    console.error(`Error: could not parse JSON in '${schemaPath}': ${err.message}`);
+    process.exit(1);
+  }
   schema.$id = newId;
   return JSON.stringify(schema, null, 2) + '\n';
 }

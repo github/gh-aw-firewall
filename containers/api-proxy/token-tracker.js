@@ -37,8 +37,13 @@ const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
 // Injected at runtime via AWF_VERSION env var (set by docker-manager.ts).
-const AWF_VERSION = process.env.AWF_VERSION || '0.0.0';
-const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION}`;
+const AWF_VERSION = process.env.AWF_VERSION;
+if (!AWF_VERSION) {
+  // Log a warning (to stderr to avoid polluting stdout) when running without the env var.
+  // This can happen during local development or tests outside the container.
+  process.stderr.write('{"level":"warn","event":"awf_version_missing","message":"AWF_VERSION env var not set; _schema will use 0.0.0"}\n');
+}
+const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION || '0.0.0'}`;
 
 let logStream = null;
 let diagStream = null;
