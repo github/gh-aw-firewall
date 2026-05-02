@@ -11,8 +11,17 @@ This document defines the canonical configuration model for AWF (`awf`) and is i
 The machine-readable schema is published at:
 
 - `docs/awf-config.schema.json` — live schema (always reflects latest `main`)
-- GitHub release asset `awf-config.schema.json` — versioned, stable URL per release
-  (e.g. `https://github.com/github/gh-aw-firewall/releases/download/v0.23.1/awf-config.schema.json`)
+- `docs/awf-config.v1.schema.json` — stable versioned copy of schema v1 (tracks `main`)
+- GitHub release asset `awf-config.schema.json` — versioned stable URL per release (latest alias)
+- GitHub release asset `awf-config.v1.schema.json` — versioned stable URL per release
+  (e.g. `https://github.com/github/gh-aw-firewall/releases/download/v0.23.1/awf-config.v1.schema.json`)
+
+External consumers (e.g. the `gh-aw` compiler) should pin to the versioned URL for stability:
+
+| Reference | URL |
+|-----------|-----|
+| Pinned to a specific release tag | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.v1.schema.json` |
+| Always-latest from `main` branch | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.v1.schema.json` |
 
 ## 1. Conformance
 
