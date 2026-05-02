@@ -523,10 +523,14 @@ jobs:
       - name: Generate versioned JSON Schema
         run: |
           mkdir -p release
-          node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }} --print > release/awf-config.v1.schema.json
-          cp release/awf-config.v1.schema.json release/awf-config.schema.json
+          # Generate all schemas with versioned $id URLs
+          node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }}
+          # Copy generated files to release/ for upload
+          cp docs/awf-config.schema.json release/awf-config.schema.json
+          cp schemas/audit.schema.json release/audit.schema.json
+          cp schemas/token-usage.schema.json release/token-usage.schema.json
           echo "=== Schema preview (first 10 lines) ==="
-          head -10 release/awf-config.v1.schema.json
+          head -10 release/awf-config.schema.json
 
       - name: Generate checksums
         run: |
@@ -654,7 +658,8 @@ jobs:
             release/awf.tgz
             release/containers.txt
             release/awf-config.schema.json
-            release/awf-config.v1.schema.json
+            release/audit.schema.json
+            release/token-usage.schema.json
             release/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -10,6 +10,8 @@ import { generateSessionCa, initSslDb, CaFiles, parseUrlPatterns, cleanupSslKeyM
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { PROXY_ENV_VARS } from './upstream-proxy';
 import { parseImageTag, buildRuntimeImageRef } from './image-tag';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version: AWF_VERSION } = require('../package.json') as { version: string };
 
 const SQUID_PORT = 3128;
 
@@ -1790,6 +1792,8 @@ export function generateDockerCompose(
         // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
         // target on GHES/GHEC (e.g. api.mycompany.ghe.com instead of api.github.com)
         ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
+        // AWF version — embedded in JSONL _schema fields by token-tracker.js
+        AWF_VERSION,
         // Route through Squid to respect domain whitelisting
         HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
         HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,

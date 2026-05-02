@@ -1,24 +1,26 @@
 #!/usr/bin/env node
 
 /**
- * Generates the JSON Schema for the AWF config file.
+ * Generates the JSON Schema files for AWF.
  *
  * Usage:
- *   node scripts/generate-schema.mjs                          # writes docs/awf-config.schema.json and docs/awf-config.v1.schema.json
- *   node scripts/generate-schema.mjs --version v0.23.1        # embeds a versioned $id in release output
- *   node scripts/generate-schema.mjs --print                  # prints to stdout
+ *   node scripts/generate-schema.mjs                          # writes docs/awf-config.schema.json and src/awf-config-schema.json
+ *   node scripts/generate-schema.mjs --version v0.26.0        # embeds a versioned $id in release output
+ *   node scripts/generate-schema.mjs --print                  # prints awf-config schema to stdout
  *
- * Output files:
- *   docs/awf-config.v1.schema.json  — stable versioned file (canonical source)
- *   docs/awf-config.schema.json     — latest alias (always points to current version content)
+ * Output files (non-print mode):
+ *   docs/awf-config.schema.json     — config schema (canonical source)
  *   src/awf-config-schema.json      — bundleable copy for runtime validation
+ *   schemas/audit.schema.json       — audit JSONL schema with versioned $id
+ *   schemas/token-usage.schema.json — token-usage JSONL schema with versioned $id
  *
+ * The schema version is embedded in the $id URL using the repo release tag.
  * The schema reflects the validated config surface defined in src/config-file.ts
  * (validateAwfFileConfig), not just the AwfFileConfig TypeScript interface.
  * When validation rules change (e.g. new fields, enum constraints), update this script to match.
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -51,20 +53,24 @@ const version = versionIdx !== -1 ? args[versionIdx + 1] : null;
 const printOnly = args.includes('--print');
 
 // --- Build the schema ---
-// Versioned $id (stable reference for v1 of the config schema)
-const schemaV1Id = version
-  ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/awf-config.v1.schema.json`
-  : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.v1.schema.json';
-
-// Unversioned "latest" $id (always points to the current schema)
-const schemaLatestId = version
+// Config schema $id (release URL when version provided, raw URL otherwise)
+const schemaConfigId = version
   ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/awf-config.schema.json`
   : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json';
+
+// JSONL schema $id for audit records
+const schemaAuditId = version
+  ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/audit.schema.json`
+  : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json';
+
+// JSONL schema $id for token-usage records
+const schemaTokenUsageId = version
+  ? `https://github.com/github/gh-aw-firewall/releases/download/${version}/token-usage.schema.json`
+  : 'https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json';
 
 /** @type {object} */
 const schemaBody = {
   title: 'AWF Configuration',
-  version: '1',
   description:
     'JSON/YAML configuration for awf CLI. CLI flags override config file values. ' +
     'See https://github.com/github/gh-aw-firewall for documentation.',
@@ -402,41 +408,52 @@ const schemaBody = {
   },
 };
 
-// Compose the versioned schema (stable, canonical) and the latest alias
-const schemaV1 = {
+// Read JSONL schemas from the schemas/ directory and update their $id fields
+function buildJsonlSchema(schemaFile, newId) {
+  const schemaDir = join(projectRoot, 'schemas');
+  const raw = readFileSync(join(schemaDir, schemaFile), 'utf8');
+  const schema = JSON.parse(raw);
+  schema.$id = newId;
+  return JSON.stringify(schema, null, 2) + '\n';
+}
+
+// Compose the config schema
+const schemaConfig = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: schemaV1Id,
+  $id: schemaConfigId,
   ...schemaBody,
 };
 
-const schemaLatest = {
-  $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: schemaLatestId,
-  ...schemaBody,
-};
-
-const outputV1 = JSON.stringify(schemaV1, null, 2) + '\n';
-const outputLatest = JSON.stringify(schemaLatest, null, 2) + '\n';
+const outputConfig = JSON.stringify(schemaConfig, null, 2) + '\n';
 
 if (printOnly) {
-  // --print emits the versioned (v1) schema to stdout
-  process.stdout.write(outputV1);
+  // --print emits the config schema to stdout
+  process.stdout.write(outputConfig);
 } else {
   const docsDir = join(projectRoot, 'docs');
   mkdirSync(docsDir, { recursive: true });
 
-  // Stable versioned file (canonical)
-  const v1Path = join(docsDir, 'awf-config.v1.schema.json');
-  writeFileSync(v1Path, outputV1);
-  console.log(`Schema written to ${v1Path}`);
-
-  // Unversioned "latest" alias
-  const latestPath = join(docsDir, 'awf-config.schema.json');
-  writeFileSync(latestPath, outputLatest);
-  console.log(`Schema written to ${latestPath}`);
+  // Config schema
+  const configPath = join(docsDir, 'awf-config.schema.json');
+  writeFileSync(configPath, outputConfig);
+  console.log(`Schema written to ${configPath}`);
 
   // Also write to src/ for runtime loading (loaded dynamically by schema-validator.ts at startup)
   const srcPath = join(projectRoot, 'src', 'awf-config-schema.json');
-  writeFileSync(srcPath, outputV1);
+  writeFileSync(srcPath, outputConfig);
   console.log(`Schema written to ${srcPath}`);
+
+  // JSONL schemas — update $id with release/raw URL
+  const schemasDir = join(projectRoot, 'schemas');
+  mkdirSync(schemasDir, { recursive: true });
+
+  const auditOutput = buildJsonlSchema('audit.schema.json', schemaAuditId);
+  const auditPath = join(schemasDir, 'audit.schema.json');
+  writeFileSync(auditPath, auditOutput);
+  console.log(`Schema written to ${auditPath}`);
+
+  const tokenUsageOutput = buildJsonlSchema('token-usage.schema.json', schemaTokenUsageId);
+  const tokenUsagePath = join(schemasDir, 'token-usage.schema.json');
+  writeFileSync(tokenUsagePath, tokenUsageOutput);
+  console.log(`Schema written to ${tokenUsagePath}`);
 }

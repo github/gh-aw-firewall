@@ -44,7 +44,7 @@ Once the workflow completes:
    - Linux arm64 binary (`awf-linux-arm64`)
    - NPM tarball (`awf.tgz`)
    - Checksums file (`checksums.txt`)
-   - JSON Schema files (`awf-config.schema.json`, `awf-config.v1.schema.json`)
+   - JSON Schema files (`awf-config.schema.json`, `audit.schema.json`, `token-usage.schema.json`)
    - Installation instructions with GHCR image references
 3. Go to **Packages** page (in repository)
 4. Verify Docker images are published:
@@ -63,25 +63,31 @@ Each release includes:
 - `awf-linux-arm64` - Linux arm64 standalone executable
 - `awf.tgz` - NPM package tarball (alternative installation method)
 - `checksums.txt` - SHA256 checksums for all files
-- `awf-config.schema.json` - AWF config JSON Schema (latest alias, same content as `awf-config.v1.schema.json`)
-- `awf-config.v1.schema.json` - AWF config JSON Schema, version 1 (stable versioned copy)
+- `awf-config.schema.json` - AWF config JSON Schema
+- `audit.schema.json` - AWF audit JSONL record JSON Schema
+- `token-usage.schema.json` - AWF token-usage JSONL record JSON Schema
 
 ### JSON Schema versioning
 
-Each release generates the schema with a `$id` URL that includes the release tag, creating a stable, pinnable reference:
+Each release generates all three schemas with a `$id` URL that includes the release tag, creating stable, pinnable references:
 
 ```
-https://github.com/github/gh-aw-firewall/releases/download/v0.23.1/awf-config.v1.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/v0.26.0/awf-config.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/v0.26.0/audit.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/v0.26.0/token-usage.schema.json
 ```
 
-The unversioned `awf-config.schema.json` asset is a copy of the v1 schema for convenience. External consumers (e.g. the gh-aw compiler) should pin to the versioned URL or the stable raw URL:
+External consumers (e.g. the gh-aw compiler) should pin to the release URL or the stable raw URL:
 
-| Reference | URL |
-|-----------|-----|
-| Pinned to a specific release tag | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.v1.schema.json` |
-| Always-latest from `main` branch | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.v1.schema.json` |
+| Schema | Pinned to release tag | Always-latest from `main` |
+|--------|----------------------|--------------------------|
+| Config | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.schema.json` | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json` |
+| Audit | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/audit.schema.json` | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json` |
+| Token usage | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/token-usage.schema.json` | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json` |
 
-**Schema version bumping:** The schema version (`"version": "1"` in the schema body) must be incremented whenever breaking changes are made to the config surface (removed fields, changed types, stricter constraints). Non-breaking additions do not require a version bump. When the version is bumped (e.g. from `1` → `2`), a new file `awf-config.v2.schema.json` should be introduced in `docs/` and `scripts/generate-schema.mjs` updated accordingly.
+**JSONL `_schema` field:** Each JSONL record embeds the AWF repo version in its `_schema` field, e.g. `"_schema": "audit/v0.26.0"`. This allows consumers to identify the exact AWF version that produced the records and validate them against the corresponding schema. The `_schema` field uses the pattern `<type>/v<semver>` so parsers can use a prefix match (`_schema.startsWith("audit/")`) rather than an exact match.
+
+**Schema evolution:** Breaking changes (field removal, rename, type change, new required field) should be documented in the changelog. Since the repo version is used as the schema version, consumers can pin to a specific release tag to ensure compatibility.
 
 ### GitHub Container Registry (GHCR)
 Docker images are published to `ghcr.io/github/gh-aw-firewall`:

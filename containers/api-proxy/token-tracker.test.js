@@ -1052,7 +1052,7 @@ describe('trackWebSocketTokenUsage', () => {
 
 describe('validateTokenUsageRecord', () => {
   const validRecord = {
-    _schema: 'token-usage/v1',
+    _schema: 'token-usage/v0.0.0',
     timestamp: '2025-01-01T00:00:00.000Z',
     request_id: 'req-123',
     provider: 'anthropic',
@@ -1075,8 +1075,17 @@ describe('validateTokenUsageRecord', () => {
     expect(validateTokenUsageRecord({ ...validRecord, response_bytes: 512 })).toBe(true);
   });
 
+  test('accepts any semver version in _schema', () => {
+    expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v1.2.3' })).toBe(true);
+    expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v0.26.0' })).toBe(true);
+  });
+
   test('rejects a record with wrong _schema', () => {
     expect(validateTokenUsageRecord({ ...validRecord, _schema: 'wrong/v99' })).toBe(false);
+  });
+
+  test('rejects a record with non-semver _schema', () => {
+    expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v1' })).toBe(false);
   });
 
   test('rejects a record missing _schema', () => {
@@ -1158,9 +1167,9 @@ describe('token-usage JSONL record schema field', () => {
     await closeLogStream();
   });
 
-  test('writeTokenUsage serializes _schema:"token-usage/v1" into the JSONL stream', () => {
+  test('writeTokenUsage serializes _schema with semver version into the JSONL stream', () => {
     const record = {
-      _schema: 'token-usage/v1',
+      _schema: 'token-usage/v0.0.0',
       timestamp: new Date().toISOString(),
       request_id: 'direct-write-test',
       provider: 'openai',
@@ -1179,11 +1188,11 @@ describe('token-usage JSONL record schema field', () => {
 
     expect(mockStream.write).toHaveBeenCalledTimes(1);
     const parsed = mockStream.writtenRecords[0];
-    expect(parsed._schema).toBe('token-usage/v1');
+    expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
     expect(parsed.request_id).toBe('direct-write-test');
   });
 
-  test('trackTokenUsage HTTP path writes _schema:"token-usage/v1" to the stream', (done) => {
+  test('trackTokenUsage HTTP path writes versioned _schema to the stream', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };
     proxyRes.statusCode = 200;
@@ -1205,13 +1214,13 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toBe('token-usage/v1');
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
       expect(parsed.request_id).toBe('schema-field-http');
       done();
     }, 20);
   });
 
-  test('trackWebSocketTokenUsage path writes _schema:"token-usage/v1" to the stream', (done) => {
+  test('trackWebSocketTokenUsage path writes versioned _schema to the stream', (done) => {
     const socket = new EventEmitter();
 
     function buildFrame(text) {
@@ -1246,7 +1255,7 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toBe('token-usage/v1');
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
       expect(parsed.request_id).toBe('schema-field-ws');
       done();
     }, 20);

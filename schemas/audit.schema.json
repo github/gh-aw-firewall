@@ -1,9 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/github/gh-aw-firewall/schemas/audit.v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json",
   "title": "AWF Audit Log Record",
   "description": "A single L7 HTTP/HTTPS traffic decision record emitted to audit.jsonl by the AWF Squid proxy.",
-  "version": "1",
   "type": "object",
   "required": [
     "_schema",
@@ -20,8 +19,8 @@
   "properties": {
     "_schema": {
       "type": "string",
-      "const": "audit/v1",
-      "description": "Schema identifier and version for this record."
+      "pattern": "^audit/v\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema identifier and version for this record (e.g. \"audit/v0.26.0\")."
     },
     "ts": {
       "type": "number",
