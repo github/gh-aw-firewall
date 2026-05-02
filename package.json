@@ -89,7 +89,8 @@
     "scripts": "dist/**/*.js",
     "assets": [
       "node_modules/chalk/**/*",
-      "containers/agent/seccomp-profile.json"
+      "containers/agent/seccomp-profile.json",
+      "dist/awf-config-schema.json"
     ],
     "targets": [
       "node18-linux-x64",
