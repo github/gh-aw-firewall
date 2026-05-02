@@ -50,6 +50,7 @@ const {
   buildUpstreamPath,
   shouldStripHeader,
   composeBodyTransforms,
+  normalizeApiTarget,
 } = require('./proxy-utils');
 
 // ── Rate limiter ─────────────────────────────────────────────────────────────
@@ -910,7 +911,6 @@ async function validateApiKeys(adaptersOrOverrides = {}) {
   const copilotAdapter  = registeredAdapters.find(a => a.name === 'copilot');
   const geminiAdapter   = registeredAdapters.find(a => a.name === 'gemini');
 
-  const openaiKey    = ov('openaiKey',    openaiAdapter?.isEnabled()    ? openaiAdapter?.getTargetHost?.() && undefined : undefined);
   // Rather than trying to introspect adapters for every key, use process.env as fallback
   const _ov = (key, envKey) => key in overrides ? overrides[key] : (process.env[envKey] || '').trim() || undefined;
   const openaiKeyV    = _ov('openaiKey',    'OPENAI_API_KEY');
@@ -1057,9 +1057,9 @@ async function fetchStartupModels(adaptersOrOverrides = {}) {
   const geminiAdapter  = registeredAdapters.find(a => a.name === 'gemini');
 
   const openaiKey    = _ov('openaiKey',         'OPENAI_API_KEY');
-  const openaiTarget = ov('openaiTarget',        process.env.OPENAI_API_TARGET  ? require('./proxy-utils').normalizeApiTarget(process.env.OPENAI_API_TARGET) : 'api.openai.com');
+  const openaiTarget = ov('openaiTarget',        normalizeApiTarget(process.env.OPENAI_API_TARGET) || 'api.openai.com');
   const anthropicKey  = _ov('anthropicKey',      'ANTHROPIC_API_KEY');
-  const anthropicTarget = ov('anthropicTarget',  process.env.ANTHROPIC_API_TARGET ? require('./proxy-utils').normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) : 'api.anthropic.com');
+  const anthropicTarget = ov('anthropicTarget',  normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) || 'api.anthropic.com');
   const copilotGithubToken = _ov('copilotGithubToken', 'COPILOT_GITHUB_TOKEN');
   const copilotTarget  = ov('copilotTarget', copilotAdapter?.getTargetHost?.() ?? 'api.githubcopilot.com');
   const copilotIntegrationId = ov('copilotIntegrationId', copilotAdapter?._integrationId ?? 'copilot-developer-cli');
