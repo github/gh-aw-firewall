@@ -19,8 +19,8 @@
   "properties": {
     "_schema": {
       "type": "string",
-      "pattern": "^audit/v\\d+\\.\\d+\\.\\d+$",
-      "description": "Schema identifier and version for this record (e.g. \"audit/v0.26.0\")."
+      "pattern": "^audit/v\\d+\\.\\d+\\.\\d+(-\\w+)?$",
+      "description": "Schema identifier and version for this record (e.g. \"audit/v0.26.0\"). Dev builds use \"audit/v0.0.0-dev\"."
     },
     "ts": {
       "type": "number",

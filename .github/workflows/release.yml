@@ -253,6 +253,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/api-proxy:${{ needs.bump-version.outputs.version_number }}
             ghcr.io/${{ github.repository }}/api-proxy:latest
+          build-args: |
+            AWF_VERSION=${{ needs.bump-version.outputs.version_number }}
           cache-from: type=gha,scope=api-proxy
           cache-to: type=gha,mode=max,scope=api-proxy
 
@@ -527,6 +529,8 @@ jobs:
           node scripts/generate-schema.mjs --version ${{ needs.bump-version.outputs.version }}
           # Copy generated files to release/ for upload
           cp docs/awf-config.schema.json release/awf-config.schema.json
+          # Compatibility alias for consumers that previously pinned to awf-config.v1.schema.json
+          cp docs/awf-config.schema.json release/awf-config.v1.schema.json
           cp schemas/audit.schema.json release/audit.schema.json
           cp schemas/token-usage.schema.json release/token-usage.schema.json
           echo "=== Schema preview (first 10 lines) ==="
@@ -658,6 +662,7 @@ jobs:
             release/awf.tgz
             release/containers.txt
             release/awf-config.schema.json
+            release/awf-config.v1.schema.json
             release/audit.schema.json
             release/token-usage.schema.json
             release/checksums.txt

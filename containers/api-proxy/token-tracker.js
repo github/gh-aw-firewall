@@ -36,14 +36,16 @@ const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.log');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
-// Injected at runtime via AWF_VERSION env var (set by docker-manager.ts).
+// Set to the container image version at build time via ARG AWF_VERSION in the Dockerfile
+// (baked in by the release workflow with --build-arg AWF_VERSION=<version>).
+// Falls back to "0.0.0-dev" for local/un-versioned builds.
 const AWF_VERSION = process.env.AWF_VERSION;
 if (!AWF_VERSION) {
   // Log a warning (to stderr to avoid polluting stdout) when running without the env var.
   // This can happen during local development or tests outside the container.
-  process.stderr.write('{"level":"warn","event":"awf_version_missing","message":"AWF_VERSION env var not set; _schema will use 0.0.0"}\n');
+  process.stderr.write('{"level":"warn","event":"awf_version_missing","message":"AWF_VERSION env var not set; _schema will use 0.0.0-dev"}\n');
 }
-const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION || '0.0.0'}`;
+const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION || '0.0.0-dev'}`;
 
 let logStream = null;
 let diagStream = null;
@@ -143,7 +145,7 @@ function validateTokenUsageRecord(record) {
     }
   }
 
-  if (!/^token-usage\/v\d+\.\d+\.\d+$/.test(record._schema)) {
+  if (!/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/.test(record._schema)) {
     logRequest('warn', 'token_record_schema_violation', {
       request_id: record.request_id,
       field: '_schema',

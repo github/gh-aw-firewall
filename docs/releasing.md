@@ -64,6 +64,7 @@ Each release includes:
 - `awf.tgz` - NPM package tarball (alternative installation method)
 - `checksums.txt` - SHA256 checksums for all files
 - `awf-config.schema.json` - AWF config JSON Schema
+- `awf-config.v1.schema.json` - **Deprecated alias** of `awf-config.schema.json` (kept for backward compatibility)
 - `audit.schema.json` - AWF audit JSONL record JSON Schema
 - `token-usage.schema.json` - AWF token-usage JSONL record JSON Schema
 
@@ -85,7 +86,9 @@ External consumers (e.g. the gh-aw compiler) should pin to the release URL or th
 | Audit | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/audit.schema.json` | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json` |
 | Token usage | `https://github.com/github/gh-aw-firewall/releases/download/<tag>/token-usage.schema.json` | `https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json` |
 
-**JSONL `_schema` field:** Each JSONL record embeds the AWF repo version in its `_schema` field, e.g. `"_schema": "audit/v0.26.0"`. This allows consumers to identify the exact AWF version that produced the records and validate them against the corresponding schema. The `_schema` field uses the pattern `<type>/v<semver>` so parsers can use a prefix match (`_schema.startsWith("audit/")`) rather than an exact match.
+> **Migration note:** The previously documented URL `…/releases/download/<tag>/awf-config.v1.schema.json` and the raw URL `…/main/docs/awf-config.v1.schema.json` are now **deprecated**. `awf-config.v1.schema.json` continues to be published as a compatibility alias (identical content to `awf-config.schema.json`) so existing consumers are not broken, but new consumers should use `awf-config.schema.json` instead. The `docs/awf-config.v1.schema.json` file in the repository has been removed; use `docs/awf-config.schema.json` for the always-latest copy.
+
+**JSONL `_schema` field:** Each JSONL record embeds the AWF version in its `_schema` field, e.g. `"_schema": "audit/v0.26.0"`. For audit logs, the version reflects the AWF CLI version that configured the Squid proxy. For token-usage logs, the version is baked into the api-proxy container image at release build time (via `--build-arg AWF_VERSION=…`), so it correctly reflects the api-proxy image version even when `--image-tag` pins the proxy to a different release. Dev/local builds use `audit/v<package.json-version>` and `token-usage/v0.0.0-dev` respectively. Consumers should use a prefix match (`_schema.startsWith("audit/")`) rather than an exact match to handle any version gracefully.
 
 **Schema evolution:** Breaking changes (field removal, rename, type change, new required field) should be documented in the changelog. Since the repo version is used as the schema version, consumers can pin to a specific release tag to ensure compatibility.
 

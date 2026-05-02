@@ -1,5 +1,7 @@
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { SquidConfig } from './types';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version: AWF_VERSION } = require('../package.json') as { version: string };
 
 describe('defense-in-depth: rejects injected values', () => {
   const defaultPort = 3128;
@@ -580,15 +582,15 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('access_log /var/log/squid/audit.jsonl audit_jsonl');
     });
 
-    it('audit_jsonl logformat should include versioned _schema field', () => {
+    it('audit_jsonl logformat should include versioned _schema field matching the package.json version', () => {
       const config: SquidConfig = {
         domains: ['example.com'],
         port: defaultPort,
       };
       const result = generateSquidConfig(config);
-      // The audit_jsonl logformat line must embed a semver schema identifier so that
-      // every emitted record carries the version tag.
-      expect(result).toMatch(/logformat audit_jsonl \{.*"_schema":"audit\/v\d+\.\d+\.\d+"/);
+      // The audit_jsonl logformat line must embed the exact CLI version so that
+      // every emitted record carries the correct schema identifier.
+      expect(result).toContain(`"_schema":"audit/v${AWF_VERSION}"`);
     });
 
     it('audit_jsonl logformat should include all required fields', () => {

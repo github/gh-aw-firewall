@@ -23,6 +23,13 @@ RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy
 # Switch to non-root user
 USER apiproxy
 
+# AWF version baked into the image at release build time.
+# The release workflow passes --build-arg AWF_VERSION=<tag> so that
+# token-usage.jsonl records carry the exact api-proxy image version.
+# Falls back to "0.0.0-dev" for local/un-versioned builds.
+ARG AWF_VERSION=0.0.0-dev
+ENV AWF_VERSION=${AWF_VERSION}
+
 # Expose ports
 # 10000 - OpenAI API proxy (also serves as health check endpoint)
 # 10001 - Anthropic API proxy

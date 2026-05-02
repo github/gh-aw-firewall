@@ -23,8 +23,8 @@
   "properties": {
     "_schema": {
       "type": "string",
-      "pattern": "^token-usage/v\\d+\\.\\d+\\.\\d+$",
-      "description": "Schema identifier and version for this record (e.g. \"token-usage/v0.26.0\")."
+      "pattern": "^token-usage/v\\d+\\.\\d+\\.\\d+(-\\w+)?$",
+      "description": "Schema identifier and version for this record (e.g. \"token-usage/v0.26.0\"). Dev builds use \"token-usage/v0.0.0-dev\"."
     },
     "timestamp": {
       "type": "string",

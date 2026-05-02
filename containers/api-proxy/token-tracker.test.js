@@ -1052,7 +1052,7 @@ describe('trackWebSocketTokenUsage', () => {
 
 describe('validateTokenUsageRecord', () => {
   const validRecord = {
-    _schema: 'token-usage/v0.0.0',
+    _schema: 'token-usage/v0.0.0-dev',
     timestamp: '2025-01-01T00:00:00.000Z',
     request_id: 'req-123',
     provider: 'anthropic',
@@ -1078,6 +1078,7 @@ describe('validateTokenUsageRecord', () => {
   test('accepts any semver version in _schema', () => {
     expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v1.2.3' })).toBe(true);
     expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v0.26.0' })).toBe(true);
+    expect(validateTokenUsageRecord({ ...validRecord, _schema: 'token-usage/v0.0.0-dev' })).toBe(true);
   });
 
   test('rejects a record with wrong _schema', () => {
@@ -1214,7 +1215,7 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+/);
       expect(parsed.request_id).toBe('schema-field-http');
       done();
     }, 20);
@@ -1255,8 +1256,64 @@ describe('token-usage JSONL record schema field', () => {
     setTimeout(() => {
       expect(mockStream.write).toHaveBeenCalledTimes(1);
       const parsed = mockStream.writtenRecords[0];
-      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+$/);
+      expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+/);
       expect(parsed.request_id).toBe('schema-field-ws');
+      done();
+    }, 20);
+  });
+});
+
+// ── AWF_VERSION env var propagated as exact _schema value ─────────────
+//
+// Uses jest.isolateModules() to load a fresh token-tracker instance with a
+// controlled AWF_VERSION env var so the test verifies the exact _schema value
+// emitted, not just the semver pattern.
+
+describe('token-usage _schema exact version from AWF_VERSION', () => {
+  test('emits exact AWF_VERSION in _schema field', (done) => {
+    const origVersion = process.env.AWF_VERSION;
+    process.env.AWF_VERSION = '9.8.7';
+
+    // Load an isolated copy of token-tracker with AWF_VERSION=9.8.7 already set
+    let isolated;
+    jest.isolateModules(() => {
+      isolated = require('./token-tracker');
+    });
+
+    // Restore env var right away — the isolated module already captured it
+    process.env.AWF_VERSION = origVersion;
+
+    const mockStream = makeMockStream();
+    const mkdirSpy = jest.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    const writeStreamSpy = jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream);
+
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.statusCode = 200;
+
+    isolated.trackTokenUsage(proxyRes, {
+      requestId: 'exact-version-test',
+      provider: 'openai',
+      path: '/v1/chat/completions',
+      startTime: Date.now(),
+      metrics: null,
+    });
+
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    })));
+    proxyRes.emit('end');
+
+    setTimeout(async () => {
+      mkdirSpy.mockRestore();
+      writeStreamSpy.mockRestore();
+      await isolated.closeLogStream();
+
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed._schema).toBe('token-usage/v9.8.7');
+      expect(parsed.request_id).toBe('exact-version-test');
       done();
     }, 20);
   });
