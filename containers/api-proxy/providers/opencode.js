@@ -4,24 +4,27 @@
  * OpenCode provider adapter.
  *
  * Port: 10004  (only started when AWF_ENABLE_OPENCODE=true)
- * Auth: dynamic — resolved at request time based on available credentials
- * Credentials: OPENAI_API_KEY > ANTHROPIC_API_KEY > COPILOT_GITHUB_TOKEN / COPILOT_API_KEY
+ * Auth: dynamic — delegated to the first enabled candidate adapter
  *
  * OpenCode gets its own isolated port rather than sharing with Claude (10001)
  * or Codex (10000) to enable per-engine rate limiting and metrics isolation.
  *
- * Credential priority (first available wins):
- *   1. OPENAI_API_KEY → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
- *   2. ANTHROPIC_API_KEY → Anthropic BYOK route (ANTHROPIC_API_TARGET)
- *   3. COPILOT_GITHUB_TOKEN / COPILOT_API_KEY → Copilot route (COPILOT_API_TARGET)
+ * Routing priority is determined by the order of the `candidateAdapters` array
+ * supplied at construction time (see providers/index.js).  The first enabled
+ * adapter in the list wins.  No code change to this file is needed when a new
+ * provider is added to the candidate list.
+ *
+ * Default priority (OpenAI > Anthropic > Copilot) is defined in index.js:
+ *   createOpenCodeAdapter(env, { candidateAdapters: [openai, anthropic, copilot] })
+ *
+ * To change the routing order or add a new provider, edit the candidateAdapters
+ * array in providers/index.js — this file stays unchanged.
  */
-
-const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
-const { deriveCopilotApiTarget, resolveCopilotAuthToken } = require('./copilot');
-const COPILOT_INTEGRATION_ID_DEFAULT = 'copilot-developer-cli';
 
 /**
  * Resolve the upstream route for an OpenCode request based on available credentials.
+ * This is the legacy low-level helper; the adapter now uses candidateAdapters instead.
+ * Kept as an export for backward compatibility with existing tests.
  *
  * @param {string|undefined} openaiKey
  * @param {string|undefined} anthropicKey
@@ -40,6 +43,7 @@ function resolveOpenCodeRoute(
   openaiBasePath, anthropicBasePath,
   integrationId
 ) {
+  const COPILOT_INTEGRATION_ID_DEFAULT = 'copilot-developer-cli';
   if (openaiKey) {
     return { target: openaiTarget, headers: { 'Authorization': `Bearer ${openaiKey}` }, basePath: openaiBasePath, needsAnthropicVersion: false };
   }
@@ -60,41 +64,38 @@ function resolveOpenCodeRoute(
 /**
  * Create the OpenCode provider adapter.
  *
+ * The adapter is a transparent routing layer: all per-request decisions
+ * (target host, base path, auth headers, body transforms, URL transforms)
+ * are fully delegated to whichever candidate adapter is currently enabled.
+ *
+ * This means:
+ *   - All active providers remain independently reachable on their own ports.
+ *   - OpenCode gets the full auth + transform logic of the underlying provider
+ *     for free — no duplication.
+ *   - Changing the routing order or adding a new provider only requires
+ *     updating the `candidateAdapters` array in providers/index.js.
+ *
  * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {{ candidateAdapters?: import('./index').ProviderAdapter[] }} [opts]
+ *   Ordered list of adapters to consider for routing; the first enabled one is used.
+ *   Pass an empty array (default) to disable OpenCode regardless of env vars.
  * @returns {import('./index').ProviderAdapter}
  */
-function createOpenCodeAdapter(env) {
+function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
   const enabled = env.AWF_ENABLE_OPENCODE === 'true';
 
-  const openaiKey = (env.OPENAI_API_KEY || '').trim() || undefined;
-  const anthropicKey = (env.ANTHROPIC_API_KEY || '').trim() || undefined;
-  const copilotToken = resolveCopilotAuthToken(env);
-  const integrationId = env.COPILOT_INTEGRATION_ID || COPILOT_INTEGRATION_ID_DEFAULT;
-
-  const openaiTarget = normalizeApiTarget(env.OPENAI_API_TARGET) || 'api.openai.com';
-  const anthropicTarget = normalizeApiTarget(env.ANTHROPIC_API_TARGET) || 'api.anthropic.com';
-  const copilotTarget = deriveCopilotApiTarget(env);
-
-  // OpenAI path has a /v1 default (same logic as the OpenAI adapter)
-  const explicitOpenAIBasePath = normalizeBasePath(env.OPENAI_API_BASE_PATH);
-  const openaiBasePath = explicitOpenAIBasePath || (openaiTarget === 'api.openai.com' ? '/v1' : '');
-  const anthropicBasePath = normalizeBasePath(env.ANTHROPIC_API_BASE_PATH);
-
   /**
-   * Resolve the current route.  Called per-request so that if credentials are
-   * rotated without restarting the container, the new values are picked up.
-   * In practice env vars don't change at runtime; this keeps the adapter pure.
+   * Return the first enabled candidate adapter, or null if none is active.
+   * Called per-request so that credential changes are picked up without restart.
+   *
+   * @returns {import('./index').ProviderAdapter | null}
    */
-  function resolveRoute() {
-    return resolveOpenCodeRoute(
-      openaiKey, anthropicKey, copilotToken,
-      openaiTarget, anthropicTarget, copilotTarget,
-      openaiBasePath, anthropicBasePath,
-      integrationId
-    );
+  function resolveActiveAdapter() {
+    return candidateAdapters.find(a => a.isEnabled()) || null;
   }
 
-  const startupRoute = enabled ? resolveRoute() : null;
+  // Snapshot at startup for reflection info (stable across requests)
+  const startupActiveAdapter = enabled ? resolveActiveAdapter() : null;
 
   return {
     name: 'opencode',
@@ -103,37 +104,53 @@ function createOpenCodeAdapter(env) {
     alwaysBind: false,
     get participatesInValidation() { return this.isEnabled(); },
 
-    isEnabled() { return enabled && !!resolveRoute(); },
+    isEnabled() { return enabled && !!resolveActiveAdapter(); },
 
+    /** Delegate to the active candidate adapter. */
     getTargetHost(req) {
-      const route = resolveRoute();
-      return route ? route.target : '';
+      return resolveActiveAdapter()?.getTargetHost(req) || '';
     },
 
+    /** Delegate to the active candidate adapter. */
     getBasePath(req) {
-      const route = resolveRoute();
-      return route ? (route.basePath || '') : '';
+      return resolveActiveAdapter()?.getBasePath(req) || '';
     },
 
     /**
-     * Build auth headers for the resolved upstream provider.
-     * Adds anthropic-version default when routing to the Anthropic target.
+     * Delegate auth headers to the active candidate adapter.
+     * Each provider's full auth logic (token selection, version headers,
+     * beta flags, integration IDs) is applied automatically.
      *
      * @param {import('http').IncomingMessage} req
      * @returns {Record<string, string>}
      */
     getAuthHeaders(req) {
-      const route = resolveRoute();
-      if (!route) return {};
-
-      const headers = Object.assign({}, route.headers);
-      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
-        headers['anthropic-version'] = '2023-06-01';
-      }
-      return headers;
+      return resolveActiveAdapter()?.getAuthHeaders(req) || {};
     },
 
-    getBodyTransform() { return null; },
+    /**
+     * Delegate URL transformation to the active candidate adapter.
+     * Applies the active provider's URL transform (e.g. Gemini key-param
+     * stripping) when one is defined, otherwise returns url unchanged.
+     *
+     * @param {string} url
+     * @returns {string}
+     */
+    transformRequestUrl(url) {
+      const active = resolveActiveAdapter();
+      return active?.transformRequestUrl ? active.transformRequestUrl(url) : url;
+    },
+
+    /**
+     * Delegate body transforms to the active candidate adapter.
+     * This gives OpenCode model-alias rewriting and provider-specific
+     * optimizations (e.g. Anthropic cache injection) for free.
+     *
+     * @returns {((body: Buffer) => Buffer|null)|null}
+     */
+    getBodyTransform() {
+      return resolveActiveAdapter()?.getBodyTransform() || null;
+    },
 
     // OpenCode is a routing layer over the base providers; those providers
     // handle their own startup validation and model fetching.
@@ -145,14 +162,15 @@ function createOpenCodeAdapter(env) {
         provider: 'opencode',
         port: 10004,
         base_url: 'http://api-proxy:10004',
-        configured: enabled && !!startupRoute,
+        configured: enabled && !!startupActiveAdapter,
         models_cache_key: null,
         models_url: null,
       };
     },
 
     // Exposed for introspection / testing
-    _startupRoute: startupRoute,
+    _startupActiveAdapterName: startupActiveAdapter?.name || null,
+    _candidateAdapters: candidateAdapters,
   };
 }
 

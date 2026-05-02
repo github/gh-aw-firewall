@@ -1023,6 +1023,138 @@ describe('resolveOpenCodeRoute', () => {
   });
 });
 
+// ── OpenCode adapter delegation ────────────────────────────────────────────────
+// Tests that verify OpenCode correctly delegates to its candidate adapters and
+// that all providers can be simultaneously active on their own ports.
+
+describe('OpenCode adapter delegation', () => {
+  const { createOpenCodeAdapter } = require('./providers/opencode');
+
+  function makeStubAdapter(name, enabled, { targetHost = `api.${name}.com`, basePath = '', authHeaders = {}, bodyTransform = null, urlTransform = undefined } = {}) {
+    return {
+      name,
+      isEnabled: () => enabled,
+      getTargetHost: () => targetHost,
+      getBasePath: () => basePath,
+      getAuthHeaders: () => authHeaders,
+      getBodyTransform: () => bodyTransform,
+      transformRequestUrl: urlTransform,
+    };
+  }
+
+  const fakeReq = { headers: {}, method: 'POST', url: '/v1/messages' };
+
+  it('routes to the first enabled candidate when multiple are configured', () => {
+    const openai     = makeStubAdapter('openai',    true,  { targetHost: 'api.openai.com',    basePath: '/v1', authHeaders: { Authorization: 'Bearer sk-oai' } });
+    const anthropic  = makeStubAdapter('anthropic', true,  { targetHost: 'api.anthropic.com', authHeaders: { 'x-api-key': 'sk-ant' } });
+    const copilot    = makeStubAdapter('copilot',   true,  { targetHost: 'api.githubcopilot.com', authHeaders: { Authorization: 'Bearer gho_cop' } });
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai, anthropic, copilot] });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getTargetHost(fakeReq)).toBe('api.openai.com');
+    expect(adapter.getAuthHeaders(fakeReq).Authorization).toBe('Bearer sk-oai');
+    expect(adapter.getBasePath(fakeReq)).toBe('/v1');
+  });
+
+  it('skips disabled candidates and picks the next enabled one', () => {
+    const openai    = makeStubAdapter('openai',    false, { targetHost: 'api.openai.com' });
+    const anthropic = makeStubAdapter('anthropic', true,  { targetHost: 'api.anthropic.com', authHeaders: { 'x-api-key': 'sk-ant' } });
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai, anthropic] });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getTargetHost(fakeReq)).toBe('api.anthropic.com');
+    expect(adapter.getAuthHeaders(fakeReq)['x-api-key']).toBe('sk-ant');
+  });
+
+  it('is disabled when all candidate adapters are disabled', () => {
+    const openai    = makeStubAdapter('openai',    false, {});
+    const anthropic = makeStubAdapter('anthropic', false, {});
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai, anthropic] });
+    expect(adapter.isEnabled()).toBe(false);
+  });
+
+  it('is disabled when AWF_ENABLE_OPENCODE is not set, even if candidates are enabled', () => {
+    const openai = makeStubAdapter('openai', true, { targetHost: 'api.openai.com' });
+
+    const adapter = createOpenCodeAdapter({}, { candidateAdapters: [openai] });
+    expect(adapter.isEnabled()).toBe(false);
+  });
+
+  it('delegates body transform to the active candidate adapter', () => {
+    const transform = (buf) => Buffer.from(buf.toString().toUpperCase());
+    const anthropic = makeStubAdapter('anthropic', true, { targetHost: 'api.anthropic.com', bodyTransform: transform });
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [anthropic] });
+    const fn = adapter.getBodyTransform();
+    expect(fn).toBe(transform);
+  });
+
+  it('returns null body transform when active candidate has none', () => {
+    const openai = makeStubAdapter('openai', true, { bodyTransform: null });
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai] });
+    expect(adapter.getBodyTransform()).toBeNull();
+  });
+
+  it('delegates URL transform to the active candidate when one is defined', () => {
+    const urlTransform = (url) => url.replace('?key=placeholder', '');
+    const gemini = makeStubAdapter('gemini', true, { targetHost: 'generativelanguage.googleapis.com', urlTransform });
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [gemini] });
+    const transformed = adapter.transformRequestUrl('/v1/models?key=placeholder');
+    expect(transformed).toBe('/v1/models');
+  });
+
+  it('returns url unchanged when active candidate has no URL transform', () => {
+    const openai = makeStubAdapter('openai', true, {});
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai] });
+    expect(adapter.transformRequestUrl('/v1/chat/completions')).toBe('/v1/chat/completions');
+  });
+
+  it('reports the active adapter name at startup for introspection', () => {
+    const anthropic = makeStubAdapter('anthropic', false, {});
+    const copilot   = makeStubAdapter('copilot',   true,  { targetHost: 'api.githubcopilot.com' });
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [anthropic, copilot] });
+    expect(adapter._startupActiveAdapterName).toBe('copilot');
+  });
+
+  it('exposes the candidate adapter list for introspection', () => {
+    const openai    = makeStubAdapter('openai',    true, {});
+    const anthropic = makeStubAdapter('anthropic', true, {});
+
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai, anthropic] });
+    expect(adapter._candidateAdapters).toHaveLength(2);
+    expect(adapter._candidateAdapters[0].name).toBe('openai');
+    expect(adapter._candidateAdapters[1].name).toBe('anthropic');
+  });
+
+  it('all providers remain independently active on their own ports', () => {
+    // Simulate the production setup: OpenAI + Anthropic + Copilot all enabled
+    const openai    = makeStubAdapter('openai',    true, { targetHost: 'api.openai.com' });
+    const anthropic = makeStubAdapter('anthropic', true, { targetHost: 'api.anthropic.com' });
+    const copilot   = makeStubAdapter('copilot',   true, { targetHost: 'api.githubcopilot.com' });
+
+    const opencode = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' }, { candidateAdapters: [openai, anthropic, copilot] });
+
+    // Each provider is independently enabled
+    expect(openai.isEnabled()).toBe(true);
+    expect(anthropic.isEnabled()).toBe(true);
+    expect(copilot.isEnabled()).toBe(true);
+
+    // OpenCode routes to the first enabled (OpenAI in this priority order)
+    expect(opencode.isEnabled()).toBe(true);
+    expect(opencode.getTargetHost(fakeReq)).toBe('api.openai.com');
+
+    // All three base providers are still individually reachable (different ports)
+    expect(openai.getTargetHost()).toBe('api.openai.com');
+    expect(anthropic.getTargetHost()).toBe('api.anthropic.com');
+    expect(copilot.getTargetHost()).toBe('api.githubcopilot.com');
+  });
+});
+
 describe('httpProbe', () => {
   let server;
   let serverPort;

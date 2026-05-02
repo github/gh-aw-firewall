@@ -125,16 +125,19 @@ module.exports = { createMyProviderAdapter };
 // 1. Import your factory
 const { createMyProviderAdapter } = require('./my-provider');
 
-// 2. Add to createAllAdapters():
+// 2. Construct the adapter alongside the others in createAllAdapters():
 function createAllAdapters(env, deps = {}) {
-  return [
-    createOpenAIAdapter(env,    { bodyTransform: deps.openaiBodyTransform    }),
-    createAnthropicAdapter(env, { bodyTransform: deps.anthropicBodyTransform }),
-    createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   }),
-    createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    }),
-    createOpenCodeAdapter(env),
-    createMyProviderAdapter(env, { bodyTransform: deps.myProviderBodyTransform }), // ← add here
-  ];
+  const openai    = createOpenAIAdapter(env,    { bodyTransform: deps.openaiBodyTransform    });
+  const anthropic = createAnthropicAdapter(env, { bodyTransform: deps.anthropicBodyTransform });
+  const copilot   = createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   });
+  const gemini    = createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    });
+  const myProvider = createMyProviderAdapter(env, { bodyTransform: deps.myProviderBodyTransform }); // ← add here
+
+  // OpenCode routes to the first enabled candidate in priority order.
+  // Add myProvider to this list if you want OpenCode to route through it.
+  const opencode  = createOpenCodeAdapter(env, { candidateAdapters: [openai, anthropic, copilot] });
+
+  return [openai, anthropic, copilot, gemini, opencode, myProvider]; // ← include in return
 }
 
 // 3. Export it alongside the others
@@ -148,6 +151,23 @@ module.exports = {
 If your provider needs model-alias rewriting, also add a corresponding
 `myProviderBodyTransform` in server.js (mirroring how the existing transforms
 are built and passed into `createAllAdapters`).
+
+### Optional: add your provider to OpenCode's routing
+
+OpenCode (port 10004) automatically routes to the first enabled adapter in its
+`candidateAdapters` list.  If you want OpenCode to fall back to your provider,
+add it to that list in the desired priority position — **no changes to
+`opencode.js` are needed**:
+
+```js
+// In createAllAdapters(), update the opencode line:
+const opencode = createOpenCodeAdapter(env, {
+  candidateAdapters: [openai, anthropic, copilot, myProvider], // ← add at desired priority position
+});
+```
+
+All providers remain independently reachable on their own ports regardless of
+whether they appear in the OpenCode candidate list.
 
 ---
 
@@ -177,6 +197,7 @@ EXPOSE 10000 10001 10002 10003 10004 10005
 - [ ] Add provider env vars to `src/docker-manager.ts` if they need forwarding from the host
 - [ ] Add domain to `docs/allowed-domains.md` or equivalent if the upstream is new
 - [ ] Write adapter unit tests in `providers/<name>.test.js`
+- [ ] (Optional) Add adapter to OpenCode's `candidateAdapters` list in `providers/index.js` if OpenCode should route through it
 
 ---
 
