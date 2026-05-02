@@ -435,7 +435,7 @@ if (printOnly) {
   writeFileSync(latestPath, outputLatest);
   console.log(`Schema written to ${latestPath}`);
 
-  // Also write to src/ for runtime bundling (used by schema-validator.ts)
+  // Also write to src/ for runtime loading (loaded dynamically by schema-validator.ts at startup)
   const srcPath = join(projectRoot, 'src', 'awf-config-schema.json');
   writeFileSync(srcPath, outputV1);
   console.log(`Schema written to ${srcPath}`);
