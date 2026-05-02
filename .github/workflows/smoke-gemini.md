@@ -44,41 +44,6 @@ sandbox:
   agent:
     version: v0.25.29
 strict: true
-steps:
-  - name: Pre-compute smoke test data
-    id: smoke-data
-    run: |
-      echo "::group::Fetching last 2 merged PRs"
-      PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
-        --json number,title,author,mergedAt \
-        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"')
-      echo "$PR_DATA"
-      echo "::endgroup::"
-
-      echo "::group::GitHub.com connectivity check"
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com)
-      echo "github.com returned HTTP $HTTP_CODE"
-      echo "::endgroup::"
-
-      echo "::group::File write/read test"
-      TEST_DIR="/tmp/gh-aw/agent"
-      TEST_FILE="$TEST_DIR/smoke-test-gemini-${GITHUB_RUN_ID}.txt"
-      mkdir -p "$TEST_DIR"
-      echo "Smoke test passed for Gemini at $(date)" > "$TEST_FILE"
-      FILE_CONTENT=$(cat "$TEST_FILE")
-      echo "Wrote and read back: $FILE_CONTENT"
-      echo "::endgroup::"
-
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
-        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
-        echo "SMOKE_FILE_PATH=$TEST_FILE"
-      } >> "$GITHUB_OUTPUT"
-    env:
-      GH_TOKEN: ${{ github.token }}
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -103,35 +68,21 @@ post-steps:
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
-## Pre-Computed Test Results
+> Use `perPage: 2` when listing PRs.
 
-The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
+## Test Requirements
 
-### 1. GitHub MCP Testing
-Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
-
-### 2. GitHub.com Connectivity
-Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
-✅ if HTTP 200 or 301, ❌ otherwise.
-
-### 3. File Write/Read Test
-Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
-File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
-Verify by running `cat` on the file path using bash to confirm it exists.
-
-## Pre-Fetched PR Data
-
-```
-${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-```
+1. **GitHub MCP Testing**: Review the last 2 merged pull requests in ${{ github.repository }}
+2. **GitHub.com Connectivity**: Use bash to run `curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com` and verify the HTTP status is 200 or 301
+3. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-gemini-${{ github.run_id }}.txt` with content "Smoke test passed for Gemini at $(date)" (create the directory if it doesn't exist)
+4. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 
 ## Output
 
-Add a **very brief** comment (max 5-10 lines) to the current pull request with:
+**If triggered by a pull request**, add a **very brief** comment (max 5-10 lines) to the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
-- Mention the pull request author and any assignees
 
 If all tests pass, add the label `smoke-gemini` to the pull request.
 
