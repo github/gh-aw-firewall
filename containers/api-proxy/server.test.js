@@ -6,7 +6,16 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, composeBodyTransforms, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
+
+// Functions that live in proxy-utils.js
+const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, shouldStripHeader, stripGeminiKeyParam, composeBodyTransforms } = require('./proxy-utils');
+
+// Provider-specific functions that live in their respective adapter modules
+const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, resolveCopilotAuthToken } = require('./providers/copilot');
+const { resolveOpenCodeRoute } = require('./providers/opencode');
+
+// Core proxy functions that remain in server.js
+const { proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -412,18 +421,21 @@ describe('buildUpstreamPath', () => {
         .toBe('/v1/chat/completions');
     });
 
-    it('should map unversioned /responses to /v1/responses for api.openai.com', () => {
-      expect(buildUpstreamPath('/responses', 'api.openai.com', ''))
+    it('should map unversioned /responses to /v1/responses when basePath is /v1 (OpenAI default)', () => {
+      // The OpenAI adapter passes basePath='/v1' for the public endpoint.
+      // buildUpstreamPath is now provider-agnostic; the /v1 prefix comes from the adapter.
+      expect(buildUpstreamPath('/responses', 'api.openai.com', '/v1'))
         .toBe('/v1/responses');
     });
 
-    it('should preserve already-versioned OpenAI responses path', () => {
-      expect(buildUpstreamPath('/v1/responses', 'api.openai.com', ''))
+    it('should preserve already-versioned OpenAI responses path with /v1 basePath', () => {
+      expect(buildUpstreamPath('/v1/responses', 'api.openai.com', '/v1'))
         .toBe('/v1/responses');
     });
 
-    it('should map unversioned /responses to /v1/responses when OpenAI host includes port', () => {
-      expect(buildUpstreamPath('/responses', 'api.openai.com:443', ''))
+    it('should map unversioned /responses to /v1/responses when basePath is /v1 (host-with-port variant)', () => {
+      // basePath='/v1' is the canonical form; the OpenAI adapter normalises the target.
+      expect(buildUpstreamPath('/responses', 'api.openai.com', '/v1'))
         .toBe('/v1/responses');
     });
 

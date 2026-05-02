@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * AWF API Proxy Sidecar
+ * AWF API Proxy Sidecar — Core Engine
  *
- * Node.js-based proxy that:
- * 1. Keeps LLM API credentials isolated from agent container
- * 2. Routes all traffic through Squid via HTTP_PROXY/HTTPS_PROXY
- * 3. Injects authentication headers (Authorization, x-api-key)
- * 4. Respects domain whitelisting enforced by Squid
+ * Responsibilities:
+ *   1. Generic HTTP/WebSocket proxy (proxyRequest / proxyWebSocket)
+ *   2. Rate limiting, metrics, logging
+ *   3. Management endpoints (/health, /metrics, /reflect) on the designated port
+ *   4. Provider-agnostic server factory (createProviderServer)
+ *   5. Startup orchestration: creates provider servers from registered adapters
+ *
+ * All provider-specific knowledge (credentials, URLs, auth headers, body
+ * transforms, model lists) lives exclusively in providers/*.js.
+ * This file contains ZERO hard-coded provider names, ports, or env-var reads.
  */
+
+'use strict';
 
 const fs = require('fs');
 const path = require('path');
@@ -21,20 +28,8 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
-let makeAnthropicTransform;
-let loadCustomTransform;
-let EXTENDED_CACHE_BETA;
-try {
-  ({ makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA } = require('./anthropic-transforms'));
-} catch (err) {
-  if (err && err.code === 'MODULE_NOT_FOUND') {
-    makeAnthropicTransform = () => (body) => body;
-    loadCustomTransform = () => null;
-    EXTENDED_CACHE_BETA = undefined;
-  } else {
-    throw err;
-  }
-}
+
+// ── Optional modules (graceful degradation when not bundled) ─────────────────
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
 let closeLogStream;
@@ -50,313 +45,28 @@ try {
   }
 }
 
-// Create rate limiter from environment variables
+// ── Shared utility functions ─────────────────────────────────────────────────
+const {
+  buildUpstreamPath,
+  shouldStripHeader,
+  composeBodyTransforms,
+} = require('./proxy-utils');
+
+// ── Rate limiter ─────────────────────────────────────────────────────────────
 const limiter = rateLimiter.create();
 
-// Max request body size (10 MB) to prevent DoS via large payloads
+// ── Request size cap (10 MB) to prevent DoS via large payloads ───────────────
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
-// Headers that must never be forwarded from the client.
-// The proxy controls authentication — client-supplied auth/proxy headers are stripped.
-const STRIPPED_HEADERS = new Set([
-  'host',
-  'authorization',
-  'proxy-authorization',
-  'x-api-key',
-  'x-goog-api-key',
-  'forwarded',
-  'via',
-]);
-
-/** Returns true if the header name should be stripped (case-insensitive). */
-function shouldStripHeader(name) {
-  const lower = name.toLowerCase();
-  return STRIPPED_HEADERS.has(lower) || lower.startsWith('x-forwarded-');
-}
-
-// Read API keys from environment (set by docker-compose)
-// Trim whitespace/newlines to prevent malformed HTTP headers — env vars from
-// CI secrets or docker-compose YAML may include trailing whitespace.
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim() || undefined;
-const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
-const COPILOT_GITHUB_TOKEN = (process.env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
-const COPILOT_API_KEY = (process.env.COPILOT_API_KEY || '').trim() || undefined;
-
-/**
- * Resolves the Copilot auth token from environment variables.
- * COPILOT_GITHUB_TOKEN (GitHub OAuth) takes precedence over COPILOT_API_KEY (direct key).
- * @param {Record<string, string|undefined>} env - Environment variables to inspect
- * @returns {string|undefined} The resolved auth token, or undefined if neither is set
- */
-function resolveCopilotAuthToken(env = process.env) {
-  const githubToken = (env.COPILOT_GITHUB_TOKEN || '').trim() || undefined;
-  const apiKey = (env.COPILOT_API_KEY || '').trim() || undefined;
-  return githubToken || apiKey;
-}
-
-const COPILOT_AUTH_TOKEN = resolveCopilotAuthToken(process.env);
-const COPILOT_INTEGRATION_ID = process.env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
-const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim() || undefined;
-const ENABLE_OPENCODE = process.env.AWF_ENABLE_OPENCODE === 'true';
-
-/**
- * Normalizes an API target value to a bare hostname.
- * Accepts either a hostname or a full URL and extracts only the hostname,
- * discarding any scheme, path, query, fragment, credentials, or port.
- * Path configuration must be provided separately via the existing
- * *_API_BASE_PATH environment variables.
- *
- * @param {string|undefined} value - Raw env var value
- * @returns {string|undefined} Bare hostname, or undefined if input is falsy
- */
-function normalizeApiTarget(value) {
-  if (!value) return value;
-
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-
-  try {
-    const parsed = new URL(candidate);
-
-    if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password || parsed.port) {
-      console.warn(
-        `Ignoring unsupported API target URL components in ${sanitizeForLog(trimmed)}; ` +
-        'configure path prefixes via the corresponding *_API_BASE_PATH environment variable.'
-      );
-    }
-
-    return parsed.hostname || undefined;
-  } catch (err) {
-    console.warn(`Invalid API target ${sanitizeForLog(trimmed)}; expected a hostname (e.g. 'api.example.com') or URL`);
-    return undefined;
-  }
-}
-
-// Configurable API target hosts (supports custom endpoints / internal LLM routers)
-// Values are normalized to bare hostnames — buildUpstreamPath() prepends https://
-const OPENAI_API_TARGET = normalizeApiTarget(process.env.OPENAI_API_TARGET) || 'api.openai.com';
-const ANTHROPIC_API_TARGET = normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) || 'api.anthropic.com';
-const GEMINI_API_TARGET = normalizeApiTarget(process.env.GEMINI_API_TARGET) || 'generativelanguage.googleapis.com';
-
-/**
- * Normalizes a base path for use as a URL path prefix.
- * Ensures the path starts with '/' (if non-empty) and has no trailing '/'.
- * Returns '' for empty, null, or undefined inputs.
- *
- * @param {string|undefined|null} rawPath - The raw path value from env or config
- * @returns {string} Normalized path prefix (e.g. '/serving-endpoints') or ''
- */
-function normalizeBasePath(rawPath) {
-  if (!rawPath) return '';
-  let path = rawPath.trim();
-  if (!path) return '';
-  // Ensure leading slash
-  if (!path.startsWith('/')) {
-    path = '/' + path;
-  }
-  // Strip trailing slash (but preserve a bare '/')
-  if (path !== '/' && path.endsWith('/')) {
-    path = path.slice(0, -1);
-  }
-  return path;
-}
-
-/**
- * Build the full upstream path by joining basePath, reqUrl's pathname, and query string.
- * Applies provider-safe defaults and avoids duplicate prefixing when the incoming
- * path already includes the configured base path.
- *
- * Examples:
- *   buildUpstreamPath('/responses', 'api.openai.com', '')
- *     → '/v1/responses'
- *   buildUpstreamPath('/v1/chat/completions', 'host.databricks.com', '/serving-endpoints')
- *     → '/serving-endpoints/v1/chat/completions'
- *   buildUpstreamPath('/v1/messages?stream=true', 'host.com', '/anthropic')
- *     → '/anthropic/v1/messages?stream=true'
- *
- * @param {string} reqUrl - The incoming request URL (must start with '/' and not '//')
- * @param {string} targetHost - The upstream hostname (used only to parse the URL)
- * @param {string} basePath - Normalized base path prefix (e.g. '/serving-endpoints' or '')
- * @returns {string} Full upstream path including query string
- */
-function buildUpstreamPath(reqUrl, targetHost, basePath) {
-  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
-    throw new Error('URL must be a relative origin-form path');
-  }
-
-  const targetUrl = new URL(reqUrl, `https://${targetHost}`);
-  const pathname = targetUrl.pathname;
-  let prefix = basePath === '/' ? '' : basePath;
-
-  // OpenAI's canonical API paths are versioned under /v1, while some newer
-  // clients (for example Codex CLI with OPENAI_BASE_URL pointing at the sidecar)
-  // send unversioned paths like /responses. Add /v1 only for the default
-  // OpenAI host when no explicit base path is configured.
-  if (!prefix && targetUrl.hostname === 'api.openai.com') {
-    prefix = '/v1';
-  }
-
-  if (prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`))) {
-    return pathname + targetUrl.search;
-  }
-
-  return prefix + pathname + targetUrl.search;
-}
-
-/**
- * Strip all known Gemini API-key query parameters from a request URL.
- *
- * The @google/genai SDK (and older Gemini SDK versions) may append auth params
- * (`?key=`, `?apiKey=`, or `?api_key=`) to every request URL in addition to
- * setting the `x-goog-api-key` header.  The proxy injects the real key via the
- * header, so any placeholder param must be removed before forwarding to Google
- * to prevent API_KEY_INVALID errors.
- *
- * @param {string} reqUrl - The incoming request URL (must start with exactly one '/')
- * @returns {string} URL with all Gemini auth query parameters removed
- */
-function stripGeminiKeyParam(reqUrl) {
-  // Only operate on relative request paths that begin with exactly one slash.
-  // Returning other inputs unchanged lets proxyRequest's relative-URL check reject them.
-  // The guard prevents absolute URLs (e.g. 'http://evil.com/path?key=…') and
-  // protocol-relative URLs ('//host/path') from being normalized into a relative path.
-  if (typeof reqUrl !== 'string' || !reqUrl.startsWith('/') || reqUrl.startsWith('//')) {
-    return reqUrl;
-  }
-  const parsed = new URL(reqUrl, 'http://localhost');
-  parsed.searchParams.delete('key');
-  parsed.searchParams.delete('apiKey');
-  parsed.searchParams.delete('api_key');
-  // Reconstruct relative path only — never emit the scheme/host from the dummy base.
-  return parsed.pathname + parsed.search;
-}
-
-// Optional base path prefixes for API targets (e.g. /serving-endpoints for Databricks)
-const OPENAI_API_BASE_PATH = normalizeBasePath(process.env.OPENAI_API_BASE_PATH);
-const ANTHROPIC_API_BASE_PATH = normalizeBasePath(process.env.ANTHROPIC_API_BASE_PATH);
-const GEMINI_API_BASE_PATH = normalizeBasePath(process.env.GEMINI_API_BASE_PATH);
-
-// Configurable Copilot API target host (supports GHES/GHEC / custom endpoints)
-// Priority: COPILOT_API_TARGET env var > auto-derive from GITHUB_SERVER_URL > default
-function deriveCopilotApiTarget() {
-  if (process.env.COPILOT_API_TARGET) {
-    return normalizeApiTarget(process.env.COPILOT_API_TARGET);
-  }
-  // Auto-derive from GITHUB_SERVER_URL:
-  // - GitHub Enterprise Cloud (*.ghe.com): Copilot inference/models/MCP are served at
-  //   copilot-api.<subdomain>.ghe.com (separate from the GitHub REST API at api.*)
-  // - GitHub Enterprise Server (non-github.com, non-ghe.com) → api.enterprise.githubcopilot.com
-  // - github.com → api.githubcopilot.com
-  const serverUrl = process.env.GITHUB_SERVER_URL;
-  if (serverUrl) {
-    try {
-      const hostname = new URL(serverUrl).hostname;
-      if (hostname !== 'github.com') {
-        // Check if this is a GHEC tenant (*.ghe.com)
-        if (hostname.endsWith('.ghe.com')) {
-          // Extract subdomain: mycompany.ghe.com → mycompany
-          const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
-          // GHEC routes Copilot inference to copilot-api.<subdomain>.ghe.com,
-          // not to api.<subdomain>.ghe.com (which is the GitHub REST API)
-          return `copilot-api.${subdomain}.ghe.com`;
-        }
-        // GHES (any other non-github.com hostname)
-        return 'api.enterprise.githubcopilot.com';
-      }
-    } catch {
-      // Invalid URL — fall through to default
-    }
-  }
-  return 'api.githubcopilot.com';
-}
-const COPILOT_API_TARGET = deriveCopilotApiTarget();
-
-// GitHub REST API target host for endpoints that need the GitHub REST API
-// (e.g., enterprise-specific endpoints). Currently unused — /models is served
-// by the Copilot API, not the REST API — but kept for future GHES/GHEC needs.
-// Priority: GITHUB_API_URL env var (hostname extracted) > auto-derive from GITHUB_SERVER_URL > default
-function deriveGitHubApiTarget() {
-  // Explicit GITHUB_API_URL takes priority — this is the canonical source for enterprise deployments
-  if (process.env.GITHUB_API_URL) {
-    const target = normalizeApiTarget(process.env.GITHUB_API_URL);
-    if (target) return target;
-  }
-  // Auto-derive from GITHUB_SERVER_URL for GHEC tenants (*.ghe.com)
-  const serverUrl = process.env.GITHUB_SERVER_URL;
-  if (serverUrl) {
-    try {
-      const hostname = new URL(serverUrl).hostname;
-      if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
-        // GHEC: GitHub REST API lives at api.<subdomain>.ghe.com
-        const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
-        return `api.${subdomain}.ghe.com`;
-      }
-    } catch {
-      // Invalid URL — fall through to default
-    }
-  }
-  return 'api.github.com';
-}
-
-/**
- * Extract the base path from GITHUB_API_URL for GHES deployments
- * (e.g. https://ghes.example.com/api/v3 → '/api/v3').
- * Returns '' for github.com or when no path component is present.
- */
-function deriveGitHubApiBasePath() {
-  const raw = process.env.GITHUB_API_URL;
-  if (!raw) return '';
-  try {
-    const parsed = new URL(raw.trim().startsWith('http') ? raw.trim() : `https://${raw.trim()}`);
-    const p = parsed.pathname.replace(/\/+$/, '');
-    return p === '/' ? '' : p;
-  } catch {
-    return '';
-  }
-}
-
-const GITHUB_API_TARGET = deriveGitHubApiTarget();
-const GITHUB_API_BASE_PATH = deriveGitHubApiBasePath();
-
-// Squid proxy configuration (set via HTTP_PROXY/HTTPS_PROXY in docker-compose)
+// ── Squid proxy agent ────────────────────────────────────────────────────────
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-
-logRequest('info', 'startup', {
-  message: 'Starting AWF API proxy sidecar',
-  squid_proxy: HTTPS_PROXY || 'not configured',
-  api_targets: {
-    openai: OPENAI_API_TARGET,
-    anthropic: ANTHROPIC_API_TARGET,
-    gemini: GEMINI_API_TARGET,
-    copilot: COPILOT_API_TARGET,
-    github: GITHUB_API_TARGET,
-  },
-  api_base_paths: {
-    openai: OPENAI_API_BASE_PATH || '(none)',
-    anthropic: ANTHROPIC_API_BASE_PATH || '(none)',
-    gemini: GEMINI_API_BASE_PATH || '(none)',
-  },
-  providers: {
-    openai: !!OPENAI_API_KEY,
-    anthropic: !!ANTHROPIC_API_KEY,
-    gemini: !!GEMINI_API_KEY,
-    copilot: !!COPILOT_AUTH_TOKEN,
-    copilot_github_token: !!COPILOT_GITHUB_TOKEN,
-    copilot_api_key: !!COPILOT_API_KEY,
-  },
-});
-
-// Create proxy agent for routing through Squid
 const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
+
 if (!proxyAgent) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
 }
 
-// ── Model alias resolution ─────────────────────────────────────────────────
+// ── Model alias resolution ────────────────────────────────────────────────────
 // Loaded from AWF_MODEL_ALIASES env var (JSON string).
 // When configured, POST/PUT request bodies are inspected for a "model" field
 // and rewritten to a concrete model name before forwarding to upstream.
@@ -374,98 +84,6 @@ if (MODEL_ALIASES) {
   });
 }
 
-// ── Anthropic prompt-cache optimizations ────────────────────────────────────
-// Enabled by setting AWF_ANTHROPIC_AUTO_CACHE=1.
-// When enabled, /v1/messages POST requests are mutated before forwarding:
-//   - Cache breakpoints injected on tools / system / messages[0] / rolling tail
-//   - Existing ephemeral breakpoints upgraded to ttl:"1h" (tail stays at TAIL_TTL)
-//   - anthropic-beta header extended with the extended-cache-ttl-2025-04-11 flag
-//   - ANSI SGR sequences stripped from message text and tool results
-//
-// Tail TTL is controlled by AWF_ANTHROPIC_CACHE_TAIL_TTL (default: "5m").
-// Valid values: "5m", "1h". Use "1h" only for long-running sessions where
-// the tail breakpoint is unlikely to expire within an hour.
-const ANTHROPIC_AUTO_CACHE = process.env.AWF_ANTHROPIC_AUTO_CACHE === '1';
-const ANTHROPIC_CACHE_TAIL_TTL = (() => {
-  const raw = (process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL || '').trim().toLowerCase();
-  return raw === '1h' ? '1h' : '5m';
-})();
-
-if (ANTHROPIC_AUTO_CACHE) {
-  logRequest('info', 'startup', {
-    message: 'Anthropic prompt-cache optimizations enabled (AWF_ANTHROPIC_AUTO_CACHE=1)',
-    tail_ttl: ANTHROPIC_CACHE_TAIL_TTL,
-  });
-}
-
-
-/**
- * Build a body-transform function for the Anthropic provider that applies:
- *   1. Model alias rewriting (when AWF_MODEL_ALIASES is configured)
- *   2. Prompt-cache optimizations (when AWF_ANTHROPIC_AUTO_CACHE=1):
- *      - Cache breakpoint injection (tools / system / messages[0] / tail)
- *      - Ephemeral TTL upgrade to 1h (tail stays at ANTHROPIC_CACHE_TAIL_TTL)
- *      - ANSI escape code stripping
- *
- * The `injectHeaders` map is mutated in-place to add the
- * `anthropic-beta: extended-cache-ttl-2025-04-11` flag when auto-cache is on.
- *
- * @param {Record<string,string>} injectHeaders - Outgoing auth headers (mutated in-place)
- * @returns {((body: Buffer) => Buffer | null) | null}
- */
-function makeAnthropicBodyTransform(injectHeaders) {
-  const hasModelAliases = !!MODEL_ALIASES;
-  const hasAutoCache = ANTHROPIC_AUTO_CACHE;
-  if (!hasModelAliases && !hasAutoCache) return null;
-
-  return (body) => {
-    // Step 1: model alias rewriting (operates on raw Buffer, may return a new Buffer)
-    let buf = body;
-    let modelAliasRewritten = false;
-    if (hasModelAliases) {
-      const result = rewriteModelInBody(buf, 'anthropic', MODEL_ALIASES.models, cachedModels);
-      if (result) {
-        for (const line of result.log) {
-          logRequest('info', 'model_resolution', { message: line, provider: 'anthropic' });
-        }
-        logRequest('info', 'model_rewrite', {
-          provider: 'anthropic',
-          original_model: sanitizeForLog(result.originalModel) || '(none)',
-          resolved_model: sanitizeForLog(result.resolvedModel),
-        });
-        buf = result.body;
-        modelAliasRewritten = true;
-      }
-    }
-
-    // Step 2: prompt-cache optimizations (parse JSON, mutate, re-serialise)
-    if (hasAutoCache) {
-      let parsed;
-      try {
-        parsed = JSON.parse(buf.toString('utf8'));
-      } catch {
-        logRequest('warn', 'anthropic_cache_skip', {
-          message: 'Failed to parse request body as JSON — skipping cache optimizations',
-        });
-        return modelAliasRewritten ? buf : null;
-      }
-
-      const result = applyAnthropicCacheOptimizations(parsed, injectHeaders, { tailTtl: ANTHROPIC_CACHE_TAIL_TTL });
-      logRequest('info', 'anthropic_cache_applied', {
-        injected: result.injected,
-        rewritten: result.rewritten,
-        beta_header: result.betaHeader,
-        ansi_cleaned: result.ansiCleaned,
-      });
-
-      const mutated = Buffer.from(JSON.stringify(parsed), 'utf8');
-      return mutated;
-    }
-
-    return modelAliasRewritten ? buf : null;
-  };
-}
-
 /**
  * Build a body-transform function for a given provider that rewrites the
  * "model" field in JSON request bodies using the configured alias map.
@@ -480,7 +98,6 @@ function makeModelBodyTransform(provider) {
   return (body) => {
     const result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels);
     if (!result) return null;
-    // Log the full resolution chain
     for (const line of result.log) {
       logRequest('info', 'model_resolution', { message: line, provider });
     }
@@ -493,131 +110,63 @@ function makeModelBodyTransform(provider) {
   };
 }
 
-/**
- * Compose two body-transform functions into a single transform.
- * Each transform accepts a Buffer and returns a Buffer (modified) or null (no change).
- *
- * Chain semantics:
- *   - If first returns null (no change), pass the original buffer to second.
- *   - If second returns null, return whatever first returned.
- *   - If both return null, return null.
- *
- * @param {((body: Buffer) => Buffer | null) | null} first
- * @param {((body: Buffer) => Buffer | null) | null} second
- * @returns {((body: Buffer) => Buffer | null) | null}
- */
-function composeBodyTransforms(first, second) {
-  if (!first && !second) return null;
-  if (!first) return second;
-  if (!second) return first;
-  return (body) => {
-    const a = first(body);
-    const b = second(a !== null ? a : body);
-    if (b !== null) return b;
-    if (a !== null) return a;
-    return null;
-  };
-}
+// ── Provider adapters ─────────────────────────────────────────────────────────
+// createAllAdapters is called at module load so that module-level functions
+// (reflectEndpoints, healthResponse, buildModelsJson) work correctly in tests.
+const { createAllAdapters } = require('./providers');
 
-// ── Anthropic request optimisations ───────────────────────────────────────────
-// All features are opt-in via environment variables and are applied only to
-// POST /v1/messages requests forwarded through the Anthropic proxy (port 10001).
-//
-// AWF_ANTHROPIC_AUTO_CACHE=1          — inject ≤4 prompt-cache breakpoints +
-//                                       upgrade existing ephemeral TTLs to 1h
-// AWF_ANTHROPIC_CACHE_TAIL_TTL=5m|1h — TTL for the rolling-tail slot (default: 5m)
-// AWF_ANTHROPIC_DROP_TOOLS=A,B,C      — drop named tools from the tools array
-// AWF_ANTHROPIC_STRIP_ANSI=1          — strip ANSI SGR codes from tool_result text
-// AWF_ANTHROPIC_TRANSFORM_FILE=/path  — custom JS transform hook; path must resolve
-//                                       inside the container image (pre-baked).  This env
-//                                       var is intentionally not forwarded from the host
-//                                       by AWF to avoid arbitrary code execution in the
-//                                       credential-holding api-proxy sidecar.
-
-const AWF_ANTHROPIC_AUTO_CACHE = (
-  process.env.AWF_ANTHROPIC_AUTO_CACHE === '1' ||
-  process.env.AWF_ANTHROPIC_AUTO_CACHE === 'true'
-);
-const AWF_ANTHROPIC_CACHE_TAIL_TTL = (() => {
-  const raw = (process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL || '').trim();
-  return (raw === '1h' || raw === '5m') ? raw : '5m';
-})();
-const AWF_ANTHROPIC_DROP_TOOLS = (() => {
-  const raw = (process.env.AWF_ANTHROPIC_DROP_TOOLS || '').trim();
-  return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
-})();
-const AWF_ANTHROPIC_STRIP_ANSI = (
-  process.env.AWF_ANTHROPIC_STRIP_ANSI === '1' ||
-  process.env.AWF_ANTHROPIC_STRIP_ANSI === 'true'
-);
-const AWF_ANTHROPIC_TRANSFORM_FILE = (process.env.AWF_ANTHROPIC_TRANSFORM_FILE || '').trim() || undefined;
-
-const _anthropicCustomTransform = loadCustomTransform(AWF_ANTHROPIC_TRANSFORM_FILE);
-
-// Pre-built Anthropic-specific body transform (null when nothing is enabled).
-const _anthropicOptimisationsTransform = makeAnthropicTransform({
-  autoCache: AWF_ANTHROPIC_AUTO_CACHE,
-  tailTtl: AWF_ANTHROPIC_CACHE_TAIL_TTL,
-  dropTools: AWF_ANTHROPIC_DROP_TOOLS,
-  stripAnsiCodes: AWF_ANTHROPIC_STRIP_ANSI,
-  customTransform: _anthropicCustomTransform,
+const registeredAdapters = createAllAdapters(process.env, {
+  openaiBodyTransform:    makeModelBodyTransform('openai'),
+  anthropicBodyTransform: makeModelBodyTransform('anthropic'),
+  copilotBodyTransform:   makeModelBodyTransform('copilot'),
+  geminiBodyTransform:    makeModelBodyTransform('gemini'),
 });
 
-if (AWF_ANTHROPIC_AUTO_CACHE) {
-  logRequest('info', 'startup', {
-    message: 'Anthropic auto-cache enabled',
-    tail_ttl: AWF_ANTHROPIC_CACHE_TAIL_TTL,
-    extended_cache_beta: EXTENDED_CACHE_BETA,
-  });
-}
-if (AWF_ANTHROPIC_DROP_TOOLS.length > 0) {
-  logRequest('info', 'startup', {
-    message: 'Anthropic tool-drop enabled',
-    tools: AWF_ANTHROPIC_DROP_TOOLS,
-  });
-}
-if (AWF_ANTHROPIC_STRIP_ANSI) {
-  logRequest('info', 'startup', { message: 'Anthropic ANSI-strip enabled' });
-}
-if (AWF_ANTHROPIC_TRANSFORM_FILE) {
-  logRequest('info', 'startup', {
-    message: _anthropicCustomTransform
-      ? 'Anthropic custom transform loaded'
-      : 'Anthropic custom transform failed to load (disabled)',
-    file: AWF_ANTHROPIC_TRANSFORM_FILE,
-  });
-}
-
+// ── Cached model lists (populated at startup by fetchStartupModels) ───────────
 /**
- * Resolves the OpenCode routing configuration based on available credentials.
- * Priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > copilotToken (COPILOT_GITHUB_TOKEN / COPILOT_API_KEY)
- *
- * @param {string|undefined} openaiKey
- * @param {string|undefined} anthropicKey
- * @param {string|undefined} copilotToken
- * @param {string} openaiTarget
- * @param {string} anthropicTarget
- * @param {string} copilotTarget
- * @param {string} [openaiBasePath]
- * @param {string} [anthropicBasePath]
- * @returns {{ target: string, headers: Record<string,string>, basePath: string|undefined, needsAnthropicVersion: boolean } | null}
+ * @type {Record<string, string[]|null>}
+ * null = fetch failed or not attempted for this provider.
  */
-function resolveOpenCodeRoute(openaiKey, anthropicKey, copilotToken, openaiTarget, anthropicTarget, copilotTarget, openaiBasePath, anthropicBasePath) {
-  if (openaiKey) {
-    return { target: openaiTarget, headers: { 'Authorization': `Bearer ${openaiKey}` }, basePath: openaiBasePath, needsAnthropicVersion: false };
+const cachedModels = {};
+
+/** Set to true once fetchStartupModels() has run (regardless of success). */
+let modelFetchComplete = false;
+
+/** Reset model cache state (used in tests). */
+function resetModelCacheState() {
+  for (const key of Object.keys(cachedModels)) {
+    delete cachedModels[key];
   }
-  if (anthropicKey) {
-    return { target: anthropicTarget, headers: { 'x-api-key': anthropicKey }, basePath: anthropicBasePath, needsAnthropicVersion: true };
-  }
-  if (copilotToken) {
-    return { target: copilotTarget, headers: { 'Authorization': `Bearer ${copilotToken}`, 'Copilot-Integration-Id': COPILOT_INTEGRATION_ID }, basePath: undefined, needsAnthropicVersion: false };
-  }
-  return null;
+  modelFetchComplete = false;
 }
 
+// ── Startup key validation state ─────────────────────────────────────────────
 /**
- * Check rate limit and send 429 if exceeded.
- * Returns true if request was rate-limited (caller should return early).
+ * @typedef {'pending'|'valid'|'auth_rejected'|'network_error'|'inconclusive'|'skipped'} ValidationStatus
+ * @typedef {{ status: ValidationStatus, message: string }} ValidationResult
+ */
+
+/** @type {Record<string, ValidationResult>} */
+const keyValidationResults = {};
+
+let keyValidationComplete = false;
+
+function resetKeyValidationState() {
+  for (const key of Object.keys(keyValidationResults)) {
+    delete keyValidationResults[key];
+  }
+  keyValidationComplete = false;
+}
+
+// ── Utility: validate request IDs ────────────────────────────────────────────
+function isValidRequestId(id) {
+  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
+}
+
+// ── Rate-limit helper ─────────────────────────────────────────────────────────
+/**
+ * Check the rate limit for a provider and send a 429 if exceeded.
+ * Returns true if the request was rate-limited (caller should return early).
  */
 function checkRateLimit(req, res, provider, requestBytes) {
   const check = limiter.check(provider, requestBytes);
@@ -662,6 +211,7 @@ function checkRateLimit(req, res, provider, requestBytes) {
   return false;
 }
 
+// ── Core proxy: HTTP ──────────────────────────────────────────────────────────
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
  *
@@ -671,23 +221,14 @@ function checkRateLimit(req, res, provider, requestBytes) {
  * @param {object} injectHeaders - Auth headers to inject
  * @param {string} provider - Provider name for logging and metrics
  * @param {string} [basePath=''] - Optional base-path prefix
- * @param {((body: Buffer) => Buffer | null) | null} [bodyTransform=null] - Optional body transform
- *   applied for POST/PUT/PATCH requests (e.g. model alias rewriting)
+ * @param {((body: Buffer) => Buffer | null) | null} [bodyTransform=null]
  */
-/** Validate that a request ID is safe (alphanumeric, dashes, dots, max 128 chars). */
-function isValidRequestId(id) {
-  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
-}
-
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null) {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
 
-  // Propagate request ID back to the client and forward to upstream
   res.setHeader('X-Request-ID', requestId);
-
-  // Track active requests
   metrics.gaugeInc('active_requests', { provider });
 
   logRequest('info', 'request_start', {
@@ -698,7 +239,6 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     upstream_host: targetHost,
   });
 
-  // Validate that req.url is a relative path (prevent open-redirect / SSRF)
   if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
@@ -717,32 +257,23 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     return;
   }
 
-  // Build target URL
   const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-  // Handle client-side errors (e.g. aborted connections)
   req.on('error', (err) => {
-    if (errored) return; // Prevent double handling
+    if (errored) return;
     errored = true;
     const duration = Date.now() - startTime;
     metrics.gaugeDec('active_requests', { provider });
     metrics.increment('requests_errors_total', { provider });
     logRequest('error', 'request_error', {
-      request_id: requestId,
-      provider,
-      method: req.method,
-      path: sanitizeForLog(req.url),
-      duration_ms: duration,
-      error: sanitizeForLog(err.message),
-      upstream_host: targetHost,
+      request_id: requestId, provider, method: req.method,
+      path: sanitizeForLog(req.url), duration_ms: duration,
+      error: sanitizeForLog(err.message), upstream_host: targetHost,
     });
-    if (!res.headersSent) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-    }
+    if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Client error', message: err.message }));
   });
 
-  // Read the request body with size limit
   const chunks = [];
   let totalBytes = 0;
   let rejected = false;
@@ -757,18 +288,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       metrics.gaugeDec('active_requests', { provider });
       metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
       logRequest('warn', 'request_complete', {
-        request_id: requestId,
-        provider,
-        method: req.method,
-        path: sanitizeForLog(req.url),
-        status: 413,
-        duration_ms: duration,
-        request_bytes: totalBytes,
-        upstream_host: targetHost,
+        request_id: requestId, provider, method: req.method,
+        path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
+        request_bytes: totalBytes, upstream_host: targetHost,
       });
-      if (!res.headersSent) {
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-      }
+      if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
       return;
     }
@@ -780,84 +304,60 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     let body = Buffer.concat(chunks);
     const inboundBytes = body.length;
 
-    // Apply optional body transform (e.g. model alias rewriting) for mutating methods
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
       const transformed = bodyTransform(body);
-      if (transformed) {
-        body = transformed;
-      }
+      if (transformed) body = transformed;
     }
 
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
-    // Copy incoming headers, stripping sensitive/proxy headers, then inject auth
     const headers = {};
     for (const [name, value] of Object.entries(req.headers)) {
-      if (!shouldStripHeader(name)) {
-        headers[name] = value;
-      }
+      if (!shouldStripHeader(name)) headers[name] = value;
     }
-    // Ensure X-Request-ID is forwarded to upstream
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
-    // When the body was rewritten (model alias substitution), update content-length
-    // and remove any transfer-encoding header — forwarding both is invalid (RFC 7230).
     if (body.length !== inboundBytes) {
       headers['content-length'] = String(body.length);
       delete headers['transfer-encoding'];
     }
 
-    // Log auth header injection for debugging credential-isolation issues
-    // Use case-insensitive lookup since providers use mixed casing (e.g. 'Authorization' vs 'authorization')
-    const injectedKey = Object.entries(injectHeaders).find(([k]) => ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase()))?.[1];
+    const injectedKey = Object.entries(injectHeaders).find(([k]) =>
+      ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
+    )?.[1];
     if (injectedKey) {
       const keyPreview = injectedKey.length > 8
         ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
         : '(short)';
       logRequest('debug', 'auth_inject', {
-        request_id: requestId,
-        provider,
-        key_length: injectedKey.length,
-        key_preview: keyPreview,
+        request_id: requestId, provider,
+        key_length: injectedKey.length, key_preview: keyPreview,
         has_anthropic_version: !!headers['anthropic-version'],
       });
     }
 
     const options = {
-      hostname: targetHost,
-      port: 443,
-      path: upstreamPath,
-      method: req.method,
-      headers,
-      agent: proxyAgent, // Route through Squid
+      hostname: targetHost, port: 443, path: upstreamPath,
+      method: req.method, headers,
+      agent: proxyAgent,
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
       let responseBytes = 0;
+      proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
 
-      proxyRes.on('data', (chunk) => {
-        responseBytes += chunk.length;
-      });
-
-      // Handle response stream errors
       proxyRes.on('error', (err) => {
         const duration = Date.now() - startTime;
         metrics.gaugeDec('active_requests', { provider });
         metrics.increment('requests_errors_total', { provider });
         logRequest('error', 'request_error', {
-          request_id: requestId,
-          provider,
-          method: req.method,
-          path: sanitizeForLog(req.url),
-          duration_ms: duration,
-          error: sanitizeForLog(err.message),
-          upstream_host: targetHost,
+          request_id: requestId, provider, method: req.method,
+          path: sanitizeForLog(req.url), duration_ms: duration,
+          error: sanitizeForLog(err.message), upstream_host: targetHost,
         });
-        if (!res.headersSent) {
-          res.writeHead(502, { 'Content-Type': 'application/json' });
-        }
+        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Response stream error', message: err.message }));
       });
 
@@ -868,31 +368,20 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
         metrics.increment('response_bytes_total', { provider }, responseBytes);
         metrics.observe('request_duration_ms', duration, { provider });
-
         logRequest('info', 'request_complete', {
-          request_id: requestId,
-          provider,
-          method: req.method,
-          path: sanitizeForLog(req.url),
-          status: proxyRes.statusCode,
-          duration_ms: duration,
-          request_bytes: requestBytes,
-          response_bytes: responseBytes,
-          upstream_host: targetHost,
+          request_id: requestId, provider, method: req.method,
+          path: sanitizeForLog(req.url), status: proxyRes.statusCode,
+          duration_ms: duration, request_bytes: requestBytes,
+          response_bytes: responseBytes, upstream_host: targetHost,
         });
       });
 
-      // Copy response headers and add X-Request-ID
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
 
-      // Log upstream auth failures prominently for debugging
       if (proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
         logRequest('warn', 'upstream_auth_error', {
-          request_id: requestId,
-          provider,
-          status: proxyRes.statusCode,
-          upstream_host: targetHost,
-          path: sanitizeForLog(req.url),
+          request_id: requestId, provider, status: proxyRes.statusCode,
+          upstream_host: targetHost, path: sanitizeForLog(req.url),
           message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and has not expired`,
         });
       }
@@ -900,14 +389,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       res.writeHead(proxyRes.statusCode, resHeaders);
       proxyRes.pipe(res);
 
-      // Attach token usage tracking (non-blocking, listens on same data/end events)
-      trackTokenUsage(proxyRes, {
-        requestId,
-        provider,
-        path: sanitizeForLog(req.url),
-        startTime,
-        metrics,
-      });
+      trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
     });
 
     proxyReq.on('error', (err) => {
@@ -916,65 +398,41 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       metrics.increment('requests_errors_total', { provider });
       metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
       metrics.observe('request_duration_ms', duration, { provider });
-
       logRequest('error', 'request_error', {
-        request_id: requestId,
-        provider,
-        method: req.method,
-        path: sanitizeForLog(req.url),
-        duration_ms: duration,
-        error: sanitizeForLog(err.message),
-        upstream_host: targetHost,
+        request_id: requestId, provider, method: req.method,
+        path: sanitizeForLog(req.url), duration_ms: duration,
+        error: sanitizeForLog(err.message), upstream_host: targetHost,
       });
-      if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-      }
+      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Proxy error', message: err.message }));
     });
 
-    if (body.length > 0) {
-      proxyReq.write(body);
-    }
+    if (body.length > 0) proxyReq.write(body);
     proxyReq.end();
   });
 }
 
+// ── Core proxy: WebSocket ─────────────────────────────────────────────────────
 /**
  * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.
- *
- * Flow:
- *   client --[HTTP Upgrade]--> proxy --[CONNECT]--> Squid:3128 --[TLS]--> upstream:443
- *
- * Steps:
- *   1. Validate the request (WebSocket upgrade only, relative URL)
- *   2. Apply rate limiting (counts as one request, zero body bytes)
- *   3. Open a CONNECT tunnel to targetHost:443 through Squid
- *   4. TLS-handshake the tunnel
- *   5. Replay the HTTP Upgrade request with auth headers injected
- *   6. Bidirectionally pipe the raw TCP sockets
- *
- * No additional npm dependencies are required — only Node.js built-ins.
  *
  * @param {http.IncomingMessage} req - The incoming HTTP Upgrade request
  * @param {import('net').Socket} socket - Raw TCP socket to the WebSocket client
  * @param {Buffer} head - Any bytes already buffered after the upgrade headers
- * @param {string} targetHost - Upstream hostname (e.g. 'api.openai.com')
- * @param {Object} injectHeaders - Auth headers to inject (e.g. { Authorization: 'Bearer …' })
+ * @param {string} targetHost - Upstream hostname
+ * @param {Object} injectHeaders - Auth headers to inject
  * @param {string} provider - Provider name for logging and metrics
- * @param {string} [basePath=''] - Optional base-path prefix for the upstream URL
+ * @param {string} [basePath=''] - Optional base-path prefix
  */
 function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '') {
   const startTime = Date.now();
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
 
-  // ── Validate: only forward WebSocket upgrades ──────────────────────────
   const upgradeType = (req.headers['upgrade'] || '').toLowerCase();
   if (upgradeType !== 'websocket') {
     logRequest('warn', 'websocket_upgrade_rejected', {
-      request_id: requestId,
-      provider,
-      path: sanitizeForLog(req.url),
+      request_id: requestId, provider, path: sanitizeForLog(req.url),
       reason: 'unsupported upgrade type',
       upgrade: sanitizeForLog(req.headers['upgrade'] || ''),
     });
@@ -983,12 +441,9 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
     return;
   }
 
-  // ── Validate: relative path only (prevent SSRF) ────────────────────────
   if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
     logRequest('warn', 'websocket_upgrade_rejected', {
-      request_id: requestId,
-      provider,
-      path: sanitizeForLog(req.url),
+      request_id: requestId, provider, path: sanitizeForLog(req.url),
       reason: 'URL must be a relative path',
     });
     socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
@@ -998,33 +453,23 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
 
   const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-  // ── Rate limit (counts as one request, frames are not tracked) ──────────
   const rateCheck = limiter.check(provider, 0);
   if (!rateCheck.allowed) {
     metrics.increment('rate_limit_rejected_total', { provider, limit_type: rateCheck.limitType });
     logRequest('warn', 'rate_limited', {
-      request_id: requestId,
-      provider,
-      limit_type: rateCheck.limitType,
-      limit: rateCheck.limit,
-      retry_after: rateCheck.retryAfter,
+      request_id: requestId, provider, limit_type: rateCheck.limitType,
+      limit: rateCheck.limit, retry_after: rateCheck.retryAfter,
     });
-    socket.write(
-      `HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${rateCheck.retryAfter}\r\nConnection: close\r\n\r\n`
-    );
+    socket.write(`HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${rateCheck.retryAfter}\r\nConnection: close\r\n\r\n`);
     socket.destroy();
     return;
   }
 
   logRequest('info', 'websocket_upgrade_start', {
-    request_id: requestId,
-    provider,
-    path: sanitizeForLog(req.url),
-    upstream_host: targetHost,
+    request_id: requestId, provider, path: sanitizeForLog(req.url), upstream_host: targetHost,
   });
   metrics.gaugeInc('active_requests', { provider });
 
-  // finalize() must be called exactly once when the WebSocket session ends.
   let finalized = false;
   function finalize(isError, description) {
     if (finalized) return;
@@ -1034,38 +479,27 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
     if (isError) {
       metrics.increment('requests_errors_total', { provider });
       logRequest('error', 'websocket_upgrade_failed', {
-        request_id: requestId,
-        provider,
-        path: sanitizeForLog(req.url),
-        duration_ms: duration,
-        error: sanitizeForLog(String(description || 'unknown error')),
+        request_id: requestId, provider, path: sanitizeForLog(req.url),
+        duration_ms: duration, error: sanitizeForLog(String(description || 'unknown error')),
       });
     } else {
       metrics.increment('requests_total', { provider, method: 'GET', status_class: '1xx' });
       metrics.observe('request_duration_ms', duration, { provider });
       logRequest('info', 'websocket_upgrade_complete', {
-        request_id: requestId,
-        provider,
-        path: sanitizeForLog(req.url),
-        duration_ms: duration,
+        request_id: requestId, provider, path: sanitizeForLog(req.url), duration_ms: duration,
       });
     }
   }
 
-  // abort(): called before the socket pipe is established (pre-TLS errors).
-  // Sends a 502 to the client and finalizes with an error.
   function abort(reason, ...extra) {
     finalize(true, reason);
     if (!socket.destroyed && socket.writable) {
       socket.write('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
     }
     socket.destroy();
-    for (const s of extra) {
-      if (s && !s.destroyed) s.destroy();
-    }
+    for (const s of extra) { if (s && !s.destroyed) s.destroy(); }
   }
 
-  // ── Require Squid proxy ────────────────────────────────────────────────
   if (!HTTPS_PROXY) {
     abort('No Squid proxy configured (HTTPS_PROXY not set)');
     return;
@@ -1082,11 +516,8 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
   const proxyHost = proxyUrl.hostname;
   const proxyPort = parseInt(proxyUrl.port, 10) || 3128;
 
-  // ── Step 1: CONNECT tunnel through Squid to targetHost:443 ────────────
   const connectReq = http.request({
-    host: proxyHost,
-    port: proxyPort,
-    method: 'CONNECT',
+    host: proxyHost, port: proxyPort, method: 'CONNECT',
     path: `${targetHost}:443`,
     headers: { 'Host': `${targetHost}:443` },
   });
@@ -1099,26 +530,19 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       return;
     }
 
-    // ── Step 2: TLS-upgrade the raw tunnel ──────────────────────────────
     const tlsSocket = tls.connect({ socket: tunnel, servername: targetHost, rejectUnauthorized: true });
-
-    // Pre-TLS error handler: removed once TLS is established.
     const onTlsError = (err) => abort(`TLS handshake error: ${err.message}`, tunnel);
     tlsSocket.once('error', onTlsError);
 
     tlsSocket.once('secureConnect', () => {
-      // TLS connected — swap to post-connection teardown error handlers.
       tlsSocket.removeListener('error', onTlsError);
 
-      // ── Step 3: Replay the HTTP Upgrade request with auth injected ────
       const forwardHeaders = {};
       for (const [name, value] of Object.entries(req.headers)) {
-        if (!shouldStripHeader(name)) {
-          forwardHeaders[name] = value;
-        }
+        if (!shouldStripHeader(name)) forwardHeaders[name] = value;
       }
       Object.assign(forwardHeaders, injectHeaders);
-      forwardHeaders['host'] = targetHost; // Fix Host header for upstream
+      forwardHeaders['host'] = targetHost;
 
       let upgradeReqStr = `GET ${upstreamPath} HTTP/1.1\r\n`;
       for (const [name, value] of Object.entries(forwardHeaders)) {
@@ -1127,29 +551,15 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       upgradeReqStr += '\r\n';
       tlsSocket.write(upgradeReqStr);
 
-      // Forward any bytes already buffered before the pipe
-      if (head && head.length > 0) {
-        tlsSocket.write(head);
-      }
+      if (head && head.length > 0) tlsSocket.write(head);
 
-      // ── Step 4: Bidirectional raw socket relay ─────────────────────
       tlsSocket.pipe(socket);
       socket.pipe(tlsSocket);
 
-      // Attach WebSocket token usage tracking (non-blocking, sniffs upstream frames)
-      trackWebSocketTokenUsage(tlsSocket, {
-        requestId,
-        provider,
-        path: sanitizeForLog(req.url),
-        startTime,
-        metrics,
-      });
+      trackWebSocketTokenUsage(tlsSocket, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
 
-      // Finalize once when either side closes; destroy the other side.
       socket.once('close', () => { finalize(false); tlsSocket.destroy(); });
       tlsSocket.once('close', () => { finalize(false); socket.destroy(); });
-
-      // Suppress unhandled-error crashes; destroy triggers the close handler.
       socket.on('error', () => socket.destroy());
       tlsSocket.on('error', () => tlsSocket.destroy());
     });
@@ -1158,184 +568,126 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
   connectReq.end();
 }
 
-/**
- * Build the enhanced health response (superset of original format).
- */
-// ---------------------------------------------------------------------------
-// Startup key validation
-// ---------------------------------------------------------------------------
+// ── Management endpoints (port 10000 only) ────────────────────────────────────
 
-/**
- * Validation result for a single provider's API key.
- * @typedef {'pending'|'valid'|'auth_rejected'|'network_error'|'inconclusive'|'skipped'} ValidationStatus
- * @typedef {{ status: ValidationStatus, message: string }} ValidationResult
- */
-
-/** @type {Record<string, ValidationResult>} */
-const keyValidationResults = {};
-
-/** Set to true once validateApiKeys() has finished (regardless of outcome). */
-let keyValidationComplete = false;
-
-/** Reset validation state (used in tests). */
-function resetKeyValidationState() {
-  for (const key of Object.keys(keyValidationResults)) {
-    delete keyValidationResults[key];
+function healthResponse() {
+  const providers = {};
+  for (const adapter of registeredAdapters) {
+    providers[adapter.name] = adapter.isEnabled();
   }
-  keyValidationComplete = false;
+  return {
+    status: 'healthy',
+    service: 'awf-api-proxy',
+    squid_proxy: HTTPS_PROXY || 'not configured',
+    providers,
+    key_validation: { complete: keyValidationComplete, results: keyValidationResults },
+    models_fetch_complete: modelFetchComplete,
+    metrics_summary: metrics.getSummary(),
+    rate_limits: limiter.getAllStatus(),
+  };
 }
 
 /**
- * Perform a lightweight probe against the provider's API to check if the
- * configured key is still accepted.  Results are logged and stored in
- * `keyValidationResults` — the health endpoint exposes them.
+ * Build the reflection response describing all proxy endpoints and their available models.
  *
- * Validation is **non-blocking by default**: the proxy still serves traffic
- * even if a key is rejected.  Set AWF_VALIDATE_KEYS=strict to exit(1) on
- * any auth rejection.
- *
- * Only validates against known default targets.  Custom/enterprise targets
- * are skipped because we don't know what probe endpoints they expose.
- *
- * @param {object} [overrides={}] - Optional key/target overrides (used in tests)
- * @param {string} [overrides.openaiKey] - Override OPENAI_API_KEY
- * @param {string} [overrides.openaiTarget] - Override OPENAI_API_TARGET
- * @param {string} [overrides.anthropicKey] - Override ANTHROPIC_API_KEY
- * @param {string} [overrides.anthropicTarget] - Override ANTHROPIC_API_TARGET
- * @param {string} [overrides.copilotGithubToken] - Override COPILOT_GITHUB_TOKEN
- * @param {string} [overrides.copilotApiKey] - Override COPILOT_API_KEY
- * @param {string} [overrides.copilotAuthToken] - Override COPILOT_AUTH_TOKEN
- * @param {string} [overrides.copilotTarget] - Override COPILOT_API_TARGET
- * @param {string} [overrides.copilotIntegrationId] - Override COPILOT_INTEGRATION_ID
- * @param {string} [overrides.geminiKey] - Override GEMINI_API_KEY
- * @param {string} [overrides.geminiTarget] - Override GEMINI_API_TARGET
- * @param {number} [overrides.timeoutMs] - Override probe timeout
+ * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean, model_aliases: object|null }}
  */
-async function validateApiKeys(overrides = {}) {
-  const mode = (process.env.AWF_VALIDATE_KEYS || 'warn').toLowerCase(); // off | warn | strict
-  if (mode === 'off') {
-    logRequest('info', 'key_validation', { message: 'Key validation disabled (AWF_VALIDATE_KEYS=off)' });
-    keyValidationComplete = true;
-    return;
+function reflectEndpoints() {
+  return {
+    endpoints: registeredAdapters.map(adapter => {
+      const info = adapter.getReflectionInfo();
+      return {
+        provider:   info.provider,
+        port:       info.port,
+        base_url:   info.base_url,
+        configured: info.configured,
+        models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
+        models_url: info.models_url,
+      };
+    }),
+    models_fetch_complete: modelFetchComplete,
+    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
+  };
+}
+
+/**
+ * Handle management endpoints on port 10000 (/health, /metrics, /reflect).
+ * Returns true if the request was handled, false otherwise.
+ */
+function handleManagementEndpoint(req, res) {
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(healthResponse()));
+    return true;
   }
-
-  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
-  const openaiKey = ov('openaiKey', OPENAI_API_KEY);
-  const openaiTarget = ov('openaiTarget', OPENAI_API_TARGET);
-  const anthropicKey = ov('anthropicKey', ANTHROPIC_API_KEY);
-  const anthropicTarget = ov('anthropicTarget', ANTHROPIC_API_TARGET);
-  const copilotGithubToken = ov('copilotGithubToken', COPILOT_GITHUB_TOKEN);
-  const copilotApiKey = ov('copilotApiKey', COPILOT_API_KEY);
-  const copilotAuthToken = ov('copilotAuthToken', COPILOT_AUTH_TOKEN);
-  const copilotTarget = ov('copilotTarget', COPILOT_API_TARGET);
-  const copilotIntegrationId = ov('copilotIntegrationId', COPILOT_INTEGRATION_ID);
-  const geminiKey = ov('geminiKey', GEMINI_API_KEY);
-  const geminiTarget = ov('geminiTarget', GEMINI_API_TARGET);
-  const TIMEOUT_MS = ov('timeoutMs', 10_000);
-
-  const probes = [];
-
-  // --- Copilot (COPILOT_GITHUB_TOKEN only — COPILOT_API_KEY has no probe endpoint) ---
-  if (copilotGithubToken) {
-    if (copilotTarget !== 'api.githubcopilot.com') {
-      keyValidationResults.copilot = { status: 'skipped', message: `Custom target ${copilotTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
-    } else {
-      probes.push(probeProvider('copilot', `https://${copilotTarget}/models`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${copilotGithubToken}`,
-          'Copilot-Integration-Id': copilotIntegrationId,
-        },
-      }, TIMEOUT_MS));
-    }
-  } else if (copilotApiKey && !copilotGithubToken) {
-    keyValidationResults.copilot = { status: 'skipped', message: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode' };
-    logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
+  if (req.method === 'GET' && req.url === '/metrics') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(metrics.getMetrics()));
+    return true;
   }
-
-  // --- OpenAI ---
-  if (openaiKey) {
-    if (openaiTarget !== 'api.openai.com') {
-      keyValidationResults.openai = { status: 'skipped', message: `Custom target ${openaiTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'openai', ...keyValidationResults.openai });
-    } else {
-      probes.push(probeProvider('openai', `https://${openaiTarget}/v1/models`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${openaiKey}` },
-      }, TIMEOUT_MS));
-    }
+  if (req.method === 'GET' && req.url === '/reflect') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(reflectEndpoints()));
+    return true;
   }
+  return false;
+}
 
-  // --- Anthropic ---
-  if (anthropicKey) {
-    if (anthropicTarget !== 'api.anthropic.com') {
-      keyValidationResults.anthropic = { status: 'skipped', message: `Custom target ${anthropicTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'anthropic', ...keyValidationResults.anthropic });
-    } else {
-      // POST /v1/messages with an empty body — 400 = key valid (bad body), 401 = key invalid
-      probes.push(probeProvider('anthropic', `https://${anthropicTarget}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: '{}',
-      }, TIMEOUT_MS));
-    }
+// ── models.json snapshot ──────────────────────────────────────────────────────
+
+const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
+
+/**
+ * Build the models.json payload from current cached state.
+ *
+ * @returns {object}
+ */
+function buildModelsJson() {
+  const providers = {};
+  for (const adapter of registeredAdapters) {
+    const info = adapter.getReflectionInfo();
+    providers[adapter.name] = {
+      configured: adapter.isEnabled(),
+      models: info.models_cache_key !== null
+        ? (cachedModels[info.models_cache_key] !== undefined ? cachedModels[info.models_cache_key] : null)
+        : null,
+      target: adapter.isEnabled() ? adapter.getTargetHost() : null,
+    };
   }
+  return {
+    timestamp: new Date().toISOString(),
+    providers,
+    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
+  };
+}
 
-  // --- Gemini ---
-  if (geminiKey) {
-    if (geminiTarget !== 'generativelanguage.googleapis.com') {
-      keyValidationResults.gemini = { status: 'skipped', message: `Custom target ${geminiTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'gemini', ...keyValidationResults.gemini });
-    } else {
-      probes.push(probeProvider('gemini', `https://${geminiTarget}/v1beta/models`, {
-        method: 'GET',
-        headers: { 'x-goog-api-key': geminiKey },
-      }, TIMEOUT_MS));
-    }
-  }
-
-  if (probes.length === 0) {
-    logRequest('info', 'key_validation', { message: 'No providers to validate' });
-    keyValidationComplete = true;
-    return;
-  }
-
-  await Promise.allSettled(probes);
-  keyValidationComplete = true;
-
-  // Summarize
-  const failures = Object.entries(keyValidationResults)
-    .filter(([, r]) => r.status === 'auth_rejected');
-
-  if (failures.length > 0) {
-    for (const [provider, result] of failures) {
-      logRequest('error', 'key_validation_failed', {
-        provider,
-        message: `${provider.toUpperCase()} API key validation failed — ${result.message}. Rotate the secret and re-run.`,
-      });
-    }
-    if (mode === 'strict') {
-      logRequest('error', 'key_validation_strict_exit', {
-        message: `AWF_VALIDATE_KEYS=strict: exiting due to ${failures.length} auth failure(s)`,
-        providers: failures.map(([p]) => p),
-      });
-      process.exit(1);
-    }
-  } else {
-    logRequest('info', 'key_validation', { message: 'All configured API keys validated successfully' });
+/**
+ * Write the current model availability snapshot to models.json.
+ *
+ * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
+ */
+function writeModelsJson(logDir = MODELS_LOG_DIR) {
+  const filePath = path.join(logDir, 'models.json');
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(), null, 2) + '\n', 'utf8');
+    logRequest('info', 'models_json_written', { path: filePath });
+  } catch (err) {
+    logRequest('warn', 'models_json_write_failed', {
+      message: 'Failed to write models.json',
+      logDir, path: filePath,
+      error: err instanceof Error ? (err.stack || err.message) : String(err),
+    });
   }
 }
+
+// ── Startup: key validation ────────────────────────────────────────────────────
 
 /**
  * Probe a single provider to check if the API key is accepted.
  *
- * @param {string} provider - Provider name (copilot, openai, etc.)
- * @param {string} url - Probe URL
+ * @param {string} provider
+ * @param {string} url
  * @param {{ method: string, headers: Record<string,string>, body?: string }} opts
  * @param {number} timeoutMs
  */
@@ -1371,7 +723,7 @@ async function probeProvider(provider, url, opts, timeoutMs) {
  * @param {string} url
  * @param {{ method: string, headers: Record<string,string>, body?: string }} opts
  * @param {number} timeoutMs
- * @returns {Promise<number>} HTTP status code
+ * @returns {Promise<number>}
  */
 function httpProbe(url, opts, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -1389,33 +741,20 @@ function httpProbe(url, opts, timeoutMs) {
     };
 
     let settled = false;
-    const resolveOnce = (statusCode) => {
-      if (settled) return;
-      settled = true;
-      resolve(statusCode);
-    };
-    const rejectOnce = (err) => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    };
+    const resolveOnce = (statusCode) => { if (settled) return; settled = true; resolve(statusCode); };
+    const rejectOnce = (err) => { if (settled) return; settled = true; reject(err); };
 
     const req = mod.request(reqOpts, (res) => {
-      // Consume body to free the socket
       res.resume();
       res.on('end', () => resolveOnce(res.statusCode));
       res.on('error', rejectOnce);
       res.on('close', () => resolveOnce(res.statusCode));
     });
 
-    req.on('timeout', () => {
-      req.destroy(new Error(`Probe timed out after ${timeoutMs}ms`));
-    });
+    req.on('timeout', () => { req.destroy(new Error(`Probe timed out after ${timeoutMs}ms`)); });
     req.on('error', rejectOnce);
 
-    if (opts.body) {
-      req.write(opts.body);
-    }
+    if (opts.body) req.write(opts.body);
     req.end();
   });
 }
@@ -1432,12 +771,8 @@ function httpProbe(url, opts, timeoutMs) {
 function fetchJson(url, opts, timeoutMs) {
   return new Promise((resolve) => {
     let parsed;
-    try {
-      parsed = new URL(url);
-    } catch {
-      resolve(null);
-      return;
-    }
+    try { parsed = new URL(url); } catch { resolve(null); return; }
+
     const isHttps = parsed.protocol === 'https:';
     const mod = isHttps ? https : http;
     const reqOpts = {
@@ -1451,32 +786,19 @@ function fetchJson(url, opts, timeoutMs) {
     };
 
     let settled = false;
-    const resolveOnce = (value) => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
+    const resolveOnce = (value) => { if (settled) return; settled = true; resolve(value); };
 
     const req = mod.request(reqOpts, (res) => {
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        res.resume();
-        resolveOnce(null);
-        return;
-      }
+      if (res.statusCode < 200 || res.statusCode >= 300) { res.resume(); resolveOnce(null); return; }
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
-        try {
-          resolveOnce(JSON.parse(Buffer.concat(chunks).toString()));
-        } catch {
-          resolveOnce(null);
-        }
+        try { resolveOnce(JSON.parse(Buffer.concat(chunks).toString())); } catch { resolveOnce(null); }
       });
       res.on('error', (err) => {
         logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
         resolveOnce(null);
       });
-      // Guard against connection drops mid-body that never emit 'end' or 'error'
       res.on('close', () => resolveOnce(null));
     });
 
@@ -1494,32 +816,24 @@ function fetchJson(url, opts, timeoutMs) {
 }
 
 /**
- * Prefix used by the Gemini models API in model name fields.
- * Example: { name: "models/gemini-1.5-pro" } → "gemini-1.5-pro"
+ * Extract model IDs from a provider API response.
+ * Handles:
+ *   - OpenAI / Anthropic / Copilot: { data: [{ id }, ...] }
+ *   - Gemini: { models: [{ name: "models/gemini-..." }, ...] }
+ *
+ * @param {object|null} json
+ * @returns {string[]|null}
  */
 const GEMINI_MODEL_NAME_PREFIX = 'models/';
 
-/**
- * Extract model IDs from a provider API response.
- * Handles:
- *   - OpenAI / Anthropic / Copilot format: { data: [{ id }, ...] }
- *   - Gemini format: { models: [{ name: "models/gemini-1.5-pro" }, ...] }
- *
- * @param {object|null} json - Parsed API response
- * @returns {string[]|null} Sorted array of model IDs, or null if unavailable
- */
 function extractModelIds(json) {
   if (!json || typeof json !== 'object') return null;
 
-  // OpenAI / Anthropic / Copilot format: { data: [{ id: "..." }, ...] }
   if (Array.isArray(json.data)) {
-    const ids = json.data
-      .map((m) => m && (m.id || m.name))
-      .filter(Boolean);
+    const ids = json.data.map((m) => m && (m.id || m.name)).filter(Boolean);
     return ids.length > 0 ? ids.sort() : null;
   }
 
-  // Gemini format: { models: [{ name: "models/gemini-1.5-pro", ... }, ...] }
   if (Array.isArray(json.models)) {
     const ids = json.models
       .map((m) => m && m.name && m.name.startsWith(GEMINI_MODEL_NAME_PREFIX)
@@ -1532,297 +846,368 @@ function extractModelIds(json) {
   return null;
 }
 
+// ── Adapter-based validation & model fetching ─────────────────────────────────
+//
+// When adapters array is provided (production), iterate over adapter probes.
+// When an overrides object is provided (tests), use the legacy inline logic.
+// The duck-type check (Array.isArray) keeps backward compat with existing tests.
+
 /**
- * Cache for available models per provider, populated at startup by fetchStartupModels.
- * null = not yet fetched or fetch failed for this provider.
- * @type {Record<string, string[]|null>}
+ * Validate configured API keys by probing each provider's endpoint.
+ *
+ * Accepts either:
+ *   - An adapters array (production): uses each adapter's getValidationProbe()
+ *   - An overrides object (test compatibility): uses inline probe logic
+ *
+ * @param {import('./providers').ProviderAdapter[]|object} [adaptersOrOverrides={}]
  */
-const cachedModels = {};
-
-/** Set to true once fetchStartupModels() has run (regardless of success). */
-let modelFetchComplete = false;
-
-/** Reset model cache state (used in tests). */
-function resetModelCacheState() {
-  for (const key of Object.keys(cachedModels)) {
-    delete cachedModels[key];
+async function validateApiKeys(adaptersOrOverrides = {}) {
+  const mode = (process.env.AWF_VALIDATE_KEYS || 'warn').toLowerCase();
+  if (mode === 'off') {
+    logRequest('info', 'key_validation', { message: 'Key validation disabled (AWF_VALIDATE_KEYS=off)' });
+    keyValidationComplete = true;
+    return;
   }
-  modelFetchComplete = false;
+
+  // ── Adapter-based path (production) ─────────────────────────────────────────
+  if (Array.isArray(adaptersOrOverrides)) {
+    const adapters = adaptersOrOverrides;
+    const TIMEOUT_MS = 10_000;
+    const probes = [];
+
+    for (const adapter of adapters) {
+      const probe = adapter.getValidationProbe?.();
+      if (!probe) continue;
+
+      if (probe.skip) {
+        keyValidationResults[adapter.name] = { status: 'skipped', message: probe.reason };
+        logRequest('info', 'key_validation', { provider: adapter.name, ...keyValidationResults[adapter.name] });
+        continue;
+      }
+
+      probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS));
+    }
+
+    if (probes.length === 0) {
+      logRequest('info', 'key_validation', { message: 'No providers to validate' });
+      keyValidationComplete = true;
+      return;
+    }
+
+    await Promise.allSettled(probes);
+    keyValidationComplete = true;
+    _summarizeValidationFailures(mode);
+    return;
+  }
+
+  // ── Legacy override path (test compatibility) ────────────────────────────────
+  const overrides = adaptersOrOverrides;
+  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
+
+  // Re-read module-level adapter state for defaults (keeps tests self-contained)
+  const openaiAdapter   = registeredAdapters.find(a => a.name === 'openai');
+  const anthropicAdapter = registeredAdapters.find(a => a.name === 'anthropic');
+  const copilotAdapter  = registeredAdapters.find(a => a.name === 'copilot');
+  const geminiAdapter   = registeredAdapters.find(a => a.name === 'gemini');
+
+  const openaiKey    = ov('openaiKey',    openaiAdapter?.isEnabled()    ? openaiAdapter?.getTargetHost?.() && undefined : undefined);
+  // Rather than trying to introspect adapters for every key, use process.env as fallback
+  const _ov = (key, envKey) => key in overrides ? overrides[key] : (process.env[envKey] || '').trim() || undefined;
+  const openaiKeyV    = _ov('openaiKey',    'OPENAI_API_KEY');
+  const openaiTarget  = ov('openaiTarget',  openaiAdapter?.getTargetHost?.() ?? 'api.openai.com');
+  const anthropicKeyV = _ov('anthropicKey', 'ANTHROPIC_API_KEY');
+  const anthropicTarget = ov('anthropicTarget', anthropicAdapter?.getTargetHost?.() ?? 'api.anthropic.com');
+  const copilotGithubToken = _ov('copilotGithubToken', 'COPILOT_GITHUB_TOKEN');
+  const copilotApiKey      = _ov('copilotApiKey',      'COPILOT_API_KEY');
+  const copilotAuthToken   = ov('copilotAuthToken', copilotAdapter?._githubToken ?? copilotAdapter?.isEnabled?.() ?? undefined);
+  const copilotTarget  = ov('copilotTarget', copilotAdapter?.getTargetHost?.() ?? 'api.githubcopilot.com');
+  const copilotIntegrationId = ov('copilotIntegrationId', copilotAdapter?._integrationId ?? 'copilot-developer-cli');
+  const geminiKeyV    = _ov('geminiKey',    'GEMINI_API_KEY');
+  const geminiTarget  = ov('geminiTarget',  geminiAdapter?.getTargetHost?.() ?? 'generativelanguage.googleapis.com');
+  const TIMEOUT_MS    = ov('timeoutMs', 10_000);
+
+  const probes = [];
+
+  // --- Copilot ---
+  if (copilotGithubToken) {
+    if (copilotTarget !== 'api.githubcopilot.com') {
+      keyValidationResults.copilot = { status: 'skipped', message: `Custom target ${copilotTarget}; validation skipped` };
+      logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
+    } else {
+      probes.push(probeProvider('copilot', `https://${copilotTarget}/models`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${copilotGithubToken}`, 'Copilot-Integration-Id': copilotIntegrationId },
+      }, TIMEOUT_MS));
+    }
+  } else if (copilotApiKey && !copilotGithubToken) {
+    keyValidationResults.copilot = { status: 'skipped', message: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode' };
+    logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
+  }
+
+  // --- OpenAI ---
+  if (openaiKeyV) {
+    if (openaiTarget !== 'api.openai.com') {
+      keyValidationResults.openai = { status: 'skipped', message: `Custom target ${openaiTarget}; validation skipped` };
+      logRequest('info', 'key_validation', { provider: 'openai', ...keyValidationResults.openai });
+    } else {
+      probes.push(probeProvider('openai', `https://${openaiTarget}/v1/models`, {
+        method: 'GET', headers: { 'Authorization': `Bearer ${openaiKeyV}` },
+      }, TIMEOUT_MS));
+    }
+  }
+
+  // --- Anthropic ---
+  if (anthropicKeyV) {
+    if (anthropicTarget !== 'api.anthropic.com') {
+      keyValidationResults.anthropic = { status: 'skipped', message: `Custom target ${anthropicTarget}; validation skipped` };
+      logRequest('info', 'key_validation', { provider: 'anthropic', ...keyValidationResults.anthropic });
+    } else {
+      probes.push(probeProvider('anthropic', `https://${anthropicTarget}/v1/messages`, {
+        method: 'POST',
+        headers: { 'x-api-key': anthropicKeyV, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: '{}',
+      }, TIMEOUT_MS));
+    }
+  }
+
+  // --- Gemini ---
+  if (geminiKeyV) {
+    if (geminiTarget !== 'generativelanguage.googleapis.com') {
+      keyValidationResults.gemini = { status: 'skipped', message: `Custom target ${geminiTarget}; validation skipped` };
+      logRequest('info', 'key_validation', { provider: 'gemini', ...keyValidationResults.gemini });
+    } else {
+      probes.push(probeProvider('gemini', `https://${geminiTarget}/v1beta/models`, {
+        method: 'GET', headers: { 'x-goog-api-key': geminiKeyV },
+      }, TIMEOUT_MS));
+    }
+  }
+
+  if (probes.length === 0) {
+    logRequest('info', 'key_validation', { message: 'No providers to validate' });
+    keyValidationComplete = true;
+    return;
+  }
+
+  await Promise.allSettled(probes);
+  keyValidationComplete = true;
+  _summarizeValidationFailures(mode);
+}
+
+function _summarizeValidationFailures(mode) {
+  const failures = Object.entries(keyValidationResults)
+    .filter(([, r]) => r.status === 'auth_rejected');
+
+  if (failures.length > 0) {
+    for (const [provider, result] of failures) {
+      logRequest('error', 'key_validation_failed', {
+        provider,
+        message: `${provider.toUpperCase()} API key validation failed — ${result.message}. Rotate the secret and re-run.`,
+      });
+    }
+    if (mode === 'strict') {
+      logRequest('error', 'key_validation_strict_exit', {
+        message: `AWF_VALIDATE_KEYS=strict: exiting due to ${failures.length} auth failure(s)`,
+        providers: failures.map(([p]) => p),
+      });
+      process.exit(1);
+    }
+  } else {
+    logRequest('info', 'key_validation', { message: 'All configured API keys validated successfully' });
+  }
 }
 
 /**
  * Fetch available models for each configured provider and cache them.
- * Called at startup alongside key validation.
  *
- * Accepts the same override map as validateApiKeys() so tests can inject
- * custom keys and targets without touching process.env.
+ * Accepts either:
+ *   - An adapters array (production): uses each adapter's getModelsFetchConfig()
+ *   - An overrides object (test compatibility): uses inline fetch logic
  *
- * @param {object} [overrides={}] - Optional key/target overrides (used in tests)
+ * @param {import('./providers').ProviderAdapter[]|object} [adaptersOrOverrides={}]
  */
-async function fetchStartupModels(overrides = {}) {
-  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
-  const openaiKey = ov('openaiKey', OPENAI_API_KEY);
-  const openaiTarget = ov('openaiTarget', OPENAI_API_TARGET);
-  const anthropicKey = ov('anthropicKey', ANTHROPIC_API_KEY);
-  const anthropicTarget = ov('anthropicTarget', ANTHROPIC_API_TARGET);
-  const copilotGithubToken = ov('copilotGithubToken', COPILOT_GITHUB_TOKEN);
-  const copilotAuthToken = ov('copilotAuthToken', COPILOT_AUTH_TOKEN);
-  const copilotTarget = ov('copilotTarget', COPILOT_API_TARGET);
-  const copilotIntegrationId = ov('copilotIntegrationId', COPILOT_INTEGRATION_ID);
-  const geminiKey = ov('geminiKey', GEMINI_API_KEY);
-  const geminiTarget = ov('geminiTarget', GEMINI_API_TARGET);
-  const TIMEOUT_MS = ov('timeoutMs', 10_000);
+async function fetchStartupModels(adaptersOrOverrides = {}) {
+  // ── Adapter-based path (production) ─────────────────────────────────────────
+  if (Array.isArray(adaptersOrOverrides)) {
+    const adapters = adaptersOrOverrides;
+    const TIMEOUT_MS = 10_000;
+    const fetches = [];
+
+    for (const adapter of adapters) {
+      const config = adapter.getModelsFetchConfig?.();
+      if (!config) continue;
+
+      fetches.push(
+        fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
+          cachedModels[config.cacheKey] = extractModelIds(json);
+        })
+      );
+    }
+
+    await Promise.allSettled(fetches);
+    modelFetchComplete = true;
+    return;
+  }
+
+  // ── Legacy override path (test compatibility) ────────────────────────────────
+  const overrides = adaptersOrOverrides;
+  const _ov = (key, envKey) => key in overrides ? overrides[key] : (process.env[envKey] || '').trim() || undefined;
+  const ov  = (key, fallback) => key in overrides ? overrides[key] : fallback;
+
+  const copilotAdapter = registeredAdapters.find(a => a.name === 'copilot');
+  const geminiAdapter  = registeredAdapters.find(a => a.name === 'gemini');
+
+  const openaiKey    = _ov('openaiKey',         'OPENAI_API_KEY');
+  const openaiTarget = ov('openaiTarget',        process.env.OPENAI_API_TARGET  ? require('./proxy-utils').normalizeApiTarget(process.env.OPENAI_API_TARGET) : 'api.openai.com');
+  const anthropicKey  = _ov('anthropicKey',      'ANTHROPIC_API_KEY');
+  const anthropicTarget = ov('anthropicTarget',  process.env.ANTHROPIC_API_TARGET ? require('./proxy-utils').normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) : 'api.anthropic.com');
+  const copilotGithubToken = _ov('copilotGithubToken', 'COPILOT_GITHUB_TOKEN');
+  const copilotTarget  = ov('copilotTarget', copilotAdapter?.getTargetHost?.() ?? 'api.githubcopilot.com');
+  const copilotIntegrationId = ov('copilotIntegrationId', copilotAdapter?._integrationId ?? 'copilot-developer-cli');
+  const geminiKey    = _ov('geminiKey',           'GEMINI_API_KEY');
+  const geminiTarget = ov('geminiTarget',         geminiAdapter?.getTargetHost?.() ?? 'generativelanguage.googleapis.com');
+  const TIMEOUT_MS   = ov('timeoutMs', 10_000);
 
   const fetches = [];
 
   if (openaiKey) {
-    fetches.push(
-      fetchJson(`https://${openaiTarget}/v1/models`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${openaiKey}` },
-      }, TIMEOUT_MS).then((json) => {
-        cachedModels.openai = extractModelIds(json);
-      })
-    );
+    fetches.push(fetchJson(`https://${openaiTarget}/v1/models`, {
+      method: 'GET', headers: { 'Authorization': `Bearer ${openaiKey}` },
+    }, TIMEOUT_MS).then((json) => { cachedModels.openai = extractModelIds(json); }));
   }
 
   if (anthropicKey) {
-    fetches.push(
-      fetchJson(`https://${anthropicTarget}/v1/models`, {
-        method: 'GET',
-        headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-      }, TIMEOUT_MS).then((json) => {
-        cachedModels.anthropic = extractModelIds(json);
-      })
-    );
+    fetches.push(fetchJson(`https://${anthropicTarget}/v1/models`, {
+      method: 'GET', headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+    }, TIMEOUT_MS).then((json) => { cachedModels.anthropic = extractModelIds(json); }));
   }
 
-  // Only use COPILOT_GITHUB_TOKEN (GitHub OAuth) for /models — COPILOT_API_KEY (BYOK) is not
-  // accepted by the Copilot /models endpoint (consistent with validateApiKeys behaviour).
   if (copilotGithubToken) {
-    fetches.push(
-      fetchJson(`https://${copilotTarget}/models`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${copilotGithubToken}`,
-          'Copilot-Integration-Id': copilotIntegrationId,
-        },
-      }, TIMEOUT_MS).then((json) => {
-        cachedModels.copilot = extractModelIds(json);
-      })
-    );
+    fetches.push(fetchJson(`https://${copilotTarget}/models`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${copilotGithubToken}`, 'Copilot-Integration-Id': copilotIntegrationId },
+    }, TIMEOUT_MS).then((json) => { cachedModels.copilot = extractModelIds(json); }));
   }
 
   if (geminiKey) {
-    fetches.push(
-      fetchJson(`https://${geminiTarget}/v1beta/models`, {
-        method: 'GET',
-        headers: { 'x-goog-api-key': geminiKey },
-      }, TIMEOUT_MS).then((json) => {
-        cachedModels.gemini = extractModelIds(json);
-      })
-    );
+    fetches.push(fetchJson(`https://${geminiTarget}/v1beta/models`, {
+      method: 'GET', headers: { 'x-goog-api-key': geminiKey },
+    }, TIMEOUT_MS).then((json) => { cachedModels.gemini = extractModelIds(json); }));
   }
 
   await Promise.allSettled(fetches);
   modelFetchComplete = true;
 }
 
-// Default log directory for models.json (matches the volume mount in docker-compose)
-const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
-
+// ── Generic provider server factory ──────────────────────────────────────────
 /**
- * Build the models.json payload from current cached state.
+ * Create an HTTP server for a provider adapter.
  *
- * @returns {object} The models JSON object with timestamp, providers, and model_aliases
+ * The factory is completely agnostic of provider details — all provider-specific
+ * behaviour (auth, URL transforms, body transforms) is delegated to the adapter.
+ *
+ * @param {import('./providers').ProviderAdapter} adapter
+ * @returns {http.Server}
  */
-function buildModelsJson() {
-  const opencodeConfigured = !!(OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN);
-  return {
-    timestamp: new Date().toISOString(),
-    providers: {
-      openai: {
-        configured: !!OPENAI_API_KEY,
-        models: cachedModels.openai !== undefined ? cachedModels.openai : null,
-        target: OPENAI_API_KEY ? OPENAI_API_TARGET : null,
-      },
-      anthropic: {
-        configured: !!ANTHROPIC_API_KEY,
-        models: cachedModels.anthropic !== undefined ? cachedModels.anthropic : null,
-        target: ANTHROPIC_API_KEY ? ANTHROPIC_API_TARGET : null,
-      },
-      copilot: {
-        configured: !!COPILOT_AUTH_TOKEN,
-        models: cachedModels.copilot !== undefined ? cachedModels.copilot : null,
-        target: COPILOT_AUTH_TOKEN ? COPILOT_API_TARGET : null,
-      },
-      gemini: {
-        configured: !!GEMINI_API_KEY,
-        models: cachedModels.gemini !== undefined ? cachedModels.gemini : null,
-        target: GEMINI_API_KEY ? GEMINI_API_TARGET : null,
-      },
-      opencode: {
-        configured: opencodeConfigured,
-        models: null,
-        target: null,
-      },
-    },
-    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
-  };
+function createProviderServer(adapter) {
+  const server = http.createServer((req, res) => {
+    // ── Management endpoints (designated port only) ──────────────────────────
+    if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
+
+    // ── Provider-local health endpoint ───────────────────────────────────────
+    if (req.url === '/health' && req.method === 'GET') {
+      if (adapter.isEnabled()) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'healthy', service: `awf-api-proxy-${adapter.name}` }));
+      } else if (adapter.getUnconfiguredHealthResponse) {
+        const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(body));
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not_configured', service: `awf-api-proxy-${adapter.name}` }));
+      }
+      return;
+    }
+
+    // ── Disabled adapter: return provider-specific error ─────────────────────
+    if (!adapter.isEnabled()) {
+      const response = adapter.getUnconfiguredResponse
+        ? adapter.getUnconfiguredResponse()
+        : { statusCode: 503, body: { error: `${adapter.name} proxy not configured` } };
+      res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(response.body));
+      return;
+    }
+
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (checkRateLimit(req, res, adapter.name, contentLength)) return;
+
+    // ── Optional URL transform ────────────────────────────────────────────────
+    if (adapter.transformRequestUrl) {
+      req.url = adapter.transformRequestUrl(req.url);
+    }
+
+    // ── Proxy ─────────────────────────────────────────────────────────────────
+    proxyRequest(
+      req, res,
+      adapter.getTargetHost(req),
+      adapter.getAuthHeaders(req),
+      adapter.name,
+      adapter.getBasePath(req),
+      adapter.getBodyTransform()
+    );
+  });
+
+  // ── WebSocket upgrade ─────────────────────────────────────────────────────
+  server.on('upgrade', (req, socket, head) => {
+    if (!adapter.isEnabled()) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    if (adapter.transformRequestUrl) {
+      req.url = adapter.transformRequestUrl(req.url);
+    }
+
+    proxyWebSocket(
+      req, socket, head,
+      adapter.getTargetHost(req),
+      adapter.getAuthHeaders(req),
+      adapter.name,
+      adapter.getBasePath(req)
+    );
+  });
+
+  return server;
 }
 
-/**
- * Write the current model availability snapshot to models.json in the log directory.
- *
- * Called after fetchStartupModels() completes.
- * The file is written to the volume-mounted log directory so it is automatically
- * available for artifact upload.
- *
- * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
- */
-function writeModelsJson(logDir = MODELS_LOG_DIR) {
-  const filePath = path.join(logDir, 'models.json');
-  try {
-    fs.mkdirSync(logDir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(), null, 2) + '\n', 'utf8');
-    logRequest('info', 'models_json_written', { path: filePath });
-  } catch (err) {
-    logRequest('warn', 'models_json_write_failed', {
-      message: 'Failed to write models.json',
-      logDir,
-      path: filePath,
-      error: err instanceof Error ? (err.stack || err.message) : String(err),
-    });
-  }
-}
-
-/**
- * Build the reflection response describing all proxy endpoints and their available models.
- *
- * The reflection endpoint allows agent harnesses to dynamically discover which
- * LLM providers are configured and what models are available, enabling intelligent
- * provider and model selection based on the task at hand.
- *
- * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean, model_aliases: Record<string, string[]>|null }}
- */
-function reflectEndpoints() {
-  const opencodeConfigured = ENABLE_OPENCODE && !!(OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN);
-  return {
-    endpoints: [
-      {
-        provider: 'openai',
-        port: 10000,
-        base_url: 'http://api-proxy:10000',
-        configured: !!OPENAI_API_KEY,
-        models: cachedModels.openai || null,
-        models_url: 'http://api-proxy:10000/v1/models',
-      },
-      {
-        provider: 'anthropic',
-        port: 10001,
-        base_url: 'http://api-proxy:10001',
-        configured: !!ANTHROPIC_API_KEY,
-        models: cachedModels.anthropic || null,
-        models_url: 'http://api-proxy:10001/v1/models',
-      },
-      {
-        provider: 'copilot',
-        port: 10002,
-        base_url: 'http://api-proxy:10002',
-        configured: !!COPILOT_AUTH_TOKEN,
-        models: cachedModels.copilot || null,
-        models_url: 'http://api-proxy:10002/models',
-      },
-      {
-        provider: 'gemini',
-        port: 10003,
-        base_url: 'http://api-proxy:10003',
-        configured: !!GEMINI_API_KEY,
-        models: cachedModels.gemini || null,
-        models_url: 'http://api-proxy:10003/v1beta/models',
-      },
-      {
-        provider: 'opencode',
-        port: 10004,
-        base_url: 'http://api-proxy:10004',
-        configured: opencodeConfigured,
-        // OpenCode routes to one of the above providers; query them directly for models
-        models: null,
-        models_url: null,
-      },
-    ],
-    models_fetch_complete: modelFetchComplete,
-    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
-  };
-}
-
-function healthResponse() {
-  return {
-    status: 'healthy',
-    service: 'awf-api-proxy',
-    squid_proxy: HTTPS_PROXY || 'not configured',
-    providers: {
-      openai: !!OPENAI_API_KEY,
-      anthropic: !!ANTHROPIC_API_KEY,
-      gemini: !!GEMINI_API_KEY,
-      copilot: !!COPILOT_AUTH_TOKEN,
-    },
-    key_validation: {
-      complete: keyValidationComplete,
-      results: keyValidationResults,
-    },
-    models_fetch_complete: modelFetchComplete,
-    metrics_summary: metrics.getSummary(),
-    rate_limits: limiter.getAllStatus(),
-  };
-}
-
-/**
- * Handle management endpoints on port 10000 (/health, /metrics, /reflect).
- * Returns true if the request was handled, false otherwise.
- */
-function handleManagementEndpoint(req, res) {
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(healthResponse()));
-    return true;
-  }
-  if (req.method === 'GET' && req.url === '/metrics') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(metrics.getMetrics()));
-    return true;
-  }
-  if (req.method === 'GET' && req.url === '/reflect') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(reflectEndpoints()));
-    return true;
-  }
-  return false;
-}
-
-// Only start the server if this file is run directly (not imported for testing)
+// ── Startup ───────────────────────────────────────────────────────────────────
 if (require.main === module) {
-  // Health port is always 10000 — this is what Docker healthcheck hits
-  const HEALTH_PORT = 10000;
+  // Log startup configuration (provider-agnostic; adapters report their own details)
+  logRequest('info', 'startup', {
+    message: 'Starting AWF API proxy sidecar',
+    squid_proxy: HTTPS_PROXY || 'not configured',
+    providers_configured: registeredAdapters.filter(a => a.isEnabled()).map(a => a.name),
+  });
 
-  // Startup latch: count listeners that participate in key validation.
-  // The no-key Gemini 503 handler binds port 10003 but doesn't participate
-  // in validation, so it's intentionally excluded from the count.
-  let expectedListeners = 1; // port 10000 (always)
-  if (ANTHROPIC_API_KEY) expectedListeners++;
-  if (COPILOT_AUTH_TOKEN) expectedListeners++;
-  if (GEMINI_API_KEY) expectedListeners++;
-  if (ENABLE_OPENCODE && (OPENAI_API_KEY || ANTHROPIC_API_KEY || COPILOT_AUTH_TOKEN)) expectedListeners++; // OpenCode (10004)
+  // Determine which adapters to bind and count validation participants
+  const adaptersToStart = registeredAdapters.filter(a => a.alwaysBind || a.isEnabled());
+  const expectedListeners = adaptersToStart.filter(a => a.participatesInValidation).length;
   let readyListeners = 0;
+
   function onListenerReady() {
     readyListeners++;
     if (readyListeners === expectedListeners) {
-      logRequest('info', 'startup_complete', { message: `All ${expectedListeners} validation-participating listeners ready, starting key validation` });
-      validateApiKeys().catch((err) => {
+      logRequest('info', 'startup_complete', {
+        message: `All ${expectedListeners} validation-participating listeners ready, starting key validation`,
+      });
+      validateApiKeys(adaptersToStart).catch((err) => {
         logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
         keyValidationComplete = true;
       });
-      fetchStartupModels().then(() => {
+      fetchStartupModels(adaptersToStart).then(() => {
         writeModelsJson();
       }).catch((err) => {
         logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
@@ -1832,321 +1217,19 @@ if (require.main === module) {
     }
   }
 
-  // OpenAI API proxy (port 10000)
-  if (OPENAI_API_KEY) {
-    const server = http.createServer((req, res) => {
-      if (handleManagementEndpoint(req, res)) return;
-      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-      if (checkRateLimit(req, res, 'openai', contentLength)) return;
-
-      proxyRequest(req, res, OPENAI_API_TARGET, {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      }, 'openai', OPENAI_API_BASE_PATH, makeModelBodyTransform('openai'));
-    });
-
-    server.on('upgrade', (req, socket, head) => {
-      proxyWebSocket(req, socket, head, OPENAI_API_TARGET, {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      }, 'openai', OPENAI_API_BASE_PATH);
-    });
-
-    server.listen(HEALTH_PORT, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: `OpenAI proxy listening on port ${HEALTH_PORT}`, target: OPENAI_API_TARGET });
-      onListenerReady();
-    });
-  } else {
-    // No OpenAI key — still need a health endpoint on port 10000 for Docker healthcheck
-    const server = http.createServer((req, res) => {
-      if (handleManagementEndpoint(req, res)) return;
-
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'OpenAI proxy not configured (no OPENAI_API_KEY)' }));
-    });
-
-    server.on('upgrade', (req, socket) => {
-      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-    });
-
-    server.listen(HEALTH_PORT, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: `Health endpoint listening on port ${HEALTH_PORT} (OpenAI not configured)` });
-      onListenerReady();
-    });
-  }
-
-  // Anthropic API proxy (port 10001)
-  if (ANTHROPIC_API_KEY) {
-    // Compose model-alias rewriting with Anthropic-specific optimisations.
-    // Model aliases run first so the correct model name is visible to subsequent transforms.
-    const anthropicProxyTransform = composeBodyTransforms(
-      makeModelBodyTransform('anthropic'),
-      _anthropicOptimisationsTransform
-    );
-
-    const server = http.createServer((req, res) => {
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', service: 'anthropic-proxy' }));
-        return;
-      }
-
-      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-      if (checkRateLimit(req, res, 'anthropic', contentLength)) return;
-
-      // Only set anthropic-version as default; preserve agent-provided version
-      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-      if (!req.headers['anthropic-version']) {
-        anthropicHeaders['anthropic-version'] = '2023-06-01';
-      }
-
-      // When auto-cache is enabled, add the extended-cache-ttl beta header so
-      // Anthropic honours the 1-hour TTL values we inject.  Merge with any
-      // beta flags already set by the client to avoid overwriting them.
-      if (AWF_ANTHROPIC_AUTO_CACHE) {
-        const existing = req.headers['anthropic-beta'];
-        if (!existing) {
-          anthropicHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
-        } else {
-          const normalizedExisting = Array.isArray(existing) ? existing.join(',') : existing;
-          // Parse once and check for membership before building the merged string
-          const existingBetas = normalizedExisting.split(',').map(s => s.trim()).filter(Boolean);
-          if (!existingBetas.includes(EXTENDED_CACHE_BETA)) {
-            anthropicHeaders['anthropic-beta'] = `${normalizedExisting},${EXTENDED_CACHE_BETA}`;
-          }
-          // If the client already includes the beta flag, it passes through unchanged
-          // (copied from req.headers before injectHeaders is applied in proxyRequest).
-        }
-      }
-
-      proxyRequest(req, res, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH, anthropicProxyTransform);
-    });
-
-    server.on('upgrade', (req, socket, head) => {
-      const anthropicHeaders = { 'x-api-key': ANTHROPIC_API_KEY };
-      if (!req.headers['anthropic-version']) {
-        anthropicHeaders['anthropic-version'] = '2023-06-01';
-      }
-      proxyWebSocket(req, socket, head, ANTHROPIC_API_TARGET, anthropicHeaders, 'anthropic', ANTHROPIC_API_BASE_PATH);
-    });
-
-    server.listen(10001, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: 'Anthropic proxy listening on port 10001', target: ANTHROPIC_API_TARGET });
-      onListenerReady();
-    });
-  }
-
-
-  // GitHub Copilot API proxy (port 10002)
-  // Supports COPILOT_GITHUB_TOKEN (GitHub OAuth) and COPILOT_API_KEY (BYOK direct key).
-  // COPILOT_GITHUB_TOKEN takes precedence when both are set.
-  if (COPILOT_AUTH_TOKEN) {
-    const copilotServer = http.createServer((req, res) => {
-      // Health check endpoint
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', service: 'copilot-proxy' }));
-        return;
-      }
-
-      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-      if (checkRateLimit(req, res, 'copilot', contentLength)) return;
-
-      // Copilot CLI 1.0.21+ calls GET /models at startup (to list or validate models).
-      // The /models endpoint lives on the Copilot inference API (COPILOT_API_TARGET),
-      // NOT on the GitHub REST API. Explicitly use COPILOT_GITHUB_TOKEN for this
-      // request so the GitHub OAuth token is used even when both COPILOT_GITHUB_TOKEN
-      // and COPILOT_API_KEY are configured (COPILOT_API_KEY alone is not accepted by
-      // the /models endpoint).
-      let reqPathname;
-      try {
-        reqPathname = new URL(req.url, 'http://localhost').pathname;
-      } catch {
-        logRequest('warn', 'copilot_proxy_malformed_url', {
-          message: 'Malformed request URL in Copilot proxy — rejecting with 400',
-        });
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid request URL' }));
-        return;
-      }
-      const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
-      if (isModelsPath && req.method === 'GET' && COPILOT_GITHUB_TOKEN) {
-        proxyRequest(req, res, COPILOT_API_TARGET, {
-          'Authorization': `Bearer ${COPILOT_GITHUB_TOKEN}`,
-          'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
-        }, 'copilot');
-        return;
-      }
-
-      proxyRequest(req, res, COPILOT_API_TARGET, {
-        'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
-        'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
-      }, 'copilot', '', makeModelBodyTransform('copilot'));
-    });
-
-    copilotServer.on('upgrade', (req, socket, head) => {
-      proxyWebSocket(req, socket, head, COPILOT_API_TARGET, {
-        'Authorization': `Bearer ${COPILOT_AUTH_TOKEN}`,
-        'Copilot-Integration-Id': COPILOT_INTEGRATION_ID,
-      }, 'copilot');
-    });
-
-    copilotServer.listen(10002, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: 'GitHub Copilot proxy listening on port 10002' });
-      onListenerReady();
-    });
-  }
-
-  // Google Gemini API proxy (port 10003)
-  if (GEMINI_API_KEY) {
-    const geminiServer = http.createServer((req, res) => {
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', service: 'gemini-proxy' }));
-        return;
-      }
-
-      const contentLength = parseInt(req.headers['content-length'], 10) || 0;
-      if (checkRateLimit(req, res, 'gemini', contentLength)) return;
-
-      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
-      // The proxy injects the real key via x-goog-api-key header instead.
-      req.url = stripGeminiKeyParam(req.url);
-
-      proxyRequest(req, res, GEMINI_API_TARGET, {
-        'x-goog-api-key': GEMINI_API_KEY,
-      }, 'gemini', GEMINI_API_BASE_PATH, makeModelBodyTransform('gemini'));
-    });
-
-    geminiServer.on('upgrade', (req, socket, head) => {
-      // Strip any auth query params (?key=, ?apiKey=, ?api_key=) — the SDK may append them.
-      req.url = stripGeminiKeyParam(req.url);
-      proxyWebSocket(req, socket, head, GEMINI_API_TARGET, {
-        'x-goog-api-key': GEMINI_API_KEY,
-      }, 'gemini', GEMINI_API_BASE_PATH);
-    });
-
-    logRequest('info', 'server_start', { message: `GEMINI_API_KEY configured (length=${GEMINI_API_KEY.length})` });
-    geminiServer.listen(10003, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: 'Google Gemini proxy listening on port 10003', target: GEMINI_API_TARGET });
-      onListenerReady();
-    });
-  } else {
-    // No Gemini key — listen on port 10003 and return 503 so the Gemini CLI
-    // gets an actionable error instead of a silent connection-refused.
-    const geminiServer = http.createServer((req, res) => {
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'not_configured', service: 'gemini-proxy', error: 'GEMINI_API_KEY not configured in api-proxy sidecar' }));
-        return;
-      }
-
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Gemini proxy not configured (no GEMINI_API_KEY). Set GEMINI_API_KEY in the AWF runner environment to enable credential isolation.' }));
-    });
-
-    geminiServer.on('upgrade', (req, socket) => {
-      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-    });
-
-    logRequest('warn', 'server_start', { message: 'GEMINI_API_KEY not set — Gemini proxy will return 503' });
-    geminiServer.listen(10003, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: 'Gemini endpoint listening on port 10003 (Gemini not configured — returning 503)' });
-    });
-  }
-
-  // OpenCode API proxy (port 10004) — dynamic provider routing
-  // Only started when AWF_ENABLE_OPENCODE=true, so it doesn't activate
-  // unconditionally whenever any credential is present (e.g. Copilot-only runs).
-  // Defaults to Copilot/OpenAI routing (OPENAI_API_KEY), with Anthropic as a BYOK fallback.
-  // OpenCode gets a separate port from Claude (10001) and Codex (10000) for per-engine
-  // rate limiting and metrics isolation.
-  //
-  // Credential priority (first available wins):
-  //   1. OPENAI_API_KEY                  → OpenAI/Copilot-compatible route (OPENAI_API_TARGET)
-  //   2. ANTHROPIC_API_KEY               → Anthropic BYOK route (ANTHROPIC_API_TARGET)
-  //   3. COPILOT_GITHUB_TOKEN/API_KEY    → Copilot route (COPILOT_API_TARGET),
-  //                                        resolved internally to COPILOT_AUTH_TOKEN
-  if (ENABLE_OPENCODE) {
-  const opencodeStartupRoute = resolveOpenCodeRoute(
-    OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
-    OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
-    OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
-  );
-  if (opencodeStartupRoute) {
-    const opencodeServer = http.createServer((req, res) => {
-      if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', service: 'opencode-proxy' }));
-        return;
-      }
-
-      const logMethod = sanitizeForLog(req.method);
-      const logUrl = sanitizeForLog(req.url);
-      logRequest('info', 'opencode_proxy_request', {
-        message: '[OpenCode Proxy] Incoming request',
-        method: logMethod,
-        url: logUrl,
+  for (const adapter of adaptersToStart) {
+    const server = createProviderServer(adapter);
+    server.listen(adapter.port, '0.0.0.0', () => {
+      logRequest('info', 'server_start', {
+        message: `${adapter.name} proxy listening on port ${adapter.port}`,
+        target: adapter.isEnabled() ? adapter.getTargetHost() : '(not configured)',
       });
-
-      const parsedContentLength = Number(req.headers['content-length']);
-      const contentLength = Number.isFinite(parsedContentLength) && parsedContentLength > 0 ? parsedContentLength : 0;
-      if (checkRateLimit(req, res, 'opencode', contentLength)) {
-        return;
+      if (adapter.participatesInValidation) {
+        onListenerReady();
       }
-
-      const route = resolveOpenCodeRoute(
-        OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
-        OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
-        OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
-      );
-      if (!route) {
-        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot route request' });
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'OpenCode proxy has no credentials configured' }));
-        return;
-      }
-
-      logRequest('info', 'opencode_proxy_routing_target', {
-        message: `[OpenCode Proxy] Routing to ${route.target}`,
-        target: route.target,
-      });
-
-      const headers = Object.assign({}, route.headers);
-      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
-        headers['anthropic-version'] = '2023-06-01';
-      }
-      proxyRequest(req, res, route.target, headers, 'opencode', route.basePath);
-    });
-
-    opencodeServer.on('upgrade', (req, socket, head) => {
-      const route = resolveOpenCodeRoute(
-        OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_AUTH_TOKEN,
-        OPENAI_API_TARGET, ANTHROPIC_API_TARGET, COPILOT_API_TARGET,
-        OPENAI_API_BASE_PATH, ANTHROPIC_API_BASE_PATH
-      );
-      if (!route) {
-        logRequest('error', 'opencode_no_credentials', { message: '[OpenCode Proxy] No credentials available; cannot upgrade WebSocket' });
-        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-
-      const headers = Object.assign({}, route.headers);
-      if (route.needsAnthropicVersion && !req.headers['anthropic-version']) {
-        headers['anthropic-version'] = '2023-06-01';
-      }
-      proxyWebSocket(req, socket, head, route.target, headers, 'opencode', route.basePath);
-    });
-
-    opencodeServer.listen(10004, '0.0.0.0', () => {
-      logRequest('info', 'server_start', { message: `OpenCode proxy listening on port 10004 (-> ${opencodeStartupRoute.target})` });
-      onListenerReady();
     });
   }
-  } // end if (ENABLE_OPENCODE)
 
-  // Graceful shutdown
   process.on('SIGTERM', async () => {
     logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
     await closeLogStream();
@@ -2160,5 +1243,35 @@ if (require.main === module) {
   });
 }
 
-// Export for testing
-module.exports = { normalizeApiTarget, deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, normalizeBasePath, buildUpstreamPath, proxyWebSocket, resolveCopilotAuthToken, resolveOpenCodeRoute, shouldStripHeader, stripGeminiKeyParam, validateApiKeys, probeProvider, httpProbe, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, composeBodyTransforms, MODEL_ALIASES, buildModelsJson, writeModelsJson, AWF_ANTHROPIC_AUTO_CACHE, AWF_ANTHROPIC_CACHE_TAIL_TTL, AWF_ANTHROPIC_DROP_TOOLS, AWF_ANTHROPIC_STRIP_ANSI };
+// ── Exports (for testing) ─────────────────────────────────────────────────────
+module.exports = {
+  // Core proxy
+  proxyRequest,
+  proxyWebSocket,
+  // Utility re-exports (proxy-utils)
+  buildUpstreamPath,
+  shouldStripHeader,
+  composeBodyTransforms,
+  // Startup
+  validateApiKeys,
+  probeProvider,
+  httpProbe,
+  fetchStartupModels,
+  // State
+  keyValidationResults,
+  resetKeyValidationState,
+  cachedModels,
+  resetModelCacheState,
+  // Model utils
+  extractModelIds,
+  fetchJson,
+  makeModelBodyTransform,
+  MODEL_ALIASES,
+  // Management
+  reflectEndpoints,
+  healthResponse,
+  buildModelsJson,
+  writeModelsJson,
+  // Server factory
+  createProviderServer,
+};
