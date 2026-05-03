@@ -1,13 +1,13 @@
 ---
 description: |
-  Workflow that measures test coverage, identifies files with declining coverage or
+  Daily workflow that measures test coverage, identifies files with declining coverage or
   newly-uncovered code paths, and posts a trend report as a GitHub Discussion.
   Runs weekly on a schedule and on every push to main to catch coverage regressions early.
   Complements test-coverage-improver (which writes actual tests) by providing visibility
   into coverage trends over time.
 
 on:
-  schedule: weekly
+  schedule: daily
   push:
     branches: [main]
   workflow_dispatch:
