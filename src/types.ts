@@ -1325,7 +1325,7 @@ export interface DockerComposeConfig {
  * or pulled from a registry, and can have complex networking, volume mounting,
  * and dependency configurations.
  */
-export interface DockerService {
+interface DockerService {
   /**
    * Pre-built Docker image to use
    * 
@@ -1632,7 +1632,7 @@ export interface DockerService {
  * The firewall uses networks to isolate container communication and assign
  * static IP addresses for predictable iptables rules.
  */
-export interface DockerNetwork {
+interface DockerNetwork {
   /**
    * Network driver to use
    * 
