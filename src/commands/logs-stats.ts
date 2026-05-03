@@ -3,11 +3,7 @@
  */
 
 import type { LogStatsFormat } from '../types';
-import { formatStats } from '../logs/stats-formatter';
-import {
-  discoverAndSelectSource,
-  loadLogsWithErrorHandling,
-} from './logs-command-helpers';
+import { runLogsCommand } from './logs-command-helpers';
 
 /**
  * Output format type for stats command (alias for shared type)
@@ -33,18 +29,6 @@ export interface StatsCommandOptions {
  * @param options - Command options
  */
 export async function statsCommand(options: StatsCommandOptions): Promise<void> {
-  // Discover and select log source
   // For stats command: show info logs for all non-JSON formats
-  const source = await discoverAndSelectSource(options.source, {
-    format: options.format,
-    shouldLog: (format) => format !== 'json',
-  });
-
-  // Load and aggregate logs
-  const stats = await loadLogsWithErrorHandling(source);
-
-  // Format and output
-  const colorize = !!(process.stdout.isTTY && options.format === 'pretty');
-  const output = formatStats(stats, options.format, colorize);
-  console.log(output);
+  await runLogsCommand(options, (format) => format !== 'json');
 }

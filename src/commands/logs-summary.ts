@@ -6,11 +6,7 @@
  */
 
 import type { LogStatsFormat } from '../types';
-import { formatStats } from '../logs/stats-formatter';
-import {
-  discoverAndSelectSource,
-  loadLogsWithErrorHandling,
-} from './logs-command-helpers';
+import { runLogsCommand } from './logs-command-helpers';
 
 /**
  * Output format type for summary command (alias for shared type)
@@ -41,21 +37,9 @@ export interface SummaryCommandOptions {
  * @param options - Command options
  */
 export async function summaryCommand(options: SummaryCommandOptions): Promise<void> {
-  // Discover and select log source
-  // For summary command: only show info logs in pretty format
+  // For summary command: only show info logs in pretty format.
   // This differs intentionally from `logs-stats` which logs for all non-JSON formats.
   // The stricter approach here keeps markdown output (the default, intended for
   // GitHub Actions step summaries) free of extra lines that would pollute $GITHUB_STEP_SUMMARY.
-  const source = await discoverAndSelectSource(options.source, {
-    format: options.format,
-    shouldLog: (format) => format === 'pretty',
-  });
-
-  // Load and aggregate logs
-  const stats = await loadLogsWithErrorHandling(source);
-
-  // Format and output
-  const colorize = !!(process.stdout.isTTY && options.format === 'pretty');
-  const output = formatStats(stats, options.format, colorize);
-  console.log(output);
+  await runLogsCommand(options, (format) => format === 'pretty');
 }
