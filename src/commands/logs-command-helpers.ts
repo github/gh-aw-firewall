@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../logger';
-import type { LogSource, PolicyManifest } from '../types';
+import type { LogSource, LogStatsFormat, PolicyManifest } from '../types';
 import {
   discoverLogSources,
   selectMostRecent,
@@ -14,15 +14,16 @@ import {
 import { loadAndAggregate, loadAllLogs } from '../logs/log-aggregator';
 import type { AggregatedStats } from '../logs/log-aggregator';
 import { enrichWithPolicyRules, computeRuleStats } from '../logs/audit-enricher';
+import { formatStats } from '../logs/stats-formatter';
 
 /**
  * Options for determining which logs to show (based on log level)
  */
 export interface LoggingOptions {
   /** The output format being used */
-  format: string;
+  format: LogStatsFormat;
   /** Callback to determine if info logs should be shown */
-  shouldLog: (format: string) => boolean;
+  shouldLog: (format: LogStatsFormat) => boolean;
 }
 
 /**
@@ -143,4 +144,30 @@ export async function loadLogsWithErrorHandling(
     logger.error(`Failed to load logs: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
+}
+
+/**
+ * Shared output pipeline for `logs stats` and `logs summary`.
+ *
+ * Discovers the log source, loads and aggregates the logs, formats them, and
+ * prints the result. Each command passes only the `shouldLog` predicate that
+ * controls whether informational source-selection messages are emitted.
+ *
+ * @param options - Command options containing `format` and optional `source`
+ * @param shouldLog - Returns true when info-level log messages should be shown
+ */
+export async function runLogsCommand(
+  options: { format: LogStatsFormat; source?: string },
+  shouldLog: (format: LogStatsFormat) => boolean
+): Promise<void> {
+  const source = await discoverAndSelectSource(options.source, {
+    format: options.format,
+    shouldLog,
+  });
+
+  const stats = await loadLogsWithErrorHandling(source);
+
+  const colorize = !!(process.stdout.isTTY && options.format === 'pretty');
+  const output = formatStats(stats, options.format, colorize);
+  console.log(output);
 }

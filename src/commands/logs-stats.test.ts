@@ -3,10 +3,9 @@
  */
 
 import { statsCommand, StatsCommandOptions } from './logs-stats';
-import * as logDiscovery from '../logs/log-discovery';
-import * as logAggregator from '../logs/log-aggregator';
-import * as statsFormatter from '../logs/stats-formatter';
+import { logger } from '../logger';
 import { LogSource } from '../types';
+import { createLogCommandTestHarness } from './test-helpers.test-utils';
 
 // Mock dependencies
 jest.mock('../logs/log-discovery');
@@ -21,26 +20,8 @@ jest.mock('../logger', () => ({
   },
 }));
 
-const mockedDiscovery = logDiscovery as jest.Mocked<typeof logDiscovery>;
-const mockedAggregator = logAggregator as jest.Mocked<typeof logAggregator>;
-const mockedFormatter = statsFormatter as jest.Mocked<typeof statsFormatter>;
-
 describe('logs-stats command', () => {
-  let mockExit: jest.SpyInstance;
-  let mockConsoleLog: jest.SpyInstance;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
-    mockConsoleLog = jest.spyOn(console, 'log').mockImplementation();
-  });
-
-  afterEach(() => {
-    mockExit.mockRestore();
-    mockConsoleLog.mockRestore();
-  });
+  const harness = createLogCommandTestHarness();
 
   it('should discover and use most recent log source', async () => {
     const mockSource: LogSource = {
@@ -50,9 +31,9 @@ describe('logs-stats command', () => {
       dateStr: new Date().toLocaleString(),
     };
 
-    mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
-    mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
-    mockedAggregator.loadAndAggregate.mockResolvedValue({
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
+    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockResolvedValue({
       totalRequests: 10,
       allowedRequests: 8,
       deniedRequests: 2,
@@ -60,7 +41,7 @@ describe('logs-stats command', () => {
       byDomain: new Map(),
       timeRange: { start: 1000, end: 2000 },
     });
-    mockedFormatter.formatStats.mockReturnValue('formatted output');
+    harness.mockedFormatter.formatStats.mockReturnValue('formatted output');
 
     const options: StatsCommandOptions = {
       format: 'pretty',
@@ -68,11 +49,11 @@ describe('logs-stats command', () => {
 
     await statsCommand(options);
 
-    expect(mockedDiscovery.discoverLogSources).toHaveBeenCalled();
-    expect(mockedDiscovery.selectMostRecent).toHaveBeenCalled();
-    expect(mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
-    expect(mockedFormatter.formatStats).toHaveBeenCalled();
-    expect(mockConsoleLog).toHaveBeenCalledWith('formatted output');
+    expect(harness.mockedDiscovery.discoverLogSources).toHaveBeenCalled();
+    expect(harness.mockedDiscovery.selectMostRecent).toHaveBeenCalled();
+    expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
+    expect(harness.mockedFormatter.formatStats).toHaveBeenCalled();
+    expect(harness.mockConsoleLog).toHaveBeenCalledWith('formatted output');
   });
 
   it('should use specified source when provided', async () => {
@@ -81,9 +62,9 @@ describe('logs-stats command', () => {
       path: '/custom/path',
     };
 
-    mockedDiscovery.discoverLogSources.mockResolvedValue([]);
-    mockedDiscovery.validateSource.mockResolvedValue(mockSource);
-    mockedAggregator.loadAndAggregate.mockResolvedValue({
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([]);
+    harness.mockedDiscovery.validateSource.mockResolvedValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockResolvedValue({
       totalRequests: 5,
       allowedRequests: 5,
       deniedRequests: 0,
@@ -91,7 +72,7 @@ describe('logs-stats command', () => {
       byDomain: new Map(),
       timeRange: null,
     });
-    mockedFormatter.formatStats.mockReturnValue('formatted');
+    harness.mockedFormatter.formatStats.mockReturnValue('formatted');
 
     const options: StatsCommandOptions = {
       format: 'json',
@@ -100,24 +81,24 @@ describe('logs-stats command', () => {
 
     await statsCommand(options);
 
-    expect(mockedDiscovery.validateSource).toHaveBeenCalledWith('/custom/path');
-    expect(mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
+    expect(harness.mockedDiscovery.validateSource).toHaveBeenCalledWith('/custom/path');
+    expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
   });
 
   it('should exit with error if no sources found', async () => {
-    mockedDiscovery.discoverLogSources.mockResolvedValue([]);
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([]);
 
     const options: StatsCommandOptions = {
       format: 'pretty',
     };
 
     await expect(statsCommand(options)).rejects.toThrow('process.exit called');
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(harness.mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should exit with error if specified source is invalid', async () => {
-    mockedDiscovery.discoverLogSources.mockResolvedValue([]);
-    mockedDiscovery.validateSource.mockRejectedValue(new Error('Source not found'));
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([]);
+    harness.mockedDiscovery.validateSource.mockRejectedValue(new Error('Source not found'));
 
     const options: StatsCommandOptions = {
       format: 'pretty',
@@ -125,15 +106,15 @@ describe('logs-stats command', () => {
     };
 
     await expect(statsCommand(options)).rejects.toThrow('process.exit called');
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(harness.mockExit).toHaveBeenCalledWith(1);
   });
 
   it('should pass correct format to formatter', async () => {
     const mockSource: LogSource = { type: 'running', containerName: 'awf-squid' };
 
-    mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
-    mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
-    mockedAggregator.loadAndAggregate.mockResolvedValue({
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
+    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockResolvedValue({
       totalRequests: 0,
       allowedRequests: 0,
       deniedRequests: 0,
@@ -141,26 +122,26 @@ describe('logs-stats command', () => {
       byDomain: new Map(),
       timeRange: null,
     });
-    mockedFormatter.formatStats.mockReturnValue('{}');
+    harness.mockedFormatter.formatStats.mockReturnValue('{}');
 
     await statsCommand({ format: 'json' });
-    expect(mockedFormatter.formatStats).toHaveBeenCalledWith(
+    expect(harness.mockedFormatter.formatStats).toHaveBeenCalledWith(
       expect.anything(),
       'json',
       expect.any(Boolean)
     );
 
-    mockedFormatter.formatStats.mockClear();
+    harness.mockedFormatter.formatStats.mockClear();
     await statsCommand({ format: 'markdown' });
-    expect(mockedFormatter.formatStats).toHaveBeenCalledWith(
+    expect(harness.mockedFormatter.formatStats).toHaveBeenCalledWith(
       expect.anything(),
       'markdown',
       expect.any(Boolean)
     );
 
-    mockedFormatter.formatStats.mockClear();
+    harness.mockedFormatter.formatStats.mockClear();
     await statsCommand({ format: 'pretty' });
-    expect(mockedFormatter.formatStats).toHaveBeenCalledWith(
+    expect(harness.mockedFormatter.formatStats).toHaveBeenCalledWith(
       expect.anything(),
       'pretty',
       expect.any(Boolean)
@@ -170,15 +151,50 @@ describe('logs-stats command', () => {
   it('should handle aggregation errors gracefully', async () => {
     const mockSource: LogSource = { type: 'running', containerName: 'awf-squid' };
 
-    mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
-    mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
-    mockedAggregator.loadAndAggregate.mockRejectedValue(new Error('Failed to load'));
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
+    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockRejectedValue(new Error('Failed to load'));
 
     const options: StatsCommandOptions = {
       format: 'pretty',
     };
 
     await expect(statsCommand(options)).rejects.toThrow('process.exit called');
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(harness.mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it('should emit source-selection info logs for non-JSON formats but suppress them for JSON', async () => {
+    const mockSource: LogSource = {
+      type: 'preserved',
+      path: '/tmp/squid-logs-123',
+      dateStr: 'Mon Jan 01 2024',
+    };
+    const emptyStats = {
+      totalRequests: 0,
+      allowedRequests: 0,
+      deniedRequests: 0,
+      uniqueDomains: 0,
+      byDomain: new Map(),
+      timeRange: null,
+    };
+
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
+    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockResolvedValue(emptyStats);
+    harness.mockedFormatter.formatStats.mockReturnValue('');
+
+    // pretty: shouldLog returns true → logger.info should be called
+    await statsCommand({ format: 'pretty' });
+    expect((logger.info as jest.Mock)).toHaveBeenCalled();
+    (logger.info as jest.Mock).mockClear();
+
+    // markdown: shouldLog returns true → logger.info should be called
+    await statsCommand({ format: 'markdown' });
+    expect((logger.info as jest.Mock)).toHaveBeenCalled();
+    (logger.info as jest.Mock).mockClear();
+
+    // json: shouldLog returns false → logger.info should NOT be called
+    await statsCommand({ format: 'json' });
+    expect((logger.info as jest.Mock)).not.toHaveBeenCalled();
   });
 });
