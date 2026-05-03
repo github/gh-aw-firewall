@@ -1095,12 +1095,12 @@ export function joinShellArgs(args: string[]): string {
 /**
  * Result of parsing environment variables
  */
-export interface ParseEnvResult {
+interface ParseEnvResult {
   success: true;
   env: Record<string, string>;
 }
 
-export interface ParseEnvError {
+interface ParseEnvError {
   success: false;
   invalidVar: string;
 }
@@ -1108,12 +1108,12 @@ export interface ParseEnvError {
 /**
  * Result of parsing volume mounts
  */
-export interface ParseVolumeMountsResult {
+interface ParseVolumeMountsResult {
   success: true;
   mounts: string[];
 }
 
-export interface ParseVolumeMountsError {
+interface ParseVolumeMountsError {
   success: false;
   invalidMount: string;
   reason: string;
