@@ -43,7 +43,7 @@ describe('API Proxy Sidecar', () => {
 
     expect(result).toSucceed();
     expect(result.stdout).toContain('"status":"healthy"');
-    expect(result.stdout).toContain('anthropic-proxy');
+    expect(result.stdout).toContain('awf-api-proxy-anthropic');
   }, 180000);
 
   test('should start api-proxy sidecar with OpenAI key and pass healthcheck', async () => {
@@ -170,7 +170,7 @@ describe('API Proxy Sidecar', () => {
     expect(result.stdout).toContain('"openai":false');
     expect(result.stdout).toContain('"anthropic":true');
     // Port 10001 should also be healthy
-    expect(result.stdout).toContain('anthropic-proxy');
+    expect(result.stdout).toContain('awf-api-proxy-anthropic');
   }, 180000);
 
   test('should start api-proxy sidecar with Copilot key and pass healthcheck', async () => {
@@ -190,7 +190,7 @@ describe('API Proxy Sidecar', () => {
 
     expect(result).toSucceed();
     expect(result.stdout).toContain('"status":"healthy"');
-    expect(result.stdout).toContain('copilot-proxy');
+    expect(result.stdout).toContain('awf-api-proxy-copilot');
   }, 180000);
 
   test('should set COPILOT_API_URL in agent when Copilot token is provided', async () => {
