@@ -280,6 +280,54 @@ export function getProcessInfo(
 }
 
 /**
+ * Resolves a PidTrackResult from already-read /proc/net/tcp content.
+ *
+ * Shared helper used by both trackPidForPort (async) and trackPidForPortSync (sync)
+ * to avoid duplicating the parse/lookup/return logic.
+ *
+ * @param tcpContent - Contents of /proc/net/tcp
+ * @param srcPort - Source port number from the network connection
+ * @param procPath - Base path to /proc
+ * @returns PidTrackResult with process information
+ */
+function resolvePidFromTcpContent(
+  tcpContent: string,
+  srcPort: number,
+  procPath: string
+): PidTrackResult {
+  const entries = parseNetTcp(tcpContent);
+  const inode = findInodeForPort(entries, srcPort);
+
+  if (!inode || inode === '0') {
+    return {
+      pid: -1,
+      cmdline: 'unknown',
+      comm: 'unknown',
+      error: `No socket found for port ${srcPort}`,
+    };
+  }
+
+  const processInfo = findProcessByInode(inode, procPath);
+
+  if (!processInfo) {
+    return {
+      pid: -1,
+      cmdline: 'unknown',
+      comm: 'unknown',
+      inode,
+      error: `Socket inode ${inode} found but no process owns it`,
+    };
+  }
+
+  return {
+    pid: processInfo.pid,
+    cmdline: processInfo.cmdline,
+    comm: processInfo.comm,
+    inode,
+  };
+}
+
+/**
  * Main function to track a process by its source port
  *
  * This reads /proc/net/tcp to find the socket inode, then scans
@@ -317,39 +365,7 @@ export async function trackPidForPort(
       };
     }
 
-    // Parse TCP connections and find the inode for our port
-    const entries = parseNetTcp(tcpContent);
-    const inode = findInodeForPort(entries, srcPort);
-
-    if (!inode || inode === '0') {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `No socket found for port ${srcPort}`,
-      };
-    }
-
-    // Find the process that owns this socket (uses sync operations for fd scanning)
-    // This is intentional as the /proc filesystem is very fast and sync is simpler
-    const processInfo = findProcessByInode(inode, procPath);
-
-    if (!processInfo) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        inode,
-        error: `Socket inode ${inode} found but no process owns it`,
-      };
-    }
-
-    return {
-      pid: processInfo.pid,
-      cmdline: processInfo.cmdline,
-      comm: processInfo.comm,
-      inode,
-    };
+    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
   } catch (err) {
     return {
       pid: -1,
@@ -384,38 +400,7 @@ export function trackPidForPortSync(srcPort: number, procPath = '/proc'): PidTra
       };
     }
 
-    // Parse TCP connections and find the inode for our port
-    const entries = parseNetTcp(tcpContent);
-    const inode = findInodeForPort(entries, srcPort);
-
-    if (!inode || inode === '0') {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `No socket found for port ${srcPort}`,
-      };
-    }
-
-    // Find the process that owns this socket
-    const processInfo = findProcessByInode(inode, procPath);
-
-    if (!processInfo) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        inode,
-        error: `Socket inode ${inode} found but no process owns it`,
-      };
-    }
-
-    return {
-      pid: processInfo.pid,
-      cmdline: processInfo.cmdline,
-      comm: processInfo.comm,
-      inode,
-    };
+    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
   } catch (err) {
     return {
       pid: -1,
