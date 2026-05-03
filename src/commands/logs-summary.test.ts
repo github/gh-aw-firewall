@@ -3,8 +3,9 @@
  */
 
 import { summaryCommand, SummaryCommandOptions } from './logs-summary';
+import { logger } from '../logger';
 import { LogSource } from '../types';
-import { createLogCommandTestHarness } from './test-helpers';
+import { createLogCommandTestHarness } from './test-helpers.test-utils';
 
 // Mock dependencies
 jest.mock('../logs/log-discovery');
@@ -188,5 +189,40 @@ describe('logs-summary command', () => {
 
     await expect(summaryCommand(options)).rejects.toThrow('process.exit called');
     expect(harness.mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it('should emit source-selection info logs only for pretty format, suppress them for markdown and json', async () => {
+    const mockSource: LogSource = {
+      type: 'preserved',
+      path: '/tmp/squid-logs-123',
+      dateStr: 'Mon Jan 01 2024',
+    };
+    const emptyStats = {
+      totalRequests: 0,
+      allowedRequests: 0,
+      deniedRequests: 0,
+      uniqueDomains: 0,
+      byDomain: new Map(),
+      timeRange: null,
+    };
+
+    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
+    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
+    harness.mockedAggregator.loadAndAggregate.mockResolvedValue(emptyStats);
+    harness.mockedFormatter.formatStats.mockReturnValue('');
+
+    // pretty: shouldLog returns true → logger.info should be called
+    await summaryCommand({ format: 'pretty' });
+    expect((logger.info as jest.Mock)).toHaveBeenCalled();
+    (logger.info as jest.Mock).mockClear();
+
+    // markdown: shouldLog returns false → logger.info should NOT be called
+    await summaryCommand({ format: 'markdown' });
+    expect((logger.info as jest.Mock)).not.toHaveBeenCalled();
+    (logger.info as jest.Mock).mockClear();
+
+    // json: shouldLog returns false → logger.info should NOT be called
+    await summaryCommand({ format: 'json' });
+    expect((logger.info as jest.Mock)).not.toHaveBeenCalled();
   });
 });
