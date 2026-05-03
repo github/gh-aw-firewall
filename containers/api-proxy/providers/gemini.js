@@ -120,4 +120,4 @@ function createGeminiAdapter(env, deps = {}) {
   };
 }
 
-module.exports = { createGeminiAdapter, stripGeminiKeyParam };
+module.exports = { createGeminiAdapter };
