@@ -939,44 +939,31 @@ export function generateDockerCompose(
       logger.warn('Use --env VAR="$VAR" to explicitly pass large values if needed.');
     }
   } else {
-    // Default behavior: selectively pass through specific variables
-    if (process.env.GITHUB_TOKEN) environment.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-    if (process.env.GH_TOKEN) environment.GH_TOKEN = process.env.GH_TOKEN;
-    if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) environment.GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
-    // API keys for LLM providers — skip when api-proxy is enabled
-    // (the sidecar holds the keys; the agent uses *_BASE_URL instead)
-    if (process.env.OPENAI_API_KEY && !config.enableApiProxy) environment.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (process.env.CODEX_API_KEY && !config.enableApiProxy) environment.CODEX_API_KEY = process.env.CODEX_API_KEY;
-    if (process.env.ANTHROPIC_API_KEY && !config.enableApiProxy) environment.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    // COPILOT_GITHUB_TOKEN — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
-    // it gets a placeholder value set earlier (line ~362) for credential isolation
-    if (process.env.COPILOT_GITHUB_TOKEN && !config.enableApiProxy) environment.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
-    // COPILOT_API_KEY (BYOK) — forward when api-proxy is NOT enabled; when api-proxy IS enabled,
-    // the real key is not forwarded to the agent env and a placeholder may still be present
-    // for credential isolation while the real key is held securely in the api-proxy sidecar
-    if (process.env.COPILOT_API_KEY && !config.enableApiProxy) environment.COPILOT_API_KEY = process.env.COPILOT_API_KEY;
-    if (process.env.USER) environment.USER = process.env.USER;
-    // When --tty is set, we use TERM=xterm-256color (set above); otherwise inherit host TERM
-    if (process.env.TERM && !config.tty) environment.TERM = process.env.TERM;
-    if (process.env.XDG_CONFIG_HOME) environment.XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
-    // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
-    if (process.env.GITHUB_SERVER_URL) environment.GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL;
-    // GITHUB_API_URL — always pass when set. The Copilot CLI needs it to locate the GitHub API
-    // (especially on GHES/GHEC where the URL differs from api.github.com).
-    // Copilot-specific API calls (inference and token exchange) always route through
-    // COPILOT_API_URL → api-proxy when api-proxy is enabled, so GITHUB_API_URL does not
-    // interfere with credential isolation.
-    if (process.env.GITHUB_API_URL) environment.GITHUB_API_URL = process.env.GITHUB_API_URL;
-
-    // GitHub Actions OIDC — required for MCP servers with auth.type: 'github-oidc'
-    if (process.env.ACTIONS_ID_TOKEN_REQUEST_URL) environment.ACTIONS_ID_TOKEN_REQUEST_URL = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    if (process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-
-    // Forward Docker client environment so the agent workload can reach the same DinD daemon,
-    // custom Docker socket, or TCP endpoint as the parent process. DOCKER_HOST alone is not
-    // sufficient for TLS/authenticated daemons; the companion Docker client variables must also
-    // be preserved so docker commands inside the agent work as expected.
-    const dockerClientEnvVars = [
+    // Default behavior: selectively pass through specific variables.
+    // Always-forward: GitHub auth, user environment, enterprise URLs, Actions OIDC, Docker client.
+    const alwaysForwardVars = [
+      // GitHub authentication
+      'GITHUB_TOKEN',
+      'GH_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      // User environment
+      'USER',
+      'XDG_CONFIG_HOME',
+      // Enterprise environment variables — needed for GHEC/GHES Copilot authentication
+      'GITHUB_SERVER_URL',
+      // GITHUB_API_URL — always pass when set. The Copilot CLI needs it to locate the GitHub API
+      // (especially on GHES/GHEC where the URL differs from api.github.com).
+      // Copilot-specific API calls (inference and token exchange) always route through
+      // COPILOT_API_URL → api-proxy when api-proxy is enabled, so GITHUB_API_URL does not
+      // interfere with credential isolation.
+      'GITHUB_API_URL',
+      // GitHub Actions OIDC — required for MCP servers with auth.type: 'github-oidc'
+      'ACTIONS_ID_TOKEN_REQUEST_URL',
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      // Forward Docker client environment so the agent workload can reach the same DinD daemon,
+      // custom Docker socket, or TCP endpoint as the parent process. DOCKER_HOST alone is not
+      // sufficient for TLS/authenticated daemons; the companion Docker client variables must also
+      // be preserved so docker commands inside the agent work as expected.
       'DOCKER_HOST',
       'DOCKER_TLS',
       'DOCKER_TLS_VERIFY',
@@ -986,9 +973,28 @@ export function generateDockerCompose(
       'DOCKER_API_VERSION',
       'DOCKER_DEFAULT_PLATFORM',
     ] as const;
-    for (const dockerEnvVar of dockerClientEnvVars) {
-      if (process.env[dockerEnvVar]) environment[dockerEnvVar] = process.env[dockerEnvVar]!;
+    for (const v of alwaysForwardVars) {
+      if (process.env[v]) environment[v] = process.env[v]!;
     }
+
+    // API keys for LLM providers — skip when api-proxy is enabled
+    // (the sidecar holds the keys; the agent uses *_BASE_URL instead).
+    // COPILOT_GITHUB_TOKEN / COPILOT_API_KEY (BYOK) — forward when api-proxy is NOT enabled;
+    // when api-proxy IS enabled, placeholder values are set earlier for credential isolation.
+    if (!config.enableApiProxy) {
+      for (const v of [
+        'OPENAI_API_KEY',
+        'CODEX_API_KEY',
+        'ANTHROPIC_API_KEY',
+        'COPILOT_GITHUB_TOKEN',
+        'COPILOT_API_KEY',
+      ] as const) {
+        if (process.env[v]) environment[v] = process.env[v]!;
+      }
+    }
+
+    // When --tty is set, we use TERM=xterm-256color (set above); otherwise inherit host TERM
+    if (process.env.TERM && !config.tty) environment.TERM = process.env.TERM;
 
   }
 
