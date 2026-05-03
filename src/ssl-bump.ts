@@ -36,7 +36,7 @@ export function chownRecursive(dirPath: string, uid: number, gid: number): void 
 /**
  * Configuration for SSL Bump CA generation
  */
-export interface SslBumpConfig {
+interface SslBumpConfig {
   /** Working directory to store CA files */
   workDir: string;
   /** Common name for the CA certificate (default: 'AWF Session CA') */
