@@ -15,7 +15,7 @@
 /**
  * A DLP credential pattern definition
  */
-export interface DlpPattern {
+interface DlpPattern {
   /** Human-readable name for the pattern */
   name: string;
   /** Description of what this pattern detects */
