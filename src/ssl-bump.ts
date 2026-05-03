@@ -34,18 +34,6 @@ export function chownRecursive(dirPath: string, uid: number, gid: number): void 
 }
 
 /**
- * Configuration for SSL Bump CA generation
- */
-export interface SslBumpConfig {
-  /** Working directory to store CA files */
-  workDir: string;
-  /** Common name for the CA certificate (default: 'AWF Session CA') */
-  commonName?: string;
-  /** Validity period in days (default: 1) */
-  validityDays?: number;
-}
-
-/**
  * Result of CA generation containing paths to certificate files
  */
 export interface CaFiles {
@@ -178,7 +166,7 @@ export function cleanupSslKeyMaterial(workDir: string): void {
  * @returns Paths to generated CA files
  * @throws Error if OpenSSL commands fail
  */
-export async function generateSessionCa(config: SslBumpConfig): Promise<CaFiles> {
+export async function generateSessionCa(config: { workDir: string; commonName?: string; validityDays?: number }): Promise<CaFiles> {
   const { workDir, commonName = 'AWF Session CA', validityDays = 1 } = config;
 
   // Create ssl directory in workDir, backed by tmpfs when possible
