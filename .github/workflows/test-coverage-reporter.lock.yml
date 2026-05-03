@@ -1,4 +1,4 @@
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"011f8f583b81af5d95642aed2ed9e3e52d6fdb42472c1b0ad8a069299b8c16f0","compiler_version":"v0.71.1","strict":true,"agent_id":"copilot"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"8dd1021052081bb15f112db6a9593368578c53b0b432026dbb7c26ec452be295","compiler_version":"v0.71.1","strict":true,"agent_id":"copilot"}
 # gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"de0fac2e4500dabe0009e67214ff5f5447ce83dd","version":"v6.0.2"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"373c709c69115d41ff229c7e5df9f8788daa9553","version":"v9"},{"repo":"actions/setup-node","sha":"48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e","version":"v6.4.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"239aec45b78c8799417efdd5bc6d8cc036629ec1","version":"v0.71.1"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.25.29"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.25.29"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.25.29"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.3.0","digest":"sha256:9c2228324fb1f26f39dc9471612e530ae3efc3156dac05efb2e8d212878d454d","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.3.0@sha256:9c2228324fb1f26f39dc9471612e530ae3efc3156dac05efb2e8d212878d454d"},{"image":"ghcr.io/github/github-mcp-server:v1.0.2","digest":"sha256:26db03408086a99cf1916348dcc4f9614206658f9082a8060dc7c81ad787f4ba","pinned_image":"ghcr.io/github/github-mcp-server:v1.0.2@sha256:26db03408086a99cf1916348dcc4f9614206658f9082a8060dc7c81ad787f4ba"},{"image":"node:lts-alpine","digest":"sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f","pinned_image":"node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f"}]}
 #    ___                   _   _      
 #   / _ \                 | | (_)     
@@ -24,7 +24,7 @@
 #
 # Daily workflow that measures test coverage, identifies files with declining coverage or
 # newly-uncovered code paths, and posts a trend report as a GitHub Discussion.
-# Runs weekly on a schedule and on every push to main to catch coverage regressions early.
+# Runs daily on a schedule and on every push to main to catch coverage regressions early.
 # Complements test-coverage-improver (which writes actual tests) by providing visibility
 # into coverage trends over time.
 #
@@ -191,14 +191,14 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
-          cat << 'GH_AW_PROMPT_e811d2e38dbf97f1_EOF'
+          cat << 'GH_AW_PROMPT_a73ad407c6f4e179_EOF'
           <system>
-          GH_AW_PROMPT_e811d2e38dbf97f1_EOF
+          GH_AW_PROMPT_a73ad407c6f4e179_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_e811d2e38dbf97f1_EOF'
+          cat << 'GH_AW_PROMPT_a73ad407c6f4e179_EOF'
           <safe-output-tools>
           Tools: create_discussion, missing_tool, missing_data, noop
           </safe-output-tools>
@@ -230,12 +230,12 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_e811d2e38dbf97f1_EOF
+          GH_AW_PROMPT_a73ad407c6f4e179_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_e811d2e38dbf97f1_EOF'
+          cat << 'GH_AW_PROMPT_a73ad407c6f4e179_EOF'
           </system>
           {{#runtime-import .github/workflows/test-coverage-reporter.md}}
-          GH_AW_PROMPT_e811d2e38dbf97f1_EOF
+          GH_AW_PROMPT_a73ad407c6f4e179_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
@@ -324,6 +324,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      discussions: read
       issues: read
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -376,12 +377,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Install dependencies
-        run: npm ci 2>&1 | tail -5
+        run: set -o pipefail && npm ci 2>&1 | tail -5
       - name: Build
-        run: npm run build 2>&1 | tail -5
+        run: set -o pipefail && npm run build 2>&1 | tail -5
       - id: coverage
         name: Run coverage
-        run: npm run test:coverage 2>&1 | tail -20
+        run: set -o pipefail && npm run test:coverage 2>&1 | tail -20
       - id: coverage-json
         name: Capture coverage summary JSON
         run: "{\n  echo \"COVERAGE_JSON<<EOF\"\n  cat coverage/coverage-summary.json 2>/dev/null || echo \"{}\"\n  echo \"EOF\"\n} >> \"$GITHUB_OUTPUT\"\n"
@@ -453,9 +454,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_55443440492fb5e9_EOF'
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_258cf3961930eab1_EOF'
           {"create_discussion":{"category":"general","expires":168,"fallback_to_issue":true,"max":1,"title_prefix":"[Coverage Report] "},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_55443440492fb5e9_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_258cf3961930eab1_EOF
       - name: Write Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
@@ -647,7 +648,7 @@ jobs:
           
           mkdir -p /home/runner/.copilot
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_b25b61dd36fd808e_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_e840aa4df43ac03f_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
               "github": {
@@ -657,7 +658,7 @@ jobs:
                   "GITHUB_HOST": "\${GITHUB_SERVER_URL}",
                   "GITHUB_PERSONAL_ACCESS_TOKEN": "\${GITHUB_MCP_SERVER_TOKEN}",
                   "GITHUB_READ_ONLY": "1",
-                  "GITHUB_TOOLSETS": "repos,actions"
+                  "GITHUB_TOOLSETS": "repos,actions,discussions"
                 },
                 "guard-policies": {
                   "allow-only": {
@@ -688,7 +689,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_b25b61dd36fd808e_EOF
+          GH_AW_MCP_CONFIG_e840aa4df43ac03f_EOF
       - name: Clean git credentials
         continue-on-error: true
         run: bash "${RUNNER_TEMP}/gh-aw/actions/clean_git_credentials.sh"

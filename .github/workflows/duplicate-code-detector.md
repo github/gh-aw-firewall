@@ -2,7 +2,7 @@
 description: |
   Daily workflow that scans the codebase for duplicate and near-duplicate code blocks,
   copy-paste patterns, and repeated logic sequences in TypeScript source and JavaScript
-  container code. files actionable issues for high-impact deduplication opportunities
+  container code. Files actionable issues for high-impact deduplication opportunities
   to prevent technical debt from accumulating silently.
 
 on:
@@ -19,6 +19,7 @@ sandbox:
 network:
   allowed:
     - node
+    - github
 
 tools:
   github:

@@ -2,7 +2,7 @@
 description: |
   Daily workflow that measures test coverage, identifies files with declining coverage or
   newly-uncovered code paths, and posts a trend report as a GitHub Discussion.
-  Runs weekly on a schedule and on every push to main to catch coverage regressions early.
+  Runs daily on a schedule and on every push to main to catch coverage regressions early.
   Complements test-coverage-improver (which writes actual tests) by providing visibility
   into coverage trends over time.
 
@@ -16,6 +16,7 @@ permissions:
   contents: read
   actions: read
   issues: read
+  discussions: read
 
 sandbox:
   agent:
@@ -27,7 +28,7 @@ network:
 
 tools:
   github:
-    toolsets: [repos, actions]
+    toolsets: [repos, actions, discussions]
   bash: true
 
 safe-outputs:
@@ -41,14 +42,14 @@ timeout-minutes: 20
 
 steps:
   - name: Install dependencies
-    run: npm ci 2>&1 | tail -5
+    run: set -o pipefail && npm ci 2>&1 | tail -5
 
   - name: Build
-    run: npm run build 2>&1 | tail -5
+    run: set -o pipefail && npm run build 2>&1 | tail -5
 
   - name: Run coverage
     id: coverage
-    run: npm run test:coverage 2>&1 | tail -20
+    run: set -o pipefail && npm run test:coverage 2>&1 | tail -20
 
   - name: Capture coverage summary JSON
     id: coverage-json

@@ -2,7 +2,7 @@
 description: |
   Daily workflow that scans the codebase for refactoring opportunities: files exceeding
   size/complexity thresholds, functions with too many parameters or deep nesting, and
-  modules with mixed responsibilities. files actionable issues for the highest-priority
+  modules with mixed responsibilities. Files actionable issues for the highest-priority
   refactoring candidates to help keep the codebase maintainable as it grows.
 
 on:
@@ -19,6 +19,7 @@ sandbox:
 network:
   allowed:
     - node
+    - github
 
 tools:
   github:
@@ -58,7 +59,7 @@ steps:
         echo "FUNCTION_COUNTS<<EOF"
         for f in src/*.ts; do
           [ -f "$f" ] || continue
-          count=$(grep -c "^\s*\(export \)\?\(async \)\?function\|^\s*\(export \)\?const [a-zA-Z].*=\s*\(async \)\?(" "$f" 2>/dev/null || echo 0)
+          count=$(grep -c "^[[:space:]]*\(export \)\?\(async \)\?function\|^[[:space:]]*\(export \)\?const [a-zA-Z].*=[[:space:]]*\(async \)\?(" "$f" 2>/dev/null || echo 0)
           if [ "$count" -gt 10 ]; then
             echo "$count functions: $f"
           fi

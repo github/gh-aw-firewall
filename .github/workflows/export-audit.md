@@ -2,7 +2,7 @@
 description: |
   Workflow triggered on every push to main that audits the TypeScript and JavaScript
   surface of the codebase: unused exports, inconsistent naming conventions, circular
-  dependencies, and test files importing from incorrect modules. files actionable issues
+  dependencies, and test files importing from incorrect modules. Files actionable issues
   to keep the API surface clean and prevent dead-code accumulation.
 
 on:
@@ -20,6 +20,7 @@ sandbox:
 network:
   allowed:
     - node
+    - github
 
 tools:
   github:
@@ -39,11 +40,11 @@ timeout-minutes: 20
 
 steps:
   - name: Install dependencies
-    run: npm ci 2>&1 | tail -5
+    run: set -o pipefail && npm ci 2>&1 | tail -5
 
   - name: Build TypeScript
     id: build
-    run: npm run build 2>&1 | tail -10
+    run: set -o pipefail && npm run build 2>&1 | tail -10
 
   - name: Collect export inventory
     id: exports
@@ -51,9 +52,9 @@ steps:
       {
         echo "EXPORTS<<EOF"
         echo "=== All exported symbols from src/ ==="
-        grep -rn "^export\s\+\(function\|class\|const\|let\|var\|type\|interface\|enum\)" src/ --include="*.ts" | \
+        grep -rn "^export[[:space:]]\+\(function\|class\|const\|let\|var\|type\|interface\|enum\)" src/ --include="*.ts" | \
           grep -v "\.test\.ts" | \
-          sed 's|.*export\s\+\(function\|class\|const\|let\|var\|type\|interface\|enum\)\s\+\([a-zA-Z_][a-zA-Z0-9_]*\).*|\2|' | \
+          sed 's|.*export[[:space:]]\+\(function\|class\|const\|let\|var\|type\|interface\|enum\)[[:space:]]\+\([a-zA-Z_][a-zA-Z0-9_]*\).*|\2|' | \
           sort | head -80
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
