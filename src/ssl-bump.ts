@@ -178,7 +178,7 @@ export function cleanupSslKeyMaterial(workDir: string): void {
  * @returns Paths to generated CA files
  * @throws Error if OpenSSL commands fail
  */
-export async function generateSessionCa(config: SslBumpConfig): Promise<CaFiles> {
+export async function generateSessionCa(config: { workDir: string; commonName?: string; validityDays?: number }): Promise<CaFiles> {
   const { workDir, commonName = 'AWF Session CA', validityDays = 1 } = config;
 
   // Create ssl directory in workDir, backed by tmpfs when possible
