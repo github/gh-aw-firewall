@@ -17,18 +17,18 @@ export interface WorkflowDependencies {
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
 }
 
-export interface WorkflowCallbacks {
+interface WorkflowCallbacks {
   onHostIptablesSetup?: () => void;
   onContainersStarted?: () => void;
 }
 
-export interface WorkflowLogger {
+interface WorkflowLogger {
   info: (message: string, ...args: unknown[]) => void;
   success: (message: string, ...args: unknown[]) => void;
   warn: (message: string, ...args: unknown[]) => void;
 }
 
-export interface WorkflowOptions extends WorkflowCallbacks {
+interface WorkflowOptions extends WorkflowCallbacks {
   logger: WorkflowLogger;
   performCleanup: () => Promise<void>;
 }
