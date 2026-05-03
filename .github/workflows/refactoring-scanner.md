@@ -2,7 +2,7 @@
 description: |
   Weekly workflow that scans the codebase for refactoring opportunities: files exceeding
   size/complexity thresholds, functions with too many parameters or deep nesting, and
-  modules with mixed responsibilities. Files actionable issues for the highest-priority
+  modules with mixed responsibilities. files actionable issues for the highest-priority
   refactoring candidates to help keep the codebase maintainable as it grows.
 
 on:

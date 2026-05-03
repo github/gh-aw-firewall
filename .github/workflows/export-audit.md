@@ -2,7 +2,7 @@
 description: |
   Workflow triggered on every push to main that audits the TypeScript and JavaScript
   surface of the codebase: unused exports, inconsistent naming conventions, circular
-  dependencies, and test files importing from incorrect modules. Files actionable issues
+  dependencies, and test files importing from incorrect modules. files actionable issues
   to keep the API surface clean and prevent dead-code accumulation.
 
 on:

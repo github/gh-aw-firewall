@@ -86,7 +86,7 @@ steps:
           });
           const t = d.total;
           if (t) {
-            console.log(\`| **TOTAL** | **\${t.statements.pct}%** | **\${t.branches.pct}%** | **\${t.functions.pct}%** | **\${t.lines.pct}%** | ||\`);
+            console.log(\`| **TOTAL** | **\${t.statements.pct}%** | **\${t.branches.pct}%** | **\${t.functions.pct}%** | **\${t.lines.pct}%** | |\`);
           }
         " 2>/dev/null || echo "Coverage data not available"
         echo "EOF"
