@@ -21,6 +21,8 @@ export function createLogCommandTestHarness() {
     mockedDiscovery: logDiscovery as jest.Mocked<typeof logDiscovery>,
     mockedAggregator: logAggregator as jest.Mocked<typeof logAggregator>,
     mockedFormatter: statsFormatter as jest.Mocked<typeof statsFormatter>,
+    // Populated in beforeEach before each test runs; typed as non-null for
+    // convenient use in test assertions without optional chaining.
     mockExit: undefined as unknown as jest.SpyInstance,
     mockConsoleLog: undefined as unknown as jest.SpyInstance,
   };

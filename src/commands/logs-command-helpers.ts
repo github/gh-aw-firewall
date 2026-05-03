@@ -21,9 +21,9 @@ import { formatStats } from '../logs/stats-formatter';
  */
 export interface LoggingOptions {
   /** The output format being used */
-  format: string;
+  format: LogStatsFormat;
   /** Callback to determine if info logs should be shown */
-  shouldLog: (format: string) => boolean;
+  shouldLog: (format: LogStatsFormat) => boolean;
 }
 
 /**
@@ -158,7 +158,7 @@ export async function loadLogsWithErrorHandling(
  */
 export async function runLogsCommand(
   options: { format: LogStatsFormat; source?: string },
-  shouldLog: (format: string) => boolean
+  shouldLog: (format: LogStatsFormat) => boolean
 ): Promise<void> {
   const source = await discoverAndSelectSource(options.source, {
     format: options.format,
