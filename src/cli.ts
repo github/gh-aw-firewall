@@ -1093,38 +1093,13 @@ export function joinShellArgs(args: string[]): string {
 }
 
 /**
- * Result of parsing environment variables
- */
-export interface ParseEnvResult {
-  success: true;
-  env: Record<string, string>;
-}
-
-export interface ParseEnvError {
-  success: false;
-  invalidVar: string;
-}
-
-/**
- * Result of parsing volume mounts
- */
-export interface ParseVolumeMountsResult {
-  success: true;
-  mounts: string[];
-}
-
-export interface ParseVolumeMountsError {
-  success: false;
-  invalidMount: string;
-  reason: string;
-}
-
-/**
  * Parses environment variables from an array of KEY=VALUE strings
  * @param envVars Array of environment variable strings in KEY=VALUE format
- * @returns ParseEnvResult with parsed key-value pairs on success, or ParseEnvError with the invalid variable on failure
+ * @returns Object with parsed key-value pairs on success, or error details on failure
  */
-export function parseEnvironmentVariables(envVars: string[]): ParseEnvResult | ParseEnvError {
+export function parseEnvironmentVariables(
+  envVars: string[]
+): { success: true; env: Record<string, string> } | { success: false; invalidVar: string } {
   const result: Record<string, string> = {};
 
   for (const envVar of envVars) {
@@ -1142,9 +1117,11 @@ export function parseEnvironmentVariables(envVars: string[]): ParseEnvResult | P
 /**
  * Parses and validates volume mount specifications
  * @param mounts Array of volume mount strings in host_path:container_path[:mode] format
- * @returns ParseVolumeMountsResult on success, or ParseVolumeMountsError with details on failure
+ * @returns Object with parsed mount strings on success, or error details on failure
  */
-export function parseVolumeMounts(mounts: string[]): ParseVolumeMountsResult | ParseVolumeMountsError {
+export function parseVolumeMounts(
+  mounts: string[]
+): { success: true; mounts: string[] } | { success: false; invalidMount: string; reason: string } {
   const result: string[] = [];
 
   for (const mount of mounts) {
