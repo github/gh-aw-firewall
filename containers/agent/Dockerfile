@@ -185,7 +185,8 @@ RUN chmod +x /usr/bin/docker
 # instead of the full Chromium, reducing image size.
 RUN npm install -g @playwright/cli && \
     playwright-cli install-browser chromium --with-deps --only-shell && \
-    rm -rf /var/lib/apt/lists/*
+    npm cache clean --force && \
+    rm -rf /var/lib/apt/lists/* /tmp/playwright*
 
 # Set working directory
 WORKDIR /workspace
