@@ -178,6 +178,15 @@ RUN set -eux; \
 COPY docker-stub.sh /usr/bin/docker
 RUN chmod +x /usr/bin/docker
 
+# Install @playwright/cli for CLI-based browser automation in agentic workflows
+# This enables use of playwright-cli commands directly via bash without a separate
+# Playwright MCP Docker container, solving container-to-container networking issues.
+# --only-shell installs the lightweight headless shell (sufficient for agentic use)
+# instead of the full Chromium, reducing image size.
+RUN npm install -g @playwright/cli && \
+    playwright-cli install-browser chromium --with-deps --only-shell && \
+    rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /workspace
 

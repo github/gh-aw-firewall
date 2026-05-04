@@ -27,12 +27,10 @@ network:
   allowed:
     - defaults
     - github
-    - playwright
 tools:
   github:
     mode: gh-proxy
     toolsets: [pull_requests]
-  playwright:
   bash:
     - "*"
 safe-outputs:
@@ -48,11 +46,6 @@ safe-outputs:
       run-success: "🎬 **THE END** — [{workflow_name}]({run_url}) **MISSION: ACCOMPLISHED!** The hero saves the day! ✨"
       run-failure: "💫 **TO BE CONTINUED...** [{workflow_name}]({run_url}) {status}! Our hero faces unexpected challenges..."
 timeout-minutes: 10
-steps:
-  - name: Ensure playwright log directory is writable
-    run: |
-      mkdir -p /tmp/gh-aw/mcp-logs/playwright
-      chmod 777 /tmp/gh-aw/mcp-logs/playwright
 post-steps:
   - name: Show final Claude Code config
     if: always()
@@ -98,7 +91,12 @@ post-steps:
 ## Test Requirements
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in ${{ github.repository }}
-2. **Playwright Testing**: Use playwright to navigate to https://github.com and verify the page title contains "GitHub"
+2. **Playwright Testing**: Use `playwright-cli` via bash to navigate to https://github.com and verify the page title contains "GitHub". Run:
+   ```bash
+   playwright-cli open https://github.com
+   playwright-cli eval "document.title"
+   playwright-cli close
+   ```
 3. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` with content "Smoke test passed for Claude at $(date)" (create the directory if it doesn't exist)
 4. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 
