@@ -1,4 +1,4 @@
-import { writeConfigs, cleanup, collectDiagnosticLogs } from './docker-manager';
+import { writeConfigs, cleanup, collectDiagnosticLogs, preserveIptablesAudit } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -747,6 +747,67 @@ describe('docker-manager writeConfigs and cleanup', () => {
       const timestamp = path.basename(testDir).replace('awf-', '');
       const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
       expect(fs.existsSync(preserved)).toBe(false);
+    });
+  });
+
+  describe('preserveIptablesAudit', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-'));
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should copy iptables audit file when both source and target directory exist', () => {
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules here');
+
+      const auditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      preserveIptablesAudit(testDir, auditDir);
+
+      const destFile = path.join(auditDir, 'iptables-audit.txt');
+      expect(fs.existsSync(destFile)).toBe(true);
+      expect(fs.readFileSync(destFile, 'utf8')).toBe('iptables rules here');
+    });
+
+    it('should do nothing when source file does not exist', () => {
+      const auditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      preserveIptablesAudit(testDir, auditDir);
+
+      expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
+    });
+
+    it('should do nothing when target audit directory does not exist', () => {
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules');
+
+      preserveIptablesAudit(testDir, path.join(testDir, 'nonexistent-audit'));
+
+      expect(fs.existsSync(path.join(testDir, 'nonexistent-audit', 'iptables-audit.txt'))).toBe(false);
+    });
+
+    it('should use default audit dir (workDir/audit) when auditDir is not specified', () => {
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'default audit');
+
+      const defaultAuditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(defaultAuditDir, { recursive: true });
+
+      preserveIptablesAudit(testDir);
+
+      expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
   });
 });

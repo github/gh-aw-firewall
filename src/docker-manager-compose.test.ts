@@ -1,4 +1,4 @@
-import { generateDockerCompose, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, ACT_PRESET_BASE_IMAGE, AGENT_CONTAINER_NAME } from './docker-manager';
+import { generateDockerCompose, ACT_PRESET_BASE_IMAGE, AGENT_CONTAINER_NAME } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
