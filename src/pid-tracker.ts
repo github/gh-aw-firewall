@@ -328,34 +328,24 @@ function resolvePidFromTcpContent(
 }
 
 /**
- * Main function to track a process by its source port
+ * Core implementation for trackPidForPort and trackPidForPortSync.
  *
- * This reads /proc/net/tcp to find the socket inode, then scans
- * all process file descriptors to find the owning process.
- *
- * @param srcPort - Source port number from the network connection
- * @param procPath - Base path to /proc (default: '/proc', useful for testing)
- * @returns PidTrackResult with process information
- *
- * @example
- * ```typescript
- * const result = await trackPidForPort(45678);
- * if (result.pid !== -1) {
- *   console.log(`Port 45678 is owned by PID ${result.pid}: ${result.cmdline}`);
- * }
- * ```
+ * Reads /proc/net/tcp using the provided file-reader function, then
+ * delegates to resolvePidFromTcpContent for the parse/lookup logic.
+ * Centralizes the identical error-handling shape so both the async
+ * and sync variants stay in sync.
  */
-export async function trackPidForPort(
+function trackPidForPortCore(
+  readTcpFile: (tcpPath: string) => string,
   srcPort: number,
-  procPath = '/proc'
-): Promise<PidTrackResult> {
+  procPath: string
+): PidTrackResult {
   try {
-    // Read /proc/net/tcp using async operations
     const tcpPath = path.join(procPath, 'net', 'tcp');
     let tcpContent: string;
 
     try {
-      tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
+      tcpContent = readTcpFile(tcpPath);
     } catch (err) {
       return {
         pid: -1,
@@ -377,6 +367,44 @@ export async function trackPidForPort(
 }
 
 /**
+ * Main function to track a process by its source port
+ *
+ * This reads /proc/net/tcp to find the socket inode, then scans
+ * all process file descriptors to find the owning process.
+ *
+ * @param srcPort - Source port number from the network connection
+ * @param procPath - Base path to /proc (default: '/proc', useful for testing)
+ * @returns PidTrackResult with process information
+ *
+ * @example
+ * ```typescript
+ * const result = await trackPidForPort(45678);
+ * if (result.pid !== -1) {
+ *   console.log(`Port 45678 is owned by PID ${result.pid}: ${result.cmdline}`);
+ * }
+ * ```
+ */
+export async function trackPidForPort(
+  srcPort: number,
+  procPath = '/proc'
+): Promise<PidTrackResult> {
+  // Read asynchronously, then delegate to the shared core.
+  // The core uses a synchronous reader callback, so we pre-read here.
+  try {
+    const tcpPath = path.join(procPath, 'net', 'tcp');
+    const tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
+    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
+  } catch (err) {
+    // Fall back to the synchronous core for consistent error handling
+    return trackPidForPortCore(
+      (p) => fs.readFileSync(p, 'utf-8'),
+      srcPort,
+      procPath
+    );
+  }
+}
+
+/**
  * Synchronous version of trackPidForPort for use in contexts where async is not available
  *
  * @param srcPort - Source port number from the network connection
@@ -384,31 +412,11 @@ export async function trackPidForPort(
  * @returns PidTrackResult with process information
  */
 export function trackPidForPortSync(srcPort: number, procPath = '/proc'): PidTrackResult {
-  try {
-    // Read /proc/net/tcp
-    const tcpPath = path.join(procPath, 'net', 'tcp');
-    let tcpContent: string;
-
-    try {
-      tcpContent = fs.readFileSync(tcpPath, 'utf-8');
-    } catch (err) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `Failed to read ${tcpPath}: ${err}`,
-      };
-    }
-
-    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
-  } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Unexpected error: ${err}`,
-    };
-  }
+  return trackPidForPortCore(
+    (p) => fs.readFileSync(p, 'utf-8'),
+    srcPort,
+    procPath
+  );
 }
 
 /**
