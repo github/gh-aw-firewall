@@ -185,11 +185,15 @@ Extracted `<helperName>` shared helper to eliminate duplicated <pattern> in `<fi
 
 #### Step F — Reset the working tree
 
-After outputting the `create-pull-request` safe output, immediately reset the working tree
-so the next issue starts from a clean state:
+After outputting the `create-pull-request` safe output (which has already captured the git
+patch), immediately reset the working tree so the next issue starts from a clean state. The
+PR has been recorded — these commands only discard the local working-tree copy of those
+changes:
 
 ```bash
+# Restore tracked files to HEAD
 git checkout -- .
+# Remove any new untracked files/directories created during the refactoring
 git clean -fd
 ```
 
