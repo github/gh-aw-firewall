@@ -1,5 +1,4 @@
 import { startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, runAgentCommand, setAwfDockerHost } from './docker-manager';
-import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
