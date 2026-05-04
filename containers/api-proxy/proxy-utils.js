@@ -170,6 +170,29 @@ function composeBodyTransforms(first, second) {
   };
 }
 
+/**
+ * Extract common adapter configuration from environment variables.
+ *
+ * Every non-Copilot adapter repeats the same three-line pattern to read
+ * an API key, normalize a target hostname, and normalize a base path.
+ * This helper centralizes that logic so each adapter only specifies env
+ * var names and a default target.
+ *
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {object} opts
+ * @param {string} opts.keyEnvVar      - e.g. 'OPENAI_API_KEY'
+ * @param {string} opts.targetEnvVar   - e.g. 'OPENAI_API_TARGET'
+ * @param {string} opts.basePathEnvVar - e.g. 'OPENAI_API_BASE_PATH'
+ * @param {string} opts.defaultTarget  - e.g. 'api.openai.com'
+ * @returns {{ apiKey: string|undefined, rawTarget: string, basePath: string }}
+ */
+function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar, defaultTarget }) {
+  const apiKey = (env[keyEnvVar] || '').trim() || undefined;
+  const rawTarget = normalizeApiTarget(env[targetEnvVar]) || defaultTarget;
+  const basePath = normalizeBasePath(env[basePathEnvVar]);
+  return { apiKey, rawTarget, basePath };
+}
+
 module.exports = {
   normalizeApiTarget,
   normalizeBasePath,
@@ -177,4 +200,5 @@ module.exports = {
   stripGeminiKeyParam,
   shouldStripHeader,
   composeBodyTransforms,
+  createBaseAdapterConfig,
 };
