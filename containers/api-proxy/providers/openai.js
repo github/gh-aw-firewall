@@ -10,7 +10,7 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, createBaseAdapterConfig } = require('../proxy-utils');
 
 /**
  * Create the OpenAI provider adapter.
@@ -20,9 +20,12 @@ const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
  * @returns {import('./index').ProviderAdapter}
  */
 function createOpenAIAdapter(env, deps = {}) {
-  const apiKey = (env.OPENAI_API_KEY || '').trim() || undefined;
-  const rawTarget = normalizeApiTarget(env.OPENAI_API_TARGET) || 'api.openai.com';
-  const explicitBasePath = normalizeBasePath(env.OPENAI_API_BASE_PATH);
+  const { apiKey, rawTarget, basePath: explicitBasePath } = createBaseAdapterConfig(env, {
+    keyEnvVar: 'OPENAI_API_KEY',
+    targetEnvVar: 'OPENAI_API_TARGET',
+    basePathEnvVar: 'OPENAI_API_BASE_PATH',
+    defaultTarget: 'api.openai.com',
+  });
 
   // For the default OpenAI endpoint, unversioned clients (e.g. Codex CLI sending
   // /responses) need a /v1 prefix to reach the correct versioned API surface.

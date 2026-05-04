@@ -13,7 +13,7 @@
  *   Gemini SDK versions append alongside the header.
  */
 
-const { normalizeApiTarget, normalizeBasePath, stripGeminiKeyParam } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, stripGeminiKeyParam, createBaseAdapterConfig } = require('../proxy-utils');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -23,9 +23,12 @@ const { normalizeApiTarget, normalizeBasePath, stripGeminiKeyParam } = require('
  * @returns {import('./index').ProviderAdapter}
  */
 function createGeminiAdapter(env, deps = {}) {
-  const apiKey = (env.GEMINI_API_KEY || '').trim() || undefined;
-  const rawTarget = normalizeApiTarget(env.GEMINI_API_TARGET) || 'generativelanguage.googleapis.com';
-  const basePath = normalizeBasePath(env.GEMINI_API_BASE_PATH);
+  const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
+    keyEnvVar: 'GEMINI_API_KEY',
+    targetEnvVar: 'GEMINI_API_TARGET',
+    basePathEnvVar: 'GEMINI_API_BASE_PATH',
+    defaultTarget: 'generativelanguage.googleapis.com',
+  });
 
   const bodyTransform = deps.bodyTransform || null;
 
