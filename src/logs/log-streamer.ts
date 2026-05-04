@@ -49,27 +49,19 @@ export async function streamLogs(options: StreamOptions): Promise<void> {
 }
 
 /**
- * Streams logs from a running Docker container
+ * Runs a child process with signal-handler cleanup, streaming its stdout
+ * through readline and processing each line.
+ *
+ * Both streamFromContainer and tailFile shared this identical block;
+ * extracting it eliminates the duplication and ensures signal-handler
+ * lifecycle changes only need to happen in one place.
  */
-async function streamFromContainer(
-  containerName: string,
-  follow: boolean,
+async function runWithSignalHandling(
+  proc: execa.ExecaChildProcess,
   formatter: LogFormatter,
   parse: boolean,
   withPid: boolean
 ): Promise<void> {
-  logger.debug(`Streaming logs from container: ${containerName}`);
-
-  // Use docker exec to read logs from within the container
-  const args = follow
-    ? ['exec', containerName, 'tail', '-f', '/var/log/squid/access.log']
-    : ['exec', containerName, 'cat', '/var/log/squid/access.log'];
-
-  const proc = execa('docker', args, {
-    reject: false,
-  });
-
-  // Setup cleanup on process exit
   const cleanup = () => {
     proc.kill('SIGTERM');
   };
@@ -77,7 +69,6 @@ async function streamFromContainer(
   process.on('SIGTERM', cleanup);
 
   try {
-    // Process stdout line-by-line
     if (proc.stdout) {
       const rl = readline.createInterface({
         input: proc.stdout,
@@ -91,7 +82,6 @@ async function streamFromContainer(
 
     await proc;
   } catch (error) {
-    // Ignore SIGTERM errors (normal termination)
     if (error instanceof Error && 'signal' in error && error.signal === 'SIGTERM') {
       return;
     }
@@ -100,6 +90,29 @@ async function streamFromContainer(
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
   }
+}
+
+/**
+ * Streams logs from a running Docker container
+ */
+async function streamFromContainer(
+  containerName: string,
+  follow: boolean,
+  formatter: LogFormatter,
+  parse: boolean,
+  withPid: boolean
+): Promise<void> {
+  logger.debug(`Streaming logs from container: ${containerName}`);
+
+  const args = follow
+    ? ['exec', containerName, 'tail', '-f', '/var/log/squid/access.log']
+    : ['exec', containerName, 'cat', '/var/log/squid/access.log'];
+
+  const proc = execa('docker', args, {
+    reject: false,
+  });
+
+  await runWithSignalHandling(proc, formatter, parse, withPid);
 }
 
 /**
@@ -161,34 +174,7 @@ async function tailFile(
     reject: false,
   });
 
-  const cleanup = () => {
-    proc.kill('SIGTERM');
-  };
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-
-  try {
-    if (proc.stdout) {
-      const rl = readline.createInterface({
-        input: proc.stdout,
-        crlfDelay: Infinity,
-      });
-
-      for await (const line of rl) {
-        processLine(line, formatter, parse, withPid);
-      }
-    }
-
-    await proc;
-  } catch (error) {
-    if (error instanceof Error && 'signal' in error && error.signal === 'SIGTERM') {
-      return;
-    }
-    throw error;
-  } finally {
-    process.off('SIGINT', cleanup);
-    process.off('SIGTERM', cleanup);
-  }
+  await runWithSignalHandling(proc, formatter, parse, withPid);
 }
 
 /**

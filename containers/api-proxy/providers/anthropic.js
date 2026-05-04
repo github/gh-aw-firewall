@@ -11,7 +11,7 @@
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
  */
 
-const { normalizeApiTarget, normalizeBasePath, composeBodyTransforms } = require('../proxy-utils');
+const { composeBodyTransforms, createBaseAdapterConfig } = require('../proxy-utils');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -34,9 +34,12 @@ try {
  * @returns {import('./index').ProviderAdapter}
  */
 function createAnthropicAdapter(env, deps = {}) {
-  const apiKey = (env.ANTHROPIC_API_KEY || '').trim() || undefined;
-  const rawTarget = normalizeApiTarget(env.ANTHROPIC_API_TARGET) || 'api.anthropic.com';
-  const basePath = normalizeBasePath(env.ANTHROPIC_API_BASE_PATH);
+  const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
+    keyEnvVar: 'ANTHROPIC_API_KEY',
+    targetEnvVar: 'ANTHROPIC_API_TARGET',
+    basePathEnvVar: 'ANTHROPIC_API_BASE_PATH',
+    defaultTarget: 'api.anthropic.com',
+  });
 
   // ── Anthropic-specific optimisations ──────────────────────────────────────
   const autoCache = (env.AWF_ANTHROPIC_AUTO_CACHE === '1' || env.AWF_ANTHROPIC_AUTO_CACHE === 'true');

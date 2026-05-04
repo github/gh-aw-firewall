@@ -1,4 +1,4 @@
-import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs, setAwfDockerHost } from './docker-manager';
+import { generateDockerCompose, subnetsOverlap, writeConfigs, startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, cleanup, runAgentCommand, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, collectDiagnosticLogs, setAwfDockerHost, parseDifcProxyHost, preserveIptablesAudit } from './docker-manager';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -5467,6 +5467,127 @@ describe('docker-manager', () => {
       const timestamp = path.basename(testDir).replace('awf-', '');
       const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
       expect(fs.existsSync(preserved)).toBe(false);
+    });
+  });
+
+  describe('parseDifcProxyHost', () => {
+    it('should return default host and port for empty string', () => {
+      expect(parseDifcProxyHost('')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('should return default host and port for whitespace-only string', () => {
+      expect(parseDifcProxyHost('   ')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('should parse bare host:port', () => {
+      expect(parseDifcProxyHost('my-gateway.internal:8443')).toEqual({ host: 'my-gateway.internal', port: '8443' });
+    });
+
+    it('should parse host with default port when no port given', () => {
+      expect(parseDifcProxyHost('my-gateway.internal')).toEqual({ host: 'my-gateway.internal', port: '18443' });
+    });
+
+    it('should strip scheme prefix and parse host:port', () => {
+      expect(parseDifcProxyHost('tcp://my-gateway.internal:9000')).toEqual({ host: 'my-gateway.internal', port: '9000' });
+    });
+
+    it('should parse https scheme with host:port', () => {
+      expect(parseDifcProxyHost('https://proxy.internal:443')).toEqual({ host: 'proxy.internal', port: '443' });
+    });
+
+    it('should parse IPv6 bracketed notation', () => {
+      expect(parseDifcProxyHost('[::1]:18443')).toEqual({ host: '::1', port: '18443' });
+    });
+
+    it('should throw for invalid host:port format', () => {
+      expect(() => parseDifcProxyHost('not a valid:::host')).toThrow(/Invalid --difc-proxy-host/);
+    });
+
+    it('should throw for port out of range (too high)', () => {
+      // Port 99999 causes URL parsing to fail (WHATWG URL spec: max port is 65535)
+      expect(() => parseDifcProxyHost('host.internal:99999')).toThrow(/Invalid --difc-proxy-host/);
+    });
+
+    it('should throw for port 0', () => {
+      // Port 0 parses as valid URL but fails the portNum < 1 check
+      expect(() => parseDifcProxyHost('host.internal:0')).toThrow(/Invalid --difc-proxy-host port: 0/);
+    });
+
+    it('should parse port 1 (minimum valid port)', () => {
+      expect(parseDifcProxyHost('host.internal:1')).toEqual({ host: 'host.internal', port: '1' });
+    });
+
+    it('should parse port 65535 (maximum valid port)', () => {
+      expect(parseDifcProxyHost('host.internal:65535')).toEqual({ host: 'host.internal', port: '65535' });
+    });
+  });
+
+  describe('preserveIptablesAudit', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-'));
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should copy iptables audit file when both source and target directory exist', () => {
+      // Create source file
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules here');
+
+      // Create target audit directory
+      const auditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      preserveIptablesAudit(testDir, auditDir);
+
+      const destFile = path.join(auditDir, 'iptables-audit.txt');
+      expect(fs.existsSync(destFile)).toBe(true);
+      expect(fs.readFileSync(destFile, 'utf8')).toBe('iptables rules here');
+    });
+
+    it('should do nothing when source file does not exist', () => {
+      const auditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      // No init-signal/iptables-audit.txt created
+      preserveIptablesAudit(testDir, auditDir);
+
+      expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
+    });
+
+    it('should do nothing when target audit directory does not exist', () => {
+      // Create source file
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules');
+
+      // Do NOT create audit directory
+      preserveIptablesAudit(testDir, path.join(testDir, 'nonexistent-audit'));
+
+      // Should not throw; no file created
+      expect(fs.existsSync(path.join(testDir, 'nonexistent-audit', 'iptables-audit.txt'))).toBe(false);
+    });
+
+    it('should use default audit dir (workDir/audit) when auditDir is not specified', () => {
+      // Create source file
+      const initSignalDir = path.join(testDir, 'init-signal');
+      fs.mkdirSync(initSignalDir, { recursive: true });
+      fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'default audit');
+
+      // Create default audit directory inside workDir
+      const defaultAuditDir = path.join(testDir, 'audit');
+      fs.mkdirSync(defaultAuditDir, { recursive: true });
+
+      preserveIptablesAudit(testDir);
+
+      expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
   });
 });
