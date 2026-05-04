@@ -186,7 +186,7 @@ export interface DockerComposeConfig {
    * @example { 'squid-logs': {} }
    */
   volumes?: {
-    [key: string]: Record<string, unknown>;
+    [key: string]: DockerVolume;
   };
 }
 
@@ -542,4 +542,55 @@ export interface DockerNetwork {
    * @default false
    */
   external?: boolean;
+}
+
+/**
+ * Docker named volume configuration
+ * 
+ * Represents an entry in the top-level `volumes:` map of a docker-compose.yml
+ * file. An empty object (`{}`) creates an anonymous managed volume with Docker
+ * defaults. Fields map directly to the Docker Compose volume specification.
+ * @internal Internal sub-type of DockerComposeConfig; subject to change with Docker Compose spec updates
+ */
+export interface DockerVolume {
+  /**
+   * Volume driver to use
+   * 
+   * @default 'local'
+   * @example 'local'
+   */
+  driver?: string;
+
+  /**
+   * Driver-specific options passed to the volume driver
+   * 
+   * @example { type: 'nfs', o: 'addr=10.0.0.1,rw', device: ':/path/to/dir' }
+   */
+  driver_opts?: Record<string, string>;
+
+  /**
+   * Whether this volume is externally managed
+   * 
+   * When true, Docker Compose will not create or delete the volume,
+   * assuming it already exists outside of this Compose project.
+   * 
+   * @default false
+   */
+  external?: boolean;
+
+  /**
+   * Custom name for the volume
+   * 
+   * Overrides the default Compose-project-prefixed name.
+   * 
+   * @example 'squid-logs'
+   */
+  name?: string;
+
+  /**
+   * Volume labels
+   * 
+   * Metadata labels to attach to the volume.
+   */
+  labels?: Record<string, string>;
 }
