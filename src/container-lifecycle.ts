@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
-import { WrapperConfig, BlockedTarget, API_PROXY_HEALTH_PORT } from './types';
+import { WrapperConfig, BlockedTarget } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, parseUrlPatterns } from './ssl-bump';

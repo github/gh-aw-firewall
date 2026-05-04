@@ -33,11 +33,6 @@ import {
   parseDifcProxyHost,
 } from './host-env';
 
-// When bundled with esbuild, this global is replaced at build time with the
-// JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
-// builds the identifier remains undeclared, so the typeof check below is safe.
-declare const __AWF_SECCOMP_PROFILE__: string | undefined;
-
 async function getExistingDockerSubnets(): Promise<string[]> {
   try {
     // Get all network IDs
