@@ -1129,6 +1129,13 @@ function createProviderServer(adapter) {
       return;
     }
 
+    // ── Provider-local reflect endpoint ──────────────────────────────────────
+    if (req.url === '/reflect' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(reflectEndpoints()));
+      return;
+    }
+
     // ── Disabled adapter: return provider-specific error ─────────────────────
     if (!adapter.isEnabled()) {
       const response = adapter.getUnconfiguredResponse

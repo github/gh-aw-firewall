@@ -139,7 +139,17 @@ function createCopilotAdapter(env, deps = {}) {
     name: 'copilot',
     port: 10002,
     isManagementPort: false,
-    alwaysBind: false,
+
+    /**
+     * Port 10002 always starts so agents get a clear 503 "not configured"
+     * error rather than a silent connection-refused.
+     */
+    alwaysBind: true,
+
+    /**
+     * The stub server does NOT count toward the startup validation latch —
+     * only the fully-configured server (when credentials are present) does.
+     */
     get participatesInValidation() { return this.isEnabled(); },
 
     isEnabled() { return !!authToken; },
@@ -231,6 +241,29 @@ function createCopilotAdapter(env, deps = {}) {
         configured: !!authToken,
         models_cache_key: 'copilot',
         models_url: 'http://api-proxy:10002/models',
+      };
+    },
+
+    /** Response returned for all requests when no Copilot credentials are configured. */
+    getUnconfiguredResponse() {
+      return {
+        statusCode: 503,
+        body: {
+          error: {
+            message: 'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_API_KEY to enable this provider.',
+            type: 'provider_not_configured',
+            provider: 'copilot',
+            port: 10002,
+          },
+        },
+      };
+    },
+
+    /** /health response when not configured. */
+    getUnconfiguredHealthResponse() {
+      return {
+        statusCode: 503,
+        body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_API_KEY not configured in api-proxy sidecar' },
       };
     },
 

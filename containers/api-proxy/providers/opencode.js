@@ -101,7 +101,17 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
     name: 'opencode',
     port: 10004,
     isManagementPort: false,
-    alwaysBind: false,
+
+    /**
+     * Port 10004 always starts so agents get a clear 503 "not configured"
+     * error rather than a silent connection-refused.
+     */
+    alwaysBind: true,
+
+    /**
+     * The stub server does NOT count toward the startup validation latch —
+     * only the fully-configured server (when enabled and a candidate is active) does.
+     */
     get participatesInValidation() { return this.isEnabled(); },
 
     isEnabled() { return enabled && !!resolveActiveAdapter(); },
@@ -165,6 +175,45 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
         configured: enabled && !!startupActiveAdapter,
         models_cache_key: null,
         models_url: null,
+      };
+    },
+
+    /** Response returned for all requests when OpenCode is not configured. */
+    getUnconfiguredResponse() {
+      if (!enabled) {
+        return {
+          statusCode: 503,
+          body: {
+            error: {
+              message: 'OpenCode proxy (port 10004) is not enabled. Set AWF_ENABLE_OPENCODE=true and configure at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or COPILOT_GITHUB_TOKEN.',
+              type: 'provider_not_configured',
+              provider: 'opencode',
+              port: 10004,
+            },
+          },
+        };
+      }
+      return {
+        statusCode: 503,
+        body: {
+          error: {
+            message: 'Credentials for OpenCode (port 10004) are not configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or COPILOT_GITHUB_TOKEN.',
+            type: 'provider_not_configured',
+            provider: 'opencode',
+            port: 10004,
+          },
+        },
+      };
+    },
+
+    /** /health response when not configured. */
+    getUnconfiguredHealthResponse() {
+      const reason = !enabled
+        ? 'AWF_ENABLE_OPENCODE not set to true'
+        : 'no candidate provider credentials configured';
+      return {
+        statusCode: 503,
+        body: { status: 'not_configured', service: 'awf-api-proxy-opencode', error: `OpenCode proxy not configured: ${reason}` },
       };
     },
 
