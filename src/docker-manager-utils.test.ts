@@ -1,5 +1,4 @@
 import { subnetsOverlap, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './docker-manager';
-import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
