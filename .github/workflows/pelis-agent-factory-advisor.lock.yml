@@ -37,7 +37,7 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
 #   - actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 #   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-#   - github/gh-aw-actions/setup@239aec45b78c8799417efdd5bc6d8cc036629ec1 # v0.71.1
+#   - github/gh-aw-actions/setup@f8495a686e66770ae977f82732f34d7340ee42a4 # v0.71.4
 #
 # Container images used:
 #   - alpine:latest@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -86,7 +86,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw-actions/setup@239aec45b78c8799417efdd5bc6d8cc036629ec1 # v0.71.1
+        uses: github/gh-aw-actions/setup@f8495a686e66770ae977f82732f34d7340ee42a4 # v0.71.4
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -324,7 +324,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw-actions/setup@239aec45b78c8799417efdd5bc6d8cc036629ec1 # v0.71.1
+        uses: github/gh-aw-actions/setup@f8495a686e66770ae977f82732f34d7340ee42a4 # v0.71.4
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1032,7 +1032,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw-actions/setup@239aec45b78c8799417efdd5bc6d8cc036629ec1 # v0.71.1
+        uses: github/gh-aw-actions/setup@f8495a686e66770ae977f82732f34d7340ee42a4 # v0.71.4
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1158,7 +1158,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw-actions/setup@239aec45b78c8799417efdd5bc6d8cc036629ec1 # v0.71.1
+        uses: github/gh-aw-actions/setup@f8495a686e66770ae977f82732f34d7340ee42a4 # v0.71.4
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
