@@ -328,45 +328,6 @@ function resolvePidFromTcpContent(
 }
 
 /**
- * Core implementation for trackPidForPort and trackPidForPortSync.
- *
- * Reads /proc/net/tcp using the provided file-reader function, then
- * delegates to resolvePidFromTcpContent for the parse/lookup logic.
- * Centralizes the identical error-handling shape so both the async
- * and sync variants stay in sync.
- */
-function trackPidForPortCore(
-  readTcpFile: (tcpPath: string) => string,
-  srcPort: number,
-  procPath: string
-): PidTrackResult {
-  try {
-    const tcpPath = path.join(procPath, 'net', 'tcp');
-    let tcpContent: string;
-
-    try {
-      tcpContent = readTcpFile(tcpPath);
-    } catch (err) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `Failed to read ${tcpPath}: ${err}`,
-      };
-    }
-
-    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
-  } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Unexpected error: ${err}`,
-    };
-  }
-}
-
-/**
  * Main function to track a process by its source port
  *
  * This reads /proc/net/tcp to find the socket inode, then scans
@@ -388,20 +349,21 @@ export async function trackPidForPort(
   srcPort: number,
   procPath = '/proc'
 ): Promise<PidTrackResult> {
-  // Read asynchronously, then delegate to the shared core.
-  // The core uses a synchronous reader callback, so we pre-read here.
+  const tcpPath = path.join(procPath, 'net', 'tcp');
+  let tcpContent: string;
+
   try {
-    const tcpPath = path.join(procPath, 'net', 'tcp');
-    const tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
-    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
+    tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
   } catch (err) {
-    // Fall back to the synchronous core for consistent error handling
-    return trackPidForPortCore(
-      (p) => fs.readFileSync(p, 'utf-8'),
-      srcPort,
-      procPath
-    );
+    return {
+      pid: -1,
+      cmdline: 'unknown',
+      comm: 'unknown',
+      error: `Failed to read ${tcpPath}: ${err}`,
+    };
   }
+
+  return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
 }
 
 /**
@@ -412,11 +374,21 @@ export async function trackPidForPort(
  * @returns PidTrackResult with process information
  */
 export function trackPidForPortSync(srcPort: number, procPath = '/proc'): PidTrackResult {
-  return trackPidForPortCore(
-    (p) => fs.readFileSync(p, 'utf-8'),
-    srcPort,
-    procPath
-  );
+  const tcpPath = path.join(procPath, 'net', 'tcp');
+  let tcpContent: string;
+
+  try {
+    tcpContent = fs.readFileSync(tcpPath, 'utf-8');
+  } catch (err) {
+    return {
+      pid: -1,
+      cmdline: 'unknown',
+      comm: 'unknown',
+      error: `Failed to read ${tcpPath}: ${err}`,
+    };
+  }
+
+  return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
 }
 
 /**
