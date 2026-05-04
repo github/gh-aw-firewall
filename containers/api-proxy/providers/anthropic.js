@@ -11,7 +11,7 @@
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
  */
 
-const { normalizeApiTarget, normalizeBasePath, composeBodyTransforms, createBaseAdapterConfig } = require('../proxy-utils');
+const { composeBodyTransforms, createBaseAdapterConfig } = require('../proxy-utils');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {

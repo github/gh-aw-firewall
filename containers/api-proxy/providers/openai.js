@@ -10,7 +10,7 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const { normalizeApiTarget, normalizeBasePath, createBaseAdapterConfig } = require('../proxy-utils');
+const { createBaseAdapterConfig } = require('../proxy-utils');
 
 /**
  * Create the OpenAI provider adapter.
