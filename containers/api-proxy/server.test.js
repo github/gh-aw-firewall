@@ -2515,6 +2515,13 @@ describe('provider adapter alwaysBind', () => {
     expect(statusCode).toBe(503);
     expect(body.error.type).toBe('provider_not_configured');
     expect(body.error.message).toMatch(/OPENAI_API_KEY/);
+    expect(body.error.message).toMatch(/COPILOT_API_KEY/);
+  });
+
+  it('opencode getUnconfiguredResponse mentions COPILOT_API_KEY when not enabled', () => {
+    const adapter = createOpenCodeAdapter({});
+    const { body } = adapter.getUnconfiguredResponse();
+    expect(body.error.message).toMatch(/COPILOT_API_KEY/);
   });
 
   it('opencode getUnconfiguredHealthResponse returns 503 with not_configured status (disabled)', () => {

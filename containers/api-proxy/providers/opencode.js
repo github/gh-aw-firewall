@@ -185,7 +185,7 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
           statusCode: 503,
           body: {
             error: {
-              message: 'OpenCode proxy (port 10004) is not enabled. Set AWF_ENABLE_OPENCODE=true and configure at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or COPILOT_GITHUB_TOKEN.',
+              message: 'OpenCode proxy (port 10004) is not enabled. Set AWF_ENABLE_OPENCODE=true and configure at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.',
               type: 'provider_not_configured',
               provider: 'opencode',
               port: 10004,
@@ -197,7 +197,7 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
         statusCode: 503,
         body: {
           error: {
-            message: 'Credentials for OpenCode (port 10004) are not configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or COPILOT_GITHUB_TOKEN.',
+            message: 'Credentials for OpenCode (port 10004) are not configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.',
             type: 'provider_not_configured',
             provider: 'opencode',
             port: 10004,
