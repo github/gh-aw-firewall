@@ -280,6 +280,21 @@ export function getProcessInfo(
 }
 
 /**
+ * Builds the PidTrackResult returned when /proc/net/tcp cannot be read.
+ *
+ * Shared by trackPidForPort and trackPidForPortSync so the error shape
+ * lives in exactly one place.
+ */
+function makeTcpReadError(tcpPath: string, err: unknown): PidTrackResult {
+  return {
+    pid: -1,
+    cmdline: 'unknown',
+    comm: 'unknown',
+    error: `Failed to read ${tcpPath}: ${err}`,
+  };
+}
+
+/**
  * Resolves a PidTrackResult from already-read /proc/net/tcp content.
  *
  * Shared helper used by both trackPidForPort (async) and trackPidForPortSync (sync)
@@ -355,12 +370,7 @@ export async function trackPidForPort(
   try {
     tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
   } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Failed to read ${tcpPath}: ${err}`,
-    };
+    return makeTcpReadError(tcpPath, err);
   }
 
   return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
@@ -380,12 +390,7 @@ export function trackPidForPortSync(srcPort: number, procPath = '/proc'): PidTra
   try {
     tcpContent = fs.readFileSync(tcpPath, 'utf-8');
   } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Failed to read ${tcpPath}: ${err}`,
-    };
+    return makeTcpReadError(tcpPath, err);
   }
 
   return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
