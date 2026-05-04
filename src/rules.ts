@@ -11,7 +11,7 @@ import * as yaml from 'js-yaml';
 /**
  * A single domain rule within a ruleset
  */
-interface Rule {
+export interface Rule {
   /** Domain name to allow (e.g., "github.com") */
   domain: string;
   /**

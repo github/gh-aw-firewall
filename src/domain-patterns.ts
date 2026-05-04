@@ -29,12 +29,12 @@ export const SQUID_DANGEROUS_CHARS = /[\s\0"'`;#]/;
 /**
  * Protocol restriction for a domain
  */
-type DomainProtocol = 'http' | 'https' | 'both';
+export type DomainProtocol = 'http' | 'https' | 'both';
 
 /**
  * Parsed domain with protocol information
  */
-interface ParsedDomain {
+export interface ParsedDomain {
   /** The domain name without protocol prefix */
   domain: string;
   /** Which protocol(s) are allowed */
@@ -243,7 +243,7 @@ export interface PlainDomainEntry {
   protocol: DomainProtocol;
 }
 
-interface ParsedDomainList {
+export interface ParsedDomainList {
   /** Plain domains without wildcards */
   plainDomains: PlainDomainEntry[];
   /** Wildcard patterns with regex */

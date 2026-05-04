@@ -16,7 +16,7 @@ import {
 /**
  * Options for the logs command
  */
-interface LogsCommandOptions {
+export interface LogsCommandOptions {
   /** Follow log output in real-time */
   follow?: boolean;
   /** Output format: raw, pretty, json */

@@ -532,7 +532,7 @@ async function _generateRandomSubnet(): Promise<{ subnet: string; squidIp: strin
 /**
  * SSL configuration for Docker Compose (when SSL Bump is enabled)
  */
-interface SslConfig {
+export interface SslConfig {
   caFiles: CaFiles;
   sslDbPath: string;
 }

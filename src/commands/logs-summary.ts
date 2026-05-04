@@ -11,7 +11,7 @@ import { runLogsCommand } from './logs-command-helpers';
 /**
  * Output format type for summary command (alias for shared type)
  */
-type SummaryFormat = LogStatsFormat;
+export type SummaryFormat = LogStatsFormat;
 
 /**
  * Options for the summary command

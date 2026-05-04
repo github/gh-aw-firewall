@@ -8,7 +8,7 @@ import { runLogsCommand } from './logs-command-helpers';
 /**
  * Output format type for stats command (alias for shared type)
  */
-type StatsFormat = LogStatsFormat;
+export type StatsFormat = LogStatsFormat;
 
 /**
  * Options for the stats command

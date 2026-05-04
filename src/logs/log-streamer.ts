@@ -15,7 +15,7 @@ import { trackPidForPortSync, isPidTrackingAvailable } from '../pid-tracker';
 /**
  * Options for streaming logs
  */
-interface StreamOptions {
+export interface StreamOptions {
   /** Follow log output in real-time (like tail -f) */
   follow: boolean;
   /** Log source to stream from */

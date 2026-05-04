@@ -31,7 +31,7 @@ export { PidTrackResult } from './types';
 /**
  * Parsed entry from /proc/net/tcp
  */
-interface NetTcpEntry {
+export interface NetTcpEntry {
   /** Local IP address in hex format */
   localAddressHex: string;
   /** Local port number */

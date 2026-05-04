@@ -19,7 +19,7 @@ import { formatStats } from '../logs/stats-formatter';
 /**
  * Options for determining which logs to show (based on log level)
  */
-interface LoggingOptions {
+export interface LoggingOptions {
   /** The output format being used */
   format: LogStatsFormat;
   /** Callback to determine if info logs should be shown */
