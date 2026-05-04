@@ -80,7 +80,7 @@ export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCo
 /**
  * Result of validating flag combinations
  */
-export interface FlagValidationResult {
+interface FlagValidationResult {
   /** Whether the validation passed */
   valid: boolean;
   /** Error message if validation failed */
@@ -353,7 +353,7 @@ export function parseDnsOverHttps(
 /**
  * Result of processing the localhost keyword in allowed domains
  */
-export interface LocalhostProcessingResult {
+interface LocalhostProcessingResult {
   /** Updated array of allowed domains with localhost replaced by host.docker.internal */
   allowedDomains: string[];
   /** Whether the localhost keyword was found and processed */
