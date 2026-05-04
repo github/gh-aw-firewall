@@ -11,7 +11,7 @@ export {
   validateSource,
   listLogSources,
 } from './log-discovery';
-export { streamLogs, StreamOptions } from './log-streamer';
+export { streamLogs } from './log-streamer';
 export {
   aggregateLogs,
   loadAllLogs,

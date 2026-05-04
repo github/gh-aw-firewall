@@ -1,8 +1,8 @@
 export const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
 
-export type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
+type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
 
-export interface ParsedImageTag {
+interface ParsedImageTag {
   tag: string;
   digests: Partial<Record<ImageDigestKey, string>>;
 }

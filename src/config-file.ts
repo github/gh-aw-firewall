@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
 
-export interface AwfFileConfig {
+interface AwfFileConfig {
   $schema?: string;
   network?: {
     allowDomains?: string[];
