@@ -19,7 +19,7 @@ import { formatStats } from '../logs/stats-formatter';
 /**
  * Options for determining which logs to show (based on log level)
  */
-export interface LoggingOptions {
+interface LoggingOptions {
   /** The output format being used */
   format: LogStatsFormat;
   /** Callback to determine if info logs should be shown */
@@ -124,7 +124,7 @@ export function findPolicyManifestForSource(source: LogSource): PolicyManifest |
  * @param source - Log source to load from
  * @returns Aggregated statistics
  */
-export async function loadLogsWithErrorHandling(
+async function loadLogsWithErrorHandling(
   source: LogSource
 ): Promise<AggregatedStats> {
   try {

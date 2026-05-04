@@ -146,7 +146,7 @@ export function validateAgentImage(image: string): { valid: boolean; error?: str
 /**
  * Result of processing the agent image option
  */
-export interface AgentImageResult {
+interface AgentImageResult {
   /** The resolved agent image value */
   agentImage: string;
   /** Whether this is a preset (default, act) or custom image */
