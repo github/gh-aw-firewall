@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import { WrapperConfig, RateLimitConfig } from './types';
 import { isValidIPv4, isValidIPv6 } from './domain-utils';
 

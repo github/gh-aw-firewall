@@ -98,12 +98,6 @@ export { DEFAULT_DNS_SERVERS } from './dns-resolver';
 // Import functions used directly in this file
 import { parseDomains, parseDomainsFile } from './domain-utils';
 import {
-  DEFAULT_OPENAI_API_TARGET,
-  DEFAULT_ANTHROPIC_API_TARGET,
-  DEFAULT_COPILOT_API_TARGET,
-  DEFAULT_GEMINI_API_TARGET,
-} from './domain-utils';
-import {
   validateApiProxyConfig,
   validateAnthropicCacheTailTtl,
   emitApiProxyTargetWarnings,
@@ -116,7 +110,6 @@ import {
   validateRateLimitFlags,
   validateEnableOpenCodeFlag,
   collectRulesetFile,
-  hasRateLimitOptions,
   validateSkipPullWithBuildLocal,
   validateAllowHostPorts,
   applyHostServicePortsConfig,
@@ -126,7 +119,6 @@ import {
   parseDnsServers,
   parseDnsOverHttps,
   processLocalhostKeyword,
-  escapeShellArg,
   joinShellArgs,
   parseEnvironmentVariables,
   parseVolumeMounts,
