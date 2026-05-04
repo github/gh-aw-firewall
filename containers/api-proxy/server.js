@@ -380,13 +380,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
 
       if (proxyRes.statusCode === 400 || proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
-        const message = proxyRes.statusCode === 400
-          ? `Upstream returned 400 — possible malformed Authorization header; check that the API key does not include a "Bearer " prefix (BYOK mode)`
-          : `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and has not expired`;
         logRequest('warn', 'upstream_auth_error', {
           request_id: requestId, provider, status: proxyRes.statusCode,
           upstream_host: targetHost, path: sanitizeForLog(req.url),
-          message,
+          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and correctly formatted`,
         });
       }
 

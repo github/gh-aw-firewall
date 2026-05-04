@@ -18,23 +18,34 @@ const { normalizeApiTarget } = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
+ * Strip any accidental "Bearer " prefix from a raw credential value and trim
+ * surrounding whitespace.  Returns undefined when the result is empty so that
+ * callers can use `|| undefined` fall-through cleanly.
+ *
+ * A value like "Bearer " (prefix with nothing after it) reduces to undefined
+ * rather than "Bearer", which is why the prefix is removed before trimming.
+ *
+ * @param {string|undefined} value - Raw credential string
+ * @returns {string|undefined}
+ */
+function stripBearerPrefix(value) {
+  return ((value || '').replace(/^\s*Bearer\s+/i, '').trim()) || undefined;
+}
+
+/**
  * Resolves the Copilot auth token from environment variables.
  * COPILOT_GITHUB_TOKEN (GitHub OAuth) takes precedence over COPILOT_API_KEY (direct key).
  *
- * Any accidental "Bearer " prefix is stripped so that the injected
- * Authorization header is exactly "Bearer <token>" rather than the
- * double-prefixed "Bearer Bearer <token>" that would be rejected by
+ * Any accidental "Bearer " prefix is stripped via stripBearerPrefix so that
+ * the injected Authorization header is exactly "Bearer <token>" rather than
+ * the double-prefixed "Bearer Bearer <token>" that would be rejected by
  * external providers in BYOK mode.
  *
  * @param {Record<string, string|undefined>} env - Environment variables to inspect
  * @returns {string|undefined} The resolved auth token, or undefined if neither is set
  */
 function resolveCopilotAuthToken(env = process.env) {
-  // Strip any accidental "Bearer " prefix (with optional leading whitespace) before
-  // trimming, so that a value like "Bearer " (prefix only, no actual token)
-  // correctly reduces to undefined rather than "Bearer".
-  const strip = (v) => ((v || '').replace(/^\s*Bearer\s+/i, '').trim()) || undefined;
-  return strip(env.COPILOT_GITHUB_TOKEN) || strip(env.COPILOT_API_KEY);
+  return stripBearerPrefix(env.COPILOT_GITHUB_TOKEN) || stripBearerPrefix(env.COPILOT_API_KEY);
 }
 
 /**
@@ -134,9 +145,8 @@ function deriveGitHubApiBasePath(env = process.env) {
  * @returns {import('./index').ProviderAdapter}
  */
 function createCopilotAdapter(env, deps = {}) {
-  const strip = (v) => ((v || '').replace(/^\s*Bearer\s+/i, '').trim()) || undefined;
-  const githubToken = strip(env.COPILOT_GITHUB_TOKEN);
-  const apiKey = strip(env.COPILOT_API_KEY);
+  const githubToken = stripBearerPrefix(env.COPILOT_GITHUB_TOKEN);
+  const apiKey = stripBearerPrefix(env.COPILOT_API_KEY);
   const authToken = resolveCopilotAuthToken(env);
   const integrationId = env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
   const rawTarget = deriveCopilotApiTarget(env);
@@ -253,6 +263,7 @@ function createCopilotAdapter(env, deps = {}) {
 module.exports = {
   createCopilotAdapter,
   resolveCopilotAuthToken,
+  stripBearerPrefix,
   deriveCopilotApiTarget,
   deriveGitHubApiTarget,
   deriveGitHubApiBasePath,

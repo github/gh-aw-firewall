@@ -11,7 +11,7 @@ const { EventEmitter } = require('events');
 const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, shouldStripHeader, stripGeminiKeyParam, composeBodyTransforms } = require('./proxy-utils');
 
 // Provider-specific functions that live in their respective adapter modules
-const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, resolveCopilotAuthToken, createCopilotAdapter } = require('./providers/copilot');
+const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, resolveCopilotAuthToken, stripBearerPrefix, createCopilotAdapter } = require('./providers/copilot');
 const { resolveOpenCodeRoute } = require('./providers/opencode');
 
 // Core proxy functions that remain in server.js
@@ -883,6 +883,45 @@ describe('proxyWebSocket', () => {
   });
 });
 
+describe('stripBearerPrefix', () => {
+  it('strips "Bearer " prefix from a token value', () => {
+    expect(stripBearerPrefix('Bearer sk-or-v1-abc')).toBe('sk-or-v1-abc');
+  });
+
+  it('strips "Bearer " prefix case-insensitively', () => {
+    expect(stripBearerPrefix('bearer sk-or-v1-abc')).toBe('sk-or-v1-abc');
+    expect(stripBearerPrefix('BEARER sk-or-v1-abc')).toBe('sk-or-v1-abc');
+  });
+
+  it('strips leading whitespace before "Bearer "', () => {
+    expect(stripBearerPrefix('  Bearer sk-or-v1-abc')).toBe('sk-or-v1-abc');
+  });
+
+  it('returns value unchanged when no "Bearer " prefix is present', () => {
+    expect(stripBearerPrefix('sk-or-v1-abc')).toBe('sk-or-v1-abc');
+    expect(stripBearerPrefix('gho_abc123')).toBe('gho_abc123');
+  });
+
+  it('does not strip "Bearer" without a following space', () => {
+    expect(stripBearerPrefix('BearerToken123')).toBe('BearerToken123');
+  });
+
+  it('returns undefined when value is only "Bearer " (nothing after prefix)', () => {
+    expect(stripBearerPrefix('Bearer ')).toBeUndefined();
+    expect(stripBearerPrefix('Bearer   ')).toBeUndefined();
+  });
+
+  it('returns undefined for empty or whitespace-only input', () => {
+    expect(stripBearerPrefix('')).toBeUndefined();
+    expect(stripBearerPrefix('   ')).toBeUndefined();
+    expect(stripBearerPrefix(undefined)).toBeUndefined();
+  });
+
+  it('trims surrounding whitespace from the token', () => {
+    expect(stripBearerPrefix('  sk-or-v1-abc  ')).toBe('sk-or-v1-abc');
+  });
+});
+
 describe('resolveCopilotAuthToken', () => {
   it('should return COPILOT_GITHUB_TOKEN when only it is set', () => {
     expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: 'gho_abc123' })).toBe('gho_abc123');
@@ -922,23 +961,14 @@ describe('resolveCopilotAuthToken', () => {
     })).toBe('sk-byok-key');
   });
 
-  // ── BYOK: Bearer-prefix stripping ────────────────────────────────────────
-  // If an API key is accidentally provided with a "Bearer " prefix
-  // (e.g. COPILOT_API_KEY="Bearer sk-or-v1-xxx"), the sidecar must strip it
-  // to prevent the injected Authorization header from being double-prefixed
-  // ("Authorization: Bearer Bearer sk-or-v1-xxx"), which external providers
-  // like OpenRouter reject with 400 "Authorization header is badly formatted".
+  // Integration: verify that Bearer-prefix stripping (via stripBearerPrefix) is
+  // applied to both token sources when resolving.
 
-  it('strips "Bearer " prefix from COPILOT_API_KEY (BYOK mode)', () => {
+  it('strips "Bearer " prefix from COPILOT_API_KEY when resolving', () => {
     expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'Bearer sk-or-v1-abc' })).toBe('sk-or-v1-abc');
   });
 
-  it('strips "Bearer " prefix (case-insensitive) from COPILOT_API_KEY', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'bearer sk-or-v1-abc' })).toBe('sk-or-v1-abc');
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'BEARER sk-or-v1-abc' })).toBe('sk-or-v1-abc');
-  });
-
-  it('strips "Bearer " prefix from COPILOT_GITHUB_TOKEN', () => {
+  it('strips "Bearer " prefix from COPILOT_GITHUB_TOKEN when resolving', () => {
     expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: 'Bearer gho_abc123' })).toBe('gho_abc123');
   });
 
@@ -948,26 +978,16 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_API_KEY: 'Bearer sk-byok-key',
     })).toBe('gho_abc123');
   });
-
-  it('does not strip a key that starts with "Bearer" but lacks a space after it', () => {
-    // "BearerToken" has no space — should not be stripped
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'BearerToken123' })).toBe('BearerToken123');
-  });
-
-  it('returns undefined when token is only "Bearer " with nothing after the prefix', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'Bearer ' })).toBeUndefined();
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'Bearer   ' })).toBeUndefined();
-  });
 });
 
 // ── createCopilotAdapter — BYOK auth header format ───────────────────────────
 //
 // These tests guard against the "badly formatted Authorization header" bug in
-// BYOK mode (COPILOT_PROVIDER_API_KEY + COPILOT_PROVIDER_BASE_URL) where the
-// sidecar could produce "Authorization: Bearer Bearer <key>" if the key value
-// already contained the "Bearer " prefix.  They also verify that the header
-// injected for inference requests is exactly "Bearer <key>" and that the
-// Copilot-Integration-Id header is present.
+// BYOK mode where the sidecar is configured with COPILOT_API_KEY (the real key
+// held by the sidecar) and could produce "Authorization: Bearer Bearer <key>"
+// if the COPILOT_API_KEY value already contained the "Bearer " prefix.
+// They also verify that the header injected for inference requests is exactly
+// "Bearer <key>" and that the Copilot-Integration-Id header is present.
 
 describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
@@ -2501,7 +2521,7 @@ describe('createProviderServer', () => {
     });
   }
 
-  it('emits upstream_auth_error with 400-specific message when upstream returns 400 (BYOK malformed header)', async () => {
+  it('emits upstream_auth_error when upstream returns 400', async () => {
     const { lines, spy } = collectLogOutput();
     mockHttpsWithStatus(400);
 
@@ -2524,7 +2544,6 @@ describe('createProviderServer', () => {
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 400);
     expect(authErrLog).toBeDefined();
     expect(authErrLog.provider).toBe('copilot');
-    expect(authErrLog.message).toContain('Bearer');
     expect(authErrLog.message).toContain('400');
   });
 
