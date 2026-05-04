@@ -47,7 +47,7 @@ export {
   DEFAULT_GEMINI_API_TARGET,
   DEFAULT_COPILOT_API_TARGET,
 } from './domain-utils';
-export type { AgentImageResult } from './domain-utils';
+
 
 // Re-export API proxy config (extracted to api-proxy-config.ts)
 export {
@@ -61,7 +61,7 @@ export {
   extractGhesDomainsFromEngineApiTarget,
   resolveApiTargetsToAllowedDomains,
 } from './api-proxy-config';
-export type { ApiProxyValidationResult } from './api-proxy-config';
+
 
 // Re-export option parsers (extracted to option-parsers.ts)
 export {
@@ -87,7 +87,7 @@ export {
   parseVolumeMounts,
   formatItem,
 } from './option-parsers';
-export type { FlagValidationResult, LocalhostProcessingResult } from './option-parsers';
+
 
 /**
  * Default DNS servers (Google Public DNS)
