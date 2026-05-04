@@ -280,6 +280,21 @@ export function getProcessInfo(
 }
 
 /**
+ * Builds the PidTrackResult returned when /proc/net/tcp cannot be read.
+ *
+ * Shared by trackPidForPort and trackPidForPortSync so the error shape
+ * lives in exactly one place.
+ */
+function makeTcpReadError(tcpPath: string, err: unknown): PidTrackResult {
+  return {
+    pid: -1,
+    cmdline: 'unknown',
+    comm: 'unknown',
+    error: `Failed to read ${tcpPath}: ${err}`,
+  };
+}
+
+/**
  * Resolves a PidTrackResult from already-read /proc/net/tcp content.
  *
  * Shared helper used by both trackPidForPort (async) and trackPidForPortSync (sync)
@@ -349,31 +364,16 @@ export async function trackPidForPort(
   srcPort: number,
   procPath = '/proc'
 ): Promise<PidTrackResult> {
+  const tcpPath = path.join(procPath, 'net', 'tcp');
+  let tcpContent: string;
+
   try {
-    // Read /proc/net/tcp using async operations
-    const tcpPath = path.join(procPath, 'net', 'tcp');
-    let tcpContent: string;
-
-    try {
-      tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
-    } catch (err) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `Failed to read ${tcpPath}: ${err}`,
-      };
-    }
-
-    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
+    tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
   } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Unexpected error: ${err}`,
-    };
+    return makeTcpReadError(tcpPath, err);
   }
+
+  return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
 }
 
 /**
@@ -384,31 +384,16 @@ export async function trackPidForPort(
  * @returns PidTrackResult with process information
  */
 export function trackPidForPortSync(srcPort: number, procPath = '/proc'): PidTrackResult {
+  const tcpPath = path.join(procPath, 'net', 'tcp');
+  let tcpContent: string;
+
   try {
-    // Read /proc/net/tcp
-    const tcpPath = path.join(procPath, 'net', 'tcp');
-    let tcpContent: string;
-
-    try {
-      tcpContent = fs.readFileSync(tcpPath, 'utf-8');
-    } catch (err) {
-      return {
-        pid: -1,
-        cmdline: 'unknown',
-        comm: 'unknown',
-        error: `Failed to read ${tcpPath}: ${err}`,
-      };
-    }
-
-    return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
+    tcpContent = fs.readFileSync(tcpPath, 'utf-8');
   } catch (err) {
-    return {
-      pid: -1,
-      cmdline: 'unknown',
-      comm: 'unknown',
-      error: `Unexpected error: ${err}`,
-    };
+    return makeTcpReadError(tcpPath, err);
   }
+
+  return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
 }
 
 /**
