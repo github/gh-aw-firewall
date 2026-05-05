@@ -41,6 +41,7 @@ env:
   COPILOT_MODEL: claude-opus-4.6
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 strict: true
 steps:
