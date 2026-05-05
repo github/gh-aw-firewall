@@ -135,3 +135,9 @@ describe('getEffectiveDnsServers', () => {
     expect(result).toEqual(DEFAULT_DNS_SERVERS);
   });
 });
+
+describe('DEFAULT_DNS_SERVERS', () => {
+  it('should have correct default DNS servers', () => {
+    expect(DEFAULT_DNS_SERVERS).toEqual(['8.8.8.8', '8.8.4.4']);
+  });
+});

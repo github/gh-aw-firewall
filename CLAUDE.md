@@ -259,7 +259,7 @@ The firewall implements comprehensive logging at two levels:
 
 - `src/squid-config.ts` - Generates Squid config with custom `firewall_detailed` logformat
 - `containers/agent/setup-iptables.sh` - Configures iptables LOG rules for rejected traffic
-- `src/squid-config.test.ts` - Tests for logging configuration
+- `src/squid-config-features.test.ts` - Tests for logging configuration
 
 ### Squid Log Format
 
@@ -293,7 +293,7 @@ Both use `--log-uid` flag to capture process UID.
 
 Run tests:
 ```bash
-npm test -- squid-config.test.ts
+npm test -- squid-config-features.test.ts
 ```
 
 Manual testing:

@@ -5,6 +5,7 @@ import {
   parseDomainList,
   isDomainMatchedByPattern,
   parseDomainWithProtocol,
+  DOMAIN_CHAR_PATTERN,
 } from './domain-patterns';
 
 describe('parseDomainWithProtocol', () => {
@@ -94,8 +95,7 @@ describe('isWildcardPattern', () => {
   });
 });
 
-// Pattern constant for the safer domain character class (matches the implementation)
-const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
+// Pattern constant imported from domain-patterns.ts (shared source of truth)
 
 describe('wildcardToRegex', () => {
   describe('basic conversions', () => {

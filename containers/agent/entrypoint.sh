@@ -397,6 +397,55 @@ unset_sensitive_tokens() {
   done
 }
 
+# Run a command with signal handling, one-shot token protection, and clean exit.
+# Usage: run_agent_with_token_protection <command> [args...]
+# The command is launched in the background so that sensitive tokens can be unset
+# from the parent shell's environment once the agent has had time to cache them.
+run_agent_with_token_protection() {
+  # Setup signal handler to forward signals to agent process and perform cleanup
+  cleanup_and_exit() {
+    SIGNAL="$1"
+    EXIT_CODE=143
+    if [ "$SIGNAL" = "INT" ]; then
+      EXIT_CODE=130  # Standard exit code for SIGINT
+    fi
+
+    trap - TERM INT
+
+    if [ -n "$AGENT_PID" ]; then
+      kill "-$SIGNAL" "$AGENT_PID" 2>/dev/null || true
+      wait "$AGENT_PID" 2>/dev/null || true
+    fi
+
+    exit "$EXIT_CODE"
+  }
+  trap 'cleanup_and_exit TERM' TERM
+  trap 'cleanup_and_exit INT' INT
+
+  # SECURITY: Run agent command in background, then unset tokens from parent shell
+  # This prevents tokens from being accessible via /proc/1/environ after agent starts
+  # The one-shot-token library caches tokens in the agent process, so agent can still read them
+  "$@" &
+  AGENT_PID=$!
+
+  # Wait for agent to initialize and cache tokens (up to 1 second)
+  # The one-shot-token LD_PRELOAD library caches tokens in ~100ms during process init.
+  # Poll every 100ms so fast commands (e.g. 'echo ok') don't pay the full wait.
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$AGENT_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+
+  # Unset all sensitive tokens from parent shell environment
+  unset_sensitive_tokens
+
+  # Wait for agent command to complete and capture its exit code
+  wait $AGENT_PID
+  EXIT_CODE=$?
+  trap - TERM INT
+  exit $EXIT_CODE
+}
+
 echo "[entrypoint] Switching to awfuser (UID: $(id -u awfuser), GID: $(id -g awfuser))"
 echo "[entrypoint] Executing command: $@"
 echo ""
@@ -848,43 +897,12 @@ AWFEOF
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
-  # Setup signal handler to forward signals to agent process and perform cleanup
-  cleanup_and_exit() {
-    if [ -n "$AGENT_PID" ]; then
-      kill -TERM "$AGENT_PID" 2>/dev/null || true
-      wait "$AGENT_PID" 2>/dev/null || true
-    fi
-    exit 143  # Standard exit code for SIGTERM
-  }
-  trap cleanup_and_exit TERM INT
-
-  # SECURITY: Run agent command in background, then unset tokens from parent shell
-  # This prevents tokens from being accessible via /proc/1/environ after agent starts
-  # The one-shot-token library caches tokens in the agent process, so agent can still read them
-  chroot /host /bin/bash -c "
+  run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
     exec capsh --drop=${CAPS_TO_DROP} --user=${HOST_USER} -- -c 'exec ${SCRIPT_FILE}'
-  " &
-  AGENT_PID=$!
-
-  # Wait for agent to initialize and cache tokens (up to 1 second)
-  # The one-shot-token LD_PRELOAD library caches tokens in ~100ms during process init.
-  # Poll every 100ms so fast commands (e.g. 'echo ok') don't pay the full wait.
-  for _i in 1 2 3 4 5 6 7 8 9 10; do
-    kill -0 "$AGENT_PID" 2>/dev/null || break
-    sleep 0.1
-  done
-
-  # Unset all sensitive tokens from parent shell environment
-  unset_sensitive_tokens
-
-  # Wait for agent command to complete and capture its exit code
-  wait $AGENT_PID
-  EXIT_CODE=$?
-  trap - TERM INT
-  exit $EXIT_CODE
+  "
 else
   # Original behavior - run in container filesystem
   # Drop capabilities and privileges, then execute the user command
@@ -915,41 +933,10 @@ else
   # unset from the environment so /proc/self/environ is cleared
   export LD_PRELOAD=/usr/local/lib/one-shot-token.so
 
-  # Setup signal handler to forward signals to agent process and perform cleanup
-  cleanup_and_exit() {
-    if [ -n "$AGENT_PID" ]; then
-      kill -TERM "$AGENT_PID" 2>/dev/null || true
-      wait "$AGENT_PID" 2>/dev/null || true
-    fi
-    exit 143  # Standard exit code for SIGTERM
-  }
-  trap cleanup_and_exit TERM INT
-
-  # SECURITY: Run agent command in background, then unset tokens from parent shell
-  # This prevents tokens from being accessible via /proc/1/environ after agent starts
-  # The one-shot-token library caches tokens in the agent process, so agent can still read them
   if [ -n "$CAPS_TO_DROP" ]; then
-    capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")" &
+    run_agent_with_token_protection capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")"
   else
     # No capabilities to drop - just switch to unprivileged user
-    gosu awfuser "$@" &
+    run_agent_with_token_protection gosu awfuser "$@"
   fi
-  AGENT_PID=$!
-
-  # Wait for agent to initialize and cache tokens (up to 1 second)
-  # The one-shot-token LD_PRELOAD library caches tokens in ~100ms during process init.
-  # Poll every 100ms so fast commands (e.g. 'echo ok') don't pay the full wait.
-  for _i in 1 2 3 4 5 6 7 8 9 10; do
-    kill -0 "$AGENT_PID" 2>/dev/null || break
-    sleep 0.1
-  done
-
-  # Unset all sensitive tokens from parent shell environment
-  unset_sensitive_tokens
-
-  # Wait for agent command to complete and capture its exit code
-  wait $AGENT_PID
-  EXIT_CODE=$?
-  trap - TERM INT
-  exit $EXIT_CODE
 fi

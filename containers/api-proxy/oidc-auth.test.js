@@ -4,7 +4,7 @@
  * Unit tests for containers/api-proxy/oidc-auth.js
  */
 
-const { createOidcTokenManager, OidcTokenManager, makeJsonRequest } = require('./oidc-auth');
+const { createOidcTokenManager, makeJsonRequest } = require('./oidc-auth');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,7 +117,6 @@ describe('OidcTokenManager._fetchGitHubOidcToken()', () => {
     mgr._proxyAgent = undefined;
 
     // Patch the module-level helper by monkey-patching the private method
-    const origFetch = mgr._fetchGitHubOidcToken.bind(mgr);
     mgr._fetchGitHubOidcToken = async () => {
       // Capture URL construction logic (same as production code)
       const url = new URL(VALID_ENV.ACTIONS_ID_TOKEN_REQUEST_URL);
@@ -158,7 +157,6 @@ describe('OidcTokenManager._exchangeForAzureToken()', () => {
       token_type: 'Bearer',
     };
 
-    const origExchange = mgr._exchangeForAzureToken.bind(mgr);
     mgr._exchangeForAzureToken = async (_githubToken) => {
       // Replicate production logic
       const expiresIn = mockResponse.expires_in;
