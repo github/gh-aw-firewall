@@ -18,6 +18,7 @@ engine:
   model: copilot/gpt-4.1
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 strict: true
 imports:
