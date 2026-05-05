@@ -514,7 +514,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
  * @param blockedTargets - Targets that were denied by the firewall
  * @param allowedDomains - Domains currently in the allowlist
  * @param log - Logging function to use (e.g. `logger.error` or `logger.warn`)
- * @returns The categorised lists so callers can decide on further action
+ * @returns The categorized lists so callers can decide on further action
  */
 function reportBlockedDomains(
   blockedTargets: BlockedTarget[],
