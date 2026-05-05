@@ -1,4 +1,5 @@
 import { startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, runAgentCommand, setAwfDockerHost } from './docker-manager';
+import { logger } from './logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -593,6 +594,103 @@ describe('docker-manager lifecycle', () => {
       // Should return 143 and skip log analysis (empty blockedDomains)
       expect(result.exitCode).toBe(143);
       expect(result.blockedDomains).toEqual([]);
+    });
+
+    it('should recognize domains matched by a wildcard allowlist entry', async () => {
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      // api.github.com is blocked on a non-standard port
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 api.github.com:8443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE api.github.com:8443 "curl/7.81.0"\n'
+      );
+
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any); // docker wait
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        await runAgentCommand(testDir, ['*.github.com']);
+        // *.github.com covers api.github.com, so the message should report a port issue, not a missing domain
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('port 8443 not allowed'));
+        expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('domain not in allowlist'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should recognize domains matched by a protocol-prefixed allowlist entry', async () => {
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      // github.com is listed as https://github.com; a non-standard port block should show as port issue
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 github.com:8080 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE github.com:8080 "curl/7.81.0"\n'
+      );
+
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any); // docker wait
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        await runAgentCommand(testDir, ['https://github.com']);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('port 8080 not allowed'));
+        expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('domain not in allowlist'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should deduplicate domains in --allow-domains suggestion', async () => {
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      // Same domain blocked on two different ports — should appear once in the suggestion
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 missing.com:80 -:- 1.1 GET 403 TCP_DENIED:HIER_NONE missing.com:80 "curl/7.81.0"\n' +
+        '1760994430.000 172.30.0.20:36275 missing.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE missing.com:443 "curl/7.81.0"\n'
+      );
+
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any); // docker wait
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        await runAgentCommand(testDir, ['github.com']);
+        const suggestionCalls = warnSpy.mock.calls.filter(([msg]) =>
+          typeof msg === 'string' && msg.includes('--allow-domains')
+        );
+        expect(suggestionCalls).toHaveLength(1);
+        const suggestion = suggestionCalls[0][0] as string;
+        // missing.com should appear exactly once in the suggestion
+        const occurrences = (suggestion.match(/missing\.com/g) ?? []).length;
+        expect(occurrences).toBe(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should use logger.warn (not logger.error) for post-run blocked-domain diagnostics', async () => {
+      const squidLogsDir = path.join(testDir, 'squid-logs');
+      fs.mkdirSync(squidLogsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(squidLogsDir, 'access.log'),
+        '1760994429.358 172.30.0.20:36274 blocked.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE blocked.com:443 "curl/7.81.0"\n'
+      );
+
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any); // docker wait
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
+      try {
+        await runAgentCommand(testDir, ['github.com']);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('blocked.com'));
+        expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('blocked.com'));
+      } finally {
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
     });
   });
 });

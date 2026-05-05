@@ -5,6 +5,7 @@ import execa from 'execa';
 import { WrapperConfig, BlockedTarget } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
+import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
 import { generateSessionCa, initSslDb, parseUrlPatterns } from './ssl-bump';
 import {
   SQUID_PORT,
@@ -523,18 +524,29 @@ function reportBlockedDomains(
   allowedDomains: string[],
   log: (msg: string) => void,
 ): { missingDomains: string[]; portIssues: BlockedTarget[] } {
-  const missingDomains: string[] = [];
+  const uniqueMissingDomains = new Set<string>();
   const portIssues: BlockedTarget[] = [];
 
   blockedTargets.forEach(blocked => {
-    const isAllowed = allowedDomains.some(allowed =>
-      blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
-    );
+    const isAllowed = allowedDomains.some(allowed => {
+      // Strip any protocol prefix (e.g. "https://github.com" -> "github.com")
+      const normalizedAllowed = parseDomainWithProtocol(allowed).domain;
+      if (isWildcardPattern(normalizedAllowed)) {
+        // Wildcard pattern match (e.g. "*.github.com")
+        try {
+          return new RegExp(wildcardToRegex(normalizedAllowed), 'i').test(blocked.domain);
+        } catch {
+          return false;
+        }
+      }
+      // Exact match or subdomain match
+      return blocked.domain === normalizedAllowed || blocked.domain.endsWith('.' + normalizedAllowed);
+    });
 
     if (!isAllowed) {
       // Domain not in allowlist
       log(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
-      missingDomains.push(blocked.domain);
+      uniqueMissingDomains.add(blocked.domain);
     } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
       // Domain is allowed but port is not
       log(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
@@ -548,6 +560,7 @@ function reportBlockedDomains(
   log('Allowed domains:');
   allowedDomains.forEach(domain => { log(`  - Allowed: ${domain}`); });
 
+  const missingDomains = [...uniqueMissingDomains];
   if (missingDomains.length > 0) {
     log(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
   }
