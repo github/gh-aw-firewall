@@ -1,13 +1,13 @@
 #!/bin/bash
-# Build the one-shot-token LD_PRELOAD library
-# This script compiles the Rust shared library
+# Build the one-shot-token LD_PRELOAD library (C source, gcc)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LINK_FILE="${SCRIPT_DIR}/one-shot-token.so"
+SOURCE_FILE="${SCRIPT_DIR}/one-shot-token.c"
+OUTPUT_FILE="${SCRIPT_DIR}/one-shot-token.so"
 
-echo "[build] Building one-shot-token with Cargo..."
+echo "[build] Building one-shot-token..."
 
 # Compile as a shared library with hardened build flags:
 # -shared: create a shared library
