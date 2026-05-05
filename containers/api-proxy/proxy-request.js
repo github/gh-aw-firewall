@@ -168,6 +168,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
   const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
+  const chunks = [];
+  let totalBytes = 0;
+  let rejected = false;
+  let errored = false;
+
   req.on('error', (err) => {
     if (errored) return;
     errored = true;
@@ -182,11 +187,6 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Client error', message: err.message }));
   });
-
-  const chunks = [];
-  let totalBytes = 0;
-  let rejected = false;
-  let errored = false;
 
   req.on('data', chunk => {
     if (rejected || errored) return;
