@@ -190,9 +190,11 @@ RUN gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
 ```
 
 The `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` flags disable glibc's fortified I/O
-wrappers (e.g. `__fprintf_chk`) so the library loads successfully on musl-based
-hosts such as Alpine Linux (used by ARC self-hosted runners).  Without these
-flags the dynamic linker fails with `symbol not found: __fprintf_chk`.
+wrappers (e.g. `__fprintf_chk`), which avoids that specific missing-symbol
+failure on musl-based hosts such as Alpine Linux (used by ARC self-hosted
+runners). Loading may still depend on host compatibility (for example,
+`gcompat` availability), and without these flags the dynamic linker can fail
+with `symbol not found: __fprintf_chk`.
 
 ### Locally (for testing)
 
