@@ -1,10 +1,8 @@
 import { generateSquidConfig } from './squid-config';
 import { SquidConfig } from './types';
+import { DOMAIN_CHAR_PATTERN } from './domain-patterns';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version: AWF_VERSION } = require('../package.json') as { version: string };
-
-// Pattern constant for the safer domain character class (matches the implementation)
-const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
 
 describe('generateSquidConfig', () => {
   const defaultPort = 3128;

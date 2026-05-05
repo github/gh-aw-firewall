@@ -1,8 +1,6 @@
 import { generateSquidConfig } from './squid-config';
 import { SquidConfig } from './types';
-
-// Pattern constant for the safer domain character class (matches the implementation)
-const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
+import { DOMAIN_CHAR_PATTERN } from './domain-patterns';
 
 describe('generateSquidConfig', () => {
   const defaultPort = 3128;

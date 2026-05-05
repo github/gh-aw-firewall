@@ -88,7 +88,7 @@ export function isWildcardPattern(domain: string): boolean {
  * Uses character class instead of .* to prevent catastrophic backtracking (ReDoS).
  * Per RFC 1035, valid domain characters are: letters, digits, hyphens, and dots.
  */
-const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
+export const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
 
 /**
  * Convert a wildcard pattern to a Squid-compatible regex pattern
