@@ -56,7 +56,7 @@ function createOpenAIAdapter(env, deps = {}) {
       });
     }
   }
-  const oidcEnabled = !!oidcProvider;
+  const oidcConfigured = !!oidcProvider;
 
   return {
     name: 'openai',
@@ -74,7 +74,7 @@ function createOpenAIAdapter(env, deps = {}) {
     /** Port 10000 always counts toward the startup validation latch. */
     participatesInValidation: true,
 
-    isEnabled() { return !!apiKey || oidcEnabled; },
+    isEnabled() { return !!apiKey || !!oidcProvider?.isReady(); },
     getTargetHost() { return rawTarget; },
     getBasePath() { return basePath; },
 
@@ -90,11 +90,9 @@ function createOpenAIAdapter(env, deps = {}) {
       if (oidcProvider) {
         const token = oidcProvider.getToken();
         if (token) {
-          return { 'Authorization': `Bearer ${token}`, 'api-key': token };
+          return { 'Authorization': `Bearer ${token}` };
         }
-        // Token not yet available (pre-init or refresh failure)
-        // Return empty — server will return 503 via isEnabled() short-circuit
-        return { 'Authorization': 'Bearer oidc-token-unavailable' };
+        return {};
       }
       return { 'Authorization': `Bearer ${apiKey}` };
     },
@@ -109,7 +107,7 @@ function createOpenAIAdapter(env, deps = {}) {
      * @returns {{ url: string, opts: object }|{ skip: true, reason: string }|null}
      */
     getValidationProbe() {
-      if (oidcEnabled) {
+      if (oidcConfigured) {
         return { skip: true, reason: 'OIDC auth; validation via token acquisition' };
       }
       if (!apiKey) return null;
@@ -130,7 +128,7 @@ function createOpenAIAdapter(env, deps = {}) {
      * @returns {{ url: string, opts: object, cacheKey: string }|null}
      */
     getModelsFetchConfig() {
-      if (oidcEnabled) return null; // Models fetched after OIDC init
+      if (oidcConfigured) return null; // Models fetched after OIDC init
       if (!apiKey) return null;
       const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
       return {
@@ -145,8 +143,8 @@ function createOpenAIAdapter(env, deps = {}) {
         provider: 'openai',
         port: 10000,
         base_url: 'http://api-proxy:10000',
-        configured: !!apiKey || oidcEnabled,
-        auth_type: oidcEnabled ? 'github-oidc' : 'static-key',
+        configured: !!apiKey || oidcConfigured,
+        auth_type: oidcConfigured ? 'github-oidc' : 'static-key',
         models_cache_key: 'openai',
         models_url: 'http://api-proxy:10000/v1/models',
       };
@@ -154,6 +152,12 @@ function createOpenAIAdapter(env, deps = {}) {
 
     /** Response returned when port 10000 receives a proxy request but no key is set. */
     getUnconfiguredResponse() {
+      if (oidcConfigured) {
+        return {
+          statusCode: 503,
+          body: { error: 'OpenAI OIDC token unavailable; retry shortly' },
+        };
+      }
       return {
         statusCode: 404,
         body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY or OIDC auth)' },

@@ -70,7 +70,6 @@ describe('OidcTokenProvider', () => {
     // Override login host to use mock server
     provider._loginHost = `127.0.0.1:${serverPort}`;
     // Override _httpPost to use http (not https)
-    const originalPost = provider._httpPost.bind(provider);
     provider._httpPost = function (url, body, headers) {
       // Rewrite https to http for mock
       const httpUrl = url.replace('https://', 'http://');
@@ -173,12 +172,54 @@ describe('OidcTokenProvider', () => {
     provider.shutdown();
     await new Promise(resolve => failServer.close(resolve));
   });
+
+  it('should schedule refresh at 75% or 5 minutes-before-expiry, whichever is earlier', async () => {
+    const provider = new OidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      tenantId: 'test',
+      clientId: 'test',
+    });
+
+    provider._mintGitHubOidcToken = jest.fn().mockResolvedValue('oidc-jwt');
+    provider._exchangeForAzureToken = jest.fn().mockResolvedValue({
+      access_token: 'azure-token',
+      expires_in: 600,
+    });
+    provider._scheduleRefresh = jest.fn();
+
+    await provider._refreshToken();
+
+    expect(provider._scheduleRefresh).toHaveBeenCalledWith(300000);
+    provider.shutdown();
+  });
+
+  it('should schedule immediate refresh when token lifetime is below minimum margin', async () => {
+    const provider = new OidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      tenantId: 'test',
+      clientId: 'test',
+    });
+
+    provider._mintGitHubOidcToken = jest.fn().mockResolvedValue('oidc-jwt');
+    provider._exchangeForAzureToken = jest.fn().mockResolvedValue({
+      access_token: 'azure-token',
+      expires_in: 240,
+    });
+    provider._scheduleRefresh = jest.fn();
+
+    await provider._refreshToken();
+
+    expect(provider._scheduleRefresh).toHaveBeenCalledWith(0);
+    provider.shutdown();
+  });
 });
 
 describe('OpenAI adapter with OIDC', () => {
   const { createOpenAIAdapter } = require('./providers/openai');
 
-  it('should report enabled when OIDC is configured', () => {
+  it('should report disabled until OIDC token is initialized', () => {
     const adapter = createOpenAIAdapter({
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -188,7 +229,7 @@ describe('OpenAI adapter with OIDC', () => {
       OPENAI_API_TARGET: 'my-resource.openai.azure.com',
     });
 
-    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.isEnabled()).toBe(false);
     expect(adapter.getOidcProvider()).not.toBeNull();
     expect(adapter.getValidationProbe()).toEqual({ skip: true, reason: 'OIDC auth; validation via token acquisition' });
     expect(adapter.getModelsFetchConfig()).toBeNull();
@@ -217,7 +258,7 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getOidcProvider()).toBeNull();
   });
 
-  it('should return oidc-token-unavailable when OIDC token not yet acquired', () => {
+  it('should return empty auth headers when OIDC token is not yet acquired', () => {
     const adapter = createOpenAIAdapter({
       AWF_AUTH_TYPE: 'github-oidc',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
@@ -228,7 +269,27 @@ describe('OpenAI adapter with OIDC', () => {
 
     // Before initialization, token should be unavailable
     const headers = adapter.getAuthHeaders({});
-    expect(headers['Authorization']).toBe('Bearer oidc-token-unavailable');
+    expect(headers).toEqual({});
+
+    adapter.getOidcProvider().shutdown();
+  });
+
+  it('should inject only Authorization header in OIDC mode', () => {
+    const adapter = createOpenAIAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'test-tenant',
+      AWF_AUTH_AZURE_CLIENT_ID: 'test-client',
+    });
+
+    const provider = adapter.getOidcProvider();
+    provider._cachedToken = 'azure-ad-token';
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+    const headers = adapter.getAuthHeaders({});
+    expect(headers).toEqual({ Authorization: 'Bearer azure-ad-token' });
+    expect(headers['api-key']).toBeUndefined();
 
     adapter.getOidcProvider().shutdown();
   });

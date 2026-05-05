@@ -16,6 +16,7 @@
 
 const https = require('https');
 const http = require('http');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { logRequest } = require('./logging');
 
 // Refresh at 75% of token lifetime (Azure tokens typically last 3600s)
@@ -219,8 +220,11 @@ class OidcTokenProvider {
 
     // Schedule proactive refresh
     const refreshInSecs = Math.max(
+      0,
+      Math.min(
       expires_in * REFRESH_FACTOR,
       expires_in - MIN_REFRESH_MARGIN_SECS
+      )
     );
     this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
   }
@@ -262,7 +266,10 @@ class OidcTokenProvider {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(url);
       const mod = parsedUrl.protocol === 'https:' ? https : http;
-      const req = mod.get(url, { headers }, (res) => {
+      const req = mod.get(url, {
+        headers,
+        agent: this._getProxyAgent(parsedUrl),
+      }, (res) => {
         let body = '';
         res.on('data', (chunk) => { body += chunk; });
         res.on('end', () => resolve({ statusCode: res.statusCode, body }));
@@ -285,58 +292,35 @@ class OidcTokenProvider {
       const options = {
         method: 'POST',
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 443,
+        port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
         path: parsedUrl.pathname + parsedUrl.search,
         headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
+        agent: this._getProxyAgent(parsedUrl),
       };
 
-      // Use HTTP_PROXY if set (sidecar routes through Squid)
-      const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
-      let req;
-      if (proxyUrl && parsedUrl.protocol === 'https:') {
-        // For HTTPS through proxy, use CONNECT method via http module
-        const proxy = new URL(proxyUrl);
-        const connectReq = http.request({
-          host: proxy.hostname,
-          port: proxy.port || 3128,
-          method: 'CONNECT',
-          path: `${parsedUrl.hostname}:443`,
-        });
-        connectReq.on('connect', (connectRes, socket) => {
-          if (connectRes.statusCode !== 200) {
-            reject(new Error(`Proxy CONNECT failed: ${connectRes.statusCode}`));
-            return;
-          }
-          req = https.request({
-            ...options,
-            socket,
-            agent: false,
-          }, (res) => {
-            let responseBody = '';
-            res.on('data', (chunk) => { responseBody += chunk; });
-            res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
-          });
-          req.on('error', reject);
-          req.setTimeout(10_000, () => { req.destroy(new Error('Azure token exchange timeout')); });
-          req.write(body);
-          req.end();
-        });
-        connectReq.on('error', reject);
-        connectReq.setTimeout(10_000, () => { connectReq.destroy(new Error('Proxy connect timeout')); });
-        connectReq.end();
-      } else {
-        const mod = parsedUrl.protocol === 'https:' ? https : http;
-        req = mod.request(options, (res) => {
-          let responseBody = '';
-          res.on('data', (chunk) => { responseBody += chunk; });
-          res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
-        });
-        req.on('error', reject);
-        req.setTimeout(10_000, () => { req.destroy(new Error('Azure token exchange timeout')); });
-        req.write(body);
-        req.end();
-      }
+      const mod = parsedUrl.protocol === 'https:' ? https : http;
+      const req = mod.request(options, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
+      });
+      req.on('error', reject);
+      req.setTimeout(10_000, () => { req.destroy(new Error('Azure token exchange timeout')); });
+      req.write(body);
+      req.end();
     });
+  }
+
+  /**
+   * Build proxy agent from env vars when configured.
+   * @param {URL} parsedUrl
+   * @returns {import('http').Agent|undefined}
+   */
+  _getProxyAgent(parsedUrl) {
+    const proxyUrl = parsedUrl.protocol === 'https:'
+      ? (process.env.HTTPS_PROXY || process.env.HTTP_PROXY)
+      : (process.env.HTTP_PROXY || process.env.HTTPS_PROXY);
+    return proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
   }
 
   /** @param {number} ms */
