@@ -9,7 +9,6 @@ import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptab
 import { buildApiProxyService } from './services/api-proxy-service';
 import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
-import { _generateRandomSubnet } from './network-allocator';
 
 /**
  * Generates Docker Compose configuration
