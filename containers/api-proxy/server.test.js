@@ -2676,7 +2676,6 @@ describe('createProviderServer', () => {
 //
 
 const { createAnthropicAdapter } = require('./providers/anthropic');
-const { createCopilotAdapter }   = require('./providers/copilot');
 const { createOpenCodeAdapter }  = require('./providers/opencode');
 
 describe('provider adapter alwaysBind', () => {
