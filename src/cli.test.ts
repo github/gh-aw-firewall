@@ -1,5 +1,11 @@
 import { Command } from 'commander';
-import { validateFormat, program, handlePredownloadAction } from './cli';
+import {
+  validateFormat,
+  program,
+  handlePredownloadAction,
+  resolveCopilotApiKey,
+  deriveCopilotApiTargetFromProviderBaseUrl,
+} from './cli';
 import { redactSecrets } from './redact-secrets';
 
 describe('cli', () => {
@@ -222,6 +228,31 @@ describe('cli', () => {
 
     it('should exit with error for invalid format', () => {
       expect(() => validateFormat('xml', ['json', 'markdown', 'pretty'])).toThrow('process.exit called');
+    });
+  });
+
+  describe('Copilot BYOK env resolution', () => {
+    it('prefers COPILOT_API_KEY and falls back to COPILOT_PROVIDER_API_KEY', () => {
+      expect(resolveCopilotApiKey({
+        COPILOT_API_KEY: 'primary-key',
+        COPILOT_PROVIDER_API_KEY: 'fallback-key',
+      })).toBe('primary-key');
+
+      expect(resolveCopilotApiKey({
+        COPILOT_PROVIDER_API_KEY: 'fallback-key',
+      })).toBe('fallback-key');
+    });
+
+    it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('https://openrouter.ai/api/v1')).toBe('openrouter.ai');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('openrouter.ai/api/v1')).toBe('openrouter.ai');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl(' http://router.example.com:8443/v2 ')).toBe('router.example.com');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('example.com:8080')).toBe('example.com');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('192.168.1.10:9000')).toBe('192.168.1.10');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('[2001:db8::1]:8443')).toBe('[2001:db8::1]');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('   ')).toBeUndefined();
+      expect(deriveCopilotApiTargetFromProviderBaseUrl(undefined)).toBeUndefined();
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('not a valid url')).toBeUndefined();
     });
   });
 

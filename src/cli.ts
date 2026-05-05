@@ -128,6 +128,37 @@ import { processAgentImageOption } from './domain-utils';
 
 export const program = new Command();
 
+/**
+ * Resolve the Copilot BYOK key from supported environment variables.
+ * COPILOT_API_KEY takes precedence over COPILOT_PROVIDER_API_KEY.
+ */
+export function resolveCopilotApiKey(
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  return env.COPILOT_API_KEY || env.COPILOT_PROVIDER_API_KEY;
+}
+
+/**
+ * Derive a Copilot API target hostname from COPILOT_PROVIDER_BASE_URL.
+ * Returns undefined when the value is empty or not a valid URL/host.
+ */
+export function deriveCopilotApiTargetFromProviderBaseUrl(
+  providerBaseUrl: string | undefined
+): string | undefined {
+  const trimmed = providerBaseUrl?.trim();
+  if (!trimmed) return undefined;
+
+  const candidate = trimmed.includes('://')
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    return new URL(candidate).hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
 const optionGroupHeaders: Record<string, string> = {
@@ -639,10 +670,28 @@ program
       }
     }
 
+    const copilotApiTargetFromProviderBaseUrl = deriveCopilotApiTargetFromProviderBaseUrl(
+      process.env.COPILOT_PROVIDER_BASE_URL
+    );
+    const resolvedCopilotApiTarget =
+      options.copilotApiTarget ||
+      process.env.COPILOT_API_TARGET ||
+      copilotApiTargetFromProviderBaseUrl;
+
     // Automatically add API target values to allowlist when specified
     // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
     // the target domain is automatically accessible through the firewall
-    resolveApiTargetsToAllowedDomains(options, allowedDomains, process.env, logger.debug.bind(logger));
+    resolveApiTargetsToAllowedDomains(
+      {
+        copilotApiTarget: resolvedCopilotApiTarget,
+        openaiApiTarget: options.openaiApiTarget,
+        anthropicApiTarget: options.anthropicApiTarget,
+        geminiApiTarget: options.geminiApiTarget,
+      },
+      allowedDomains,
+      process.env,
+      logger.debug.bind(logger)
+    );
 
     // Validate all domains and patterns
     for (const domain of allowedDomains) {
@@ -891,9 +940,9 @@ program
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
-      copilotApiKey: process.env.COPILOT_API_KEY,
+      copilotApiKey: resolveCopilotApiKey(process.env),
       geminiApiKey: process.env.GEMINI_API_KEY,
-      copilotApiTarget: options.copilotApiTarget || process.env.COPILOT_API_TARGET,
+      copilotApiTarget: resolvedCopilotApiTarget,
       openaiApiTarget: options.openaiApiTarget || process.env.OPENAI_API_TARGET,
       openaiApiBasePath: options.openaiApiBasePath || process.env.OPENAI_API_BASE_PATH,
       anthropicApiTarget: options.anthropicApiTarget || process.env.ANTHROPIC_API_TARGET,
