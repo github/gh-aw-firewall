@@ -11,8 +11,6 @@ import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
 import { getExistingDockerSubnets, _generateRandomSubnet } from './network-allocator';
 
-export { getExistingDockerSubnets, _generateRandomSubnet };
-
 /**
  * Generates Docker Compose configuration
  * Note: Uses external network 'awf-net' created by host-iptables setup
