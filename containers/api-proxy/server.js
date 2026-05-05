@@ -580,6 +580,27 @@ if (require.main === module) {
     providers_configured: registeredAdapters.filter(a => a.isEnabled()).map(a => a.name),
   });
 
+  // ── Initialize OIDC token providers (if any adapter uses them) ────────────
+  const oidcInitPromises = [];
+  for (const adapter of registeredAdapters) {
+    if (typeof adapter.getOidcProvider === 'function') {
+      const provider = adapter.getOidcProvider();
+      if (provider) {
+        logRequest('info', 'oidc_startup', {
+          message: `Initializing OIDC token provider for ${adapter.name}`,
+        });
+        oidcInitPromises.push(
+          provider.initialize().catch((err) => {
+            logRequest('error', 'oidc_startup_failed', {
+              adapter: adapter.name,
+              error: String(err),
+            });
+          })
+        );
+      }
+    }
+  }
+
   // Determine which adapters to bind and count validation participants
   const adaptersToStart = registeredAdapters.filter(a => a.alwaysBind || a.isEnabled());
   const expectedListeners = adaptersToStart.filter(a => a.participatesInValidation).length;
@@ -591,16 +612,20 @@ if (require.main === module) {
       logRequest('info', 'startup_complete', {
         message: `All ${expectedListeners} validation-participating listeners ready, starting key validation`,
       });
-      validateApiKeys(adaptersToStart).catch((err) => {
-        logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
-        keyValidationComplete = true;
-      });
-      fetchStartupModels(adaptersToStart).then(() => {
-        writeModelsJson();
-      }).catch((err) => {
-        logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
-        modelFetchComplete = true;
-        writeModelsJson();
+
+      // Wait for OIDC init before key validation (OIDC providers need tokens to probe)
+      Promise.all(oidcInitPromises).then(() => {
+        validateApiKeys(adaptersToStart).catch((err) => {
+          logRequest('error', 'key_validation_error', { message: 'Unexpected error during key validation', error: String(err) });
+          keyValidationComplete = true;
+        });
+        fetchStartupModels(adaptersToStart).then(() => {
+          writeModelsJson();
+        }).catch((err) => {
+          logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
+          modelFetchComplete = true;
+          writeModelsJson();
+        });
       });
     }
   }
@@ -620,12 +645,22 @@ if (require.main === module) {
 
   process.on('SIGTERM', async () => {
     logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
+    for (const adapter of registeredAdapters) {
+      if (typeof adapter.getOidcProvider === 'function') {
+        adapter.getOidcProvider()?.shutdown();
+      }
+    }
     await closeLogStream();
     process.exit(0);
   });
 
   process.on('SIGINT', async () => {
     logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
+    for (const adapter of registeredAdapters) {
+      if (typeof adapter.getOidcProvider === 'function') {
+        adapter.getOidcProvider()?.shutdown();
+      }
+    }
     await closeLogStream();
     process.exit(0);
   });

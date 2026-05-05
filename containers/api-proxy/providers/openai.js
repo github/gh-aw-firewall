@@ -4,13 +4,14 @@
  * OpenAI provider adapter.
  *
  * Port: 10000  (also serves as the management port for /health, /metrics, /reflect)
- * Auth: Bearer token via Authorization header
- * Credentials: OPENAI_API_KEY
+ * Auth: Bearer token via Authorization header (static key or OIDC)
+ * Credentials: OPENAI_API_KEY or AWF_AUTH_TYPE=github-oidc (for Azure OpenAI with Entra)
  * Target: OPENAI_API_TARGET  (default: api.openai.com)
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
 const { createBaseAdapterConfig } = require('../proxy-utils');
+const { OidcTokenProvider } = require('../oidc-token-provider');
 
 /**
  * Create the OpenAI provider adapter.
@@ -34,6 +35,29 @@ function createOpenAIAdapter(env, deps = {}) {
 
   const bodyTransform = deps.bodyTransform || null;
 
+  // OIDC auth strategy for Azure OpenAI (Entra-only deployments)
+  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  let oidcProvider = null;
+  if (authType === 'github-oidc') {
+    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    const tenantId = env.AWF_AUTH_AZURE_TENANT_ID;
+    const clientId = env.AWF_AUTH_AZURE_CLIENT_ID;
+
+    if (requestUrl && requestToken && tenantId && clientId) {
+      oidcProvider = new OidcTokenProvider({
+        requestUrl,
+        requestToken,
+        tenantId,
+        clientId,
+        oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'api://AzureADTokenExchange',
+        azureScope: env.AWF_AUTH_AZURE_SCOPE || 'https://cognitiveservices.azure.com/.default',
+        azureCloud: env.AWF_AUTH_AZURE_CLOUD,
+      });
+    }
+  }
+  const oidcEnabled = !!oidcProvider;
+
   return {
     name: 'openai',
     port: 10000,
@@ -50,11 +74,28 @@ function createOpenAIAdapter(env, deps = {}) {
     /** Port 10000 always counts toward the startup validation latch. */
     participatesInValidation: true,
 
-    isEnabled() { return !!apiKey; },
+    isEnabled() { return !!apiKey || oidcEnabled; },
     getTargetHost() { return rawTarget; },
     getBasePath() { return basePath; },
 
+    /**
+     * Get the OIDC token provider (if configured).
+     * Used by server.js to initialize OIDC on startup.
+     * @returns {OidcTokenProvider|null}
+     */
+    getOidcProvider() { return oidcProvider; },
+
     getAuthHeaders() {
+      // OIDC takes precedence when configured
+      if (oidcProvider) {
+        const token = oidcProvider.getToken();
+        if (token) {
+          return { 'Authorization': `Bearer ${token}`, 'api-key': token };
+        }
+        // Token not yet available (pre-init or refresh failure)
+        // Return empty — server will return 503 via isEnabled() short-circuit
+        return { 'Authorization': 'Bearer oidc-token-unavailable' };
+      }
       return { 'Authorization': `Bearer ${apiKey}` };
     },
 
@@ -63,10 +104,14 @@ function createOpenAIAdapter(env, deps = {}) {
     /**
      * Returns the validation probe config, or null to skip.
      * Custom targets are skipped — we don't know their probe endpoints.
+     * OIDC-auth targets are skipped — validation requires an async token mint.
      *
      * @returns {{ url: string, opts: object }|{ skip: true, reason: string }|null}
      */
     getValidationProbe() {
+      if (oidcEnabled) {
+        return { skip: true, reason: 'OIDC auth; validation via token acquisition' };
+      }
       if (!apiKey) return null;
       if (rawTarget !== 'api.openai.com') {
         return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
@@ -85,6 +130,7 @@ function createOpenAIAdapter(env, deps = {}) {
      * @returns {{ url: string, opts: object, cacheKey: string }|null}
      */
     getModelsFetchConfig() {
+      if (oidcEnabled) return null; // Models fetched after OIDC init
       if (!apiKey) return null;
       const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
       return {
@@ -99,7 +145,8 @@ function createOpenAIAdapter(env, deps = {}) {
         provider: 'openai',
         port: 10000,
         base_url: 'http://api-proxy:10000',
-        configured: !!apiKey,
+        configured: !!apiKey || oidcEnabled,
+        auth_type: oidcEnabled ? 'github-oidc' : 'static-key',
         models_cache_key: 'openai',
         models_url: 'http://api-proxy:10000/v1/models',
       };
@@ -109,7 +156,7 @@ function createOpenAIAdapter(env, deps = {}) {
     getUnconfiguredResponse() {
       return {
         statusCode: 404,
-        body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY)' },
+        body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY or OIDC auth)' },
       };
     },
   };
