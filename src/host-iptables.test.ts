@@ -1,4 +1,4 @@
-import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, _resetIpv6State, HostAccessConfig, isValidPortSpec } from './host-iptables';
+import { ensureFirewallNetwork, setupHostIptables, cleanupHostIptables, cleanupFirewallNetwork, __testing, HostAccessConfig, isValidPortSpec } from './host-iptables';
 import execa from 'execa';
 
 // Mock execa
@@ -24,7 +24,7 @@ jest.mock('./logger', () => ({
 describe('host-iptables', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    _resetIpv6State();
+    __testing._resetIpv6State();
   });
 
   describe('ensureFirewallNetwork', () => {

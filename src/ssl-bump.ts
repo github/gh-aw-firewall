@@ -52,7 +52,7 @@ export interface CaFiles {
  * @param sslDir - Directory path to mount tmpfs on
  * @returns true if tmpfs was mounted, false if fallback to disk
  */
-export async function mountSslTmpfs(sslDir: string): Promise<boolean> {
+async function mountSslTmpfs(sslDir: string): Promise<boolean> {
   try {
     // Mount tmpfs with restrictive options (4MB is more than enough for SSL keys)
     await execa('mount', [

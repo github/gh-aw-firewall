@@ -56,10 +56,13 @@ let ipv6DisabledViaSysctl = false;
 /**
  * Resets internal IPv6 state (for testing only).
  */
-export function _resetIpv6State(): void {
+function _resetIpv6State(): void {
   ip6tablesAvailableCache = null;
   ipv6DisabledViaSysctl = false;
 }
+
+// Exposed for testing only — not part of public API
+export const __testing = { _resetIpv6State };
 
 /**
  * Gets the bridge interface name for the firewall network
@@ -85,7 +88,7 @@ async function getNetworkBridgeName(): Promise<string | null> {
  * Gets the Docker default bridge gateway IP (e.g., 172.17.0.1).
  * This is the IP that host.docker.internal resolves to inside containers.
  */
-export async function getDockerBridgeGateway(): Promise<string | null> {
+async function getDockerBridgeGateway(): Promise<string | null> {
   try {
     const { stdout } = await execa('docker', [
       'network', 'inspect', 'bridge',
