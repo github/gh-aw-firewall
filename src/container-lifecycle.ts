@@ -507,6 +507,56 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 }
 
 /**
+ * Classifies and logs each blocked target, then emits actionable fix suggestions.
+ * Extracted to avoid duplicating this logic between the startup-error path
+ * (which uses `logger.error`) and the post-run warning path (which uses `logger.warn`).
+ *
+ * @param blockedTargets - Targets that were denied by the firewall
+ * @param allowedDomains - Domains currently in the allowlist
+ * @param log - Logging function to use (e.g. `logger.error` or `logger.warn`)
+ * @returns The categorised lists so callers can decide on further action
+ */
+function reportBlockedDomains(
+  blockedTargets: BlockedTarget[],
+  allowedDomains: string[],
+  log: (msg: string) => void,
+): { missingDomains: string[]; portIssues: BlockedTarget[] } {
+  const missingDomains: string[] = [];
+  const portIssues: BlockedTarget[] = [];
+
+  blockedTargets.forEach(blocked => {
+    const isAllowed = allowedDomains.some(allowed =>
+      blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
+    );
+
+    if (!isAllowed) {
+      // Domain not in allowlist
+      log(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
+      missingDomains.push(blocked.domain);
+    } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
+      // Domain is allowed but port is not
+      log(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
+      portIssues.push(blocked);
+    } else {
+      // Other reason (shouldn't happen often)
+      log(`  - Blocked: ${blocked.target}`);
+    }
+  });
+
+  log('Allowed domains:');
+  allowedDomains.forEach(domain => { log(`  - Allowed: ${domain}`); });
+
+  if (missingDomains.length > 0) {
+    log(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
+  }
+  if (portIssues.length > 0) {
+    log('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
+  }
+
+  return { missingDomains, portIssues };
+}
+
+/**
  * Runs the Squid-log diagnostic check and re-throws with a user-friendly message
  * when blocked domains are found, or rethrows the original error otherwise.
  */
@@ -522,40 +572,7 @@ async function handleHealthcheckError(
 
     if (hasDenials) {
       logger.error('Firewall blocked domains during startup:');
-
-      const missingDomains: string[] = [];
-      const portIssues: BlockedTarget[] = [];
-
-      blockedTargets.forEach(blocked => {
-        const isAllowed = allowedDomains.some(allowed =>
-          blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
-        );
-
-        if (!isAllowed) {
-          // Domain not in allowlist
-          logger.error(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
-          missingDomains.push(blocked.domain);
-        } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
-          // Domain is allowed but port is not
-          logger.error(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
-          portIssues.push(blocked);
-        } else {
-          // Other reason (shouldn't happen often)
-          logger.error(`  - Blocked: ${blocked.target}`);
-        }
-      });
-
-      logger.error('Allowed domains:');
-      allowedDomains.forEach(domain => {
-        logger.error(`  - Allowed: ${domain}`);
-      });
-
-      if (missingDomains.length > 0) {
-        logger.error(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
-      }
-      if (portIssues.length > 0) {
-        logger.error('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
-      }
+      reportBlockedDomains(blockedTargets, allowedDomains, msg => logger.error(msg));
 
       // Create a more user-friendly error
       const blockedList = blockedTargets.map(b => `"${b.target}"`).join(', ');
@@ -642,40 +659,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
     // If command failed (non-zero exit) and domains were blocked, show a warning
     if (exitCode !== 0 && hasDenials) {
       logger.warn('Firewall blocked domains:');
-
-      const missingDomains: string[] = [];
-      const portIssues: BlockedTarget[] = [];
-
-      blockedTargets.forEach(blocked => {
-        const isAllowed = allowedDomains.some(allowed =>
-          blocked.domain === allowed || blocked.domain.endsWith('.' + allowed)
-        );
-
-        if (!isAllowed) {
-          // Domain not in allowlist
-          logger.warn(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
-          missingDomains.push(blocked.domain);
-        } else if (blocked.port && blocked.port !== '80' && blocked.port !== '443') {
-          // Domain is allowed but port is not
-          logger.warn(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
-          portIssues.push(blocked);
-        } else {
-          // Other reason (shouldn't happen often)
-          logger.warn(`  - Blocked: ${blocked.target}`);
-        }
-      });
-
-      logger.warn('Allowed domains:');
-      allowedDomains.forEach(domain => {
-        logger.warn(`  - Allowed: ${domain}`);
-      });
-
-      if (missingDomains.length > 0) {
-        logger.warn(`To fix domain issues: --allow-domains "${[...allowedDomains, ...missingDomains].join(',')}"`);
-      }
-      if (portIssues.length > 0) {
-        logger.warn('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
-      }
+      reportBlockedDomains(blockedTargets, allowedDomains, msg => logger.warn(msg));
     }
 
     return { exitCode, blockedDomains: blockedTargets.map(b => b.domain) };
