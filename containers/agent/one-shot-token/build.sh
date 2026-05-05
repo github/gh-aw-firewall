@@ -19,9 +19,12 @@ echo "[build] Building one-shot-token with Cargo..."
 # -O2: optimize for performance
 # -Wall -Wextra: enable warnings
 # -s: strip symbol table and relocation info at link time
+# -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0: disable glibc fortification macros
+#   (e.g. __fprintf_chk) so the .so loads on musl-based hosts (Alpine/ARC runners)
 gcc -shared -fPIC \
     -fvisibility=hidden \
     -O2 -Wall -Wextra -s \
+    -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
     -o "${OUTPUT_FILE}" \
     "${SOURCE_FILE}" \
     -ldl -lpthread

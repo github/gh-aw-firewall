@@ -432,8 +432,18 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
       # Copy the library and verify it exists after copying
       if cp /usr/local/lib/one-shot-token.so /host/tmp/awf-lib/one-shot-token.so 2>/dev/null && \
          [ -f /host/tmp/awf-lib/one-shot-token.so ]; then
-        ONE_SHOT_TOKEN_LIB="/tmp/awf-lib/one-shot-token.so"
-        echo "[entrypoint] One-shot token library copied to chroot at ${ONE_SHOT_TOKEN_LIB}"
+        # Probe compatibility with the host's dynamic linker before committing to LD_PRELOAD.
+        # The .so is compiled against glibc; on musl-based hosts (Alpine/ARC runners) it will
+        # fail to load with "symbol not found: __fprintf_chk".  Running the host's /bin/true
+        # (which uses the host's own libc) surfaces this error without breaking anything.
+        if LD_PRELOAD=/host/tmp/awf-lib/one-shot-token.so /host/bin/true 2>/dev/null; then
+          ONE_SHOT_TOKEN_LIB="/tmp/awf-lib/one-shot-token.so"
+          echo "[entrypoint] One-shot token library copied to chroot at ${ONE_SHOT_TOKEN_LIB}"
+        else
+          echo "[entrypoint][WARN] one-shot-token.so failed to load on host libc (e.g. musl/Alpine)"
+          echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
+          rm -f /host/tmp/awf-lib/one-shot-token.so 2>/dev/null || true
+        fi
       else
         echo "[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib"
         echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
