@@ -15,7 +15,7 @@ const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, 
 const { resolveOpenCodeRoute } = require('./providers/opencode');
 
 // Core proxy functions that remain in server.js
-const { proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer } = require('./server');
+const { proxyRequest, proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -2771,5 +2771,77 @@ describe('provider adapter alwaysBind', () => {
     const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
     expect(statusCode).toBe(503);
     expect(body.error).toMatch(/no candidate provider credentials/);
+  });
+});
+
+// ── proxyRequest X-Initiator billing header injection ─────────────────────────
+//
+// When forwarding to the Copilot API, the proxy must inject "X-Initiator: agent"
+// when the header is absent so that autonomous turns are billed correctly instead
+// of defaulting to the (more expensive) "user" rate.
+//
+describe('proxyRequest X-Initiator injection', () => {
+  /** Minimal mock for http.IncomingMessage backed by EventEmitter. */
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  /** Minimal mock for http.ServerResponse. */
+  function makeRes() {
+    return {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /**
+   * Mock https.request to capture the outgoing options (including headers)
+   * without making a real network connection.
+   */
+  function mockHttpsRequest() {
+    let capturedOptions;
+    jest.spyOn(https, 'request').mockImplementation((options) => {
+      capturedOptions = options;
+      const proxyReq = new EventEmitter();
+      proxyReq.end = jest.fn();
+      proxyReq.write = jest.fn();
+      proxyReq.destroy = jest.fn();
+      return proxyReq;
+    });
+    return { getCaptured: () => capturedOptions };
+  }
+
+  it('injects x-initiator: agent when absent on copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('preserves a client-supplied x-initiator value on copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq({ 'x-initiator': 'user' });
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('user');
+  });
+
+  it('does not inject x-initiator for non-copilot providers', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBeUndefined();
   });
 });
