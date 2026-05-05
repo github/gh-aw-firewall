@@ -30,12 +30,10 @@ network:
     - defaults
     - chatgpt.com
     - github
-    - playwright
 tools:
   cache-memory: true
   github:
     mode: gh-proxy
-  playwright:
   edit:
   bash:
     - "*"
@@ -107,7 +105,12 @@ post-steps:
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
 2. **Safe Inputs GH CLI Testing**: Use the `safeinputs-gh` tool to query 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__` (use args: `pr list --repo __GH_AW_GITHUB_REPOSITORY__ --limit 2 --json number,title,author`)
-3. **Playwright Testing**: Use the playwright tools to navigate to https://github.com and verify the page title contains "GitHub" (do NOT try to install playwright - use the provided MCP tools)
+3. **Playwright Testing**: Use `playwright-cli` via bash to navigate to https://github.com and verify the page title contains "GitHub". Run:
+   ```bash
+   playwright-cli open https://github.com
+   playwright-cli eval "document.title"
+   playwright-cli close
+   ```
 4. **Tavily Web Search Testing**: Use the Tavily MCP server to perform a web search for "GitHub Agentic Workflows Firewall" and verify that results are returned with at least one item
 5. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 6. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
