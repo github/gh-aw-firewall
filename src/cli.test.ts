@@ -258,10 +258,18 @@ describe('cli', () => {
   });
 
   describe('handlePredownloadAction', () => {
+    afterEach(() => {
+      jest.resetModules();
+      jest.clearAllMocks();
+      jest.restoreAllMocks();
+      jest.unmock('./commands/predownload');
+    });
+
     it('should delegate to predownloadCommand with correct options', async () => {
       // Mock the predownload module that handlePredownloadAction dynamically imports
       const mockPredownloadCommand = jest.fn().mockResolvedValue(undefined);
-      jest.mock('./commands/predownload', () => ({
+      jest.resetModules();
+      jest.doMock('./commands/predownload', () => ({
         predownloadCommand: mockPredownloadCommand,
       }));
 
