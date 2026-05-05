@@ -484,16 +484,20 @@ export function parseDifcProxyHost(value: string): { host: string; port: string 
   if (!trimmed) {
     return { host: 'host.docker.internal', port: '18443' };
   }
-  // Use URL to parse host:port correctly (handles IPv6 brackets)
-  const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed);
-  const candidate = hasScheme ? trimmed : `tcp://${trimmed}`;
+  // Use URL to parse host:port correctly (handles IPv6 brackets).
+  // Always normalise to tcp:// so the WHATWG URL parser never drops a port
+  // that happens to be the default for a scheme (e.g. 443 for https://).
+  const hostPart = trimmed.replace(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//, '');
+  const candidate = `tcp://${hostPart}`;
   let parsed: URL;
   try {
     parsed = new URL(candidate);
   } catch {
     throw new Error(`Invalid --difc-proxy-host value: "${value}". Expected host:port format.`);
   }
-  const host = parsed.hostname || 'host.docker.internal';
+  // URL.hostname returns IPv6 addresses with surrounding brackets; strip them.
+  const rawHost = parsed.hostname || 'host.docker.internal';
+  const host = rawHost.replace(/^\[(.+)\]$/, '$1');
   const port = parsed.port || '18443';
   if (!/^\d+$/.test(port)) {
     throw new Error(`Invalid --difc-proxy-host port: "${port}". Must be a number.`);

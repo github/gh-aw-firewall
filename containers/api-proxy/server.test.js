@@ -2401,6 +2401,77 @@ describe('createProviderServer', () => {
     expect(body.error).toMatch(/test-no-stub.*not configured/);
   });
 
+  // ── /reflect endpoint — non-management port ──────────────────────────────
+
+  it('returns 200 /reflect on a non-management port (enabled adapter)', async () => {
+    const adapter = {
+      name: 'test-reflect-enabled', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'api.example.com',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getReflectionInfo: () => ({
+        provider: 'test-reflect-enabled', port: 0, base_url: 'http://api-proxy:0',
+        configured: true, models_cache_key: null, models_url: null,
+      }),
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/reflect');
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('endpoints');
+    expect(body).toHaveProperty('models_fetch_complete');
+  });
+
+  it('returns 200 /reflect on a non-management port (disabled/unconfigured adapter)', async () => {
+    const adapter = {
+      name: 'test-reflect-disabled', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getUnconfiguredResponse: () => ({ statusCode: 503, body: { error: 'not configured' } }),
+      getReflectionInfo: () => ({
+        provider: 'test-reflect-disabled', port: 0, base_url: 'http://api-proxy:0',
+        configured: false, models_cache_key: null, models_url: null,
+      }),
+    };
+    const port = await startAdapter(adapter);
+    const { status, body } = await fetch(port, '/reflect');
+    // /reflect should return 200 even for unconfigured adapters
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('endpoints');
+  });
+
+  // ── /reflect not intercepted before unconfigured-stub check ────────────────
+
+  it('does not intercept /reflect as a proxy request on disabled adapters', async () => {
+    const adapter = {
+      name: 'test-no-intercept', port: 0, isManagementPort: false, alwaysBind: true,
+      participatesInValidation: false,
+      isEnabled: () => false,
+      getTargetHost: () => '',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({}),
+      getBodyTransform: () => null,
+      getUnconfiguredResponse: () => ({ statusCode: 503, body: { error: 'not configured' } }),
+      getReflectionInfo: () => ({
+        provider: 'test-no-intercept', port: 0, base_url: 'http://api-proxy:0',
+        configured: false, models_cache_key: null, models_url: null,
+      }),
+    };
+    const port = await startAdapter(adapter);
+    // /reflect should return 200, not the unconfigured 503
+    const { status } = await fetch(port, '/reflect');
+    expect(status).toBe(200);
+    // Other paths should still return the unconfigured response
+    const { status: proxyStatus } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+    expect(proxyStatus).toBe(503);
+  });
+
   // ── URL transform ─────────────────────────────────────────────────────────
 
   it('applies transformRequestUrl before proxying', async () => {
@@ -2595,5 +2666,110 @@ describe('createProviderServer', () => {
 
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error');
     expect(authErrLog).toBeUndefined();
+  });
+});
+
+// ── Provider adapter alwaysBind tests ─────────────────────────────────────────
+//
+// These tests verify that anthropic, copilot, and opencode always bind and
+// return clear errors when credentials are absent.
+//
+
+const { createAnthropicAdapter } = require('./providers/anthropic');
+const { createOpenCodeAdapter }  = require('./providers/opencode');
+
+describe('provider adapter alwaysBind', () => {
+  it('anthropic alwaysBind is true', () => {
+    const adapter = createAnthropicAdapter({});
+    expect(adapter.alwaysBind).toBe(true);
+  });
+
+  it('copilot alwaysBind is true', () => {
+    const adapter = createCopilotAdapter({});
+    expect(adapter.alwaysBind).toBe(true);
+  });
+
+  it('opencode alwaysBind is true', () => {
+    const adapter = createOpenCodeAdapter({});
+    expect(adapter.alwaysBind).toBe(true);
+  });
+
+  it('anthropic getUnconfiguredResponse returns 503 with structured error', () => {
+    const adapter = createAnthropicAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredResponse();
+    expect(statusCode).toBe(503);
+    expect(body.error.type).toBe('provider_not_configured');
+    expect(body.error.provider).toBe('anthropic');
+    expect(body.error.port).toBe(10001);
+    expect(body.error.message).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it('anthropic getUnconfiguredHealthResponse returns 503 with not_configured status', () => {
+    const adapter = createAnthropicAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+    expect(statusCode).toBe(503);
+    expect(body.status).toBe('not_configured');
+    expect(body.service).toBe('awf-api-proxy-anthropic');
+    expect(body.error).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it('copilot getUnconfiguredResponse returns 503 with structured error', () => {
+    const adapter = createCopilotAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredResponse();
+    expect(statusCode).toBe(503);
+    expect(body.error.type).toBe('provider_not_configured');
+    expect(body.error.provider).toBe('copilot');
+    expect(body.error.port).toBe(10002);
+    expect(body.error.message).toMatch(/COPILOT_GITHUB_TOKEN/);
+  });
+
+  it('copilot getUnconfiguredHealthResponse returns 503 with not_configured status', () => {
+    const adapter = createCopilotAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+    expect(statusCode).toBe(503);
+    expect(body.status).toBe('not_configured');
+    expect(body.service).toBe('awf-api-proxy-copilot');
+    expect(body.error).toMatch(/COPILOT_GITHUB_TOKEN/);
+  });
+
+  it('opencode getUnconfiguredResponse returns 503 mentioning AWF_ENABLE_OPENCODE when not enabled', () => {
+    const adapter = createOpenCodeAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredResponse();
+    expect(statusCode).toBe(503);
+    expect(body.error.type).toBe('provider_not_configured');
+    expect(body.error.provider).toBe('opencode');
+    expect(body.error.port).toBe(10004);
+    expect(body.error.message).toMatch(/AWF_ENABLE_OPENCODE/);
+  });
+
+  it('opencode getUnconfiguredResponse returns 503 mentioning credentials when enabled but no candidates', () => {
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' });
+    const { statusCode, body } = adapter.getUnconfiguredResponse();
+    expect(statusCode).toBe(503);
+    expect(body.error.type).toBe('provider_not_configured');
+    expect(body.error.message).toMatch(/OPENAI_API_KEY/);
+    expect(body.error.message).toMatch(/COPILOT_API_KEY/);
+  });
+
+  it('opencode getUnconfiguredResponse mentions COPILOT_API_KEY when not enabled', () => {
+    const adapter = createOpenCodeAdapter({});
+    const { body } = adapter.getUnconfiguredResponse();
+    expect(body.error.message).toMatch(/COPILOT_API_KEY/);
+  });
+
+  it('opencode getUnconfiguredHealthResponse returns 503 with not_configured status (disabled)', () => {
+    const adapter = createOpenCodeAdapter({});
+    const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+    expect(statusCode).toBe(503);
+    expect(body.status).toBe('not_configured');
+    expect(body.service).toBe('awf-api-proxy-opencode');
+    expect(body.error).toMatch(/AWF_ENABLE_OPENCODE/);
+  });
+
+  it('opencode getUnconfiguredHealthResponse mentions credentials when enabled but no candidates', () => {
+    const adapter = createOpenCodeAdapter({ AWF_ENABLE_OPENCODE: 'true' });
+    const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+    expect(statusCode).toBe(503);
+    expect(body.error).toMatch(/no candidate provider credentials/);
   });
 });

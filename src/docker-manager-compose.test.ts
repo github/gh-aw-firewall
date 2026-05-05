@@ -3160,7 +3160,7 @@ describe('docker-manager generateDockerCompose', () => {
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
         const env = proxy.environment as Record<string, string>;
-        expect(env.AWF_DIFC_PROXY_HOST).toBe('[::1]');
+        expect(env.AWF_DIFC_PROXY_HOST).toBe('::1');
         expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
       });
 

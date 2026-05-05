@@ -55,12 +55,13 @@ steps:
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
         --json number,title,author,mergedAt \
-        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"')
+        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"' \
+        || echo "(PR fetch failed)")
       echo "$PR_DATA"
       echo "::endgroup::"
 
       echo "::group::GitHub.com connectivity check"
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com)
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || echo "000")
       echo "github.com returned HTTP $HTTP_CODE"
       echo "::endgroup::"
 

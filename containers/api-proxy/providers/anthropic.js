@@ -73,7 +73,17 @@ function createAnthropicAdapter(env, deps = {}) {
     name: 'anthropic',
     port: 10001,
     isManagementPort: false,
-    alwaysBind: false,
+
+    /**
+     * Port 10001 always starts so agents get a clear 503 "not configured"
+     * error rather than a silent connection-refused.
+     */
+    alwaysBind: true,
+
+    /**
+     * The stub server does NOT count toward the startup validation latch —
+     * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
+     */
     get participatesInValidation() { return this.isEnabled(); },
 
     isEnabled() { return !!apiKey; },
@@ -156,6 +166,29 @@ function createAnthropicAdapter(env, deps = {}) {
         configured: !!apiKey,
         models_cache_key: 'anthropic',
         models_url: 'http://api-proxy:10001/v1/models',
+      };
+    },
+
+    /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */
+    getUnconfiguredResponse() {
+      return {
+        statusCode: 503,
+        body: {
+          error: {
+            message: 'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.',
+            type: 'provider_not_configured',
+            provider: 'anthropic',
+            port: 10001,
+          },
+        },
+      };
+    },
+
+    /** /health response when not configured. */
+    getUnconfiguredHealthResponse() {
+      return {
+        statusCode: 503,
+        body: { status: 'not_configured', service: 'awf-api-proxy-anthropic', error: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar' },
       };
     },
 
