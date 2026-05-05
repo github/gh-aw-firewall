@@ -182,11 +182,19 @@ The Dockerfile compiles the library during image build with hardened flags:
 
 ```dockerfile
 RUN gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
+    -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
     -o /usr/local/lib/one-shot-token.so \
     /tmp/one-shot-token.c \
     -ldl -lpthread && \
     strip --strip-unneeded /usr/local/lib/one-shot-token.so
 ```
+
+The `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0` flags disable glibc's fortified I/O
+wrappers (e.g. `__fprintf_chk`), which avoids that specific missing-symbol
+failure on musl-based hosts such as Alpine Linux (used by ARC self-hosted
+runners). Loading may still depend on host compatibility (for example,
+`gcompat` availability), and without these flags the dynamic linker can fail
+with `symbol not found: __fprintf_chk`.
 
 ### Locally (for testing)
 
@@ -352,7 +360,7 @@ This library is one layer in AWF's security model:
 ## Limitations
 
 - **Linux only**: The library is compiled for Linux (x86_64 and potentially other architectures via Rust cross-compilation)
-- **glibc programs only**: Programs using musl libc or statically linked programs are not affected
+- **glibc programs only**: Programs using musl libc or statically linked programs are not affected by the interception (they do not load the library); AWF degrades gracefully by falling back to tokens remaining in the environment
 - **Single process**: Child processes inherit the LD_PRELOAD but have their own token state and cache (each starts fresh)
 
 ## Files

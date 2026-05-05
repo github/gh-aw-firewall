@@ -1,13 +1,13 @@
 #!/bin/bash
-# Build the one-shot-token LD_PRELOAD library
-# This script compiles the Rust shared library
+# Build the one-shot-token LD_PRELOAD library (C source, gcc)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LINK_FILE="${SCRIPT_DIR}/one-shot-token.so"
+SOURCE_FILE="${SCRIPT_DIR}/one-shot-token.c"
+OUTPUT_FILE="${SCRIPT_DIR}/one-shot-token.so"
 
-echo "[build] Building one-shot-token with Cargo..."
+echo "[build] Building one-shot-token..."
 
 # Compile as a shared library with hardened build flags:
 # -shared: create a shared library
@@ -19,9 +19,12 @@ echo "[build] Building one-shot-token with Cargo..."
 # -O2: optimize for performance
 # -Wall -Wextra: enable warnings
 # -s: strip symbol table and relocation info at link time
+# -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0: disable glibc fortification macros
+#   (e.g. __fprintf_chk) so the .so loads on musl-based hosts (Alpine/ARC runners)
 gcc -shared -fPIC \
     -fvisibility=hidden \
     -O2 -Wall -Wextra -s \
+    -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
     -o "${OUTPUT_FILE}" \
     "${SOURCE_FILE}" \
     -ldl -lpthread

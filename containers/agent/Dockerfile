@@ -158,6 +158,8 @@ RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)
 # Build flags: -fvisibility=hidden hides internal symbols, -s strips at link time
+# -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 disables glibc fortification macros (e.g.
+# __fprintf_chk) so the resulting .so loads on musl-based hosts (Alpine/ARC runners)
 COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
 RUN set -eux; \
     BUILD_PKGS="gcc libc6-dev binutils"; \
@@ -166,6 +168,7 @@ RUN set -eux; \
       (rm -rf /var/lib/apt/lists/* && apt-get update && \
        apt-get install -y --no-install-recommends $BUILD_PKGS) ) && \
     gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
+        -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
         -o /usr/local/lib/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \
     strip --strip-unneeded /usr/local/lib/one-shot-token.so && \
     rm /tmp/one-shot-token.c && \
