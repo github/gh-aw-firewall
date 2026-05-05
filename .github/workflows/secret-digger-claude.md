@@ -19,6 +19,7 @@ imports:
   - shared/secret-audit.md
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 tools:
   cache-memory: true

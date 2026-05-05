@@ -37,6 +37,7 @@ safe-outputs:
 timeout-minutes: 10
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 strict: true
 steps:
