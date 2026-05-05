@@ -1,6 +1,8 @@
 import { generateDockerCompose } from '../docker-manager';
 import { WrapperConfig } from '../types';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Create mock functions
 const mockExecaFn = jest.fn();
@@ -13,16 +15,17 @@ jest.mock('execa', () => {
   return fn;
 });
 
-const mockConfig: WrapperConfig = {
+const baseConfig: Omit<WrapperConfig, 'workDir'> = {
   allowedDomains: ['github.com', 'npmjs.org'],
   agentCommand: 'echo "test"',
   logLevel: 'info',
   keepContainers: false,
-  workDir: '/tmp/awf-test',
   buildLocal: false,
   imageRegistry: 'ghcr.io/github/gh-aw-firewall',
   imageTag: 'latest',
 };
+
+let mockConfig: WrapperConfig;
 
 const mockNetworkConfig = {
   subnet: '172.30.0.0/24',
@@ -31,9 +34,8 @@ const mockNetworkConfig = {
 };
 
 describe('DNS-over-HTTPS proxy sidecar', () => {
-  // Ensure workDir exists for chroot tests that create chroot-hosts file
   beforeEach(() => {
-    fs.mkdirSync(mockConfig.workDir, { recursive: true });
+    mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
   });
 
   afterEach(() => {

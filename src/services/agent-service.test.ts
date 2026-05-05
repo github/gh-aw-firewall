@@ -15,16 +15,17 @@ jest.mock('execa', () => {
   return fn;
 });
 
-const mockConfig: WrapperConfig = {
+const baseConfig: Omit<WrapperConfig, 'workDir'> = {
   allowedDomains: ['github.com', 'npmjs.org'],
   agentCommand: 'echo "test"',
   logLevel: 'info',
   keepContainers: false,
-  workDir: '/tmp/awf-test',
   buildLocal: false,
   imageRegistry: 'ghcr.io/github/gh-aw-firewall',
   imageTag: 'latest',
 };
+
+let mockConfig: WrapperConfig;
 
 const mockNetworkConfig = {
   subnet: '172.30.0.0/24',
@@ -33,9 +34,8 @@ const mockNetworkConfig = {
 };
 
 describe('agent service', () => {
-  // Ensure workDir exists for chroot tests that create chroot-hosts file
   beforeEach(() => {
-    fs.mkdirSync(mockConfig.workDir, { recursive: true });
+    mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
   });
 
   afterEach(() => {
@@ -69,11 +69,11 @@ describe('agent service', () => {
       const sslBumpConfig = { ...mockConfig, sslBump: true };
       const ssl = {
         caFiles: {
-          certPath: '/tmp/awf-test/ssl/ca-cert.pem',
-          keyPath: '/tmp/awf-test/ssl/ca-key.pem',
-          derPath: '/tmp/awf-test/ssl/ca-cert.der',
+          certPath: `${mockConfig.workDir}/ssl/ca-cert.pem`,
+          keyPath: `${mockConfig.workDir}/ssl/ca-key.pem`,
+          derPath: `${mockConfig.workDir}/ssl/ca-cert.der`,
         },
-        sslDbPath: '/tmp/awf-test/ssl_db',
+        sslDbPath: `${mockConfig.workDir}/ssl_db`,
       };
       const result = generateDockerCompose(sslBumpConfig, mockNetworkConfig, ssl);
       const agent = result.services.agent;
@@ -309,8 +309,8 @@ describe('agent service', () => {
         expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
       }
       // session-state and logs are always overlaid from AWF workDir
-      expect(volumes).toContain(`/tmp/awf-test/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
-      expect(volumes).toContain(`/tmp/awf-test/agent-logs:/host${homeDir}/.copilot/logs:rw`);
+      expect(volumes).toContain(`${mockConfig.workDir}/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`${mockConfig.workDir}/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
     it('should mount ~/.gemini when geminiApiKey is configured', () => {
@@ -811,7 +811,7 @@ describe('agent service', () => {
       ]);
 
       // Verify seccomp profile is configured
-      expect(agent.security_opt).toContain('seccomp=/tmp/awf-test/seccomp-profile.json');
+      expect(agent.security_opt).toContain(`seccomp=${mockConfig.workDir}/seccomp-profile.json`);
 
       // Verify no-new-privileges is enabled to prevent privilege escalation
       expect(agent.security_opt).toContain('no-new-privileges:true');
@@ -1644,7 +1644,7 @@ describe('agent service', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         const squid = result.services['squid-proxy'];
 
-        expect(squid.volumes).toContain('/tmp/awf-test/squid-logs:/var/log/squid:rw');
+        expect(squid.volumes).toContain(`${mockConfig.workDir}/squid-logs:/var/log/squid:rw`);
       });
 
       it('should use api-proxy-logs subdirectory inside proxyLogsDir when specified', () => {
@@ -1675,7 +1675,7 @@ describe('agent service', () => {
         });
         const apiProxy = result.services['api-proxy'];
 
-        expect(apiProxy.volumes).toContain('/tmp/awf-test/api-proxy-logs:/var/log/api-proxy:rw');
+        expect(apiProxy.volumes).toContain(`${mockConfig.workDir}/api-proxy-logs:/var/log/api-proxy:rw`);
       });
     });
 
@@ -1788,16 +1788,7 @@ describe('agent service', () => {
 
   describe('toolchain var fallback to GITHUB_ENV', () => {
     let tmpDir: string;
-    const testConfig: WrapperConfig = {
-      allowedDomains: ['github.com'],
-      agentCommand: 'echo "test"',
-      logLevel: 'info',
-      keepContainers: false,
-      workDir: '/tmp/awf-toolchain-test',
-      buildLocal: false,
-      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
-    };
+    let testConfig: WrapperConfig;
     const testNetworkConfig = {
       subnet: '172.30.0.0/24',
       squidIp: '172.30.0.10',
@@ -1806,7 +1797,16 @@ describe('agent service', () => {
 
     beforeEach(() => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-toolchain-'));
-      fs.mkdirSync(testConfig.workDir, { recursive: true });
+      testConfig = {
+        allowedDomains: ['github.com'],
+        agentCommand: 'echo "test"',
+        logLevel: 'info',
+        keepContainers: false,
+        workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-toolchain-work-')),
+        buildLocal: false,
+        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+        imageTag: 'latest',
+      };
     });
 
     afterEach(() => {
@@ -1867,16 +1867,7 @@ describe('agent service', () => {
   });
 
   describe('generateDockerCompose - GITHUB_PATH integration', () => {
-    const mockConfig: WrapperConfig = {
-      allowedDomains: ['github.com'],
-      agentCommand: 'echo "test"',
-      logLevel: 'info',
-      keepContainers: false,
-      workDir: '/tmp/awf-github-path-test',
-      buildLocal: false,
-      imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
-    };
+    let mockConfig: WrapperConfig;
 
     const mockNetworkConfig = {
       subnet: '172.30.0.0/24',
@@ -1885,7 +1876,16 @@ describe('agent service', () => {
     };
 
     beforeEach(() => {
-      fs.mkdirSync(mockConfig.workDir, { recursive: true });
+      mockConfig = {
+        allowedDomains: ['github.com'],
+        agentCommand: 'echo "test"',
+        logLevel: 'info',
+        keepContainers: false,
+        workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-github-path-')),
+        buildLocal: false,
+        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+        imageTag: 'latest',
+      };
     });
 
     afterEach(() => {
