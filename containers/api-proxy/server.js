@@ -56,6 +56,53 @@ const {
 // ── Rate limiter ─────────────────────────────────────────────────────────────
 const limiter = rateLimiter.create();
 
+// ── Billing header extraction ────────────────────────────────────────────────
+
+/**
+ * Extract billing/quota information from upstream response headers.
+ *
+ * CAPI returns quota snapshots as `X-Quota-Snapshot-<Type>` headers with
+ * URL-encoded fields: ent (entitlement), ov (overage), ovPerm (overage allowed),
+ * rem (remaining %), rst (reset date).
+ *
+ * Also captures X-Initiator echo (if upstream reflects it) and any other
+ * billing-related headers.
+ *
+ * @param {Record<string, string|string[]>} headers - Response headers
+ * @returns {object|null} Billing info object, or null if no billing headers present
+ */
+function extractBillingHeaders(headers) {
+  const billing = {};
+  let hasBilling = false;
+
+  // Extract all X-Quota-Snapshot-* headers
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith('x-quota-snapshot-')) {
+      const quotaType = lower.slice('x-quota-snapshot-'.length);
+      try {
+        const params = new URLSearchParams(String(value));
+        const snapshot = {};
+        for (const [k, v] of params) snapshot[k] = v;
+        billing[`quota_${quotaType}`] = snapshot;
+      } catch {
+        billing[`quota_${quotaType}_raw`] = String(value);
+      }
+      hasBilling = true;
+    }
+  }
+
+  // X-RateLimit headers from CAPI
+  if (headers['x-ratelimit-limit']) {
+    billing.rate_limit = headers['x-ratelimit-limit'];
+    billing.rate_remaining = headers['x-ratelimit-remaining'];
+    billing.rate_reset = headers['x-ratelimit-reset'];
+    hasBilling = true;
+  }
+
+  return hasBilling ? billing : null;
+}
+
 // ── Request size cap (10 MB) to prevent DoS via large payloads ───────────────
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
@@ -320,6 +367,18 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
+    // Default X-Initiator to "agent" for billing purposes on Copilot-bound requests.
+    // In agentic workflows, the vast majority of requests are agent-initiated.
+    // If the client already set it (e.g. standard Copilot CLI), respect that value.
+    // Check is on targetHost rather than provider name so that OpenCode requests
+    // routed to the Copilot backend also receive the header.
+    const isCopilotHost =
+      targetHost === 'githubcopilot.com' ||
+      targetHost.endsWith('.githubcopilot.com');
+    if (isCopilotHost && !headers['x-initiator']) {
+      headers['x-initiator'] = 'agent';
+    }
+
     if (body.length !== inboundBytes) {
       headers['content-length'] = String(body.length);
       delete headers['transfer-encoding'];
@@ -362,6 +421,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         res.end(JSON.stringify({ error: 'Response stream error', message: err.message }));
       });
 
+      // Extract billing/quota headers from upstream response
+      const billingInfo = extractBillingHeaders(proxyRes.headers);
+      const initiatorSent = headers['x-initiator'] || null;
+
       proxyRes.on('end', () => {
         const duration = Date.now() - startTime;
         const sc = metrics.statusClass(proxyRes.statusCode);
@@ -369,12 +432,15 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
         metrics.increment('response_bytes_total', { provider }, responseBytes);
         metrics.observe('request_duration_ms', duration, { provider });
-        logRequest('info', 'request_complete', {
+        const logFields = {
           request_id: requestId, provider, method: req.method,
           path: sanitizeForLog(req.url), status: proxyRes.statusCode,
           duration_ms: duration, request_bytes: requestBytes,
           response_bytes: responseBytes, upstream_host: targetHost,
-        });
+        };
+        if (initiatorSent) logFields.x_initiator = initiatorSent;
+        if (billingInfo) logFields.billing = billingInfo;
+        logRequest('info', 'request_complete', logFields);
       });
 
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
@@ -390,7 +456,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       res.writeHead(proxyRes.statusCode, resHeaders);
       proxyRes.pipe(res);
 
-      trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
+      trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent });
     });
 
     proxyReq.on('error', (err) => {
@@ -1279,6 +1345,8 @@ module.exports = {
   healthResponse,
   buildModelsJson,
   writeModelsJson,
+  // Billing
+  extractBillingHeaders,
   // Server factory
   createProviderServer,
 };

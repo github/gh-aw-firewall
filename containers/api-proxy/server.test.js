@@ -15,7 +15,7 @@ const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, 
 const { resolveOpenCodeRoute } = require('./providers/opencode');
 
 // Core proxy functions that remain in server.js
-const { proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer } = require('./server');
+const { proxyRequest, proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer, extractBillingHeaders } = require('./server');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
@@ -2771,5 +2771,163 @@ describe('provider adapter alwaysBind', () => {
     const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
     expect(statusCode).toBe(503);
     expect(body.error).toMatch(/no candidate provider credentials/);
+  });
+});
+
+// ── proxyRequest X-Initiator billing header injection ─────────────────────────
+//
+// When forwarding to the Copilot API, the proxy must inject "X-Initiator: agent"
+// when the header is absent so that autonomous turns are billed correctly instead
+// of defaulting to the (more expensive) "user" rate.
+//
+describe('proxyRequest X-Initiator injection', () => {
+  /** Minimal mock for http.IncomingMessage backed by EventEmitter. */
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  /** Minimal mock for http.ServerResponse. */
+  function makeRes() {
+    return {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /**
+   * Mock https.request to capture the outgoing options (including headers)
+   * without making a real network connection.
+   */
+  function mockHttpsRequest() {
+    let capturedOptions;
+    jest.spyOn(https, 'request').mockImplementation((options) => {
+      capturedOptions = options;
+      const proxyReq = new EventEmitter();
+      proxyReq.end = jest.fn();
+      proxyReq.write = jest.fn();
+      proxyReq.destroy = jest.fn();
+      return proxyReq;
+    });
+    return { getCaptured: () => capturedOptions };
+  }
+
+  it('injects x-initiator: agent when absent on direct copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('injects x-initiator: agent when absent on enterprise githubcopilot.com target', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.enterprise.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('injects x-initiator: agent when OpenCode routes to Copilot backend', () => {
+    // OpenCode delegates to Copilot; provider name is "opencode" but target host is Copilot.
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'opencode');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('preserves a client-supplied x-initiator value on copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq({ 'x-initiator': 'user' });
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('user');
+  });
+
+  it('preserves a client-supplied x-initiator value on OpenCode→Copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq({ 'x-initiator': 'user' });
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'opencode');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('user');
+  });
+
+  it('does not inject x-initiator for non-copilot provider targets', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+
+  it('does not inject x-initiator when OpenCode routes to non-Copilot backend', () => {
+    // OpenCode routing to OpenAI — no Copilot billing header should be injected.
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.openai.com', { 'Authorization': 'Bearer sk-test' }, 'opencode');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+});
+
+describe('extractBillingHeaders', () => {
+  it('returns null when no billing headers present', () => {
+    expect(extractBillingHeaders({ 'content-type': 'application/json' })).toBeNull();
+  });
+
+  it('extracts X-Quota-Snapshot-Premium-Chat header', () => {
+    const headers = {
+      'x-quota-snapshot-premium-chat': 'ent=50&ov=0.0&ovPerm=false&rem=48.5&rst=2025-12-15T23%3A59%3A59Z',
+    };
+    const result = extractBillingHeaders(headers);
+    expect(result).not.toBeNull();
+    expect(result['quota_premium-chat']).toEqual({
+      ent: '50',
+      ov: '0.0',
+      ovPerm: 'false',
+      rem: '48.5',
+      rst: '2025-12-15T23:59:59Z',
+    });
+  });
+
+  it('extracts multiple quota snapshot headers', () => {
+    const headers = {
+      'x-quota-snapshot-chat': 'ent=-1&ov=0.0&ovPerm=true&rem=0.0',
+      'x-quota-snapshot-premium-chat': 'ent=50&ov=2.0&ovPerm=false&rem=40.0',
+    };
+    const result = extractBillingHeaders(headers);
+    expect(result['quota_chat']).toEqual({ ent: '-1', ov: '0.0', ovPerm: 'true', rem: '0.0' });
+    expect(result['quota_premium-chat']).toEqual({ ent: '50', ov: '2.0', ovPerm: 'false', rem: '40.0' });
+  });
+
+  it('extracts rate limit headers', () => {
+    const headers = {
+      'x-ratelimit-limit': '100',
+      'x-ratelimit-remaining': '95',
+      'x-ratelimit-reset': '1700000000',
+    };
+    const result = extractBillingHeaders(headers);
+    expect(result.rate_limit).toBe('100');
+    expect(result.rate_remaining).toBe('95');
+    expect(result.rate_reset).toBe('1700000000');
+  });
+
+  it('handles malformed quota snapshot gracefully', () => {
+    const headers = {
+      'x-quota-snapshot-premium-chat': 'not-valid-url-params=%%invalid',
+    };
+    // URLSearchParams is lenient — it won't throw on most strings
+    const result = extractBillingHeaders(headers);
+    expect(result).not.toBeNull();
   });
 });

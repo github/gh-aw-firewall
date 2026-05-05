@@ -215,6 +215,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   if (fs.existsSync(iptablesAuditSrc) && fs.existsSync(targetAuditDir)) {
     try {
       fs.copyFileSync(iptablesAuditSrc, path.join(targetAuditDir, 'iptables-audit.txt'));
+      fs.chmodSync(path.join(targetAuditDir, 'iptables-audit.txt'), 0o644);
       logger.debug('Copied iptables audit state to audit directory');
     } catch (error) {
       logger.debug('Could not copy iptables audit file:', error);
