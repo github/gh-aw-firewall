@@ -23,7 +23,7 @@
 'use strict';
 
 const http = require('http');
-const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
+const { sanitizeForLog, logRequest } = require('./logging');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
 
 // ── Sub-modules ───────────────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ const {
   checkRateLimit,
   limiter,
   HTTPS_PROXY,
+  extractBillingHeaders,
 } = require('./proxy-request');
 
 const {
@@ -659,6 +660,8 @@ module.exports = {
   healthResponse,
   buildModelsJson,
   writeModelsJson,
+  // Billing
+  extractBillingHeaders,
   // Server factory
   createProviderServer,
 };

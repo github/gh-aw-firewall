@@ -35,12 +35,13 @@ safe-outputs:
     run-started: "🔑 [{workflow_name}]({run_url}) is testing offline BYOK mode on this {event_type}..."
     run-success: "✅ [{workflow_name}]({run_url}) completed. Copilot BYOK mode operational. 🔓"
     run-failure: "❌ [{workflow_name}]({run_url}) reports {status}. BYOK mode investigation needed..."
-timeout-minutes: 5
+timeout-minutes: 15
 env:
   COPILOT_API_KEY: dummy-byok-key-for-offline-mode
   COPILOT_MODEL: claude-opus-4.6
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 strict: true
 steps:

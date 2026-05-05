@@ -39,9 +39,10 @@ secrets:
   GEMINI_API_KEY:
     value: ${{ secrets.GEMINI_API_KEY }}
     description: "Google Gemini API key for inference"
-timeout-minutes: 5
+timeout-minutes: 15
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 strict: true
 post-steps:

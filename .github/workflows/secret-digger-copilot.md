@@ -14,6 +14,7 @@ imports:
   - shared/version-reporting.md
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 timeout-minutes: 15
 ---

@@ -19,12 +19,10 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 const { sanitizeForLog, logRequest } = require('./logging');
 
-// ── Module-level constants ────────────────────────────────────────────────────
-const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
+// ── Shared proxy agent (from proxy-request to avoid bootstrap duplication) ────
+const { proxyAgent } = require('./proxy-request');
 
 const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
 
