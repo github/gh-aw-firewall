@@ -4,11 +4,16 @@
  * AWF API Proxy Sidecar — Core Engine
  *
  * Responsibilities:
- *   1. Generic HTTP/WebSocket proxy (proxyRequest / proxyWebSocket)
- *   2. Rate limiting, metrics, logging
- *   3. Management endpoints (/health, /metrics, /reflect) on the designated port
- *   4. Provider-agnostic server factory (createProviderServer)
- *   5. Startup orchestration: creates provider servers from registered adapters
+ *   1. Model alias resolution and body-transform wiring
+ *   2. Startup orchestration: key validation and model prefetching
+ *   3. Provider-agnostic server factory (createProviderServer)
+ *   4. Signal handling and graceful shutdown
+ *
+ * Focused modules handle the individual concerns:
+ *   proxy-request.js    — HTTP/WebSocket proxy, rate-limit enforcement
+ *   model-discovery.js  — fetchJson, httpProbe, extractModelIds, buildModelsJson
+ *   management.js       — /health, /metrics, /reflect endpoint handlers
+ *   rate-limiter.js     — sliding-window rate limiter
  *
  * All provider-specific knowledge (credentials, URLs, auth headers, body
  * transforms, model lists) lives exclusively in providers/*.js.
@@ -17,35 +22,30 @@
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const http = require('http');
-const https = require('https');
-const tls = require('tls');
-const { URL } = require('url');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
-const metrics = require('./metrics');
-const rateLimiter = require('./rate-limiter');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
 
-// ── Optional modules (graceful degradation when not bundled) ─────────────────
-let trackTokenUsage;
-let trackWebSocketTokenUsage;
-let closeLogStream;
-try {
-  ({ trackTokenUsage, trackWebSocketTokenUsage, closeLogStream } = require('./token-tracker'));
-} catch (err) {
-  if (err && err.code === 'MODULE_NOT_FOUND') {
-    trackTokenUsage = () => {};
-    trackWebSocketTokenUsage = () => {};
-    closeLogStream = () => {};
-  } else {
-    throw err;
-  }
-}
+// ── Sub-modules ───────────────────────────────────────────────────────────────
+const {
+  proxyRequest,
+  proxyWebSocket,
+  checkRateLimit,
+  limiter,
+  HTTPS_PROXY,
+} = require('./proxy-request');
 
-// ── Shared utility functions ─────────────────────────────────────────────────
+const {
+  fetchJson,
+  httpProbe,
+  extractModelIds,
+  buildModelsJson: _buildModelsJson,
+  writeModelsJson: _writeModelsJson,
+} = require('./model-discovery');
+
+const { createManagementHandlers } = require('./management');
+
+// ── Re-export proxy-utils helpers for backward compatibility ──────────────────
 const {
   buildUpstreamPath,
   shouldStripHeader,
@@ -53,17 +53,19 @@ const {
   normalizeApiTarget,
 } = require('./proxy-utils');
 
-// ── Rate limiter ─────────────────────────────────────────────────────────────
-const limiter = rateLimiter.create();
+// ── Optional modules (graceful degradation when not bundled) ─────────────────
+let closeLogStream;
+try {
+  ({ closeLogStream } = require('./token-tracker'));
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    closeLogStream = () => {};
+  } else {
+    throw err;
+  }
+}
 
-// ── Request size cap (10 MB) to prevent DoS via large payloads ───────────────
-const MAX_BODY_SIZE = 10 * 1024 * 1024;
-
-// ── Squid proxy agent ────────────────────────────────────────────────────────
-const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
-
-if (!proxyAgent) {
+if (!HTTPS_PROXY) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
 }
 
@@ -159,484 +161,23 @@ function resetKeyValidationState() {
   keyValidationComplete = false;
 }
 
-// ── Utility: validate request IDs ────────────────────────────────────────────
-function isValidRequestId(id) {
-  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
-}
+// ── Management endpoint handlers ──────────────────────────────────────────────
+// Created via factory so that healthResponse/reflectEndpoints read shared state
+// through getter functions rather than stale captured values.
+const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createManagementHandlers({
+  getAdapters:           () => registeredAdapters,
+  getCachedModels:       () => cachedModels,
+  isModelFetchComplete:  () => modelFetchComplete,
+  getKeyValidationState: () => ({ complete: keyValidationComplete, results: keyValidationResults }),
+  getLimiter:            () => limiter,
+  httpsProxy:            HTTPS_PROXY,
+  getModelAliases:       () => MODEL_ALIASES,
+});
 
-// ── Rate-limit helper ─────────────────────────────────────────────────────────
-/**
- * Check the rate limit for a provider and send a 429 if exceeded.
- * Returns true if the request was rate-limited (caller should return early).
- */
-function checkRateLimit(req, res, provider, requestBytes) {
-  const check = limiter.check(provider, requestBytes);
-  if (!check.allowed) {
-    const clientRequestId = req.headers['x-request-id'];
-    const requestId = (typeof clientRequestId === 'string' &&
-      clientRequestId.length <= 128 &&
-      /^[\w\-\.]+$/.test(clientRequestId))
-      ? clientRequestId : generateRequestId();
-    const limitLabels = { rpm: 'requests per minute', rph: 'requests per hour', bytes_pm: 'bytes per minute' };
-    const windowLabel = limitLabels[check.limitType] || check.limitType;
-
-    metrics.increment('rate_limit_rejected_total', { provider, limit_type: check.limitType });
-    logRequest('warn', 'rate_limited', {
-      request_id: requestId,
-      provider,
-      limit_type: check.limitType,
-      limit: check.limit,
-      retry_after: check.retryAfter,
-    });
-
-    res.writeHead(429, {
-      'Content-Type': 'application/json',
-      'Retry-After': String(check.retryAfter),
-      'X-RateLimit-Limit': String(check.limit),
-      'X-RateLimit-Remaining': String(check.remaining),
-      'X-RateLimit-Reset': String(check.resetAt),
-      'X-Request-ID': requestId,
-    });
-    res.end(JSON.stringify({
-      error: {
-        type: 'rate_limit_error',
-        message: `Rate limit exceeded for ${provider} provider. Limit: ${check.limit} ${windowLabel}. Retry after ${check.retryAfter} seconds.`,
-        provider,
-        limit: check.limit,
-        window: check.limitType === 'rpm' ? 'per_minute' : check.limitType === 'rph' ? 'per_hour' : 'per_minute_bytes',
-        retry_after: check.retryAfter,
-      },
-    }));
-    return true;
-  }
-  return false;
-}
-
-// ── Core proxy: HTTP ──────────────────────────────────────────────────────────
-/**
- * Forward a request to the target API, injecting auth headers and routing through Squid.
- *
- * @param {http.IncomingMessage} req
- * @param {http.ServerResponse} res
- * @param {string} targetHost - Upstream hostname
- * @param {object} injectHeaders - Auth headers to inject
- * @param {string} provider - Provider name for logging and metrics
- * @param {string} [basePath=''] - Optional base-path prefix
- * @param {((body: Buffer) => Buffer | null) | null} [bodyTransform=null]
- */
-function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null) {
-  const clientRequestId = req.headers['x-request-id'];
-  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
-  const startTime = Date.now();
-
-  res.setHeader('X-Request-ID', requestId);
-  metrics.gaugeInc('active_requests', { provider });
-
-  logRequest('info', 'request_start', {
-    request_id: requestId,
-    provider,
-    method: req.method,
-    path: sanitizeForLog(req.url),
-    upstream_host: targetHost,
-  });
-
-  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
-    const duration = Date.now() - startTime;
-    metrics.gaugeDec('active_requests', { provider });
-    metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-    logRequest('warn', 'request_complete', {
-      request_id: requestId,
-      provider,
-      method: req.method,
-      path: sanitizeForLog(req.url),
-      status: 400,
-      duration_ms: duration,
-      upstream_host: targetHost,
-    });
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Bad Request', message: 'URL must be a relative path' }));
-    return;
-  }
-
-  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
-
-  req.on('error', (err) => {
-    if (errored) return;
-    errored = true;
-    const duration = Date.now() - startTime;
-    metrics.gaugeDec('active_requests', { provider });
-    metrics.increment('requests_errors_total', { provider });
-    logRequest('error', 'request_error', {
-      request_id: requestId, provider, method: req.method,
-      path: sanitizeForLog(req.url), duration_ms: duration,
-      error: sanitizeForLog(err.message), upstream_host: targetHost,
-    });
-    if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Client error', message: err.message }));
-  });
-
-  const chunks = [];
-  let totalBytes = 0;
-  let rejected = false;
-  let errored = false;
-
-  req.on('data', chunk => {
-    if (rejected || errored) return;
-    totalBytes += chunk.length;
-    if (totalBytes > MAX_BODY_SIZE) {
-      rejected = true;
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      logRequest('warn', 'request_complete', {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
-        request_bytes: totalBytes, upstream_host: targetHost,
-      });
-      if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
-      return;
-    }
-    chunks.push(chunk);
-  });
-
-  req.on('end', () => {
-    if (rejected || errored) return;
-    let body = Buffer.concat(chunks);
-    const inboundBytes = body.length;
-
-    if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
-      const transformed = bodyTransform(body);
-      if (transformed) body = transformed;
-    }
-
-    const requestBytes = body.length;
-    metrics.increment('request_bytes_total', { provider }, requestBytes);
-
-    const headers = {};
-    for (const [name, value] of Object.entries(req.headers)) {
-      if (!shouldStripHeader(name)) headers[name] = value;
-    }
-    headers['x-request-id'] = requestId;
-    Object.assign(headers, injectHeaders);
-
-    if (body.length !== inboundBytes) {
-      headers['content-length'] = String(body.length);
-      delete headers['transfer-encoding'];
-    }
-
-    const injectedKey = Object.entries(injectHeaders).find(([k]) =>
-      ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
-    )?.[1];
-    if (injectedKey) {
-      const keyPreview = injectedKey.length > 8
-        ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
-        : '(short)';
-      logRequest('debug', 'auth_inject', {
-        request_id: requestId, provider,
-        key_length: injectedKey.length, key_preview: keyPreview,
-        has_anthropic_version: !!headers['anthropic-version'],
-      });
-    }
-
-    const options = {
-      hostname: targetHost, port: 443, path: upstreamPath,
-      method: req.method, headers,
-      agent: proxyAgent,
-    };
-
-    const proxyReq = https.request(options, (proxyRes) => {
-      let responseBytes = 0;
-      proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
-
-      proxyRes.on('error', (err) => {
-        const duration = Date.now() - startTime;
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_errors_total', { provider });
-        logRequest('error', 'request_error', {
-          request_id: requestId, provider, method: req.method,
-          path: sanitizeForLog(req.url), duration_ms: duration,
-          error: sanitizeForLog(err.message), upstream_host: targetHost,
-        });
-        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Response stream error', message: err.message }));
-      });
-
-      proxyRes.on('end', () => {
-        const duration = Date.now() - startTime;
-        const sc = metrics.statusClass(proxyRes.statusCode);
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
-        metrics.increment('response_bytes_total', { provider }, responseBytes);
-        metrics.observe('request_duration_ms', duration, { provider });
-        logRequest('info', 'request_complete', {
-          request_id: requestId, provider, method: req.method,
-          path: sanitizeForLog(req.url), status: proxyRes.statusCode,
-          duration_ms: duration, request_bytes: requestBytes,
-          response_bytes: responseBytes, upstream_host: targetHost,
-        });
-      });
-
-      const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
-
-      if (proxyRes.statusCode === 400 || proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
-        logRequest('warn', 'upstream_auth_error', {
-          request_id: requestId, provider, status: proxyRes.statusCode,
-          upstream_host: targetHost, path: sanitizeForLog(req.url),
-          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and correctly formatted`,
-        });
-      }
-
-      res.writeHead(proxyRes.statusCode, resHeaders);
-      proxyRes.pipe(res);
-
-      trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
-    });
-
-    proxyReq.on('error', (err) => {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_errors_total', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('error', 'request_error', {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), duration_ms: duration,
-        error: sanitizeForLog(err.message), upstream_host: targetHost,
-      });
-      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Proxy error', message: err.message }));
-    });
-
-    if (body.length > 0) proxyReq.write(body);
-    proxyReq.end();
-  });
-}
-
-// ── Core proxy: WebSocket ─────────────────────────────────────────────────────
-/**
- * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.
- *
- * @param {http.IncomingMessage} req - The incoming HTTP Upgrade request
- * @param {import('net').Socket} socket - Raw TCP socket to the WebSocket client
- * @param {Buffer} head - Any bytes already buffered after the upgrade headers
- * @param {string} targetHost - Upstream hostname
- * @param {Object} injectHeaders - Auth headers to inject
- * @param {string} provider - Provider name for logging and metrics
- * @param {string} [basePath=''] - Optional base-path prefix
- */
-function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '') {
-  const startTime = Date.now();
-  const clientRequestId = req.headers['x-request-id'];
-  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
-
-  const upgradeType = (req.headers['upgrade'] || '').toLowerCase();
-  if (upgradeType !== 'websocket') {
-    logRequest('warn', 'websocket_upgrade_rejected', {
-      request_id: requestId, provider, path: sanitizeForLog(req.url),
-      reason: 'unsupported upgrade type',
-      upgrade: sanitizeForLog(req.headers['upgrade'] || ''),
-    });
-    socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
-    socket.destroy();
-    return;
-  }
-
-  if (!req.url || !req.url.startsWith('/') || req.url.startsWith('//')) {
-    logRequest('warn', 'websocket_upgrade_rejected', {
-      request_id: requestId, provider, path: sanitizeForLog(req.url),
-      reason: 'URL must be a relative path',
-    });
-    socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
-    socket.destroy();
-    return;
-  }
-
-  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
-
-  const rateCheck = limiter.check(provider, 0);
-  if (!rateCheck.allowed) {
-    metrics.increment('rate_limit_rejected_total', { provider, limit_type: rateCheck.limitType });
-    logRequest('warn', 'rate_limited', {
-      request_id: requestId, provider, limit_type: rateCheck.limitType,
-      limit: rateCheck.limit, retry_after: rateCheck.retryAfter,
-    });
-    socket.write(`HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${rateCheck.retryAfter}\r\nConnection: close\r\n\r\n`);
-    socket.destroy();
-    return;
-  }
-
-  logRequest('info', 'websocket_upgrade_start', {
-    request_id: requestId, provider, path: sanitizeForLog(req.url), upstream_host: targetHost,
-  });
-  metrics.gaugeInc('active_requests', { provider });
-
-  let finalized = false;
-  function finalize(isError, description) {
-    if (finalized) return;
-    finalized = true;
-    const duration = Date.now() - startTime;
-    metrics.gaugeDec('active_requests', { provider });
-    if (isError) {
-      metrics.increment('requests_errors_total', { provider });
-      logRequest('error', 'websocket_upgrade_failed', {
-        request_id: requestId, provider, path: sanitizeForLog(req.url),
-        duration_ms: duration, error: sanitizeForLog(String(description || 'unknown error')),
-      });
-    } else {
-      metrics.increment('requests_total', { provider, method: 'GET', status_class: '1xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('info', 'websocket_upgrade_complete', {
-        request_id: requestId, provider, path: sanitizeForLog(req.url), duration_ms: duration,
-      });
-    }
-  }
-
-  function abort(reason, ...extra) {
-    finalize(true, reason);
-    if (!socket.destroyed && socket.writable) {
-      socket.write('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
-    }
-    socket.destroy();
-    for (const s of extra) { if (s && !s.destroyed) s.destroy(); }
-  }
-
-  if (!HTTPS_PROXY) {
-    abort('No Squid proxy configured (HTTPS_PROXY not set)');
-    return;
-  }
-
-  let proxyUrl;
-  try {
-    proxyUrl = new URL(HTTPS_PROXY);
-  } catch (err) {
-    abort(`Invalid proxy URL: ${err.message}`);
-    return;
-  }
-
-  const proxyHost = proxyUrl.hostname;
-  const proxyPort = parseInt(proxyUrl.port, 10) || 3128;
-
-  const connectReq = http.request({
-    host: proxyHost, port: proxyPort, method: 'CONNECT',
-    path: `${targetHost}:443`,
-    headers: { 'Host': `${targetHost}:443` },
-  });
-
-  connectReq.once('error', (err) => abort(`CONNECT error: ${err.message}`));
-
-  connectReq.once('connect', (connectRes, tunnel) => {
-    if (connectRes.statusCode !== 200) {
-      abort(`CONNECT failed: HTTP ${connectRes.statusCode}`, tunnel);
-      return;
-    }
-
-    const tlsSocket = tls.connect({ socket: tunnel, servername: targetHost, rejectUnauthorized: true });
-    const onTlsError = (err) => abort(`TLS handshake error: ${err.message}`, tunnel);
-    tlsSocket.once('error', onTlsError);
-
-    tlsSocket.once('secureConnect', () => {
-      tlsSocket.removeListener('error', onTlsError);
-
-      const forwardHeaders = {};
-      for (const [name, value] of Object.entries(req.headers)) {
-        if (!shouldStripHeader(name)) forwardHeaders[name] = value;
-      }
-      Object.assign(forwardHeaders, injectHeaders);
-      forwardHeaders['host'] = targetHost;
-
-      let upgradeReqStr = `GET ${upstreamPath} HTTP/1.1\r\n`;
-      for (const [name, value] of Object.entries(forwardHeaders)) {
-        upgradeReqStr += `${name}: ${value}\r\n`;
-      }
-      upgradeReqStr += '\r\n';
-      tlsSocket.write(upgradeReqStr);
-
-      if (head && head.length > 0) tlsSocket.write(head);
-
-      tlsSocket.pipe(socket);
-      socket.pipe(tlsSocket);
-
-      trackWebSocketTokenUsage(tlsSocket, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
-
-      socket.once('close', () => { finalize(false); tlsSocket.destroy(); });
-      tlsSocket.once('close', () => { finalize(false); socket.destroy(); });
-      socket.on('error', () => socket.destroy());
-      tlsSocket.on('error', () => tlsSocket.destroy());
-    });
-  });
-
-  connectReq.end();
-}
-
-// ── Management endpoints (port 10000 only) ────────────────────────────────────
-
-function healthResponse() {
-  const providers = {};
-  for (const adapter of registeredAdapters) {
-    providers[adapter.name] = adapter.isEnabled();
-  }
-  return {
-    status: 'healthy',
-    service: 'awf-api-proxy',
-    squid_proxy: HTTPS_PROXY || 'not configured',
-    providers,
-    key_validation: { complete: keyValidationComplete, results: keyValidationResults },
-    models_fetch_complete: modelFetchComplete,
-    metrics_summary: metrics.getSummary(),
-    rate_limits: limiter.getAllStatus(),
-  };
-}
-
-/**
- * Build the reflection response describing all proxy endpoints and their available models.
- *
- * @returns {{ endpoints: Array<object>, models_fetch_complete: boolean, model_aliases: object|null }}
- */
-function reflectEndpoints() {
-  return {
-    endpoints: registeredAdapters.map(adapter => {
-      const info = adapter.getReflectionInfo();
-      return {
-        provider:   info.provider,
-        port:       info.port,
-        base_url:   info.base_url,
-        configured: info.configured,
-        models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
-        models_url: info.models_url,
-      };
-    }),
-    models_fetch_complete: modelFetchComplete,
-    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
-  };
-}
-
-/**
- * Handle management endpoints on port 10000 (/health, /metrics, /reflect).
- * Returns true if the request was handled, false otherwise.
- */
-function handleManagementEndpoint(req, res) {
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(healthResponse()));
-    return true;
-  }
-  if (req.method === 'GET' && req.url === '/metrics') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(metrics.getMetrics()));
-    return true;
-  }
-  if (req.method === 'GET' && req.url === '/reflect') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(reflectEndpoints()));
-    return true;
-  }
-  return false;
-}
-
-// ── models.json snapshot ──────────────────────────────────────────────────────
-
-const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
+// ── models.json snapshot wrappers ─────────────────────────────────────────────
+// Thin wrappers that bind the current server state to the model-discovery
+// functions, preserving the zero-argument calling convention expected by callers
+// and tests that import from server.js.
 
 /**
  * Build the models.json payload from current cached state.
@@ -644,42 +185,16 @@ const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy'
  * @returns {object}
  */
 function buildModelsJson() {
-  const providers = {};
-  for (const adapter of registeredAdapters) {
-    const info = adapter.getReflectionInfo();
-    providers[adapter.name] = {
-      configured: adapter.isEnabled(),
-      models: info.models_cache_key !== null
-        ? (cachedModels[info.models_cache_key] !== undefined ? cachedModels[info.models_cache_key] : null)
-        : null,
-      target: adapter.isEnabled() ? adapter.getTargetHost() : null,
-    };
-  }
-  return {
-    timestamp: new Date().toISOString(),
-    providers,
-    model_aliases: MODEL_ALIASES ? MODEL_ALIASES.models : null,
-  };
+  return _buildModelsJson(registeredAdapters, cachedModels, MODEL_ALIASES);
 }
 
 /**
  * Write the current model availability snapshot to models.json.
  *
- * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
+ * @param {string} [logDir] - Directory to write models.json to
  */
-function writeModelsJson(logDir = MODELS_LOG_DIR) {
-  const filePath = path.join(logDir, 'models.json');
-  try {
-    fs.mkdirSync(logDir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(), null, 2) + '\n', 'utf8');
-    logRequest('info', 'models_json_written', { path: filePath });
-  } catch (err) {
-    logRequest('warn', 'models_json_write_failed', {
-      message: 'Failed to write models.json',
-      logDir, path: filePath,
-      error: err instanceof Error ? (err.stack || err.message) : String(err),
-    });
-  }
+function writeModelsJson(logDir) {
+  return _writeModelsJson(registeredAdapters, cachedModels, MODEL_ALIASES, logDir);
 }
 
 // ── Startup: key validation ────────────────────────────────────────────────────
@@ -701,7 +216,7 @@ async function probeProvider(provider, url, opts, timeoutMs) {
       keyValidationResults[provider] = { status: 'valid', message: `HTTP ${status}` };
       logRequest('info', 'key_validation', { provider, status: 'valid', httpStatus: status });
     } else if (status === 401 || status === 403) {
-      keyValidationResults[provider] = { status: 'auth_rejected', message: `HTTP ${status} — token expired or invalid` };
+      keyValidationResults[provider] = { status: 'auth_rejected', message: `HTTP ${status} \u2014 token expired or invalid` };
       logRequest('warn', 'key_validation', { provider, status: 'auth_rejected', httpStatus: status });
     } else if (status === 400) {
       // 400 for Anthropic means key is valid but request body was bad — expected
@@ -717,141 +232,6 @@ async function probeProvider(provider, url, opts, timeoutMs) {
     logRequest('warn', 'key_validation', { provider, status: 'network_error', error: message });
   }
 }
-
-/**
- * Make an HTTPS request through the proxy and return the HTTP status code.
- *
- * @param {string} url
- * @param {{ method: string, headers: Record<string,string>, body?: string }} opts
- * @param {number} timeoutMs
- * @returns {Promise<number>}
- */
-function httpProbe(url, opts, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const isHttps = parsed.protocol === 'https:';
-    const mod = isHttps ? https : http;
-    const reqOpts = {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: opts.method,
-      headers: { ...opts.headers },
-      ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
-      timeout: timeoutMs,
-    };
-
-    let settled = false;
-    const resolveOnce = (statusCode) => { if (settled) return; settled = true; resolve(statusCode); };
-    const rejectOnce = (err) => { if (settled) return; settled = true; reject(err); };
-
-    const req = mod.request(reqOpts, (res) => {
-      res.resume();
-      res.on('end', () => resolveOnce(res.statusCode));
-      res.on('error', rejectOnce);
-      res.on('close', () => resolveOnce(res.statusCode));
-    });
-
-    req.on('timeout', () => { req.destroy(new Error(`Probe timed out after ${timeoutMs}ms`)); });
-    req.on('error', rejectOnce);
-
-    if (opts.body) req.write(opts.body);
-    req.end();
-  });
-}
-
-/**
- * Make an HTTPS/HTTP request through the proxy and return parsed JSON response.
- * Returns null on any error, non-2xx status, or parse failure.
- *
- * @param {string} url
- * @param {{ method: string, headers: Record<string,string> }} opts
- * @param {number} timeoutMs
- * @returns {Promise<object|null>}
- */
-function fetchJson(url, opts, timeoutMs) {
-  return new Promise((resolve) => {
-    let parsed;
-    try { parsed = new URL(url); } catch { resolve(null); return; }
-
-    const isHttps = parsed.protocol === 'https:';
-    const mod = isHttps ? https : http;
-    const reqOpts = {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: opts.method,
-      headers: { ...opts.headers },
-      ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
-      timeout: timeoutMs,
-    };
-
-    let settled = false;
-    const resolveOnce = (value) => { if (settled) return; settled = true; resolve(value); };
-
-    const req = mod.request(reqOpts, (res) => {
-      if (res.statusCode < 200 || res.statusCode >= 300) { res.resume(); resolveOnce(null); return; }
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        try { resolveOnce(JSON.parse(Buffer.concat(chunks).toString())); } catch { resolveOnce(null); }
-      });
-      res.on('error', (err) => {
-        logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
-        resolveOnce(null);
-      });
-      res.on('close', () => resolveOnce(null));
-    });
-
-    req.on('timeout', () => {
-      const err = new Error(`fetchJson timed out after ${timeoutMs}ms`);
-      logRequest('debug', 'fetch_json_timeout', { url: sanitizeForLog(url), timeout_ms: timeoutMs });
-      req.destroy(err);
-    });
-    req.on('error', (err) => {
-      logRequest('debug', 'fetch_json_error', { url: sanitizeForLog(url), error: String(err && err.message ? err.message : err) });
-      resolveOnce(null);
-    });
-    req.end();
-  });
-}
-
-/**
- * Extract model IDs from a provider API response.
- * Handles:
- *   - OpenAI / Anthropic / Copilot: { data: [{ id }, ...] }
- *   - Gemini: { models: [{ name: "models/gemini-..." }, ...] }
- *
- * @param {object|null} json
- * @returns {string[]|null}
- */
-const GEMINI_MODEL_NAME_PREFIX = 'models/';
-
-function extractModelIds(json) {
-  if (!json || typeof json !== 'object') return null;
-
-  if (Array.isArray(json.data)) {
-    const ids = json.data.map((m) => m && (m.id || m.name)).filter(Boolean);
-    return ids.length > 0 ? ids.sort() : null;
-  }
-
-  if (Array.isArray(json.models)) {
-    const ids = json.models
-      .map((m) => m && m.name && m.name.startsWith(GEMINI_MODEL_NAME_PREFIX)
-        ? m.name.slice(GEMINI_MODEL_NAME_PREFIX.length)
-        : (m && m.name) || null)
-      .filter(Boolean);
-    return ids.length > 0 ? ids.sort() : null;
-  }
-
-  return null;
-}
-
-// ── Adapter-based validation & model fetching ─────────────────────────────────
-//
-// When adapters array is provided (production), iterate over adapter probes.
-// When an overrides object is provided (tests), use the legacy inline logic.
-// The duck-type check (Array.isArray) keeps backward compat with existing tests.
 
 /**
  * Validate configured API keys by probing each provider's endpoint.
@@ -1001,7 +381,7 @@ function _summarizeValidationFailures(mode) {
     for (const [provider, result] of failures) {
       logRequest('error', 'key_validation_failed', {
         provider,
-        message: `${provider.toUpperCase()} API key validation failed — ${result.message}. Rotate the secret and re-run.`,
+        message: `${provider.toUpperCase()} API key validation failed \u2014 ${result.message}. Rotate the secret and re-run.`,
       });
     }
     if (mode === 'strict') {
@@ -1252,7 +632,7 @@ if (require.main === module) {
 
 // ── Exports (for testing) ─────────────────────────────────────────────────────
 module.exports = {
-  // Core proxy
+  // Core proxy (re-exported from proxy-request.js)
   proxyRequest,
   proxyWebSocket,
   // Utility re-exports (proxy-utils)
@@ -1269,12 +649,12 @@ module.exports = {
   resetKeyValidationState,
   cachedModels,
   resetModelCacheState,
-  // Model utils
+  // Model utils (re-exported from model-discovery.js)
   extractModelIds,
   fetchJson,
   makeModelBodyTransform,
   MODEL_ALIASES,
-  // Management
+  // Management (re-exported from management.js via factory)
   reflectEndpoints,
   healthResponse,
   buildModelsJson,
