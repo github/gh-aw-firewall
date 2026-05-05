@@ -77,10 +77,14 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
     EXCLUDED_ENV_VARS.add('CODEX_API_KEY');
     EXCLUDED_ENV_VARS.add('ANTHROPIC_API_KEY');
     EXCLUDED_ENV_VARS.add('CLAUDE_API_KEY');
+    EXCLUDED_ENV_VARS.add('COPILOT_GITHUB_TOKEN');
+    EXCLUDED_ENV_VARS.add('COPILOT_API_KEY');
+    EXCLUDED_ENV_VARS.add('COPILOT_PROVIDER_API_KEY');
     EXCLUDED_ENV_VARS.add('GEMINI_API_KEY');
     EXCLUDED_ENV_VARS.add('GOOGLE_GEMINI_BASE_URL');
     EXCLUDED_ENV_VARS.add('GEMINI_API_BASE_URL');
-    // COPILOT_GITHUB_TOKEN and COPILOT_API_KEY get placeholders (not excluded), protected by one-shot-token
+    // Copilot credential vars are excluded from inherited env passthrough. When needed for
+    // compatibility, placeholder values are set explicitly below and protected by one-shot-token.
     // GITHUB_API_URL is intentionally NOT excluded: the Copilot CLI needs it to know the
     // GitHub API base URL. Copilot-specific API calls (inference and token exchange) go
     // through COPILOT_API_URL → api-proxy regardless of GITHUB_API_URL being set.

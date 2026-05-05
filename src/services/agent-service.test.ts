@@ -202,6 +202,39 @@ describe('agent service', () => {
       delete process.env.COPILOT_API_KEY;
     });
 
+    it('should not forward COPILOT_PROVIDER_API_KEY to agent from --env-all when api-proxy is enabled', () => {
+      const providerApiKey = 'sk-real-provider-key';
+      process.env.COPILOT_PROVIDER_API_KEY = providerApiKey;
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_PROVIDER_API_KEY).toBeUndefined();
+      delete process.env.COPILOT_PROVIDER_API_KEY;
+    });
+
+    it('should keep COPILOT_PROVIDER_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
+      const providerApiKey = 'sk-real-provider-key';
+      const copilotApiKey = 'cpat-config-byok-key';
+      process.env.COPILOT_PROVIDER_API_KEY = providerApiKey;
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      delete process.env.COPILOT_PROVIDER_API_KEY;
+    });
+
+    it('should keep COPILOT_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
+      process.env.COPILOT_API_KEY = 'cpat-host-value';
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey: 'cpat-config-byok-key' };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      delete process.env.COPILOT_API_KEY;
+    });
+
     it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
       process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
