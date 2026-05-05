@@ -2821,10 +2821,27 @@ describe('proxyRequest X-Initiator injection', () => {
     return { getCaptured: () => capturedOptions };
   }
 
-  it('injects x-initiator: agent when absent on copilot requests', () => {
+  it('injects x-initiator: agent when absent on direct copilot requests', () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();
     proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('injects x-initiator: agent when absent on enterprise githubcopilot.com target', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.enterprise.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('agent');
+  });
+
+  it('injects x-initiator: agent when OpenCode routes to Copilot backend', () => {
+    // OpenCode delegates to Copilot; provider name is "opencode" but target host is Copilot.
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'opencode');
     req.emit('end');
     expect(getCaptured().headers['x-initiator']).toBe('agent');
   });
@@ -2837,10 +2854,27 @@ describe('proxyRequest X-Initiator injection', () => {
     expect(getCaptured().headers['x-initiator']).toBe('user');
   });
 
-  it('does not inject x-initiator for non-copilot providers', () => {
+  it('preserves a client-supplied x-initiator value on OpenCode→Copilot requests', () => {
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq({ 'x-initiator': 'user' });
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'opencode');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBe('user');
+  });
+
+  it('does not inject x-initiator for non-copilot provider targets', () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();
     proxyRequest(req, makeRes(), 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+    expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+
+  it('does not inject x-initiator when OpenCode routes to non-Copilot backend', () => {
+    // OpenCode routing to OpenAI — no Copilot billing header should be injected.
+    const { getCaptured } = mockHttpsRequest();
+    const req = makeReq();
+    proxyRequest(req, makeRes(), 'api.openai.com', { 'Authorization': 'Bearer sk-test' }, 'opencode');
     req.emit('end');
     expect(getCaptured().headers['x-initiator']).toBeUndefined();
   });

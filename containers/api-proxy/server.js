@@ -320,10 +320,12 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
-    // Default X-Initiator to "agent" for billing purposes on Copilot requests.
+    // Default X-Initiator to "agent" for billing purposes on Copilot-bound requests.
     // In agentic workflows, the vast majority of requests are agent-initiated.
     // If the client already set it (e.g. standard Copilot CLI), respect that value.
-    if (provider === 'copilot' && !headers['x-initiator']) {
+    // Check is on targetHost rather than provider name so that OpenCode requests
+    // routed to the Copilot backend also receive the header.
+    if (targetHost.endsWith('githubcopilot.com') && !headers['x-initiator']) {
       headers['x-initiator'] = 'agent';
     }
 
