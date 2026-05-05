@@ -61,8 +61,10 @@ function _resetIpv6State(): void {
   ipv6DisabledViaSysctl = false;
 }
 
-// Exposed for testing only — not part of public API
-export const __testing = { _resetIpv6State };
+/**
+ * @internal Exported for testing.
+ */
+export const __testing = Object.freeze({ _resetIpv6State });
 
 /**
  * Gets the bridge interface name for the firewall network
