@@ -379,11 +379,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
 
-      if (proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
+      if (proxyRes.statusCode === 400 || proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
         logRequest('warn', 'upstream_auth_error', {
           request_id: requestId, provider, status: proxyRes.statusCode,
           upstream_host: targetHost, path: sanitizeForLog(req.url),
-          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and has not expired`,
+          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and correctly formatted`,
         });
       }
 

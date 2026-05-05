@@ -8,7 +8,7 @@ import { ParsedLogEntry, OutputFormat, EnhancedLogEntry } from '../types';
 /**
  * Options for log formatting
  */
-export interface LogFormatterOptions {
+interface LogFormatterOptions {
   /** Output format */
   format: OutputFormat;
   /** Whether to colorize output (for pretty format). Defaults to true if stdout is TTY */

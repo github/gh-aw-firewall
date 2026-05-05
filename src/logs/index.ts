@@ -3,7 +3,7 @@
  */
 
 export { parseLogLine, extractDomain, extractPort } from './log-parser';
-export { LogFormatter, LogFormatterOptions } from './log-formatter';
+export { LogFormatter } from './log-formatter';
 export {
   discoverLogSources,
   selectMostRecent,
@@ -11,7 +11,7 @@ export {
   validateSource,
   listLogSources,
 } from './log-discovery';
-export { streamLogs, StreamOptions } from './log-streamer';
+export { streamLogs } from './log-streamer';
 export {
   aggregateLogs,
   loadAllLogs,

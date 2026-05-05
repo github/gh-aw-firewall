@@ -8,7 +8,7 @@ import {
 /**
  * Result of validating API proxy configuration
  */
-export interface ApiProxyValidationResult {
+interface ApiProxyValidationResult {
   /** Whether the API proxy should be enabled */
   enabled: boolean;
   /** Warning messages to display */
