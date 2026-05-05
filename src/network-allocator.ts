@@ -35,9 +35,9 @@ export async function getExistingDockerSubnets(): Promise<string[]> {
 /**
  * Generates a random subnet in Docker's private IP range that doesn't conflict with existing networks
  * Uses 172.16-31.x.0/24 range (Docker's default bridge network range)
+ * @internal
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function _generateRandomSubnet(): Promise<{ subnet: string; squidIp: string; agentIp: string }> {
+export async function generateRandomSubnet(): Promise<{ subnet: string; squidIp: string; agentIp: string }> {
   const existingSubnets = await getExistingDockerSubnets();
   const MAX_RETRIES = 50;
 
