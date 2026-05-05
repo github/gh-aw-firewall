@@ -62,6 +62,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // stripping here prevents a scheme-prefixed hostname from reaching the
       // container at all (belt-and-suspenders for gh-aw#25137).
       ...(config.copilotApiTarget && { COPILOT_API_TARGET: stripScheme(config.copilotApiTarget) }),
+      ...(config.copilotApiBasePath && { COPILOT_API_BASE_PATH: config.copilotApiBasePath }),
       ...(config.openaiApiTarget && { OPENAI_API_TARGET: stripScheme(config.openaiApiTarget) }),
       ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
       ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: stripScheme(config.anthropicApiTarget) }),

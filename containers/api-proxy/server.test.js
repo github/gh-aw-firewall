@@ -1048,6 +1048,19 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Copilot-Integration-Id']).toBe('my-custom-integration');
   });
+
+  it('uses COPILOT_API_BASE_PATH when configured', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_API_KEY: 'sk-or-v1-abc123',
+      COPILOT_API_BASE_PATH: '/api/v1/',
+    });
+    expect(adapter.getBasePath()).toBe('/api/v1');
+  });
+
+  it('defaults to empty base path when COPILOT_API_BASE_PATH is not set', () => {
+    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+    expect(adapter.getBasePath()).toBe('');
+  });
 });
 
 describe('resolveOpenCodeRoute', () => {

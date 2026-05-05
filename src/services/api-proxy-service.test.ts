@@ -664,6 +664,27 @@ describe('API proxy sidecar', () => {
         expect(env.COPILOT_API_TARGET).toBeUndefined();
       });
 
+      it('should set COPILOT_API_BASE_PATH in api-proxy when copilotApiBasePath is provided', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotApiKey: 'cpat_test_byok_key',
+          copilotApiBasePath: '/api/v1',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_API_BASE_PATH).toBe('/api/v1');
+      });
+
+      it('should not set COPILOT_API_BASE_PATH in api-proxy when copilotApiBasePath is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_API_BASE_PATH).toBeUndefined();
+      });
+
       it('should pass COPILOT_API_KEY to api-proxy env when copilotApiKey is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

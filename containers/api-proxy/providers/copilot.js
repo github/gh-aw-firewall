@@ -7,14 +7,14 @@
  * Auth: Bearer token (COPILOT_GITHUB_TOKEN or COPILOT_API_KEY)
  * Credentials: COPILOT_GITHUB_TOKEN (GitHub OAuth, higher trust) or COPILOT_API_KEY (BYOK)
  * Target: COPILOT_API_TARGET  (auto-derived from GITHUB_SERVER_URL if not set)
- * Base path: none (Copilot inference API manages its own path layout)
+ * Base path: optional `COPILOT_API_BASE_PATH` for prefixed BYOK routers
  *
  * Special routing: GET /models (and /models/*) always uses COPILOT_GITHUB_TOKEN
  * regardless of which auth mode is active, because the /models endpoint only
  * accepts OAuth tokens, not API keys.
  */
 
-const { normalizeApiTarget } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
@@ -150,6 +150,7 @@ function createCopilotAdapter(env, deps = {}) {
   const authToken = resolveCopilotAuthToken(env);
   const integrationId = env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
   const rawTarget = deriveCopilotApiTarget(env);
+  const basePath = normalizeBasePath(env.COPILOT_API_BASE_PATH);
 
   const bodyTransform = deps.bodyTransform || null;
 
@@ -172,7 +173,7 @@ function createCopilotAdapter(env, deps = {}) {
 
     isEnabled() { return !!authToken; },
     getTargetHost() { return rawTarget; },
-    getBasePath() { return ''; },
+    getBasePath() { return basePath; },
 
     /**
      * Build Copilot auth headers for this request.
@@ -290,6 +291,7 @@ function createCopilotAdapter(env, deps = {}) {
     _apiKey: apiKey,
     _integrationId: integrationId,
     _rawTarget: rawTarget,
+    _basePath: basePath,
   };
 }
 

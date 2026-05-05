@@ -751,6 +751,22 @@ export interface WrapperConfig {
   copilotApiTarget?: string;
 
   /**
+   * Base path prefix for GitHub Copilot API requests (used by API proxy sidecar)
+   *
+   * When set, this path is prepended to upstream Copilot requests. This enables
+   * BYOK providers that expose Copilot-compatible APIs behind a prefixed endpoint
+   * (for example, `https://router.example.com/api/v1`).
+   *
+   * Can be set via:
+   * - Environment variable: `COPILOT_API_BASE_PATH`
+   * - Auto-derived from `COPILOT_PROVIDER_BASE_URL` path when present
+   *
+   * @default ''
+   * @example '/api/v1'
+   */
+  copilotApiBasePath?: string;
+
+  /**
    * Target hostname for OpenAI API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar

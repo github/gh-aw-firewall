@@ -5,6 +5,8 @@ import {
   handlePredownloadAction,
   resolveCopilotApiKey,
   deriveCopilotApiTargetFromProviderBaseUrl,
+  deriveCopilotApiBasePathFromProviderBaseUrl,
+  resolveCopilotApiRouting,
 } from './cli';
 import { redactSecrets } from './redact-secrets';
 
@@ -253,6 +255,25 @@ describe('cli', () => {
       expect(deriveCopilotApiTargetFromProviderBaseUrl('   ')).toBeUndefined();
       expect(deriveCopilotApiTargetFromProviderBaseUrl(undefined)).toBeUndefined();
       expect(deriveCopilotApiTargetFromProviderBaseUrl('not a valid url')).toBeUndefined();
+    });
+
+    it('derives copilot base path from COPILOT_PROVIDER_BASE_URL', () => {
+      expect(deriveCopilotApiBasePathFromProviderBaseUrl('https://openrouter.ai/api/v1')).toBe('/api/v1');
+      expect(deriveCopilotApiBasePathFromProviderBaseUrl('openrouter.ai/api/v1/')).toBe('/api/v1');
+      expect(deriveCopilotApiBasePathFromProviderBaseUrl('https://openrouter.ai')).toBeUndefined();
+      expect(deriveCopilotApiBasePathFromProviderBaseUrl('   ')).toBeUndefined();
+      expect(deriveCopilotApiBasePathFromProviderBaseUrl(undefined)).toBeUndefined();
+    });
+
+    it('resolves provider-derived Copilot routing for allowlist/config wiring', () => {
+      const resolved = resolveCopilotApiRouting(
+        { copilotApiTarget: undefined },
+        { COPILOT_PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1' }
+      );
+      expect(resolved).toEqual({
+        copilotApiTarget: 'openrouter.ai',
+        copilotApiBasePath: '/api/v1',
+      });
     });
   });
 
