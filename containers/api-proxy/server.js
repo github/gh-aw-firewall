@@ -325,7 +325,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     // If the client already set it (e.g. standard Copilot CLI), respect that value.
     // Check is on targetHost rather than provider name so that OpenCode requests
     // routed to the Copilot backend also receive the header.
-    if (targetHost.endsWith('githubcopilot.com') && !headers['x-initiator']) {
+    const isCopilotHost =
+      targetHost === 'githubcopilot.com' ||
+      targetHost.endsWith('.githubcopilot.com');
+    if (isCopilotHost && !headers['x-initiator']) {
       headers['x-initiator'] = 'agent';
     }
 
