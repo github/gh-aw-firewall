@@ -404,13 +404,23 @@ unset_sensitive_tokens() {
 run_agent_with_token_protection() {
   # Setup signal handler to forward signals to agent process and perform cleanup
   cleanup_and_exit() {
+    SIGNAL="$1"
+    EXIT_CODE=143
+    if [ "$SIGNAL" = "INT" ]; then
+      EXIT_CODE=130  # Standard exit code for SIGINT
+    fi
+
+    trap - TERM INT
+
     if [ -n "$AGENT_PID" ]; then
-      kill -TERM "$AGENT_PID" 2>/dev/null || true
+      kill "-$SIGNAL" "$AGENT_PID" 2>/dev/null || true
       wait "$AGENT_PID" 2>/dev/null || true
     fi
-    exit 143  # Standard exit code for SIGTERM
+
+    exit "$EXIT_CODE"
   }
-  trap cleanup_and_exit TERM INT
+  trap 'cleanup_and_exit TERM' TERM
+  trap 'cleanup_and_exit INT' INT
 
   # SECURITY: Run agent command in background, then unset tokens from parent shell
   # This prevents tokens from being accessible via /proc/1/environ after agent starts
