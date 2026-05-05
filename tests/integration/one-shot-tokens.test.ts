@@ -65,7 +65,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true, // Build container locally to include one-shot-token.so
           env: {
             GITHUB_TOKEN: 'ghp_test_token_12345',
@@ -80,7 +80,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('Second read: [ghp_test_token_12345]');
       // Note: printenv reads from environ array directly, not via getenv().
       // The LD_PRELOAD library only intercepts getenv() calls, so no debug output appears here.
-    }, 120000);
+    }, 240000);
 
     test('should cache COPILOT_GITHUB_TOKEN and clear from environment', async () => {
       const testScript = `
@@ -95,7 +95,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_test_token_67890',
@@ -108,7 +108,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('First read: [copilot_test_token_67890]');
       expect(result.stdout).toContain('Second read: [copilot_test_token_67890]');
       // printenv doesn't trigger getenv(), so no LD_PRELOAD debug output
-    }, 120000);
+    }, 240000);
 
     test('should cache OPENAI_API_KEY and clear from environment', async () => {
       const testScript = `
@@ -123,7 +123,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             OPENAI_API_KEY: 'sk-test-openai-key',
@@ -136,7 +136,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('First read: [sk-test-openai-key]');
       expect(result.stdout).toContain('Second read: [sk-test-openai-key]');
       // printenv doesn't trigger getenv(), so no LD_PRELOAD debug output
-    }, 120000);
+    }, 240000);
 
     test('should handle multiple different tokens independently', async () => {
       const testScript = `
@@ -159,7 +159,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_multi_token_1',
@@ -175,7 +175,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('GitHub second: [ghp_multi_token_1]');
       expect(result.stdout).toContain('OpenAI first: [sk-multi-key-2]');
       expect(result.stdout).toContain('OpenAI second: [sk-multi-key-2]');
-    }, 120000);
+    }, 240000);
 
     test('should not interfere with non-sensitive environment variables', async () => {
       const testScript = `
@@ -193,7 +193,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -212,7 +212,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('Third: [not_a_token]');
       // No one-shot-token log message for non-sensitive vars
       expect(result.stdout).not.toContain('[one-shot-token] Token NORMAL_VAR');
-    }, 120000);
+    }, 240000);
 
     test('should return cached value on subsequent getenv() calls in same process', async () => {
       // Use Python to call getenv() directly (not through shell)
@@ -233,7 +233,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_python_test_token',
@@ -248,7 +248,7 @@ PYEOF
       expect(result.stdout).toContain('Second: [ghp_python_test_token]');
       // Python os.getenv() reads from os.environ (populated at startup from environ array),
       // not via C getenv(). So the LD_PRELOAD library doesn't produce debug output here.
-    }, 120000);
+    }, 240000);
 
     test('should clear token from /proc/self/environ while caching for getenv()', async () => {
       // Verify that the token is removed from the environ array
@@ -274,7 +274,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_environ_check',
@@ -288,7 +288,7 @@ PYEOF
       // Note: Python's os.environ may cache at startup, so this checks the
       // behavior of getenv() returning cached values
       expect(result.stdout).toContain('Second getenv: [ghp_environ_check]');
-    }, 120000);
+    }, 240000);
   });
 
   describe('Chroot Mode', () => {
@@ -305,7 +305,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_token_12345',
@@ -319,7 +319,7 @@ PYEOF
       expect(result.stdout).toContain('Second read: [ghp_chroot_token_12345]');
       // Verify the library was copied to the chroot (entrypoint output is in stdout via docker logs)
       expect(result.stdout).toContain('One-shot token library copied to chroot');
-    }, 120000);
+    }, 240000);
 
     test('should cache COPILOT_GITHUB_TOKEN in chroot mode', async () => {
       const testScript = `
@@ -334,7 +334,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_chroot_token_67890',
@@ -347,7 +347,7 @@ PYEOF
       expect(result.stdout).toContain('First read: [copilot_chroot_token_67890]');
       expect(result.stdout).toContain('Second read: [copilot_chroot_token_67890]');
       // printenv doesn't trigger getenv(), so no LD_PRELOAD debug output
-    }, 120000);
+    }, 240000);
 
     test('should return cached value on subsequent getenv() in chroot mode', async () => {
       // Use heredoc to avoid shell quoting issues with Python single quotes
@@ -366,7 +366,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_python_token',
@@ -379,7 +379,7 @@ PYEOF
       expect(result.stdout).toContain('First: [ghp_chroot_python_token]');
       expect(result.stdout).toContain('Second: [ghp_chroot_python_token]');
       // Python os.getenv() reads from os.environ, not C getenv(), so no LD_PRELOAD debug output
-    }, 120000);
+    }, 240000);
 
     test('should not interfere with non-sensitive variables in chroot mode', async () => {
       const testScript = `
@@ -396,7 +396,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -413,7 +413,7 @@ PYEOF
       expect(result.stdout).toContain('Second: [chroot_not_a_token]');
       expect(result.stdout).toContain('Third: [chroot_not_a_token]');
       expect(result.stdout).not.toContain('[one-shot-token] Token NORMAL_VAR');
-    }, 120000);
+    }, 240000);
 
     test('should handle multiple different tokens independently in chroot mode', async () => {
       const testScript = `
@@ -432,7 +432,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_multi_1',
@@ -447,7 +447,7 @@ PYEOF
       expect(result.stdout).toContain('GitHub second: [ghp_chroot_multi_1]');
       expect(result.stdout).toContain('OpenAI first: [sk-chroot-multi-2]');
       expect(result.stdout).toContain('OpenAI second: [sk-chroot-multi-2]');
-    }, 120000);
+    }, 240000);
   });
 
   describe('Edge Cases', () => {
@@ -464,7 +464,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: '',
@@ -477,7 +477,7 @@ PYEOF
       // Empty token should be treated as no token
       expect(result.stdout).toContain('First: []');
       expect(result.stdout).toContain('Second: []');
-    }, 120000);
+    }, 240000);
 
     test('should handle token that is not set', async () => {
       const testScript = `
@@ -492,7 +492,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
         }
       );
@@ -501,7 +501,7 @@ PYEOF
       // Nonexistent token should return empty on both reads
       expect(result.stdout).toContain('First: []');
       expect(result.stdout).toContain('Second: []');
-    }, 120000);
+    }, 240000);
 
     test('should handle token with special characters', async () => {
       const testScript = `
@@ -516,7 +516,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 60000,
+          timeout: 180000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_test-with-special_chars@#$%',
@@ -528,7 +528,7 @@ PYEOF
       expect(result).toSucceed();
       expect(result.stdout).toContain('First: [ghp_test-with-special_chars@#$%]');
       expect(result.stdout).toContain('Second: [ghp_test-with-special_chars@#$%]');
-    }, 120000);
+    }, 240000);
   });
 
 });

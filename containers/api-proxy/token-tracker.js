@@ -388,9 +388,11 @@ function normalizeUsage(usage) {
  * @param {string} opts.path - Request path
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
+ * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
+ * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -570,6 +572,10 @@ function trackTokenUsage(proxyRes, opts) {
       duration_ms: duration,
       response_bytes: totalBytes,
     };
+
+    // Include billing/quota info when available (Copilot PRU tracking)
+    if (initiatorSent) record.x_initiator = initiatorSent;
+    if (billingInfo) record.billing = billingInfo;
 
     // Write to JSONL log file
     writeTokenUsage(record);

@@ -12,6 +12,7 @@ imports:
   - shared/mcp-pagination.md
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
 tools:
   agentic-workflows:
