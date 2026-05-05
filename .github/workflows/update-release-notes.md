@@ -10,9 +10,8 @@ permissions:
   pull-requests: read
 sandbox:
   agent:
+    id: awf
     version: v0.25.29
-  mcp:
-    version: v0.3.1
 tools:
   github:
     toolsets: [default]
