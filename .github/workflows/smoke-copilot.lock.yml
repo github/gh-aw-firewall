@@ -734,7 +734,7 @@ jobs:
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: |
           set -o pipefail
           touch /tmp/gh-aw/agent-step-summary.md
