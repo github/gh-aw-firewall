@@ -117,7 +117,7 @@ describe('Protocol Support', () => {
   describe('Connection Headers', () => {
     test('should pass custom headers', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS -H "Accept: application/json" https://api.github.com/zen',
+        'curl -fsS -H "Accept: application/vnd.github+json" https://api.github.com/zen',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
