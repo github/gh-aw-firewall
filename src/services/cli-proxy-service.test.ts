@@ -1,10 +1,11 @@
 import { generateDockerCompose } from '../docker-manager';
 import { WrapperConfig } from '../types';
+import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// Create mock functions
+// Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 const mockExecaFn = jest.fn();
 const mockExecaSync = jest.fn();
 
@@ -15,23 +16,7 @@ jest.mock('execa', () => {
   return fn;
 });
 
-const baseConfig: Omit<WrapperConfig, 'workDir'> = {
-  allowedDomains: ['github.com', 'npmjs.org'],
-  agentCommand: 'echo "test"',
-  logLevel: 'info',
-  keepContainers: false,
-  buildLocal: false,
-  imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-  imageTag: 'latest',
-};
-
 let mockConfig: WrapperConfig;
-
-const mockNetworkConfig = {
-  subnet: '172.30.0.0/24',
-  squidIp: '172.30.0.10',
-  agentIp: '172.30.0.20',
-};
 
 describe('CLI proxy sidecar (external DIFC proxy)', () => {
   beforeEach(() => {
