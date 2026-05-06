@@ -10,7 +10,24 @@ const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
 
-const { proxyRequest, proxyWebSocket } = require('./server');
+const originalHttpsProxy = process.env.HTTPS_PROXY;
+let proxyRequest;
+let proxyWebSocket;
+
+beforeAll(() => {
+  delete process.env.HTTPS_PROXY;
+  jest.resetModules();
+  ({ proxyRequest, proxyWebSocket } = require('./server'));
+});
+
+afterAll(() => {
+  if (originalHttpsProxy === undefined) {
+    delete process.env.HTTPS_PROXY;
+  } else {
+    process.env.HTTPS_PROXY = originalHttpsProxy;
+  }
+  jest.resetModules();
+});
 
 // ── Helpers for proxyWebSocket tests ──────────────────────────────────────────
 

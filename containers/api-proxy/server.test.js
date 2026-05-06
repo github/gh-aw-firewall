@@ -12,7 +12,7 @@ const https = require('https');
 const { EventEmitter } = require('events');
 
 // Core proxy functions that remain in server.js
-const { proxyRequest, proxyWebSocket, httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer, extractBillingHeaders } = require('./server');
+const { httpProbe, validateApiKeys, keyValidationResults, resetKeyValidationState, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, healthResponse, cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson, createProviderServer, extractBillingHeaders } = require('./server');
 const { composeBodyTransforms } = require('./proxy-utils');
 const { createCopilotAdapter } = require('./providers/copilot');
 
