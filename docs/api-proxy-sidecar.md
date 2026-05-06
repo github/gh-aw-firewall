@@ -494,10 +494,71 @@ Check Squid logs for denied requests:
 docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 ```
 
+## Azure OpenAI (Entra-only / OIDC authentication)
+
+AWF supports Azure OpenAI deployments that have API keys disabled and use **Entra-only (Azure AD) authentication** via GitHub Actions OIDC workload identity federation.
+
+### How it works
+
+When `AWF_AUTH_TYPE=github-oidc` is set, the api-proxy sidecar:
+1. Requests a GitHub Actions OIDC JWT token from the Actions runtime
+2. Exchanges it for an Azure AD access token via workload identity federation
+3. Injects the resulting Bearer token on every OpenAI request
+
+The token is cached and proactively refreshed before expiry — no manual rotation required.
+
+### Required environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `AWF_AUTH_TYPE` | Set to `github-oidc` to enable OIDC authentication |
+| `AWF_AUTH_AZURE_TENANT_ID` | Azure AD tenant ID |
+| `AWF_AUTH_AZURE_CLIENT_ID` | Azure AD application (client) ID for the federated credential |
+| `ACTIONS_ID_TOKEN_REQUEST_URL` | Provided automatically by the GitHub Actions runtime |
+| `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | Provided automatically by the GitHub Actions runtime |
+
+### Optional environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AWF_AUTH_OIDC_AUDIENCE` | `api://AzureADTokenExchange` | Audience for the GitHub OIDC token |
+| `AWF_AUTH_AZURE_SCOPE` | `https://cognitiveservices.azure.com/.default` | Azure token scope |
+| `AWF_AUTH_AZURE_CLOUD` | `public` | Azure cloud environment (`public`, `usgovernment`, or `china`) |
+
+### GitHub Actions example
+
+```yaml
+jobs:
+  agent:
+    permissions:
+      id-token: write   # required for OIDC token request
+      contents: read
+    steps:
+      - name: Run agent with Azure OpenAI
+        env:
+          AWF_AUTH_TYPE: github-oidc
+          AWF_AUTH_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AWF_AUTH_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          OPENAI_API_TARGET: my-deployment.openai.azure.com
+        run: |
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_AZURE_TENANT_ID,AWF_AUTH_AZURE_CLIENT_ID,OPENAI_API_TARGET \
+            awf --enable-api-proxy \
+                --openai-api-target my-deployment.openai.azure.com \
+                --allow-domains my-deployment.openai.azure.com \
+                -- your-agent-command
+```
+
+:::note
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically; AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc`.
+:::
+
+:::caution
+Azure OpenAI deployments use a different base URL format from OpenAI. Set `--openai-api-target` to your Azure endpoint hostname and add it to `--allow-domains`.
+:::
+
 ## Limitations
 
 - Keys must be set as environment variables (not file-based)
-- No support for Azure OpenAI endpoints (use `--openai-api-target` for custom endpoints)
 - No request/response logging (by design, for security)
 
 ## Related documentation
