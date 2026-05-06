@@ -654,7 +654,7 @@ program
     const maxEffectiveTokens = maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
 
     if (maxEffectiveTokens !== undefined && (!Number.isFinite(maxEffectiveTokens) || maxEffectiveTokens <= 0)) {
-      console.error('Error: Invalid apiProxy.maxEffectiveTokens in --config (must be a positive number)');
+      console.error('Error: Invalid maxEffectiveTokens value (must be a positive number)');
       process.exit(1);
     }
 

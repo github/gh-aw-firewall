@@ -116,6 +116,14 @@ let etGuardState = {
   emittedThresholds: new Set(),
 };
 
+function createEffectiveTokenState(configKey = null) {
+  return {
+    configKey,
+    totalEffectiveTokens: 0,
+    emittedThresholds: new Set(),
+  };
+}
+
 function parseMaxEffectiveTokens(raw) {
   if (raw === undefined || raw === null || String(raw).trim() === '') return null;
   const parsed = Number(raw);
@@ -151,11 +159,7 @@ function getEffectiveTokenState(config) {
   if (!config.max) return null;
   const configKey = `${config.max}|${JSON.stringify(config.multipliers)}`;
   if (etGuardState.configKey !== configKey) {
-    etGuardState = {
-      configKey,
-      totalEffectiveTokens: 0,
-      emittedThresholds: new Set(),
-    };
+    etGuardState = createEffectiveTokenState(configKey);
   }
   return etGuardState;
 }
@@ -199,7 +203,7 @@ function applyEffectiveTokenUsage(normalizedUsage, model) {
     effectiveTokensThisResponse: calc.effectiveTokens,
     modelMultiplier: calc.multiplier,
     crossedThresholds,
-    maxExceeded: state.totalEffectiveTokens > config.max,
+    maxExceeded: state.totalEffectiveTokens >= config.max,
   };
 }
 
@@ -233,10 +237,17 @@ function addEtWarningsToJsonBody(bodyBuffer, usageUpdate) {
 }
 
 function resetEffectiveTokenGuardForTests() {
-  etGuardState = {
-    configKey: null,
-    totalEffectiveTokens: 0,
-    emittedThresholds: new Set(),
+  etGuardState = createEffectiveTokenState();
+}
+
+function buildEffectiveTokenLimitError(etState) {
+  return {
+    error: {
+      type: 'effective_tokens_limit_reached',
+      message: `Maximum effective tokens reached (${etState.totalEffectiveTokens.toFixed(2)} / ${etState.maxEffectiveTokens}).`,
+      total_effective_tokens: etState.totalEffectiveTokens,
+      max_effective_tokens: etState.maxEffectiveTokens,
+    },
   };
 }
 
@@ -459,14 +470,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         max_effective_tokens: etBlock.maxEffectiveTokens,
       });
       res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify({
-        error: {
-          type: 'effective_tokens_limit_reached',
-          message: `Maximum effective tokens reached (${etBlock.totalEffectiveTokens.toFixed(2)} / ${etBlock.maxEffectiveTokens}).`,
-          total_effective_tokens: etBlock.totalEffectiveTokens,
-          max_effective_tokens: etBlock.maxEffectiveTokens,
-        },
-      }));
+      res.end(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
       return;
     }
 
@@ -547,14 +551,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
           if (usageUpdate && usageUpdate.maxExceeded) {
             res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-            res.end(JSON.stringify({
-              error: {
-                type: 'effective_tokens_limit_reached',
-                message: `Maximum effective tokens reached (${usageUpdate.totalEffectiveTokens.toFixed(2)} / ${usageUpdate.maxEffectiveTokens}).`,
-                total_effective_tokens: usageUpdate.totalEffectiveTokens,
-                max_effective_tokens: usageUpdate.maxEffectiveTokens,
-              },
-            }));
+            res.end(JSON.stringify(buildEffectiveTokenLimitError(usageUpdate)));
             return;
           }
 
@@ -653,14 +650,7 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       max_effective_tokens: etBlock.maxEffectiveTokens,
     });
     socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-    socket.write(JSON.stringify({
-      error: {
-        type: 'effective_tokens_limit_reached',
-        message: `Maximum effective tokens reached (${etBlock.totalEffectiveTokens.toFixed(2)} / ${etBlock.maxEffectiveTokens}).`,
-        total_effective_tokens: etBlock.totalEffectiveTokens,
-        max_effective_tokens: etBlock.maxEffectiveTokens,
-      },
-    }));
+    socket.write(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
     socket.destroy();
     return;
   }

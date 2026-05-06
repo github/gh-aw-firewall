@@ -257,16 +257,16 @@ function extractUsageFromJson(body) {
         usage.total_tokens = json.usage.total_tokens;
         hasField = true;
       }
-      if (typeof json.usage.reasoning_tokens === 'number') {
-        usage.reasoning_tokens = json.usage.reasoning_tokens;
-        hasField = true;
-      }
-      if (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number') {
-        usage.reasoning_tokens = json.usage.completion_tokens_details.reasoning_tokens;
-        hasField = true;
-      }
-      if (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number') {
-        usage.reasoning_tokens = json.usage.output_tokens_details.reasoning_tokens;
+      const reasoningTokens =
+        (typeof json.usage.reasoning_tokens === 'number' ? json.usage.reasoning_tokens : undefined) ??
+        (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number'
+          ? json.usage.completion_tokens_details.reasoning_tokens
+          : undefined) ??
+        (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number'
+          ? json.usage.output_tokens_details.reasoning_tokens
+          : undefined);
+      if (typeof reasoningTokens === 'number') {
+        usage.reasoning_tokens = reasoningTokens;
         hasField = true;
       }
       // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
@@ -331,9 +331,16 @@ function extractUsageFromSseLine(line) {
       if (typeof json.usage.prompt_tokens === 'number') result.usage.prompt_tokens = json.usage.prompt_tokens;
       if (typeof json.usage.completion_tokens === 'number') result.usage.completion_tokens = json.usage.completion_tokens;
       if (typeof json.usage.total_tokens === 'number') result.usage.total_tokens = json.usage.total_tokens;
-      if (typeof json.usage.reasoning_tokens === 'number') result.usage.reasoning_tokens = json.usage.reasoning_tokens;
-      if (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number') {
-        result.usage.reasoning_tokens = json.usage.completion_tokens_details.reasoning_tokens;
+      const reasoningTokens =
+        (typeof json.usage.reasoning_tokens === 'number' ? json.usage.reasoning_tokens : undefined) ??
+        (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number'
+          ? json.usage.completion_tokens_details.reasoning_tokens
+          : undefined) ??
+        (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number'
+          ? json.usage.output_tokens_details.reasoning_tokens
+          : undefined);
+      if (typeof reasoningTokens === 'number') {
+        result.usage.reasoning_tokens = reasoningTokens;
       }
       // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
       if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
