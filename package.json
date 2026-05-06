@@ -54,9 +54,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.29.0",
-    "@commitlint/cli": "^20.4.1",
-    "@commitlint/config-conventional": "^20.4.1",
+    "@babel/preset-env": "^7.29.5",
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
     "@eslint/compat": "^2.0.5",
     "@eslint/js": "^10.0.0",
     "@types/glob": "^9.0.0",
