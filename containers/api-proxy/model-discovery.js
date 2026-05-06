@@ -67,7 +67,15 @@ function buildRequest(url, opts, timeoutMs) {
 function fetchJson(url, opts, timeoutMs) {
   return new Promise((resolve) => {
     let mod, reqOpts;
-    try { ({ mod, reqOpts } = buildRequest(url, opts, timeoutMs)); } catch { resolve(null); return; }
+    try {
+      ({ mod, reqOpts } = buildRequest(url, opts, timeoutMs));
+    } catch (err) {
+      if (err && err.code === 'ERR_INVALID_URL') {
+        resolve(null);
+        return;
+      }
+      throw err;
+    }
 
     let settled = false;
     const resolveOnce = (value) => { if (settled) return; settled = true; resolve(value); };
