@@ -28,6 +28,32 @@ const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy'
 
 const GEMINI_MODEL_NAME_PREFIX = 'models/';
 
+// ── buildRequest ──────────────────────────────────────────────────────────────
+/**
+ * Shared HTTP/HTTPS request setup used by fetchJson and httpProbe.
+ * Parses the URL, selects the appropriate module, and builds request options.
+ *
+ * @param {string} url
+ * @param {{ method: string, headers: Record<string,string> }} opts
+ * @param {number} timeoutMs
+ * @returns {{ mod: object, reqOpts: object }}
+ */
+function buildRequest(url, opts, timeoutMs) {
+  const parsed = new URL(url);
+  const isHttps = parsed.protocol === 'https:';
+  const mod = isHttps ? https : http;
+  const reqOpts = {
+    hostname: parsed.hostname,
+    port: parsed.port || (isHttps ? 443 : 80),
+    path: parsed.pathname + parsed.search,
+    method: opts.method,
+    headers: { ...opts.headers },
+    ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
+    timeout: timeoutMs,
+  };
+  return { mod, reqOpts };
+}
+
 // ── fetchJson ─────────────────────────────────────────────────────────────────
 /**
  * Make an HTTPS/HTTP request through the proxy and return parsed JSON response.
@@ -40,20 +66,9 @@ const GEMINI_MODEL_NAME_PREFIX = 'models/';
  */
 function fetchJson(url, opts, timeoutMs) {
   return new Promise((resolve) => {
-    let parsed;
-    try { parsed = new URL(url); } catch { resolve(null); return; }
-
-    const isHttps = parsed.protocol === 'https:';
-    const mod = isHttps ? https : http;
-    const reqOpts = {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: opts.method,
-      headers: { ...opts.headers },
-      ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
-      timeout: timeoutMs,
-    };
+    let built;
+    try { built = buildRequest(url, opts, timeoutMs); } catch { resolve(null); return; }
+    const { mod, reqOpts } = built;
 
     let settled = false;
     const resolveOnce = (value) => { if (settled) return; settled = true; resolve(value); };
@@ -96,18 +111,7 @@ function fetchJson(url, opts, timeoutMs) {
  */
 function httpProbe(url, opts, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const isHttps = parsed.protocol === 'https:';
-    const mod = isHttps ? https : http;
-    const reqOpts = {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: opts.method,
-      headers: { ...opts.headers },
-      ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
-      timeout: timeoutMs,
-    };
+    const { mod, reqOpts } = buildRequest(url, opts, timeoutMs);
 
     let settled = false;
     const resolveOnce = (statusCode) => { if (settled) return; settled = true; resolve(statusCode); };
