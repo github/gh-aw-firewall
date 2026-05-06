@@ -66,9 +66,8 @@ function buildRequest(url, opts, timeoutMs) {
  */
 function fetchJson(url, opts, timeoutMs) {
   return new Promise((resolve) => {
-    let built;
-    try { built = buildRequest(url, opts, timeoutMs); } catch { resolve(null); return; }
-    const { mod, reqOpts } = built;
+    let mod, reqOpts;
+    try { ({ mod, reqOpts } = buildRequest(url, opts, timeoutMs)); } catch { resolve(null); return; }
 
     let settled = false;
     const resolveOnce = (value) => { if (settled) return; settled = true; resolve(value); };
