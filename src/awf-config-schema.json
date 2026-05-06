@@ -67,6 +67,19 @@
           ],
           "description": "TTL for Anthropic cache tail optimization. Only applies when anthropicAutoCache is enabled. Allowed values: \"5m\" or \"1h\"."
         },
+        "maxEffectiveTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects additional requests."
+        },
+        "modelMultipliers": {
+          "type": "object",
+          "description": "Per-model multipliers used for effective token accounting. Keys are model names and values are positive multipliers.",
+          "additionalProperties": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
         "targets": {
           "type": "object",
           "description": "Override upstream API endpoints for each provider.",

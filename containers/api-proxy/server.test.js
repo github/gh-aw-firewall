@@ -9,6 +9,7 @@ const { EventEmitter } = require('events');
 
 // Functions that live in proxy-utils.js
 const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, shouldStripHeader, stripGeminiKeyParam, composeBodyTransforms } = require('./proxy-utils');
+const { resetEffectiveTokenGuardForTests } = require('./proxy-request');
 
 // Provider-specific functions that live in their respective adapter modules
 const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath, resolveCopilotAuthToken, stripBearerPrefix, createCopilotAdapter } = require('./providers/copilot');
@@ -2679,6 +2680,105 @@ describe('createProviderServer', () => {
 
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error');
     expect(authErrLog).toBeUndefined();
+  });
+
+  describe('effective token guard', () => {
+    const savedEnv = {};
+
+    beforeEach(() => {
+      savedEnv.AWF_MAX_EFFECTIVE_TOKENS = process.env.AWF_MAX_EFFECTIVE_TOKENS;
+      savedEnv.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+      resetEffectiveTokenGuardForTests();
+    });
+
+    afterEach(() => {
+      if (savedEnv.AWF_MAX_EFFECTIVE_TOKENS !== undefined) {
+        process.env.AWF_MAX_EFFECTIVE_TOKENS = savedEnv.AWF_MAX_EFFECTIVE_TOKENS;
+      } else {
+        delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+      }
+      if (savedEnv.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS !== undefined) {
+        process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = savedEnv.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+      } else {
+        delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+      }
+      resetEffectiveTokenGuardForTests();
+      jest.restoreAllMocks();
+    });
+
+    function mockHttpsWithJsonUsage(payload) {
+      return jest.spyOn(https, 'request').mockImplementation((options, callback) => {
+        const proxyReq = new EventEmitter();
+        proxyReq.write = jest.fn();
+        proxyReq.end = jest.fn(() => {
+          setImmediate(() => {
+            const proxyRes = new EventEmitter();
+            proxyRes.statusCode = 200;
+            proxyRes.headers = { 'content-type': 'application/json' };
+            proxyRes.pipe = jest.fn();
+            callback(proxyRes);
+            setImmediate(() => {
+              proxyRes.emit('data', Buffer.from(JSON.stringify(payload)));
+              proxyRes.emit('end');
+            });
+          });
+        });
+        proxyReq.destroy = jest.fn();
+        return proxyReq;
+      });
+    }
+
+    it('adds awf_warning to JSON response when usage first crosses 50%', async () => {
+      process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
+      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 1 });
+      mockHttpsWithJsonUsage({
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 60, completion_tokens: 0, total_tokens: 60 },
+      });
+
+      const adapter = {
+        name: 'openai', port: 0, isManagementPort: false, alwaysBind: false,
+        participatesInValidation: false,
+        isEnabled: () => true,
+        getTargetHost: () => 'api.openai.com',
+        getBasePath: () => '',
+        getAuthHeaders: () => ({ Authorization: 'Bearer test' }),
+        getBodyTransform: () => null,
+      };
+      const port = await startAdapter(adapter);
+      const { status, body } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+
+      expect(status).toBe(200);
+      expect(body.awf_warning).toBeDefined();
+      expect(body.awf_warning.type).toBe('effective_tokens_threshold');
+      expect(body.awf_warning.thresholds_crossed).toContain(50);
+    });
+
+    it('returns an error response when effective token maximum is exceeded', async () => {
+      process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
+      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 1 });
+      mockHttpsWithJsonUsage({
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 120, completion_tokens: 0, total_tokens: 120 },
+      });
+
+      const adapter = {
+        name: 'openai', port: 0, isManagementPort: false, alwaysBind: false,
+        participatesInValidation: false,
+        isEnabled: () => true,
+        getTargetHost: () => 'api.openai.com',
+        getBasePath: () => '',
+        getAuthHeaders: () => ({ Authorization: 'Bearer test' }),
+        getBodyTransform: () => null,
+      };
+      const port = await startAdapter(adapter);
+      const { status, body } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+
+      expect(status).toBe(429);
+      expect(body.error.type).toBe('effective_tokens_limit_reached');
+      expect(body.error.max_effective_tokens).toBe(100);
+      expect(body.error.total_effective_tokens).toBeGreaterThan(100);
+    });
   });
 });
 

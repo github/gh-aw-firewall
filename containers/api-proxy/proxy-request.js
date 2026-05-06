@@ -29,12 +29,16 @@ const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
+let extractUsageFromJson;
+let normalizeUsage;
 try {
-  ({ trackTokenUsage, trackWebSocketTokenUsage } = require('./token-tracker'));
+  ({ trackTokenUsage, trackWebSocketTokenUsage, extractUsageFromJson, normalizeUsage } = require('./token-tracker'));
 } catch (err) {
   if (err && err.code === 'MODULE_NOT_FOUND') {
     trackTokenUsage = () => {};
     trackWebSocketTokenUsage = () => {};
+    extractUsageFromJson = () => ({ usage: null, model: null });
+    normalizeUsage = () => null;
   } else {
     throw err;
   }
@@ -98,6 +102,143 @@ function extractBillingHeaders(headers) {
  * Exported so that management endpoints (healthResponse) can read getAllStatus().
  */
 const limiter = rateLimiter.create();
+
+const ET_WARNING_THRESHOLDS = [50, 75, 90, 95];
+const ET_DEFAULT_WEIGHTS = Object.freeze({
+  input: 1.0,
+  cacheRead: 0.1,
+  output: 4.0,
+  reasoning: 4.0,
+});
+let etGuardState = {
+  configKey: null,
+  totalEffectiveTokens: 0,
+  emittedThresholds: new Set(),
+};
+
+function parseMaxEffectiveTokens(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseModelMultipliers(raw) {
+  if (!raw || String(raw).trim() === '') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const result = {};
+    for (const [model, value] of Object.entries(parsed)) {
+      const num = Number(value);
+      if (Number.isFinite(num) && num > 0) {
+        result[model] = num;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function getEffectiveTokenConfig() {
+  const max = parseMaxEffectiveTokens(process.env.AWF_MAX_EFFECTIVE_TOKENS);
+  const multipliers = parseModelMultipliers(process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS);
+  return { max, multipliers };
+}
+
+function getEffectiveTokenState(config) {
+  if (!config.max) return null;
+  const configKey = `${config.max}|${JSON.stringify(config.multipliers)}`;
+  if (etGuardState.configKey !== configKey) {
+    etGuardState = {
+      configKey,
+      totalEffectiveTokens: 0,
+      emittedThresholds: new Set(),
+    };
+  }
+  return etGuardState;
+}
+
+function calculateEffectiveTokens(normalizedUsage, model, config) {
+  const multiplier = config.multipliers[model] ?? 1;
+  const baseWeightedTokens =
+    (ET_DEFAULT_WEIGHTS.input * (normalizedUsage.input_tokens || 0)) +
+    (ET_DEFAULT_WEIGHTS.cacheRead * (normalizedUsage.cache_read_tokens || 0)) +
+    (ET_DEFAULT_WEIGHTS.output * (normalizedUsage.output_tokens || 0)) +
+    (ET_DEFAULT_WEIGHTS.reasoning * (normalizedUsage.reasoning_tokens || 0));
+  return {
+    multiplier,
+    baseWeightedTokens,
+    effectiveTokens: multiplier * baseWeightedTokens,
+  };
+}
+
+function applyEffectiveTokenUsage(normalizedUsage, model) {
+  const config = getEffectiveTokenConfig();
+  const state = getEffectiveTokenState(config);
+  if (!state || !normalizedUsage) return null;
+
+  const previousTotal = state.totalEffectiveTokens;
+  const calc = calculateEffectiveTokens(normalizedUsage, model || 'unknown', config);
+  state.totalEffectiveTokens += calc.effectiveTokens;
+  const percentUsed = (state.totalEffectiveTokens / config.max) * 100;
+
+  const crossedThresholds = [];
+  for (const threshold of ET_WARNING_THRESHOLDS) {
+    if (percentUsed >= threshold && !state.emittedThresholds.has(threshold)) {
+      state.emittedThresholds.add(threshold);
+      crossedThresholds.push(threshold);
+    }
+  }
+
+  return {
+    maxEffectiveTokens: config.max,
+    previousTotalEffectiveTokens: previousTotal,
+    totalEffectiveTokens: state.totalEffectiveTokens,
+    effectiveTokensThisResponse: calc.effectiveTokens,
+    modelMultiplier: calc.multiplier,
+    crossedThresholds,
+    maxExceeded: state.totalEffectiveTokens > config.max,
+  };
+}
+
+function getEffectiveTokenBlockState() {
+  const config = getEffectiveTokenConfig();
+  const state = getEffectiveTokenState(config);
+  if (!state) return null;
+  return {
+    maxEffectiveTokens: config.max,
+    totalEffectiveTokens: state.totalEffectiveTokens,
+    maxExceeded: state.totalEffectiveTokens >= config.max,
+  };
+}
+
+function addEtWarningsToJsonBody(bodyBuffer, usageUpdate) {
+  if (!usageUpdate || usageUpdate.crossedThresholds.length === 0) return bodyBuffer;
+  try {
+    const parsed = JSON.parse(bodyBuffer.toString('utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return bodyBuffer;
+    parsed.awf_warning = {
+      type: 'effective_tokens_threshold',
+      thresholds_crossed: usageUpdate.crossedThresholds,
+      total_effective_tokens: usageUpdate.totalEffectiveTokens,
+      max_effective_tokens: usageUpdate.maxEffectiveTokens,
+      percent_used: Number(((usageUpdate.totalEffectiveTokens / usageUpdate.maxEffectiveTokens) * 100).toFixed(2)),
+    };
+    return Buffer.from(JSON.stringify(parsed));
+  } catch {
+    return bodyBuffer;
+  }
+}
+
+function resetEffectiveTokenGuardForTests() {
+  etGuardState = {
+    configKey: null,
+    totalEffectiveTokens: 0,
+    emittedThresholds: new Set(),
+  };
+}
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
@@ -305,6 +446,30 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       });
     }
 
+    const etBlock = getEffectiveTokenBlockState();
+    if (etBlock && etBlock.maxExceeded) {
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('warn', 'effective_tokens_limit_reached', {
+        request_id: requestId,
+        provider,
+        total_effective_tokens: etBlock.totalEffectiveTokens,
+        max_effective_tokens: etBlock.maxEffectiveTokens,
+      });
+      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify({
+        error: {
+          type: 'effective_tokens_limit_reached',
+          message: `Maximum effective tokens reached (${etBlock.totalEffectiveTokens.toFixed(2)} / ${etBlock.maxEffectiveTokens}).`,
+          total_effective_tokens: etBlock.totalEffectiveTokens,
+          max_effective_tokens: etBlock.maxEffectiveTokens,
+        },
+      }));
+      return;
+    }
+
     const options = {
       hostname: targetHost, port: 443, path: upstreamPath,
       method: req.method, headers,
@@ -360,10 +525,62 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         });
       }
 
-      res.writeHead(proxyRes.statusCode, resHeaders);
-      proxyRes.pipe(res);
+      const contentType = String(proxyRes.headers['content-type'] || '');
+      const contentEncoding = String(proxyRes.headers['content-encoding'] || '').toLowerCase();
+      const canAugmentEtWarnings =
+        proxyRes.statusCode >= 200 &&
+        proxyRes.statusCode < 300 &&
+        contentType.includes('application/json') &&
+        !contentType.includes('text/event-stream') &&
+        (contentEncoding === '' || contentEncoding === 'identity');
 
-      trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent });
+      if (canAugmentEtWarnings) {
+        const responseChunks = [];
+        proxyRes.on('data', (chunk) => {
+          responseChunks.push(chunk);
+        });
+        proxyRes.on('end', () => {
+          let responseBody = Buffer.concat(responseChunks);
+          const usageData = extractUsageFromJson(responseBody);
+          const normalized = normalizeUsage(usageData.usage);
+          const usageUpdate = applyEffectiveTokenUsage(normalized, usageData.model || 'unknown');
+
+          if (usageUpdate && usageUpdate.maxExceeded) {
+            res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+            res.end(JSON.stringify({
+              error: {
+                type: 'effective_tokens_limit_reached',
+                message: `Maximum effective tokens reached (${usageUpdate.totalEffectiveTokens.toFixed(2)} / ${usageUpdate.maxEffectiveTokens}).`,
+                total_effective_tokens: usageUpdate.totalEffectiveTokens,
+                max_effective_tokens: usageUpdate.maxEffectiveTokens,
+              },
+            }));
+            return;
+          }
+
+          responseBody = addEtWarningsToJsonBody(responseBody, usageUpdate);
+          const updatedHeaders = { ...resHeaders, 'content-length': String(responseBody.length) };
+          delete updatedHeaders['transfer-encoding'];
+          res.writeHead(proxyRes.statusCode, updatedHeaders);
+          res.end(responseBody);
+        });
+        trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent });
+      } else {
+        res.writeHead(proxyRes.statusCode, resHeaders);
+        proxyRes.pipe(res);
+        trackTokenUsage(proxyRes, {
+          requestId,
+          provider,
+          path: sanitizeForLog(req.url),
+          startTime,
+          metrics,
+          billingInfo,
+          initiatorSent,
+          onUsage: (normalizedUsage, model) => {
+            applyEffectiveTokenUsage(normalizedUsage, model);
+          },
+        });
+      }
     });
 
     proxyReq.on('error', (err) => {
@@ -426,6 +643,27 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
   }
 
   const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
+
+  const etBlock = getEffectiveTokenBlockState();
+  if (etBlock && etBlock.maxExceeded) {
+    logRequest('warn', 'effective_tokens_limit_reached', {
+      request_id: requestId,
+      provider,
+      total_effective_tokens: etBlock.totalEffectiveTokens,
+      max_effective_tokens: etBlock.maxEffectiveTokens,
+    });
+    socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
+    socket.write(JSON.stringify({
+      error: {
+        type: 'effective_tokens_limit_reached',
+        message: `Maximum effective tokens reached (${etBlock.totalEffectiveTokens.toFixed(2)} / ${etBlock.maxEffectiveTokens}).`,
+        total_effective_tokens: etBlock.totalEffectiveTokens,
+        max_effective_tokens: etBlock.maxEffectiveTokens,
+      },
+    }));
+    socket.destroy();
+    return;
+  }
 
   const rateCheck = limiter.check(provider, 0);
   if (!rateCheck.allowed) {
@@ -530,7 +768,16 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       tlsSocket.pipe(socket);
       socket.pipe(tlsSocket);
 
-      trackWebSocketTokenUsage(tlsSocket, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics });
+      trackWebSocketTokenUsage(tlsSocket, {
+        requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        startTime,
+        metrics,
+        onUsage: (normalizedUsage, model) => {
+          applyEffectiveTokenUsage(normalizedUsage, model);
+        },
+      });
 
       socket.once('close', () => { finalize(false); tlsSocket.destroy(); });
       tlsSocket.once('close', () => { finalize(false); socket.destroy(); });
@@ -552,4 +799,6 @@ module.exports = {
   limiter,
   proxyAgent,
   HTTPS_PROXY,
+  // Exported for tests
+  resetEffectiveTokenGuardForTests,
 };

@@ -16,6 +16,8 @@ export interface AwfFileConfig {
     enableOpenCode?: boolean;
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
+    maxEffectiveTokens?: number;
+    modelMultipliers?: Record<string, number>;
     targets?: {
       openai?: { host?: string; basePath?: string };
       anthropic?: { host?: string; basePath?: string };
@@ -159,6 +161,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     enableOpencode: config.apiProxy?.enableOpenCode,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
+    maxEffectiveTokens: toStringIfDefined(config.apiProxy?.maxEffectiveTokens),
+    effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,

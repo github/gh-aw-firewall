@@ -651,6 +651,22 @@ export interface WrapperConfig {
   rateLimitConfig?: RateLimitConfig;
 
   /**
+   * Maximum total effective tokens allowed for the current AWF run.
+   *
+   * When set, the API proxy tracks effective token usage across requests and
+   * rejects additional requests once this limit is reached.
+   */
+  maxEffectiveTokens?: number;
+
+  /**
+   * Model-specific multipliers used by effective token accounting.
+   *
+   * Keys are model names and values are positive numeric multipliers.
+   * Models not present in this map default to multiplier 1.0.
+   */
+  effectiveTokenModelMultipliers?: Record<string, number>;
+
+  /**
    * OpenAI API key for Codex (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this key is injected into the Node.js sidecar

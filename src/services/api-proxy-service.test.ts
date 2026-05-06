@@ -453,6 +453,24 @@ describe('API proxy sidecar', () => {
         expect(env.AWF_RATE_LIMIT_BYTES_PM).toBeUndefined();
       });
 
+      it('should set effective token guard env vars when configured', () => {
+        const configWithEtGuard = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          maxEffectiveTokens: 5000,
+          effectiveTokenModelMultipliers: {
+            'gpt-4o': 2,
+            'claude-sonnet-4': 1.5,
+          },
+        };
+        const result = generateDockerCompose(configWithEtGuard, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_EFFECTIVE_TOKENS).toBe('5000');
+        expect(env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS).toBe('{"gpt-4o":2,"claude-sonnet-4":1.5}');
+      });
+
       it('should set AWF_ENABLE_OPENCODE=true in api-proxy when enableOpenCode is true', () => {
         const configWithOpenCode = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', enableOpenCode: true };
         const result = generateDockerCompose(configWithOpenCode, mockNetworkConfigWithProxy);

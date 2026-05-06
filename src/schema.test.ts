@@ -61,6 +61,11 @@ describe('awf-config.schema.json', () => {
         enableOpenCode: false,
         anthropicAutoCache: true,
         anthropicCacheTailTtl: '5m',
+        maxEffectiveTokens: 100000,
+        modelMultipliers: {
+          'gpt-4o': 2,
+          'claude-sonnet-4': 1.5,
+        },
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
           anthropic: { host: 'api.anthropic.com', basePath: '/v1' },
@@ -137,6 +142,13 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { anthropicCacheTailTtl: '10m' } })).toBe(false);
     expect(validate({ apiProxy: { anthropicCacheTailTtl: '5m' } })).toBe(true);
     expect(validate({ apiProxy: { anthropicCacheTailTtl: '1h' } })).toBe(true);
+  });
+
+  it('validates effective-token guard apiProxy fields', () => {
+    expect(validate({ apiProxy: { maxEffectiveTokens: 1000 } })).toBe(true);
+    expect(validate({ apiProxy: { maxEffectiveTokens: 0 } })).toBe(false);
+    expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
+    expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
   });
 
   it('rejects invalid logging.logLevel values', () => {

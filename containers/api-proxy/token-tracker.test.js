@@ -308,6 +308,7 @@ describe('normalizeUsage', () => {
       output_tokens: 50,
       cache_read_tokens: 0,
       cache_write_tokens: 0,
+      reasoning_tokens: 0,
     });
   });
 
@@ -323,6 +324,7 @@ describe('normalizeUsage', () => {
       output_tokens: 80,
       cache_read_tokens: 150,
       cache_write_tokens: 10,
+      reasoning_tokens: 0,
     });
   });
 
@@ -341,6 +343,7 @@ describe('normalizeUsage', () => {
       output_tokens: 0,
       cache_read_tokens: 0,
       cache_write_tokens: 0,
+      reasoning_tokens: 0,
     });
   });
 
@@ -367,6 +370,7 @@ describe('normalizeUsage', () => {
       output_tokens: 24,
       cache_read_tokens: 43894,
       cache_write_tokens: 0,
+      reasoning_tokens: 0,
     });
   });
 });

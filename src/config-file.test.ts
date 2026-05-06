@@ -110,6 +110,20 @@ describe('config-file', () => {
       expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be one of: 5m, 1h');
     });
 
+    it('validates effective-token guard fields in apiProxy', () => {
+      expect(validateAwfFileConfig({
+        apiProxy: {
+          maxEffectiveTokens: 5000,
+          modelMultipliers: { 'gpt-4o': 2, 'claude-sonnet-4': 1.5 },
+        },
+      })).toEqual([]);
+
+      expect(validateAwfFileConfig({ apiProxy: { maxEffectiveTokens: 0 } }))
+        .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
+      expect(validateAwfFileConfig({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))
+        .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
+    });
+
     it('rejects non-object apiProxy.targets', () => {
       const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
       expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -553,6 +567,23 @@ describe('config-file', () => {
       });
       expect(result.anthropicAutoCache).toBe(true);
       expect(result.anthropicCacheTailTtl).toBe('1h');
+    });
+
+    it('maps effective-token guard fields', () => {
+      const result = mapAwfFileConfigToCliOptions({
+        apiProxy: {
+          maxEffectiveTokens: 6000,
+          modelMultipliers: {
+            'gpt-4o': 2,
+            'claude-sonnet-4': 1.5,
+          },
+        },
+      });
+      expect(result.maxEffectiveTokens).toBe('6000');
+      expect(result.effectiveTokenModelMultipliers).toEqual({
+        'gpt-4o': 2,
+        'claude-sonnet-4': 1.5,
+      });
     });
 
     it('leaves anthropicAutoCache and anthropicCacheTailTtl undefined when not set', () => {

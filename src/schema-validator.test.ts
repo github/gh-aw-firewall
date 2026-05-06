@@ -59,6 +59,13 @@ describe('schema-validator', () => {
       expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be one of: 5m, 1h');
     });
 
+    it('formats effective-token guard validation errors', () => {
+      expect(validateWithSchema({ apiProxy: { maxEffectiveTokens: 0 } }))
+        .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
+      expect(validateWithSchema({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))
+        .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
+    });
+
     it('formats logLevel enum correctly', () => {
       const errors = validateWithSchema({ logging: { logLevel: 'verbose' } });
       expect(errors).toContain('config.logging.logLevel must be one of: debug, info, warn, error');

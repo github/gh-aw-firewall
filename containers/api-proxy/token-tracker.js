@@ -257,6 +257,18 @@ function extractUsageFromJson(body) {
         usage.total_tokens = json.usage.total_tokens;
         hasField = true;
       }
+      if (typeof json.usage.reasoning_tokens === 'number') {
+        usage.reasoning_tokens = json.usage.reasoning_tokens;
+        hasField = true;
+      }
+      if (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number') {
+        usage.reasoning_tokens = json.usage.completion_tokens_details.reasoning_tokens;
+        hasField = true;
+      }
+      if (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number') {
+        usage.reasoning_tokens = json.usage.output_tokens_details.reasoning_tokens;
+        hasField = true;
+      }
       // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
       if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
         usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
@@ -319,6 +331,10 @@ function extractUsageFromSseLine(line) {
       if (typeof json.usage.prompt_tokens === 'number') result.usage.prompt_tokens = json.usage.prompt_tokens;
       if (typeof json.usage.completion_tokens === 'number') result.usage.completion_tokens = json.usage.completion_tokens;
       if (typeof json.usage.total_tokens === 'number') result.usage.total_tokens = json.usage.total_tokens;
+      if (typeof json.usage.reasoning_tokens === 'number') result.usage.reasoning_tokens = json.usage.reasoning_tokens;
+      if (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number') {
+        result.usage.reasoning_tokens = json.usage.completion_tokens_details.reasoning_tokens;
+      }
       // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
       if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
         result.usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
@@ -367,6 +383,7 @@ function normalizeUsage(usage) {
     output_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
     cache_read_tokens: usage.cache_read_input_tokens ?? 0,
     cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
+    reasoning_tokens: usage.reasoning_tokens ?? 0,
   };
 }
 
@@ -392,7 +409,7 @@ function normalizeUsage(usage) {
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, onUsage } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -548,6 +565,13 @@ function trackTokenUsage(proxyRes, opts) {
 
     const normalized = normalizeUsage(usage);
     if (!normalized) return;
+    if (typeof onUsage === 'function') {
+      try {
+        onUsage(normalized, model || 'unknown');
+      } catch {
+        // best-effort callback
+      }
+    }
 
     // Update metrics
     if (metricsRef) {
@@ -682,7 +706,7 @@ function parseWebSocketFrames(buf) {
  * @param {object} opts.metrics - Metrics module reference
  */
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage } = opts;
 
   logRequest('debug', 'ws_token_track_start', {
     request_id: requestId,
@@ -770,6 +794,13 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     const duration = Date.now() - startTime;
     const normalized = normalizeUsage(streamingUsage);
     if (!normalized) return;
+    if (typeof onUsage === 'function') {
+      try {
+        onUsage(normalized, streamingModel || 'unknown');
+      } catch {
+        // best-effort callback
+      }
+    }
 
     if (metricsRef) {
       metricsRef.increment('input_tokens_total', { provider }, normalized.input_tokens);

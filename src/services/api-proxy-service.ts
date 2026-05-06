@@ -94,6 +94,12 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
         AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
         AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
       }),
+      ...(config.maxEffectiveTokens !== undefined && {
+        AWF_MAX_EFFECTIVE_TOKENS: String(config.maxEffectiveTokens),
+      }),
+      ...(config.effectiveTokenModelMultipliers && {
+        AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
+      }),
       // Model alias configuration
       ...(config.modelAliases && {
         AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
