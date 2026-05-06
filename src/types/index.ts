@@ -18,9 +18,6 @@ export {
 export {
   type SquidConfig,
   type DockerComposeConfig,
-  type DockerService,
-  type DockerNetwork,
-  type DockerVolume,
 } from './docker';
 
 export {
