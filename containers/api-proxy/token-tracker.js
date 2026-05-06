@@ -207,6 +207,24 @@ function createDecompressor(headers) {
 }
 
 /**
+ * Extract reasoning token count from provider usage payloads.
+ *
+ * Supports explicit `reasoning_tokens` and provider-specific nested fields.
+ * Priority order: top-level → completion_tokens_details → output_tokens_details.
+ */
+function extractReasoningTokens(usage) {
+  if (!usage || typeof usage !== 'object') return undefined;
+  if (typeof usage.reasoning_tokens === 'number') return usage.reasoning_tokens;
+  if (usage.completion_tokens_details && typeof usage.completion_tokens_details.reasoning_tokens === 'number') {
+    return usage.completion_tokens_details.reasoning_tokens;
+  }
+  if (usage.output_tokens_details && typeof usage.output_tokens_details.reasoning_tokens === 'number') {
+    return usage.output_tokens_details.reasoning_tokens;
+  }
+  return undefined;
+}
+
+/**
  * Extract token usage from a non-streaming JSON response body.
  *
  * Supports:
@@ -257,14 +275,7 @@ function extractUsageFromJson(body) {
         usage.total_tokens = json.usage.total_tokens;
         hasField = true;
       }
-      const reasoningTokens =
-        (typeof json.usage.reasoning_tokens === 'number' ? json.usage.reasoning_tokens : undefined) ??
-        (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number'
-          ? json.usage.completion_tokens_details.reasoning_tokens
-          : undefined) ??
-        (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number'
-          ? json.usage.output_tokens_details.reasoning_tokens
-          : undefined);
+      const reasoningTokens = extractReasoningTokens(json.usage);
       if (typeof reasoningTokens === 'number') {
         usage.reasoning_tokens = reasoningTokens;
         hasField = true;
@@ -331,14 +342,7 @@ function extractUsageFromSseLine(line) {
       if (typeof json.usage.prompt_tokens === 'number') result.usage.prompt_tokens = json.usage.prompt_tokens;
       if (typeof json.usage.completion_tokens === 'number') result.usage.completion_tokens = json.usage.completion_tokens;
       if (typeof json.usage.total_tokens === 'number') result.usage.total_tokens = json.usage.total_tokens;
-      const reasoningTokens =
-        (typeof json.usage.reasoning_tokens === 'number' ? json.usage.reasoning_tokens : undefined) ??
-        (json.usage.completion_tokens_details && typeof json.usage.completion_tokens_details.reasoning_tokens === 'number'
-          ? json.usage.completion_tokens_details.reasoning_tokens
-          : undefined) ??
-        (json.usage.output_tokens_details && typeof json.usage.output_tokens_details.reasoning_tokens === 'number'
-          ? json.usage.output_tokens_details.reasoning_tokens
-          : undefined);
+      const reasoningTokens = extractReasoningTokens(json.usage);
       if (typeof reasoningTokens === 'number') {
         result.usage.reasoning_tokens = reasoningTokens;
       }

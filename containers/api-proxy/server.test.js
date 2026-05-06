@@ -2754,7 +2754,7 @@ describe('createProviderServer', () => {
       expect(body.awf_warning.thresholds_crossed).toContain(50);
     });
 
-    it('returns an error response when effective token maximum is exceeded', async () => {
+    it('returns an error response on the next request after effective token maximum is exceeded', async () => {
       process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
       process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 1 });
       mockHttpsWithJsonUsage({
@@ -2772,8 +2772,10 @@ describe('createProviderServer', () => {
         getBodyTransform: () => null,
       };
       const port = await startAdapter(adapter);
+      const first = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
       const { status, body } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
 
+      expect(first.status).toBe(200);
       expect(status).toBe(429);
       expect(body.error.type).toBe('effective_tokens_limit_reached');
       expect(body.error.max_effective_tokens).toBe(100);

@@ -161,7 +161,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     enableOpencode: config.apiProxy?.enableOpenCode,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
-    maxEffectiveTokens: toStringIfDefined(config.apiProxy?.maxEffectiveTokens),
+    maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,

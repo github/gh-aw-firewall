@@ -579,7 +579,7 @@ describe('config-file', () => {
           },
         },
       });
-      expect(result.maxEffectiveTokens).toBe('6000');
+      expect(result.maxEffectiveTokens).toBe(6000);
       expect(result.effectiveTokenModelMultipliers).toEqual({
         'gpt-4o': 2,
         'claude-sonnet-4': 1.5,

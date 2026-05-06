@@ -549,12 +549,6 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
           const normalized = normalizeUsage(usageData.usage);
           const usageUpdate = applyEffectiveTokenUsage(normalized, usageData.model || 'unknown');
 
-          if (usageUpdate && usageUpdate.maxExceeded) {
-            res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-            res.end(JSON.stringify(buildEffectiveTokenLimitError(usageUpdate)));
-            return;
-          }
-
           responseBody = addEtWarningsToJsonBody(responseBody, usageUpdate);
           const updatedHeaders = { ...resHeaders, 'content-length': String(responseBody.length) };
           delete updatedHeaders['transfer-encoding'];

@@ -648,7 +648,7 @@ program
     // Model aliases may be injected via config file (not a Commander option),
     // so access through a Record cast with a proper type annotation.
     const modelAliases = (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined;
-    const maxEffectiveTokensOption = (options as Record<string, unknown>).maxEffectiveTokens as string | undefined;
+    const maxEffectiveTokensOption = (options as Record<string, unknown>).maxEffectiveTokens as string | number | undefined;
     const effectiveTokenModelMultipliers =
       (options as Record<string, unknown>).effectiveTokenModelMultipliers as Record<string, number> | undefined;
     const maxEffectiveTokens = maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
