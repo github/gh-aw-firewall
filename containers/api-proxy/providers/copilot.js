@@ -237,15 +237,39 @@ function createCopilotAdapter(env, deps = {}) {
     },
 
     getModelsFetchConfig() {
-      // Only COPILOT_GITHUB_TOKEN is accepted by the /models endpoint
-      if (!githubToken) return null;
+      if (!authToken) return null;
+
+      // Standard Copilot API (api.githubcopilot.com):
+      // The /models endpoint only accepts GitHub OAuth tokens (COPILOT_GITHUB_TOKEN).
+      // Skip startup model fetch when only a BYOK API key is configured.
+      if (rawTarget === 'api.githubcopilot.com') {
+        if (!githubToken) return null;
+        return {
+          url: `https://${rawTarget}/models`,
+          opts: {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${githubToken}`,
+              'Copilot-Integration-Id': integrationId,
+            },
+          },
+          cacheKey: 'copilot',
+        };
+      }
+
+      // BYOK / custom provider (e.g. OpenRouter):
+      // Fetch models using the BYOK auth token so that arbitrary model names
+      // (e.g. "minimax/minimax-m2.5:free") are cached and visible in the reflect
+      // response. The base path from COPILOT_API_BASE_PATH is included so that
+      // COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1 fetches from
+      // https://openrouter.ai/api/v1/models rather than https://openrouter.ai/models.
+      const modelsPath = basePath ? `${basePath}/models` : '/models';
       return {
-        url: `https://${rawTarget}/models`,
+        url: `https://${rawTarget}${modelsPath}`,
         opts: {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
-            'Copilot-Integration-Id': integrationId,
+            'Authorization': `Bearer ${authToken}`,
           },
         },
         cacheKey: 'copilot',
@@ -253,13 +277,17 @@ function createCopilotAdapter(env, deps = {}) {
     },
 
     getReflectionInfo() {
+      // For BYOK / custom providers, include the base path in the models URL so
+      // that clients (e.g. the gh-aw framework) use the correct endpoint to
+      // discover available models (e.g. /api/v1/models for OpenRouter).
+      const modelsPath = basePath ? `${basePath}/models` : '/models';
       return {
         provider: 'copilot',
         port: 10002,
         base_url: 'http://api-proxy:10002',
         configured: !!authToken,
         models_cache_key: 'copilot',
-        models_url: 'http://api-proxy:10002/models',
+        models_url: `http://api-proxy:10002${modelsPath}`,
       };
     },
 
