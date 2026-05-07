@@ -7,7 +7,8 @@ import * as os from 'os';
 // Create mock functions
 
 // Mock execa module
-import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
+import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 describe('docker-manager lifecycle', () => {

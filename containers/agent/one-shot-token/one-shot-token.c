@@ -338,7 +338,15 @@ static char *cache_and_unset_token(int token_idx, const char *name, char *result
         /* Cache the value so subsequent reads succeed after unsetenv */
         /* Note: This memory is intentionally never freed - it must persist
          * for the lifetime of the process */
-        token_cache[token_idx] = strdup(result);
+        char *cached = strdup(result);
+        if (cached == NULL) {
+            fprintf(stderr, "[one-shot-token] Failed to cache token %s: out of memory\n", name);
+            /* Still unset and mark as accessed, but return NULL to signal failure */
+            unsetenv(name);
+            token_accessed[token_idx] = 1;
+            return NULL;
+        }
+        token_cache[token_idx] = cached;
 
         /* Unset the variable from the environment so /proc/self/environ is cleared */
         unsetenv(name);

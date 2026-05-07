@@ -8,7 +8,7 @@ import * as path from 'path';
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
 // Mock execa module
-import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 let mockConfig: WrapperConfig;
