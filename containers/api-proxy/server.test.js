@@ -1888,6 +1888,13 @@ describe('reflectEndpoints', () => {
     expect(result.models_fetch_complete).toBe(false);
   });
 
+  it('should include effective token usage summary', () => {
+    const result = reflectEndpoints();
+    expect(result.effective_tokens).toBeDefined();
+    expect(result.effective_tokens.enabled).toBe(false);
+    expect(result.effective_tokens.total_effective_tokens).toBe(0);
+  });
+
   it('should report models_fetch_complete true after fetch completes', async () => {
     await fetchStartupModels({});
     const result = reflectEndpoints();
@@ -2715,7 +2722,9 @@ describe('createProviderServer', () => {
             const proxyRes = new EventEmitter();
             proxyRes.statusCode = 200;
             proxyRes.headers = { 'content-type': 'application/json' };
-            proxyRes.pipe = jest.fn();
+            proxyRes.pipe = jest.fn((destRes) => {
+              destRes.end(JSON.stringify(payload));
+            });
             callback(proxyRes);
             setImmediate(() => {
               proxyRes.emit('data', Buffer.from(JSON.stringify(payload)));
@@ -2728,7 +2737,7 @@ describe('createProviderServer', () => {
       });
     }
 
-    it('adds awf_warning to JSON response when usage first crosses 50%', async () => {
+    it('exposes effective token usage in /reflect after requests', async () => {
       process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
       process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 1 });
       mockHttpsWithJsonUsage({
@@ -2746,12 +2755,16 @@ describe('createProviderServer', () => {
         getBodyTransform: () => null,
       };
       const port = await startAdapter(adapter);
-      const { status, body } = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+      const response = await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+      const { status, body } = await fetch(port, '/reflect');
 
+      expect(response.status).toBe(200);
       expect(status).toBe(200);
-      expect(body.awf_warning).toBeDefined();
-      expect(body.awf_warning.type).toBe('effective_tokens_threshold');
-      expect(body.awf_warning.thresholds_crossed).toContain(50);
+      expect(body.effective_tokens).toBeDefined();
+      expect(body.effective_tokens.enabled).toBe(true);
+      expect(body.effective_tokens.max_effective_tokens).toBe(100);
+      expect(body.effective_tokens.total_effective_tokens).toBe(60);
+      expect(body.effective_tokens.thresholds_crossed).toContain(50);
     });
 
     it('returns an error response on the next request after effective token maximum is exceeded', async () => {

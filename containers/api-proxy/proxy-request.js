@@ -29,16 +29,12 @@ const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
 let trackWebSocketTokenUsage;
-let extractUsageFromJson;
-let normalizeUsage;
 try {
-  ({ trackTokenUsage, trackWebSocketTokenUsage, extractUsageFromJson, normalizeUsage } = require('./token-tracker'));
+  ({ trackTokenUsage, trackWebSocketTokenUsage } = require('./token-tracker'));
 } catch (err) {
   if (err && err.code === 'MODULE_NOT_FOUND') {
     trackTokenUsage = () => {};
     trackWebSocketTokenUsage = () => {};
-    extractUsageFromJson = () => ({ usage: null, model: null });
-    normalizeUsage = () => null;
   } else {
     throw err;
   }
@@ -218,22 +214,27 @@ function getEffectiveTokenBlockState() {
   };
 }
 
-function addEtWarningsToJsonBody(bodyBuffer, usageUpdate) {
-  if (!usageUpdate || usageUpdate.crossedThresholds.length === 0) return bodyBuffer;
-  try {
-    const parsed = JSON.parse(bodyBuffer.toString('utf8'));
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return bodyBuffer;
-    parsed.awf_warning = {
-      type: 'effective_tokens_threshold',
-      thresholds_crossed: usageUpdate.crossedThresholds,
-      total_effective_tokens: usageUpdate.totalEffectiveTokens,
-      max_effective_tokens: usageUpdate.maxEffectiveTokens,
-      percent_used: Number(((usageUpdate.totalEffectiveTokens / usageUpdate.maxEffectiveTokens) * 100).toFixed(2)),
+function getEffectiveTokenReflectState() {
+  const config = getEffectiveTokenConfig();
+  const state = getEffectiveTokenState(config);
+  if (!state) {
+    return {
+      enabled: false,
+      max_effective_tokens: null,
+      total_effective_tokens: 0,
+      remaining_effective_tokens: null,
+      percent_used: 0,
+      thresholds_crossed: [],
     };
-    return Buffer.from(JSON.stringify(parsed));
-  } catch {
-    return bodyBuffer;
   }
+  return {
+    enabled: true,
+    max_effective_tokens: config.max,
+    total_effective_tokens: state.totalEffectiveTokens,
+    remaining_effective_tokens: Math.max(0, config.max - state.totalEffectiveTokens),
+    percent_used: Math.round((state.totalEffectiveTokens / config.max) * 10000) / 100,
+    thresholds_crossed: [...state.emittedThresholds].sort((a, b) => a - b),
+  };
 }
 
 function resetEffectiveTokenGuardForTests() {
@@ -529,49 +530,20 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         });
       }
 
-      const contentType = String(proxyRes.headers['content-type'] || '');
-      const contentEncoding = String(proxyRes.headers['content-encoding'] || '').toLowerCase();
-      const canAugmentEtWarnings =
-        proxyRes.statusCode >= 200 &&
-        proxyRes.statusCode < 300 &&
-        contentType.includes('application/json') &&
-        !contentType.includes('text/event-stream') &&
-        (contentEncoding === '' || contentEncoding === 'identity');
-
-      if (canAugmentEtWarnings) {
-        const responseChunks = [];
-        proxyRes.on('data', (chunk) => {
-          responseChunks.push(chunk);
-        });
-        proxyRes.on('end', () => {
-          let responseBody = Buffer.concat(responseChunks);
-          const usageData = extractUsageFromJson(responseBody);
-          const normalized = normalizeUsage(usageData.usage);
-          const usageUpdate = applyEffectiveTokenUsage(normalized, usageData.model || 'unknown');
-
-          responseBody = addEtWarningsToJsonBody(responseBody, usageUpdate);
-          const updatedHeaders = { ...resHeaders, 'content-length': String(responseBody.length) };
-          delete updatedHeaders['transfer-encoding'];
-          res.writeHead(proxyRes.statusCode, updatedHeaders);
-          res.end(responseBody);
-        });
-        trackTokenUsage(proxyRes, { requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent });
-      } else {
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        proxyRes.pipe(res);
-        trackTokenUsage(proxyRes, {
-          requestId,
-          provider,
-          path: sanitizeForLog(req.url),
-          startTime,
-          metrics,
-          billingInfo,
-          initiatorSent,
-          onUsage: (normalizedUsage, model) => {
-            applyEffectiveTokenUsage(normalizedUsage, model);
-          },
-        });
-      }
+      res.writeHead(proxyRes.statusCode, resHeaders);
+      proxyRes.pipe(res);
+      trackTokenUsage(proxyRes, {
+        requestId,
+        provider,
+        path: sanitizeForLog(req.url),
+        startTime,
+        metrics,
+        billingInfo,
+        initiatorSent,
+        onUsage: (normalizedUsage, model) => {
+          applyEffectiveTokenUsage(normalizedUsage, model);
+        },
+      });
     });
 
     proxyReq.on('error', (err) => {
@@ -783,6 +755,7 @@ module.exports = {
   limiter,
   proxyAgent,
   HTTPS_PROXY,
+  getEffectiveTokenReflectState,
   // Exported for tests
   resetEffectiveTokenGuardForTests,
 };

@@ -25,6 +25,7 @@ const metrics = require('./metrics');
  * @property {() => import('./rate-limiter').RateLimiter} getLimiter
  * @property {string|undefined}     httpsProxy            - Value of HTTPS_PROXY env var at startup
  * @property {() => object|null}    getModelAliases       - Returns parsed MODEL_ALIASES (or null)
+ * @property {() => object}         getEffectiveTokenUsage - Returns effective token usage summary
  */
 
 /**
@@ -44,6 +45,7 @@ function createManagementHandlers(deps) {
     getLimiter,
     httpsProxy,
     getModelAliases,
+    getEffectiveTokenUsage,
   } = deps;
 
   /**
@@ -91,6 +93,7 @@ function createManagementHandlers(deps) {
       }),
       models_fetch_complete: isModelFetchComplete(),
       model_aliases: modelAliases ? modelAliases.models : null,
+      effective_tokens: getEffectiveTokenUsage(),
     };
   }
 
