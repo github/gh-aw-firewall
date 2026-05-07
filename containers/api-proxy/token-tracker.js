@@ -418,6 +418,7 @@ function normalizeUsage(usage) {
  * @param {object} opts.metrics - Metrics module reference
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
+ * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  */
 function trackTokenUsage(proxyRes, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, onUsage } = opts;
@@ -715,6 +716,7 @@ function parseWebSocketFrames(buf) {
  * @param {string} opts.path - Request path
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
+ * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  */
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage } = opts;

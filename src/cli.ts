@@ -581,8 +581,8 @@ program
       (options as Record<string, unknown>).effectiveTokenModelMultipliers as Record<string, number> | undefined;
     const maxEffectiveTokens = maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
 
-    if (maxEffectiveTokens !== undefined && (!Number.isFinite(maxEffectiveTokens) || maxEffectiveTokens <= 0)) {
-      console.error('Error: Invalid maxEffectiveTokens value (must be a positive number)');
+    if (maxEffectiveTokens !== undefined && (!Number.isInteger(maxEffectiveTokens) || maxEffectiveTokens <= 0)) {
+      console.error('Error: Invalid maxEffectiveTokens value (must be a positive integer)');
       process.exit(1);
     }
 

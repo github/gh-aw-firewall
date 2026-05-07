@@ -111,6 +111,11 @@ let etGuardState = {
   totalEffectiveTokens: 0,
   emittedThresholds: new Set(),
 };
+let etConfigCache = {
+  rawMax: undefined,
+  rawMultipliers: undefined,
+  parsed: { max: null, multipliers: {} },
+};
 
 function createEffectiveTokenState(configKey = null) {
   return {
@@ -123,7 +128,7 @@ function createEffectiveTokenState(configKey = null) {
 function parseMaxEffectiveTokens(raw) {
   if (raw === undefined || raw === null || String(raw).trim() === '') return null;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
 }
 
@@ -146,9 +151,21 @@ function parseModelMultipliers(raw) {
 }
 
 function getEffectiveTokenConfig() {
-  const max = parseMaxEffectiveTokens(process.env.AWF_MAX_EFFECTIVE_TOKENS);
-  const multipliers = parseModelMultipliers(process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS);
-  return { max, multipliers };
+  const rawMax = process.env.AWF_MAX_EFFECTIVE_TOKENS;
+  const rawMultipliers = process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+  if (etConfigCache.rawMax === rawMax && etConfigCache.rawMultipliers === rawMultipliers) {
+    return etConfigCache.parsed;
+  }
+
+  etConfigCache = {
+    rawMax,
+    rawMultipliers,
+    parsed: {
+      max: parseMaxEffectiveTokens(rawMax),
+      multipliers: parseModelMultipliers(rawMultipliers),
+    },
+  };
+  return etConfigCache.parsed;
 }
 
 function getEffectiveTokenState(config) {
@@ -239,6 +256,11 @@ function getEffectiveTokenReflectState() {
 
 function resetEffectiveTokenGuardForTests() {
   etGuardState = createEffectiveTokenState();
+  etConfigCache = {
+    rawMax: undefined,
+    rawMultipliers: undefined,
+    parsed: { max: null, multipliers: {} },
+  };
 }
 
 function buildEffectiveTokenLimitError(etState) {

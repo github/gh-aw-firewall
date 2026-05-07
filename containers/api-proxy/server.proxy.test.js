@@ -9,6 +9,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
+const { resetEffectiveTokenGuardForTests } = require('./proxy-request');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -418,5 +419,82 @@ describe('proxyRequest X-Initiator injection', () => {
     proxyRequest(req, makeRes(), 'api.openai.com', { 'Authorization': 'Bearer sk-test' }, 'opencode');
     req.emit('end');
     expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+});
+
+describe('proxyRequest effective token guard', () => {
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  function makeRes() {
+    return {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '10';
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    resetEffectiveTokenGuardForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    resetEffectiveTokenGuardForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('returns 429 with structured payload when effective token limit is reached', async () => {
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    const req1 = makeReq();
+    const res1 = makeRes();
+    proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req1.emit('end');
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.pipe = jest.fn();
+
+    responseHandler(proxyRes);
+    const usageBody = JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 2, completion_tokens: 3 },
+    });
+    proxyRes.emit('data', Buffer.from(usageBody));
+    proxyRes.emit('end');
+
+    const req2 = makeReq();
+    const res2 = makeRes();
+    proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req2.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    const payload = JSON.parse(res2.end.mock.calls[0][0]);
+    expect(payload.error.type).toBe('effective_tokens_limit_reached');
+    expect(payload.error.max_effective_tokens).toBe(10);
+    expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
   });
 });
