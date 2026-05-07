@@ -453,7 +453,7 @@ describe('proxyRequest effective token guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when effective token limit is reached', async () => {
+  it('returns 429 with structured payload when effective token limit is reached', () => {
     let responseHandler;
     const upstreamRequest = new EventEmitter();
     upstreamRequest.end = jest.fn();
