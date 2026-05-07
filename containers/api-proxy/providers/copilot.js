@@ -154,6 +154,11 @@ function createCopilotAdapter(env, deps = {}) {
 
   const bodyTransform = deps.bodyTransform || null;
 
+  // Pre-computed models path used by getModelsFetchConfig and getReflectionInfo.
+  // For BYOK/custom providers the base path prefix is included (e.g. /api/v1/models
+  // for COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1).
+  const modelsPath = basePath ? `${basePath}/models` : '/models';
+
   return {
     name: 'copilot',
     port: 10002,
@@ -260,10 +265,7 @@ function createCopilotAdapter(env, deps = {}) {
       // BYOK / custom provider (e.g. OpenRouter):
       // Fetch models using the BYOK auth token so that arbitrary model names
       // (e.g. "minimax/minimax-m2.5:free") are cached and visible in the reflect
-      // response. The base path from COPILOT_API_BASE_PATH is included so that
-      // COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1 fetches from
-      // https://openrouter.ai/api/v1/models rather than https://openrouter.ai/models.
-      const modelsPath = basePath ? `${basePath}/models` : '/models';
+      // response. The pre-computed modelsPath already includes the base path prefix.
       return {
         url: `https://${rawTarget}${modelsPath}`,
         opts: {
@@ -280,7 +282,6 @@ function createCopilotAdapter(env, deps = {}) {
       // For BYOK / custom providers, include the base path in the models URL so
       // that clients (e.g. the gh-aw framework) use the correct endpoint to
       // discover available models (e.g. /api/v1/models for OpenRouter).
-      const modelsPath = basePath ? `${basePath}/models` : '/models';
       return {
         provider: 'copilot',
         port: 10002,

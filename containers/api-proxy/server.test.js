@@ -1567,8 +1567,8 @@ describe('copilot adapter BYOK model fetch', () => {
     expect(adapter.getModelsFetchConfig()).toBeNull();
   });
 
-  it('getModelsFetchConfig uses basePath in URL for custom target without path', () => {
-    // When no basePath is set, /models is used directly
+  it('getModelsFetchConfig uses /models directly when basePath is not configured', () => {
+    // When no basePath is set, /models is used directly (no prefix)
     const adapter = createCopilotAdapter({
       COPILOT_API_KEY: 'sk-custom-key',
       COPILOT_API_TARGET: 'custom.llm.example.com',
