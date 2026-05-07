@@ -327,6 +327,35 @@ static int get_token_index(const char *name) {
  *
  * For all other variables: passes through to real getenv
  */
+
+/**
+ * Shared cache-and-unset logic for sensitive token interception.
+ * Caches the value, removes it from the environment, logs if debug is on,
+ * and marks the token as accessed. Must be called with token_mutex held.
+ */
+static char *cache_and_unset_token(int token_idx, const char *name, char *result, const char *via_suffix) {
+    if (result != NULL) {
+        /* Cache the value so subsequent reads succeed after unsetenv */
+        /* Note: This memory is intentionally never freed - it must persist
+         * for the lifetime of the process */
+        token_cache[token_idx] = strdup(result);
+
+        /* Unset the variable from the environment so /proc/self/environ is cleared */
+        unsetenv(name);
+
+        if (debug_enabled) {
+            fprintf(stderr, "[one-shot-token] Token %s accessed and cached (length: %zu)%s\n",
+                    name, strlen(token_cache[token_idx]), via_suffix);
+        }
+
+        result = token_cache[token_idx];
+    }
+
+    /* Mark as accessed even if NULL (prevents repeated log messages) */
+    token_accessed[token_idx] = 1;
+    return result;
+}
+
 __attribute__((visibility("default")))
 char *getenv(const char *name) {
     ensure_real_getenv();
@@ -354,26 +383,7 @@ char *getenv(const char *name) {
     if (!token_accessed[token_idx]) {
         /* First access - get the real value and cache it */
         result = real_getenv(name);
-
-        if (result != NULL) {
-            /* Cache the value so subsequent reads succeed after unsetenv */
-            /* Note: This memory is intentionally never freed - it must persist
-             * for the lifetime of the process */
-            token_cache[token_idx] = strdup(result);
-
-            /* Unset the variable from the environment so /proc/self/environ is cleared */
-            unsetenv(name);
-
-            if (debug_enabled) {
-                fprintf(stderr, "[one-shot-token] Token %s accessed and cached (length: %zu)\n",
-                        name, strlen(token_cache[token_idx]));
-            }
-
-            result = token_cache[token_idx];
-        }
-
-        /* Mark as accessed even if NULL (prevents repeated log messages) */
-        token_accessed[token_idx] = 1;
+        result = cache_and_unset_token(token_idx, name, result, "");
     } else {
         /* Already accessed - return cached value */
         result = token_cache[token_idx];
@@ -428,26 +438,7 @@ char *secure_getenv(const char *name) {
     if (!token_accessed[token_idx]) {
         /* First access - get the real value using secure_getenv */
         result = real_secure_getenv(name);
-
-        if (result != NULL) {
-            /* Cache the value so subsequent reads succeed after unsetenv */
-            /* Note: This memory is intentionally never freed - it must persist
-             * for the lifetime of the process */
-            token_cache[token_idx] = strdup(result);
-
-            /* Unset the variable from the environment so /proc/self/environ is cleared */
-            unsetenv(name);
-
-            if (debug_enabled) {
-                fprintf(stderr, "[one-shot-token] Token %s accessed and cached (length: %zu) (via secure_getenv)\n",
-                        name, strlen(token_cache[token_idx]));
-            }
-
-            result = token_cache[token_idx];
-        }
-
-        /* Mark as accessed even if NULL (prevents repeated log messages) */
-        token_accessed[token_idx] = 1;
+        result = cache_and_unset_token(token_idx, name, result, " (via secure_getenv)");
     } else {
         /* Already accessed - return cached value */
         result = token_cache[token_idx];

@@ -6,15 +6,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
-const mockExecaFn = jest.fn();
-const mockExecaSync = jest.fn();
 
 // Mock execa module
-jest.mock('execa', () => {
-  const fn = (...args: any[]) => mockExecaFn(...args);
-  fn.sync = (...args: any[]) => mockExecaSync(...args);
-  return fn;
-});
+import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
+jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 let mockConfig: WrapperConfig;
 
