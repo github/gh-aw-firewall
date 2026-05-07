@@ -7,6 +7,7 @@ import {
 import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from '../types';
+import { pickEnvVars } from '../env-utils';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 export interface ApiProxyBuildResult {
@@ -106,24 +107,26 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // Enable OpenCode listener only when explicitly requested
       ...(config.enableOpenCode && { AWF_ENABLE_OPENCODE: 'true' }),
       // OIDC authentication for Azure OpenAI (Entra-only deployments)
-      ...(process.env.AWF_AUTH_TYPE && { AWF_AUTH_TYPE: process.env.AWF_AUTH_TYPE }),
-      ...(process.env.AWF_AUTH_AZURE_TENANT_ID && { AWF_AUTH_AZURE_TENANT_ID: process.env.AWF_AUTH_AZURE_TENANT_ID }),
-      ...(process.env.AWF_AUTH_AZURE_CLIENT_ID && { AWF_AUTH_AZURE_CLIENT_ID: process.env.AWF_AUTH_AZURE_CLIENT_ID }),
-      ...(process.env.AWF_AUTH_OIDC_AUDIENCE && { AWF_AUTH_OIDC_AUDIENCE: process.env.AWF_AUTH_OIDC_AUDIENCE }),
-      ...(process.env.AWF_AUTH_AZURE_SCOPE && { AWF_AUTH_AZURE_SCOPE: process.env.AWF_AUTH_AZURE_SCOPE }),
-      ...(process.env.AWF_AUTH_AZURE_CLOUD && { AWF_AUTH_AZURE_CLOUD: process.env.AWF_AUTH_AZURE_CLOUD }),
+      ...pickEnvVars(
+        'AWF_AUTH_TYPE',
+        'AWF_AUTH_AZURE_TENANT_ID',
+        'AWF_AUTH_AZURE_CLIENT_ID',
+        'AWF_AUTH_OIDC_AUDIENCE',
+        'AWF_AUTH_AZURE_SCOPE',
+        'AWF_AUTH_AZURE_CLOUD',
+      ),
       // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
-      ...(normalizedAuthType === 'github-oidc' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL && {
-        ACTIONS_ID_TOKEN_REQUEST_URL: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
-      }),
-      ...(normalizedAuthType === 'github-oidc' && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN && {
-        ACTIONS_ID_TOKEN_REQUEST_TOKEN: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
-      }),
+      ...(normalizedAuthType === 'github-oidc' && pickEnvVars(
+        'ACTIONS_ID_TOKEN_REQUEST_URL',
+        'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      )),
       // Anthropic request optimisations (all opt-in via env vars on the host)
-      ...(process.env.AWF_ANTHROPIC_AUTO_CACHE && { AWF_ANTHROPIC_AUTO_CACHE: process.env.AWF_ANTHROPIC_AUTO_CACHE }),
-      ...(process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL && { AWF_ANTHROPIC_CACHE_TAIL_TTL: process.env.AWF_ANTHROPIC_CACHE_TAIL_TTL }),
-      ...(process.env.AWF_ANTHROPIC_DROP_TOOLS && { AWF_ANTHROPIC_DROP_TOOLS: process.env.AWF_ANTHROPIC_DROP_TOOLS }),
-      ...(process.env.AWF_ANTHROPIC_STRIP_ANSI && { AWF_ANTHROPIC_STRIP_ANSI: process.env.AWF_ANTHROPIC_STRIP_ANSI }),
+      ...pickEnvVars(
+        'AWF_ANTHROPIC_AUTO_CACHE',
+        'AWF_ANTHROPIC_CACHE_TAIL_TTL',
+        'AWF_ANTHROPIC_DROP_TOOLS',
+        'AWF_ANTHROPIC_STRIP_ANSI',
+      ),
       // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
       // The api-proxy container holds live API credentials; loading arbitrary host-side JS
       // files into it would create an arbitrary-code-execution risk.  If you need a custom
