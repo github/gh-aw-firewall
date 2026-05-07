@@ -2723,13 +2723,13 @@ describe('createProviderServer', () => {
             proxyRes.statusCode = 200;
             proxyRes.headers = { 'content-type': 'application/json' };
             proxyRes.pipe = jest.fn((destRes) => {
-              destRes.end(JSON.stringify(payload));
+              setImmediate(() => {
+                proxyRes.emit('data', Buffer.from(JSON.stringify(payload)));
+                proxyRes.emit('end');
+                destRes.end(JSON.stringify(payload));
+              });
             });
             callback(proxyRes);
-            setImmediate(() => {
-              proxyRes.emit('data', Buffer.from(JSON.stringify(payload)));
-              proxyRes.emit('end');
-            });
           });
         });
         proxyReq.destroy = jest.fn();
