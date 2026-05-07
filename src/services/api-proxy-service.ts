@@ -9,7 +9,7 @@ import { logger } from '../logger';
 import { WrapperConfig, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
-export interface ApiProxyBuildResult {
+interface ApiProxyBuildResult {
   /** The api-proxy service definition to add to Docker Compose services. */
   service: any;
   /**
@@ -20,7 +20,7 @@ export interface ApiProxyBuildResult {
   agentEnvAdditions: Record<string, string>;
 }
 
-export interface ApiProxyServiceParams {
+interface ApiProxyServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   apiProxyLogsPath: string;

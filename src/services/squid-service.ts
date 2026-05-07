@@ -22,7 +22,7 @@ export interface ImageBuildConfig {
   projectRoot: string;
 }
 
-export interface SquidServiceParams {
+interface SquidServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   sslConfig?: SslConfig;

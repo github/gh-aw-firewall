@@ -3,7 +3,7 @@ import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig } from './squid-service';
 
-export interface DohProxyServiceParams {
+interface DohProxyServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
 }

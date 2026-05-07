@@ -27,7 +27,7 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 // ─── Agent Environment ────────────────────────────────────────────────────────
 
-export interface AgentEnvironmentParams {
+interface AgentEnvironmentParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   dnsServers: string[];
@@ -440,7 +440,7 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
 
 // ─── Agent Volumes ────────────────────────────────────────────────────────────
 
-export interface AgentVolumesParams {
+interface AgentVolumesParams {
   config: WrapperConfig;
   sslConfig?: SslConfig;
   effectiveHome: string;
@@ -843,7 +843,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
 // ─── Agent Service ────────────────────────────────────────────────────────────
 
-export interface AgentServiceParams {
+interface AgentServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   environment: Record<string, string>;
@@ -1026,7 +1026,7 @@ export function buildAgentService(params: AgentServiceParams): any {
 
 // ─── iptables-init Service ────────────────────────────────────────────────────
 
-export interface IptablesInitServiceParams {
+interface IptablesInitServiceParams {
   agentService: any;
   environment: Record<string, string>;
   networkConfig: NetworkConfig;

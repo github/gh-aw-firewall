@@ -5,7 +5,7 @@ import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
-export interface CliProxyBuildResult {
+interface CliProxyBuildResult {
   /** The cli-proxy service definition to add to Docker Compose services. */
   service: any;
   /**
@@ -15,7 +15,7 @@ export interface CliProxyBuildResult {
   agentEnvAdditions: Record<string, string>;
 }
 
-export interface CliProxyServiceParams {
+interface CliProxyServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   cliProxyLogsPath: string;
