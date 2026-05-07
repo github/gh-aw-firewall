@@ -441,6 +441,7 @@ describe('proxyRequest effective token guard', () => {
   }
 
   beforeEach(() => {
+    // Environment variables are strings; parser converts this to Number(10).
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '10';
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     resetEffectiveTokenGuardForTests();

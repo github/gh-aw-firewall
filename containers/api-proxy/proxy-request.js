@@ -111,7 +111,7 @@ let etGuardState = {
   totalEffectiveTokens: 0,
   emittedThresholds: new Set(),
 };
-let effectiveTokenConfigCache = {
+const effectiveTokenConfigCache = {
   rawMax: undefined,
   rawMultipliers: undefined,
   parsed: { max: null, multipliers: {} },
@@ -157,13 +157,11 @@ function getEffectiveTokenConfig() {
     return effectiveTokenConfigCache.parsed;
   }
 
-  effectiveTokenConfigCache = {
-    rawMax,
-    rawMultipliers,
-    parsed: {
-      max: parseMaxEffectiveTokens(rawMax),
-      multipliers: parseModelMultipliers(rawMultipliers),
-    },
+  effectiveTokenConfigCache.rawMax = rawMax;
+  effectiveTokenConfigCache.rawMultipliers = rawMultipliers;
+  effectiveTokenConfigCache.parsed = {
+    max: parseMaxEffectiveTokens(rawMax),
+    multipliers: parseModelMultipliers(rawMultipliers),
   };
   return effectiveTokenConfigCache.parsed;
 }
@@ -256,11 +254,9 @@ function getEffectiveTokenReflectState() {
 
 function resetEffectiveTokenGuardForTests() {
   etGuardState = createEffectiveTokenState();
-  effectiveTokenConfigCache = {
-    rawMax: undefined,
-    rawMultipliers: undefined,
-    parsed: { max: null, multipliers: {} },
-  };
+  effectiveTokenConfigCache.rawMax = undefined;
+  effectiveTokenConfigCache.rawMultipliers = undefined;
+  effectiveTokenConfigCache.parsed = { max: null, multipliers: {} };
 }
 
 function buildEffectiveTokenLimitError(etState) {
