@@ -159,9 +159,10 @@ function getEffectiveTokenConfig() {
 
   effectiveTokenConfigCache.rawMax = rawMax;
   effectiveTokenConfigCache.rawMultipliers = rawMultipliers;
+  const parsedMultipliers = Object.freeze(parseModelMultipliers(rawMultipliers));
   effectiveTokenConfigCache.parsed = {
     max: parseMaxEffectiveTokens(rawMax),
-    multipliers: parseModelMultipliers(rawMultipliers),
+    multipliers: parsedMultipliers,
   };
   return effectiveTokenConfigCache.parsed;
 }
