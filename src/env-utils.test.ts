@@ -18,7 +18,7 @@ describe('pickEnvVars', () => {
   });
 
   function setEnv(key: string, value: string | undefined): void {
-    savedEnv[key] = process.env[key];
+    if (!(key in savedEnv)) savedEnv[key] = process.env[key];
     if (value !== undefined) {
       process.env[key] = value;
     } else {
