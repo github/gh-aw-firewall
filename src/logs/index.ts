@@ -21,7 +21,4 @@ export {
 } from './log-aggregator';
 export {
   formatStats,
-  formatStatsJson,
-  formatStatsMarkdown,
-  formatStatsPretty,
 } from './stats-formatter';
