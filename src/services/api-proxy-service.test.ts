@@ -1,4 +1,4 @@
-import { generateDockerCompose } from '../docker-manager';
+import { generateDockerCompose } from '../compose-generator';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';

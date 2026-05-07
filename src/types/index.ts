@@ -1,8 +1,8 @@
 /**
- * Barrel re-export of all types from domain-scoped modules.
+ * Barrel re-export of public types from domain-scoped modules.
  *
- * This file ensures full backwards compatibility — all existing imports
- * from './types' or '../types' continue to work unchanged.
+ * Note: DockerService, DockerNetwork, and DockerVolume are not re-exported
+ * here; import them directly from './types/docker' if needed.
  */
 
 export {
@@ -18,9 +18,6 @@ export {
 export {
   type SquidConfig,
   type DockerComposeConfig,
-  type DockerService,
-  type DockerNetwork,
-  type DockerVolume,
 } from './docker';
 
 export {
