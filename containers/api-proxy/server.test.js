@@ -1578,6 +1578,43 @@ describe('copilot adapter BYOK model fetch', () => {
     expect(config.url).toBe('https://custom.llm.example.com/models');
   });
 
+  it('getModelsFetchConfig uses /models (not //models) when basePath is "/"', () => {
+    // normalizeBasePath('/') returns '/' — ensure we don't produce //models
+    const adapter = createCopilotAdapter({
+      COPILOT_API_KEY: 'sk-custom-key',
+      COPILOT_API_TARGET: 'custom.llm.example.com',
+      COPILOT_API_BASE_PATH: '/',
+    });
+    const config = adapter.getModelsFetchConfig();
+    expect(config).not.toBeNull();
+    expect(config.url).toBe('https://custom.llm.example.com/models');
+    expect(config.url).not.toContain('//models');
+  });
+
+  it('getModelsFetchConfig uses COPILOT_API_KEY (not GitHub token) for custom targets even when both are set', () => {
+    // Verify that the GitHub OAuth token is never sent to third-party BYOK providers
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_github_token',
+      COPILOT_API_KEY: 'sk-byok-key',
+      COPILOT_API_TARGET: 'openrouter.ai',
+      COPILOT_API_BASE_PATH: '/api/v1',
+    });
+    const config = adapter.getModelsFetchConfig();
+    expect(config).not.toBeNull();
+    expect(config.opts.headers['Authorization']).toBe('Bearer sk-byok-key');
+    expect(config.opts.headers['Authorization']).not.toContain('ghu_github_token');
+  });
+
+  it('getModelsFetchConfig returns null for custom target when only github token is set (no BYOK key)', () => {
+    // Without an explicit COPILOT_API_KEY there is nothing to authenticate with
+    // at the custom provider — skip the fetch rather than forward the GitHub token.
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_token',
+      COPILOT_API_TARGET: 'openrouter.ai',
+    });
+    expect(adapter.getModelsFetchConfig()).toBeNull();
+  });
+
   it('getReflectionInfo includes /models for standard Copilot API (no base path)', () => {
     const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'ghu_token' });
     const info = adapter.getReflectionInfo();
@@ -1592,6 +1629,17 @@ describe('copilot adapter BYOK model fetch', () => {
     });
     const info = adapter.getReflectionInfo();
     expect(info.models_url).toBe('http://api-proxy:10002/api/v1/models');
+  });
+
+  it('getReflectionInfo uses /models (not //models) when basePath is "/"', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_API_KEY: 'sk-or-key',
+      COPILOT_API_TARGET: 'openrouter.ai',
+      COPILOT_API_BASE_PATH: '/',
+    });
+    const info = adapter.getReflectionInfo();
+    expect(info.models_url).toBe('http://api-proxy:10002/models');
+    expect(info.models_url).not.toContain('//models');
   });
 });
 
