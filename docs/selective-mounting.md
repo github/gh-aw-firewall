@@ -363,7 +363,7 @@ volumes:
 
 ## Implementation Details
 
-See `src/docker-manager.ts` lines 579-687 for the complete implementation with detailed comments explaining the threat model and mitigation strategy.
+See `src/services/agent-volumes.ts` for the complete implementation with detailed comments explaining the threat model and mitigation strategy.
 
 ## FAQ
 

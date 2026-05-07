@@ -47,17 +47,22 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 
 ### 2. Configuration Generation
 - **`src/squid-config.ts`**: Generates Squid proxy configuration with domain ACL rules
-- **`src/docker-manager.ts`**: Generates Docker Compose YAML with two services (squid-proxy, agent)
+- **`src/compose-generator.ts`**: Generates Docker Compose YAML with two services (squid-proxy, agent)
 - All configs are written to a temporary work directory (default: `/tmp/awf-<timestamp>`)
 
-### 3. Docker Management (`src/docker-manager.ts`)
-- Manages container lifecycle using `execa` to run docker-compose commands
+### 3. Docker Management
+- **`src/container-lifecycle.ts`**: Manages container startup and agent command execution using `execa`
+- **`src/container-cleanup.ts`**: Handles container teardown, log collection, and cleanup
+- **`src/host-env.ts`**: Host environment utilities (UID/GID mapping, env passthrough, filesystem helpers)
+- **`src/services/`**: Service classes for each container (Squid, agent, API proxy, CLI proxy, DoH proxy)
 - Fixed network topology: `172.30.0.0/24` subnet, Squid at `172.30.0.10`, Agent at `172.30.0.20`
 - Squid container uses healthcheck; Agent waits for Squid to be healthy before starting
+- `src/docker-manager.ts` re-exports the public API from the above modules for backward compatibility
 
-### 4. Type Definitions (`src/types.ts`)
-- `WrapperConfig`: Main configuration interface
-- `SquidConfig`, `DockerComposeConfig`: Typed configuration objects
+### 4. Type Definitions (`src/types/`)
+- `WrapperConfig`: Main configuration interface (`src/types/config.ts`)
+- Docker Compose types (`src/types/docker.ts`)
+- Logging, policy, and PID types in separate modules
 
 ### 5. Logging (`src/logger.ts`)
 - Singleton logger with configurable log levels (debug, info, warn, error)
