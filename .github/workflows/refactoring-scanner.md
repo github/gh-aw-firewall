@@ -186,7 +186,7 @@ Before creating new issues, check BOTH open AND closed issues:
 1. Search for issues with `[Refactoring]` prefix mentioning the same file using `state: all` (or equivalent `is:open` + `is:closed`)
 2. Search for issues with labels `code-quality` or `refactoring` mentioning the same file using `state: all` (or equivalent `is:open` + `is:closed`)
 3. Skip any finding that already has an open tracking issue
-4. For matching closed issues: **auto-skip only when closure reason is "not planned" / "won't fix"**. If closed as completed/fixed and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
+4. For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
 
 ## Phase 6: Prioritize and File Issues
 
@@ -253,7 +253,7 @@ Low / Medium / High
 
 - **Evidence-based**: Every issue must cite specific line counts, function names, or code patterns
 - **Actionable**: Propose a concrete split/extraction, not just "this is too big"
-- **No duplication**: Always check existing issues with `state: all`; only treat closed issues as terminal when they were closed as "not planned" / "won't fix"
+- **No duplication**: Always check existing issues with `state: all`; only treat closed issues as terminal when `state_reason` is `not_planned`
 - **Security awareness**: Files containing security-critical logic (iptables, Squid config, domain validation) should be flagged with higher urgency
 - **Be realistic**: Suggest splits that keep related logic together — don't over-fragment
 - **Cap at 5 issues**: File at most 5 issues per run
