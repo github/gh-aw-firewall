@@ -12,13 +12,13 @@ import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
-// Re-export for backwards compatibility
-export { AgentEnvironmentParams, buildAgentEnvironment } from './agent-environment';
-export { AgentVolumesParams, buildAgentVolumes } from './agent-volumes';
+// Re-export functions for backwards compatibility
+export { buildAgentEnvironment } from './agent-environment';
+export { buildAgentVolumes } from './agent-volumes';
 
 // ─── Agent Service ────────────────────────────────────────────────────────────
 
-export interface AgentServiceParams {
+interface AgentServiceParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   environment: Record<string, string>;
@@ -201,7 +201,7 @@ export function buildAgentService(params: AgentServiceParams): any {
 
 // ─── iptables-init Service ────────────────────────────────────────────────────
 
-export interface IptablesInitServiceParams {
+interface IptablesInitServiceParams {
   agentService: any;
   environment: Record<string, string>;
   networkConfig: NetworkConfig;

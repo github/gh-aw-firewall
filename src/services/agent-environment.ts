@@ -21,7 +21,7 @@ import { NetworkConfig } from './squid-service';
 
 // ─── Agent Environment ────────────────────────────────────────────────────────
 
-export interface AgentEnvironmentParams {
+interface AgentEnvironmentParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   dnsServers: string[];

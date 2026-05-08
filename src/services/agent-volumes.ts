@@ -7,7 +7,7 @@ import { WrapperConfig } from '../types';
 
 // ─── Agent Volumes ────────────────────────────────────────────────────────────
 
-export interface AgentVolumesParams {
+interface AgentVolumesParams {
   config: WrapperConfig;
   sslConfig?: SslConfig;
   effectiveHome: string;
