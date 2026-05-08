@@ -152,11 +152,12 @@ cat containers/api-proxy/proxy-utils.js 2>/dev/null | head -60
 
 ## Phase 5: Check for Existing Issues
 
-Before filing new issues, check what's already been reported:
+Before filing new issues, check BOTH open AND closed issues:
 
-1. Search for open issues with `[Duplicate Code]` prefix using the GitHub toolset
+1. Search for issues (open or closed) with `[Duplicate Code]` prefix using the GitHub toolset
 2. Also search for issues with labels `code-quality` or `refactoring` that describe duplication
 3. Skip any finding that already has an open tracking issue
+4. **Skip any finding that was previously closed** — a closed issue (especially "not planned" or "won't fix") means the finding was already triaged and intentionally declined. Do NOT re-file it.
 
 ## Phase 6: Prioritize and Report Findings
 
@@ -213,7 +214,7 @@ Low / Medium / High
 - **Be specific**: Always include file paths and line numbers in the evidence section
 - **Be actionable**: Each issue should have a clear, implementable suggestion
 - **Avoid noise**: Only file issues for genuine duplication with real maintenance impact — not cosmetic similarities
-- **No duplicates**: Check existing open issues before creating new ones
+- **No duplicates**: Check existing issues (open AND closed) before creating new ones — closed issues mean the finding was already triaged
 - **Security awareness**: Flag duplicated security-critical logic (domain validation, ACL rules, capability management) with higher urgency
 - **Cap at 5 issues**: File at most 5 issues per run to avoid flooding the tracker
 

@@ -181,11 +181,12 @@ done
 
 ## Phase 5: Check for Existing Refactoring Issues
 
-Before creating new issues, check the open issue tracker:
+Before creating new issues, check BOTH open AND closed issues:
 
-1. Search for open issues with `[Refactoring]` prefix using the GitHub toolset
-2. Search for open issues with labels `code-quality` or `refactoring` mentioning the same file
+1. Search for issues (open or closed) with `[Refactoring]` prefix mentioning the same file
+2. Search for issues with labels `code-quality` or `refactoring` mentioning the same file
 3. Skip any finding that already has an open tracking issue
+4. **Skip any finding that was previously closed** — a closed issue (especially "not planned" or "won't fix") means the finding was already triaged and intentionally declined. Do NOT re-file it.
 
 ## Phase 6: Prioritize and File Issues
 
@@ -252,7 +253,7 @@ Low / Medium / High
 
 - **Evidence-based**: Every issue must cite specific line counts, function names, or code patterns
 - **Actionable**: Propose a concrete split/extraction, not just "this is too big"
-- **No duplication**: Always check existing issues before creating new ones
+- **No duplication**: Always check existing issues (open AND closed) before creating new ones — closed issues mean the finding was already triaged
 - **Security awareness**: Files containing security-critical logic (iptables, Squid config, domain validation) should be flagged with higher urgency
 - **Be realistic**: Suggest splits that keep related logic together — don't over-fragment
 - **Cap at 5 issues**: File at most 5 issues per run
