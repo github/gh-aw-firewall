@@ -112,6 +112,43 @@
               "type": "string"
             }
           }
+        },
+        "auth": {
+          "type": "object",
+          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD/Entra for Azure OpenAI). See docs/awf-config-spec.md §9.5.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["github-oidc"],
+              "description": "Authentication type. Currently only 'github-oidc' is supported. Maps to AWF_AUTH_TYPE."
+            },
+            "oidcAudience": {
+              "type": "string",
+              "description": "Audience claim for the GitHub OIDC token. Maps to AWF_AUTH_OIDC_AUDIENCE.",
+              "default": "api://AzureADTokenExchange"
+            },
+            "azureTenantId": {
+              "type": "string",
+              "description": "Azure AD tenant ID for federated credential exchange. Maps to AWF_AUTH_AZURE_TENANT_ID."
+            },
+            "azureClientId": {
+              "type": "string",
+              "description": "Azure AD application (client) ID for the federated credential. Maps to AWF_AUTH_AZURE_CLIENT_ID."
+            },
+            "azureScope": {
+              "type": "string",
+              "description": "Azure token scope. Maps to AWF_AUTH_AZURE_SCOPE.",
+              "default": "https://cognitiveservices.azure.com/.default"
+            },
+            "azureCloud": {
+              "type": "string",
+              "enum": ["public", "usgovernment", "china"],
+              "description": "Azure cloud environment. Maps to AWF_AUTH_AZURE_CLOUD.",
+              "default": "public"
+            }
+          },
+          "required": ["type"]
         }
       }
     },

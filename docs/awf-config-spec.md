@@ -101,6 +101,12 @@ the corresponding CLI flag.
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → *(config-only; no CLI equivalent)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
+- `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
+- `apiProxy.auth.oidcAudience` → *(config-only; maps to `AWF_AUTH_OIDC_AUDIENCE`)*
+- `apiProxy.auth.azureTenantId` → *(config-only; maps to `AWF_AUTH_AZURE_TENANT_ID`)*
+- `apiProxy.auth.azureClientId` → *(config-only; maps to `AWF_AUTH_AZURE_CLIENT_ID`)*
+- `apiProxy.auth.azureScope` → *(config-only; maps to `AWF_AUTH_AZURE_SCOPE`)*
+- `apiProxy.auth.azureCloud` → *(config-only; maps to `AWF_AUTH_AZURE_CLOUD`)*
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
@@ -325,7 +331,40 @@ COPILOT_PROVIDER_API_KEY
 Placeholder compatibility values (§9.2 item 3) are not secrets and MUST
 NOT be subject to one-shot protection.
 
-### 9.5 DIFC Proxy Credential Isolation
+### 9.5 OIDC Authentication
+
+When `apiProxy.auth.type` is set to `github-oidc`, the API proxy sidecar
+exchanges a GitHub Actions OIDC token for a provider-specific access token
+(e.g., Azure AD / Microsoft Entra). A conforming implementation MUST:
+
+1. Forward the OIDC configuration to the sidecar via the following
+   environment variables:
+
+   | Config path | Environment variable | Required | Default |
+   |-------------|----------------------|----------|---------|
+   | `apiProxy.auth.type` | `AWF_AUTH_TYPE` | ✅ | — |
+   | `apiProxy.auth.oidcAudience` | `AWF_AUTH_OIDC_AUDIENCE` | No | `api://AzureADTokenExchange` |
+   | `apiProxy.auth.azureTenantId` | `AWF_AUTH_AZURE_TENANT_ID` | No | — |
+   | `apiProxy.auth.azureClientId` | `AWF_AUTH_AZURE_CLIENT_ID` | No | — |
+   | `apiProxy.auth.azureScope` | `AWF_AUTH_AZURE_SCOPE` | No | `https://cognitiveservices.azure.com/.default` |
+   | `apiProxy.auth.azureCloud` | `AWF_AUTH_AZURE_CLOUD` | No | `public` |
+
+2. Forward the GitHub Actions OIDC runtime tokens
+   (`ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN`) to
+   the sidecar when `AWF_AUTH_TYPE=github-oidc`. These are injected
+   automatically by the Actions runner when the workflow declares
+   `permissions: id-token: write`.
+
+3. NOT expose the exchanged provider token in the agent container
+   environment. The sidecar SHALL inject it into upstream request headers.
+
+> **Note:** `apiProxy.auth.azureTenantId` and `apiProxy.auth.azureClientId`
+> are required for Azure AD federated credential exchange but MAY be omitted
+> when using managed identity. See
+> [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#oidc-authentication-for-azure-openai)
+> for protocol-level details.
+
+### 9.6 DIFC Proxy Credential Isolation
 
 When `security.difcProxy.host` is set, `GITHUB_TOKEN` and `GH_TOKEN` MUST
 be excluded from the agent environment. These tokens SHALL be held
@@ -343,3 +382,5 @@ exclusively by the external DIFC proxy.
   variables
 - [docs/authentication-architecture.md](authentication-architecture.md) —
   Credential isolation architecture and diagrams
+- [docs/api-proxy-sidecar.md](api-proxy-sidecar.md) — API proxy sidecar
+  configuration including OIDC authentication for Azure OpenAI
