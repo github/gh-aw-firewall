@@ -495,7 +495,7 @@ describe('proxyRequest effective token guard', () => {
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res2.end.mock.calls[0][0]);
-    expect(payload.error.type).toBe('effective_tokens_limit_reached');
+    expect(payload.error.type).toBe('effective_tokens_limit_exceeded');
     expect(payload.error.max_effective_tokens).toBe(10);
     expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
   });

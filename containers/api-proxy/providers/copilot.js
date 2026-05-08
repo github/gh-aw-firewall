@@ -329,9 +329,12 @@ function createCopilotAdapter(env, deps = {}) {
 
 module.exports = {
   createCopilotAdapter,
-  resolveCopilotAuthToken,
-  stripBearerPrefix,
-  deriveCopilotApiTarget,
-  deriveGitHubApiTarget,
-  deriveGitHubApiBasePath,
+  // Exported for unit-test access only; not part of the public API.
+  _testing: {
+    resolveCopilotAuthToken,
+    stripBearerPrefix,
+    deriveCopilotApiTarget,
+    deriveGitHubApiTarget,
+    deriveGitHubApiBasePath,
+  },
 };

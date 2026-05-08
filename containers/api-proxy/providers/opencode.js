@@ -223,4 +223,8 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
   };
 }
 
-module.exports = { createOpenCodeAdapter, resolveOpenCodeRoute };
+module.exports = {
+  createOpenCodeAdapter,
+  // Exported for unit-test access only; not part of the public API.
+  _testing: { resolveOpenCodeRoute },
+};
