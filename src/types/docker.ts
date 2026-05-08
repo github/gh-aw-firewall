@@ -199,7 +199,7 @@ export interface DockerComposeConfig {
  * and dependency configurations.
  * @internal Internal sub-type of DockerComposeConfig; subject to change with Docker Compose spec updates
  */
-export interface DockerService {
+interface DockerService {
   /**
    * Pre-built Docker image to use
    * 
@@ -507,7 +507,7 @@ export interface DockerService {
  * static IP addresses for predictable iptables rules.
  * @internal Internal sub-type of DockerComposeConfig; subject to change with Docker Compose spec updates
  */
-export interface DockerNetwork {
+interface DockerNetwork {
   /**
    * Network driver to use
    * 
@@ -552,7 +552,7 @@ export interface DockerNetwork {
  * defaults. Fields map directly to the Docker Compose volume specification.
  * @internal Internal sub-type of DockerComposeConfig; subject to change with Docker Compose spec updates
  */
-export interface DockerVolume {
+interface DockerVolume {
   /**
    * Volume driver to use
    * 

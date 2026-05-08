@@ -5,8 +5,8 @@
  */
 
 const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath } = require('./proxy-utils');
-const { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } = require('./providers/copilot');
-const { resolveOpenCodeRoute } = require('./providers/opencode');
+const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot');
+const { _testing: { resolveOpenCodeRoute } } = require('./providers/opencode');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
