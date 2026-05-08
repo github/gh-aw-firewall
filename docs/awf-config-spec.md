@@ -444,7 +444,45 @@ When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
 
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — Key words for use in
   RFCs to Indicate Requirement Levels
-- `docs/awf-config.schema.json` — Machine-readable JSON Schema (normative)
+- `docs/awf-config.schema.json` — Machine-readable JSON Schema for
+  configuration documents (normative)
+
+## Runtime JSONL Schemas
+
+AWF emits structured JSONL artifact files at runtime. Each record type has
+a corresponding JSON Schema in the `schemas/` directory:
+
+| Schema | JSONL file | Description |
+|--------|------------|-------------|
+| [`schemas/audit.schema.json`](../schemas/audit.schema.json) | `audit.jsonl` | L7 HTTP/HTTPS traffic decisions (allowed/denied) from the Squid proxy |
+| [`schemas/token-usage.schema.json`](../schemas/token-usage.schema.json) | `token-usage.jsonl` | Per-API-call token usage records from the api-proxy sidecar |
+
+### Versioning
+
+Schema files do not carry an independent version. The repository release
+tag serves as the version:
+
+- The `$id` field in each schema resolves to a stable release download URL.
+- Each JSONL record includes a `_schema` wire-format field encoding the
+  record type and AWF version (e.g., `"_schema": "audit/v0.26.0"`).
+- Consumers SHOULD use a prefix match (`_schema.startsWith("audit/")`)
+  rather than an exact match to handle future versions gracefully.
+
+### Published locations
+
+**Versioned (release assets):**
+```
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/audit.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/token-usage.schema.json
+```
+
+**Latest (main branch):**
+```
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json
+```
 
 ## Informative References
 
@@ -452,3 +490,5 @@ When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
   variables
 - [docs/authentication-architecture.md](authentication-architecture.md) —
   Credential isolation architecture and diagrams
+- [schemas/README.md](../schemas/README.md) — JSONL schema directory with
+  validation examples and versioning policy
