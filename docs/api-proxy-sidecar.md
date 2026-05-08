@@ -602,7 +602,7 @@ If no model multiplier is configured, it defaults to `1`.
 After each successful upstream response, the proxy accumulates the effective tokens. Before forwarding the *next* request, the proxy checks the running total:
 
 - **Under budget**: Request is forwarded normally.
-- **Budget exceeded**: Request is rejected immediately with:
+- **Budget reached or exceeded**: Request is rejected immediately with:
   - **HTTP `429 Too Many Requests`**
   - **Error body**:
 
@@ -617,24 +617,24 @@ After each successful upstream response, the proxy accumulates the effective tok
     }
     ```
 
-WebSocket upgrade requests are also rejected with `429` when the budget is exceeded.
+WebSocket upgrade requests are also rejected with `429` when the budget is reached or exceeded.
 
 :::caution
-Once the budget is exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
+Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
 :::
 
-### Threshold warnings
+### Threshold tracking
 
-The proxy emits structured log warnings as usage approaches the limit:
+The proxy tracks which usage thresholds have been crossed:
 
-| Threshold | Warning emitted |
-|-----------|-----------------|
-| 50% | Yes (once) |
-| 75% | Yes (once) |
-| 90% | Yes (once) |
-| 95% | Yes (once) |
+| Threshold | Tracked once per run |
+|-----------|-----------------------|
+| 50% | Yes |
+| 75% | Yes |
+| 90% | Yes |
+| 95% | Yes |
 
-These appear in the api-proxy container logs as `effective_tokens_threshold` events.
+Crossed thresholds are exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
 
 ### Introspection
 

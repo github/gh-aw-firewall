@@ -382,7 +382,7 @@ The API proxy MUST enforce the budget as follows:
    upstream provider, the proxy checks whether the cumulative total has
    reached or exceeded `maxEffectiveTokens`.
 
-3. **Rejection**: When the budget is exceeded, the proxy MUST reject the
+3. **Rejection**: When the budget is reached or exceeded, the proxy MUST reject the
    request with:
    - **HTTP status**: `429 Too Many Requests`
    - **Content-Type**: `application/json`
@@ -402,22 +402,22 @@ The API proxy MUST enforce the budget as follows:
    reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
    error body before destroying the socket.
 
-5. **Finality**: Once the budget is exceeded, all subsequent requests in
+5. **Finality**: Once the budget is reached or exceeded, all subsequent requests in
    the same run MUST be rejected. The budget is not recoverable.
 
-### 10.4 Threshold Warnings
+### 10.4 Threshold Tracking
 
-The proxy SHOULD emit structured log warnings when the cumulative effective
-tokens cross the following percentage thresholds of `maxEffectiveTokens`:
+The proxy MUST track when cumulative effective tokens cross the following
+percentage thresholds of `maxEffectiveTokens`:
 
-| Threshold | Log level |
-|-----------|-----------|
-| 50% | `warn` |
-| 75% | `warn` |
-| 90% | `warn` |
-| 95% | `warn` |
+| Threshold |
+|-----------|
+| 50% |
+| 75% |
+| 90% |
+| 95% |
 
-Each threshold MUST be emitted at most once per run.
+Each threshold MUST be recorded at most once per run.
 
 ### 10.5 Introspection
 
@@ -432,7 +432,7 @@ include the current effective-token state:
     "total_effective_tokens": 456.78,
     "remaining_effective_tokens": 543.22,
     "percent_used": 45.68,
-    "thresholds_crossed": [50]
+    "thresholds_crossed": []
   }
 }
 ```
