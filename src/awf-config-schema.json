@@ -179,7 +179,26 @@
               "default": "https://www.googleapis.com/auth/cloud-platform"
             }
           },
-          "required": ["type"]
+          "required": ["type"],
+          "if": {
+            "properties": { "provider": { "const": "aws" } },
+            "required": ["provider"]
+          },
+          "then": {
+            "required": ["awsRoleArn", "awsRegion"]
+          },
+          "else": {
+            "if": {
+              "properties": { "provider": { "const": "gcp" } },
+              "required": ["provider"]
+            },
+            "then": {
+              "required": ["gcpWorkloadIdentityProvider"]
+            },
+            "else": {
+              "required": ["azureTenantId", "azureClientId"]
+            }
+          }
         }
       }
     },

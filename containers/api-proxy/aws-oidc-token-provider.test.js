@@ -84,7 +84,6 @@ describe('AwsOidcTokenProvider', () => {
     provider._resolveStsHost = () => `127.0.0.1:${serverPort}`;
     // Override to use http instead of https
     const { httpGet } = require('./github-oidc');
-    const origAssume = provider._assumeRoleWithWebIdentity.bind(provider);
     provider._assumeRoleWithWebIdentity = async (oidcJwt) => {
       const params = new URLSearchParams({
         Action: 'AssumeRoleWithWebIdentity',

@@ -186,6 +186,166 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { models: { 'gpt-4o': 'not-an-array' } } })).toBe(false);
   });
 
+  it('accepts a valid apiProxy.auth azure config (default provider)', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            azureTenantId: 'my-tenant-id',
+            azureClientId: 'my-client-id',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('accepts a valid apiProxy.auth azure config with all optional fields', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'azure',
+            oidcAudience: 'api://AzureADTokenExchange',
+            azureTenantId: 'my-tenant-id',
+            azureClientId: 'my-client-id',
+            azureScope: 'https://cognitiveservices.azure.com/.default',
+            azureCloud: 'usgovernment',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects apiProxy.auth azure config missing azureTenantId', () => {
+    expect(
+      validate({
+        apiProxy: { auth: { type: 'github-oidc', azureClientId: 'my-client-id' } },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects apiProxy.auth azure config missing azureClientId', () => {
+    expect(
+      validate({
+        apiProxy: { auth: { type: 'github-oidc', azureTenantId: 'my-tenant-id' } },
+      })
+    ).toBe(false);
+  });
+
+  it('accepts a valid apiProxy.auth aws config', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'aws',
+            awsRoleArn: 'arn:aws:iam::123456789012:role/my-role',
+            awsRegion: 'us-east-1',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects apiProxy.auth aws config missing awsRoleArn', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: { type: 'github-oidc', provider: 'aws', awsRegion: 'us-east-1' },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects apiProxy.auth aws config missing awsRegion', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'aws',
+            awsRoleArn: 'arn:aws:iam::123456789012:role/my-role',
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('accepts a valid apiProxy.auth gcp config', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'gcp',
+            gcpWorkloadIdentityProvider:
+              'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects apiProxy.auth gcp config missing gcpWorkloadIdentityProvider', () => {
+    expect(
+      validate({
+        apiProxy: { auth: { type: 'github-oidc', provider: 'gcp' } },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects apiProxy.auth with unknown type', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: { type: 'basic', azureTenantId: 'tid', azureClientId: 'cid' },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects apiProxy.auth with unknown provider', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: { type: 'github-oidc', provider: 'oracle', azureTenantId: 'tid', azureClientId: 'cid' },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects apiProxy.auth with extra properties', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            azureTenantId: 'my-tenant-id',
+            azureClientId: 'my-client-id',
+            unknownField: true,
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects invalid apiProxy.auth.azureCloud value', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            azureTenantId: 'my-tenant-id',
+            azureClientId: 'my-client-id',
+            azureCloud: 'invalid-cloud',
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
   it('src/awf-config-schema.json stays in sync with docs/awf-config.schema.json', () => {
     const srcSchemaPath = path.join(__dirname, 'awf-config-schema.json');
     const srcSchema = JSON.parse(fs.readFileSync(srcSchemaPath, 'utf8'));

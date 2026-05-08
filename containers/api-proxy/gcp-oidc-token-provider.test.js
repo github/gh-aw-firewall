@@ -84,7 +84,6 @@ describe('GcpOidcTokenProvider', () => {
     });
 
     // Override _exchangeForGcpToken to use mock server
-    const origExchange = provider._exchangeForGcpToken.bind(provider);
     provider._exchangeForGcpToken = async (jwt) => {
       // Call mock STS endpoint directly via http
       const { httpPost } = require('./github-oidc');
