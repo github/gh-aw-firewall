@@ -233,7 +233,7 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getOidcProvider()).not.toBeNull();
     expect(adapter.getValidationProbe()).toEqual({ skip: true, reason: 'OIDC auth; validation via token acquisition' });
     expect(adapter.getModelsFetchConfig()).toBeNull();
-    expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc');
+    expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/azure');
 
     adapter.getOidcProvider().shutdown();
   });

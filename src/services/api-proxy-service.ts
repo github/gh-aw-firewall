@@ -112,14 +112,24 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       }),
       // Enable OpenCode listener only when explicitly requested
       ...(config.enableOpenCode && { AWF_ENABLE_OPENCODE: 'true' }),
-      // OIDC authentication for Azure OpenAI (Entra-only deployments)
+      // OIDC authentication (Azure, AWS, GCP)
       ...pickEnvVars(
         'AWF_AUTH_TYPE',
+        'AWF_AUTH_PROVIDER',
+        'AWF_AUTH_OIDC_AUDIENCE',
+        // Azure
         'AWF_AUTH_AZURE_TENANT_ID',
         'AWF_AUTH_AZURE_CLIENT_ID',
-        'AWF_AUTH_OIDC_AUDIENCE',
         'AWF_AUTH_AZURE_SCOPE',
         'AWF_AUTH_AZURE_CLOUD',
+        // AWS
+        'AWF_AUTH_AWS_ROLE_ARN',
+        'AWF_AUTH_AWS_REGION',
+        'AWF_AUTH_AWS_ROLE_SESSION_NAME',
+        // GCP
+        'AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER',
+        'AWF_AUTH_GCP_SERVICE_ACCOUNT',
+        'AWF_AUTH_GCP_SCOPE',
       ),
       // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
       ...(normalizedAuthType === 'github-oidc' && pickEnvVars(
