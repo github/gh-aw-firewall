@@ -39,6 +39,9 @@ The `--` separator divides firewall options from the command to run.
 - [Usage guide](docs/usage.md) — CLI flags, domain allowlists, examples
 - [AWF config schema](docs/awf-config.schema.json) — machine-readable JSON Schema for JSON/YAML configs (also published as a [versioned release asset](https://github.com/github/gh-aw-firewall/releases/latest/download/awf-config.schema.json) for IDE autocomplete)
 - [AWF config spec](docs/awf-config-spec.md) — normative processing and precedence rules for tooling/compiler integration
+- [Audit log schema](schemas/audit.schema.json) — JSON Schema for L7 traffic audit records (`audit.jsonl`)
+- [Token usage schema](schemas/token-usage.schema.json) — JSON Schema for per-call token usage records (`token-usage.jsonl`)
+- [Schemas README](schemas/README.md) — versioning policy, record identification, and validation examples
 - [Enterprise configuration](docs/enterprise-configuration.md) — GitHub Enterprise Cloud and Server setup
 - [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
