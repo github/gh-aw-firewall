@@ -49,7 +49,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable the API proxy sidecar container."
+          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md §9 for credential isolation semantics."
         },
         "enableOpenCode": {
           "type": "boolean",
@@ -235,7 +235,7 @@
     },
     "environment": {
       "type": "object",
-      "description": "Environment variable propagation into the agent container.",
+      "description": "Environment variable propagation into the agent container. Variables are merged in precedence order: AWF-reserved (lowest) → envAll → envFile → CLI -e/--env (highest). When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for normative merge and credential isolation rules.",
       "additionalProperties": false,
       "properties": {
         "envFile": {
