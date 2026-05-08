@@ -97,7 +97,7 @@ the corresponding CLI flag.
 - `apiProxy.enabled` → `--enable-api-proxy`
 - `apiProxy.enableOpenCode` → `--enable-opencode`
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
-- `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl`
+- `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → *(config-only; no CLI equivalent)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
