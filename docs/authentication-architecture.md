@@ -548,13 +548,192 @@ This ensures:
 
 **Security improvement:** A compromised agent cannot access API keys — they don't exist in the agent environment.
 
+## OIDC authentication (keyless credential exchange)
+
+AWF also supports **keyless authentication** via GitHub Actions OIDC workload identity federation. Instead of static API keys, the api-proxy sidecar exchanges a short-lived GitHub-issued JWT for provider-specific credentials — without the agent ever seeing any secret.
+
+### How native GitHub Actions OIDC works
+
+In a standard GitHub Actions workflow (without AWF), OIDC federation works like this:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ GitHub Actions Runner                                     │
+│                                                          │
+│ 1. Workflow declares permissions: id-token: write        │
+│    → Runner injects:                                     │
+│      ACTIONS_ID_TOKEN_REQUEST_URL                        │
+│      ACTIONS_ID_TOKEN_REQUEST_TOKEN                      │
+│                                                          │
+│ 2. Agent code calls ACTIONS_ID_TOKEN_REQUEST_URL         │
+│    with audience claim                                   │
+│    → GitHub mints short-lived JWT                        │
+│    → JWT contains: repo, ref, actor, workflow claims     │
+│                                                          │
+│ 3. Agent code sends JWT to cloud provider STS            │
+│    → Azure: login.microsoftonline.com/.../token          │
+│    → AWS:   sts.amazonaws.com (AssumeRoleWithWebIdentity)│
+│    → GCP:   sts.googleapis.com/v1/token                  │
+│    → Provider validates JWT via GitHub OIDC discovery     │
+│    → Returns provider-specific credentials               │
+│                                                          │
+│ 4. Agent code uses credentials directly                  │
+│    → Bearer token (Azure/GCP)                            │
+│    → SigV4 signing (AWS)                                 │
+│                                                          │
+│ ⚠ Problem: Agent holds real cloud credentials            │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Security concern:** Even though OIDC avoids static API keys, the agent still receives the exchanged cloud credentials. A compromised agent could exfiltrate the token.
+
+### How AWF OIDC works (credential isolation)
+
+AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent never sees any credential:
+
+```
+┌─────────────────────────────┐     ┌───────────────────────────────────────┐
+│ Agent Container             │     │ API Proxy Sidecar                     │
+│ 172.30.0.20                 │     │ 172.30.0.30                           │
+│                             │     │                                       │
+│ Environment:                │     │ Environment:                          │
+│ ✗ No ACTIONS_ID_TOKEN_*     │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
+│ ✗ No cloud credentials      │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
+│ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
+│ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp     │
+│   http://172.30.0.30:10000  │     │ ✓ Provider-specific config            │
+│                             │     │                                       │
+│ Agent sends request:        │     │ On startup:                           │
+│ POST /v1/chat/completions   │     │ 1. Mint GitHub OIDC JWT               │
+│ (no auth headers)    ──────────►  │ 2. Exchange JWT for cloud credential  │
+│                             │     │ 3. Cache + auto-refresh at 75%        │
+│                             │     │                                       │
+│                             │     │ On each request:                      │
+│                             │     │ 4. Inject auth header/signature       │
+│                             │     │ 5. Forward via Squid ─────────────►   │
+│ ◄── response ───────────────│     │                                       │
+└─────────────────────────────┘     └───────────────────────────────────────┘
+                                                    │
+                                                    ▼
+                                              Squid Proxy
+                                              172.30.0.10
+                                                    │
+                                                    ▼
+                                          Cloud API endpoint
+                                    (Azure OpenAI / AWS Bedrock / GCP Vertex)
+```
+
+### OIDC token flow: step by step
+
+#### Step 1: Configuration forwarding
+
+The AWF CLI (`src/services/api-proxy-service.ts`) reads `AWF_AUTH_*` environment variables from the host and forwards them **only to the api-proxy sidecar**, not to the agent container:
+
+```
+Host environment                    Sidecar container          Agent container
+─────────────────                   ─────────────────          ───────────────
+AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
+AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
+AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
+```
+
+#### Step 2: GitHub OIDC token minting
+
+The sidecar's token provider (`github-oidc.js`) calls `ACTIONS_ID_TOKEN_REQUEST_URL` with a provider-appropriate audience claim:
+
+| Provider | Default audience | Token minting source |
+|----------|-----------------|---------------------|
+| Azure | `api://AzureADTokenExchange` | `github-oidc.js` |
+| AWS | `sts.amazonaws.com` | `github-oidc.js` |
+| GCP | Workload Identity Provider resource name | `github-oidc.js` |
+
+This step is identical across all providers — only the audience differs.
+
+#### Step 3: Provider-specific token exchange
+
+Each provider has its own token exchanger that converts the GitHub JWT into usable credentials:
+
+**Azure** (`oidc-token-provider.js`):
+```
+GitHub JWT  ──►  login.microsoftonline.com/{tenant}/oauth2/v2.0/token
+                 grant_type=client_credentials
+                 client_assertion_type=jwt-bearer
+                 client_assertion={github_jwt}
+            ◄──  { access_token: "eyJ...", expires_in: 3600 }
+```
+
+**AWS** (`aws-oidc-token-provider.js`):
+```
+GitHub JWT  ──►  sts.{region}.amazonaws.com/?Action=AssumeRoleWithWebIdentity
+                 RoleArn={role_arn}
+                 WebIdentityToken={github_jwt}
+            ◄──  { AccessKeyId, SecretAccessKey, SessionToken, Expiration }
+```
+
+**GCP** (`gcp-oidc-token-provider.js`):
+```
+GitHub JWT  ──►  sts.googleapis.com/v1/token
+                 grant_type=token-exchange
+                 subject_token={github_jwt}
+            ◄──  { access_token: "ya29...", expires_in: 3600 }
+
+(Optional)  ──►  iamcredentials.googleapis.com/.../generateAccessToken
+                 Authorization: Bearer {federated_token}
+            ◄──  { accessToken: "ya29...", expireTime: "..." }
+```
+
+#### Step 4: Credential caching and auto-refresh
+
+All token providers cache the exchanged credentials and schedule proactive refresh:
+
+- **Refresh timing:** `min(lifetime × 0.75, lifetime − 300s)`
+- **Background refresh:** Non-blocking timer (`setTimeout` with `.unref()`)
+- **Retry on failure:** Exponential backoff with configurable delay
+- **Graceful degradation:** Returns `null` if no valid token; upstream gets 503
+
+#### Step 5: Auth header injection
+
+When the agent sends a request to the sidecar, the provider adapter injects the appropriate credentials:
+
+| Provider | Auth injection method |
+|----------|----------------------|
+| Azure | `Authorization: Bearer {azure_ad_token}` |
+| GCP | `Authorization: Bearer {gcp_token}` |
+| AWS | SigV4 request signing (method, path, headers, body hash) |
+
+### Comparison: static keys vs OIDC
+
+| Property | Static API keys | OIDC federation |
+|----------|----------------|-----------------|
+| Credential type | Long-lived secret | Short-lived token (~1h) |
+| Rotation | Manual | Automatic (proactive refresh) |
+| Agent sees secret | No (api-proxy only) | No (api-proxy only) |
+| GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
+| Cloud provider setup | Generate API key | Configure trust policy/federation |
+| Supported providers | OpenAI, Anthropic, Copilot, Gemini | Azure OpenAI, AWS Bedrock, GCP Vertex AI |
+
+### Configuration reference
+
+OIDC authentication is configured via `apiProxy.auth` in the AWF config file or via `AWF_AUTH_*` environment variables. See:
+
+- [AWF Config Spec §9.5](./awf-config-spec.md#95-oidc-authentication) — normative specification
+- [API Proxy Sidecar: OIDC Authentication](./api-proxy-sidecar.md#oidc-authentication) — usage guide with examples
+- [AWF Config Schema](./awf-config.schema.json) — machine-readable JSON Schema
+
 ## Key files reference
 
 | File | Purpose |
 |------|---------|
 | `src/cli.ts` | CLI reads API keys from host environment |
 | `src/docker-manager.ts` | Docker Compose generation, token routing, env var exclusion |
+| `src/services/api-proxy-service.ts` | Env var forwarding to sidecar (including `AWF_AUTH_*` OIDC vars) |
 | `containers/api-proxy/server.js` | API proxy implementation (credential injection, header stripping) |
+| `containers/api-proxy/github-oidc.js` | Shared GitHub Actions OIDC token minting utility |
+| `containers/api-proxy/oidc-token-provider.js` | Azure AD token exchange via workload identity federation |
+| `containers/api-proxy/aws-oidc-token-provider.js` | AWS STS AssumeRoleWithWebIdentity credential exchange |
+| `containers/api-proxy/gcp-oidc-token-provider.js` | GCP STS token exchange + optional SA impersonation |
+| `containers/api-proxy/providers/openai.js` | OpenAI adapter — selects OIDC provider based on `AWF_AUTH_PROVIDER` |
 | `containers/agent/setup-iptables.sh` | iptables rules for api-proxy routing |
 | `containers/agent/entrypoint.sh` | Entrypoint token cleanup, capability drop |
 | `containers/agent/api-proxy-health-check.sh` | Pre-flight credential isolation verification |
