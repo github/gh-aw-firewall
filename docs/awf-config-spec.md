@@ -96,8 +96,11 @@ the corresponding CLI flag.
 - `network.upstreamProxy` → `--upstream-proxy`
 - `apiProxy.enabled` → `--enable-api-proxy`
 - `apiProxy.enableOpenCode` → `--enable-opencode`
+- `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
+- `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → *(config-only; no CLI equivalent)*
+- `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
