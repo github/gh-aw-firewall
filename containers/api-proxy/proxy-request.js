@@ -263,8 +263,8 @@ function resetEffectiveTokenGuardForTests() {
 function buildEffectiveTokenLimitError(etState) {
   return {
     error: {
-      type: 'effective_tokens_limit_reached',
-      message: `Maximum effective tokens reached (${etState.totalEffectiveTokens.toFixed(2)} / ${etState.maxEffectiveTokens}).`,
+      type: 'effective_tokens_limit_exceeded',
+      message: `Maximum effective tokens exceeded (${etState.totalEffectiveTokens.toFixed(2)} / ${etState.maxEffectiveTokens}).`,
       total_effective_tokens: etState.totalEffectiveTokens,
       max_effective_tokens: etState.maxEffectiveTokens,
     },
@@ -483,7 +483,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       metrics.gaugeDec('active_requests', { provider });
       metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
       metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('warn', 'effective_tokens_limit_reached', {
+      logRequest('warn', 'effective_tokens_limit_exceeded', {
         request_id: requestId,
         provider,
         total_effective_tokens: etBlock.totalEffectiveTokens,
@@ -628,7 +628,7 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
 
   const etBlock = getEffectiveTokenBlockState();
   if (etBlock && etBlock.maxExceeded) {
-    logRequest('warn', 'effective_tokens_limit_reached', {
+    logRequest('warn', 'effective_tokens_limit_exceeded', {
       request_id: requestId,
       provider,
       total_effective_tokens: etBlock.totalEffectiveTokens,
