@@ -353,82 +353,43 @@ describe('generateSquidConfig', () => {
   });
 
   describe('SSL Bump Mode', () => {
+    const sslBumpConfig: SquidConfig = {
+      domains: ['github.com'],
+      port: defaultPort,
+      sslBump: true,
+      caFiles: {
+        certPath: '/tmp/test/ssl/ca-cert.pem',
+        keyPath: '/tmp/test/ssl/ca-key.pem',
+      },
+      sslDbPath: '/tmp/test/ssl_db',
+    };
+
     it('should add SSL Bump section when sslBump is enabled', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('SSL Bump configuration for HTTPS content inspection');
       expect(result).toContain('ssl-bump');
       expect(result).toContain('security_file_certgen');
     });
 
     it('should include SSL Bump warning comment', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('SSL Bump mode enabled');
       expect(result).toContain('HTTPS traffic will be intercepted');
     });
 
     it('should configure HTTP port with SSL Bump', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('http_port 3128 ssl-bump');
     });
 
     it('should include CA certificate path', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('cert=/tmp/test/ssl/ca-cert.pem');
       expect(result).toContain('key=/tmp/test/ssl/ca-key.pem');
     });
 
     it('should include SSL Bump ACL steps', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('acl step1 at_step SslBump1');
       expect(result).toContain('acl step2 at_step SslBump2');
       expect(result).toContain('ssl_bump peek step1');
@@ -436,31 +397,15 @@ describe('generateSquidConfig', () => {
     });
 
     it('should include ssl_bump rules for allowed domains', () => {
-      const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
-      };
-      const result = generateSquidConfig(config);
+      const result = generateSquidConfig(sslBumpConfig);
       expect(result).toContain('ssl_bump bump allowed_domains');
       expect(result).toContain('ssl_bump terminate all');
     });
 
     it('should include ssl_bump rules for regex patterns only', () => {
       const config: SquidConfig = {
+        ...sslBumpConfig,
         domains: ['api-*.example.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('ssl_bump bump allowed_domains_regex');
@@ -469,14 +414,8 @@ describe('generateSquidConfig', () => {
 
     it('should include ssl_bump rules for both plain domains and regex patterns', () => {
       const config: SquidConfig = {
+        ...sslBumpConfig,
         domains: ['github.com', 'api-*.example.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('ssl_bump bump allowed_domains');
@@ -487,14 +426,7 @@ describe('generateSquidConfig', () => {
     it('should include URL pattern ACLs when provided', () => {
       // URL patterns passed here are the output of parseUrlPatterns which now uses [^\s]*
       const config: SquidConfig = {
-        domains: ['github.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: {
-          certPath: '/tmp/test/ssl/ca-cert.pem',
-          keyPath: '/tmp/test/ssl/ca-key.pem',
-        },
-        sslDbPath: '/tmp/test/ssl_db',
+        ...sslBumpConfig,
         urlPatterns: ['^https://github\\.com/myorg/[^\\s]*'],
       };
       const result = generateSquidConfig(config);
