@@ -17,6 +17,7 @@
 
 const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const { logRequest } = require('./logging');
+const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
 
 // Refresh at 75% of token lifetime
 const REFRESH_FACTOR = 0.75;
@@ -232,29 +233,12 @@ class GcpOidcTokenProvider {
 
   /** @param {number} delayMs */
   _scheduleRefresh(delayMs) {
-    if (this._refreshTimer) clearTimeout(this._refreshTimer);
-    this._refreshTimer = setTimeout(() => {
-      this._refreshInFlight = this._refreshToken()
-        .then(() => {
-          logRequest('info', 'gcp_oidc_refresh_success', {
-            expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
-          });
-        })
-        .catch((err) => {
-          logRequest('error', 'gcp_oidc_refresh_failed', { error: err.message });
-          const now = Math.floor(Date.now() / 1000);
-          if (this._expiresAt > now) {
-            this._scheduleRefresh(this._retryDelayMs);
-          }
-        })
-        .finally(() => { this._refreshInFlight = null; });
-    }, delayMs);
-    if (this._refreshTimer.unref) this._refreshTimer.unref();
+    scheduleRefresh(this, delayMs, () => this._refreshToken(), 'gcp_oidc');
   }
 
   /** @param {number} ms */
   _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return sleep(ms);
   }
 }
 

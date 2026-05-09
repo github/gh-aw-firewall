@@ -21,6 +21,7 @@
 
 const { mintGitHubOidcToken, httpGet } = require('./github-oidc');
 const { logRequest } = require('./logging');
+const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
 
 // Refresh at 75% of credential lifetime (STS default is 3600s)
 const REFRESH_FACTOR = 0.75;
@@ -235,29 +236,12 @@ class AwsOidcTokenProvider {
 
   /** @param {number} delayMs */
   _scheduleRefresh(delayMs) {
-    if (this._refreshTimer) clearTimeout(this._refreshTimer);
-    this._refreshTimer = setTimeout(() => {
-      this._refreshInFlight = this._refreshCredentials()
-        .then(() => {
-          logRequest('info', 'aws_oidc_refresh_success', {
-            expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
-          });
-        })
-        .catch((err) => {
-          logRequest('error', 'aws_oidc_refresh_failed', { error: err.message });
-          const now = Math.floor(Date.now() / 1000);
-          if (this._expiresAt > now) {
-            this._scheduleRefresh(this._retryDelayMs);
-          }
-        })
-        .finally(() => { this._refreshInFlight = null; });
-    }, delayMs);
-    if (this._refreshTimer.unref) this._refreshTimer.unref();
+    scheduleRefresh(this, delayMs, () => this._refreshCredentials(), 'aws_oidc');
   }
 
   /** @param {number} ms */
   _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return sleep(ms);
   }
 }
 
