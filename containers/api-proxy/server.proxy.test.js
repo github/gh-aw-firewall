@@ -530,7 +530,7 @@ describe('proxyRequest max-runs guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when max runs limit is reached', () => {
+  it('returns 429 with structured payload when max runs limit is exceeded', () => {
     let responseHandler;
     const upstreamRequest = new EventEmitter();
     upstreamRequest.end = jest.fn();

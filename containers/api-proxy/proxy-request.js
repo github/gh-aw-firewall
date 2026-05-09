@@ -196,7 +196,7 @@ function resetMaxRunsGuardForTests() {
   maxRunsConfigCache.parsed = null;
 }
 
-function buildMaxRunsLimitError(state) {
+function buildMaxRunsExceededError(state) {
   return {
     error: {
       type: 'max_runs_exceeded',
@@ -597,7 +597,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         max_runs: mrBlock.maxRuns,
       });
       res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify(buildMaxRunsLimitError(mrBlock)));
+      res.end(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
       return;
     }
 
@@ -759,7 +759,7 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
       max_runs: mrBlock.maxRuns,
     });
     socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-    socket.write(JSON.stringify(buildMaxRunsLimitError(mrBlock)));
+    socket.write(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
     socket.destroy();
     return;
   }
