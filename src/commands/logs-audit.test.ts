@@ -2,7 +2,9 @@
  * Tests for logs-audit command
  */
 
-import { auditCommand, AuditCommandOptions } from './logs-audit';
+import { auditCommand } from './logs-audit';
+
+type AuditCommandOptions = Parameters<typeof auditCommand>[0];
 import * as logAggregator from '../logs/log-aggregator';
 import * as auditEnricher from '../logs/audit-enricher';
 import * as logsCommandHelpers from './logs-command-helpers';

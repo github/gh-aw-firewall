@@ -2,7 +2,9 @@
  * Tests for logs-stats command
  */
 
-import { statsCommand, StatsCommandOptions } from './logs-stats';
+import { statsCommand } from './logs-stats';
+
+type StatsCommandOptions = Parameters<typeof statsCommand>[0];
 import { logger } from '../logger';
 import { createLogCommandTests, createLogCommandTestHarness } from './test-helpers.test-utils';
 

@@ -1,4 +1,6 @@
-import { resolveImages, predownloadCommand, PredownloadOptions } from './predownload';
+import { resolveImages, predownloadCommand } from './predownload';
+
+type PredownloadOptions = Parameters<typeof resolveImages>[0];
 
 // Mock execa
 jest.mock('execa', () => {

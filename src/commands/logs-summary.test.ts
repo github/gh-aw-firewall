@@ -2,7 +2,9 @@
  * Tests for logs-summary command
  */
 
-import { summaryCommand, SummaryCommandOptions } from './logs-summary';
+import { summaryCommand } from './logs-summary';
+
+type SummaryCommandOptions = Parameters<typeof summaryCommand>[0];
 import { logger } from '../logger';
 import { createLogCommandTests, createLogCommandTestHarness } from './test-helpers.test-utils';
 

@@ -16,7 +16,7 @@ import {
 } from './logs-command-helpers';
 import { logger } from '../logger';
 
-export interface AuditCommandOptions {
+interface AuditCommandOptions {
   format: LogStatsFormat;
   source?: string;
   /** Filter to specific rule ID */

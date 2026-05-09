@@ -16,7 +16,7 @@ type SummaryFormat = LogStatsFormat;
 /**
  * Options for the summary command
  */
-export interface SummaryCommandOptions {
+interface SummaryCommandOptions {
   /** Output format: json, markdown, pretty (default: markdown) */
   format: SummaryFormat;
   /** Specific path to log directory or "running" for live container */

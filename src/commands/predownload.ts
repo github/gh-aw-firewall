@@ -2,7 +2,7 @@ import execa from 'execa';
 import { logger } from '../logger';
 import { buildRuntimeImageRef, parseImageTag } from '../image-tag';
 
-export interface PredownloadOptions {
+interface PredownloadOptions {
   imageRegistry: string;
   imageTag: string;
   agentImage: string;
@@ -25,6 +25,7 @@ function validateImageReference(image: string): void {
 
 /**
  * Resolves the list of image references to pull based on the given options.
+ * @internal Exported for testing only.
  */
 export function resolveImages(options: PredownloadOptions): string[] {
   const { imageRegistry, imageTag, agentImage, enableApiProxy } = options;

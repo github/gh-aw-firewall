@@ -13,7 +13,7 @@ type StatsFormat = LogStatsFormat;
 /**
  * Options for the stats command
  */
-export interface StatsCommandOptions {
+interface StatsCommandOptions {
   /** Output format: json, markdown, pretty */
   format: StatsFormat;
   /** Specific path to log directory or "running" for live container */
