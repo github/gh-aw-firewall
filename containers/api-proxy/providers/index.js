@@ -121,9 +121,7 @@ function createAllAdapters(env, deps = {}) {
 
 module.exports = {
   createAllAdapters,
-  createOpenAIAdapter,
-  createAnthropicAdapter,
-  createCopilotAdapter,
-  createGeminiAdapter,
-  createOpenCodeAdapter,
+  // Individual adapter factories are intentionally NOT re-exported here.
+  // Import them directly from their provider modules (e.g., ./openai, ./copilot).
+  // Only createAllAdapters is the public API of this module.
 };
