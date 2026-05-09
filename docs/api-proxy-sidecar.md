@@ -494,38 +494,36 @@ Check Squid logs for denied requests:
 docker exec awf-squid cat /var/log/squid/access.log | grep DENIED
 ```
 
-## Azure OpenAI (Entra-only / OIDC authentication)
+## OIDC Authentication
 
-AWF supports Azure OpenAI deployments that have API keys disabled and use **Entra-only (Azure AD) authentication** via GitHub Actions OIDC workload identity federation.
+AWF supports OIDC-based credential exchange with multiple cloud providers via GitHub Actions workload identity federation. Set `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER` to select the provider.
 
-### How it works
+### Common environment variables
 
-When `AWF_AUTH_TYPE=github-oidc` is set, the api-proxy sidecar:
-1. Requests a GitHub Actions OIDC JWT token from the Actions runtime
-2. Exchanges it for an Azure AD access token via workload identity federation
-3. Injects the resulting Bearer token on every OpenAI request
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWF_AUTH_TYPE` | ✅ | Set to `github-oidc` to enable OIDC authentication |
+| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, or `gcp` |
+| `AWF_AUTH_OIDC_AUDIENCE` | No | Override the OIDC audience (provider-specific defaults apply) |
+| `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
+| `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
-The token is cached and proactively refreshed before expiry — no manual rotation required.
+### Azure OpenAI (Entra-only)
 
-### Required environment variables
+Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity federation, then injects it as a Bearer token on upstream requests.
 
-| Variable | Description |
-|----------|-------------|
-| `AWF_AUTH_TYPE` | Set to `github-oidc` to enable OIDC authentication |
-| `AWF_AUTH_AZURE_TENANT_ID` | Azure AD tenant ID |
-| `AWF_AUTH_AZURE_CLIENT_ID` | Azure AD application (client) ID for the federated credential |
-| `ACTIONS_ID_TOKEN_REQUEST_URL` | Provided automatically by the GitHub Actions runtime |
-| `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | Provided automatically by the GitHub Actions runtime |
+#### Azure-specific environment variables
 
-### Optional environment variables
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AWF_AUTH_AZURE_TENANT_ID` | ✅ | — | Azure AD tenant ID |
+| `AWF_AUTH_AZURE_CLIENT_ID` | ✅ | — | Azure AD application (client) ID for the federated credential |
+| `AWF_AUTH_AZURE_SCOPE` | No | `https://cognitiveservices.azure.com/.default` | Azure token scope |
+| `AWF_AUTH_AZURE_CLOUD` | No | `public` | Azure cloud environment (`public`, `usgovernment`, or `china`) |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AWF_AUTH_OIDC_AUDIENCE` | `api://AzureADTokenExchange` | Audience for the GitHub OIDC token |
-| `AWF_AUTH_AZURE_SCOPE` | `https://cognitiveservices.azure.com/.default` | Azure token scope |
-| `AWF_AUTH_AZURE_CLOUD` | `public` | Azure cloud environment (`public`, `usgovernment`, or `china`) |
+Default OIDC audience: `api://AzureADTokenExchange`
 
-### GitHub Actions example
+#### GitHub Actions example (Azure)
 
 ```yaml
 jobs:
@@ -548,13 +546,210 @@ jobs:
                 -- your-agent-command
 ```
 
+:::caution
+Azure OpenAI deployments use a different base URL format from OpenAI. Set `--openai-api-target` to your Azure endpoint hostname and add it to `--allow-domains`.
+:::
+
+### AWS Bedrock
+
+Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleWithWebIdentity`. The sidecar uses these credentials to sign requests to AWS Bedrock using SigV4.
+
+#### AWS-specific environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AWF_AUTH_AWS_ROLE_ARN` | ✅ | — | IAM role ARN to assume via OIDC federation |
+| `AWF_AUTH_AWS_REGION` | ✅ | — | AWS region for the Bedrock endpoint |
+| `AWF_AUTH_AWS_ROLE_SESSION_NAME` | No | `awf-oidc-session` | Session name for the STS call |
+
+Default OIDC audience: `sts.amazonaws.com`
+
+#### GitHub Actions example (AWS)
+
+```yaml
+jobs:
+  agent:
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Run agent with AWS Bedrock
+        env:
+          AWF_AUTH_TYPE: github-oidc
+          AWF_AUTH_PROVIDER: aws
+          AWF_AUTH_AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWF_AUTH_AWS_REGION: us-east-1
+        run: |
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_AWS_ROLE_ARN,AWF_AUTH_AWS_REGION \
+            awf --enable-api-proxy \
+                --allow-domains bedrock-runtime.us-east-1.amazonaws.com,sts.us-east-1.amazonaws.com \
+                -- your-agent-command
+```
+
+:::note
+AWS Bedrock uses IAM/SigV4 request signing rather than Bearer tokens. The sidecar signs the complete request (method, path, headers, body hash) with the temporary credentials.
+:::
+
+### GCP Vertex AI
+
+Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Service, optionally followed by service account impersonation. The resulting token is injected as a Bearer token.
+
+#### GCP-specific environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` | ✅ | — | Full resource name of the Workload Identity Provider |
+| `AWF_AUTH_GCP_SERVICE_ACCOUNT` | No | — | Service account email to impersonate (omit for direct access) |
+| `AWF_AUTH_GCP_SCOPE` | No | `https://www.googleapis.com/auth/cloud-platform` | OAuth2 scope |
+
+Default OIDC audience: the `gcpWorkloadIdentityProvider` value
+
+#### GitHub Actions example (GCP)
+
+```yaml
+jobs:
+  agent:
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Run agent with GCP Vertex AI
+        env:
+          AWF_AUTH_TYPE: github-oidc
+          AWF_AUTH_PROVIDER: gcp
+          AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: projects/123456/locations/global/workloadIdentityPools/my-pool/providers/github
+          AWF_AUTH_GCP_SERVICE_ACCOUNT: my-sa@my-project.iam.gserviceaccount.com
+        run: |
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER,AWF_AUTH_GCP_SERVICE_ACCOUNT \
+            awf --enable-api-proxy \
+                --allow-domains sts.googleapis.com,iamcredentials.googleapis.com,us-central1-aiplatform.googleapis.com \
+                -- your-agent-command
+```
+
 :::note
 `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically; AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc`.
 :::
 
-:::caution
-Azure OpenAI deployments use a different base URL format from OpenAI. Set `--openai-api-target` to your Azure endpoint hostname and add it to `--allow-domains`.
+:::tip
+When `gcpServiceAccount` is omitted, the federated token is used directly without service account impersonation. This requires that the federated principal has direct access grants on the target resource.
 :::
+
+## Effective token budget
+
+The API proxy can enforce a cumulative **effective token budget** per run. When enabled, the proxy tracks weighted token usage across all LLM requests and rejects new requests once the budget is exhausted.
+
+### Configuration
+
+Set in the AWF config file (not available as a CLI flag):
+
+```json
+{
+  "apiProxy": {
+    "maxEffectiveTokens": 500000,
+    "modelMultipliers": {
+      "o3-pro": 15,
+      "o3": 4,
+      "claude-sonnet-4-20250514": 1,
+      "gpt-4.1-mini": 0.5
+    }
+  }
+}
+```
+
+### How tokens are weighted
+
+Raw token counts from upstream responses are not treated equally. Each category has a fixed weight that reflects its relative cost:
+
+| Category | Weight | Example fields |
+|----------|--------|----------------|
+| Input | ×1.0 | `prompt_tokens`, `input_tokens` |
+| Cache read | ×0.1 | `cache_read_input_tokens` |
+| Output | ×4.0 | `completion_tokens`, `output_tokens` |
+| Reasoning | ×4.0 | `reasoning_tokens` |
+
+The formula for a single response is:
+
+```
+effective_tokens = model_multiplier × (1.0×input + 0.1×cache_read + 4.0×output + 4.0×reasoning)
+```
+
+If no model multiplier is configured, it defaults to `1`.
+
+### Enforcement
+
+After each successful upstream response, the proxy accumulates the effective tokens. Before forwarding the *next* request, the proxy checks the running total:
+
+- **Under budget**: Request is forwarded normally.
+- **Budget reached or exceeded**: Request is rejected immediately with:
+  - **HTTP `429 Too Many Requests`**
+  - **Error body**:
+
+    ```json
+    {
+      "error": {
+        "type": "effective_tokens_limit_exceeded",
+        "message": "Maximum effective tokens exceeded (512345.67 / 500000).",
+        "total_effective_tokens": 512345.67,
+        "max_effective_tokens": 500000
+      }
+    }
+    ```
+
+WebSocket upgrade requests are also rejected with `429` when the budget is reached or exceeded.
+
+:::caution
+Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
+:::
+
+### Threshold tracking
+
+The proxy tracks which usage thresholds have been crossed:
+
+| Threshold | Tracked once per run |
+|-----------|-----------------------|
+| 50% | Yes |
+| 75% | Yes |
+| 90% | Yes |
+| 95% | Yes |
+
+Crossed thresholds are exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
+
+### Introspection
+
+Query the `/reflect` endpoint on any provider port to see the current budget state:
+
+```bash
+curl http://172.30.0.30:10000/reflect
+```
+
+The response includes:
+
+```json
+{
+  "effective_tokens": {
+    "enabled": true,
+    "max_effective_tokens": 500000,
+    "total_effective_tokens": 234567.89,
+    "remaining_effective_tokens": 265432.11,
+    "percent_used": 46.91,
+    "thresholds_crossed": []
+  }
+}
+```
+
+### Detecting budget exhaustion
+
+Agents and orchestrators should detect the `429` response and the `effective_tokens_limit_exceeded` error type. The error body is structured JSON and can be parsed programmatically:
+
+```javascript
+if (response.status === 429) {
+  const body = await response.json();
+  if (body.error?.type === 'effective_tokens_limit_exceeded') {
+    // Budget exhausted — stop making API calls
+    console.log(`Token budget exceeded: ${body.error.total_effective_tokens} / ${body.error.max_effective_tokens}`);
+  }
+}
+```
 
 ## Limitations
 

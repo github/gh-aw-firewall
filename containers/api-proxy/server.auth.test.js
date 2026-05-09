@@ -5,7 +5,7 @@
  */
 
 const { shouldStripHeader } = require('./proxy-utils');
-const { resolveCopilotAuthToken, stripBearerPrefix, createCopilotAdapter } = require('./providers/copilot');
+const { _testing: { resolveCopilotAuthToken, stripBearerPrefix }, createCopilotAdapter } = require('./providers/copilot');
 
 describe('shouldStripHeader', () => {
   it('should strip authorization header', () => {

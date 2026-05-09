@@ -601,6 +601,23 @@ if (require.main === module) {
         );
       }
     }
+    if (typeof adapter.getAwsOidcProvider === 'function') {
+      const awsProvider = adapter.getAwsOidcProvider();
+      if (awsProvider) {
+        logRequest('info', 'oidc_startup', {
+          message: `Initializing AWS OIDC credential provider for ${adapter.name}`,
+        });
+        oidcInitPromises.push(
+          awsProvider.initialize().catch((err) => {
+            logRequest('error', 'oidc_startup_failed', {
+              adapter: adapter.name,
+              provider: 'aws',
+              error: String(err),
+            });
+          })
+        );
+      }
+    }
   }
 
   // Determine which adapters to bind and count validation participants
@@ -651,6 +668,9 @@ if (require.main === module) {
       if (typeof adapter.getOidcProvider === 'function') {
         adapter.getOidcProvider()?.shutdown();
       }
+      if (typeof adapter.getAwsOidcProvider === 'function') {
+        adapter.getAwsOidcProvider()?.shutdown();
+      }
     }
     await closeLogStream();
     process.exit(0);
@@ -661,6 +681,9 @@ if (require.main === module) {
     for (const adapter of registeredAdapters) {
       if (typeof adapter.getOidcProvider === 'function') {
         adapter.getOidcProvider()?.shutdown();
+      }
+      if (typeof adapter.getAwsOidcProvider === 'function') {
+        adapter.getAwsOidcProvider()?.shutdown();
       }
     }
     await closeLogStream();

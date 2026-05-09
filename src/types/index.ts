@@ -1,8 +1,5 @@
 /**
  * Barrel re-export of public types from domain-scoped modules.
- *
- * Note: DockerService, DockerNetwork, and DockerVolume are not re-exported
- * here; import them directly from './types/docker' if needed.
  */
 
 export {
