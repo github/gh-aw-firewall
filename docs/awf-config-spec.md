@@ -434,11 +434,158 @@ When `security.difcProxy.host` is set, `GITHUB_TOKEN` and `GH_TOKEN` MUST
 be excluded from the agent environment. These tokens SHALL be held
 exclusively by the external DIFC proxy.
 
+## 10. Effective Token Budget Enforcement
+
+*This section is normative.*
+
+When `apiProxy.maxEffectiveTokens` is configured, the API proxy MUST enforce
+a cumulative effective-token budget across all LLM API requests in a single
+run. The budget limits total *weighted* token consumption, not raw token
+counts.
+
+### 10.1 Token Weighting
+
+Each upstream response's `usage` object is decomposed into four categories,
+each with a fixed weight:
+
+| Category | Weight | Usage field |
+|----------|--------|-------------|
+| Input | 1.0 | `input_tokens` / `prompt_tokens` |
+| Cache read | 0.1 | `cache_read_input_tokens` / `prompt_tokens_details.cached_tokens` |
+| Output | 4.0 | `output_tokens` / `completion_tokens` |
+| Reasoning | 4.0 | `reasoning_tokens` / `completion_tokens_details.reasoning_tokens` |
+
+The base weighted tokens for a single response are:
+
+```
+base = (1.0 × input) + (0.1 × cache_read) + (4.0 × output) + (4.0 × reasoning)
+```
+
+### 10.2 Model Multipliers
+
+When `apiProxy.modelMultipliers` is configured, each model name MAY have
+an associated positive multiplier. The effective tokens for a response are:
+
+```
+effective_tokens = model_multiplier × base_weighted_tokens
+```
+
+If no multiplier is configured for a given model, the multiplier defaults
+to `1`.
+
+### 10.3 Enforcement Behavior
+
+The API proxy MUST enforce the budget as follows:
+
+1. **Accumulation**: After each successful upstream response, the proxy
+   extracts the `usage` object, computes effective tokens, and adds them
+   to a running total for the session.
+
+2. **Pre-request check**: Before forwarding each subsequent request to the
+   upstream provider, the proxy checks whether the cumulative total has
+   reached or exceeded `maxEffectiveTokens`.
+
+3. **Rejection**: When the budget is reached or exceeded, the proxy MUST reject the
+   request with:
+   - **HTTP status**: `429 Too Many Requests`
+   - **Content-Type**: `application/json`
+   - **Response body**:
+     ```json
+     {
+       "error": {
+         "type": "effective_tokens_limit_exceeded",
+         "message": "Maximum effective tokens exceeded (1234.56 / 1000).",
+         "total_effective_tokens": 1234.56,
+         "max_effective_tokens": 1000
+       }
+     }
+     ```
+
+4. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
+   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   error body before destroying the socket.
+
+5. **Finality**: Once the budget is reached or exceeded, all subsequent requests in
+   the same run MUST be rejected. The budget is not recoverable.
+
+### 10.4 Threshold Tracking
+
+The proxy MUST track when cumulative effective tokens cross the following
+percentage thresholds of `maxEffectiveTokens`:
+
+| Threshold |
+|-----------|
+| 50% |
+| 75% |
+| 90% |
+| 95% |
+
+Each threshold MUST be recorded at most once per run.
+
+### 10.5 Introspection
+
+When the API proxy `/reflect` endpoint is queried, the response MUST
+include the current effective-token state:
+
+```json
+{
+  "effective_tokens": {
+    "enabled": true,
+    "max_effective_tokens": 1000,
+    "total_effective_tokens": 456.78,
+    "remaining_effective_tokens": 543.22,
+    "percent_used": 45.68,
+    "thresholds_crossed": []
+  }
+}
+```
+
+When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
+`false` and numeric fields MUST be `0` or `null`.
+
 ## Normative References
 
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — Key words for use in
   RFCs to Indicate Requirement Levels
-- `docs/awf-config.schema.json` — Machine-readable JSON Schema (normative)
+- `docs/awf-config.schema.json` — Machine-readable JSON Schema for
+  configuration documents (normative)
+
+## Runtime JSONL Schemas
+
+AWF emits structured JSONL artifact files at runtime. Each record type has
+a corresponding JSON Schema in the `schemas/` directory:
+
+| Schema | JSONL file | Description |
+|--------|------------|-------------|
+| [`schemas/audit.schema.json`](../schemas/audit.schema.json) | `audit.jsonl` | L7 HTTP/HTTPS traffic decisions (allowed/denied) from the Squid proxy |
+| [`schemas/token-usage.schema.json`](../schemas/token-usage.schema.json) | `token-usage.jsonl` | Per-API-call token usage records from the api-proxy sidecar |
+
+### Versioning
+
+Schema files do not carry an independent version. The repository release
+tag serves as the version:
+
+- The `$id` field in each schema resolves to a stable release download URL.
+- Each JSONL record includes a `_schema` wire-format field encoding the
+  record type and AWF version (e.g., `"_schema": "audit/v0.26.0"`).
+- Consumers SHOULD use a prefix match (`_schema.startsWith("audit/")`)
+  rather than an exact match to handle future versions gracefully.
+
+### Published locations
+
+**Versioned (release assets):**
+```
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/audit.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/token-usage.schema.json
+```
+
+**Latest (main branch):**
+```
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json
+```
 
 ## Informative References
 
@@ -448,3 +595,5 @@ exclusively by the external DIFC proxy.
   Credential isolation architecture and diagrams
 - [docs/api-proxy-sidecar.md](api-proxy-sidecar.md) — API proxy sidecar
   configuration including OIDC authentication for Azure OpenAI
+- [schemas/README.md](../schemas/README.md) — JSONL schema directory with
+  validation examples and versioning policy

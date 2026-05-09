@@ -70,11 +70,11 @@
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects additional requests."
+          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
         },
         "modelMultipliers": {
           "type": "object",
-          "description": "Per-model multipliers used for effective token accounting. Keys are model names and values are positive multipliers.",
+          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Defaults to 1 for unlisted models. See spec §10.2.",
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0

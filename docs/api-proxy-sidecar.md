@@ -634,6 +634,123 @@ jobs:
 When `gcpServiceAccount` is omitted, the federated token is used directly without service account impersonation. This requires that the federated principal has direct access grants on the target resource.
 :::
 
+## Effective token budget
+
+The API proxy can enforce a cumulative **effective token budget** per run. When enabled, the proxy tracks weighted token usage across all LLM requests and rejects new requests once the budget is exhausted.
+
+### Configuration
+
+Set in the AWF config file (not available as a CLI flag):
+
+```json
+{
+  "apiProxy": {
+    "maxEffectiveTokens": 500000,
+    "modelMultipliers": {
+      "o3-pro": 15,
+      "o3": 4,
+      "claude-sonnet-4-20250514": 1,
+      "gpt-4.1-mini": 0.5
+    }
+  }
+}
+```
+
+### How tokens are weighted
+
+Raw token counts from upstream responses are not treated equally. Each category has a fixed weight that reflects its relative cost:
+
+| Category | Weight | Example fields |
+|----------|--------|----------------|
+| Input | ×1.0 | `prompt_tokens`, `input_tokens` |
+| Cache read | ×0.1 | `cache_read_input_tokens` |
+| Output | ×4.0 | `completion_tokens`, `output_tokens` |
+| Reasoning | ×4.0 | `reasoning_tokens` |
+
+The formula for a single response is:
+
+```
+effective_tokens = model_multiplier × (1.0×input + 0.1×cache_read + 4.0×output + 4.0×reasoning)
+```
+
+If no model multiplier is configured, it defaults to `1`.
+
+### Enforcement
+
+After each successful upstream response, the proxy accumulates the effective tokens. Before forwarding the *next* request, the proxy checks the running total:
+
+- **Under budget**: Request is forwarded normally.
+- **Budget reached or exceeded**: Request is rejected immediately with:
+  - **HTTP `429 Too Many Requests`**
+  - **Error body**:
+
+    ```json
+    {
+      "error": {
+        "type": "effective_tokens_limit_exceeded",
+        "message": "Maximum effective tokens exceeded (512345.67 / 500000).",
+        "total_effective_tokens": 512345.67,
+        "max_effective_tokens": 500000
+      }
+    }
+    ```
+
+WebSocket upgrade requests are also rejected with `429` when the budget is reached or exceeded.
+
+:::caution
+Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
+:::
+
+### Threshold tracking
+
+The proxy tracks which usage thresholds have been crossed:
+
+| Threshold | Tracked once per run |
+|-----------|-----------------------|
+| 50% | Yes |
+| 75% | Yes |
+| 90% | Yes |
+| 95% | Yes |
+
+Crossed thresholds are exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
+
+### Introspection
+
+Query the `/reflect` endpoint on any provider port to see the current budget state:
+
+```bash
+curl http://172.30.0.30:10000/reflect
+```
+
+The response includes:
+
+```json
+{
+  "effective_tokens": {
+    "enabled": true,
+    "max_effective_tokens": 500000,
+    "total_effective_tokens": 234567.89,
+    "remaining_effective_tokens": 265432.11,
+    "percent_used": 46.91,
+    "thresholds_crossed": []
+  }
+}
+```
+
+### Detecting budget exhaustion
+
+Agents and orchestrators should detect the `429` response and the `effective_tokens_limit_exceeded` error type. The error body is structured JSON and can be parsed programmatically:
+
+```javascript
+if (response.status === 429) {
+  const body = await response.json();
+  if (body.error?.type === 'effective_tokens_limit_exceeded') {
+    // Budget exhausted — stop making API calls
+    console.log(`Token budget exceeded: ${body.error.total_effective_tokens} / ${body.error.max_effective_tokens}`);
+  }
+}
+```
+
 ## Limitations
 
 - Keys must be set as environment variables (not file-based)
