@@ -10,14 +10,8 @@ import * as fs from 'fs';
 // Mock dependencies
 jest.mock('execa');
 jest.mock('fs');
-jest.mock('../logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 const mockedExeca = execa as jest.MockedFunction<typeof execa>;
 const mockedFs = fs as jest.Mocked<typeof fs>;

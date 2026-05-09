@@ -17,14 +17,8 @@ jest.mock('../pid-tracker', () => ({
   trackPidForPortSync: jest.fn().mockReturnValue({ pid: -1, cmdline: '', comm: '', inode: 0 }),
   isPidTrackingAvailable: jest.fn().mockReturnValue(true),
 }));
-jest.mock('../logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 const mockedExeca = execa as jest.MockedFunction<typeof execa>;
 const mockedFs = fs as jest.Mocked<typeof fs>;

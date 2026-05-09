@@ -10,14 +10,8 @@ import { createLogCommandTests, createLogCommandTestHarness } from './test-helpe
 jest.mock('../logs/log-discovery');
 jest.mock('../logs/log-aggregator');
 jest.mock('../logs/stats-formatter');
-jest.mock('../logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 createLogCommandTests<SummaryCommandOptions>(
   'summary',

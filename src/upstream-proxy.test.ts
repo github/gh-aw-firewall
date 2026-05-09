@@ -1,14 +1,8 @@
 import { parseProxyUrl, parseNoProxy, detectUpstreamProxy, PROXY_ENV_VARS } from './upstream-proxy';
 
 // Suppress logger output in tests
-jest.mock('./logger', () => ({
-  logger: {
-    info: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 describe('PROXY_ENV_VARS', () => {
   it('includes all standard proxy environment variable names', () => {

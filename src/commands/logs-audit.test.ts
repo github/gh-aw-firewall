@@ -13,14 +13,8 @@ import { EnrichedLogEntry } from '../logs/audit-enricher';
 jest.mock('./logs-command-helpers');
 jest.mock('../logs/log-aggregator');
 jest.mock('../logs/audit-enricher');
-jest.mock('../logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 const mockedHelpers = logsCommandHelpers as jest.Mocked<typeof logsCommandHelpers>;
 const mockedAggregator = logAggregator as jest.Mocked<typeof logAggregator>;

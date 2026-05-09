@@ -11,14 +11,8 @@ import { logger } from '../logger';
 // Mock the log modules
 jest.mock('../logs/log-discovery');
 jest.mock('../logs/log-streamer');
-jest.mock('../logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 const mockedDiscovery = logDiscovery as jest.Mocked<typeof logDiscovery>;
 const mockedStreamer = logStreamer as jest.Mocked<typeof logStreamer>;

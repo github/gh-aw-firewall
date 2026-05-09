@@ -11,15 +11,8 @@ jest.mock('./docker-manager', () => ({
 }));
 
 // Mock logger to avoid console output during tests
-jest.mock('./logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    success: jest.fn(),
-  },
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 describe('host-iptables', () => {
   beforeEach(() => {
