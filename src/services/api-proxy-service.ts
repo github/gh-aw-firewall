@@ -101,6 +101,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       ...(config.effectiveTokenModelMultipliers && {
         AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
       }),
+      ...(config.maxRuns !== undefined && {
+        AWF_MAX_RUNS: String(config.maxRuns),
+      }),
       // Model alias configuration
       ...(config.modelAliases && {
         AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),

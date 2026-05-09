@@ -751,6 +751,76 @@ if (response.status === 429) {
 }
 ```
 
+## Max-runs limit
+
+The API proxy can enforce an absolute **maximum number of LLM invocations** per run. When enabled, each successful upstream LLM response increments a counter, and further requests are rejected once the limit is reached.
+
+### Configuration
+
+Set in the AWF config file (not available as a CLI flag):
+
+```json
+{
+  "apiProxy": {
+    "maxRuns": 50
+  }
+}
+```
+
+### Enforcement
+
+Before forwarding each request to the upstream provider, the proxy checks the invocation counter:
+
+- **Under limit**: Request is forwarded normally.
+- **Limit reached or exceeded**: Request is rejected immediately with:
+  - **HTTP `429 Too Many Requests`**
+  - **Error body**:
+
+    ```json
+    {
+      "error": {
+        "type": "max_runs_exceeded",
+        "message": "Maximum LLM invocations exceeded (50 / 50).",
+        "invocation_count": 50,
+        "max_runs": 50
+      }
+    }
+    ```
+
+WebSocket upgrade requests are also rejected with `429` when the limit is reached.
+
+:::caution
+Once the limit is reached, **all subsequent requests in the run are rejected**. The counter is not recoverable within a single run.
+:::
+
+### Introspection
+
+The `/reflect` endpoint exposes the current max-runs state under the `runs` key:
+
+```json
+{
+  "runs": {
+    "enabled": true,
+    "max_runs": 50,
+    "invocation_count": 23,
+    "remaining_runs": 27
+  }
+}
+```
+
+When `maxRuns` is not configured, `enabled` is `false` and `max_runs`/`remaining_runs` are `null`.
+
+### Detecting the limit
+
+```javascript
+if (response.status === 429) {
+  const body = await response.json();
+  if (body.error?.type === 'max_runs_exceeded') {
+    console.log(`Run limit exceeded: ${body.error.invocation_count} / ${body.error.max_runs}`);
+  }
+}
+```
+
 ## Limitations
 
 - Keys must be set as environment variables (not file-based)

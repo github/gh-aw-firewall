@@ -586,6 +586,14 @@ program
       process.exit(1);
     }
 
+    const maxRunsOption = (options as Record<string, unknown>).maxRuns as string | number | undefined;
+    const maxRuns = maxRunsOption !== undefined ? Number(maxRunsOption) : undefined;
+
+    if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns <= 0)) {
+      console.error('Error: Invalid maxRuns value (must be a positive integer)');
+      process.exit(1);
+    }
+
     logger.setLevel(logLevel);
 
     // When DOCKER_HOST points at an external TCP daemon (e.g. workflow-scope DinD),
@@ -930,6 +938,7 @@ program
       modelAliases,
       maxEffectiveTokens,
       effectiveTokenModelMultipliers,
+      maxRuns,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,

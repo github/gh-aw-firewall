@@ -9,7 +9,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { resetEffectiveTokenGuardForTests } = require('./proxy-request');
+const { resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests } = require('./proxy-request');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -498,5 +498,97 @@ describe('proxyRequest effective token guard', () => {
     expect(payload.error.type).toBe('effective_tokens_limit_exceeded');
     expect(payload.error.max_effective_tokens).toBe(10);
     expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('proxyRequest max-runs guard', () => {
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  function makeRes() {
+    return {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    process.env.AWF_MAX_RUNS = '1';
+    resetMaxRunsGuardForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_RUNS;
+    resetMaxRunsGuardForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('returns 429 with structured payload when max runs limit is reached', () => {
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    // First request completes successfully — consumes the single allowed run
+    const req1 = makeReq();
+    const res1 = makeRes();
+    proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req1.emit('end');
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.pipe = jest.fn();
+
+    responseHandler(proxyRes);
+    proxyRes.emit('end');
+
+    // Second request — max-runs limit is now exceeded
+    const req2 = makeReq();
+    const res2 = makeRes();
+    proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req2.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    const payload = JSON.parse(res2.end.mock.calls[0][0]);
+    expect(payload.error.type).toBe('max_runs_exceeded');
+    expect(payload.error.max_runs).toBe(1);
+    expect(payload.error.invocation_count).toBe(1);
+  });
+
+  it('allows requests when max runs is not configured', () => {
+    delete process.env.AWF_MAX_RUNS;
+    resetMaxRunsGuardForTests();
+
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(429, expect.anything());
   });
 });

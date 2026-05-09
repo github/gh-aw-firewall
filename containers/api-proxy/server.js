@@ -35,6 +35,7 @@ const {
   HTTPS_PROXY,
   extractBillingHeaders,
   getEffectiveTokenReflectState,
+  getMaxRunsReflectState,
 } = require('./proxy-request');
 
 const {
@@ -175,6 +176,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   httpsProxy:            HTTPS_PROXY,
   getModelAliases:       () => MODEL_ALIASES,
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
+  getMaxRunsUsage:       () => getMaxRunsReflectState(),
 });
 
 // ── models.json snapshot wrappers ─────────────────────────────────────────────

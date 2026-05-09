@@ -466,6 +466,26 @@ describe('API proxy sidecar', () => {
         expect(env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS).toBe('{"gpt-4o":2,"claude-sonnet-4":1.5}');
       });
 
+      it('should set AWF_MAX_RUNS in api-proxy when maxRuns is configured', () => {
+        const configWithMaxRuns = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          maxRuns: 25,
+        };
+        const result = generateDockerCompose(configWithMaxRuns, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_RUNS).toBe('25');
+      });
+
+      it('should not set AWF_MAX_RUNS in api-proxy when maxRuns is not configured', () => {
+        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_RUNS).toBeUndefined();
+      });
+
       it('should set AWF_ENABLE_OPENCODE=true in api-proxy when enableOpenCode is true', () => {
         const configWithOpenCode = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', enableOpenCode: true };
         const result = generateDockerCompose(configWithOpenCode, mockNetworkConfigWithProxy);

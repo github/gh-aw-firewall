@@ -117,6 +117,96 @@ const effectiveTokenConfigCache = {
   parsed: { max: null, multipliers: {} },
 };
 
+// ── Max-runs guard ────────────────────────────────────────────────────────────
+let maxRunsGuardState = {
+  configKey: null,
+  invocationCount: 0,
+};
+const maxRunsConfigCache = {
+  rawMax: undefined,
+  parsed: null,
+};
+
+function parseMaxRuns(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function getMaxRunsConfig() {
+  const rawMax = process.env.AWF_MAX_RUNS;
+  if (maxRunsConfigCache.rawMax === rawMax) {
+    return maxRunsConfigCache.parsed;
+  }
+  maxRunsConfigCache.rawMax = rawMax;
+  maxRunsConfigCache.parsed = parseMaxRuns(rawMax);
+  return maxRunsConfigCache.parsed;
+}
+
+function getMaxRunsState(max) {
+  if (!max) return null;
+  const configKey = String(max);
+  if (maxRunsGuardState.configKey !== configKey) {
+    maxRunsGuardState = { configKey, invocationCount: 0 };
+  }
+  return maxRunsGuardState;
+}
+
+function applyMaxRunsInvocation() {
+  const max = getMaxRunsConfig();
+  const state = getMaxRunsState(max);
+  if (!state) return;
+  state.invocationCount += 1;
+}
+
+function getMaxRunsBlockState() {
+  const max = getMaxRunsConfig();
+  const state = getMaxRunsState(max);
+  if (!state) return null;
+  return {
+    maxRuns: max,
+    invocationCount: state.invocationCount,
+    maxExceeded: state.invocationCount >= max,
+  };
+}
+
+function getMaxRunsReflectState() {
+  const max = getMaxRunsConfig();
+  const state = getMaxRunsState(max);
+  if (!state) {
+    return {
+      enabled: false,
+      max_runs: null,
+      invocation_count: 0,
+      remaining_runs: null,
+    };
+  }
+  return {
+    enabled: true,
+    max_runs: max,
+    invocation_count: state.invocationCount,
+    remaining_runs: Math.max(0, max - state.invocationCount),
+  };
+}
+
+function resetMaxRunsGuardForTests() {
+  maxRunsGuardState = { configKey: null, invocationCount: 0 };
+  maxRunsConfigCache.rawMax = undefined;
+  maxRunsConfigCache.parsed = null;
+}
+
+function buildMaxRunsLimitError(state) {
+  return {
+    error: {
+      type: 'max_runs_exceeded',
+      message: `Maximum LLM invocations exceeded (${state.invocationCount} / ${state.maxRuns}).`,
+      invocation_count: state.invocationCount,
+      max_runs: state.maxRuns,
+    },
+  };
+}
+
 function createEffectiveTokenState(configKey = null) {
   return {
     configKey,
@@ -494,6 +584,23 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
+    const mrBlock = getMaxRunsBlockState();
+    if (mrBlock && mrBlock.maxExceeded) {
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('warn', 'max_runs_exceeded', {
+        request_id: requestId,
+        provider,
+        invocation_count: mrBlock.invocationCount,
+        max_runs: mrBlock.maxRuns,
+      });
+      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify(buildMaxRunsLimitError(mrBlock)));
+      return;
+    }
+
     const options = {
       hostname: targetHost, port: 443, path: upstreamPath,
       method: req.method, headers,
@@ -528,6 +635,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
         metrics.increment('response_bytes_total', { provider }, responseBytes);
         metrics.observe('request_duration_ms', duration, { provider });
+        if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+          applyMaxRunsInvocation();
+        }
         const logFields = {
           request_id: requestId, provider, method: req.method,
           path: sanitizeForLog(req.url), status: proxyRes.statusCode,
@@ -636,6 +746,20 @@ function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, 
     });
     socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
     socket.write(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
+    socket.destroy();
+    return;
+  }
+
+  const mrBlock = getMaxRunsBlockState();
+  if (mrBlock && mrBlock.maxExceeded) {
+    logRequest('warn', 'max_runs_exceeded', {
+      request_id: requestId,
+      provider,
+      invocation_count: mrBlock.invocationCount,
+      max_runs: mrBlock.maxRuns,
+    });
+    socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
+    socket.write(JSON.stringify(buildMaxRunsLimitError(mrBlock)));
     socket.destroy();
     return;
   }
@@ -775,6 +899,8 @@ module.exports = {
   proxyAgent,
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
+  getMaxRunsReflectState,
   // Exported for tests
   resetEffectiveTokenGuardForTests,
+  resetMaxRunsGuardForTests,
 };

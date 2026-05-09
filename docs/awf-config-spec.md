@@ -100,6 +100,7 @@ the corresponding CLI flag.
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → *(config-only; no CLI equivalent)*
+- `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
 - `apiProxy.auth.provider` → *(config-only; maps to `AWF_AUTH_PROVIDER`)*
@@ -542,6 +543,69 @@ include the current effective-token state:
 
 When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
 `false` and numeric fields MUST be `0` or `null`.
+
+## 11. Max-Runs Enforcement
+
+*This section is normative.*
+
+When `apiProxy.maxRuns` is configured, the API proxy MUST enforce an absolute
+maximum number of LLM invocations per run.
+
+### 11.1 Counting Invocations
+
+An invocation is counted each time the proxy receives a successful (`2xx`)
+HTTP response from an upstream LLM provider. Each response increments a
+per-run counter by one, regardless of the number of tokens consumed.
+
+### 11.2 Enforcement Behavior
+
+The API proxy MUST enforce the max-runs limit as follows:
+
+1. **Pre-request check**: Before forwarding each request to the upstream
+   provider, the proxy checks whether the invocation count has reached or
+   exceeded `maxRuns`.
+
+2. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
+   the request with:
+   - **HTTP status**: `429 Too Many Requests`
+   - **Content-Type**: `application/json`
+   - **Response body**:
+     ```json
+     {
+       "error": {
+         "type": "max_runs_exceeded",
+         "message": "Maximum LLM invocations exceeded (5 / 5).",
+         "invocation_count": 5,
+         "max_runs": 5
+       }
+     }
+     ```
+
+3. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
+   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   error body before destroying the socket.
+
+4. **Finality**: Once the limit is reached, all subsequent requests in the
+   same run MUST be rejected. The counter is not recoverable.
+
+### 11.3 Introspection
+
+When the API proxy `/reflect` endpoint is queried, the response MUST include
+the current max-runs state:
+
+```json
+{
+  "runs": {
+    "enabled": true,
+    "max_runs": 5,
+    "invocation_count": 3,
+    "remaining_runs": 2
+  }
+}
+```
+
+When `maxRuns` is not configured, the `enabled` field MUST be `false` and
+`max_runs` and `remaining_runs` MUST be `null`.
 
 ## Normative References
 

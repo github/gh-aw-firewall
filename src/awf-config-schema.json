@@ -80,6 +80,11 @@
             "exclusiveMinimum": 0
           }
         },
+        "maxRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+        },
         "targets": {
           "type": "object",
           "description": "Override upstream API endpoints for each provider.",

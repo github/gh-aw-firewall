@@ -124,6 +124,15 @@ describe('config-file', () => {
         .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
     });
 
+    it('validates maxRuns in apiProxy', () => {
+      expect(validateAwfFileConfig({ apiProxy: { maxRuns: 10 } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { maxRuns: 1 } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { maxRuns: 0 } }))
+        .toContain('config.apiProxy.maxRuns must be a positive integer');
+      expect(validateAwfFileConfig({ apiProxy: { maxRuns: -1 } }))
+        .toContain('config.apiProxy.maxRuns must be a positive integer');
+    });
+
     it('rejects non-object apiProxy.targets', () => {
       const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
       expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -584,6 +593,16 @@ describe('config-file', () => {
         'gpt-4o': 2,
         'claude-sonnet-4': 1.5,
       });
+    });
+
+    it('maps maxRuns field', () => {
+      const result = mapAwfFileConfigToCliOptions({ apiProxy: { maxRuns: 42 } });
+      expect(result.maxRuns).toBe(42);
+    });
+
+    it('leaves maxRuns undefined when not set', () => {
+      const result = mapAwfFileConfigToCliOptions({});
+      expect(result.maxRuns).toBeUndefined();
     });
 
     it('leaves anthropicAutoCache and anthropicCacheTailTtl undefined when not set', () => {

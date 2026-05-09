@@ -667,6 +667,14 @@ export interface WrapperConfig {
   effectiveTokenModelMultipliers?: Record<string, number>;
 
   /**
+   * Maximum number of LLM invocations allowed for the current AWF run.
+   *
+   * When set, the API proxy counts each successful upstream LLM response and
+   * rejects additional requests once this absolute limit is reached.
+   */
+  maxRuns?: number;
+
+  /**
    * OpenAI API key for Codex (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this key is injected into the Node.js sidecar
