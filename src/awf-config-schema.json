@@ -70,7 +70,7 @@
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects additional requests."
+          "description": "Maximum cumulative effective tokens allowed for a run. When exceeded, the API proxy rejects additional requests."
         },
         "modelMultipliers": {
           "type": "object",
