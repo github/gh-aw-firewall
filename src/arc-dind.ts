@@ -42,6 +42,10 @@ export function detectArcDindDockerHost(
     };
   }
 
+  if (!dockerHost.startsWith('tcp://')) {
+    return { detected: false };
+  }
+
   return {
     detected: true,
     dockerHost,

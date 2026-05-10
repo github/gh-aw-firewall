@@ -29,6 +29,10 @@ describe('detectArcDindDockerHost', () => {
       reason: 'tcp',
     });
   });
+
+  it('does not misclassify non-tcp docker host schemes', () => {
+    expect(detectArcDindDockerHost({ DOCKER_HOST: 'ssh://docker@example' })).toEqual({ detected: false });
+  });
 });
 
 describe('translateArcDindBindSource', () => {

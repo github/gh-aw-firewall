@@ -229,6 +229,39 @@ describe('agent service', () => {
       }
     });
 
+    it('should skip .copilot bind mount in arcDind mode when the translated source is not staged', () => {
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+      const originalHome = process.env.HOME;
+      const originalSudoUser = process.env.SUDO_USER;
+      delete process.env.SUDO_USER;
+      process.env.HOME = fakeHome;
+
+      try {
+        const copilotDir = path.join(fakeHome, '.copilot');
+        const translatedCopilotDir = path.join(ARC_DIND_BIND_PREFIX, copilotDir.slice(1));
+        fs.mkdirSync(copilotDir, { recursive: true });
+        fs.rmSync(translatedCopilotDir, { recursive: true, force: true });
+
+        const result = generateDockerCompose({ ...mockConfig, arcDind: true }, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).not.toContain(`${translatedCopilotDir}:/host${fakeHome}/.copilot:rw`);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
+        fs.rmSync(path.join(ARC_DIND_BIND_PREFIX, fakeHome.slice(1)), { recursive: true, force: true });
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
     it('should use sessionStateDir when specified for chroot mounts', () => {
       const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
       const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
