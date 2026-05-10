@@ -157,7 +157,7 @@ describe('agent service', () => {
 
         expect(volumes).toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
         expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
-        expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+        expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
       } finally {
         if (originalDockerHost !== undefined) {
           process.env.DOCKER_HOST = originalDockerHost;

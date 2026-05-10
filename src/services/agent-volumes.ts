@@ -274,7 +274,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     const dockerSocketPath = resolveDockerSocketPath(config);
     agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
     // Also expose the /run/docker.sock symlink if it exists
-    if (dockerSocketPath !== '/run/docker.sock') {
+    if (dockerSocketPath === DEFAULT_DOCKER_SOCKET_PATH) {
       agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
     }
     logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
