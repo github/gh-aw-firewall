@@ -78,6 +78,7 @@ export {
   parseAgentTimeout,
   applyAgentTimeout,
   checkDockerHost,
+  resolveDockerHostPathPrefix,
   parseDnsServers,
   parseDnsOverHttps,
   processLocalhostKeyword,
@@ -116,6 +117,7 @@ import {
   parseMemoryLimit,
   applyAgentTimeout,
   checkDockerHost,
+  resolveDockerHostPathPrefix,
   parseDnsServers,
   parseDnsOverHttps,
   processLocalhostKeyword,
@@ -297,6 +299,12 @@ program
     'Docker socket for AWF\'s own containers (default: auto-detect from DOCKER_HOST env).\n' +
     '                                       Use when Docker is at a non-standard path.\n' +
     '                                       Example: unix:///run/user/1000/docker.sock'
+  )
+  .option(
+    '--docker-host-path-prefix <prefix>',
+    'Prefix bind-mount source paths so Docker daemon can resolve runner filesystem paths.\n' +
+    '                                       Useful for split runner/daemon filesystems (e.g. ARC DinD).\n' +
+    '                                       Example: /host'
   )
 
   // -- Container Configuration --
@@ -604,6 +612,11 @@ program
     if (!dockerHostCheck.valid) {
       logger.warn('⚠️  External DOCKER_HOST detected. AWF will redirect its own Docker calls to the local socket.');
       logger.warn('   The original DOCKER_HOST (and related Docker client env vars) are forwarded into the agent container.');
+    }
+    const dockerHostPathPrefixResolution = resolveDockerHostPathPrefix(dockerHostCheck, options.dockerHostPathPrefix);
+    if (dockerHostPathPrefixResolution.autoApplied) {
+      logger.warn('⚠️  Detected split runner/daemon Docker context; auto-applying --docker-host-path-prefix /host for bind mounts.');
+      logger.warn('   Override with --docker-host-path-prefix if your daemon uses a different runner root mount.');
     }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
@@ -958,6 +971,7 @@ program
       diagnosticLogs: options.diagnosticLogs || false,
       awfDockerHost: options.dockerHost,
       upstreamProxy,
+      dockerHostPathPrefix: dockerHostPathPrefixResolution.dockerHostPathPrefix,
     };
 
     // Apply --docker-host override for AWF's own container operations.
@@ -965,6 +979,11 @@ program
     if (config.awfDockerHost && !config.awfDockerHost.startsWith('unix://')) {
       logger.error(`❌ --docker-host must be a unix:// socket URI, got: ${config.awfDockerHost}`);
       logger.error('   Example: --docker-host unix:///run/user/1000/docker.sock');
+      process.exit(1);
+    }
+    if (config.dockerHostPathPrefix && !config.dockerHostPathPrefix.startsWith('/')) {
+      logger.error(`❌ --docker-host-path-prefix must be an absolute path, got: ${config.dockerHostPathPrefix}`);
+      logger.error('   Example: --docker-host-path-prefix /host');
       process.exit(1);
     }
     setAwfDockerHost(config.awfDockerHost);

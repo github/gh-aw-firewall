@@ -20,6 +20,7 @@ import {
   applyAgentTimeout,
   collectRulesetFile,
   checkDockerHost,
+  resolveDockerHostPathPrefix,
   formatItem,
 } from './option-parsers';
 import * as fs from 'fs';
@@ -1114,6 +1115,23 @@ describe('checkDockerHost', () => {
   it('should return valid for a non-standard unix socket', () => {
     const result = checkDockerHost({ DOCKER_HOST: 'unix:///tmp/custom-docker.sock' });
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('resolveDockerHostPathPrefix', () => {
+  it('returns explicit prefix when provided', () => {
+    const result = resolveDockerHostPathPrefix({ valid: false, error: 'external DOCKER_HOST' }, '/daemon-root');
+    expect(result).toEqual({ dockerHostPathPrefix: '/daemon-root', autoApplied: false });
+  });
+
+  it('auto-applies /host for external DOCKER_HOST when prefix is not provided', () => {
+    const result = resolveDockerHostPathPrefix({ valid: false, error: 'external DOCKER_HOST' }, undefined);
+    expect(result).toEqual({ dockerHostPathPrefix: '/host', autoApplied: true });
+  });
+
+  it('returns undefined when DOCKER_HOST is local and no prefix is provided', () => {
+    const result = resolveDockerHostPathPrefix({ valid: true }, undefined);
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false });
   });
 });
 

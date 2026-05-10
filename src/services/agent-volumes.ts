@@ -17,6 +17,36 @@ interface AgentVolumesParams {
   initSignalDir: string;
 }
 
+function normalizeDockerHostPathPrefix(prefix: string): string {
+  const trimmed = prefix.trim();
+  if (!trimmed) return '';
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/, '');
+  return withoutTrailingSlash || '/';
+}
+
+function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string): string {
+  const parts = mount.split(':');
+  if (parts.length < 2 || parts.length > 3) {
+    return mount;
+  }
+
+  const [hostPath, containerPath, mode] = parts;
+  if (!hostPath.startsWith('/')) {
+    return mount;
+  }
+
+  if (dockerHostPathPrefix === '/') {
+    return mount;
+  }
+
+  const translatedHostPath = hostPath === '/'
+    ? dockerHostPathPrefix
+    : `${dockerHostPathPrefix}${hostPath}`;
+
+  return mode ? `${translatedHostPath}:${containerPath}:${mode}` : `${translatedHostPath}:${containerPath}`;
+}
+
 /**
  * Builds the volume mount list for the agent container.
  */
@@ -412,6 +442,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   });
 
   logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
+
+  if (config.dockerHostPathPrefix) {
+    const dockerHostPathPrefix = normalizeDockerHostPathPrefix(config.dockerHostPathPrefix);
+    if (dockerHostPathPrefix) {
+      return agentVolumes.map(mount => translateBindMountHostPath(mount, dockerHostPathPrefix));
+    }
+  }
 
   return agentVolumes;
 }

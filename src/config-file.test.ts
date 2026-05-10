@@ -287,6 +287,11 @@ describe('config-file', () => {
       expect(errors).toContain('config.container.dockerHost must be a string');
     });
 
+    it('rejects non-string container.dockerHostPathPrefix', () => {
+      const errors = validateAwfFileConfig({ container: { dockerHostPathPrefix: 123 } });
+      expect(errors).toContain('config.container.dockerHostPathPrefix must be a string');
+    });
+
     it('rejects unknown container keys', () => {
       const errors = validateAwfFileConfig({ container: { unknown: true } });
       expect(errors).toContain('config.container.unknown is not supported');
@@ -645,6 +650,7 @@ describe('config-file', () => {
           agentImage: 'custom:latest',
           tty: true,
           dockerHost: 'unix:///var/run/docker.sock',
+          dockerHostPathPrefix: '/host',
         },
       });
 
@@ -658,6 +664,7 @@ describe('config-file', () => {
       expect(result.agentImage).toBe('custom:latest');
       expect(result.tty).toBe(true);
       expect(result.dockerHost).toBe('unix:///var/run/docker.sock');
+      expect(result.dockerHostPathPrefix).toBe('/host');
     });
 
     it('maps environment fields', () => {

@@ -51,6 +51,7 @@ export interface AwfFileConfig {
     agentImage?: string;
     tty?: boolean;
     dockerHost?: string;
+    dockerHostPathPrefix?: string;
   };
   environment?: {
     envFile?: string;
@@ -194,6 +195,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     agentImage: config.container?.agentImage,
     tty: config.container?.tty,
     dockerHost: config.container?.dockerHost,
+    dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
 
     envFile: config.environment?.envFile,
     envAll: config.environment?.envAll,

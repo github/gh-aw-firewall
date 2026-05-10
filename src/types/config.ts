@@ -587,6 +587,17 @@ export interface WrapperConfig {
   awfDockerHost?: string;
 
   /**
+   * Prefix runner-visible bind-mount source paths for Docker daemon resolution
+   *
+   * Use this when the Docker daemon runs in a different filesystem namespace
+   * than the AWF process (for example, ARC + DinD sidecar setups). AWF will
+   * prepend this prefix to bind-mount source paths before generating compose.
+   *
+   * @example '/host'
+   */
+  dockerHostPathPrefix?: string;
+
+  /**
    * URL patterns to allow for HTTPS traffic (requires sslBump: true)
    *
    * When SSL Bump is enabled, these patterns are used to filter HTTPS

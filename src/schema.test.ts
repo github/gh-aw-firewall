@@ -97,6 +97,7 @@ describe('awf-config.schema.json', () => {
         agentImage: 'ghcr.io/actions/actions-runner:latest',
         tty: false,
         dockerHost: 'unix:///var/run/docker.sock',
+        dockerHostPathPrefix: '/host',
       },
       environment: {
         envFile: '.env',

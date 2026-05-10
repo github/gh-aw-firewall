@@ -322,6 +322,10 @@
         "dockerHost": {
           "type": "string",
           "description": "Docker daemon socket or host to connect to (e.g. \"unix:///var/run/docker.sock\")."
+        },
+        "dockerHostPathPrefix": {
+          "type": "string",
+          "description": "Prefix runner-visible bind-mount source paths for Docker daemon resolution (e.g. \"/host\" for split runner/daemon filesystems)."
         }
       }
     },
