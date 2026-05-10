@@ -28,14 +28,18 @@ interface ApiProxyServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+// Match GPT-5 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
+// "copilot/o3-mini"), while avoiding partial matches in unrelated names.
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
 
 function getCopilotModel(config: WrapperConfig): string | undefined {
-  return config.additionalEnv?.COPILOT_MODEL || (config.envAll ? process.env.COPILOT_MODEL : undefined);
+  const model = config.additionalEnv?.COPILOT_MODEL ?? (config.envAll ? process.env.COPILOT_MODEL : undefined);
+  const normalizedModel = model?.trim();
+  return normalizedModel ? normalizedModel : undefined;
 }
 
 function requiresResponsesWireApi(copilotModel: string): boolean {
-  return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel.trim().toLowerCase());
+  return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel);
 }
 
 /**
