@@ -1,5 +1,5 @@
 import { generateDockerCompose } from '../docker-manager';
-import { ARC_DIND_BIND_PREFIX } from '../arc-dind';
+import { ARC_DIND_BIND_PREFIX, translateArcDindBindSource } from '../arc-dind';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -235,12 +235,14 @@ describe('agent service', () => {
       const originalSudoUser = process.env.SUDO_USER;
       delete process.env.SUDO_USER;
       process.env.HOME = fakeHome;
+      const translatedHomeDir = translateArcDindBindSource(fakeHome);
 
       try {
         const copilotDir = path.join(fakeHome, '.copilot');
-        const translatedCopilotDir = path.join(ARC_DIND_BIND_PREFIX, copilotDir.slice(1));
+        const translatedCopilotDir = translateArcDindBindSource(copilotDir);
         fs.mkdirSync(copilotDir, { recursive: true });
         fs.rmSync(translatedCopilotDir, { recursive: true, force: true });
+        expect(fs.existsSync(translatedCopilotDir)).toBe(false);
 
         const result = generateDockerCompose({ ...mockConfig, arcDind: true }, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
@@ -257,7 +259,7 @@ describe('agent service', () => {
         } else {
           delete process.env.SUDO_USER;
         }
-        fs.rmSync(path.join(ARC_DIND_BIND_PREFIX, fakeHome.slice(1)), { recursive: true, force: true });
+        fs.rmSync(translatedHomeDir, { recursive: true, force: true });
         fs.rmSync(fakeHome, { recursive: true, force: true });
       }
     });
