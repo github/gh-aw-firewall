@@ -113,8 +113,9 @@ post-steps:
 6. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 7. **Discussion Interaction Testing**: 
    - Use the `github-discussion-query` safe-input tool with params: `limit=1, jq=".[0]"` to get the latest discussion from `__GH_AW_GITHUB_REPOSITORY__`
-   - Extract the discussion number from the result (e.g., if the result is `{"number": 123, "title": "...", ...}`, extract 123)
-   - Use the `add_comment` tool with `discussion_number: <extracted_number>` to add a mystical, oracle-themed comment stating that the smoke test agent was here
+   - Extract the discussion number from the result (e.g., if the result is `{"number": 123, "title": "...", ...}`, extract 123) and validate it is a positive integer (>0)
+   - Only if a valid discussion number exists, use the `add_comment` tool with `discussion_number: <extracted_number>` to add a mystical, oracle-themed comment stating that the smoke test agent was here
+   - If no valid discussion number is available, skip the discussion comment and continue (do not call `add_comment` with `0`, empty, or null targets)
 8. **Build AWF**: Run `npm ci && npm run build` to verify the agent can successfully build the AWF project. If the command fails, mark this test as ❌ and report the failure.
 
 ## Output
@@ -124,7 +125,7 @@ post-steps:
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
 
-Use the `add_comment` tool to add a **mystical oracle-themed comment** to the latest discussion (using the `discussion_number` you extracted in step 7) - be creative and use mystical language like "🔮 The ancient spirits stir..."
+If step 7 produced a valid discussion number (>0), use the `add_comment` tool to add a **mystical oracle-themed comment** to that discussion - be creative and use mystical language like "🔮 The ancient spirits stir..."
 
 If all tests pass:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
