@@ -1,4 +1,5 @@
 import { generateDockerCompose } from '../docker-manager';
+import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -183,6 +184,30 @@ describe('agent service', () => {
         expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
         expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
       } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should warn and fall back to the default socket for an invalid Unix DOCKER_HOST path', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      process.env.DOCKER_HOST = 'unix://relative/path';
+
+      try {
+        const dindConfig = { ...mockConfig, enableDind: true };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+        expect(volumes).not.toContain('relative/path:/hostrelative/path:rw');
+        expect(warnSpy).toHaveBeenCalledWith('Ignoring invalid unix Docker host path: unix://relative/path');
+      } finally {
+        warnSpy.mockRestore();
         if (originalDockerHost !== undefined) {
           process.env.DOCKER_HOST = originalDockerHost;
         } else {

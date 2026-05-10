@@ -21,12 +21,17 @@ const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 
 function resolveDockerSocketPath(config: WrapperConfig): string {
   const dockerHost = config.awfDockerHost ?? process.env.DOCKER_HOST;
-  if (!dockerHost?.startsWith('unix://')) {
+  if (!dockerHost) {
+    return DEFAULT_DOCKER_SOCKET_PATH;
+  }
+
+  if (!dockerHost.startsWith('unix://')) {
+    logger.debug(`Ignoring non-Unix Docker host for DinD socket mount: ${dockerHost}`);
     return DEFAULT_DOCKER_SOCKET_PATH;
   }
 
   const socketPath = dockerHost.slice('unix://'.length);
-  if (socketPath.startsWith('/')) {
+  if (socketPath.startsWith('/') && socketPath !== '/' && socketPath.trim() !== '') {
     return socketPath;
   }
 
