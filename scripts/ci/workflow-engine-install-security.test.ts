@@ -37,7 +37,7 @@ describe('workflow engine CLI install security', () => {
     for (const installLine of installLines) {
       expect(installLine).toMatch(/npm install\b/);
       expect(installLine).toContain('--ignore-scripts');
-      expect(installLine).toContain(' -g ');
+      expect(installLine).toMatch(/\s-g(?:\s|$)/);
     }
   });
 });
