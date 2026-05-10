@@ -22,26 +22,34 @@ const engineInstallSecurityRules: EngineInstallSecurityRule[] = [
 
 describe('workflow engine CLI install security', () => {
   it.each(engineInstallSecurityRules)('$expectedDescription', ({ packageName }) => {
-    const installLines: string[] = [];
+    const installCommands: Array<{ lockFile: string; command: string }> = [];
 
     for (const lockFile of lockFiles) {
       const workflowContent = fs.readFileSync(path.join(workflowsDir, lockFile), 'utf-8');
       for (const line of workflowContent.split('\n')) {
-        if (line.includes('npm install') && line.includes(packageName)) {
-          installLines.push(`${lockFile}: ${line.trim()}`);
+        const trimmedLine = line.trim();
+        if (
+          trimmedLine.startsWith('run:') &&
+          trimmedLine.includes('npm install') &&
+          trimmedLine.includes(packageName)
+        ) {
+          installCommands.push({ lockFile, command: trimmedLine });
         }
       }
     }
 
-    if (installLines.length === 0) {
+    if (installCommands.length === 0) {
       throw new Error(
         `No npm install lines found for ${packageName} in .lock.yml workflows; this regression test expects at least one engine install entry.`
       );
     }
-    for (const installLine of installLines) {
-      expect(installLine).toMatch(/npm install\b/);
-      expect(installLine).toContain('--ignore-scripts');
-      expect(installLine).toMatch(/(?:^|\s)-g(?:\s|$)/);
+    const secureInstallCommandRegex =
+      /run:\s+npm install\b(?=.*--ignore-scripts)(?=.*(?:^|\s)(?:-g|--global)(?:\s|$)).*/;
+
+    for (const { lockFile, command } of installCommands) {
+      expect(command).toMatch(secureInstallCommandRegex);
+      expect(command).toContain(packageName);
+      expect(lockFile).toMatch(/\.lock\.yml$/);
     }
   });
 });
