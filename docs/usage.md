@@ -1155,6 +1155,32 @@ awf logs summary >> $GITHUB_STEP_SUMMARY
 
 This creates a collapsible summary in your GitHub Actions workflow output showing all allowed and blocked domains.
 
+### Using `awf logs audit` (Policy Rule Matching)
+
+Enrich firewall logs with policy rule matching to see which specific rule caused each allow/deny decision. Requires a `policy-manifest.json` generated alongside the log files (available when using `--audit-dir`):
+
+```bash
+# Pretty terminal output (default)
+awf logs audit
+
+# JSON format for scripting
+awf logs audit --format json
+
+# Markdown format (for GitHub Actions step summaries)
+awf logs audit --format markdown
+
+# Filter by rule ID
+awf logs audit --rule domain-allowlist
+
+# Filter by domain
+awf logs audit --domain github.com
+
+# Show only denied requests
+awf logs audit --decision denied
+```
+
+> **Note**: `awf logs audit` requires a `policy-manifest.json` file. Run awf with `--audit-dir <path>` to generate audit artifacts, then point `--source` at that directory.
+
 ### Manual Log Queries
 
 For more granular analysis, you can query the logs directly:
