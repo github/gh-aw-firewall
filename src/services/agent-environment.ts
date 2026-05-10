@@ -281,6 +281,14 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
       if (process.env[v]) environment[v] = process.env[v]!;
     }
 
+    // When DinD is exposed via a Unix socket override, keep the agent's default docker
+    // client target aligned with the socket mounted into /host. This covers the common
+    // --enable-dind + --docker-host case where the host process itself does not have
+    // DOCKER_HOST set in its environment.
+    if (config.enableDind && config.awfDockerHost?.startsWith('unix://')) {
+      environment.DOCKER_HOST = config.awfDockerHost;
+    }
+
     // API keys for LLM providers — skip when api-proxy is enabled
     // (the sidecar holds the keys; the agent uses *_BASE_URL instead).
     // COPILOT_GITHUB_TOKEN / COPILOT_API_KEY (BYOK) — forward when api-proxy is NOT enabled;

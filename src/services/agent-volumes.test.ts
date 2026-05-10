@@ -180,14 +180,41 @@ describe('agent service', () => {
         };
         const result = generateDockerCompose(dindConfig, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
+        const env = result.services.agent.environment as Record<string, string>;
 
         expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
         expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
+        expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
       } finally {
         if (originalDockerHost !== undefined) {
           process.env.DOCKER_HOST = originalDockerHost;
         } else {
           delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should set agent DOCKER_HOST from awfDockerHost when enableDind is true and host DOCKER_HOST is unset', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      delete process.env.DOCKER_HOST;
+
+      try {
+        const dindConfig = {
+          ...mockConfig,
+          enableDind: true,
+          awfDockerHost: 'unix:///run/user/1000/docker.sock',
+        };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
+        expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
+        expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
         }
       }
     });
