@@ -33,11 +33,15 @@ describe('workflow engine CLI install security', () => {
       }
     }
 
-    expect(installLines.length).toBeGreaterThan(0);
+    if (installLines.length === 0) {
+      throw new Error(
+        `No npm install lines found for ${packageName} in .lock.yml workflows; this regression test expects at least one engine install entry.`
+      );
+    }
     for (const installLine of installLines) {
       expect(installLine).toMatch(/npm install\b/);
       expect(installLine).toContain('--ignore-scripts');
-      expect(installLine).toMatch(/\s-g(?:\s|$)/);
+      expect(installLine).toMatch(/(?:^|\s)-g(?:\s|$)/);
     }
   });
 });
