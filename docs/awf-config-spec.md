@@ -129,7 +129,6 @@ the corresponding CLI flag.
 - `container.memoryLimit` → `--memory-limit`
 - `container.agentTimeout` → `--agent-timeout`
 - `container.enableDind` → `--enable-dind`
-- `container.arcDind` → `--arc-dind`
 - `container.workDir` → `--work-dir`
 - `container.containerWorkDir` → `--container-workdir`
 - `container.imageRegistry` → `--image-registry`
@@ -139,6 +138,7 @@ the corresponding CLI flag.
 - `container.agentImage` → `--agent-image`
 - `container.tty` → `--tty`
 - `container.dockerHost` → `--docker-host`
+- `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `environment.envFile` → `--env-file`
 - `environment.envAll` → `--env-all`
 - `environment.excludeEnv[]` → `--exclude-env` *(repeatable)*

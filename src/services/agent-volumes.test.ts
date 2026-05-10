@@ -1,5 +1,5 @@
 import { generateDockerCompose } from '../docker-manager';
-import { ARC_DIND_BIND_PREFIX, translateArcDindBindSource } from '../arc-dind';
+import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -58,6 +58,41 @@ describe('agent service', () => {
       // Should still include essential mounts
       expect(volumes).toContain('/tmp:/tmp:rw');
       expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
+    });
+
+    it('should apply dockerHostPathPrefix to bind-mount source paths', () => {
+      const configWithPrefix = {
+        ...mockConfig,
+        dockerHostPathPrefix: '/daemon-root',
+        volumeMounts: ['/workspace:/workspace:ro'],
+      };
+      const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
+      expect(volumes).toContain('/daemon-root/usr:/host/usr:ro');
+      expect(volumes).toContain('/daemon-root/etc/passwd:/host/etc/passwd:ro');
+      expect(volumes).toContain('/daemon-root/workspace:/host/workspace:ro');
+      expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
+      expect(volumes).toContain('/dev/null:/host/run/docker.sock:ro');
+      expect(volumes.some((v: string) => v.startsWith(`/daemon-root${mockConfig.workDir}/chroot-`) && v.endsWith(':/host/etc/hosts:ro'))).toBe(true);
+
+      // Kernel virtual filesystems should NOT be prefixed — they are daemon-local
+      expect(volumes).toContain('/dev:/host/dev:ro');
+      expect(volumes).toContain('/sys:/host/sys:ro');
+      expect(volumes).not.toContain('/daemon-root/dev:/host/dev:ro');
+      expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
+    });
+
+    it('should normalize trailing slash in dockerHostPathPrefix', () => {
+      const configWithPrefix = {
+        ...mockConfig,
+        dockerHostPathPrefix: '/daemon-root/',
+      };
+      const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     });
 
     it('should use selective mounts when no custom mounts specified', () => {
@@ -147,6 +182,104 @@ describe('agent service', () => {
       expect(volumes).not.toContain('/dev/null:/host/run/docker.sock:ro');
     });
 
+    it('should expose the Unix DOCKER_HOST socket path when enableDind is true', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
+
+      try {
+        const dindConfig = { ...mockConfig, enableDind: true };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
+        expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should prefer awfDockerHost over DOCKER_HOST when enableDind is true', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
+
+      try {
+        const dindConfig = {
+          ...mockConfig,
+          enableDind: true,
+          awfDockerHost: 'unix:///run/user/1000/docker.sock',
+        };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
+        expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
+        expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should set agent DOCKER_HOST from awfDockerHost when enableDind is true and host DOCKER_HOST is unset', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      delete process.env.DOCKER_HOST;
+
+      try {
+        const dindConfig = {
+          ...mockConfig,
+          enableDind: true,
+          awfDockerHost: 'unix:///run/user/1000/docker.sock',
+        };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
+        expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
+        expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should warn and fall back to the default socket for an invalid Unix DOCKER_HOST path', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      process.env.DOCKER_HOST = 'unix://relative/path';
+
+      try {
+        const dindConfig = { ...mockConfig, enableDind: true };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+        expect(volumes).not.toContain('relative/path:/hostrelative/path:rw');
+        expect(warnSpy).toHaveBeenCalledWith('Ignoring invalid unix Docker host path: unix://relative/path');
+      } finally {
+        warnSpy.mockRestore();
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
     it('should mount workspace directory under /host', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
@@ -229,40 +362,6 @@ describe('agent service', () => {
       }
     });
 
-    it('should skip .copilot bind mount in arcDind mode when the translated source is not staged', () => {
-      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
-      const originalHome = process.env.HOME;
-      const originalSudoUser = process.env.SUDO_USER;
-      delete process.env.SUDO_USER;
-      process.env.HOME = fakeHome;
-      const translatedHomeDir = translateArcDindBindSource(fakeHome);
-
-      try {
-        const copilotDir = path.join(fakeHome, '.copilot');
-        const translatedCopilotDir = translateArcDindBindSource(copilotDir);
-        fs.mkdirSync(copilotDir, { recursive: true });
-        expect(fs.existsSync(translatedCopilotDir)).toBe(false);
-
-        const result = generateDockerCompose({ ...mockConfig, arcDind: true }, mockNetworkConfig);
-        const volumes = result.services.agent.volumes as string[];
-
-        expect(volumes).not.toContain(`${translatedCopilotDir}:/host${fakeHome}/.copilot:rw`);
-      } finally {
-        if (originalHome !== undefined) {
-          process.env.HOME = originalHome;
-        } else {
-          delete process.env.HOME;
-        }
-        if (originalSudoUser !== undefined) {
-          process.env.SUDO_USER = originalSudoUser;
-        } else {
-          delete process.env.SUDO_USER;
-        }
-        fs.rmSync(fakeHome, { recursive: true, force: true });
-        fs.rmSync(translatedHomeDir, { recursive: true, force: true });
-      }
-    });
-
     it('should use sessionStateDir when specified for chroot mounts', () => {
       const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
       const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
@@ -290,36 +389,6 @@ describe('agent service', () => {
       expect(volumes).toContain('/etc/passwd:/host/etc/passwd:ro');
       expect(volumes).toContain('/etc/group:/host/etc/group:ro');
       expect(volumes).toContain('/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro');
-    });
-
-    it('should rewrite AWF-managed bind sources when arcDind is enabled', () => {
-      const config = {
-        ...mockConfig,
-        arcDind: true,
-        enableApiProxy: true,
-      };
-      const result = generateDockerCompose(config, {
-        ...mockNetworkConfig,
-        proxyIp: '172.30.0.30',
-      });
-      const agentVolumes = result.services.agent.volumes as string[];
-      const squidVolumes = result.services['squid-proxy'].volumes as string[];
-      const apiProxyVolumes = result.services['api-proxy'].volumes as string[];
-      const iptablesVolumes = result.services['iptables-init'].volumes as string[];
-      const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
-      const homeDir = process.env.HOME || '/root';
-
-      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/usr:/host/usr:ro`);
-      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${workspaceDir}:/host${workspaceDir}:rw`);
-      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${homeDir}/.cache:/host${homeDir}/.cache:rw`);
-      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/etc/passwd:/host/etc/passwd:ro`);
-      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/tmp:/host/tmp:rw`);
-      expect(agentVolumes).toContain('/sys:/host/sys:ro');
-      expect(agentVolumes).toContain('/dev:/host/dev:ro');
-
-      expect(squidVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/squid-logs:/var/log/squid:rw`);
-      expect(apiProxyVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/api-proxy-logs:/var/log/api-proxy:rw`);
-      expect(iptablesVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
     });
 
     it('should mount read-only chroot-hosts when enableHostAccess is true', () => {

@@ -31,10 +31,6 @@ import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from './upstream-pro
 import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsInPlaceWithCliPrecedence } from './config-file';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
-import {
-  ARC_DIND_BIND_PREFIX,
-  detectArcDindDockerHost,
-} from './arc-dind';
 
 // Re-export domain utilities (extracted to domain-utils.ts)
 export {
@@ -82,6 +78,7 @@ export {
   parseAgentTimeout,
   applyAgentTimeout,
   checkDockerHost,
+  resolveDockerHostPathPrefix,
   parseDnsServers,
   parseDnsOverHttps,
   processLocalhostKeyword,
@@ -98,11 +95,6 @@ export {
  * @deprecated Import from dns-resolver.ts instead
  */
 export { DEFAULT_DNS_SERVERS } from './dns-resolver';
-export {
-  ARC_DIND_BIND_PREFIX,
-  detectArcDindDockerHost,
-  translateArcDindBindSource,
-} from './arc-dind';
 
 // Import functions used directly in this file
 import { parseDomains, parseDomainsFile } from './domain-utils';
@@ -125,6 +117,7 @@ import {
   parseMemoryLimit,
   applyAgentTimeout,
   checkDockerHost,
+  resolveDockerHostPathPrefix,
   parseDnsServers,
   parseDnsOverHttps,
   processLocalhostKeyword,
@@ -308,9 +301,10 @@ program
     '                                       Example: unix:///run/user/1000/docker.sock'
   )
   .option(
-    '--arc-dind',
-    'Rewrite AWF-managed bind mount sources under /tmp/gh-aw/arc-root for ARC/DinD split filesystems',
-    false
+    '--docker-host-path-prefix <prefix>',
+    'Prefix bind-mount source paths so Docker daemon can resolve runner filesystem paths.\n' +
+    '                                       Useful for split runner/daemon filesystems (e.g. ARC DinD).\n' +
+    '                                       Example: /host'
   )
 
   // -- Container Configuration --
@@ -619,16 +613,9 @@ program
       logger.warn('⚠️  External DOCKER_HOST detected. AWF will redirect its own Docker calls to the local socket.');
       logger.warn('   The original DOCKER_HOST (and related Docker client env vars) are forwarded into the agent container.');
     }
-    const arcDindDetection = detectArcDindDockerHost();
-    if (arcDindDetection.detected) {
-      logger.warn(`⚠️  ARC/DinD candidate Docker host detected: ${arcDindDetection.dockerHost}`);
-      if (options.arcDind) {
-        logger.warn(`   --arc-dind enabled: AWF-managed bind-mount sources are rewritten under ${ARC_DIND_BIND_PREFIX}.`);
-      } else {
-        logger.warn('   If this runner uses split runner/Docker-daemon filesystems, AWF bind mounts may fail at runtime.');
-        logger.warn(`   Remediation: rerun with --arc-dind and stage daemon-visible copies of workDir and other AWF-managed bind sources under ${ARC_DIND_BIND_PREFIX}.`);
-        logger.warn('   See docs/environment.md for the ARC runner setup reference configuration.');
-      }
+    const dockerHostPathPrefixResolution = resolveDockerHostPathPrefix(dockerHostCheck, options.dockerHostPathPrefix);
+    if (!dockerHostCheck.valid && !dockerHostPathPrefixResolution.dockerHostPathPrefix) {
+      logger.warn('⚠️  If your Docker daemon uses a split runner/daemon filesystem, set --docker-host-path-prefix (for example: /host).');
     }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
@@ -930,7 +917,6 @@ program
       logLevel,
       keepContainers: options.keepContainers,
       tty: options.tty || false,
-      arcDind: options.arcDind,
       workDir: options.workDir,
       buildLocal: options.buildLocal,
       skipPull: options.skipPull,
@@ -984,6 +970,7 @@ program
       diagnosticLogs: options.diagnosticLogs || false,
       awfDockerHost: options.dockerHost,
       upstreamProxy,
+      dockerHostPathPrefix: dockerHostPathPrefixResolution.dockerHostPathPrefix,
     };
 
     // Apply --docker-host override for AWF's own container operations.
@@ -991,6 +978,11 @@ program
     if (config.awfDockerHost && !config.awfDockerHost.startsWith('unix://')) {
       logger.error(`❌ --docker-host must be a unix:// socket URI, got: ${config.awfDockerHost}`);
       logger.error('   Example: --docker-host unix:///run/user/1000/docker.sock');
+      process.exit(1);
+    }
+    if (config.dockerHostPathPrefix && !config.dockerHostPathPrefix.startsWith('/')) {
+      logger.error(`❌ --docker-host-path-prefix must be an absolute path, got: ${config.dockerHostPathPrefix}`);
+      logger.error('   Example: --docker-host-path-prefix /host');
       process.exit(1);
     }
     setAwfDockerHost(config.awfDockerHost);

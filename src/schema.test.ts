@@ -88,7 +88,6 @@ describe('awf-config.schema.json', () => {
         memoryLimit: '4g',
         agentTimeout: 30,
         enableDind: false,
-        arcDind: false,
         workDir: '/tmp/awf-work',
         containerWorkDir: '/workspace',
         imageRegistry: 'ghcr.io/github/gh-aw-firewall',
@@ -98,6 +97,7 @@ describe('awf-config.schema.json', () => {
         agentImage: 'ghcr.io/actions/actions-runner:latest',
         tty: false,
         dockerHost: 'unix:///var/run/docker.sock',
+        dockerHostPathPrefix: '/host',
       },
       environment: {
         envFile: '.env',

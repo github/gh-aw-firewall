@@ -1,5 +1,4 @@
 import { generateDockerCompose } from '../compose-generator';
-import { ARC_DIND_BIND_PREFIX } from '../arc-dind';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -78,24 +77,6 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
         expect(proxy.volumes).toContainEqual('/tmp/difc-proxy-tls/ca.crt:/tmp/proxy-tls/ca.crt:ro');
-      });
-
-      it('should rewrite cli-proxy bind sources when arcDind is enabled', () => {
-        const configWithCliProxy = {
-          ...mockConfig,
-          arcDind: true,
-          difcProxyHost: 'host.docker.internal:18443',
-          difcProxyCaCert: '/tmp/difc-proxy-tls/ca.crt',
-        };
-        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
-        const proxy = result.services['cli-proxy'];
-
-        expect(proxy.volumes).toContainEqual(
-          `${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/cli-proxy-logs:/var/log/cli-proxy:rw`
-        );
-        expect(proxy.volumes).toContainEqual(
-          `${ARC_DIND_BIND_PREFIX}/tmp/difc-proxy-tls/ca.crt:/tmp/proxy-tls/ca.crt:ro`
-        );
       });
 
       it('should not mount CA cert when difcProxyCaCert is not set', () => {

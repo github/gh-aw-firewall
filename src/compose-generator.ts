@@ -142,7 +142,6 @@ export function generateDockerCompose(
   // ── iptables-init service ──────────────────────────────────────────────────
 
   const iptablesInitService = buildIptablesInitService({
-    config,
     agentService,
     environment,
     networkConfig,

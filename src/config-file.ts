@@ -42,7 +42,6 @@ export interface AwfFileConfig {
     memoryLimit?: string;
     agentTimeout?: number;
     enableDind?: boolean;
-    arcDind?: boolean;
     workDir?: string;
     containerWorkDir?: string;
     imageRegistry?: string;
@@ -52,6 +51,7 @@ export interface AwfFileConfig {
     agentImage?: string;
     tty?: boolean;
     dockerHost?: string;
+    dockerHostPathPrefix?: string;
   };
   environment?: {
     envFile?: string;
@@ -186,7 +186,6 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     memoryLimit: config.container?.memoryLimit,
     agentTimeout: toStringIfDefined(config.container?.agentTimeout),
     enableDind: config.container?.enableDind,
-    arcDind: config.container?.arcDind,
     workDir: config.container?.workDir,
     containerWorkdir: config.container?.containerWorkDir,
     imageRegistry: config.container?.imageRegistry,
@@ -196,6 +195,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     agentImage: config.container?.agentImage,
     tty: config.container?.tty,
     dockerHost: config.container?.dockerHost,
+    dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
 
     envFile: config.environment?.envFile,
     envAll: config.environment?.envAll,

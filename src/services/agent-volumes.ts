@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
-import { translateArcDindBindSource } from '../arc-dind';
 import { SslConfig } from '../host-env';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
@@ -18,25 +17,87 @@ interface AgentVolumesParams {
   initSignalDir: string;
 }
 
+function normalizeDockerHostPathPrefix(prefix: string): string {
+  const trimmed = prefix.trim();
+  if (!trimmed) return '';
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/, '');
+  return withoutTrailingSlash || '/';
+}
+
+function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string): string {
+  const parts = mount.split(':');
+  if (parts.length < 2 || parts.length > 3) {
+    return mount;
+  }
+
+  const [hostPath, containerPath, mode] = parts;
+  if (!hostPath.startsWith('/')) {
+    return mount;
+  }
+
+  // Skip kernel virtual filesystems — /dev, /sys, and /proc are provided by the
+  // Docker daemon's own kernel, not staged runner paths. Prefixing them would look
+  // for non-existent directories under the runner root.
+  // SECURITY: /dev/null must be preserved for credential-hiding overlays.
+  // /proc is not bind-mounted (it's a fresh procfs via mount -t proc in entrypoint.sh
+  // with hidepid=2), but is included defensively to prevent accidental exposure of
+  // /proc/*/environ which contains auth credentials.
+  if (hostPath === '/dev/null' || hostPath.startsWith('/dev') || hostPath.startsWith('/sys') || hostPath.startsWith('/proc')) {
+    return mount;
+  }
+
+  if (dockerHostPathPrefix === '/') {
+    return mount;
+  }
+
+  const translatedHostPath = hostPath === '/'
+    ? dockerHostPathPrefix
+    : `${dockerHostPathPrefix}${hostPath}`;
+
+  return mode ? `${translatedHostPath}:${containerPath}:${mode}` : `${translatedHostPath}:${containerPath}`;
+}
+
+const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+
+function resolveDockerSocketPath(config: WrapperConfig): string {
+  const dockerHost = config.awfDockerHost ?? process.env.DOCKER_HOST;
+  if (!dockerHost) {
+    return DEFAULT_DOCKER_SOCKET_PATH;
+  }
+
+  if (!dockerHost.startsWith('unix://')) {
+    logger.debug(`Ignoring non-Unix Docker host for DinD socket mount: ${dockerHost}`);
+    return DEFAULT_DOCKER_SOCKET_PATH;
+  }
+
+  const socketPath = dockerHost.slice('unix://'.length);
+  if (socketPath.startsWith('/') && socketPath !== '/' && socketPath.trim() !== '') {
+    return socketPath;
+  }
+
+  logger.warn(`Ignoring invalid unix Docker host path: ${dockerHost}`);
+  return DEFAULT_DOCKER_SOCKET_PATH;
+}
+
 /**
  * Builds the volume mount list for the agent container.
  */
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const { config, sslConfig, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
-  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   const agentVolumes: string[] = [
     // Essential mounts that are always included
-    `${sourcePath('/tmp')}:/tmp:rw`,
+    '/tmp:/tmp:rw',
     // Mount only the workspace directory (not entire HOME)
     // This prevents access to ~/.docker/, ~/.config/gh/, ~/.npmrc, etc.
-    `${sourcePath(workspaceDir)}:${workspaceDir}:rw`,
+    `${workspaceDir}:${workspaceDir}:rw`,
     // Mount agent logs directory for persistence
-    `${sourcePath(agentLogsPath)}:${effectiveHome}/.copilot/logs:rw`,
+    `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     // Mount agent session-state directory for persistence (events.jsonl, session data)
-    `${sourcePath(sessionStatePath)}:${effectiveHome}/.copilot/session-state:rw`,
+    `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
     // Init signal volume for iptables init container coordination
-    `${sourcePath(initSignalDir)}:/tmp/awf-init:rw`,
+    `${initSignalDir}:/tmp/awf-init:rw`,
   ];
 
   // Volume mounts for chroot /host to work properly with host binaries
@@ -44,19 +105,19 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   // System paths (read-only) - required for binaries and libraries
   agentVolumes.push(
-    `${sourcePath('/usr')}:/host/usr:ro`,
-    `${sourcePath('/bin')}:/host/bin:ro`,
-    `${sourcePath('/sbin')}:/host/sbin:ro`,
+    '/usr:/host/usr:ro',
+    '/bin:/host/bin:ro',
+    '/sbin:/host/sbin:ro',
   );
 
   // Handle /lib and /lib64 - may be symlinks on some systems
   // Always mount them to ensure library resolution works
-  agentVolumes.push(`${sourcePath('/lib')}:/host/lib:ro`);
-  agentVolumes.push(`${sourcePath('/lib64')}:/host/lib64:ro`);
+  agentVolumes.push('/lib:/host/lib:ro');
+  agentVolumes.push('/lib64:/host/lib64:ro');
 
   // Tool cache - language runtimes from GitHub runners (read-only)
   // /opt/hostedtoolcache contains Python, Node, Ruby, Go, Java, etc.
-  agentVolumes.push(`${sourcePath('/opt')}:/host/opt:ro`);
+  agentVolumes.push('/opt:/host/opt:ro');
 
   // Special filesystem mounts for chroot (needed for devices and runtime introspection)
   // NOTE: /proc is NOT bind-mounted here. Instead, a fresh container-scoped procfs is
@@ -66,14 +127,14 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   //   - Container-scoped only (does not expose host process info)
   // The mount requires SYS_ADMIN capability, which is dropped before user code runs.
   agentVolumes.push(
-    `${sourcePath('/sys')}:/host/sys:ro`,             // Read-only sysfs
-    `${sourcePath('/dev')}:/host/dev:ro`,             // Read-only device nodes (needed by some runtimes)
+    '/sys:/host/sys:ro',             // Read-only sysfs
+    '/dev:/host/dev:ro',             // Read-only device nodes (needed by some runtimes)
   );
 
   // SECURITY FIX: Mount only workspace directory instead of entire user home
   // This prevents access to credential files in $HOME
   // Mount workspace directory at /host path for chroot
-  agentVolumes.push(`${sourcePath(workspaceDir)}:/host${workspaceDir}:rw`);
+  agentVolumes.push(`${workspaceDir}:/host${workspaceDir}:rw`);
 
   // Mount an empty writable home directory at /host$HOME
   // This gives tools a writable $HOME without exposing credential files.
@@ -85,56 +146,55 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // NOTE: This directory must be OUTSIDE workDir because workDir has a tmpfs
   // overlay inside the container to hide docker-compose.yml secrets.
   const emptyHomeDir = `${config.workDir}-chroot-home`;
-  agentVolumes.push(`${sourcePath(emptyHomeDir)}:/host${effectiveHome}:rw`);
+  agentVolumes.push(`${emptyHomeDir}:/host${effectiveHome}:rw`);
 
   // /tmp is needed for chroot mode to write:
   // - Temporary command scripts: /host/tmp/awf-cmd-$$.sh
   // - One-shot token LD_PRELOAD library: /host/tmp/awf-lib/one-shot-token.so
-  agentVolumes.push(`${sourcePath('/tmp')}:/host/tmp:rw`);
+  agentVolumes.push('/tmp:/host/tmp:rw');
 
   // Mount ~/.copilot for Copilot CLI (package extraction, MCP config, etc.)
   // This is safe as ~/.copilot contains only Copilot CLI state, not credentials.
   // Auth tokens are in COPILOT_GITHUB_TOKEN env var (handled by API proxy sidecar).
   const copilotHomeDir = path.join(effectiveHome, '.copilot');
-  const copilotMountSource = sourcePath(copilotHomeDir);
-  if (fs.existsSync(copilotMountSource)) {
+  if (fs.existsSync(copilotHomeDir)) {
     try {
-      fs.accessSync(copilotMountSource, fs.constants.R_OK | fs.constants.W_OK);
-      agentVolumes.push(`${copilotMountSource}:/host${effectiveHome}/.copilot:rw`);
+      fs.accessSync(copilotHomeDir, fs.constants.R_OK | fs.constants.W_OK);
+      agentVolumes.push(`${copilotHomeDir}:/host${effectiveHome}/.copilot:rw`);
     } catch (error) {
-      logger.warn(`Cannot access ~/.copilot directory at ${copilotMountSource}; skipping host bind mount. Copilot CLI package extraction and persisted host MCP config may be unavailable. Error: ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn(`Cannot access ~/.copilot directory at ${copilotHomeDir}; skipping host bind mount. Copilot CLI package extraction and persisted host MCP config may be unavailable. Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   } else {
-    logger.debug(`~/.copilot directory does not exist at ${copilotMountSource}; skipping optional host bind mount.`);
+    logger.debug(`~/.copilot directory does not exist at ${copilotHomeDir}; skipping optional host bind mount.`);
   }
 
   // Overlay session-state and logs from AWF workDir so events.jsonl and logs are
   // captured in the workDir instead of written to the host's ~/.copilot.
   // Docker processes mounts in order — these shadow the corresponding paths under
   // the blanket ~/.copilot mount above.
-  agentVolumes.push(`${sourcePath(sessionStatePath)}:/host${effectiveHome}/.copilot/session-state:rw`);
-  agentVolumes.push(`${sourcePath(agentLogsPath)}:/host${effectiveHome}/.copilot/logs:rw`);
+  agentVolumes.push(`${sessionStatePath}:/host${effectiveHome}/.copilot/session-state:rw`);
+  agentVolumes.push(`${agentLogsPath}:/host${effectiveHome}/.copilot/logs:rw`);
 
   // Mount ~/.cache, ~/.config, ~/.local for CLI tool state management (Claude Code, etc.)
   // These directories are safe to mount as they contain application state, not credentials
   // Note: Specific credential files within ~/.config (like ~/.config/gh/hosts.yml) are
   // still blocked via /dev/null overlays applied later in the code
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.cache`)}:/host${effectiveHome}/.cache:rw`);
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.config`)}:/host${effectiveHome}/.config:rw`);
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.local`)}:/host${effectiveHome}/.local:rw`);
+  agentVolumes.push(`${effectiveHome}/.cache:/host${effectiveHome}/.cache:rw`);
+  agentVolumes.push(`${effectiveHome}/.config:/host${effectiveHome}/.config:rw`);
+  agentVolumes.push(`${effectiveHome}/.local:/host${effectiveHome}/.local:rw`);
 
   // Mount ~/.anthropic for Claude Code state and configuration
   // This is safe as ~/.anthropic contains only Claude-specific state, not credentials
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.anthropic`)}:/host${effectiveHome}/.anthropic:rw`);
+  agentVolumes.push(`${effectiveHome}/.anthropic:/host${effectiveHome}/.anthropic:rw`);
 
   // Mount ~/.claude for Claude CLI state and configuration
   // This is safe as ~/.claude contains only Claude-specific state, not credentials
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.claude`)}:/host${effectiveHome}/.claude:rw`);
+  agentVolumes.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
 
   // Mount ~/.gemini for Gemini CLI state and project registry (only when Gemini API key is configured)
   // This is safe as ~/.gemini contains only Gemini-specific state, not credentials
   if (config.geminiApiKey) {
-    agentVolumes.push(`${sourcePath(`${effectiveHome}/.gemini`)}:/host${effectiveHome}/.gemini:rw`);
+    agentVolumes.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
   }
 
   // NOTE: ~/.claude.json is NOT bind-mounted as a file. File bind mounts on Linux
@@ -149,26 +209,26 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // ~/.cargo/credentials, which needs a writable parent to create the mountpoint.
   // ~/.rustup must be rw because rustup proxy binaries (rustc, cargo) need to
   // acquire file locks in ~/.rustup/ when executing toolchain binaries.
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.cargo`)}:/host${effectiveHome}/.cargo:rw`);
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.rustup`)}:/host${effectiveHome}/.rustup:rw`);
+  agentVolumes.push(`${effectiveHome}/.cargo:/host${effectiveHome}/.cargo:rw`);
+  agentVolumes.push(`${effectiveHome}/.rustup:/host${effectiveHome}/.rustup:rw`);
 
   // Mount ~/.npm for npm cache directory access
   // npm requires write access to ~/.npm for caching packages and writing logs
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.npm`)}:/host${effectiveHome}/.npm:rw`);
+  agentVolumes.push(`${effectiveHome}/.npm:/host${effectiveHome}/.npm:rw`);
 
   // Mount ~/.nvm for Node.js installations managed by nvm on self-hosted runners
-  agentVolumes.push(`${sourcePath(`${effectiveHome}/.nvm`)}:/host${effectiveHome}/.nvm:rw`);
+  agentVolumes.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
   // Minimal /etc - only what's needed for runtime
   // Note: /etc/shadow is NOT mounted (contains password hashes)
   agentVolumes.push(
-    `${sourcePath('/etc/ssl')}:/host/etc/ssl:ro`,                         // SSL certificates
-    `${sourcePath('/etc/ca-certificates')}:/host/etc/ca-certificates:ro`, // CA certificates
-    `${sourcePath('/etc/alternatives')}:/host/etc/alternatives:ro`,       // For update-alternatives (runtime version switching)
-    `${sourcePath('/etc/ld.so.cache')}:/host/etc/ld.so.cache:ro`,         // Dynamic linker cache
-    `${sourcePath('/etc/passwd')}:/host/etc/passwd:ro`,                   // User database (needed for getent/user lookup)
-    `${sourcePath('/etc/group')}:/host/etc/group:ro`,                     // Group database (needed for getent/group lookup)
-    `${sourcePath('/etc/nsswitch.conf')}:/host/etc/nsswitch.conf:ro`,     // Name service switch config
+    '/etc/ssl:/host/etc/ssl:ro',                         // SSL certificates
+    '/etc/ca-certificates:/host/etc/ca-certificates:ro', // CA certificates
+    '/etc/alternatives:/host/etc/alternatives:ro',       // For update-alternatives (runtime version switching)
+    '/etc/ld.so.cache:/host/etc/ld.so.cache:ro',         // Dynamic linker cache
+    '/etc/passwd:/host/etc/passwd:ro',                   // User database (needed for getent/user lookup)
+    '/etc/group:/host/etc/group:ro',                     // Group database (needed for getent/group lookup)
+    '/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro',     // Name service switch config
   );
 
   // Mount /etc/hosts for host name resolution inside chroot
@@ -251,16 +311,18 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const chrootHostsDir = fs.mkdtempSync(path.join(config.workDir, 'chroot-'));
   const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
   fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
-  agentVolumes.push(`${sourcePath(chrootHostsPath)}:/host/etc/hosts:ro`);
+  agentVolumes.push(`${chrootHostsPath}:/host/etc/hosts:ro`);
 
   // SECURITY: Docker socket access control
   if (config.enableDind) {
     logger.warn('Docker-in-Docker enabled: agent can run docker commands (firewall bypass possible)');
     // Mount the real Docker socket into the chroot
-    const dockerSocketPath = '/var/run/docker.sock';
-    agentVolumes.push(`${sourcePath(dockerSocketPath)}:/host${dockerSocketPath}:rw`);
+    const dockerSocketPath = resolveDockerSocketPath(config);
+    agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
     // Also expose the /run/docker.sock symlink if it exists
-    agentVolumes.push(`${sourcePath('/run/docker.sock')}:/host/run/docker.sock:rw`);
+    if (dockerSocketPath === DEFAULT_DOCKER_SOCKET_PATH) {
+      agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
+    }
     logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
   } else {
     // Hide Docker socket to prevent firewall bypass via 'docker run'
@@ -274,7 +336,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // Add SSL CA certificate mount if SSL Bump is enabled
   // This allows the agent container to trust the dynamically-generated CA
   if (sslConfig) {
-    agentVolumes.push(`${sourcePath(sslConfig.caFiles.certPath)}:/usr/local/share/ca-certificates/awf-ca.crt:ro`);
+    agentVolumes.push(`${sslConfig.caFiles.certPath}:/usr/local/share/ca-certificates/awf-ca.crt:ro`);
   }
 
   // SECURITY: Selective mounting to prevent credential exfiltration
@@ -415,6 +477,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   });
 
   logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
+
+  if (config.dockerHostPathPrefix) {
+    const dockerHostPathPrefix = normalizeDockerHostPathPrefix(config.dockerHostPathPrefix);
+    if (dockerHostPathPrefix) {
+      return agentVolumes.map(mount => translateBindMountHostPath(mount, dockerHostPathPrefix));
+    }
+  }
 
   return agentVolumes;
 }

@@ -209,48 +209,6 @@ When `DOCKER_HOST` is set to a TCP address, AWF:
 2. **Clears `DOCKER_HOST`** for all `docker` / `docker compose` calls it makes internally, so they target the local daemon.
 3. **Forwards the original `DOCKER_HOST`** into the agent container's environment, so Docker commands run *by the agent* still reach the DinD daemon.
 
-### ARC/DinD split-filesystem compatibility
-
-Actions Runner Controller (ARC) often runs the GitHub Actions runner container and the Docker daemon sidecar against **different filesystems**. In that topology, AWF-managed bind mounts that work on a normal local Docker socket can fail because Docker resolves the source path in the daemon container, not in the runner container.
-
-If AWF detects a non-default `DOCKER_HOST` (for example `tcp://localhost:2375` or `unix:///run/user/1000/docker.sock`), it emits an ARC/DinD compatibility warning. Use `--arc-dind` (or `container.arcDind: true` in config) when your workflow stages daemon-visible copies of AWF-managed paths.
-
-When `--arc-dind` is enabled, AWF rewrites its own bind-mount sources under:
-
-```text
-/tmp/gh-aw/arc-root/...
-```
-
-Custom user-provided mounts are left unchanged. They must already point at daemon-visible paths.
-
-### Reference ARC runner configuration
-
-```yaml
-container:
-  arcDind: true
-  dockerHost: unix:///var/run/docker.sock
-  workDir: /tmp/gh-aw/awf-work
-environment:
-  envFile: /tmp/gh-aw/runtime.env
-```
-
-With the equivalent CLI invocation:
-
-```bash
-DOCKER_HOST=tcp://localhost:2375 \
-awf --arc-dind \
-    --work-dir /tmp/gh-aw/awf-work \
-    --env-file /tmp/gh-aw/runtime.env \
-    --allow-domains github.com \
-    -- agent-command
-```
-
-Expected staging contract for the Docker daemon filesystem:
-
-- Mirror AWF-managed runner paths under `/tmp/gh-aw/arc-root/...`
-- Pre-stage writable AWF runtime directories such as the work directory, log directories, session-state directories, and any required home/XDG state
-- Pre-stage required chroot inputs such as `/usr`, `/bin`, `/sbin`, `/lib*`, `/opt`, and `/etc/*` files that AWF bind-mounts into `/host`
-
 ### Example workflow structure
 
 ```yaml
@@ -285,7 +243,22 @@ awf --docker-host unix:///run/user/1000/docker.sock \
     -- agent-command
 ```
 
-This overrides the socket used for AWF's own operations without affecting the agent's `DOCKER_HOST`.
+This overrides the socket used for AWF's own operations. When combined with `--enable-dind`, AWF also mounts that Unix socket into the agent and sets the agent's `DOCKER_HOST` to the same value so in-agent `docker` commands use the matching socket by default.
+
+### ARC / Kubernetes DinD sidecar pattern
+
+On ARC self-hosted runners that expose Docker via a shared Unix socket volume instead of a TCP listener, set `DOCKER_HOST` to that Unix socket and enable DinD passthrough:
+
+```yaml
+env:
+  DOCKER_HOST: unix:///var/run/docker.sock
+steps:
+  - name: Run agent with AWF
+    run: |
+      awf --enable-dind --allow-domains github.com -- docker ps
+```
+
+When `DOCKER_HOST` points to a Unix socket, AWF now uses that socket path for DinD exposure instead of assuming `/var/run/docker.sock`. If your runner uses a different socket path, AWF will honor it automatically. If you need an explicit override, `--docker-host unix:///path/to/docker.sock` also becomes the DinD socket exposed to the agent when `--enable-dind` is set, and AWF sets the agent's `DOCKER_HOST` to that same Unix URI.
 
 ### Limitation
 

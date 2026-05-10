@@ -1,8 +1,8 @@
 import * as path from 'path';
-import { translateArcDindBindSource } from '../arc-dind';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
+  readEnvFile,
   stripScheme,
 } from '../host-env';
 import { buildRuntimeImageRef } from '../image-tag';
@@ -29,6 +29,27 @@ interface ApiProxyServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+// Match GPT-5 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
+// "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
+// are runtime-configurable and not limited to a fixed allowlist.
+const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
+
+function getCopilotModel(config: WrapperConfig): string | undefined {
+  const envFileModel = config.envFile
+    ? readEnvFile(config.envFile).COPILOT_MODEL
+    : undefined;
+  const model =
+    config.additionalEnv?.COPILOT_MODEL ??
+    envFileModel ??
+    (config.envAll ? process.env.COPILOT_MODEL : undefined);
+  const normalizedModel = model?.trim();
+  return normalizedModel || undefined;
+}
+
+function requiresResponsesWireApi(copilotModel: string): boolean {
+  return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel);
+}
+
 /**
  * Builds the API proxy sidecar service configuration and associated agent environment
  * mutations required for credential isolation.
@@ -37,7 +58,6 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
@@ -52,7 +72,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     },
     volumes: [
       // Mount log directory for api-proxy logs
-      `${sourcePath(apiProxyLogsPath)}:/var/log/api-proxy:rw`,
+      `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
     ],
     environment: {
       // Pass API keys securely to sidecar (not visible to agent)
@@ -266,6 +286,12 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     // COPILOT_PROVIDER_API_KEY placeholder: real key is held by the sidecar, never exposed to agent.
     // Set early placeholder (before this block) already handled above.
     logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
+
+    const copilotModel = getCopilotModel(config);
+    if (copilotModel && requiresResponsesWireApi(copilotModel)) {
+      agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
+      logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
+    }
   }
   // Only configure Gemini proxy routing when a Gemini API key is provided.
   // Previously this was unconditional, which caused the Gemini CLI's ~/.gemini
