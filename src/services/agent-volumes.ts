@@ -26,7 +26,12 @@ function resolveDockerSocketPath(config: WrapperConfig): string {
   }
 
   const socketPath = dockerHost.slice('unix://'.length);
-  return socketPath.startsWith('/') ? socketPath : DEFAULT_DOCKER_SOCKET_PATH;
+  if (socketPath.startsWith('/')) {
+    return socketPath;
+  }
+
+  logger.warn(`Ignoring invalid unix Docker host path: ${dockerHost}`);
+  return DEFAULT_DOCKER_SOCKET_PATH;
 }
 
 /**

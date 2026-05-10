@@ -146,7 +146,7 @@ describe('agent service', () => {
       expect(volumes).not.toContain('/dev/null:/host/run/docker.sock:ro');
     });
 
-    it('should expose the unix DOCKER_HOST socket path when enableDind is true', () => {
+    it('should expose the Unix DOCKER_HOST socket path when enableDind is true', () => {
       const originalDockerHost = process.env.DOCKER_HOST;
       process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
 
