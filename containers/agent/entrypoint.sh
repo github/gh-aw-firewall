@@ -461,9 +461,14 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   # always resolves to the parent shell's exe, causing runtime failures.
   # Security: This procfs is container-scoped (only shows container processes, not host).
   # SYS_ADMIN capability (required for mount) is dropped before user code runs.
+  # SECURITY: hidepid=2 prevents awfuser from reading other processes' /proc/[pid]/environ,
+  # which is critical because PID 1 (entrypoint) may briefly hold auth tokens before
+  # unset_sensitive_tokens() clears them. Without hidepid=2, the agent could race to read
+  # /proc/1/environ and extract credentials. Also blocks access via /dev/fd → /proc/self/fd
+  # symlink traversal paths.
   mkdir -p /host/proc
-  if mount -t proc -o nosuid,nodev,noexec proc /host/proc; then
-    echo "[entrypoint] Mounted procfs at /host/proc (nosuid,nodev,noexec)"
+  if mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /host/proc; then
+    echo "[entrypoint] Mounted procfs at /host/proc (nosuid,nodev,noexec,hidepid=2)"
   else
     echo "[entrypoint][ERROR] Failed to mount procfs at /host/proc"
     echo "[entrypoint][ERROR] This is required for Java, .NET, and other runtimes that read /proc/self/exe"

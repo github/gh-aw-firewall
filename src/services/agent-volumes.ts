@@ -36,11 +36,14 @@ function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string)
     return mount;
   }
 
-  // Skip kernel virtual filesystems — /dev and /sys are provided by the Docker
-  // daemon's own kernel, not staged runner paths. Prefixing them would look for
-  // non-existent directories under the runner root. /dev/null specifically must
-  // be preserved for credential-hiding overlays.
-  if (hostPath === '/dev/null' || hostPath.startsWith('/dev') || hostPath.startsWith('/sys')) {
+  // Skip kernel virtual filesystems — /dev, /sys, and /proc are provided by the
+  // Docker daemon's own kernel, not staged runner paths. Prefixing them would look
+  // for non-existent directories under the runner root.
+  // SECURITY: /dev/null must be preserved for credential-hiding overlays.
+  // /proc is not bind-mounted (it's a fresh procfs via mount -t proc in entrypoint.sh
+  // with hidepid=2), but is included defensively to prevent accidental exposure of
+  // /proc/*/environ which contains auth credentials.
+  if (hostPath === '/dev/null' || hostPath.startsWith('/dev') || hostPath.startsWith('/sys') || hostPath.startsWith('/proc')) {
     return mount;
   }
 
