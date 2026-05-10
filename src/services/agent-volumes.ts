@@ -17,6 +17,18 @@ interface AgentVolumesParams {
   initSignalDir: string;
 }
 
+const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+
+function resolveDockerSocketPath(config: WrapperConfig): string {
+  const dockerHost = config.awfDockerHost ?? process.env.DOCKER_HOST;
+  if (!dockerHost?.startsWith('unix://')) {
+    return DEFAULT_DOCKER_SOCKET_PATH;
+  }
+
+  const socketPath = dockerHost.slice('unix://'.length);
+  return socketPath.startsWith('/') ? socketPath : DEFAULT_DOCKER_SOCKET_PATH;
+}
+
 /**
  * Builds the volume mount list for the agent container.
  */
@@ -254,10 +266,12 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   if (config.enableDind) {
     logger.warn('Docker-in-Docker enabled: agent can run docker commands (firewall bypass possible)');
     // Mount the real Docker socket into the chroot
-    const dockerSocketPath = '/var/run/docker.sock';
+    const dockerSocketPath = resolveDockerSocketPath(config);
     agentVolumes.push(`${dockerSocketPath}:/host${dockerSocketPath}:rw`);
     // Also expose the /run/docker.sock symlink if it exists
-    agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
+    if (dockerSocketPath !== '/run/docker.sock') {
+      agentVolumes.push('/run/docker.sock:/host/run/docker.sock:rw');
+    }
     logger.debug('Selective mounts configured: system paths (ro), home (rw), Docker socket exposed');
   } else {
     // Hide Docker socket to prevent firewall bypass via 'docker run'

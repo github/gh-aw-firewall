@@ -146,6 +146,51 @@ describe('agent service', () => {
       expect(volumes).not.toContain('/dev/null:/host/run/docker.sock:ro');
     });
 
+    it('should expose the unix DOCKER_HOST socket path when enableDind is true', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
+
+      try {
+        const dindConfig = { ...mockConfig, enableDind: true };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
+        expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+        expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
+    it('should prefer awfDockerHost over DOCKER_HOST when enableDind is true', () => {
+      const originalDockerHost = process.env.DOCKER_HOST;
+      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
+
+      try {
+        const dindConfig = {
+          ...mockConfig,
+          enableDind: true,
+          awfDockerHost: 'unix:///run/user/1000/docker.sock',
+        };
+        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
+        expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
+      } finally {
+        if (originalDockerHost !== undefined) {
+          process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
+        }
+      }
+    });
+
     it('should mount workspace directory under /host', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
