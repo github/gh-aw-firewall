@@ -102,6 +102,7 @@ logger.success('Operation completed successfully');
    - Run `npm run lint` to check code style
    - Run `npm test` to ensure all tests pass
    - Run `npm run build` to verify clean build
+   - Keep `--ignore-scripts` on all workflow lock-file `npm install -g` steps for engine CLIs (for example `@anthropic-ai/claude-code` and `@openai/codex`)
    - Test your changes manually
    - Update documentation if needed
 
