@@ -36,7 +36,11 @@ function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string)
     return mount;
   }
 
-  if (hostPath === '/dev/null') {
+  // Skip kernel virtual filesystems — /dev and /sys are provided by the Docker
+  // daemon's own kernel, not staged runner paths. Prefixing them would look for
+  // non-existent directories under the runner root. /dev/null specifically must
+  // be preserved for credential-hiding overlays.
+  if (hostPath === '/dev/null' || hostPath.startsWith('/dev') || hostPath.startsWith('/sys')) {
     return mount;
   }
 

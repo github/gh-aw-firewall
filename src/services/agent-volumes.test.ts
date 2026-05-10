@@ -75,6 +75,12 @@ describe('agent service', () => {
       expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
       expect(volumes).toContain('/dev/null:/host/run/docker.sock:ro');
       expect(volumes.some((v: string) => v.startsWith(`/daemon-root${mockConfig.workDir}/chroot-`) && v.endsWith(':/host/etc/hosts:ro'))).toBe(true);
+
+      // Kernel virtual filesystems should NOT be prefixed — they are daemon-local
+      expect(volumes).toContain('/dev:/host/dev:ro');
+      expect(volumes).toContain('/sys:/host/sys:ro');
+      expect(volumes).not.toContain('/daemon-root/dev:/host/dev:ro');
+      expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
     });
 
     it('should normalize trailing slash in dockerHostPathPrefix', () => {
