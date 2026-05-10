@@ -129,6 +129,7 @@ the corresponding CLI flag.
 - `container.memoryLimit` → `--memory-limit`
 - `container.agentTimeout` → `--agent-timeout`
 - `container.enableDind` → `--enable-dind`
+- `container.arcDind` → `--arc-dind`
 - `container.workDir` → `--work-dir`
 - `container.containerWorkDir` → `--container-workdir`
 - `container.imageRegistry` → `--image-registry`

@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { translateArcDindBindSource } from '../arc-dind';
 import { CLI_PROXY_CONTAINER_NAME, parseDifcProxyHost } from '../host-env';
 import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
@@ -29,6 +30,7 @@ interface CliProxyServiceParams {
 export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBuildResult {
   const { config, networkConfig, cliProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   if (!networkConfig.cliProxyIp || !config.difcProxyHost) {
     throw new Error('buildCliProxyService: cliProxyIp and difcProxyHost are required');
@@ -54,9 +56,9 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
     extra_hosts: ['host.docker.internal:host-gateway'],
     volumes: [
       // Log directory for HTTP server logs
-      `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
+      `${sourcePath(cliProxyLogsPath)}:/var/log/cli-proxy:rw`,
       // Mount host CA cert for TLS verification
-      ...(config.difcProxyCaCert ? [`${config.difcProxyCaCert}:/tmp/proxy-tls/ca.crt:ro`] : []),
+      ...(config.difcProxyCaCert ? [`${sourcePath(config.difcProxyCaCert)}:/tmp/proxy-tls/ca.crt:ro`] : []),
     ],
     environment: {
       // External DIFC proxy connection info for tcp-tunnel.js

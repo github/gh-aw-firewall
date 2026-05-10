@@ -31,6 +31,10 @@ import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from './upstream-pro
 import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsInPlaceWithCliPrecedence } from './config-file';
 import { OutputFormat } from './types';
 import { version } from '../package.json';
+import {
+  ARC_DIND_BIND_PREFIX,
+  detectArcDindDockerHost,
+} from './arc-dind';
 
 // Re-export domain utilities (extracted to domain-utils.ts)
 export {
@@ -94,6 +98,11 @@ export {
  * @deprecated Import from dns-resolver.ts instead
  */
 export { DEFAULT_DNS_SERVERS } from './dns-resolver';
+export {
+  ARC_DIND_BIND_PREFIX,
+  detectArcDindDockerHost,
+  translateArcDindBindSource,
+} from './arc-dind';
 
 // Import functions used directly in this file
 import { parseDomains, parseDomainsFile } from './domain-utils';
@@ -297,6 +306,11 @@ program
     'Docker socket for AWF\'s own containers (default: auto-detect from DOCKER_HOST env).\n' +
     '                                       Use when Docker is at a non-standard path.\n' +
     '                                       Example: unix:///run/user/1000/docker.sock'
+  )
+  .option(
+    '--arc-dind',
+    'Rewrite AWF-managed bind mount sources under /tmp/gh-aw/arc-root for ARC/DinD split filesystems',
+    false
   )
 
   // -- Container Configuration --
@@ -605,6 +619,17 @@ program
       logger.warn('⚠️  External DOCKER_HOST detected. AWF will redirect its own Docker calls to the local socket.');
       logger.warn('   The original DOCKER_HOST (and related Docker client env vars) are forwarded into the agent container.');
     }
+    const arcDindDetection = detectArcDindDockerHost();
+    if (arcDindDetection.detected) {
+      logger.warn(`⚠️  ARC/DinD candidate Docker host detected: ${arcDindDetection.dockerHost}`);
+      if (options.arcDind) {
+        logger.warn(`   --arc-dind enabled: AWF-managed bind-mount sources are rewritten under ${ARC_DIND_BIND_PREFIX}.`);
+      } else {
+        logger.warn('   If this runner uses split runner/Docker-daemon filesystems, AWF bind mounts may fail at runtime.');
+        logger.warn(`   Remediation: rerun with --arc-dind and stage daemon-visible copies of workDir and other AWF-managed bind sources under ${ARC_DIND_BIND_PREFIX}.`);
+        logger.warn('   See docs/environment.md for the ARC runner setup reference configuration.');
+      }
+    }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file
     let allowedDomains: string[] = [];
@@ -905,6 +930,7 @@ program
       logLevel,
       keepContainers: options.keepContainers,
       tty: options.tty || false,
+      arcDind: options.arcDind,
       workDir: options.workDir,
       buildLocal: options.buildLocal,
       skipPull: options.skipPull,

@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { translateArcDindBindSource } from '../arc-dind';
 import {
   AGENT_CONTAINER_NAME,
   IPTABLES_INIT_CONTAINER_NAME,
@@ -202,6 +203,7 @@ export function buildAgentService(params: AgentServiceParams): any {
 // ─── iptables-init Service ────────────────────────────────────────────────────
 
 interface IptablesInitServiceParams {
+  config: WrapperConfig;
   agentService: any;
   environment: Record<string, string>;
   networkConfig: NetworkConfig;
@@ -214,7 +216,8 @@ interface IptablesInitServiceParams {
  * without ever granting NET_ADMIN to the agent itself.
  */
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
-  const { agentService, environment, networkConfig, initSignalDir } = params;
+  const { config, agentService, environment, networkConfig, initSignalDir } = params;
+  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   // SECURITY: iptables init container - sets up NAT rules in a separate container
   // that shares the agent's network namespace but NEVER gives NET_ADMIN to the agent.
@@ -225,7 +228,7 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
     network_mode: 'service:agent',
     // Only mount the init signal volume and the iptables setup script
     volumes: [
-      `${initSignalDir}:/tmp/awf-init:rw`,
+      `${sourcePath(initSignalDir)}:/tmp/awf-init:rw`,
     ],
     environment: {
       // Pass through environment variables needed by setup-iptables.sh

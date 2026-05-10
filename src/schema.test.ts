@@ -88,6 +88,7 @@ describe('awf-config.schema.json', () => {
         memoryLimit: '4g',
         agentTimeout: 30,
         enableDind: false,
+        arcDind: false,
         workDir: '/tmp/awf-work',
         containerWorkDir: '/workspace',
         imageRegistry: 'ghcr.io/github/gh-aw-firewall',

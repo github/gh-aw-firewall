@@ -42,6 +42,7 @@ export interface AwfFileConfig {
     memoryLimit?: string;
     agentTimeout?: number;
     enableDind?: boolean;
+    arcDind?: boolean;
     workDir?: string;
     containerWorkDir?: string;
     imageRegistry?: string;
@@ -185,6 +186,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     memoryLimit: config.container?.memoryLimit,
     agentTimeout: toStringIfDefined(config.container?.agentTimeout),
     enableDind: config.container?.enableDind,
+    arcDind: config.container?.arcDind,
     workDir: config.container?.workDir,
     containerWorkdir: config.container?.containerWorkDir,
     imageRegistry: config.container?.imageRegistry,

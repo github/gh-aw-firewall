@@ -1,4 +1,5 @@
 import { generateDockerCompose } from '../docker-manager';
+import { ARC_DIND_BIND_PREFIX } from '../arc-dind';
 import { WrapperConfig } from '../types';
 import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -255,6 +256,36 @@ describe('agent service', () => {
       expect(volumes).toContain('/etc/passwd:/host/etc/passwd:ro');
       expect(volumes).toContain('/etc/group:/host/etc/group:ro');
       expect(volumes).toContain('/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro');
+    });
+
+    it('should rewrite AWF-managed bind sources when arcDind is enabled', () => {
+      const config = {
+        ...mockConfig,
+        arcDind: true,
+        enableApiProxy: true,
+      };
+      const result = generateDockerCompose(config, {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      });
+      const agentVolumes = result.services.agent.volumes as string[];
+      const squidVolumes = result.services['squid-proxy'].volumes as string[];
+      const apiProxyVolumes = result.services['api-proxy'].volumes as string[];
+      const iptablesVolumes = result.services['iptables-init'].volumes as string[];
+      const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+      const homeDir = process.env.HOME || '/root';
+
+      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/usr:/host/usr:ro`);
+      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${workspaceDir}:/host${workspaceDir}:rw`);
+      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${homeDir}/.cache:/host${homeDir}/.cache:rw`);
+      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/etc/passwd:/host/etc/passwd:ro`);
+      expect(agentVolumes).toContain(`${ARC_DIND_BIND_PREFIX}/tmp:/host/tmp:rw`);
+      expect(agentVolumes).toContain('/sys:/host/sys:ro');
+      expect(agentVolumes).toContain('/dev:/host/dev:ro');
+
+      expect(squidVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/squid-logs:/var/log/squid:rw`);
+      expect(apiProxyVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/api-proxy-logs:/var/log/api-proxy:rw`);
+      expect(iptablesVolumes).toContain(`${ARC_DIND_BIND_PREFIX}${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
     });
 
     it('should mount read-only chroot-hosts when enableHostAccess is true', () => {

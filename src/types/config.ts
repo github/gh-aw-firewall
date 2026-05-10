@@ -565,6 +565,21 @@ export interface WrapperConfig {
   enableDind?: boolean;
 
   /**
+   * Enable ARC/DinD bind-source translation for split runner/daemon filesystems
+   *
+   * When true, AWF rewrites its own bind-mount source paths under
+   * `/tmp/gh-aw/arc-root/...` before sending them to Docker Compose.
+   * This is intended for ARC runners where the runner container filesystem and
+   * Docker daemon filesystem differ, and an external staging layer populates the
+   * translated daemon-visible paths.
+   *
+   * User-provided custom mounts are left unchanged.
+   *
+   * @default false
+   */
+  arcDind?: boolean;
+
+  /**
    * Docker host (socket) to use for AWF's own container operations
    *
    * When set, overrides the `DOCKER_HOST` environment variable for all

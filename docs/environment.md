@@ -209,6 +209,48 @@ When `DOCKER_HOST` is set to a TCP address, AWF:
 2. **Clears `DOCKER_HOST`** for all `docker` / `docker compose` calls it makes internally, so they target the local daemon.
 3. **Forwards the original `DOCKER_HOST`** into the agent container's environment, so Docker commands run *by the agent* still reach the DinD daemon.
 
+### ARC/DinD split-filesystem compatibility
+
+Actions Runner Controller (ARC) often runs the GitHub Actions runner container and the Docker daemon sidecar against **different filesystems**. In that topology, AWF-managed bind mounts that work on a normal local Docker socket can fail because Docker resolves the source path in the daemon container, not in the runner container.
+
+If AWF detects a non-default `DOCKER_HOST` (for example `tcp://localhost:2375` or `unix:///run/user/1000/docker.sock`), it emits an ARC/DinD compatibility warning. Use `--arc-dind` (or `container.arcDind: true` in config) when your workflow stages daemon-visible copies of AWF-managed paths.
+
+When `--arc-dind` is enabled, AWF rewrites its own bind-mount sources under:
+
+```text
+/tmp/gh-aw/arc-root/...
+```
+
+Custom user-provided mounts are left unchanged. They must already point at daemon-visible paths.
+
+### Reference ARC runner configuration
+
+```yaml
+container:
+  arcDind: true
+  dockerHost: unix:///var/run/docker.sock
+  workDir: /tmp/gh-aw/awf-work
+environment:
+  envFile: /tmp/gh-aw/runtime.env
+```
+
+With the equivalent CLI invocation:
+
+```bash
+DOCKER_HOST=tcp://localhost:2375 \
+awf --arc-dind \
+    --work-dir /tmp/gh-aw/awf-work \
+    --env-file /tmp/gh-aw/runtime.env \
+    --allow-domains github.com \
+    -- agent-command
+```
+
+Expected staging contract for the Docker daemon filesystem:
+
+- Mirror AWF-managed runner paths under `/tmp/gh-aw/arc-root/...`
+- Pre-stage writable AWF runtime directories such as the work directory, log directories, session-state directories, and any required home/XDG state
+- Pre-stage required chroot inputs such as `/usr`, `/bin`, `/sbin`, `/lib*`, `/opt`, and `/etc/*` files that AWF bind-mounts into `/host`
+
 ### Example workflow structure
 
 ```yaml

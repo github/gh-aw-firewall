@@ -287,6 +287,10 @@
           "type": "boolean",
           "description": "Enable Docker-in-Docker support inside the agent container."
         },
+        "arcDind": {
+          "type": "boolean",
+          "description": "Rewrite AWF-managed bind-mount sources under /tmp/gh-aw/arc-root for ARC/DinD split filesystems."
+        },
         "workDir": {
           "type": "string",
           "description": "Host path used as the AWF working directory for generated configs and logs. Defaults to a temporary directory."

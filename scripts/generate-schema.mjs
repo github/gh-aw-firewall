@@ -268,6 +268,11 @@ const schemaBody = {
           type: 'boolean',
           description: 'Enable Docker-in-Docker support inside the agent container.',
         },
+        arcDind: {
+          type: 'boolean',
+          description:
+            'Rewrite AWF-managed bind-mount sources under /tmp/gh-aw/arc-root for ARC/DinD split filesystems.',
+        },
         workDir: {
           type: 'string',
           description:

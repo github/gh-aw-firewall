@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { translateArcDindBindSource } from '../arc-dind';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
@@ -36,6 +37,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
@@ -50,7 +52,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     },
     volumes: [
       // Mount log directory for api-proxy logs
-      `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
+      `${sourcePath(apiProxyLogsPath)}:/var/log/api-proxy:rw`,
     ],
     environment: {
       // Pass API keys securely to sidecar (not visible to agent)

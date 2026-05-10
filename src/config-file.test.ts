@@ -242,6 +242,11 @@ describe('config-file', () => {
       expect(errors).toContain('config.container.enableDind must be a boolean');
     });
 
+    it('rejects non-boolean container.arcDind', () => {
+      const errors = validateAwfFileConfig({ container: { arcDind: 1 } });
+      expect(errors).toContain('config.container.arcDind must be a boolean');
+    });
+
     it('rejects non-string container.workDir', () => {
       const errors = validateAwfFileConfig({ container: { workDir: 123 } });
       expect(errors).toContain('config.container.workDir must be a string');
@@ -637,6 +642,7 @@ describe('config-file', () => {
         container: {
           memoryLimit: '4g',
           enableDind: true,
+          arcDind: true,
           workDir: '/tmp/awf',
           imageRegistry: 'ghcr.io/custom',
           imageTag: 'v1.0',
@@ -650,6 +656,7 @@ describe('config-file', () => {
 
       expect(result.memoryLimit).toBe('4g');
       expect(result.enableDind).toBe(true);
+      expect(result.arcDind).toBe(true);
       expect(result.workDir).toBe('/tmp/awf');
       expect(result.imageRegistry).toBe('ghcr.io/custom');
       expect(result.imageTag).toBe('v1.0');

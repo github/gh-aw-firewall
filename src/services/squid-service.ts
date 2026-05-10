@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { translateArcDindBindSource } from '../arc-dind';
 import { SslConfig, SQUID_PORT, SQUID_CONTAINER_NAME } from '../host-env';
 import { parseImageTag, buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
@@ -37,6 +38,7 @@ interface SquidServiceParams {
 export function buildSquidService(params: SquidServiceParams): any {
   const { config, networkConfig, sslConfig, squidConfigContent, squidLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const sourcePath = (value: string): string => config.arcDind ? translateArcDindBindSource(value) : value;
 
   // Build Squid volumes list
   // Note: squid.conf is NOT bind-mounted. Instead, it's passed as a base64-encoded
@@ -45,15 +47,15 @@ export function buildSquidService(params: SquidServiceParams): any {
   // in a separate container and cannot access files on the host filesystem.
   // See: https://github.com/github/gh-aw/issues/18385
   const squidVolumes = [
-    `${squidLogsPath}:/var/log/squid:rw`,
+    `${sourcePath(squidLogsPath)}:/var/log/squid:rw`,
   ];
 
   // Add SSL-related volumes if SSL Bump is enabled
   if (sslConfig) {
-    squidVolumes.push(`${sslConfig.caFiles.certPath}:${sslConfig.caFiles.certPath}:ro`);
-    squidVolumes.push(`${sslConfig.caFiles.keyPath}:${sslConfig.caFiles.keyPath}:ro`);
+    squidVolumes.push(`${sourcePath(sslConfig.caFiles.certPath)}:${sslConfig.caFiles.certPath}:ro`);
+    squidVolumes.push(`${sourcePath(sslConfig.caFiles.keyPath)}:${sslConfig.caFiles.keyPath}:ro`);
     // Mount SSL database at /var/spool/squid_ssl_db (Squid's expected location)
-    squidVolumes.push(`${sslConfig.sslDbPath}:/var/spool/squid_ssl_db:rw`);
+    squidVolumes.push(`${sourcePath(sslConfig.sslDbPath)}:/var/spool/squid_ssl_db:rw`);
   }
 
   // Squid service configuration
