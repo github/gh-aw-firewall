@@ -800,6 +800,32 @@ describe('API proxy sidecar', () => {
         expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
       });
 
+      it.each(['gpt-5', 'openai/o3-mini'])('should set COPILOT_PROVIDER_WIRE_API=responses in BYOK mode when COPILOT_MODEL is %s', (copilotModel) => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotApiKey: 'cpat_test_byok_key',
+          additionalEnv: { COPILOT_MODEL: copilotModel },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_WIRE_API).toBe('responses');
+      });
+
+      it('should not set COPILOT_PROVIDER_WIRE_API in BYOK mode when COPILOT_MODEL does not require responses API', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotApiKey: 'cpat_test_byok_key',
+          additionalEnv: { COPILOT_MODEL: 'gpt-4o' },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
+      });
+
       it('should not set COPILOT_OFFLINE when only copilotGithubToken is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

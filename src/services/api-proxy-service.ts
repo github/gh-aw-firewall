@@ -28,6 +28,16 @@ interface ApiProxyServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
+
+function getCopilotModel(config: WrapperConfig): string | undefined {
+  return config.additionalEnv?.COPILOT_MODEL || (config.envAll ? process.env.COPILOT_MODEL : undefined);
+}
+
+function requiresResponsesWireApi(copilotModel: string): boolean {
+  return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel.trim().toLowerCase());
+}
+
 /**
  * Builds the API proxy sidecar service configuration and associated agent environment
  * mutations required for credential isolation.
@@ -264,6 +274,12 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     // COPILOT_PROVIDER_API_KEY placeholder: real key is held by the sidecar, never exposed to agent.
     // Set early placeholder (before this block) already handled above.
     logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
+
+    const copilotModel = getCopilotModel(config);
+    if (copilotModel && requiresResponsesWireApi(copilotModel)) {
+      agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
+      logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
+    }
   }
   // Only configure Gemini proxy routing when a Gemini API key is provided.
   // Previously this was unconditional, which caused the Gemini CLI's ~/.gemini
