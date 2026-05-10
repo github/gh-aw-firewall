@@ -215,6 +215,8 @@ describe('agent service', () => {
       } finally {
         if (originalDockerHost !== undefined) {
           process.env.DOCKER_HOST = originalDockerHost;
+        } else {
+          delete process.env.DOCKER_HOST;
         }
       }
     });

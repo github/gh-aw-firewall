@@ -282,9 +282,9 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
     }
 
     // When DinD is exposed via a Unix socket override, keep the agent's default docker
-    // client target aligned with the socket mounted into /host. This covers the common
-    // --enable-dind + --docker-host case where the host process itself does not have
-    // DOCKER_HOST set in its environment.
+    // client target aligned with the socket mounted into /host. This intentionally
+    // overrides any inherited DOCKER_HOST so --enable-dind + --docker-host cannot leave
+    // the agent pointing at a different daemon than the socket AWF exposed.
     if (config.enableDind && config.awfDockerHost?.startsWith('unix://')) {
       environment.DOCKER_HOST = config.awfDockerHost;
     }
