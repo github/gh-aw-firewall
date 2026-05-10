@@ -72,6 +72,8 @@ describe('agent service', () => {
       expect(volumes).toContain('/daemon-root/usr:/host/usr:ro');
       expect(volumes).toContain('/daemon-root/etc/passwd:/host/etc/passwd:ro');
       expect(volumes).toContain('/daemon-root/workspace:/host/workspace:ro');
+      expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
+      expect(volumes).toContain('/dev/null:/host/run/docker.sock:ro');
       expect(volumes.some((v: string) => v.startsWith(`/daemon-root${mockConfig.workDir}/chroot-`) && v.endsWith(':/host/etc/hosts:ro'))).toBe(true);
     });
 

@@ -614,9 +614,8 @@ program
       logger.warn('   The original DOCKER_HOST (and related Docker client env vars) are forwarded into the agent container.');
     }
     const dockerHostPathPrefixResolution = resolveDockerHostPathPrefix(dockerHostCheck, options.dockerHostPathPrefix);
-    if (dockerHostPathPrefixResolution.autoApplied) {
-      logger.warn('⚠️  Detected split runner/daemon Docker context; auto-applying --docker-host-path-prefix /host for bind mounts.');
-      logger.warn('   Override with --docker-host-path-prefix if your daemon uses a different runner root mount.');
+    if (!dockerHostCheck.valid && !dockerHostPathPrefixResolution.dockerHostPathPrefix) {
+      logger.warn('⚠️  If your Docker daemon uses a split runner/daemon filesystem, set --docker-host-path-prefix (for example: /host).');
     }
 
     // Parse domains from both --allow-domains flag and --allow-domains-file

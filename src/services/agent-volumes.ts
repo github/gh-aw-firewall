@@ -36,6 +36,10 @@ function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string)
     return mount;
   }
 
+  if (hostPath === '/dev/null') {
+    return mount;
+  }
+
   if (dockerHostPathPrefix === '/') {
     return mount;
   }

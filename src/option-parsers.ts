@@ -308,22 +308,16 @@ export function checkDockerHost(
 /**
  * Resolves the effective Docker host path prefix for bind mount translation.
  *
- * If an explicit prefix is provided, it always wins. Otherwise, when AWF detects
- * an external DOCKER_HOST (for example DinD over tcp://), AWF auto-applies
- * '/host' as a compatibility prefix for split runner/daemon filesystems.
+ * If an explicit prefix is provided, it wins. Otherwise, no prefix is applied.
  */
 export function resolveDockerHostPathPrefix(
-  dockerHostCheck: { valid: true } | { valid: false; error: string },
+  _dockerHostCheck: { valid: true } | { valid: false; error: string },
   explicitPrefix: string | undefined
 ): { dockerHostPathPrefix?: string; autoApplied: boolean } {
   const trimmedExplicitPrefix = explicitPrefix?.trim();
 
   if (trimmedExplicitPrefix) {
     return { dockerHostPathPrefix: trimmedExplicitPrefix, autoApplied: false };
-  }
-
-  if (!dockerHostCheck.valid) {
-    return { dockerHostPathPrefix: '/host', autoApplied: true };
   }
 
   return { dockerHostPathPrefix: undefined, autoApplied: false };

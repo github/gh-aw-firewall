@@ -1124,9 +1124,9 @@ describe('resolveDockerHostPathPrefix', () => {
     expect(result).toEqual({ dockerHostPathPrefix: '/daemon-root', autoApplied: false });
   });
 
-  it('auto-applies /host for external DOCKER_HOST when prefix is not provided', () => {
+  it('does not auto-apply a prefix for external DOCKER_HOST when none is provided', () => {
     const result = resolveDockerHostPathPrefix({ valid: false, error: 'external DOCKER_HOST' }, undefined);
-    expect(result).toEqual({ dockerHostPathPrefix: '/host', autoApplied: true });
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false });
   });
 
   it('returns undefined when DOCKER_HOST is local and no prefix is provided', () => {
