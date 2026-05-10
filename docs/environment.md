@@ -243,7 +243,22 @@ awf --docker-host unix:///run/user/1000/docker.sock \
     -- agent-command
 ```
 
-This overrides the socket used for AWF's own operations without affecting the agent's `DOCKER_HOST`.
+This overrides the socket used for AWF's own operations. When combined with `--enable-dind`, AWF also mounts that Unix socket into the agent and sets the agent's `DOCKER_HOST` to the same value so in-agent `docker` commands use the matching socket by default.
+
+### ARC / Kubernetes DinD sidecar pattern
+
+On ARC self-hosted runners that expose Docker via a shared Unix socket volume instead of a TCP listener, set `DOCKER_HOST` to that Unix socket and enable DinD passthrough:
+
+```yaml
+env:
+  DOCKER_HOST: unix:///var/run/docker.sock
+steps:
+  - name: Run agent with AWF
+    run: |
+      awf --enable-dind --allow-domains github.com -- docker ps
+```
+
+When `DOCKER_HOST` points to a Unix socket, AWF now uses that socket path for DinD exposure instead of assuming `/var/run/docker.sock`. If your runner uses a different socket path, AWF will honor it automatically. If you need an explicit override, `--docker-host unix:///path/to/docker.sock` also becomes the DinD socket exposed to the agent when `--enable-dind` is set, and AWF sets the agent's `DOCKER_HOST` to that same Unix URI.
 
 ### Limitation
 

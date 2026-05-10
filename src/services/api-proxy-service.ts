@@ -2,6 +2,7 @@ import * as path from 'path';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
+  readEnvFile,
   stripScheme,
 } from '../host-env';
 import { buildRuntimeImageRef } from '../image-tag';
@@ -26,6 +27,27 @@ interface ApiProxyServiceParams {
   networkConfig: NetworkConfig;
   apiProxyLogsPath: string;
   imageConfig: ImageBuildConfig;
+}
+
+// Match GPT-5 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
+// "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
+// are runtime-configurable and not limited to a fixed allowlist.
+const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
+
+function getCopilotModel(config: WrapperConfig): string | undefined {
+  const envFileModel = config.envFile
+    ? readEnvFile(config.envFile).COPILOT_MODEL
+    : undefined;
+  const model =
+    config.additionalEnv?.COPILOT_MODEL ??
+    envFileModel ??
+    (config.envAll ? process.env.COPILOT_MODEL : undefined);
+  const normalizedModel = model?.trim();
+  return normalizedModel || undefined;
+}
+
+function requiresResponsesWireApi(copilotModel: string): boolean {
+  return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel);
 }
 
 /**
@@ -264,6 +286,12 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     // COPILOT_PROVIDER_API_KEY placeholder: real key is held by the sidecar, never exposed to agent.
     // Set early placeholder (before this block) already handled above.
     logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
+
+    const copilotModel = getCopilotModel(config);
+    if (copilotModel && requiresResponsesWireApi(copilotModel)) {
+      agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
+      logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
+    }
   }
   // Only configure Gemini proxy routing when a Gemini API key is provided.
   // Previously this was unconditional, which caused the Gemini CLI's ~/.gemini

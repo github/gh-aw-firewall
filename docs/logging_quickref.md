@@ -63,6 +63,21 @@ awf logs summary >> $GITHUB_STEP_SUMMARY
 awf logs summary --format json
 ```
 
+### Audit Policy Rule Matching
+
+```bash
+# Show which policy rule caused each allow/deny decision
+awf logs audit
+
+# Filter to denied requests only
+awf logs audit --decision denied
+
+# Filter by domain
+awf logs audit --domain github.com
+```
+
+> Requires `policy-manifest.json` — run awf with `--audit-dir <path>` to generate audit artifacts.
+
 **CLI Options:**
 | Flag | Description |
 |------|-------------|
@@ -77,6 +92,7 @@ awf logs summary --format json
 |---------|-------------|
 | `awf logs stats` | Show aggregated statistics (total requests, allowed/denied counts, per-domain breakdown) |
 | `awf logs summary` | Generate markdown summary (optimized for GitHub Actions) |
+| `awf logs audit` | Enrich logs with policy rule matching (requires `policy-manifest.json` from `--audit-dir`) |
 
 ## Manual Docker Commands
 
