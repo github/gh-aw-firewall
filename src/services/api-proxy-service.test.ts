@@ -826,6 +826,30 @@ describe('API proxy sidecar', () => {
         expect(env.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
       });
 
+      it('should set COPILOT_PROVIDER_WIRE_API=responses in BYOK mode when COPILOT_MODEL is provided via host env and envAll is enabled', () => {
+        const previousCopilotModel = process.env.COPILOT_MODEL;
+        process.env.COPILOT_MODEL = 'gpt-5';
+
+        try {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotApiKey: 'cpat_test_byok_key',
+            envAll: true,
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          expect(env.COPILOT_PROVIDER_WIRE_API).toBe('responses');
+        } finally {
+          if (previousCopilotModel === undefined) {
+            delete process.env.COPILOT_MODEL;
+          } else {
+            process.env.COPILOT_MODEL = previousCopilotModel;
+          }
+        }
+      });
+
       it('should not set COPILOT_OFFLINE when only copilotGithubToken is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test_token' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
