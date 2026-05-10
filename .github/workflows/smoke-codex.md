@@ -115,7 +115,7 @@ post-steps:
    - Use the `github-discussion-query` safe-input tool with params: `limit=1, jq=".[0]"` to get the latest discussion from `__GH_AW_GITHUB_REPOSITORY__`
    - Extract the discussion number from the result (e.g., if the result is `{"number": 123, "title": "...", ...}`, extract 123) and validate it is a positive integer (>0)
    - Only if a valid discussion number exists, use the `add_comment` tool with `discussion_number: <extracted_number>` to add a mystical, oracle-themed comment stating that the smoke test agent was here
-   - If no valid discussion number is available, skip the discussion comment and continue (do not call `add_comment` with `0`, empty, or null targets)
+   - If no valid discussion number is available, skip the discussion comment and continue (do not call `add_comment` with empty or null targets)
 8. **Build AWF**: Run `npm ci && npm run build` to verify the agent can successfully build the AWF project. If the command fails, mark this test as ❌ and report the failure.
 
 ## Output
