@@ -34,7 +34,10 @@ interface ApiProxyServiceParams {
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
 
 function getCopilotModel(config: WrapperConfig): string | undefined {
-  const model = config.additionalEnv?.COPILOT_MODEL ?? (config.envAll ? process.env.COPILOT_MODEL : undefined);
+  const model =
+    config.additionalEnv?.COPILOT_MODEL ??
+    config.envFile?.COPILOT_MODEL ??
+    (config.envAll ? process.env.COPILOT_MODEL : undefined);
   const normalizedModel = model?.trim();
   return normalizedModel || undefined;
 }
