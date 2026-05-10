@@ -2,6 +2,7 @@ import * as path from 'path';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
+  readEnvFile,
   stripScheme,
 } from '../host-env';
 import { buildRuntimeImageRef } from '../image-tag';
@@ -34,9 +35,12 @@ interface ApiProxyServiceParams {
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
 
 function getCopilotModel(config: WrapperConfig): string | undefined {
+  const envFileModel = config.envFile
+    ? readEnvFile(config.envFile).COPILOT_MODEL
+    : undefined;
   const model =
     config.additionalEnv?.COPILOT_MODEL ??
-    config.envFile?.COPILOT_MODEL ??
+    envFileModel ??
     (config.envAll ? process.env.COPILOT_MODEL : undefined);
   const normalizedModel = model?.trim();
   return normalizedModel || undefined;
