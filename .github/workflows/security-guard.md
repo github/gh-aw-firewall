@@ -92,7 +92,8 @@ steps:
 
 ## Security Relevance Check
 
-**Security-critical files changed in this PR:** ${{ steps.security-relevance.outputs.security_files_changed }}
+**Security-critical files changed in this PR:** __GH_AW_EXPR_66EB691F__
+<!-- gh-aw compile marker: ${{ steps.security-relevance.outputs.security_files_changed }} -->
 
 > If this value is `0`, the workflow skips the agent job.
 
@@ -169,5 +170,6 @@ If no security issues are found:
 The following PR diff has been pre-computed. Focus your security analysis on these changes:
 
 ```
-${{ steps.pr-diff.outputs.PR_FILES }}
+__GH_AW_EXPR_BAA3A6C6__
+<!-- gh-aw compile marker: ${{ steps.pr-diff.outputs.PR_FILES }} -->
 ```
