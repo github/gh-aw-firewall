@@ -19,7 +19,7 @@ tools:
 sandbox:
   agent:
     id: awf
-    version: v0.25.29
+    version: v0.25.41
 network:
   allowed:
     - github
@@ -135,13 +135,16 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Use `mcp__github__get_pull_request_diff`** only when the diff below is truncated and you need the remainder
-4. **Use `mcp__github__get_file_contents`** only for files not changed in this PR (e.g., to understand adjacent security context)
-5. **Collect evidence** with specific file names, line numbers, and code snippets
+3. **Use the pre-fetched diff below as your primary source of truth**; only fall back to `gh pr diff` / `gh api` if the diff is truncated and you need the remainder
+4. **Do not use local branch comparisons or commit history** (for example `git diff main...HEAD` or `git log main..`) unless you first confirm the base branch exists locally; the checkout may contain only the PR branch, and these calls waste turns
+5. **Use direct file reads from the checked-out repository** only for files you need to inspect further (e.g., to understand adjacent security context)
+6. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
 
 Check for these security-weakening changes: new/expanded ACCEPT rules, weakened DROP/REJECT, firewall chain rewiring, DNS or IPv6 bypasses, Squid ACL/order regressions, non-80/443 egress allowances, wildcard/domain validation bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxations, removal of resource/user hardening, input validation removal, command injection risk, hardcoded secrets, security-disabling env var changes, or risky dependency updates.
+
+If the changed files are only tests, docs, or other non-production artifacts and the diff does not modify runtime security behavior, avoid unnecessary exploration and use `noop` after the brief verification.
 
 ## Output Format
 
