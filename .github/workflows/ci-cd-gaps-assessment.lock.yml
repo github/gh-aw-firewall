@@ -447,7 +447,10 @@ jobs:
             gh extension upgrade gh-aw || true
           else
             echo "Installing gh-aw extension..."
-            gh extension install github/gh-aw
+            if ! gh extension install github/gh-aw; then
+              echo "Initial install failed, retrying without GH_TOKEN..."
+              GH_TOKEN="" gh extension install github/gh-aw
+            fi
           fi
           gh aw --version
           # Copy the gh-aw binary to ${RUNNER_TEMP}/gh-aw for MCP server containerization
@@ -1168,4 +1171,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-
