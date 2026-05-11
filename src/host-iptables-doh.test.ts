@@ -1,41 +1,25 @@
+import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { setupHostIptables, __testing } from './host-iptables';
-import execa from 'execa';
 
-// Mock execa
-jest.mock('execa');
-const mockedExeca = execa as jest.MockedFunction<typeof execa>;
-
-// Mock getLocalDockerEnv to return a predictable env for assertions
-jest.mock('./docker-manager', () => ({
-  getLocalDockerEnv: () => process.env,
-}));
-
-// Mock logger to avoid console output during tests
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-
-describe('host-iptables', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    __testing._resetIpv6State();
-  });
+describe('host-iptables (doh)', () => {
+  setupHostIptablesTestSuite(__testing._resetIpv6State);
 
   describe('setupHostIptables with DoH proxy', () => {
     it('should add HTTPS ACCEPT rule for DoH proxy when dohProxyIp is provided', async () => {
       mockedExeca
         // Mock getNetworkBridgeName
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
         // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       // Mock all subsequent iptables calls
-      mockedExeca.mockResolvedValue({
+      mockedExeca.mockResolvedValue(execaResult({
         stdout: 'Chain DOCKER-USER\nChain FW_WRAPPER',
         stderr: '',
         exitCode: 0,
-      } as any);
+      }));
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, '172.30.0.40');
 
@@ -62,15 +46,15 @@ describe('host-iptables', () => {
 
     it('should not add DoH rules when dohProxyIp is not provided', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
-      mockedExeca.mockResolvedValue({
+      mockedExeca.mockResolvedValue(execaResult({
         stdout: 'Chain DOCKER-USER\nChain FW_WRAPPER',
         stderr: '',
         exitCode: 0,
-      } as any);
+      }));
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 

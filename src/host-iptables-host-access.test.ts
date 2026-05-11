@@ -1,34 +1,18 @@
+import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { HostAccessConfig, setupHostIptables, __testing } from './host-iptables';
-import execa from 'execa';
 
-// Mock execa
-jest.mock('execa');
-const mockedExeca = execa as jest.MockedFunction<typeof execa>;
-
-// Mock getLocalDockerEnv to return a predictable env for assertions
-jest.mock('./docker-manager', () => ({
-  getLocalDockerEnv: () => process.env,
-}));
-
-// Mock logger to avoid console output during tests
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-
-describe('host-iptables', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    __testing._resetIpv6State();
-  });
+describe('host-iptables (host access)', () => {
+  setupHostIptablesTestSuite(__testing._resetIpv6State);
 
   describe('setupHostIptables with host access', () => {
     it('should add gateway ACCEPT rules when hostAccess is enabled', async () => {
       mockedExeca
         // Mock getNetworkBridgeName
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
         // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       // Default mock for all subsequent calls; getDockerBridgeGateway returns 172.17.0.1
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
@@ -71,11 +55,11 @@ describe('host-iptables', () => {
 
     it('should not add gateway rules when hostAccess is undefined', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
-      mockedExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+      mockedExeca.mockResolvedValue(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -90,9 +74,9 @@ describe('host-iptables', () => {
 
     it('should add custom port rules when allowHostPorts is specified', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -131,9 +115,9 @@ describe('host-iptables', () => {
 
     it('should only use AWF gateway when Docker bridge gateway is null', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         // Make getDockerBridgeGateway return null (docker network inspect bridge fails)
@@ -163,9 +147,9 @@ describe('host-iptables', () => {
 
     it('should only add default ports when allowHostPorts is empty', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -192,9 +176,9 @@ describe('host-iptables', () => {
 
     it('should support port ranges in allowHostPorts', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -221,9 +205,9 @@ describe('host-iptables', () => {
 
     it('should skip invalid ports in allowHostPorts', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -261,9 +245,9 @@ describe('host-iptables', () => {
 
     it('should deduplicate ports when custom ports overlap with defaults', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -298,9 +282,9 @@ describe('host-iptables', () => {
 
     it('should add service port rules when allowHostServicePorts is specified', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -337,9 +321,9 @@ describe('host-iptables', () => {
 
     it('should deduplicate service ports with regular host ports', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -380,9 +364,9 @@ describe('host-iptables', () => {
   describe('getDockerBridgeGateway invalid IPv4', () => {
     it('should skip gateway rule when Docker bridge returns non-IPv4 gateway', async () => {
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         // Return non-IPv4 (e.g. IPv6 address) from Docker bridge gateway

@@ -1,32 +1,16 @@
+import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { cleanupHostIptables, setupHostIptables, __testing } from './host-iptables';
-import execa from 'execa';
 
-// Mock execa
-jest.mock('execa');
-const mockedExeca = execa as jest.MockedFunction<typeof execa>;
-
-// Mock getLocalDockerEnv to return a predictable env for assertions
-jest.mock('./docker-manager', () => ({
-  getLocalDockerEnv: () => process.env,
-}));
-
-// Mock logger to avoid console output during tests
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-
-describe('host-iptables', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    __testing._resetIpv6State();
-  });
+describe('host-iptables (cleanup)', () => {
+  setupHostIptablesTestSuite(__testing._resetIpv6State);
 
   describe('cleanupHostIptables', () => {
     it('should flush and delete both FW_WRAPPER and FW_WRAPPER_V6 chains', async () => {
-      mockedExeca.mockResolvedValue({
+      mockedExeca.mockResolvedValue(execaResult({
         stdout: '',
         stderr: '',
         exitCode: 0,
-      } as any);
+      }));
 
       await cleanupHostIptables();
 
@@ -42,9 +26,9 @@ describe('host-iptables', () => {
     it('should re-enable IPv6 via sysctl on cleanup if it was disabled', async () => {
       // First, simulate setup that disabled IPv6
       mockedExeca
-        .mockResolvedValueOnce({ stdout: 'fw-bridge', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any)
-        .mockResolvedValueOnce({ exitCode: 1 } as any);
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 
       // Make ip6tables unavailable to trigger sysctl disable
       mockedExeca.mockImplementation(((cmd: string) => {

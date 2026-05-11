@@ -1,33 +1,17 @@
+import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { cleanupFirewallNetwork, ensureFirewallNetwork, __testing } from './host-iptables';
-import execa from 'execa';
 
-// Mock execa
-jest.mock('execa');
-const mockedExeca = execa as jest.MockedFunction<typeof execa>;
-
-// Mock getLocalDockerEnv to return a predictable env for assertions
-jest.mock('./docker-manager', () => ({
-  getLocalDockerEnv: () => process.env,
-}));
-
-// Mock logger to avoid console output during tests
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-
-describe('host-iptables', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    __testing._resetIpv6State();
-  });
+describe('host-iptables (network)', () => {
+  setupHostIptablesTestSuite(__testing._resetIpv6State);
 
   describe('ensureFirewallNetwork', () => {
     it('should return network config when network already exists', async () => {
       // Mock successful network inspect (network exists)
-      mockedExeca.mockResolvedValue({
+      mockedExeca.mockResolvedValue(execaResult({
         stdout: '',
         stderr: '',
         exitCode: 0,
-      } as any);
+      }));
 
       const result = await ensureFirewallNetwork();
 
@@ -48,11 +32,11 @@ describe('host-iptables', () => {
       // Second call (network create) succeeds
       mockedExeca
         .mockRejectedValueOnce(new Error('network not found'))
-        .mockResolvedValueOnce({
+        .mockResolvedValueOnce(execaResult({
           stdout: '',
           stderr: '',
           exitCode: 0,
-        } as any);
+        }));
 
       const result = await ensureFirewallNetwork();
 
@@ -78,11 +62,11 @@ describe('host-iptables', () => {
 
   describe('cleanupFirewallNetwork', () => {
     it('should remove the firewall network', async () => {
-      mockedExeca.mockResolvedValue({
+      mockedExeca.mockResolvedValue(execaResult({
         stdout: '',
         stderr: '',
         exitCode: 0,
-      } as any);
+      }));
 
       await cleanupFirewallNetwork();
 
