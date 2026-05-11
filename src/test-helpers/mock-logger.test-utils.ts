@@ -5,12 +5,12 @@
  *   jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
  *   jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
  *
- * Then import the spies to assert on calls:
- *   import { mockLogger } from './test-helpers/mock-logger.test-utils';
- *   expect(mockLogger.warn).toHaveBeenCalledWith(...);
+ * Then assert on logger calls through the mocked logger import:
+ *   import { logger } from './logger';
+ *   expect(jest.mocked(logger).warn).toHaveBeenCalledWith(...);
  */
 
-export const mockLogger = {
+const mockLogger = {
   debug: jest.fn(),
   info: jest.fn(),
   warn: jest.fn(),
