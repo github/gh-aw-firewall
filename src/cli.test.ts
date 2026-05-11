@@ -37,10 +37,8 @@ function loadCliProgram(): Command {
     mockedCommander.__createdCommands.length = 0;
   }
 
-  jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('./cli');
-  });
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('./cli');
 
   const [program] = mockedCommander.__createdCommands ?? [];
 
@@ -269,6 +267,20 @@ describe('cli', () => {
       expect(publicApi).not.toHaveProperty('program');
       expect(publicApi).not.toHaveProperty('validateFormat');
       expect(publicApi).not.toHaveProperty('handlePredownloadAction');
+    });
+  });
+
+  describe('help text formatting', () => {
+    it('includes the custom section headers in help output', () => {
+      const help = loadCliProgram().helpInformation();
+
+      expect(help).toContain('Usage: awf');
+      expect(help).toContain('Domain Filtering:');
+      expect(help).toContain('Image Management:');
+      expect(help).toContain('Container Configuration:');
+      expect(help).toContain('Network & Security:');
+      expect(help).toContain('API Proxy:');
+      expect(help).toContain('Logging & Debug:');
     });
   });
 
