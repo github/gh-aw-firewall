@@ -144,7 +144,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 Check for these security-weakening changes: new/expanded ACCEPT rules, weakened DROP/REJECT, firewall chain rewiring, DNS or IPv6 bypasses, Squid ACL/order regressions, non-80/443 egress allowances, wildcard/domain validation bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxations, removal of resource/user hardening, input validation removal, command injection risk, hardcoded secrets, security-disabling env var changes, or risky dependency updates.
 
-If the changed files are only tests, docs, or other non-production artifacts and the diff does not modify runtime security behavior, avoid unnecessary exploration and use `noop` after the brief verification.
+If the changed files are only tests, docs, or other non-production artifacts and the diff does not modify runtime security behavior, avoid unnecessary exploration and call the `safeoutputs noop` tool after the brief verification.
 
 ## Output Format
 
