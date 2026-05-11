@@ -137,6 +137,26 @@ describe('docker-manager lifecycle', () => {
       expect(upCalls).toHaveLength(2);
     });
 
+    it('should retry once when awf-api-proxy exits during startup', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - fails with api-proxy exit)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
+      // 3. docker logs --tail 50 awf-api-proxy (get logs for diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy startup logs', stderr: '', exitCode: 0 } as any);
+      // 4. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose up (retry - succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+
+      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+      );
+      expect(upCalls).toHaveLength(2);
+    });
+
     it('should throw clear error when awf-api-proxy fails its health check on both attempts', async () => {
       // 1. docker rm (initial cleanup)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
@@ -152,7 +172,26 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
       await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
-        'AWF firewall failed to start: awf-api-proxy failed its health check on both attempts'
+        'AWF firewall failed to start: awf-api-proxy failed during startup on both attempts'
+      );
+    });
+
+    it('should throw clear error when awf-api-proxy exits during startup on both attempts', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - fails)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
+      // 3. docker logs (first diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
+      // 4. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose up (retry - also fails)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
+      // 6. docker logs (second diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+        'AWF firewall failed to start: awf-api-proxy failed during startup on both attempts'
       );
     });
 
