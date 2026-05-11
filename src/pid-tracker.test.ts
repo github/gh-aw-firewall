@@ -135,6 +135,34 @@ describe('pid-tracker', () => {
         expect(result.inode).toBe('123456');
         expect(result.error).toContain('Socket inode 123456 found but no process owns it');
       });
+
+      it('should ignore malformed /proc/net/tcp rows', () => {
+        const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: malformed`;
+        createMockNetTcp(netTcpContent);
+
+        const result = trackPidForPortSync(3306, mockProcPath);
+        expect(result.pid).toBe(-1);
+        expect(result.error).toContain('No socket found');
+      });
+
+      it('should ignore non-symlink file descriptors', () => {
+        const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:B278 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 123456 1 0000000000000000 100 0 0 10 0`;
+        createMockNetTcp(netTcpContent);
+
+        // Create a process with a regular file fd instead of a socket symlink
+        const pidDir = path.join(mockProcPath, '1234');
+        const fdDir = path.join(pidDir, 'fd');
+        fs.mkdirSync(fdDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'cmdline'), 'test');
+        fs.writeFileSync(path.join(pidDir, 'comm'), 'test');
+        fs.writeFileSync(path.join(fdDir, '3'), 'regular-file');
+
+        const result = trackPidForPortSync(45688, mockProcPath);
+        expect(result.pid).toBe(-1);
+        expect(result.error).toContain('Socket inode 123456 found but no process owns it');
+      });
     });
   });
 
