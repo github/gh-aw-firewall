@@ -11,17 +11,16 @@
  *
  * @example
  * ```typescript
- * import { trackPidForPort, getProcessInfo, parseNetTcp } from './pid-tracker';
+ * import { trackPidForPortSync } from './pid-tracker';
  *
  * // Track a process by its source port
- * const result = await trackPidForPort(45678);
+ * const result = trackPidForPortSync(45678);
  * console.log(result);
  * // { pid: 12345, cmdline: 'curl https://github.com', comm: 'curl', inode: '123456' }
  * ```
  */
 
 import * as fs from 'fs';
-import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { PidTrackResult } from './types';
 
@@ -49,29 +48,12 @@ interface NetTcpEntry {
 }
 
 /**
- * Parses a hex IP address from /proc/net/tcp format to dotted decimal
- * Note: /proc/net/tcp stores IP addresses in little-endian hex format
- *
- * @param hexIp - Hex IP address (e.g., "0100007F" for 127.0.0.1)
- * @returns Dotted decimal IP address (e.g., "127.0.0.1")
- */
-export function parseHexIp(hexIp: string): string {
-  // /proc/net/tcp stores IPs in little-endian format
-  // So "0100007F" means 127.0.0.1
-  const bytes = [];
-  for (let i = 6; i >= 0; i -= 2) {
-    bytes.push(parseInt(hexIp.substring(i, i + 2), 16));
-  }
-  return bytes.join('.');
-}
-
-/**
  * Converts a hex port number to decimal
  *
  * @param hexPort - Hex port number (e.g., "01BB" for 443)
  * @returns Decimal port number
  */
-export function parseHexPort(hexPort: string): number {
+function parseHexPort(hexPort: string): number {
   return parseInt(hexPort, 16);
 }
 
@@ -84,7 +66,7 @@ export function parseHexPort(hexPort: string): number {
  * @param content - Raw content of /proc/net/tcp
  * @returns Array of parsed TCP connection entries
  */
-export function parseNetTcp(content: string): NetTcpEntry[] {
+function parseNetTcp(content: string): NetTcpEntry[] {
   const lines = content.trim().split('\n');
   const entries: NetTcpEntry[] = [];
 
@@ -133,7 +115,7 @@ export function parseNetTcp(content: string): NetTcpEntry[] {
  * @param srcPort - Source port to find
  * @returns Socket inode string or undefined if not found
  */
-export function findInodeForPort(entries: NetTcpEntry[], srcPort: number): string | undefined {
+function findInodeForPort(entries: NetTcpEntry[], srcPort: number): string | undefined {
   const entry = entries.find((e) => e.localPort === srcPort);
   return entry?.inode;
 }
@@ -144,7 +126,7 @@ export function findInodeForPort(entries: NetTcpEntry[], srcPort: number): strin
  * @param str - String to check
  * @returns true if the string represents a positive integer
  */
-export function isNumeric(str: string): boolean {
+function isNumeric(str: string): boolean {
   return /^\d+$/.test(str);
 }
 
@@ -156,7 +138,7 @@ export function isNumeric(str: string): boolean {
  * @param procPath - Base path to /proc (default: '/proc')
  * @returns Command line string with arguments separated by spaces, or null if not readable
  */
-export function readCmdline(pid: number, procPath = '/proc'): string | null {
+function readCmdline(pid: number, procPath = '/proc'): string | null {
   try {
     const cmdlinePath = path.join(procPath, pid.toString(), 'cmdline');
     const content = fs.readFileSync(cmdlinePath, 'utf-8');
@@ -174,7 +156,7 @@ export function readCmdline(pid: number, procPath = '/proc'): string | null {
  * @param procPath - Base path to /proc (default: '/proc')
  * @returns Short command name, or null if not readable
  */
-export function readComm(pid: number, procPath = '/proc'): string | null {
+function readComm(pid: number, procPath = '/proc'): string | null {
   try {
     const commPath = path.join(procPath, pid.toString(), 'comm');
     return fs.readFileSync(commPath, 'utf-8').trim();
@@ -189,7 +171,7 @@ export function readComm(pid: number, procPath = '/proc'): string | null {
  * @param fdPath - Full path to the fd symlink
  * @returns Symlink target (e.g., 'socket:[123456]'), or null if not readable
  */
-export function readFdLink(fdPath: string): string | null {
+function readFdLink(fdPath: string): string | null {
   try {
     return fs.readlinkSync(fdPath);
   } catch {
@@ -205,7 +187,7 @@ export function readFdLink(fdPath: string): string | null {
  * @param procPath - Base path to /proc (default: '/proc')
  * @returns true if the process owns the socket, false otherwise
  */
-export function processOwnsSocket(pid: number, inode: string, procPath = '/proc'): boolean {
+function processOwnsSocket(pid: number, inode: string, procPath = '/proc'): boolean {
   const fdDir = path.join(procPath, pid.toString(), 'fd');
 
   try {
@@ -232,7 +214,7 @@ export function processOwnsSocket(pid: number, inode: string, procPath = '/proc'
  * @param procPath - Base path to /proc (default: '/proc')
  * @returns Object with pid, cmdline, and comm, or null if not found
  */
-export function findProcessByInode(
+function findProcessByInode(
   inode: string,
   procPath = '/proc'
 ): { pid: number; cmdline: string; comm: string } | null {
@@ -256,33 +238,9 @@ export function findProcessByInode(
 }
 
 /**
- * Gets detailed information about a process
- *
- * @param pid - Process ID
- * @param procPath - Base path to /proc (default: '/proc')
- * @returns Object with cmdline and comm, or null if not found
- */
-export function getProcessInfo(
-  pid: number,
-  procPath = '/proc'
-): { cmdline: string; comm: string } | null {
-  const cmdline = readCmdline(pid, procPath);
-  const comm = readComm(pid, procPath);
-
-  if (cmdline === null && comm === null) {
-    return null;
-  }
-
-  return {
-    cmdline: cmdline || 'unknown',
-    comm: comm || 'unknown',
-  };
-}
-
-/**
  * Builds the PidTrackResult returned when /proc/net/tcp cannot be read.
  *
- * Shared by trackPidForPort and trackPidForPortSync so the error shape
+ * Shared by PID tracking code so the error shape
  * lives in exactly one place.
  */
 function makeTcpReadError(tcpPath: string, err: unknown): PidTrackResult {
@@ -297,8 +255,8 @@ function makeTcpReadError(tcpPath: string, err: unknown): PidTrackResult {
 /**
  * Resolves a PidTrackResult from already-read /proc/net/tcp content.
  *
- * Shared helper used by both trackPidForPort (async) and trackPidForPortSync (sync)
- * to avoid duplicating the parse/lookup/return logic.
+ * Shared helper used by trackPidForPortSync to avoid duplicating the
+ * parse/lookup/return logic.
  *
  * @param tcpContent - Contents of /proc/net/tcp
  * @param srcPort - Source port number from the network connection
@@ -340,40 +298,6 @@ function resolvePidFromTcpContent(
     comm: processInfo.comm,
     inode,
   };
-}
-
-/**
- * Main function to track a process by its source port
- *
- * This reads /proc/net/tcp to find the socket inode, then scans
- * all process file descriptors to find the owning process.
- *
- * @param srcPort - Source port number from the network connection
- * @param procPath - Base path to /proc (default: '/proc', useful for testing)
- * @returns PidTrackResult with process information
- *
- * @example
- * ```typescript
- * const result = await trackPidForPort(45678);
- * if (result.pid !== -1) {
- *   console.log(`Port 45678 is owned by PID ${result.pid}: ${result.cmdline}`);
- * }
- * ```
- */
-export async function trackPidForPort(
-  srcPort: number,
-  procPath = '/proc'
-): Promise<PidTrackResult> {
-  const tcpPath = path.join(procPath, 'net', 'tcp');
-  let tcpContent: string;
-
-  try {
-    tcpContent = await fsPromises.readFile(tcpPath, 'utf-8');
-  } catch (err) {
-    return makeTcpReadError(tcpPath, err);
-  }
-
-  return resolvePidFromTcpContent(tcpContent, srcPort, procPath);
 }
 
 /**
