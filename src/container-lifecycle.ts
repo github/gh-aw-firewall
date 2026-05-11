@@ -398,7 +398,7 @@ async function didApiProxyFailStartup(errorMsg: string): Promise<boolean> {
   try {
     const result = await execa(
       'docker',
-      ['inspect', API_PROXY_CONTAINER_NAME, '--format', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}'],
+      ['inspect', API_PROXY_CONTAINER_NAME, '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}'],
       {
         reject: false,
         env: getLocalDockerEnv(),
@@ -409,8 +409,8 @@ async function didApiProxyFailStartup(errorMsg: string): Promise<boolean> {
       return false;
     }
 
-    const state = `${result.stdout} ${result.stderr}`.trim();
-    return state.includes('exited') || state.includes('unhealthy');
+    const [containerStatus = '', healthStatus = ''] = result.stdout.trim().split('|');
+    return containerStatus === 'exited' || healthStatus === 'unhealthy';
   } catch (error) {
     logger.debug(`Could not inspect ${API_PROXY_CONTAINER_NAME} after startup failure:`, error);
     return false;
