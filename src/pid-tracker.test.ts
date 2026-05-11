@@ -73,6 +73,16 @@ describe('pid-tracker', () => {
     };
 
     describe('trackPidForPort', () => {
+      it('should ignore malformed /proc/net/tcp rows', async () => {
+        const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: malformed`;
+        createMockNetTcp(netTcpContent);
+
+        const result = await trackPidForPort(3306, mockProcPath);
+        expect(result.pid).toBe(-1);
+        expect(result.error).toContain('No socket found');
+      });
+
       it('should return error when /proc/net/tcp does not exist', async () => {
         const result = await trackPidForPort(45678, mockProcPath);
         expect(result.pid).toBe(-1);
@@ -126,6 +136,24 @@ describe('pid-tracker', () => {
         expect(result.inode).toBe('123456');
         expect(result.error).toContain('Socket inode 123456 found but no process owns it');
       });
+
+      it('should return unknown metadata when cmdline and comm are unreadable', async () => {
+        const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:B278 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 123456 1 0000000000000000 100 0 0 10 0`;
+        createMockNetTcp(netTcpContent);
+
+        const pidDir = path.join(mockProcPath, '4321');
+        const fdDir = path.join(pidDir, 'fd');
+        fs.mkdirSync(fdDir, { recursive: true });
+        fs.symlinkSync('socket:[123456]', path.join(fdDir, '3'));
+        // Intentionally omit /proc/[pid]/cmdline and /proc/[pid]/comm
+
+        const result = await trackPidForPort(45688, mockProcPath);
+        expect(result.pid).toBe(4321);
+        expect(result.inode).toBe('123456');
+        expect(result.cmdline).toBe('unknown');
+        expect(result.comm).toBe('unknown');
+      });
     });
 
     describe('trackPidForPortSync', () => {
@@ -175,6 +203,24 @@ describe('pid-tracker', () => {
         createMockNetTcp(netTcpContent);
         // Create a process but with different inode
         createMockProcWithSymlinks(1234, 'curl', 'curl', ['999999']);
+
+        const result = trackPidForPortSync(45688, mockProcPath);
+        expect(result.pid).toBe(-1);
+        expect(result.inode).toBe('123456');
+        expect(result.error).toContain('Socket inode 123456 found but no process owns it');
+      });
+
+      it('should ignore non-symlink file descriptors', () => {
+        const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:B278 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 123456 1 0000000000000000 100 0 0 10 0`;
+        createMockNetTcp(netTcpContent);
+
+        const pidDir = path.join(mockProcPath, '5678');
+        const fdDir = path.join(pidDir, 'fd');
+        fs.mkdirSync(fdDir, { recursive: true });
+        fs.writeFileSync(path.join(pidDir, 'cmdline'), 'curl');
+        fs.writeFileSync(path.join(pidDir, 'comm'), 'curl');
+        fs.writeFileSync(path.join(fdDir, '3'), 'not-a-symlink');
 
         const result = trackPidForPortSync(45688, mockProcPath);
         expect(result.pid).toBe(-1);
