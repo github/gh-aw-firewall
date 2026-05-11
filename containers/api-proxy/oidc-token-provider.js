@@ -14,7 +14,7 @@
  *   4. Serve cached token synchronously via getToken()
  */
 
-const { httpGet, httpPost } = require('./github-oidc');
+const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const { logRequest } = require('./logging');
 
 // Refresh at 75% of token lifetime (Azure tokens typically last 3600s)
@@ -155,23 +155,11 @@ class OidcTokenProvider {
    * @returns {Promise<string>} The GitHub-issued JWT
    */
   async _mintGitHubOidcToken() {
-    const url = new URL(this._requestUrl);
-    url.searchParams.set('audience', this._oidcAudience);
-
-    const response = await httpGet(url.toString(), {
-      'Authorization': `Bearer ${this._requestToken}`,
-      'Accept': 'application/json',
+    return mintGitHubOidcToken({
+      requestUrl: this._requestUrl,
+      requestToken: this._requestToken,
+      audience: this._oidcAudience,
     });
-
-    if (response.statusCode !== 200) {
-      throw new Error(`GitHub OIDC token request failed: HTTP ${response.statusCode} — ${response.body}`);
-    }
-
-    const data = JSON.parse(response.body);
-    if (!data.value) {
-      throw new Error('GitHub OIDC response missing "value" field');
-    }
-    return data.value;
   }
 
   /**
@@ -190,9 +178,17 @@ class OidcTokenProvider {
       scope: this._azureScope,
     }).toString();
 
-    const response = await httpPost(tokenEndpoint, body, {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    });
+    let response;
+    try {
+      response = await this._httpPost(tokenEndpoint, body, {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+    } catch (err) {
+      if (err?.message === 'Token exchange timeout') {
+        throw new Error('Azure token exchange timeout');
+      }
+      throw err;
+    }
 
     if (response.statusCode !== 200) {
       throw new Error(`Azure token exchange failed: HTTP ${response.statusCode} — ${response.body}`);
@@ -252,6 +248,17 @@ class OidcTokenProvider {
     }, delayMs);
     // Don't let refresh timer keep the process alive
     if (this._refreshTimer.unref) this._refreshTimer.unref();
+  }
+
+  /**
+   * HTTP POST helper.
+   * @param {string} url
+   * @param {string} body
+   * @param {Record<string, string>} headers
+   * @returns {Promise<{statusCode: number, body: string}>}
+   */
+  _httpPost(url, body, headers) {
+    return httpPost(url, body, headers);
   }
 
   /** @param {number} ms */
