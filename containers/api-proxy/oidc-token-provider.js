@@ -14,7 +14,7 @@
  *   4. Serve cached token synchronously via getToken()
  */
 
-const { mintGitHubOidcToken, httpGet, httpPost, getProxyAgent } = require('./github-oidc');
+const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const { logRequest } = require('./logging');
 
 // Refresh at 75% of token lifetime (Azure tokens typically last 3600s)
@@ -178,9 +178,17 @@ class OidcTokenProvider {
       scope: this._azureScope,
     }).toString();
 
-    const response = await this._httpPost(tokenEndpoint, body, {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    });
+    let response;
+    try {
+      response = await this._httpPost(tokenEndpoint, body, {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+    } catch (err) {
+      if (err?.message === 'Token exchange timeout') {
+        throw new Error('Azure token exchange timeout');
+      }
+      throw err;
+    }
 
     if (response.statusCode !== 200) {
       throw new Error(`Azure token exchange failed: HTTP ${response.statusCode} — ${response.body}`);
@@ -243,16 +251,6 @@ class OidcTokenProvider {
   }
 
   /**
-   * HTTP GET helper.
-   * @param {string} url
-   * @param {Record<string, string>} headers
-   * @returns {Promise<{statusCode: number, body: string}>}
-   */
-  _httpGet(url, headers) {
-    return httpGet(url, headers);
-  }
-
-  /**
    * HTTP POST helper.
    * @param {string} url
    * @param {string} body
@@ -261,15 +259,6 @@ class OidcTokenProvider {
    */
   _httpPost(url, body, headers) {
     return httpPost(url, body, headers);
-  }
-
-  /**
-   * Build proxy agent from env vars when configured.
-   * @param {URL} parsedUrl
-   * @returns {import('http').Agent|undefined}
-   */
-  _getProxyAgent(parsedUrl) {
-    return getProxyAgent(parsedUrl);
   }
 
   /** @param {number} ms */
