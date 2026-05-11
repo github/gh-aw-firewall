@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const { httpPost } = require('./github-oidc');
 const { OidcTokenProvider } = require('./oidc-token-provider');
 
 // Helper to create a mock HTTP server that responds to token requests
@@ -67,29 +68,22 @@ describe('OidcTokenProvider', () => {
       oidcAudience: 'api://AzureADTokenExchange',
       azureScope: 'https://cognitiveservices.azure.com/.default',
     });
-    // Override login host to use mock server
-    provider._loginHost = `127.0.0.1:${serverPort}`;
-    // Override _httpPost to use http (not https)
-    provider._httpPost = function (url, body, headers) {
-      // Rewrite https to http for mock
-      const httpUrl = url.replace('https://', 'http://');
-      return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(httpUrl);
-        const req = http.request({
-          method: 'POST',
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port,
-          path: parsedUrl.pathname + parsedUrl.search,
-          headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
-        }, (res) => {
-          let responseBody = '';
-          res.on('data', (chunk) => { responseBody += chunk; });
-          res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
-        });
-        req.on('error', reject);
-        req.write(body);
-        req.end();
-      });
+    // Override _exchangeForAzureToken to use mock server over http
+    provider._exchangeForAzureToken = async (oidcJwt) => {
+      const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: provider._clientId,
+        client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        client_assertion: oidcJwt,
+        scope: provider._azureScope,
+      }).toString();
+      const response = await httpPost(
+        `http://127.0.0.1:${serverPort}/test-tenant-id/oauth2/v2.0/token`,
+        body,
+        { 'Content-Type': 'application/x-www-form-urlencoded' }
+      );
+      const data = JSON.parse(response.body);
+      return { access_token: data.access_token, expires_in: data.expires_in || 3600 };
     };
 
     await provider.initialize();
@@ -111,6 +105,53 @@ describe('OidcTokenProvider', () => {
 
     expect(provider.isReady()).toBe(false);
     expect(provider.getToken()).toBeNull();
+    provider.shutdown();
+  });
+
+  it('should request GitHub OIDC token with configured audience and auth header', async () => {
+    const oidcServer = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      expect(url.searchParams.get('audience')).toBe('api://custom-audience');
+      expect(req.headers.authorization).toBe('Bearer custom-request-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ value: 'jwt-from-github' }));
+    });
+
+    let provider;
+    try {
+      await new Promise(resolve => oidcServer.listen(0, '127.0.0.1', resolve));
+      const oidcPort = oidcServer.address().port;
+
+      provider = new OidcTokenProvider({
+        requestUrl: `http://127.0.0.1:${oidcPort}/token`,
+        requestToken: 'custom-request-token',
+        tenantId: 'test',
+        clientId: 'test',
+        oidcAudience: 'api://custom-audience',
+      });
+
+      const token = await provider._mintGitHubOidcToken();
+      expect(token).toBe('jwt-from-github');
+    } finally {
+      provider?.shutdown();
+      await new Promise(resolve => oidcServer.close(resolve));
+    }
+  });
+
+  it('should preserve Azure context in token exchange timeout errors', async () => {
+    const provider = new OidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      tenantId: 'test',
+      clientId: 'test',
+    });
+
+    provider._httpPost = jest.fn().mockRejectedValue(new Error('Token exchange timeout'));
+
+    await expect(provider._exchangeForAzureToken('oidc-jwt'))
+      .rejects
+      .toThrow('Azure token exchange timeout');
+
     provider.shutdown();
   });
 
