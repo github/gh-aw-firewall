@@ -114,6 +114,53 @@ describe('OidcTokenProvider', () => {
     provider.shutdown();
   });
 
+  it('should request GitHub OIDC token with configured audience and auth header', async () => {
+    const oidcServer = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      expect(url.searchParams.get('audience')).toBe('api://custom-audience');
+      expect(req.headers.authorization).toBe('Bearer custom-request-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ value: 'jwt-from-github' }));
+    });
+
+    let provider;
+    try {
+      await new Promise(resolve => oidcServer.listen(0, '127.0.0.1', resolve));
+      const oidcPort = oidcServer.address().port;
+
+      provider = new OidcTokenProvider({
+        requestUrl: `http://127.0.0.1:${oidcPort}/token`,
+        requestToken: 'custom-request-token',
+        tenantId: 'test',
+        clientId: 'test',
+        oidcAudience: 'api://custom-audience',
+      });
+
+      const token = await provider._mintGitHubOidcToken();
+      expect(token).toBe('jwt-from-github');
+    } finally {
+      provider?.shutdown();
+      await new Promise(resolve => oidcServer.close(resolve));
+    }
+  });
+
+  it('should preserve Azure context in token exchange timeout errors', async () => {
+    const provider = new OidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      tenantId: 'test',
+      clientId: 'test',
+    });
+
+    provider._httpPost = jest.fn().mockRejectedValue(new Error('Token exchange timeout'));
+
+    await expect(provider._exchangeForAzureToken('oidc-jwt'))
+      .rejects
+      .toThrow('Azure token exchange timeout');
+
+    provider.shutdown();
+  });
+
   it('should resolve correct login host for sovereign clouds', () => {
     const providerPublic = new OidcTokenProvider({
       requestUrl: 'http://localhost/token',

@@ -60,7 +60,8 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 - `src/docker-manager.ts` re-exports the public API from the above modules for backward compatibility
 
 ### 4. Type Definitions (`src/types/`)
-- `WrapperConfig`: Main configuration interface (`src/types/config.ts`)
+- `WrapperConfig`: Main configuration interface (`src/types/wrapper-config.ts`)
+- API/CLI proxy port constants (`src/types/ports.ts`)
 - Docker Compose types (`src/types/docker.ts`)
 - Logging, policy, and PID types in separate modules
 
