@@ -307,6 +307,47 @@ If the key is present only in `secrets.*` but not exported into the step's `env:
 
 > **Important**: When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF will emit a warning if a custom target is set but not in the allowlist.
 
+### Anthropic prompt-cache optimizations
+
+Use `--anthropic-auto-cache` to enable automatic Anthropic prompt-caching in the API proxy. When enabled, the proxy:
+
+- Injects cache breakpoints on tools, system, and messages blocks
+- Upgrades the cache TTL to 1 hour via the `anthropic-beta: extended-cache-ttl-2025-04-11` header
+- Strips ANSI escape codes from request payloads (which can prevent cache hits)
+
+This typically saves ~90% on Anthropic API input costs for repeated or long-running agentic sessions.
+
+```bash
+sudo awf --enable-api-proxy \
+  --anthropic-auto-cache \
+  --allow-domains api.anthropic.com \
+  -- claude --dangerously-skip-permissions
+```
+
+Use `--anthropic-cache-tail-ttl` to control the TTL for the rolling-tail cache breakpoint:
+
+| Value | When to use |
+|-------|-------------|
+| `5m` (default) | Fast interactive sessions where prompts change frequently |
+| `1h` | Long agentic tasks with large stable context windows |
+
+```bash
+# Long-running agentic task — use 1h TTL for maximum cache reuse
+sudo awf --enable-api-proxy \
+  --anthropic-auto-cache \
+  --anthropic-cache-tail-ttl 1h \
+  --allow-domains api.anthropic.com \
+  -- claude --dangerously-skip-permissions
+```
+
+**Config file equivalent:**
+
+```yaml
+apiProxy:
+  anthropicAutoCache: true
+  anthropicCacheTailTtl: "1h"
+```
+
 ### Container configuration
 
 The sidecar container:
