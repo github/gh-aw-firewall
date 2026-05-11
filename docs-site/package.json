@@ -14,7 +14,7 @@
     "@astrojs/starlight": "^0.37.6",
     "astro": "^5.17.1",
     "astro-mermaid": "1.1.0",
-    "mermaid": "^11.12.2",
+    "mermaid": "^11.15.0",
     "sharp": "^0.34.5"
   },
   "overrides": {
