@@ -2,12 +2,7 @@
  * Tests for stats-formatter module
  */
 
-import {
-  formatStatsJson,
-  formatStatsMarkdown,
-  formatStatsPretty,
-  formatStats,
-} from './stats-formatter';
+import { formatStats } from './stats-formatter';
 import { AggregatedStats, DomainStats } from './log-aggregator';
 import { RuleStats } from './audit-enricher';
 
@@ -15,7 +10,7 @@ describe('stats-formatter', () => {
   describe('formatStatsJson', () => {
     it('should format empty stats as JSON', () => {
       const stats = createEmptyStats();
-      const output = formatStatsJson(stats);
+      const output = formatStats(stats, 'json');
       const parsed = JSON.parse(output);
 
       expect(parsed.totalRequests).toBe(0);
@@ -28,7 +23,7 @@ describe('stats-formatter', () => {
 
     it('should format stats with domains as JSON', () => {
       const stats = createSampleStats();
-      const output = formatStatsJson(stats);
+      const output = formatStats(stats, 'json');
       const parsed = JSON.parse(output);
 
       expect(parsed.totalRequests).toBe(10);
@@ -49,7 +44,7 @@ describe('stats-formatter', () => {
 
     it('should include time range in JSON output', () => {
       const stats = createSampleStats();
-      const output = formatStatsJson(stats);
+      const output = formatStats(stats, 'json');
       const parsed = JSON.parse(output);
 
       expect(parsed.timeRange).toEqual({
@@ -62,7 +57,7 @@ describe('stats-formatter', () => {
   describe('formatStatsMarkdown', () => {
     it('should format empty stats as markdown', () => {
       const stats = createEmptyStats();
-      const output = formatStatsMarkdown(stats);
+      const output = formatStats(stats, 'markdown');
 
       expect(output).toContain('<summary>Firewall Activity</summary>');
       expect(output).toContain('0 requests');
@@ -73,7 +68,7 @@ describe('stats-formatter', () => {
 
     it('should format stats with domains as markdown', () => {
       const stats = createSampleStats();
-      const output = formatStatsMarkdown(stats);
+      const output = formatStats(stats, 'markdown');
 
       expect(output).toContain('<summary>Firewall Activity</summary>');
       expect(output).toContain('10 requests');
@@ -87,7 +82,7 @@ describe('stats-formatter', () => {
 
     it('should use collapsible details section with title in summary', () => {
       const stats = createSampleStats();
-      const output = formatStatsMarkdown(stats);
+      const output = formatStats(stats, 'markdown');
 
       expect(output).toContain('<details>');
       expect(output).toContain('<summary>Firewall Activity</summary>');
@@ -111,7 +106,7 @@ describe('stats-formatter', () => {
       stats.totalRequests = 3;
       stats.uniqueDomains = 2;
 
-      const output = formatStatsMarkdown(stats);
+      const output = formatStats(stats, 'markdown');
 
       expect(output).toContain('github.com');
       expect(output).not.toContain('| - |');
@@ -122,7 +117,7 @@ describe('stats-formatter', () => {
       singleRequestStats.totalRequests = 1;
       singleRequestStats.uniqueDomains = 1;
 
-      const output = formatStatsMarkdown(singleRequestStats);
+      const output = formatStats(singleRequestStats, 'markdown');
 
       expect(output).toContain('1 request |');
       expect(output).toContain('1 unique domain');
@@ -132,7 +127,7 @@ describe('stats-formatter', () => {
   describe('formatStatsPretty', () => {
     it('should format empty stats for terminal', () => {
       const stats = createEmptyStats();
-      const output = formatStatsPretty(stats, false);
+      const output = formatStats(stats, 'pretty', false);
 
       expect(output).toContain('Firewall Statistics');
       expect(output).toContain('Total Requests:  0');
@@ -141,7 +136,7 @@ describe('stats-formatter', () => {
 
     it('should format stats with percentages', () => {
       const stats = createSampleStats();
-      const output = formatStatsPretty(stats, false);
+      const output = formatStats(stats, 'pretty', false);
 
       expect(output).toContain('Total Requests:  10');
       expect(output).toContain('Allowed:         8 (80.0%)');
@@ -150,7 +145,7 @@ describe('stats-formatter', () => {
 
     it('should include domain breakdown', () => {
       const stats = createSampleStats();
-      const output = formatStatsPretty(stats, false);
+      const output = formatStats(stats, 'pretty', false);
 
       expect(output).toContain('Domains:');
       expect(output).toContain('github.com');
@@ -161,7 +156,7 @@ describe('stats-formatter', () => {
 
     it('should include time range when available', () => {
       const stats = createSampleStats();
-      const output = formatStatsPretty(stats, false);
+      const output = formatStats(stats, 'pretty', false);
 
       expect(output).toContain('Time Range:');
     });
@@ -169,7 +164,7 @@ describe('stats-formatter', () => {
     it('should work with colorize enabled', () => {
       const stats = createSampleStats();
       // Just verify it doesn't throw with colorize enabled
-      const output = formatStatsPretty(stats, true);
+      const output = formatStats(stats, 'pretty', true);
       expect(output).toBeTruthy();
     });
   });
@@ -258,7 +253,7 @@ describe('byRule stats in formatters', () => {
   }
 
   it('should include byRule in JSON output', () => {
-    const output = formatStatsJson(statsWithRules());
+    const output = formatStats(statsWithRules(), 'json');
     const parsed = JSON.parse(output);
     expect(parsed.byRule).toBeDefined();
     expect(parsed.byRule).toHaveLength(2);
@@ -266,31 +261,31 @@ describe('byRule stats in formatters', () => {
   });
 
   it('should not include byRule in JSON when absent', () => {
-    const output = formatStatsJson(createSampleStats());
+    const output = formatStats(createSampleStats(), 'json');
     const parsed = JSON.parse(output);
     expect(parsed.byRule).toBeUndefined();
   });
 
   it('should include Policy Rules section in markdown', () => {
-    const output = formatStatsMarkdown(statsWithRules());
+    const output = formatStats(statsWithRules(), 'markdown');
     expect(output).toContain('Policy Rules');
     expect(output).toContain('allow-both-plain');
     expect(output).toContain('deny-default');
   });
 
   it('should not include Policy Rules in markdown when absent', () => {
-    const output = formatStatsMarkdown(createSampleStats());
+    const output = formatStats(createSampleStats(), 'markdown');
     expect(output).not.toContain('Policy Rules');
   });
 
   it('should include Policy Rules in pretty output', () => {
-    const output = formatStatsPretty(statsWithRules(), false);
+    const output = formatStats(statsWithRules(), 'pretty', false);
     expect(output).toContain('Policy Rules');
     expect(output).toContain('allow-both-plain');
   });
 
   it('should not include Policy Rules in pretty when absent', () => {
-    const output = formatStatsPretty(createSampleStats(), false);
+    const output = formatStats(createSampleStats(), 'pretty', false);
     expect(output).not.toContain('Policy Rules');
   });
 });
