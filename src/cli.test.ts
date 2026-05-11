@@ -277,10 +277,9 @@ describe('cli', () => {
       const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called');
       });
+      const mockLogsCommand = jest.fn();
       jest.doMock('./commands/logs', () => ({
-        logsCommand: jest.fn(() => {
-          throw new Error('logsCommand should not be called for invalid formats');
-        }),
+        logsCommand: mockLogsCommand,
       }));
       const program = loadCliProgram();
 
@@ -289,6 +288,7 @@ describe('cli', () => {
       ).rejects.toThrow('process.exit called');
 
       expect(mockExit).toHaveBeenCalledWith(1);
+      expect(mockLogsCommand).not.toHaveBeenCalled();
     });
 
     it('uses the command error exitCode for predownload failures', async () => {
