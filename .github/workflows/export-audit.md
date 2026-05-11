@@ -109,10 +109,10 @@ grep -rn "^export " src/ --include="*.ts" | grep -v "\.test\.ts" | \
     name=$(echo "$rest" | sed -n 's/.*export \(function\|class\|const\|type\|interface\|enum\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/p')
     [ -z "$name" ] && continue
     # Count how many times it appears outside its own file.
-    # Use a bare-word search rather than "import.*\bname\b" so that
+    # Use -w (whole-word) rather than "import.*name" so that
     # multi-line import blocks (where each symbol sits on its own line)
     # are counted correctly — the old pattern silently missed them.
-    count=$(grep -rn "\b${name}\b" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
+    count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
     if [ "$count" -eq 0 ]; then
       echo "POTENTIALLY UNUSED: $name (exported from $file:$line)"
     fi
@@ -267,7 +267,7 @@ Unused export / Naming inconsistency / Circular dependency / Import path issue
 
 ## Guidelines
 
-- **Verify before filing**: Confirm that the export is truly unused by checking all import sites, including test files and any barrel exports (`index.ts`). Pay special attention to **multi-line import blocks** — TypeScript imports often list each symbol on its own line, which a single-line `import.*name` grep will miss entirely. The manual fallback script uses a bare-word search (`\bname\b`) for this reason; apply the same logic during manual verification.
+- **Verify before filing**: Confirm that the export is truly unused by checking all import sites, including test files and any barrel exports (`index.ts`). Pay special attention to **multi-line import blocks** — TypeScript imports often list each symbol on its own line, which a single-line `import.*name` grep will miss entirely. The manual fallback script uses `grep -w` (whole-word matching) for this reason; apply the same logic during manual verification.
 - **Be precise**: Include the exact symbol name, file path, and line number in the evidence
 - **No duplicates**: Always check existing issues with `state: all`; only treat closed issues as terminal when `state_reason` is `not_planned`
 - **Batch related findings**: If multiple unused exports are in the same file, file a single issue listing all of them
