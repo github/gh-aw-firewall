@@ -23,73 +23,106 @@ describe('agent environment: credentials', () => {
   });
 
   it('should forward COPILOT_GITHUB_TOKEN when api-proxy is disabled', () => {
+    const original = process.env.COPILOT_GITHUB_TOKEN;
     process.env.COPILOT_GITHUB_TOKEN = 'ghp_test_token';
-    const configNoProxy = { ...mockConfig, enableApiProxy: false };
-    const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.COPILOT_GITHUB_TOKEN).toBe('ghp_test_token');
-    delete process.env.COPILOT_GITHUB_TOKEN;
+    try {
+      const configNoProxy = { ...mockConfig, enableApiProxy: false };
+      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghp_test_token');
+    } finally {
+      if (original !== undefined) process.env.COPILOT_GITHUB_TOKEN = original;
+      else delete process.env.COPILOT_GITHUB_TOKEN;
+    }
   });
 
   it('should forward COPILOT_API_KEY when api-proxy is disabled', () => {
+    const original = process.env.COPILOT_API_KEY;
     process.env.COPILOT_API_KEY = 'cpat_test_byok_key';
-    const configNoProxy = { ...mockConfig, enableApiProxy: false };
-    const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.COPILOT_API_KEY).toBe('cpat_test_byok_key');
-    delete process.env.COPILOT_API_KEY;
+    try {
+      const configNoProxy = { ...mockConfig, enableApiProxy: false };
+      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_API_KEY).toBe('cpat_test_byok_key');
+    } finally {
+      if (original !== undefined) process.env.COPILOT_API_KEY = original;
+      else delete process.env.COPILOT_API_KEY;
+    }
   });
 
   it('should not forward COPILOT_API_KEY to agent when api-proxy is enabled', () => {
+    const original = process.env.COPILOT_API_KEY;
     process.env.COPILOT_API_KEY = 'cpat_test_byok_key';
-    const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
-    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    // Placeholder is set to prevent --env-all from leaking the real key
-    expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
-    delete process.env.COPILOT_API_KEY;
+    try {
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      // Placeholder is set to prevent --env-all from leaking the real key
+      expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
+    } finally {
+      if (original !== undefined) process.env.COPILOT_API_KEY = original;
+      else delete process.env.COPILOT_API_KEY;
+    }
   });
 
   it('should not forward COPILOT_PROVIDER_API_KEY to agent from --env-all when api-proxy is enabled', () => {
-    const providerApiKey = 'sk-real-provider-key';
-    process.env.COPILOT_PROVIDER_API_KEY = providerApiKey;
-    const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true };
-    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.COPILOT_PROVIDER_API_KEY).toBeUndefined();
-    delete process.env.COPILOT_PROVIDER_API_KEY;
+    const original = process.env.COPILOT_PROVIDER_API_KEY;
+    process.env.COPILOT_PROVIDER_API_KEY = 'sk-real-provider-key';
+    try {
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_PROVIDER_API_KEY).toBeUndefined();
+    } finally {
+      if (original !== undefined) process.env.COPILOT_PROVIDER_API_KEY = original;
+      else delete process.env.COPILOT_PROVIDER_API_KEY;
+    }
   });
 
   it('should keep COPILOT_PROVIDER_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
-    const providerApiKey = 'sk-real-provider-key';
+    const original = process.env.COPILOT_PROVIDER_API_KEY;
     const copilotApiKey = 'cpat-config-byok-key';
-    process.env.COPILOT_PROVIDER_API_KEY = providerApiKey;
-    const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey };
-    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
-    delete process.env.COPILOT_PROVIDER_API_KEY;
+    process.env.COPILOT_PROVIDER_API_KEY = 'sk-real-provider-key';
+    try {
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
+    } finally {
+      if (original !== undefined) process.env.COPILOT_PROVIDER_API_KEY = original;
+      else delete process.env.COPILOT_PROVIDER_API_KEY;
+    }
   });
 
   it('should keep COPILOT_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
+    const original = process.env.COPILOT_API_KEY;
     process.env.COPILOT_API_KEY = 'cpat-host-value';
-    const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey: 'cpat-config-byok-key' };
-    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
-    delete process.env.COPILOT_API_KEY;
+    try {
+      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey: 'cpat-config-byok-key' };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
+    } finally {
+      if (original !== undefined) process.env.COPILOT_API_KEY = original;
+      else delete process.env.COPILOT_API_KEY;
+    }
   });
 
   it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
+    const original = process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
     process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
-    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-    const env = result.services.agent.environment as Record<string, string>;
-    expect(env.AWF_ONE_SHOT_TOKEN_DEBUG).toBe('1');
-    delete process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
+    try {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.AWF_ONE_SHOT_TOKEN_DEBUG).toBe('1');
+    } finally {
+      if (original !== undefined) process.env.AWF_ONE_SHOT_TOKEN_DEBUG = original;
+      else delete process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
+    }
   });
 
   it('should pass through GITHUB_TOKEN when present in environment', () => {

@@ -90,6 +90,7 @@ describe('agent environment: options', () => {
 
   it('should exclude system variables when envAll is enabled', () => {
     const originalPath = process.env.PATH;
+    const originalCustomHostVar = process.env.CUSTOM_HOST_VAR;
     process.env.CUSTOM_HOST_VAR = 'test_value';
 
     try {
@@ -105,11 +106,14 @@ describe('agent environment: options', () => {
       // Should pass through non-excluded vars
       expect(env.CUSTOM_HOST_VAR).toBe('test_value');
     } finally {
-      delete process.env.CUSTOM_HOST_VAR;
+      if (originalCustomHostVar !== undefined) process.env.CUSTOM_HOST_VAR = originalCustomHostVar;
+      else delete process.env.CUSTOM_HOST_VAR;
     }
   });
 
   it('should exclude specified variables when excludeEnv is set with envAll', () => {
+    const originalCustomHostVar = process.env.CUSTOM_HOST_VAR;
+    const originalSecretToken = process.env.SECRET_TOKEN;
     process.env.CUSTOM_HOST_VAR = 'test_value';
     process.env.SECRET_TOKEN = 'super-secret';
 
@@ -123,12 +127,17 @@ describe('agent environment: options', () => {
       // Should NOT pass through excluded var
       expect(env.SECRET_TOKEN).toBeUndefined();
     } finally {
-      delete process.env.CUSTOM_HOST_VAR;
-      delete process.env.SECRET_TOKEN;
+      if (originalCustomHostVar !== undefined) process.env.CUSTOM_HOST_VAR = originalCustomHostVar;
+      else delete process.env.CUSTOM_HOST_VAR;
+      if (originalSecretToken !== undefined) process.env.SECRET_TOKEN = originalSecretToken;
+      else delete process.env.SECRET_TOKEN;
     }
   });
 
   it('should exclude multiple variables when excludeEnv contains multiple names', () => {
+    const originalTokenA = process.env.TOKEN_A;
+    const originalTokenB = process.env.TOKEN_B;
+    const originalSafeVar = process.env.SAFE_VAR;
     process.env.TOKEN_A = 'value-a';
     process.env.TOKEN_B = 'value-b';
     process.env.SAFE_VAR = 'safe';
@@ -142,13 +151,17 @@ describe('agent environment: options', () => {
       expect(env.TOKEN_B).toBeUndefined();
       expect(env.SAFE_VAR).toBe('safe');
     } finally {
-      delete process.env.TOKEN_A;
-      delete process.env.TOKEN_B;
-      delete process.env.SAFE_VAR;
+      if (originalTokenA !== undefined) process.env.TOKEN_A = originalTokenA;
+      else delete process.env.TOKEN_A;
+      if (originalTokenB !== undefined) process.env.TOKEN_B = originalTokenB;
+      else delete process.env.TOKEN_B;
+      if (originalSafeVar !== undefined) process.env.SAFE_VAR = originalSafeVar;
+      else delete process.env.SAFE_VAR;
     }
   });
 
   it('should have no effect when excludeEnv is set but envAll is false', () => {
+    const originalSecretToken = process.env.SECRET_TOKEN;
     process.env.SECRET_TOKEN = 'super-secret';
 
     try {
@@ -159,7 +172,8 @@ describe('agent environment: options', () => {
       // envAll is false so SECRET_TOKEN was never going to be injected anyway
       expect(env.SECRET_TOKEN).toBeUndefined();
     } finally {
-      delete process.env.SECRET_TOKEN;
+      if (originalSecretToken !== undefined) process.env.SECRET_TOKEN = originalSecretToken;
+      else delete process.env.SECRET_TOKEN;
     }
   });
 
