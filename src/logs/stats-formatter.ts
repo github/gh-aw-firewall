@@ -11,7 +11,7 @@ import { AggregatedStats, DomainStats } from './log-aggregator';
  * @param stats - Aggregated statistics
  * @returns JSON string
  */
-export function formatStatsJson(stats: AggregatedStats): string {
+function formatStatsJson(stats: AggregatedStats): string {
   // Convert Map to object for JSON serialization
   const byDomain: Record<string, Omit<DomainStats, 'domain'>> = {};
   for (const [domain, domainStats] of stats.byDomain) {
@@ -44,7 +44,7 @@ export function formatStatsJson(stats: AggregatedStats): string {
  * @param stats - Aggregated statistics
  * @returns Markdown string
  */
-export function formatStatsMarkdown(stats: AggregatedStats): string {
+function formatStatsMarkdown(stats: AggregatedStats): string {
   const lines: string[] = [];
 
   // Summary line
@@ -119,7 +119,7 @@ export function formatStatsMarkdown(stats: AggregatedStats): string {
  * @param colorize - Whether to use colors (default: true)
  * @returns Formatted string
  */
-export function formatStatsPretty(
+function formatStatsPretty(
   stats: AggregatedStats,
   colorize: boolean = true
 ): string {
