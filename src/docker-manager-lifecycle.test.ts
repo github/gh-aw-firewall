@@ -157,6 +157,33 @@ describe('docker-manager lifecycle', () => {
       expect(upCalls).toHaveLength(2);
     });
 
+    it('should retry once when docker compose only reports a generic error but awf-api-proxy already exited', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - generic execa error)
+      mockExecaFn.mockRejectedValueOnce(new Error('Command failed with exit code 1: docker compose up -d'));
+      // 3. docker inspect awf-api-proxy (fallback diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'exited', stderr: '', exitCode: 0 } as any);
+      // 4. docker logs --tail 50 awf-api-proxy (get logs for diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy startup logs', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 6. docker compose up (retry - succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+
+      const inspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
+      );
+      expect(inspectCalls).toHaveLength(1);
+
+      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+      );
+      expect(upCalls).toHaveLength(2);
+    });
+
     it('should throw clear error when awf-api-proxy fails its health check on both attempts', async () => {
       // 1. docker rm (initial cleanup)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
@@ -188,6 +215,29 @@ describe('docker-manager lifecycle', () => {
       // 5. docker compose up (retry - also fails)
       mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
       // 6. docker logs (second diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+        'AWF firewall failed to start: awf-api-proxy failed during startup on both attempts'
+      );
+    });
+
+    it('should throw clear error when generic compose failures map to awf-api-proxy startup failures on both attempts', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - generic execa error)
+      mockExecaFn.mockRejectedValueOnce(new Error('Command failed with exit code 1: docker compose up -d'));
+      // 3. docker inspect (first diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'exited', stderr: '', exitCode: 0 } as any);
+      // 4. docker logs (first diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 6. docker compose up (retry - also generic execa error)
+      mockExecaFn.mockRejectedValueOnce(new Error('Command failed with exit code 1: docker compose up -d'));
+      // 7. docker inspect (second diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'exited', stderr: '', exitCode: 0 } as any);
+      // 8. docker logs (second diagnosis)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
       await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
