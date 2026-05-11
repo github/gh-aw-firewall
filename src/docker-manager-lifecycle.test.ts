@@ -152,8 +152,29 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
       await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
-        'AWF firewall failed to start: awf-api-proxy failed its health check on both attempts'
+        'AWF firewall failed to start: awf-api-proxy failed to start on both attempts'
       );
+    });
+
+    it('should retry once when awf-api-proxy exits (1) during startup', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - fails with api-proxy exited)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
+      // 3. docker logs --tail 50 awf-api-proxy (get logs for diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy startup logs', stderr: '', exitCode: 0 } as any);
+      // 4. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose up (retry - succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+
+      // Verify retry happened: compose up was called twice
+      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+      );
+      expect(upCalls).toHaveLength(2);
     });
 
     it('should not retry for non-api-proxy healthcheck failures', async () => {

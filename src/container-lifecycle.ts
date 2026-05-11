@@ -376,13 +376,16 @@ async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{
 
 /**
  * Returns true when the Docker Compose error message indicates that the
- * api-proxy container specifically failed its health check.
+ * api-proxy container specifically failed to start.
  * Docker emits "dependency failed to start: container <name> is unhealthy"
- * when a dependent container's health check does not pass.
+ * for healthcheck failures, and may emit "dependency failed to start:
+ * container <name> exited (1)" for startup-time process exits.
  */
-function isApiProxyUnhealthyError(errorMsg: string): boolean {
-  return errorMsg.includes('is unhealthy') &&
-    errorMsg.includes(API_PROXY_CONTAINER_NAME);
+function isApiProxyStartupFailureError(errorMsg: string): boolean {
+  if (!errorMsg.includes(API_PROXY_CONTAINER_NAME)) {
+    return false;
+  }
+  return errorMsg.includes('is unhealthy') || errorMsg.includes('exited (1)');
 }
 
 /**
@@ -461,11 +464,11 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   } catch (firstError) {
     const firstErrorMsg = firstError instanceof Error ? firstError.message : String(firstError);
 
-    // When api-proxy specifically fails its health check, retry once.
+    // When api-proxy specifically fails to start, retry once.
     // Transient failures are common on slow or busy runners (e.g. Azure-hosted runners)
     // where the Node.js process inside the container takes longer to bind its port.
-    if (isApiProxyUnhealthyError(firstErrorMsg)) {
-      logger.warn(`${API_PROXY_CONTAINER_NAME} failed its health check — this may be a transient startup failure, retrying once...`);
+    if (isApiProxyStartupFailureError(firstErrorMsg)) {
+      logger.warn(`${API_PROXY_CONTAINER_NAME} failed to start — this may be a transient startup failure, retrying once...`);
       await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
 
       // Tear down before retry so Docker Compose starts fresh
@@ -488,12 +491,12 @@ export async function startContainers(workDir: string, allowedDomains: string[],
         return;
       } catch (retryError) {
         const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-        if (isApiProxyUnhealthyError(retryErrorMsg)) {
+        if (isApiProxyStartupFailureError(retryErrorMsg)) {
           // Surface api-proxy logs and emit a clear, unambiguous error so
           // downstream parse steps don't blame the model for never running.
           await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
           throw new Error(
-            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed its health check on both attempts. ` +
+            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed to start on both attempts. ` +
             `The agent was never invoked. ` +
             `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
           );
