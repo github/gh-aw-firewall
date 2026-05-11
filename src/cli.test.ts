@@ -1,3 +1,21 @@
+jest.mock('commander', () => {
+  const actual = jest.requireActual('commander') as typeof import('commander');
+  const createdCommands: InstanceType<typeof actual.Command>[] = [];
+
+  class TrackingCommand extends actual.Command {
+    constructor(name?: string) {
+      super(name);
+      createdCommands.push(this);
+    }
+  }
+
+  return {
+    ...actual,
+    Command: TrackingCommand,
+    __createdCommands: createdCommands,
+  };
+});
+
 import { Command } from 'commander';
 import * as cliModule from './cli';
 import {
@@ -8,7 +26,40 @@ import {
 } from './cli';
 import { redactSecrets } from './redact-secrets';
 
+type MockedCommanderModule = typeof import('commander') & {
+  __createdCommands?: Command[];
+};
+
+function loadCliProgram(): Command {
+  jest.resetModules();
+  const mockedCommander = jest.requireMock('commander') as MockedCommanderModule;
+  if (mockedCommander.__createdCommands) {
+    mockedCommander.__createdCommands.length = 0;
+  }
+
+  jest.isolateModules(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('./cli');
+  });
+
+  const [program] = mockedCommander.__createdCommands ?? [];
+
+  if (!program) {
+    throw new Error('Failed to capture CLI program instance');
+  }
+
+  return program;
+}
+
 describe('cli', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+    jest.unmock('./commands/logs');
+    jest.unmock('./commands/logs-audit');
+    jest.unmock('./commands/predownload');
+  });
+
   describe('secret redaction', () => {
     it('should redact Bearer tokens', () => {
       const command = 'curl -H "Authorization: Bearer ghp_1234567890abcdef" https://api.github.com';
@@ -218,6 +269,59 @@ describe('cli', () => {
       expect(publicApi).not.toHaveProperty('program');
       expect(publicApi).not.toHaveProperty('validateFormat');
       expect(publicApi).not.toHaveProperty('handlePredownloadAction');
+    });
+  });
+
+  describe('CLI internal behavior through public commands', () => {
+    it('exits when logs receives an invalid format', async () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      jest.doMock('./commands/logs', () => ({
+        logsCommand: jest.fn(() => {
+          throw new Error('logsCommand should not be called for invalid formats');
+        }),
+      }));
+      const program = loadCliProgram();
+
+      await expect(
+        program.parseAsync(['node', 'awf', 'logs', '--format=xml'], { from: 'node' })
+      ).rejects.toThrow('process.exit called');
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it('uses the command error exitCode for predownload failures', async () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      const errorWithExitCode = Object.assign(new Error('pull failed'), { exitCode: 2 });
+      jest.doMock('./commands/predownload', () => ({
+        predownloadCommand: jest.fn().mockRejectedValue(errorWithExitCode),
+      }));
+      const program = loadCliProgram();
+
+      await expect(
+        program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' })
+      ).rejects.toThrow('process.exit called');
+
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it('defaults predownload failures to exit code 1 without an explicit exitCode', async () => {
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      jest.doMock('./commands/predownload', () => ({
+        predownloadCommand: jest.fn().mockRejectedValue(new Error('unexpected failure')),
+      }));
+      const program = loadCliProgram();
+
+      await expect(
+        program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' })
+      ).rejects.toThrow('process.exit called');
+
+      expect(mockExit).toHaveBeenCalledWith(1);
     });
   });
 
