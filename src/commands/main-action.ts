@@ -56,13 +56,22 @@ import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
 } from '../copilot-api-resolver';
-import { program } from '../cli-options';
 
 /**
- * Main action handler for the `awf` command.
- * Extracted from cli.ts for testability and separation of concerns.
+ * Resolves the Commander option-value source for a given option name.
+ * Injected to decouple the action handler from the global program instance,
+ * enabling independent unit testing.
  */
-export async function mainAction(args: string[], options: Record<string, unknown>): Promise<void> {
+export type OptionSourceResolver = (optionName: string) => string | undefined;
+
+/**
+ * Creates the main `awf` action handler bound to a specific option-source
+ * resolver (typically `program.getOptionValueSource.bind(program)`).
+ *
+ * @param getOptionValueSource - Resolves the Commander source for a flag name
+ */
+export function createMainAction(getOptionValueSource: OptionSourceResolver) {
+  return async function mainAction(args: string[], options: Record<string, unknown>): Promise<void> {
   // Require -- separator for passing command arguments
   if (args.length === 0) {
     console.error('Error: No command specified. Use -- to separate command from options.');
@@ -107,7 +116,7 @@ export async function mainAction(args: string[], options: Record<string, unknown
         fileDerivedOptions,
         // Commander marks explicit user flags with source "cli".
         // We only apply config values when a flag was not explicitly provided.
-        (optionName: string) => program.getOptionValueSource(optionName) === 'cli'
+        (optionName: string) => getOptionValueSource(optionName) === 'cli'
       );
     } catch (error) {
       console.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);
@@ -771,4 +780,5 @@ export async function mainAction(args: string[], options: Record<string, unknown
     console.error(`Process exiting with code: 1`);
     process.exit(1);
   }
+  };
 }

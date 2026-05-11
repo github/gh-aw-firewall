@@ -69,15 +69,14 @@ export {
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 
-// Re-export the program instance and subcommand utilities
-export { program } from './cli-options';
-export { validateFormat, handlePredownloadAction } from './commands/subcommands';
-
 import { program } from './cli-options';
-import { mainAction } from './commands/main-action';
-import { registerSubcommands } from './commands/subcommands';
+import { createMainAction } from './commands/main-action';
+import { registerSubcommands, validateFormat, handlePredownloadAction } from './commands/subcommands';
 
-program.action(mainAction);
+// Re-export the program instance and subcommand utilities
+export { program, validateFormat, handlePredownloadAction };
+
+program.action(createMainAction(program.getOptionValueSource.bind(program)));
 registerSubcommands(program);
 
 // Only parse arguments if this file is run directly (not imported as a module)
