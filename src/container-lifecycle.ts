@@ -376,14 +376,16 @@ async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{
 
 /**
  * Returns true when the Docker Compose error message indicates that the
- * api-proxy container specifically failed during startup.
- * Docker may report this as either:
- *   - "dependency failed to start: container <name> is unhealthy"
- *   - "dependency failed to start: container <name> exited (1)"
+ * api-proxy container specifically failed to start.
+ * Docker emits "dependency failed to start: container <name> is unhealthy"
+ * for healthcheck failures, and may emit "dependency failed to start:
+ * container <name> exited (1)" for startup-time process exits.
  */
-function isApiProxyStartupError(errorMsg: string): boolean {
-  return errorMsg.includes(API_PROXY_CONTAINER_NAME) &&
-    (errorMsg.includes('is unhealthy') || errorMsg.includes('exited (1)'));
+function isApiProxyStartupFailureError(errorMsg: string): boolean {
+  if (!errorMsg.includes(API_PROXY_CONTAINER_NAME)) {
+    return false;
+  }
+  return errorMsg.includes('is unhealthy') || errorMsg.includes('exited (1)');
 }
 
 /**
@@ -391,7 +393,7 @@ function isApiProxyStartupError(errorMsg: string): boolean {
  * while the actionable api-proxy state is visible only via container inspect.
  */
 async function didApiProxyFailStartup(errorMsg: string): Promise<boolean> {
-  if (isApiProxyStartupError(errorMsg)) {
+  if (isApiProxyStartupFailureError(errorMsg)) {
     return true;
   }
 
@@ -494,11 +496,11 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     const firstErrorMsg = firstError instanceof Error ? firstError.message : String(firstError);
     const firstAttemptApiProxyStartupFailure = await didApiProxyFailStartup(firstErrorMsg);
 
-    // When api-proxy specifically fails during startup, retry once.
+    // When api-proxy specifically fails to start, retry once.
     // Transient failures are common on slow or busy runners (e.g. Azure-hosted runners)
     // where the Node.js process inside the container takes longer to bind its port.
     if (firstAttemptApiProxyStartupFailure) {
-      logger.warn(`${API_PROXY_CONTAINER_NAME} failed during startup — this may be a transient startup failure, retrying once...`);
+      logger.warn(`${API_PROXY_CONTAINER_NAME} failed to start — this may be a transient startup failure, retrying once...`);
       await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
 
       // Tear down before retry so Docker Compose starts fresh
@@ -526,7 +528,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
           // downstream parse steps don't blame the model for never running.
           await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
           throw new Error(
-            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed during startup on both attempts. ` +
+            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed to start on both attempts. ` +
             `The agent was never invoked. ` +
             `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
           );
