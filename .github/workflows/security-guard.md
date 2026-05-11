@@ -92,6 +92,7 @@ steps:
 
 ## Security Relevance Check
 
+<!-- markdownlint-disable-next-line MD050 -->
 **Security-critical files changed in this PR:** __GH_AW_EXPR_66EB691F__
 <!-- gh-aw compile marker: ${{ steps.security-relevance.outputs.security_files_changed }} -->
 
