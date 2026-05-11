@@ -14,9 +14,7 @@
  *   4. Serve cached token synchronously via getToken()
  */
 
-const https = require('https');
-const http = require('http');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+const { httpGet, httpPost } = require('./github-oidc');
 const { logRequest } = require('./logging');
 
 // Refresh at 75% of token lifetime (Azure tokens typically last 3600s)
@@ -160,7 +158,7 @@ class OidcTokenProvider {
     const url = new URL(this._requestUrl);
     url.searchParams.set('audience', this._oidcAudience);
 
-    const response = await this._httpGet(url.toString(), {
+    const response = await httpGet(url.toString(), {
       'Authorization': `Bearer ${this._requestToken}`,
       'Accept': 'application/json',
     });
@@ -192,7 +190,7 @@ class OidcTokenProvider {
       scope: this._azureScope,
     }).toString();
 
-    const response = await this._httpPost(tokenEndpoint, body, {
+    const response = await httpPost(tokenEndpoint, body, {
       'Content-Type': 'application/x-www-form-urlencoded',
     });
 
@@ -254,73 +252,6 @@ class OidcTokenProvider {
     }, delayMs);
     // Don't let refresh timer keep the process alive
     if (this._refreshTimer.unref) this._refreshTimer.unref();
-  }
-
-  /**
-   * HTTP GET helper.
-   * @param {string} url
-   * @param {Record<string, string>} headers
-   * @returns {Promise<{statusCode: number, body: string}>}
-   */
-  _httpGet(url, headers) {
-    return new Promise((resolve, reject) => {
-      const parsedUrl = new URL(url);
-      const mod = parsedUrl.protocol === 'https:' ? https : http;
-      const req = mod.get(url, {
-        headers,
-        agent: this._getProxyAgent(parsedUrl),
-      }, (res) => {
-        let body = '';
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => resolve({ statusCode: res.statusCode, body }));
-      });
-      req.on('error', reject);
-      req.setTimeout(10_000, () => { req.destroy(new Error('OIDC request timeout')); });
-    });
-  }
-
-  /**
-   * HTTP POST helper.
-   * @param {string} url
-   * @param {string} body
-   * @param {Record<string, string>} headers
-   * @returns {Promise<{statusCode: number, body: string}>}
-   */
-  _httpPost(url, body, headers) {
-    return new Promise((resolve, reject) => {
-      const parsedUrl = new URL(url);
-      const options = {
-        method: 'POST',
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-        path: parsedUrl.pathname + parsedUrl.search,
-        headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
-        agent: this._getProxyAgent(parsedUrl),
-      };
-
-      const mod = parsedUrl.protocol === 'https:' ? https : http;
-      const req = mod.request(options, (res) => {
-        let responseBody = '';
-        res.on('data', (chunk) => { responseBody += chunk; });
-        res.on('end', () => resolve({ statusCode: res.statusCode, body: responseBody }));
-      });
-      req.on('error', reject);
-      req.setTimeout(10_000, () => { req.destroy(new Error('Azure token exchange timeout')); });
-      req.write(body);
-      req.end();
-    });
-  }
-
-  /**
-   * Build proxy agent from env vars when configured.
-   * @param {URL} parsedUrl
-   * @returns {import('http').Agent|undefined}
-   */
-  _getProxyAgent(parsedUrl) {
-    const proxyUrl = parsedUrl.protocol === 'https:'
-      ? (process.env.HTTPS_PROXY || process.env.HTTP_PROXY)
-      : (process.env.HTTP_PROXY || process.env.HTTPS_PROXY);
-    return proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
   }
 
   /** @param {number} ms */
