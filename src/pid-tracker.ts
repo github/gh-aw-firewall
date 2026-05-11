@@ -301,7 +301,7 @@ function resolvePidFromTcpContent(
 }
 
 /**
- * Synchronous version of trackPidForPort for use in contexts where async is not available
+ * Public PID lookup entrypoint for resolving process info by source port
  *
  * @param srcPort - Source port number from the network connection
  * @param procPath - Base path to /proc (default: '/proc')
