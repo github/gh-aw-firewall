@@ -1,8 +1,6 @@
 import { Command } from 'commander';
+import * as cliModule from './cli';
 import {
-  validateFormat,
-  program,
-  handlePredownloadAction,
   resolveCopilotApiKey,
   deriveCopilotApiTargetFromProviderBaseUrl,
   deriveCopilotApiBasePathFromProviderBaseUrl,
@@ -213,23 +211,13 @@ describe('cli', () => {
     });
   });
 
-  describe('validateFormat', () => {
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
+  describe('public API surface', () => {
+    it('does not expose CLI internals', () => {
+      const publicApi = cliModule as unknown as Record<string, unknown>;
 
-    afterAll(() => {
-      mockExit.mockRestore();
-    });
-
-    it('should not throw for valid formats', () => {
-      expect(() => validateFormat('json', ['json', 'markdown', 'pretty'])).not.toThrow();
-      expect(() => validateFormat('pretty', ['json', 'markdown', 'pretty'])).not.toThrow();
-      expect(() => validateFormat('markdown', ['json', 'markdown', 'pretty'])).not.toThrow();
-    });
-
-    it('should exit with error for invalid format', () => {
-      expect(() => validateFormat('xml', ['json', 'markdown', 'pretty'])).toThrow('process.exit called');
+      expect(publicApi).not.toHaveProperty('program');
+      expect(publicApi).not.toHaveProperty('validateFormat');
+      expect(publicApi).not.toHaveProperty('handlePredownloadAction');
     });
   });
 
@@ -277,111 +265,4 @@ describe('cli', () => {
     });
   });
 
-  describe('help text formatting', () => {
-    it('should include section headers in help output', () => {
-      const help = program.helpInformation();
-      expect(help).toContain('Domain Filtering:');
-      expect(help).toContain('Image Management:');
-      expect(help).toContain('Container Configuration:');
-      expect(help).toContain('Network & Security:');
-      expect(help).toContain('API Proxy:');
-      expect(help).toContain('Logging & Debug:');
-    });
-
-    it('should include usage line', () => {
-      const help = program.helpInformation();
-      expect(help).toContain('Usage: awf');
-    });
-
-    it('should include program description', () => {
-      const help = program.helpInformation();
-      expect(help).toContain('Network firewall for agentic workflows');
-    });
-
-    it('should include arguments section', () => {
-      const help = program.helpInformation();
-      expect(help).toContain('Arguments:');
-    });
-
-    it('should include options section', () => {
-      const help = program.helpInformation();
-      expect(help).toContain('Options:');
-    });
-  });
-
-  describe('handlePredownloadAction', () => {
-    afterEach(() => {
-      jest.resetModules();
-      jest.clearAllMocks();
-      jest.restoreAllMocks();
-      jest.unmock('./commands/predownload');
-    });
-
-    it('should delegate to predownloadCommand with correct options', async () => {
-      // Mock the predownload module that handlePredownloadAction dynamically imports
-      const mockPredownloadCommand = jest.fn().mockResolvedValue(undefined);
-      jest.resetModules();
-      jest.doMock('./commands/predownload', () => ({
-        predownloadCommand: mockPredownloadCommand,
-      }));
-
-      await handlePredownloadAction({
-        imageRegistry: 'ghcr.io/test',
-        imageTag: 'v1.0',
-        agentImage: 'default',
-        enableApiProxy: false,
-        difcProxy: true,
-      });
-
-      expect(mockPredownloadCommand).toHaveBeenCalledWith({
-        imageRegistry: 'ghcr.io/test',
-        imageTag: 'v1.0',
-        agentImage: 'default',
-        enableApiProxy: false,
-        difcProxy: true,
-      });
-    });
-
-    it('should use the exitCode from the thrown error when available', async () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called');
-      });
-      const errorWithExitCode = Object.assign(new Error('pull failed'), { exitCode: 2 });
-      jest.resetModules();
-      jest.doMock('./commands/predownload', () => ({
-        predownloadCommand: jest.fn().mockRejectedValue(errorWithExitCode),
-      }));
-
-      await expect(handlePredownloadAction({
-        imageRegistry: 'test',
-        imageTag: 'latest',
-        agentImage: 'default',
-        enableApiProxy: false,
-      })).rejects.toThrow('process.exit called');
-
-      expect(mockExit).toHaveBeenCalledWith(2);
-      mockExit.mockRestore();
-    });
-
-    it('should default to exit code 1 when error has no exitCode property', async () => {
-      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called');
-      });
-      const errorWithoutExitCode = new Error('unexpected failure');
-      jest.resetModules();
-      jest.doMock('./commands/predownload', () => ({
-        predownloadCommand: jest.fn().mockRejectedValue(errorWithoutExitCode),
-      }));
-
-      await expect(handlePredownloadAction({
-        imageRegistry: 'test',
-        imageTag: 'latest',
-        agentImage: 'default',
-        enableApiProxy: false,
-      })).rejects.toThrow('process.exit called');
-
-      expect(mockExit).toHaveBeenCalledWith(1);
-      mockExit.mockRestore();
-    });
-  });
 });

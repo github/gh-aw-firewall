@@ -141,7 +141,7 @@ export {
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 
-export const program = new Command();
+const program = new Command();
 
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
@@ -1236,15 +1236,14 @@ program
  * @param validFormats - Array of valid format options
  * @throws Exits process with error if format is invalid
  */
-export function validateFormat(format: string, validFormats: string[]): void {
+function validateFormat(format: string, validFormats: string[]): void {
   if (!validFormats.includes(format)) {
     logger.error(`Invalid format: ${format}. Must be one of: ${validFormats.join(', ')}`);
     process.exit(1);
   }
 }
 
-// Predownload action handler - exported for testing
-export async function handlePredownloadAction(options: {
+async function handlePredownloadAction(options: {
   imageRegistry: string;
   imageTag: string;
   agentImage: string;
