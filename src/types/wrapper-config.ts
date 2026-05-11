@@ -27,7 +27,7 @@ import type { UpstreamProxyConfig } from './upstream-proxy';
  * };
  * ```
  */
-interface WrapperConfigFields {
+interface WrapperConfigBase {
   /**
    * List of allowed domains for HTTP/HTTPS egress traffic
    * 
@@ -1020,7 +1020,7 @@ interface WrapperConfigFields {
 }
 
 
-export type ContainerImageOptions = Pick<WrapperConfigFields,
+export type ContainerImageOptions = Pick<WrapperConfigBase,
   | 'imageRegistry'
   | 'imageTag'
   | 'buildLocal'
@@ -1028,7 +1028,7 @@ export type ContainerImageOptions = Pick<WrapperConfigFields,
   | 'agentImage'
 >;
 
-export type NetworkOptions = Pick<WrapperConfigFields,
+export type NetworkOptions = Pick<WrapperConfigBase,
   | 'allowedDomains'
   | 'blockedDomains'
   | 'dnsServers'
@@ -1041,7 +1041,7 @@ export type NetworkOptions = Pick<WrapperConfigFields,
   | 'upstreamProxy'
 >;
 
-export type VolumeOptions = Pick<WrapperConfigFields,
+export type VolumeOptions = Pick<WrapperConfigBase,
   | 'workDir'
   | 'volumeMounts'
   | 'containerWorkDir'
@@ -1051,14 +1051,14 @@ export type VolumeOptions = Pick<WrapperConfigFields,
   | 'diagnosticLogs'
 >;
 
-export type SecurityOptions = Pick<WrapperConfigFields,
+export type SecurityOptions = Pick<WrapperConfigBase,
   | 'sslBump'
   | 'enableDind'
   | 'memoryLimit'
   | 'enableDlp'
 >;
 
-export type ApiProxyOptions = Pick<WrapperConfigFields,
+export type ApiProxyOptions = Pick<WrapperConfigBase,
   | 'enableApiProxy'
   | 'openaiApiKey'
   | 'anthropicApiKey'
@@ -1084,14 +1084,14 @@ export type ApiProxyOptions = Pick<WrapperConfigFields,
   | 'dockerHostPathPrefix'
 >;
 
-export type RateLimitOptions = Pick<WrapperConfigFields,
+export type RateLimitOptions = Pick<WrapperConfigBase,
   | 'rateLimitConfig'
   | 'maxEffectiveTokens'
   | 'effectiveTokenModelMultipliers'
   | 'maxRuns'
 >;
 
-export type RuntimeOptions = Pick<WrapperConfigFields,
+export type RuntimeOptions = Pick<WrapperConfigBase,
   | 'agentCommand'
   | 'logLevel'
   | 'keepContainers'
