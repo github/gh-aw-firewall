@@ -447,7 +447,23 @@ jobs:
             gh extension upgrade gh-aw || true
           else
             echo "Installing gh-aw extension..."
-            gh extension install github/gh-aw
+            INSTALL_LOG="$(mktemp)"
+            RETRY_LOG=""
+            if ! gh extension install github/gh-aw 2>&1 | tee "$INSTALL_LOG"; then
+              if grep -Eiq '401|bad credentials|authentication failed|token' "$INSTALL_LOG"; then
+                echo "Initial install failed due to authentication/token issue, retrying without GH_TOKEN..."
+                RETRY_LOG="$(mktemp)"
+                if ! GH_TOKEN="" gh extension install github/gh-aw 2>&1 | tee "$RETRY_LOG"; then
+                  echo "::error::Failed to install gh-aw extension after retrying without GH_TOKEN."
+                  exit 1
+                fi
+              else
+                echo "::error::Failed to install gh-aw extension. Initial failure was not an authentication/token error, so no retry was attempted."
+                exit 1
+              fi
+            fi
+            [ -n "$INSTALL_LOG" ] && rm -f "$INSTALL_LOG"
+            [ -n "$RETRY_LOG" ] && rm -f "$RETRY_LOG"
           fi
           gh aw --version
           # Copy the gh-aw binary to ${RUNNER_TEMP}/gh-aw for MCP server containerization
@@ -1168,4 +1184,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

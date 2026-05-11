@@ -100,6 +100,14 @@ Options:
   --enable-opencode            Enable OpenCode API proxy listener on port 10004
                                (requires --enable-api-proxy). Only start this when the
                                workflow uses the OpenCode engine. (default: false)
+  --anthropic-auto-cache       Enable Anthropic prompt-cache optimizations in the API proxy
+                               (requires --enable-api-proxy). Injects cache breakpoints on
+                               tools/system/messages, upgrades TTL to 1h, and strips ANSI codes
+                               — typically saves ~90% on Anthropic API input costs. (default: false)
+  --anthropic-cache-tail-ttl <5m|1h>
+                               TTL for the rolling-tail cache breakpoint when
+                               --anthropic-auto-cache is enabled. Use "5m" (default) for fast
+                               interactive sessions, "1h" for long agentic tasks.
   --rate-limit-rpm <n>         Max requests per minute per provider (requires --enable-api-proxy)
   --rate-limit-rph <n>         Max requests per hour per provider (requires --enable-api-proxy)
   --rate-limit-bytes-pm <n>    Max request bytes per minute per provider (requires --enable-api-proxy)
