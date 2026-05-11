@@ -5,8 +5,9 @@
  *   jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
  *   jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
  *
- * Then assert on logger calls through the mocked logger import:
- *   import { logger } from './logger';
+ * Then assert on logger calls through the mocked logger import
+ * (use the same module path you mocked):
+ *   import { logger } from './logger'; // or '../logger'
  *   expect(jest.mocked(logger).warn).toHaveBeenCalledWith(...);
  */
 
