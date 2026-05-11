@@ -130,6 +130,7 @@ describe('pid-tracker', () => {
         createMockNetTcp(netTcpContent);
         // Create a process but with different inode
         createMockProcWithSymlinks(1234, 'curl', 'curl', ['999999']);
+        expect(fs.existsSync(path.join(mockProcPath, '1234'))).toBe(true);
 
         const result = await trackPidForPort(45688, mockProcPath);
         expect(result.pid).toBe(-1);
@@ -203,6 +204,7 @@ describe('pid-tracker', () => {
         createMockNetTcp(netTcpContent);
         // Create a process but with different inode
         createMockProcWithSymlinks(1234, 'curl', 'curl', ['999999']);
+        expect(fs.existsSync(path.join(mockProcPath, '1234'))).toBe(true);
 
         const result = trackPidForPortSync(45688, mockProcPath);
         expect(result.pid).toBe(-1);
