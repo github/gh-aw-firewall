@@ -114,6 +114,33 @@ describe('OidcTokenProvider', () => {
     provider.shutdown();
   });
 
+  it('should request GitHub OIDC token with configured audience and auth header', async () => {
+    const oidcServer = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      expect(url.searchParams.get('audience')).toBe('api://custom-audience');
+      expect(req.headers.authorization).toBe('Bearer custom-request-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ value: 'jwt-from-github' }));
+    });
+
+    await new Promise(resolve => oidcServer.listen(0, '127.0.0.1', resolve));
+    const oidcPort = oidcServer.address().port;
+
+    const provider = new OidcTokenProvider({
+      requestUrl: `http://127.0.0.1:${oidcPort}/token`,
+      requestToken: 'custom-request-token',
+      tenantId: 'test',
+      clientId: 'test',
+      oidcAudience: 'api://custom-audience',
+    });
+
+    const token = await provider._mintGitHubOidcToken();
+    expect(token).toBe('jwt-from-github');
+
+    provider.shutdown();
+    await new Promise(resolve => oidcServer.close(resolve));
+  });
+
   it('should resolve correct login host for sovereign clouds', () => {
     const providerPublic = new OidcTokenProvider({
       requestUrl: 'http://localhost/token',
