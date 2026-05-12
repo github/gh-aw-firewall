@@ -304,6 +304,9 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     allowHostPorts: config.allowHostPorts,
     enableDlp: config.enableDlp,
     dnsServers: config.dnsServers,
+    ...(config.enableApiProxy && networkConfig.proxyIp ? {
+      apiProxyIp: networkConfig.proxyIp,
+    } : {}),
   });
   fs.writeFileSync(
     path.join(auditDir, 'policy-manifest.json'),

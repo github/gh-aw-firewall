@@ -588,6 +588,15 @@ acl Safe_ports port 443         # HTTPS`;
   // the per-IP allow rule (below) has a chance to fire.
   if (apiProxyPorts && apiProxyPorts.length > 0) {
     for (const proxyPort of apiProxyPorts) {
+      if (!Number.isInteger(proxyPort) || proxyPort < 1 || proxyPort > 65535) {
+        throw new Error(`Invalid api-proxy port: ${proxyPort}. Must be an integer between 1 and 65535`);
+      }
+      if (DANGEROUS_PORTS.includes(proxyPort)) {
+        throw new Error(
+          `Api-proxy port ${proxyPort} is blocked for security reasons. ` +
+          `Dangerous ports (SSH, databases, etc.) cannot be added to Safe_ports.`
+        );
+      }
       portAclsSection += `\nacl Safe_ports port ${proxyPort}     # AWF api-proxy sidecar`;
     }
   }

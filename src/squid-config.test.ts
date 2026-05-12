@@ -356,4 +356,141 @@ describe('generatePolicyManifest', () => {
       expect(result).toContain('cache_peer 10.0.0.50 parent 8080 0 no-query default');
     });
   });
+
+  describe('Api-Proxy Sidecar Configuration', () => {
+    const apiProxyIp = '172.30.0.30';
+    const apiProxyPorts = [10000, 10001, 10002, 10003, 10004];
+
+    it('should add api-proxy ports to Safe_ports when apiProxyPorts is set', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+        apiProxyIp,
+        apiProxyPorts,
+      };
+      const result = generateSquidConfig(config);
+      for (const p of apiProxyPorts) {
+        expect(result).toContain(`acl Safe_ports port ${p}`);
+      }
+    });
+
+    it('should insert allow_api_proxy_ip rule before http_access deny dst_ipv4', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+        apiProxyIp,
+        apiProxyPorts,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain(`acl allow_api_proxy_ip dst ${apiProxyIp}`);
+      expect(result).toContain('http_access allow allow_api_proxy_ip');
+      const allowPos = result.indexOf('http_access allow allow_api_proxy_ip');
+      const denyIpv4Pos = result.indexOf('http_access deny dst_ipv4');
+      expect(allowPos).toBeLessThan(denyIpv4Pos);
+    });
+
+    it('should not emit api-proxy rules when apiProxyIp is not set', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).not.toContain('allow_api_proxy_ip');
+    });
+
+    it('should reject non-integer apiProxyPorts values', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp,
+          apiProxyPorts: [10000, NaN],
+        });
+      }).toThrow(/Invalid api-proxy port/);
+    });
+
+    it('should reject out-of-range apiProxyPorts values', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp,
+          apiProxyPorts: [0],
+        });
+      }).toThrow(/Invalid api-proxy port/);
+
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp,
+          apiProxyPorts: [65536],
+        });
+      }).toThrow(/Invalid api-proxy port/);
+    });
+
+    it('should reject dangerous apiProxyPorts values', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp,
+          apiProxyPorts: [22],
+        });
+      }).toThrow(/blocked for security reasons/);
+    });
+
+    it('should reject invalid apiProxyIp (injection attempt)', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp: '172.30.0.30\nhttp_access allow all',
+          apiProxyPorts,
+        });
+      }).toThrow(/SECURITY.*apiProxyIp/);
+    });
+
+    it('should reject apiProxyIp with invalid octets', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['example.com'],
+          port: defaultPort,
+          apiProxyIp: '999.30.0.30',
+          apiProxyPorts,
+        });
+      }).toThrow(/SECURITY.*apiProxyIp/);
+    });
+  });
+});
+
+describe('generatePolicyManifest - Api-Proxy Rules', () => {
+  const defaultPort = 3128;
+
+  it('should include allow-api-proxy-ip rule before deny-raw-ipv4 when apiProxyIp is set', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['example.com'],
+      port: defaultPort,
+      apiProxyIp: '172.30.0.30',
+    });
+
+    const apiProxyRule = manifest.rules.find(r => r.id === 'allow-api-proxy-ip');
+    expect(apiProxyRule).toBeDefined();
+    expect(apiProxyRule!.action).toBe('allow');
+    expect(apiProxyRule!.domains).toContain('172.30.0.30');
+
+    const denyIpv4Rule = manifest.rules.find(r => r.id === 'deny-raw-ipv4');
+    expect(denyIpv4Rule).toBeDefined();
+    expect(apiProxyRule!.order).toBeLessThan(denyIpv4Rule!.order);
+  });
+
+  it('should not include allow-api-proxy-ip rule when apiProxyIp is not set', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['example.com'],
+      port: defaultPort,
+    });
+
+    const apiProxyRule = manifest.rules.find(r => r.id === 'allow-api-proxy-ip');
+    expect(apiProxyRule).toBeUndefined();
+  });
 });
