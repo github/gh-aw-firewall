@@ -421,20 +421,15 @@ function injectSteeringMessage(body, provider, message) {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
-  let modified = false;
-
   if (provider === 'anthropic') {
     // Anthropic /v1/messages: system can be a string or an array of content blocks
     if (typeof parsed.system === 'string') {
       parsed = { ...parsed, system: parsed.system + '\n\n' + message };
-      modified = true;
     } else if (Array.isArray(parsed.system)) {
       parsed = { ...parsed, system: [...parsed.system, { type: 'text', text: message }] };
-      modified = true;
     } else {
       // No system field yet — create one
       parsed = { ...parsed, system: message };
-      modified = true;
     }
   } else if (provider === 'gemini') {
     // Gemini generateContent: systemInstruction.parts[] or create it
@@ -447,7 +442,6 @@ function injectSteeringMessage(body, provider, message) {
     } else {
       parsed = { ...parsed, systemInstruction: { parts: [{ text: message }] } };
     }
-    modified = true;
   } else {
     // OpenAI format (openai, copilot, opencode): messages array
     if (!Array.isArray(parsed.messages)) return null;
@@ -461,10 +455,8 @@ function injectSteeringMessage(body, provider, message) {
     const msgs = [...parsed.messages];
     msgs.splice(insertAt, 0, systemMsg);
     parsed = { ...parsed, messages: msgs };
-    modified = true;
   }
 
-  if (!modified) return null;
   return Buffer.from(JSON.stringify(parsed));
 }
 
