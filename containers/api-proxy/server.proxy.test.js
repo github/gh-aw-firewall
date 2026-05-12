@@ -592,3 +592,193 @@ describe('proxyRequest max-runs guard', () => {
     expect(res.writeHead).not.toHaveBeenCalledWith(429, expect.anything());
   });
 });
+
+describe('token steering — getAndClearPendingSteeringMessage and injectSteeringMessage', () => {
+  // These must be loaded from the same module instance that server.js uses.
+  // The outer beforeAll calls jest.resetModules() and then requires server.js,
+  // which loads a fresh proxy-request.js (Module B).  Any require() called
+  // at describe-evaluation time (before beforeAll) would get the stale
+  // Module A instance.  Deferring to a nested beforeAll ensures we get Module B.
+  let getAndClearPendingSteeringMessage, injectSteeringMessage, reset;
+
+  beforeAll(() => {
+    ({ getAndClearPendingSteeringMessage, injectSteeringMessage, resetEffectiveTokenGuardForTests: reset } =
+      require('./proxy-request'));
+  });
+
+  beforeEach(() => {
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    reset();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    reset();
+    jest.restoreAllMocks();
+  });
+
+  it('returns null when no thresholds have been crossed', () => {
+    expect(getAndClearPendingSteeringMessage()).toBeNull();
+  });
+
+  it('injects 50% warning into an OpenAI request body and clears it', () => {
+    // Simulate crossing 50% by having a response push usage over half the budget
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    jest.spyOn(https, 'request').mockImplementation((_opts, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json' };
+    const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+
+    // Verify reset worked: no steering message before request
+    process.stdout.write(`[DBG] Before proxyRequest: getAndClearPendingSteeringMessage = ${JSON.stringify(getAndClearPendingSteeringMessage())}\n`);
+
+    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req.emit('end');
+
+    process.stdout.write(`[DBG] res.writeHead calls: ${res.writeHead.mock.calls.length}\n`);
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.pipe = jest.fn();
+    responseHandler(proxyRes);
+
+    // 14 output tokens × 4.0 weight = 56 effective tokens → 56% of budget (100)
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 0, completion_tokens: 14 },
+    })));
+    proxyRes.emit('end');
+
+    process.stdout.write(`[DBG] After proxyRes.emit end: res.writeHead calls: ${res.writeHead.mock.calls.length}\n`);
+
+    // After the response, 50% threshold should be pending
+    const msg = getAndClearPendingSteeringMessage();
+    process.stdout.write(`[DBG] msg = ${JSON.stringify(msg)}\n`);
+    expect(msg).toContain('[AWF WARNING]');
+    expect(msg).toContain('50%');
+
+    // Calling again clears the queue
+    expect(getAndClearPendingSteeringMessage()).toBeNull();
+  });
+
+  describe('injectSteeringMessage', () => {
+    const WARNING = '[AWF WARNING] Test warning message.';
+
+    it('injects into OpenAI messages array after existing system messages', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'Be helpful.' },
+          { role: 'user', content: 'Hello' },
+        ],
+      }));
+      const result = injectSteeringMessage(body, 'openai', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.messages[1].role).toBe('system');
+      expect(parsed.messages[1].content).toBe(WARNING);
+      expect(parsed.messages[2].role).toBe('user');
+    });
+
+    it('injects system message at position 0 when no existing system message', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }));
+      const result = injectSteeringMessage(body, 'openai', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.messages[0].role).toBe('system');
+      expect(parsed.messages[0].content).toBe(WARNING);
+    });
+
+    it('injects into Anthropic string system field', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'claude-opus-4-5',
+        system: 'You are a helpful assistant.',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }));
+      const result = injectSteeringMessage(body, 'anthropic', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(typeof parsed.system).toBe('string');
+      expect(parsed.system).toContain('You are a helpful assistant.');
+      expect(parsed.system).toContain(WARNING);
+    });
+
+    it('appends text block to Anthropic array system field', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'claude-opus-4-5',
+        system: [{ type: 'text', text: 'Original system.' }],
+        messages: [{ role: 'user', content: 'Hello' }],
+      }));
+      const result = injectSteeringMessage(body, 'anthropic', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(Array.isArray(parsed.system)).toBe(true);
+      expect(parsed.system).toHaveLength(2);
+      expect(parsed.system[1]).toEqual({ type: 'text', text: WARNING });
+    });
+
+    it('creates system field in Anthropic body when absent', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'claude-opus-4-5',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }));
+      const result = injectSteeringMessage(body, 'anthropic', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.system).toBe(WARNING);
+    });
+
+    it('injects into Gemini systemInstruction', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'gemini-2.0-flash',
+        systemInstruction: { parts: [{ text: 'Be helpful.' }] },
+        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+      }));
+      const result = injectSteeringMessage(body, 'gemini', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.systemInstruction.parts).toHaveLength(2);
+      expect(parsed.systemInstruction.parts[1]).toEqual({ text: WARNING });
+    });
+
+    it('creates systemInstruction in Gemini body when absent', () => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'gemini-2.0-flash',
+        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+      }));
+      const result = injectSteeringMessage(body, 'gemini', WARNING);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.systemInstruction).toEqual({ parts: [{ text: WARNING }] });
+    });
+
+    it('returns null for non-JSON body', () => {
+      const body = Buffer.from('not json');
+      const result = injectSteeringMessage(body, 'openai', WARNING);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for OpenAI body without messages array', () => {
+      const body = Buffer.from(JSON.stringify({ model: 'gpt-4o' }));
+      const result = injectSteeringMessage(body, 'openai', WARNING);
+      expect(result).toBeNull();
+    });
+  });
+});

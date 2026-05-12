@@ -207,11 +207,15 @@ function buildMaxRunsExceededError(state) {
   };
 }
 
+let _etStateCounter = 0;
 function createEffectiveTokenState(configKey = null) {
+  const id = ++_etStateCounter;
   return {
     configKey,
+    _id: id,
     totalEffectiveTokens: 0,
     emittedThresholds: new Set(),
+    uninjectedThresholds: new Set(),
   };
 }
 
@@ -261,6 +265,8 @@ function getEffectiveTokenState(config) {
   if (!config.max) return null;
   const configKey = `${config.max}|${JSON.stringify(config.multipliers)}`;
   if (etGuardState.configKey !== configKey) {
+    const stack = new Error().stack.split('\n').slice(1, 5).map(s => s.trim()).join(' | ');
+    process.stdout.write(`[DBG-create] Creating new state id=${_etStateCounter+1} for configKey=${configKey} prev=${etGuardState.configKey} prev_id=${etGuardState._id} | ${stack}\n`);
     etGuardState = createEffectiveTokenState(configKey);
   }
   return etGuardState;
@@ -290,13 +296,18 @@ function applyEffectiveTokenUsage(normalizedUsage, model) {
   state.totalEffectiveTokens += calc.effectiveTokens;
   const percentUsed = (state.totalEffectiveTokens / config.max) * 100;
 
+  process.stdout.write(`[DBG-apply] model=${model} eff=${calc.effectiveTokens} total=${state.totalEffectiveTokens} pct=${percentUsed} stateKey=${state.configKey} id=${state._id}\n`);
+
   const crossedThresholds = [];
   for (const threshold of ET_WARNING_THRESHOLDS) {
     if (percentUsed >= threshold && !state.emittedThresholds.has(threshold)) {
       state.emittedThresholds.add(threshold);
+      state.uninjectedThresholds.add(threshold);
       crossedThresholds.push(threshold);
     }
   }
+
+  process.stdout.write(`[DBG-apply] uninjectedThresholds after: ${[...state.uninjectedThresholds].join(',')}\n`);
 
   return {
     maxEffectiveTokens: config.max,
@@ -359,6 +370,112 @@ function buildEffectiveTokenLimitError(etState) {
       max_effective_tokens: etState.maxEffectiveTokens,
     },
   };
+}
+
+// ── Token steering ────────────────────────────────────────────────────────────
+
+/** Warning text for each threshold percentage. */
+const ET_STEERING_MESSAGES = {
+  50: 'You have used 50% of your effective token budget. Start planning to complete your work.',
+  75: 'You have used 75% of your effective token budget. Begin wrapping up your work.',
+  90: 'You have used 90% of your effective token budget. Complete your current task and prepare your final output.',
+  95: 'You have used 95% of your effective token budget. Submit your final output immediately.',
+};
+
+/**
+ * Pop the highest-priority pending steering threshold and return its warning
+ * message, or return null when nothing is pending.
+ *
+ * Called once per incoming request so that each pending threshold is injected
+ * into at most one request body.
+ *
+ * @returns {string|null}
+ */
+function getAndClearPendingSteeringMessage() {
+  const config = getEffectiveTokenConfig();
+  const state = getEffectiveTokenState(config);
+  const stack = new Error().stack.split('\n').slice(1, 4).map(s => s.trim()).join(' | ');
+  process.stdout.write(`[DBG-get] config.max=${config.max} state=${state ? `stateKey=${state.configKey} id=${state._id} uninjected=${[...state.uninjectedThresholds].join(',')}` : 'null'} | ${stack}\n`);
+  if (!state || state.uninjectedThresholds.size === 0) return null;
+
+  const maxThreshold = Math.max(...state.uninjectedThresholds);
+  state.uninjectedThresholds.delete(maxThreshold);
+  const text = ET_STEERING_MESSAGES[maxThreshold] ||
+    `You have used ${maxThreshold}% of your effective token budget.`;
+  return `[AWF WARNING] ${text}`;
+}
+
+/**
+ * Inject a token-budget warning message into a request body.
+ *
+ * Handles three JSON body formats:
+ *   - Anthropic  (/v1/messages)          — appends a text block to `system`
+ *   - Gemini     (/v1beta/…generateContent) — appends a part to `systemInstruction`
+ *   - OpenAI     (/v1/chat/completions)  — inserts a system message after any
+ *                                           existing system messages
+ *
+ * Returns a new Buffer containing the modified body, or null when the body
+ * cannot be parsed or injection is not applicable.
+ *
+ * @param {Buffer} body       - Raw request body
+ * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot' | 'opencode')
+ * @param {string} message    - Warning text to inject
+ * @returns {Buffer|null}
+ */
+function injectSteeringMessage(body, provider, message) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  let modified = false;
+
+  if (provider === 'anthropic') {
+    // Anthropic /v1/messages: system can be a string or an array of content blocks
+    if (typeof parsed.system === 'string') {
+      parsed = { ...parsed, system: parsed.system + '\n\n' + message };
+      modified = true;
+    } else if (Array.isArray(parsed.system)) {
+      parsed = { ...parsed, system: [...parsed.system, { type: 'text', text: message }] };
+      modified = true;
+    } else {
+      // No system field yet — create one
+      parsed = { ...parsed, system: message };
+      modified = true;
+    }
+  } else if (provider === 'gemini') {
+    // Gemini generateContent: systemInstruction.parts[] or create it
+    const existing = parsed.systemInstruction;
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+      const parts = Array.isArray(existing.parts)
+        ? [...existing.parts, { text: message }]
+        : [{ text: message }];
+      parsed = { ...parsed, systemInstruction: { ...existing, parts } };
+    } else {
+      parsed = { ...parsed, systemInstruction: { parts: [{ text: message }] } };
+    }
+    modified = true;
+  } else {
+    // OpenAI format (openai, copilot, opencode): messages array
+    if (!Array.isArray(parsed.messages)) return null;
+    const systemMsg = { role: 'system', content: message };
+    // Insert after the last existing system message (or at position 0)
+    const lastSystemIdx = parsed.messages.reduce(
+      (last, m, i) => (m && m.role === 'system' ? i : last),
+      -1
+    );
+    const insertAt = lastSystemIdx + 1;
+    const msgs = [...parsed.messages];
+    msgs.splice(insertAt, 0, systemMsg);
+    parsed = { ...parsed, messages: msgs };
+    modified = true;
+  }
+
+  if (!modified) return null;
+  return Buffer.from(JSON.stringify(parsed));
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -524,6 +641,23 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
       const transformed = bodyTransform(body);
       if (transformed) body = transformed;
+    }
+
+    // Token steering: inject budget-warning messages into the request body when
+    // cumulative usage has crossed a threshold since the last injection.
+    if (req.method === 'POST' || req.method === 'PUT') {
+      const steeringMsg = getAndClearPendingSteeringMessage();
+      if (steeringMsg) {
+        const steered = injectSteeringMessage(body, provider, steeringMsg);
+        if (steered) {
+          body = steered;
+          logRequest('info', 'token_steering', {
+            request_id: requestId,
+            provider,
+            message: steeringMsg,
+          });
+        }
+      }
     }
 
     const requestBytes = body.length;
@@ -903,4 +1037,6 @@ module.exports = {
   // Exported for tests
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
+  getAndClearPendingSteeringMessage,
+  injectSteeringMessage,
 };

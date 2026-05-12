@@ -575,6 +575,50 @@ export function parseVolumeMounts(
   return { success: true, mounts: result };
 }
 
+/**
+ * Parses and validates the --max-model-multiplier CLI option.
+ *
+ * Accepts a comma-separated list of `model:multiplier` pairs, e.g.
+ * `claude-opus-4-5-200k:2.5,claude-opus-4-5-1m:10`.
+ *
+ * Each multiplier must be a positive finite number.
+ * Invalid entries are silently ignored; an empty or missing value returns `{}`.
+ *
+ * @param input - Raw string from the CLI option (may be undefined)
+ * @returns Parsed multiplier map, or an error string
+ */
+export function parseModelMultipliersCli(
+  input: string | undefined
+): { multipliers: Record<string, number> } | { error: string } {
+  if (!input || input.trim() === '') {
+    return { multipliers: {} };
+  }
+
+  const result: Record<string, number> = {};
+  const entries = input.split(',').map(e => e.trim()).filter(Boolean);
+
+  for (const entry of entries) {
+    // Split on the last colon to allow colons in model names
+    const lastColon = entry.lastIndexOf(':');
+    if (lastColon <= 0) {
+      return { error: `--max-model-multiplier: invalid entry "${entry}" (expected model:multiplier)` };
+    }
+    const model = entry.slice(0, lastColon).trim();
+    const rawValue = entry.slice(lastColon + 1).trim();
+
+    if (!model) {
+      return { error: `--max-model-multiplier: empty model name in "${entry}"` };
+    }
+    const value = Number(rawValue);
+    if (!Number.isFinite(value) || value <= 0) {
+      return { error: `--max-model-multiplier: multiplier for "${model}" must be a positive number (got "${rawValue}")` };
+    }
+    result[model] = value;
+  }
+
+  return { multipliers: result };
+}
+
 export function formatItem(
   term: string,
   description: string,
