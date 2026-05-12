@@ -62,7 +62,7 @@ import {
  * Injected to decouple the action handler from the global program instance,
  * enabling independent unit testing.
  */
-export type OptionSourceResolver = (optionName: string) => string | undefined;
+type OptionSourceResolver = (optionName: string) => string | undefined;
 
 /**
  * Creates the main `awf` action handler bound to a specific option-source
