@@ -308,10 +308,13 @@ ${urlAclSection}${urlAccessRules}`;
 export function generateSquidConfig(config: SquidConfig): string {
   const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts } = config;
 
-  // Validate apiProxyIp if provided — must be a bare IPv4 address to prevent config injection
+  // Validate apiProxyIp if provided — must be a valid IPv4 address to prevent config injection.
+  // Each octet must be 0-255; the simple \d{1,3} pattern would wrongly accept 999.999.999.999.
   if (apiProxyIp !== undefined) {
-    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(apiProxyIp)) {
-      throw new Error(`SECURITY: apiProxyIp must be a bare IPv4 address, got: ${JSON.stringify(apiProxyIp)}`);
+    const octet = '(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d|\\d)';
+    const ipv4Re = new RegExp(`^(?:${octet}\\.){3}${octet}$`);
+    if (!ipv4Re.test(apiProxyIp)) {
+      throw new Error(`SECURITY: apiProxyIp must be a valid IPv4 address (0-255 octets), got: ${JSON.stringify(apiProxyIp)}`);
     }
   }
 
