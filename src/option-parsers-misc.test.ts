@@ -4,6 +4,7 @@ import {
   buildRateLimitConfig,
   validateRateLimitFlags,
   validateEnableOpenCodeFlag,
+  validateEnableTokenSteeringFlag,
   hasRateLimitOptions,
   parseMemoryLimit,
   parseAgentTimeout,
@@ -145,6 +146,23 @@ describe('validateEnableOpenCodeFlag', () => {
   });
   it('should fail when --enable-opencode is true without --enable-api-proxy', () => {
     const r = validateEnableOpenCodeFlag(false, true);
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain('--enable-api-proxy');
+  });
+});
+
+describe('validateEnableTokenSteeringFlag', () => {
+  it('should pass when both --enable-token-steering and --enable-api-proxy are set', () => {
+    expect(validateEnableTokenSteeringFlag(true, true)).toEqual({ valid: true });
+  });
+  it('should pass when --enable-token-steering is false', () => {
+    expect(validateEnableTokenSteeringFlag(false, false)).toEqual({ valid: true });
+  });
+  it('should pass when --enable-token-steering is false and --enable-api-proxy is true', () => {
+    expect(validateEnableTokenSteeringFlag(true, false)).toEqual({ valid: true });
+  });
+  it('should fail when --enable-token-steering is true without --enable-api-proxy', () => {
+    const r = validateEnableTokenSteeringFlag(false, true);
     expect(r.valid).toBe(false);
     expect(r.error).toContain('--enable-api-proxy');
   });

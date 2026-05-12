@@ -78,6 +78,16 @@ export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCo
 }
 
 /**
+ * Validates that --enable-token-steering is not used without --enable-api-proxy.
+ */
+export function validateEnableTokenSteeringFlag(enableApiProxy: boolean, enableTokenSteering: boolean): FlagValidationResult {
+  if (enableTokenSteering && !enableApiProxy) {
+    return { valid: false, error: '--enable-token-steering requires --enable-api-proxy' };
+  }
+  return { valid: true };
+}
+
+/**
  * Result of validating flag combinations
  */
 interface FlagValidationResult {
