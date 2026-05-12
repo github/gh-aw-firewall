@@ -14,7 +14,7 @@
  * accepts OAuth tokens, not API keys.
  */
 
-const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, createAdapterMethods } = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
@@ -160,6 +160,80 @@ function createCopilotAdapter(env, deps = {}) {
   // A basePath of '/' (normalizeBasePath returns '/') is treated as no prefix to
   // avoid producing '//models'.
   const modelsPath = (basePath && basePath !== '/') ? `${basePath}/models` : '/models';
+  const adapterMethods = createAdapterMethods({
+    apiKey: authToken,
+    rawTarget,
+    basePath,
+    provider: 'copilot',
+    port: 10002,
+    modelsPath: '/models',
+    reflectionConfigured: !!authToken,
+    reflectionModelsPath: modelsPath,
+    getValidationProbe() {
+      if (!authToken) return null;
+
+      // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
+      // COPILOT_API_KEY alone cannot be validated at startup.
+      if (!githubToken) {
+        return {
+          skip: true,
+          reason: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode',
+        };
+      }
+
+      if (rawTarget !== 'api.githubcopilot.com') {
+        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
+      }
+
+      return {
+        url: `https://${rawTarget}/models`,
+        opts: {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${githubToken}`,
+            'Copilot-Integration-Id': integrationId,
+          },
+        },
+      };
+    },
+    getModelsFetchConfig() {
+      if (!authToken) return null;
+
+      // Standard Copilot API (api.githubcopilot.com):
+      // The /models endpoint only accepts GitHub OAuth tokens (COPILOT_GITHUB_TOKEN).
+      // Skip startup model fetch when only a BYOK API key is configured.
+      if (rawTarget === 'api.githubcopilot.com') {
+        if (!githubToken) return null;
+        return {
+          url: `https://${rawTarget}/models`,
+          opts: {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${githubToken}`,
+              'Copilot-Integration-Id': integrationId,
+            },
+          },
+          cacheKey: 'copilot',
+        };
+      }
+
+      // BYOK / custom provider (e.g. OpenRouter):
+      // Use the explicit BYOK API key (COPILOT_API_KEY) rather than authToken
+      // to ensure we never send a GitHub OAuth token to third-party providers.
+      // Skip the fetch when no BYOK key is configured.
+      if (!apiKey) return null;
+      return {
+        url: `https://${rawTarget}${modelsPath}`,
+        opts: {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+          },
+        },
+        cacheKey: 'copilot',
+      };
+    },
+  });
 
   return {
     name: 'copilot',
@@ -214,86 +288,7 @@ function createCopilotAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return bodyTransform; },
-
-    getValidationProbe() {
-      if (!authToken) return null;
-
-      // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
-      // COPILOT_API_KEY alone cannot be validated at startup.
-      if (!githubToken) {
-        return {
-          skip: true,
-          reason: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode',
-        };
-      }
-
-      if (rawTarget !== 'api.githubcopilot.com') {
-        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
-      }
-
-      return {
-        url: `https://${rawTarget}/models`,
-        opts: {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${githubToken}`,
-            'Copilot-Integration-Id': integrationId,
-          },
-        },
-      };
-    },
-
-    getModelsFetchConfig() {
-      if (!authToken) return null;
-
-      // Standard Copilot API (api.githubcopilot.com):
-      // The /models endpoint only accepts GitHub OAuth tokens (COPILOT_GITHUB_TOKEN).
-      // Skip startup model fetch when only a BYOK API key is configured.
-      if (rawTarget === 'api.githubcopilot.com') {
-        if (!githubToken) return null;
-        return {
-          url: `https://${rawTarget}/models`,
-          opts: {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${githubToken}`,
-              'Copilot-Integration-Id': integrationId,
-            },
-          },
-          cacheKey: 'copilot',
-        };
-      }
-
-      // BYOK / custom provider (e.g. OpenRouter):
-      // Use the explicit BYOK API key (COPILOT_API_KEY) rather than authToken
-      // to ensure we never send a GitHub OAuth token to third-party providers.
-      // Skip the fetch when no BYOK key is configured.
-      if (!apiKey) return null;
-      return {
-        url: `https://${rawTarget}${modelsPath}`,
-        opts: {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-          },
-        },
-        cacheKey: 'copilot',
-      };
-    },
-
-    getReflectionInfo() {
-      // For BYOK / custom providers, include the base path in the models URL so
-      // that clients (e.g. the gh-aw framework) use the correct endpoint to
-      // discover available models (e.g. /api/v1/models for OpenRouter).
-      return {
-        provider: 'copilot',
-        port: 10002,
-        base_url: 'http://api-proxy:10002',
-        configured: !!authToken,
-        models_cache_key: 'copilot',
-        models_url: `http://api-proxy:10002${modelsPath}`,
-      };
-    },
+    ...adapterMethods,
 
     /** Response returned for all requests when no Copilot credentials are configured. */
     getUnconfiguredResponse() {

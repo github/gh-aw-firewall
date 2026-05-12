@@ -193,6 +193,109 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
   return { apiKey, rawTarget, basePath };
 }
 
+/**
+ * Build common structural adapter methods with optional provider overrides.
+ *
+ * @param {object} opts
+ * @param {string|undefined} [opts.apiKey]
+ * @param {string} opts.rawTarget
+ * @param {string} [opts.basePath]
+ * @param {string} opts.provider
+ * @param {number} opts.port
+ * @param {string|null} opts.modelsPath
+ * @param {string} [opts.defaultTarget]
+ * @param {string} [opts.validationPath]
+ * @param {'GET'|'POST'} [opts.validationMethod]
+ * @param {Record<string,string>|(() => Record<string,string>)} [opts.validationHeaders]
+ * @param {string} [opts.validationBody]
+ * @param {() => ({ skip: true, reason: string }|null)} [opts.validationSkip]
+ * @param {() => boolean} [opts.skipModelsFetch]
+ * @param {Record<string,string>|(() => Record<string,string>)} [opts.modelsFetchHeaders]
+ * @param {string|null} [opts.modelsCacheKey]
+ * @param {boolean} [opts.reflectionConfigured]
+ * @param {string|null} [opts.reflectionModelsPath]
+ * @param {Record<string, unknown>|(() => Record<string, unknown>)} [opts.reflectionExtra]
+ * @param {() => ({ url: string, opts: object }|{ skip: true, reason: string }|null)} [opts.getValidationProbe]
+ * @param {() => ({ url: string, opts: object, cacheKey: string }|null)} [opts.getModelsFetchConfig]
+ * @param {() => object} [opts.getReflectionInfo]
+ * @returns {{
+ *   getValidationProbe: () => ({ url: string, opts: object }|{ skip: true, reason: string }|null),
+ *   getModelsFetchConfig: () => ({ url: string, opts: object, cacheKey: string }|null),
+ *   getReflectionInfo: () => object
+ * }}
+ */
+function createAdapterMethods(opts) {
+  const {
+    apiKey,
+    rawTarget,
+    basePath = '',
+    provider,
+    port,
+    modelsPath,
+    defaultTarget,
+    validationPath = modelsPath || '',
+    validationMethod = 'GET',
+    validationHeaders = {},
+    validationBody,
+    validationSkip,
+    skipModelsFetch,
+    modelsFetchHeaders = validationHeaders,
+    modelsCacheKey = provider,
+    reflectionConfigured = !!apiKey,
+    reflectionModelsPath = modelsPath,
+    reflectionExtra = {},
+    getValidationProbe,
+    getModelsFetchConfig,
+    getReflectionInfo,
+  } = opts;
+
+  const resolveValue = (value) => (typeof value === 'function' ? value() : value);
+
+  const builtValidationProbe = getValidationProbe || (() => {
+    const skip = validationSkip ? validationSkip() : null;
+    if (skip) return skip;
+    if (!apiKey) return null;
+    if (defaultTarget && rawTarget !== defaultTarget) {
+      return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
+    }
+    return {
+      url: `https://${rawTarget}${validationPath}`,
+      opts: {
+        method: validationMethod,
+        headers: resolveValue(validationHeaders),
+        ...(validationBody !== undefined ? { body: validationBody } : {}),
+      },
+    };
+  });
+
+  const builtModelsFetchConfig = getModelsFetchConfig || (() => {
+    if (skipModelsFetch && skipModelsFetch()) return null;
+    if (!apiKey || !modelsPath || !modelsCacheKey) return null;
+    const path = basePath ? `${basePath}/models` : modelsPath;
+    return {
+      url: `https://${rawTarget}${path}`,
+      opts: { method: 'GET', headers: resolveValue(modelsFetchHeaders) },
+      cacheKey: modelsCacheKey,
+    };
+  });
+
+  const builtReflectionInfo = getReflectionInfo || (() => ({
+    provider,
+    port,
+    base_url: `http://api-proxy:${port}`,
+    configured: reflectionConfigured,
+    models_cache_key: modelsCacheKey,
+    models_url: reflectionModelsPath ? `http://api-proxy:${port}${reflectionModelsPath}` : null,
+    ...resolveValue(reflectionExtra),
+  }));
+
+  return {
+    getValidationProbe: builtValidationProbe,
+    getModelsFetchConfig: builtModelsFetchConfig,
+    getReflectionInfo: builtReflectionInfo,
+  };
+}
+
 module.exports = {
   normalizeApiTarget,
   normalizeBasePath,
@@ -201,4 +304,5 @@ module.exports = {
   shouldStripHeader,
   composeBodyTransforms,
   createBaseAdapterConfig,
+  createAdapterMethods,
 };

@@ -1,4 +1,5 @@
 'use strict';
+const { createAdapterMethods } = require('../proxy-utils');
 
 /**
  * OpenCode provider adapter.
@@ -96,6 +97,14 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
 
   // Snapshot at startup for reflection info (stable across requests)
   const startupActiveAdapter = enabled ? resolveActiveAdapter() : null;
+  const adapterMethods = createAdapterMethods({
+    rawTarget: '',
+    provider: 'opencode',
+    port: 10004,
+    modelsPath: null,
+    modelsCacheKey: null,
+    reflectionConfigured: enabled && !!startupActiveAdapter,
+  });
 
   return {
     name: 'opencode',
@@ -164,19 +173,7 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
 
     // OpenCode is a routing layer over the base providers; those providers
     // handle their own startup validation and model fetching.
-    getValidationProbe() { return null; },
-    getModelsFetchConfig() { return null; },
-
-    getReflectionInfo() {
-      return {
-        provider: 'opencode',
-        port: 10004,
-        base_url: 'http://api-proxy:10004',
-        configured: enabled && !!startupActiveAdapter,
-        models_cache_key: null,
-        models_url: null,
-      };
-    },
+    ...adapterMethods,
 
     /** Response returned for all requests when OpenCode is not configured. */
     getUnconfiguredResponse() {

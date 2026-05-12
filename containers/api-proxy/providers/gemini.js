@@ -13,7 +13,7 @@
  *   Gemini SDK versions append alongside the header.
  */
 
-const { stripGeminiKeyParam, createBaseAdapterConfig } = require('../proxy-utils');
+const { stripGeminiKeyParam, createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -31,6 +31,18 @@ function createGeminiAdapter(env, deps = {}) {
   });
 
   const bodyTransform = deps.bodyTransform || null;
+  const adapterMethods = createAdapterMethods({
+    apiKey,
+    rawTarget,
+    basePath,
+    provider: 'gemini',
+    port: 10003,
+    defaultTarget: 'generativelanguage.googleapis.com',
+    validationPath: '/v1beta/models',
+    validationHeaders: () => ({ 'x-goog-api-key': apiKey }),
+    modelsPath: '/v1beta/models',
+    modelsFetchHeaders: () => ({ 'x-goog-api-key': apiKey }),
+  });
 
   return {
     name: 'gemini',
@@ -70,40 +82,7 @@ function createGeminiAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return bodyTransform; },
-
-    getValidationProbe() {
-      if (!apiKey) return null;
-      if (rawTarget !== 'generativelanguage.googleapis.com') {
-        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
-      }
-      return {
-        url: `https://${rawTarget}/v1beta/models`,
-        opts: { method: 'GET', headers: { 'x-goog-api-key': apiKey } },
-      };
-    },
-
-    getModelsFetchConfig() {
-      if (!apiKey) return null;
-      // Use the configured base path so Gemini-compatible endpoints with a
-      // path prefix populate /reflect and models.json correctly.
-      const modelsPath = basePath ? `${basePath}/models` : '/v1beta/models';
-      return {
-        url: `https://${rawTarget}${modelsPath}`,
-        opts: { method: 'GET', headers: { 'x-goog-api-key': apiKey } },
-        cacheKey: 'gemini',
-      };
-    },
-
-    getReflectionInfo() {
-      return {
-        provider: 'gemini',
-        port: 10003,
-        base_url: 'http://api-proxy:10003',
-        configured: !!apiKey,
-        models_cache_key: 'gemini',
-        models_url: 'http://api-proxy:10003/v1beta/models',
-      };
-    },
+    ...adapterMethods,
 
     /** Response returned for all requests when no GEMINI_API_KEY is configured. */
     getUnconfiguredResponse() {
