@@ -1,10 +1,12 @@
 import { registerSignalHandlers, SignalHandlerDependencies } from './signal-handler';
 
+const flushPromises = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
 describe('registerSignalHandlers', () => {
   let processOnSpy: jest.SpyInstance;
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
-  const handlers: Record<string, (...args: unknown[]) => void> = {};
+  const handlers: Record<string, (...args: unknown[]) => unknown> = {};
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -15,9 +17,7 @@ describe('registerSignalHandlers', () => {
         return process;
       }
     );
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
   });
 
@@ -56,7 +56,8 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
+    handlers['SIGINT']();
+    await flushPromises();
     expect(fastKill).toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGINT');
     expect(processExitSpy).toHaveBeenCalledWith(130);
@@ -75,7 +76,8 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
+    handlers['SIGINT']();
+    await flushPromises();
     expect(fastKill).not.toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGINT');
   });
@@ -93,7 +95,8 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
+    handlers['SIGINT']();
+    await flushPromises();
     expect(fastKill).not.toHaveBeenCalled();
   });
 
@@ -110,7 +113,8 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGTERM']()).rejects.toThrow('process.exit called');
+    handlers['SIGTERM']();
+    await flushPromises();
     expect(fastKill).toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
     expect(processExitSpy).toHaveBeenCalledWith(143);

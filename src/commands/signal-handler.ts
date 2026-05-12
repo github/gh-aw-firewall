@@ -20,28 +20,37 @@ export interface SignalHandlerDependencies {
  * the full `docker compose down` in `performCleanup` is too slow to finish
  * in that window and would leave the container running as an orphan.
  */
-/* istanbul ignore next -- signal handlers cannot be unit-tested */
 export function registerSignalHandlers({
   getContainersStarted,
   keepContainers,
   fastKillAgentContainer,
   performCleanup,
 }: SignalHandlerDependencies): void {
-  process.on('SIGINT', async () => {
-    if (getContainersStarted() && !keepContainers) {
-      await fastKillAgentContainer();
-    }
-    await performCleanup('SIGINT');
-    console.error(`Process exiting with code: 130`);
-    process.exit(130); // Standard exit code for SIGINT
+  process.on('SIGINT', () => {
+    (async () => {
+      try {
+        if (getContainersStarted() && !keepContainers) {
+          await fastKillAgentContainer();
+        }
+        await performCleanup('SIGINT');
+      } finally {
+        console.error(`Process exiting with code: 130`);
+        process.exit(130); // Standard exit code for SIGINT
+      }
+    })().catch(() => undefined);
   });
 
-  process.on('SIGTERM', async () => {
-    if (getContainersStarted() && !keepContainers) {
-      await fastKillAgentContainer();
-    }
-    await performCleanup('SIGTERM');
-    console.error(`Process exiting with code: 143`);
-    process.exit(143); // Standard exit code for SIGTERM
+  process.on('SIGTERM', () => {
+    (async () => {
+      try {
+        if (getContainersStarted() && !keepContainers) {
+          await fastKillAgentContainer();
+        }
+        await performCleanup('SIGTERM');
+      } finally {
+        console.error(`Process exiting with code: 143`);
+        process.exit(143); // Standard exit code for SIGTERM
+      }
+    })().catch(() => undefined);
   });
 }
