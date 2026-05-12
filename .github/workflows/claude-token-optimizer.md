@@ -71,12 +71,15 @@ steps:
 
       # Fetch open optimization issues and extract workflow names from titles
       # Title format: "⚡ Claude Token Optimization YYYY-MM-DD — <workflow-name>"
-      gh issue list --repo "$GITHUB_REPOSITORY" \
+      if ! gh issue list --repo "$GITHUB_REPOSITORY" \
         --label claude-token-optimization \
         --state open --limit 50 \
         --json title -q '.[].title' \
       | sed -n 's/.*— //p' \
-      | sort -u > /tmp/gh-aw/token-audit/already-optimized.txt
+      | sort -u > /tmp/gh-aw/token-audit/already-optimized.txt; then
+        echo "⚠️ Failed to list open optimization issues; proceeding with an empty exclusion list"
+        : > /tmp/gh-aw/token-audit/already-optimized.txt
+      fi
 
       COUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')
       if [ "$COUNT" -gt 0 ]; then
