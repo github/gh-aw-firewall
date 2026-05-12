@@ -99,7 +99,7 @@ the corresponding CLI flag.
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
-- `apiProxy.modelMultipliers` → *(config-only; no CLI equivalent)*
+- `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
@@ -524,7 +524,42 @@ percentage thresholds of `maxEffectiveTokens`:
 
 Each threshold MUST be recorded at most once per run.
 
-### 10.5 Introspection
+### 10.5 Token Steering
+
+When a threshold is first crossed, the proxy MUST inject a budget-warning
+system message into the **body** of the very next eligible request sent by
+the agent, then discard the pending message so that it is injected at most
+once per threshold per run.
+
+The injected message has the format:
+
+```
+[AWF WARNING] <threshold-specific text>
+```
+
+| Threshold | Injected text |
+|-----------|---------------|
+| 50% | You have used 50% of your effective token budget. Start planning to complete your work. |
+| 75% | You have used 75% of your effective token budget. Begin wrapping up your work. |
+| 90% | You have used 90% of your effective token budget. Complete your current task and prepare your final output. |
+| 95% | You have used 95% of your effective token budget. Submit your final output immediately. |
+
+If multiple thresholds are crossed simultaneously (e.g. a single large
+response crosses both 75% and 90%), the proxy MUST inject only the highest
+crossed threshold on the next request and queue the remaining thresholds for
+subsequent requests (one per request).
+
+**Provider-specific injection rules:**
+
+- **OpenAI / Copilot / OpenCode** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
+- **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
+- **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
+
+If the request body cannot be parsed as JSON, or if the body format does not
+match the expected structure, the proxy MUST silently skip injection for that
+request and NOT re-queue the message.
+
+### 10.6 Introspection
 
 When the API proxy `/reflect` endpoint is queried, the response MUST
 include the current effective-token state:

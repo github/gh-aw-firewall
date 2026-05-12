@@ -594,11 +594,11 @@ describe('proxyRequest max-runs guard', () => {
 });
 
 describe('token steering — getAndClearPendingSteeringMessage and injectSteeringMessage', () => {
-  // These must be loaded from the same module instance that server.js uses.
-  // The outer beforeAll calls jest.resetModules() and then requires server.js,
-  // which loads a fresh proxy-request.js (Module B).  Any require() called
-  // at describe-evaluation time (before beforeAll) would get the stale
-  // Module A instance.  Deferring to a nested beforeAll ensures we get Module B.
+  // getAndClearPendingSteeringMessage and injectSteeringMessage are loaded here
+  // for unit-level tests (pure function tests and "returns null" guard checks).
+  // Integration tests that verify steering injection end-to-end use two
+  // proxyRequest calls so that the same module instance that runs inside the
+  // proxy handles both the threshold crossing and the body injection.
   let getAndClearPendingSteeringMessage, injectSteeringMessage, reset;
 
   beforeAll(() => {
@@ -610,12 +610,14 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     reset();
+    resetEffectiveTokenGuardForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     reset();
+    resetEffectiveTokenGuardForTests();
     jest.restoreAllMocks();
   });
 
@@ -623,32 +625,38 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(getAndClearPendingSteeringMessage()).toBeNull();
   });
 
-  it('injects 50% warning into an OpenAI request body and clears it', () => {
-    // Simulate crossing 50% by having a response push usage over half the budget
+  it('injects 50% warning into an OpenAI request body and clears it on the next request', () => {
+    // Two upstream request objects — one per proxyRequest call.
     let responseHandler;
-    const upstreamRequest = new EventEmitter();
-    upstreamRequest.end = jest.fn();
-    upstreamRequest.write = jest.fn();
-    upstreamRequest.destroy = jest.fn();
+    const upstreamReq1 = new EventEmitter();
+    upstreamReq1.end = jest.fn();
+    upstreamReq1.write = jest.fn();
+    upstreamReq1.destroy = jest.fn();
 
-    jest.spyOn(https, 'request').mockImplementation((_opts, cb) => {
-      responseHandler = cb;
-      return upstreamRequest;
-    });
+    const upstreamReq2 = new EventEmitter();
+    upstreamReq2.end = jest.fn();
+    upstreamReq2.write = jest.fn();
+    upstreamReq2.destroy = jest.fn();
 
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json' };
-    const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    const upstreamReq3 = new EventEmitter();
+    upstreamReq3.end = jest.fn();
+    upstreamReq3.write = jest.fn();
+    upstreamReq3.destroy = jest.fn();
 
-    // Verify reset worked: no steering message before request
-    process.stdout.write(`[DBG] Before proxyRequest: getAndClearPendingSteeringMessage = ${JSON.stringify(getAndClearPendingSteeringMessage())}\n`);
+    jest.spyOn(https, 'request')
+      .mockImplementationOnce((_opts, cb) => { responseHandler = cb; return upstreamReq1; })
+      .mockImplementationOnce(() => upstreamReq2)
+      .mockImplementationOnce(() => upstreamReq3);
 
-    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
-    req.emit('end');
+    // Request 1: triggers 56 effective tokens (14 output × 4.0) → 56% of 100 → crosses 50%
+    const req1 = new EventEmitter();
+    req1.url = '/v1/chat/completions';
+    req1.method = 'POST';
+    req1.headers = { 'content-type': 'application/json' };
+    const res1 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
 
-    process.stdout.write(`[DBG] res.writeHead calls: ${res.writeHead.mock.calls.length}\n`);
+    proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req1.emit('end');
 
     const proxyRes = new EventEmitter();
     proxyRes.statusCode = 200;
@@ -656,23 +664,55 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     proxyRes.pipe = jest.fn();
     responseHandler(proxyRes);
 
-    // 14 output tokens × 4.0 weight = 56 effective tokens → 56% of budget (100)
     proxyRes.emit('data', Buffer.from(JSON.stringify({
       model: 'gpt-4o',
       usage: { prompt_tokens: 0, completion_tokens: 14 },
     })));
     proxyRes.emit('end');
 
-    process.stdout.write(`[DBG] After proxyRes.emit end: res.writeHead calls: ${res.writeHead.mock.calls.length}\n`);
+    // Request 2: the proxy should inject the 50% warning into the outgoing body.
+    // We send a minimal OpenAI chat body and inspect what the proxy writes upstream.
+    const req2Body = Buffer.from(JSON.stringify({
+      messages: [{ role: 'user', content: 'Hello' }],
+    }));
+    const req2 = new EventEmitter();
+    req2.url = '/v1/chat/completions';
+    req2.method = 'POST';
+    req2.headers = { 'content-type': 'application/json', 'content-length': String(req2Body.length) };
+    const res2 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
 
-    // After the response, 50% threshold should be pending
-    const msg = getAndClearPendingSteeringMessage();
-    process.stdout.write(`[DBG] msg = ${JSON.stringify(msg)}\n`);
-    expect(msg).toContain('[AWF WARNING]');
-    expect(msg).toContain('50%');
+    proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req2.emit('data', req2Body);
+    req2.emit('end');
 
-    // Calling again clears the queue
-    expect(getAndClearPendingSteeringMessage()).toBeNull();
+    // The proxy writes the (modified) body to the upstream request.
+    expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
+    const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
+    // A system message with the budget warning should be prepended.
+    expect(writtenBody2.messages[0].role).toBe('system');
+    expect(writtenBody2.messages[0].content).toContain('[AWF WARNING]');
+    expect(writtenBody2.messages[0].content).toContain('50%');
+    // The original user message should follow.
+    expect(writtenBody2.messages[1]).toMatchObject({ role: 'user', content: 'Hello' });
+
+    // Request 3: the 50% threshold has already been injected; no further steering.
+    const req3Body = Buffer.from(JSON.stringify({
+      messages: [{ role: 'user', content: 'Hello again' }],
+    }));
+    const req3 = new EventEmitter();
+    req3.url = '/v1/chat/completions';
+    req3.method = 'POST';
+    req3.headers = { 'content-type': 'application/json', 'content-length': String(req3Body.length) };
+    const res3 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+
+    proxyRequest(req3, res3, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req3.emit('data', req3Body);
+    req3.emit('end');
+
+    expect(upstreamReq3.write).toHaveBeenCalledTimes(1);
+    const writtenBody3 = JSON.parse(upstreamReq3.write.mock.calls[0][0].toString());
+    const systemMessages3 = writtenBody3.messages.filter(m => m.role === 'system' && m.content.includes('[AWF WARNING]'));
+    expect(systemMessages3).toHaveLength(0);
   });
 
   describe('injectSteeringMessage', () => {

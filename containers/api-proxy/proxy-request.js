@@ -110,6 +110,7 @@ let etGuardState = {
   configKey: null,
   totalEffectiveTokens: 0,
   emittedThresholds: new Set(),
+  uninjectedThresholds: new Set(),
 };
 const effectiveTokenConfigCache = {
   rawMax: undefined,
@@ -207,12 +208,9 @@ function buildMaxRunsExceededError(state) {
   };
 }
 
-let _etStateCounter = 0;
 function createEffectiveTokenState(configKey = null) {
-  const id = ++_etStateCounter;
   return {
     configKey,
-    _id: id,
     totalEffectiveTokens: 0,
     emittedThresholds: new Set(),
     uninjectedThresholds: new Set(),
@@ -265,8 +263,6 @@ function getEffectiveTokenState(config) {
   if (!config.max) return null;
   const configKey = `${config.max}|${JSON.stringify(config.multipliers)}`;
   if (etGuardState.configKey !== configKey) {
-    const stack = new Error().stack.split('\n').slice(1, 5).map(s => s.trim()).join(' | ');
-    process.stdout.write(`[DBG-create] Creating new state id=${_etStateCounter+1} for configKey=${configKey} prev=${etGuardState.configKey} prev_id=${etGuardState._id} | ${stack}\n`);
     etGuardState = createEffectiveTokenState(configKey);
   }
   return etGuardState;
@@ -296,8 +292,6 @@ function applyEffectiveTokenUsage(normalizedUsage, model) {
   state.totalEffectiveTokens += calc.effectiveTokens;
   const percentUsed = (state.totalEffectiveTokens / config.max) * 100;
 
-  process.stdout.write(`[DBG-apply] model=${model} eff=${calc.effectiveTokens} total=${state.totalEffectiveTokens} pct=${percentUsed} stateKey=${state.configKey} id=${state._id}\n`);
-
   const crossedThresholds = [];
   for (const threshold of ET_WARNING_THRESHOLDS) {
     if (percentUsed >= threshold && !state.emittedThresholds.has(threshold)) {
@@ -306,8 +300,6 @@ function applyEffectiveTokenUsage(normalizedUsage, model) {
       crossedThresholds.push(threshold);
     }
   }
-
-  process.stdout.write(`[DBG-apply] uninjectedThresholds after: ${[...state.uninjectedThresholds].join(',')}\n`);
 
   return {
     maxEffectiveTokens: config.max,
@@ -394,8 +386,6 @@ const ET_STEERING_MESSAGES = {
 function getAndClearPendingSteeringMessage() {
   const config = getEffectiveTokenConfig();
   const state = getEffectiveTokenState(config);
-  const stack = new Error().stack.split('\n').slice(1, 4).map(s => s.trim()).join(' | ');
-  process.stdout.write(`[DBG-get] config.max=${config.max} state=${state ? `stateKey=${state.configKey} id=${state._id} uninjected=${[...state.uninjectedThresholds].join(',')}` : 'null'} | ${stack}\n`);
   if (!state || state.uninjectedThresholds.size === 0) return null;
 
   const maxThreshold = Math.max(...state.uninjectedThresholds);
