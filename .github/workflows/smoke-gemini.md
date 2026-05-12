@@ -18,6 +18,8 @@ network:
   allowed:
     - defaults
     - github
+    - generativelanguage.googleapis.com
+    - aiplatform.googleapis.com
 tools:
   bash:
     - "*"

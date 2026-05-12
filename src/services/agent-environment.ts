@@ -61,6 +61,13 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
     // via --env-all; they are set explicitly by generateDockerCompose when needed.
     'AWF_PREFLIGHT_BINARY',
     'AWF_GEMINI_ENABLED',
+    // Host-side MCP gateway domain (always "localhost" on the runner) must not leak
+    // into the agent container. Inside the container, MCP CLI wrappers must use
+    // MCP_GATEWAY_DOMAIN (host.docker.internal) to reach the gateway — not this
+    // host-only alias. Leaking MCP_GATEWAY_HOST_DOMAIN=localhost causes some HTTP
+    // clients to route MCP gateway requests through HTTP_PROXY to Squid, which then
+    // blocks "localhost" because it is not in the domain allow-list.
+    'MCP_GATEWAY_HOST_DOMAIN',
   ]);
 
   // When api-proxy is enabled, exclude API keys from agent environment

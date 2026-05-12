@@ -128,6 +128,26 @@ export interface SquidConfig {
    * directives so Squid forwards traffic through the parent proxy.
    */
   upstreamProxy?: UpstreamProxyConfig;
+
+  /**
+   * IP address of the AWF api-proxy sidecar container (e.g., "172.30.0.30").
+   *
+   * When set, an explicit `http_access allow` rule is inserted for this IP
+   * *before* the `deny dst_ipv4` raw-IP block. This is required because some
+   * HTTP clients (e.g., Node.js fetch / undici ProxyAgent) route requests to
+   * the api-proxy through `HTTP_PROXY` without honouring `NO_PROXY` for raw IP
+   * addresses, causing Squid to deny them via the raw-IP rule.
+   */
+  apiProxyIp?: string;
+
+  /**
+   * Ports served by the AWF api-proxy sidecar (e.g., [10000, 10001, 10002, 10003]).
+   *
+   * When set, these ports are appended to Squid's `Safe_ports` ACL so that
+   * `http_access deny !Safe_ports` and `http_access deny CONNECT !Safe_ports`
+   * do not block connections to the api-proxy before the allow rule fires.
+   */
+  apiProxyPorts?: number[];
 }
 
 /**

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
-import { WrapperConfig, BlockedTarget } from './types';
+import { WrapperConfig, BlockedTarget, API_PROXY_PORTS } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
@@ -252,6 +252,13 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     enableDlp: config.enableDlp,
     dnsServers: config.dnsServers,
     upstreamProxy: config.upstreamProxy,
+    // Allow the api-proxy sidecar IP through Squid before the raw-IP deny rule.
+    // Some HTTP clients (e.g., Node.js fetch / undici ProxyAgent) route requests
+    // to the api-proxy via HTTP_PROXY without honouring NO_PROXY for raw IPs.
+    ...(config.enableApiProxy && networkConfig.proxyIp ? {
+      apiProxyIp: networkConfig.proxyIp,
+      apiProxyPorts: Object.values(API_PROXY_PORTS),
+    } : {}),
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
   fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
