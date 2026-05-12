@@ -16,17 +16,11 @@
  */
 
 const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
-const { logRequest } = require('./logging');
-const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
-
-// Refresh at 75% of token lifetime
-const REFRESH_FACTOR = 0.75;
-// Minimum seconds before expiry to trigger refresh
-const MIN_REFRESH_MARGIN_SECS = 300;
-// Retry delay after failed refresh (ms)
-const REFRESH_RETRY_DELAY_MS = 30_000;
-// Maximum retries for initial token acquisition
-const MAX_INIT_RETRIES = 3;
+const {
+  BaseOidcTokenProvider,
+  REFRESH_FACTOR,
+  MIN_REFRESH_MARGIN_SECS,
+} = require('./oidc-token-provider-base');
 
 /**
  * @typedef {Object} GcpOidcTokenProviderConfig
@@ -40,61 +34,21 @@ const MAX_INIT_RETRIES = 3;
  * @property {number} [maxInitRetries] - Maximum retries for initial token acquisition (default: 3)
  */
 
-class GcpOidcTokenProvider {
+class GcpOidcTokenProvider extends BaseOidcTokenProvider {
   /**
    * @param {GcpOidcTokenProviderConfig} config
    */
   constructor(config) {
+    super('gcp_oidc', config);
     this._requestUrl = config.requestUrl;
     this._requestToken = config.requestToken;
     this._workloadIdentityProvider = config.workloadIdentityProvider;
     this._serviceAccount = config.serviceAccount || null;
     this._oidcAudience = config.oidcAudience || config.workloadIdentityProvider;
     this._scope = config.scope || 'https://www.googleapis.com/auth/cloud-platform';
-    this._retryDelayMs = config.retryDelayMs ?? REFRESH_RETRY_DELAY_MS;
-    this._maxInitRetries = config.maxInitRetries ?? MAX_INIT_RETRIES;
 
     // Token state
     this._cachedToken = null;
-    this._expiresAt = 0;
-    this._refreshTimer = null;
-    this._refreshInFlight = null;
-    this._initialized = false;
-    this._initError = null;
-  }
-
-  /**
-   * Initialize by acquiring the first token.
-   * @returns {Promise<void>}
-   */
-  async initialize() {
-    for (let attempt = 1; attempt <= this._maxInitRetries; attempt++) {
-      try {
-        await this._refreshToken();
-        this._initialized = true;
-        this._initError = null;
-        logRequest('info', 'gcp_oidc_init_success', {
-          workload_identity_provider: this._workloadIdentityProvider,
-          service_account: this._serviceAccount || '(direct access)',
-          expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
-        });
-        return;
-      } catch (err) {
-        this._initError = err;
-        logRequest('warn', 'gcp_oidc_init_retry', {
-          attempt,
-          max_retries: this._maxInitRetries,
-          error: err.message,
-        });
-        if (attempt < this._maxInitRetries) {
-          await this._sleep(this._retryDelayMs * attempt);
-        }
-      }
-    }
-    logRequest('error', 'gcp_oidc_init_failed', {
-      error: this._initError?.message,
-      workload_identity_provider: this._workloadIdentityProvider,
-    });
   }
 
   /** @returns {string|null} */
@@ -107,19 +61,6 @@ class GcpOidcTokenProvider {
       this._scheduleRefresh(0);
     }
     return null;
-  }
-
-  /** @returns {boolean} */
-  isReady() {
-    const now = Math.floor(Date.now() / 1000);
-    return !!(this._cachedToken && this._expiresAt > now);
-  }
-
-  shutdown() {
-    if (this._refreshTimer) {
-      clearTimeout(this._refreshTimer);
-      this._refreshTimer = null;
-    }
   }
 
   /**
@@ -231,14 +172,26 @@ class GcpOidcTokenProvider {
     this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
   }
 
-  /** @param {number} delayMs */
-  _scheduleRefresh(delayMs) {
-    scheduleRefresh(this, delayMs, () => this._refreshToken(), 'gcp_oidc');
+  async _doRefresh() {
+    await this._refreshToken();
   }
 
-  /** @param {number} ms */
-  _sleep(ms) {
-    return sleep(ms);
+  _getCachedValue() {
+    return this._cachedToken;
+  }
+
+  _getInitSuccessLogContext() {
+    return {
+      workload_identity_provider: this._workloadIdentityProvider,
+      service_account: this._serviceAccount || '(direct access)',
+      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+    };
+  }
+
+  _getInitFailureLogContext() {
+    return {
+      workload_identity_provider: this._workloadIdentityProvider,
+    };
   }
 }
 

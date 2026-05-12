@@ -20,14 +20,11 @@
  */
 
 const { mintGitHubOidcToken, httpGet } = require('./github-oidc');
-const { logRequest } = require('./logging');
-const { scheduleRefresh, sleep } = require('./oidc-refresh-utils');
-
-// Refresh at 75% of credential lifetime (STS default is 3600s)
-const REFRESH_FACTOR = 0.75;
-const MIN_REFRESH_MARGIN_SECS = 300;
-const REFRESH_RETRY_DELAY_MS = 30_000;
-const MAX_INIT_RETRIES = 3;
+const {
+  BaseOidcTokenProvider,
+  REFRESH_FACTOR,
+  MIN_REFRESH_MARGIN_SECS,
+} = require('./oidc-token-provider-base');
 
 /**
  * @typedef {Object} AwsCredentials
@@ -48,61 +45,21 @@ const MAX_INIT_RETRIES = 3;
  * @property {number} [maxInitRetries] - Maximum retries for initial token acquisition (default: 3)
  */
 
-class AwsOidcTokenProvider {
+class AwsOidcTokenProvider extends BaseOidcTokenProvider {
   /**
    * @param {AwsOidcTokenProviderConfig} config
    */
   constructor(config) {
+    super('aws_oidc', config);
     this._requestUrl = config.requestUrl;
     this._requestToken = config.requestToken;
     this._roleArn = config.roleArn;
     this._region = config.region;
     this._roleSessionName = config.roleSessionName || 'awf-oidc-session';
     this._oidcAudience = config.oidcAudience || 'sts.amazonaws.com';
-    this._retryDelayMs = config.retryDelayMs ?? REFRESH_RETRY_DELAY_MS;
-    this._maxInitRetries = config.maxInitRetries ?? MAX_INIT_RETRIES;
 
     /** @type {AwsCredentials|null} */
     this._cachedCredentials = null;
-    this._expiresAt = 0;
-    this._refreshTimer = null;
-    this._refreshInFlight = null;
-    this._initialized = false;
-    this._initError = null;
-  }
-
-  /**
-   * Initialize by acquiring the first set of credentials.
-   * @returns {Promise<void>}
-   */
-  async initialize() {
-    for (let attempt = 1; attempt <= this._maxInitRetries; attempt++) {
-      try {
-        await this._refreshCredentials();
-        this._initialized = true;
-        this._initError = null;
-        logRequest('info', 'aws_oidc_init_success', {
-          role_arn: this._roleArn,
-          region: this._region,
-          expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
-        });
-        return;
-      } catch (err) {
-        this._initError = err;
-        logRequest('warn', 'aws_oidc_init_retry', {
-          attempt,
-          max_retries: this._maxInitRetries,
-          error: err.message,
-        });
-        if (attempt < this._maxInitRetries) {
-          await this._sleep(this._retryDelayMs * attempt);
-        }
-      }
-    }
-    logRequest('error', 'aws_oidc_init_failed', {
-      error: this._initError?.message,
-      role_arn: this._roleArn,
-    });
   }
 
   /**
@@ -127,19 +84,6 @@ class AwsOidcTokenProvider {
    */
   getRegion() {
     return this._region;
-  }
-
-  /** @returns {boolean} */
-  isReady() {
-    const now = Math.floor(Date.now() / 1000);
-    return !!(this._cachedCredentials && this._expiresAt > now);
-  }
-
-  shutdown() {
-    if (this._refreshTimer) {
-      clearTimeout(this._refreshTimer);
-      this._refreshTimer = null;
-    }
   }
 
   /**
@@ -234,14 +178,26 @@ class AwsOidcTokenProvider {
     this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
   }
 
-  /** @param {number} delayMs */
-  _scheduleRefresh(delayMs) {
-    scheduleRefresh(this, delayMs, () => this._refreshCredentials(), 'aws_oidc');
+  async _doRefresh() {
+    await this._refreshCredentials();
   }
 
-  /** @param {number} ms */
-  _sleep(ms) {
-    return sleep(ms);
+  _getCachedValue() {
+    return this._cachedCredentials;
+  }
+
+  _getInitSuccessLogContext() {
+    return {
+      role_arn: this._roleArn,
+      region: this._region,
+      expires_in_secs: this._expiresAt - Math.floor(Date.now() / 1000),
+    };
+  }
+
+  _getInitFailureLogContext() {
+    return {
+      role_arn: this._roleArn,
+    };
   }
 }
 
