@@ -23,7 +23,7 @@ import {
   deriveCopilotApiTargetFromProviderBaseUrl,
   deriveCopilotApiBasePathFromProviderBaseUrl,
   resolveCopilotApiRouting,
-} from './cli';
+} from './copilot-api-resolver';
 import { redactSecrets } from './redact-secrets';
 
 type MockedCommanderModule = typeof import('commander') & {

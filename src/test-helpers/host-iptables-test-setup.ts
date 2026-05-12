@@ -10,7 +10,7 @@ jest.mock('../logger', () => require('./mock-logger.test-utils').loggerMockFacto
 type ExecaMockError = Error & { stderr?: string };
 type MockedExecaFn = (file: string, args?: readonly string[], options?: unknown) => Promise<ExecaMockResult>;
 
-export interface ExecaMockResult {
+interface ExecaMockResult {
   command: string;
   escapedCommand: string;
   exitCode: number;
