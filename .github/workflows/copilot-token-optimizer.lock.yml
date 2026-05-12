@@ -52,9 +52,6 @@
 
 name: "Daily Copilot Token Optimization Advisor"
 "on":
-  # skip-if-match: # Skip-if-match processed as search check in pre-activation job
-    # max: 1
-    # query: is:issue is:open label:copilot-token-optimization
   workflow_dispatch:
     inputs:
       aw_context:
@@ -191,20 +188,20 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
-          cat << 'GH_AW_PROMPT_336b3b1bbbf82842_EOF'
+          cat << 'GH_AW_PROMPT_bd40cfae43d541c8_EOF'
           <system>
-          GH_AW_PROMPT_336b3b1bbbf82842_EOF
+          GH_AW_PROMPT_bd40cfae43d541c8_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_336b3b1bbbf82842_EOF'
+          cat << 'GH_AW_PROMPT_bd40cfae43d541c8_EOF'
           <safe-output-tools>
           Tools: create_issue, missing_tool, missing_data, noop
           </safe-output-tools>
-          GH_AW_PROMPT_336b3b1bbbf82842_EOF
+          GH_AW_PROMPT_bd40cfae43d541c8_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/mcp_cli_tools_prompt.md"
-          cat << 'GH_AW_PROMPT_336b3b1bbbf82842_EOF'
+          cat << 'GH_AW_PROMPT_bd40cfae43d541c8_EOF'
           <github-context>
           The following GitHub context information is available for this workflow:
           {{#if __GH_AW_GITHUB_ACTOR__ }}
@@ -233,13 +230,13 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_336b3b1bbbf82842_EOF
+          GH_AW_PROMPT_bd40cfae43d541c8_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_336b3b1bbbf82842_EOF'
+          cat << 'GH_AW_PROMPT_bd40cfae43d541c8_EOF'
           </system>
           {{#runtime-import .github/workflows/shared/mcp/gh-aw.md}}
           {{#runtime-import .github/workflows/copilot-token-optimizer.md}}
-          GH_AW_PROMPT_336b3b1bbbf82842_EOF
+          GH_AW_PROMPT_bd40cfae43d541c8_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -383,6 +380,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         name: Download recent Copilot workflow logs
         run: "set -euo pipefail\nmkdir -p /tmp/gh-aw/token-audit\n\necho \"\\U0001F4E5 Downloading Copilot workflow logs (last 7 days)...\"\n\nLOGS_EXIT=0\ngh aw logs \\\n  --engine copilot \\\n  --start-date -7d \\\n  --json \\\n  -c 50 \\\n  > /tmp/gh-aw/token-audit/copilot-logs.json || LOGS_EXIT=$?\n\nif [ -s /tmp/gh-aw/token-audit/copilot-logs.json ]; then\n  TOTAL=$(jq '.runs | length' /tmp/gh-aw/token-audit/copilot-logs.json)\n  echo \"\\u2705 Downloaded $TOTAL Copilot workflow runs (last 7 days)\"\n  if [ \"$LOGS_EXIT\" -ne 0 ]; then\n    echo \"\\u26a0\\ufe0f gh aw logs exited with code $LOGS_EXIT (partial results)\"\n  fi\nelse\n  echo \"\\u274c No log data downloaded (exit code $LOGS_EXIT)\"\n  echo '{\"runs\":[],\"summary\":{}}' > /tmp/gh-aw/token-audit/copilot-logs.json\nfi\n"
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: List workflows already covered by open optimization issues
+        run: "set -euo pipefail\n\necho \"🔍 Checking for open optimization issues...\"\n\n# Fetch open optimization issues and extract workflow names from titles\n# Title format: \"⚡ Copilot Token Optimization YYYY-MM-DD — <workflow-name>\"\ngh issue list --repo \"$GITHUB_REPOSITORY\" \\\n  --label copilot-token-optimization \\\n  --state open --limit 50 \\\n  --json title -q '.[].title' \\\n| sed -n 's/.*— //p' \\\n| sort -u > /tmp/gh-aw/token-audit/already-optimized.txt\n\nCOUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')\nif [ \"$COUNT\" -gt 0 ]; then\n  echo \"⏭️ $COUNT workflow(s) already have open optimization issues:\"\n  cat /tmp/gh-aw/token-audit/already-optimized.txt\nelse\n  echo \"✅ No open optimization issues — all workflows are eligible\"\nfi\n"
 
       - name: Configure Git credentials
         env:
@@ -473,9 +474,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_92a5feb0ce596222_EOF'
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_5baea3a7a04c427a_EOF'
           {"create_issue":{"close_older_issues":true,"labels":["copilot-token-optimization"],"max":1,"title_prefix":"⚡ Copilot Token Optimization"},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_92a5feb0ce596222_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_5baea3a7a04c427a_EOF
       - name: Generate Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
@@ -675,7 +676,7 @@ jobs:
           
           mkdir -p /home/runner/.copilot
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_c3b578b43e3e2b6c_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_ac8d435f745d0a85_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
               "github": {
@@ -716,7 +717,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_c3b578b43e3e2b6c_EOF
+          GH_AW_MCP_CONFIG_ac8d435f745d0a85_EOF
       - name: Mount MCP servers as CLIs
         id: mount-mcp-clis
         continue-on-error: true
@@ -1071,7 +1072,7 @@ jobs:
   pre_activation:
     runs-on: ubuntu-slim
     outputs:
-      activated: ${{ steps.check_membership.outputs.is_team_member == 'true' && steps.check_skip_if_match.outputs.skip_check_ok == 'true' }}
+      activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
       matched_command: ''
       setup-trace-id: ${{ steps.setup.outputs.trace-id }}
     steps:
@@ -1096,19 +1097,6 @@ jobs:
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
             setupGlobals(core, github, context, exec, io, getOctokit);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/check_membership.cjs');
-            await main();
-      - name: Check skip-if-match query
-        id: check_skip_if_match
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          GH_AW_SKIP_QUERY: "is:issue is:open label:copilot-token-optimization"
-          GH_AW_WORKFLOW_NAME: "Daily Copilot Token Optimization Advisor"
-          GH_AW_SKIP_MAX_MATCHES: "1"
-        with:
-          script: |
-            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
-            setupGlobals(core, github, context, exec, io, getOctokit);
-            const { main } = require('${{ runner.temp }}/gh-aw/actions/check_skip_if_match.cjs');
             await main();
 
   safe_outputs:
