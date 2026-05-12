@@ -20,7 +20,7 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
 /**
  * The result produced by {@link resolveAllowedDomains}.
  */
-export interface AllowedDomainsResult {
+interface AllowedDomainsResult {
   allowedDomains: string[];
   localhostResult: ReturnType<typeof processLocalhostKeyword>;
   resolvedCopilotApiTarget: string | undefined;
