@@ -99,7 +99,10 @@ function extractBillingHeaders(headers) {
  */
 const limiter = rateLimiter.create();
 
-const ET_WARNING_THRESHOLDS = [50, 75, 90, 95];
+/** When false, token-budget warnings are never injected into request bodies. */
+const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
+
+const ET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 const ET_DEFAULT_WEIGHTS = Object.freeze({
   input: 1.0,
   cacheRead: 0.1,
@@ -368,10 +371,10 @@ function buildEffectiveTokenLimitError(etState) {
 
 /** Warning text for each threshold percentage. */
 const ET_STEERING_MESSAGES = {
-  50: 'You have used 50% of your effective token budget. Start planning to complete your work.',
-  75: 'You have used 75% of your effective token budget. Begin wrapping up your work.',
-  90: 'You have used 90% of your effective token budget. Complete your current task and prepare your final output.',
-  95: 'You have used 95% of your effective token budget. Submit your final output immediately.',
+  80: 'You have used 80% of your effective token budget. Begin planning to wrap up your current work.',
+  90: 'You have used 90% of your effective token budget. Complete your current task and prepare final output.',
+  95: 'You have used 95% of your effective token budget. Finalize and submit your work now.',
+  99: 'You have used 99% of your effective token budget. You are about to be cut off. Submit immediately.',
 };
 
 /**
@@ -392,7 +395,7 @@ function getAndClearPendingSteeringMessage() {
   state.uninjectedThresholds.delete(maxThreshold);
   const text = ET_STEERING_MESSAGES[maxThreshold] ||
     `You have used ${maxThreshold}% of your effective token budget.`;
-  return `[AWF WARNING] ${text}`;
+  return `[AWF TOKEN WARNING] ${text}`;
 }
 
 /**
@@ -627,7 +630,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     // Token steering: inject budget-warning messages into the request body when
     // cumulative usage has crossed a threshold since the last injection.
-    if (req.method === 'POST' || req.method === 'PUT') {
+    // Gated by AWF_ENABLE_TOKEN_STEERING=true (opt-in).
+    if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
       const steeringMsg = getAndClearPendingSteeringMessage();
       if (steeringMsg) {
         const steered = injectSteeringMessage(body, provider, steeringMsg);

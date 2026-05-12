@@ -762,21 +762,33 @@ Once the budget is reached or exceeded, **all subsequent requests in the run are
 
 ### Threshold tracking and token steering
 
-The proxy tracks which usage thresholds have been crossed and **injects a budget-warning message** into the body of the next eligible request sent to the upstream model:
+The proxy tracks which usage thresholds have been crossed. When token steering is enabled (see below), it **injects a budget-warning message** into the body of the next eligible request sent to the upstream model:
 
-| Threshold | Tracked once per run | Warning injected into next request |
-|-----------|-----------------------|-------------------------------------|
-| 50% | Yes | Yes |
-| 75% | Yes | Yes |
+| Threshold | Tracked once per run | Warning injected (when steering enabled) |
+|-----------|-----------------------|------------------------------------------|
+| 80% | Yes | Yes |
 | 90% | Yes | Yes |
 | 95% | Yes | Yes |
+| 99% | Yes | Yes |
+
+#### Enabling token steering
+
+Token steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
+
+```yaml
+apiProxy:
+  maxEffectiveTokens: 500000
+  enableTokenSteering: true
+```
+
+When disabled (the default), thresholds are still tracked and exposed via `/reflect`, but no warning messages are injected into request bodies.
 
 #### How steering messages are injected
 
 When a threshold is crossed, the proxy modifies the outgoing request body of the *next* API call to include a system-level warning. This ensures the agent receives budget information even if it doesn't parse headers or error responses. The message format is:
 
 ```
-[AWF WARNING] You have used 75% of your effective token budget. Begin wrapping up your work.
+[AWF TOKEN WARNING] You have used 90% of your effective token budget. Complete your current task and prepare final output.
 ```
 
 The injection is provider-aware:

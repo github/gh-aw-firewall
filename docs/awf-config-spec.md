@@ -96,6 +96,7 @@ the corresponding CLI flag.
 - `network.upstreamProxy` → `--upstream-proxy`
 - `apiProxy.enabled` → `--enable-api-proxy`
 - `apiProxy.enableOpenCode` → `--enable-opencode`
+- `apiProxy.enableTokenSteering` → `--enable-token-steering`
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
@@ -517,35 +518,39 @@ percentage thresholds of `maxEffectiveTokens`:
 
 | Threshold |
 |-----------|
-| 50% |
-| 75% |
+| 80% |
 | 90% |
 | 95% |
+| 99% |
 
 Each threshold MUST be recorded at most once per run.
 
 ### 10.5 Token Steering
 
-When a threshold is first crossed, the proxy MUST inject a budget-warning
-system message into the **body** of the very next eligible request sent by
-the agent, then discard the pending message so that it is injected at most
-once per threshold per run.
+Token steering is **opt-in**. It is active only when `apiProxy.enableTokenSteering`
+is `true` (CLI: `--enable-token-steering`). When disabled (the default), thresholds
+are still tracked (for introspection) but no warning messages are injected.
+
+When token steering is enabled and a threshold is first crossed, the proxy MUST
+inject a budget-warning system message into the **body** of the very next eligible
+request sent by the agent, then discard the pending message so that it is injected
+at most once per threshold per run.
 
 The injected message has the format:
 
 ```
-[AWF WARNING] <threshold-specific text>
+[AWF TOKEN WARNING] <threshold-specific text>
 ```
 
 | Threshold | Injected text |
 |-----------|---------------|
-| 50% | You have used 50% of your effective token budget. Start planning to complete your work. |
-| 75% | You have used 75% of your effective token budget. Begin wrapping up your work. |
-| 90% | You have used 90% of your effective token budget. Complete your current task and prepare your final output. |
-| 95% | You have used 95% of your effective token budget. Submit your final output immediately. |
+| 80% | You have used 80% of your effective token budget. Begin planning to wrap up your current work. |
+| 90% | You have used 90% of your effective token budget. Complete your current task and prepare final output. |
+| 95% | You have used 95% of your effective token budget. Finalize and submit your work now. |
+| 99% | You have used 99% of your effective token budget. You are about to be cut off. Submit immediately. |
 
 If multiple thresholds are crossed simultaneously (e.g. a single large
-response crosses both 75% and 90%), the proxy MUST inject only the highest
+response crosses both 80% and 90%), the proxy MUST inject only the highest
 crossed threshold on the next request and queue the remaining thresholds for
 subsequent requests (one per request).
 

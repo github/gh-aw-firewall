@@ -68,6 +68,7 @@ awf [options] -- <command>
 | `--rate-limit-rph <n>` | number | `10000` | Max requests per hour per provider |
 | `--rate-limit-bytes-pm <n>` | number | `52428800` (~50 MB) | Max request bytes per minute per provider |
 | `--no-rate-limit` | flag | — | Disable rate limiting in API proxy |
+| `--enable-token-steering` | flag | `false` | Inject budget-warning messages at 80/90/95/99% effective token usage |
 | `--difc-proxy-host <host:port>` | string | — | Connect to external DIFC proxy and enable CLI proxy sidecar |
 | `--difc-proxy-ca-cert <path>` | string | — | Path to TLS CA cert for external DIFC proxy verification |
 | `--diagnostic-logs` | flag | `false` | Collect diagnostics on non-zero exit |
@@ -913,6 +914,20 @@ Explicitly disable rate limiting in the API proxy, even if other `--rate-limit-*
 
 ```bash
 sudo -E awf --enable-api-proxy --no-rate-limit \
+  --allow-domains api.anthropic.com \
+  -- command
+```
+
+### `--enable-token-steering`
+
+Inject budget-warning system messages into outgoing LLM requests when cumulative effective token usage crosses 80%, 90%, 95%, or 99% of `maxEffectiveTokens`. Each threshold is injected at most once per run. Has no effect if `maxEffectiveTokens` is not configured.
+
+- **Default:** `false`
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --enable-token-steering \
   --allow-domains api.anthropic.com \
   -- command
 ```

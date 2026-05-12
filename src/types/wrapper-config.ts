@@ -703,6 +703,21 @@ interface WrapperConfigBase {
   enableOpenCode?: boolean;
 
   /**
+   * Enable effective token budget steering warnings in the API proxy
+   *
+   * When true, the api-proxy injects budget-warning system messages into outgoing
+   * LLM requests when cumulative usage crosses the configured thresholds (80%, 90%,
+   * 95%, 99%). This nudges the agent to wrap up before hitting the hard limit.
+   * When false (the default), no steering messages are injected.
+   *
+   * Requires `maxEffectiveTokens` to be set. Has no effect without a configured
+   * effective token budget.
+   *
+   * @default false
+   */
+  enableTokenSteering?: boolean;
+
+  /**
    * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
@@ -1089,6 +1104,7 @@ export type RateLimitOptions = Pick<WrapperConfigBase,
   | 'maxEffectiveTokens'
   | 'effectiveTokenModelMultipliers'
   | 'maxRuns'
+  | 'enableTokenSteering'
 >;
 
 export type RuntimeOptions = Pick<WrapperConfigBase,

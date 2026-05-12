@@ -90,6 +90,16 @@ describe('config-file', () => {
       expect(errors).toContain('config.apiProxy.enableOpenCode must be a boolean');
     });
 
+    it('accepts boolean apiProxy.enableTokenSteering', () => {
+      expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: true } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: false } })).toEqual([]);
+    });
+
+    it('rejects non-boolean apiProxy.enableTokenSteering', () => {
+      const errors = validateAwfFileConfig({ apiProxy: { enableTokenSteering: 'yes' } });
+      expect(errors).toContain('config.apiProxy.enableTokenSteering must be a boolean');
+    });
+
     it('accepts boolean apiProxy.anthropicAutoCache', () => {
       expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: true } })).toEqual([]);
       expect(validateAwfFileConfig({ apiProxy: { anthropicAutoCache: false } })).toEqual([]);
@@ -591,6 +601,7 @@ describe('config-file', () => {
             'gpt-4o': 2,
             'claude-sonnet-4': 1.5,
           },
+          enableTokenSteering: true,
         },
       });
       expect(result.maxEffectiveTokens).toBe(6000);
@@ -598,6 +609,7 @@ describe('config-file', () => {
         'gpt-4o': 2,
         'claude-sonnet-4': 1.5,
       });
+      expect(result.enableTokenSteering).toBe(true);
     });
 
     it('maps maxRuns field', () => {

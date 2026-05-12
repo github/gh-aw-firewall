@@ -336,6 +336,13 @@ program
     '                                       Multipliers must be positive numbers. Models without\n' +
     '                                       a multiplier default to 1×.',
   )
+  .option(
+    '--enable-token-steering',
+    'Enable effective token budget steering in the API proxy (requires --enable-api-proxy).\n' +
+    '                                       Injects budget-warning system messages at 80%, 90%, 95%, and 99%\n' +
+    '                                       usage to nudge the agent to wrap up before hitting the hard limit.',
+    false
+  )
 
   // -- CLI Proxy (external DIFC proxy) --
   .option(

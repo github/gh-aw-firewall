@@ -137,6 +137,8 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       }),
       // Enable OpenCode listener only when explicitly requested
       ...(config.enableOpenCode && { AWF_ENABLE_OPENCODE: 'true' }),
+      // Enable token steering when explicitly requested
+      ...(config.enableTokenSteering && { AWF_ENABLE_TOKEN_STEERING: 'true' }),
       // OIDC authentication (Azure, AWS, GCP)
       ...pickEnvVars(
         'AWF_AUTH_TYPE',

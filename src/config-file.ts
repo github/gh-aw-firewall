@@ -14,6 +14,7 @@ export interface AwfFileConfig {
   apiProxy?: {
     enabled?: boolean;
     enableOpenCode?: boolean;
+    enableTokenSteering?: boolean;
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
@@ -161,6 +162,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
 
     enableApiProxy: config.apiProxy?.enabled,
     enableOpencode: config.apiProxy?.enableOpenCode,
+    enableTokenSteering: config.apiProxy?.enableTokenSteering,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,

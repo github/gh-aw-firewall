@@ -335,6 +335,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     maxRuns,
+    enableTokenSteering: options.enableTokenSteering as boolean,
     openaiApiKey: process.env.OPENAI_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
