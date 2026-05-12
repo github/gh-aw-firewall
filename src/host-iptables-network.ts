@@ -5,7 +5,7 @@ import { NETWORK_NAME, NETWORK_SUBNET } from './host-iptables-shared';
 
 /**
  * Creates the dedicated firewall network if it doesn't exist
- * Returns the Squid and agent IPs
+ * Returns the firewall subnet and reserved container IPs (squid/agent/proxy)
  */
 export async function ensureFirewallNetwork(): Promise<{
   subnet: string;
