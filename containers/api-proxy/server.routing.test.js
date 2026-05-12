@@ -4,7 +4,7 @@
  * Extracted from server.test.js lines 20–489, 1066–1296.
  */
 
-const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath } = require('./proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, createAdapterMethods } = require('./proxy-utils');
 const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot');
 const { _testing: { resolveOpenCodeRoute } } = require('./providers/opencode');
 
@@ -44,6 +44,85 @@ describe('normalizeApiTarget', () => {
 
   it('should discard query and fragment from URL', () => {
     expect(normalizeApiTarget('https://my-gateway.example.com/path?key=val#frag')).toBe('my-gateway.example.com');
+  });
+});
+
+describe('createAdapterMethods', () => {
+  it('builds default validation, model-fetch, and reflection methods', () => {
+    const methods = createAdapterMethods({
+      apiKey: 'sk-test',
+      rawTarget: 'api.example.com',
+      basePath: '/api/v1',
+      provider: 'example',
+      port: 12345,
+      defaultTarget: 'api.example.com',
+      validationPath: '/v1/models',
+      validationHeaders: { Authorization: 'Bearer sk-test' },
+      modelsPath: '/v1/models',
+      modelsFetchHeaders: { Authorization: 'Bearer sk-test' },
+    });
+
+    expect(methods.getValidationProbe()).toEqual({
+      url: 'https://api.example.com/v1/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-test' } },
+    });
+    expect(methods.getModelsFetchConfig()).toEqual({
+      url: 'https://api.example.com/api/v1/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-test' } },
+      cacheKey: 'example',
+    });
+    expect(methods.getReflectionInfo()).toEqual({
+      provider: 'example',
+      port: 12345,
+      base_url: 'http://api-proxy:12345',
+      configured: true,
+      models_cache_key: 'example',
+      models_url: 'http://api-proxy:12345/v1/models',
+    });
+  });
+
+  it('does not double-slash model fetch URL when basePath is root', () => {
+    const methods = createAdapterMethods({
+      apiKey: 'sk-test',
+      rawTarget: 'api.example.com',
+      basePath: '/',
+      provider: 'example',
+      port: 12345,
+      modelsPath: '/models',
+      modelsFetchHeaders: { Authorization: 'Bearer sk-test' },
+    });
+
+    expect(methods.getModelsFetchConfig()).toEqual({
+      url: 'https://api.example.com/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-test' } },
+      cacheKey: 'example',
+    });
+  });
+
+  it('supports custom skip/override behavior and null model metadata', () => {
+    const methods = createAdapterMethods({
+      rawTarget: 'custom.example.com',
+      provider: 'opencode',
+      port: 10004,
+      modelsPath: null,
+      modelsCacheKey: null,
+      reflectionConfigured: false,
+      validationSkip: () => ({ skip: true, reason: 'custom skip' }),
+      skipModelsFetch: () => true,
+      reflectionExtra: { note: 'extra' },
+    });
+
+    expect(methods.getValidationProbe()).toEqual({ skip: true, reason: 'custom skip' });
+    expect(methods.getModelsFetchConfig()).toBeNull();
+    expect(methods.getReflectionInfo()).toEqual({
+      provider: 'opencode',
+      port: 10004,
+      base_url: 'http://api-proxy:10004',
+      configured: false,
+      models_cache_key: null,
+      models_url: null,
+      note: 'extra',
+    });
   });
 });
 

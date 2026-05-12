@@ -11,7 +11,7 @@
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
  */
 
-const { composeBodyTransforms, createBaseAdapterConfig } = require('../proxy-utils');
+const { composeBodyTransforms, createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -68,6 +68,24 @@ function createAnthropicAdapter(env, deps = {}) {
   // Build the composed transform once at construction time to avoid
   // re-allocating the wrapper function on every request.
   const composedBodyTransform = composeBodyTransforms(bodyTransform, optimisationsTransform);
+  const adapterMethods = createAdapterMethods({
+    apiKey,
+    rawTarget,
+    basePath,
+    provider: 'anthropic',
+    port: 10001,
+    defaultTarget: 'api.anthropic.com',
+    validationPath: '/v1/messages',
+    validationMethod: 'POST',
+    validationBody: '{}',
+    validationHeaders: () => ({
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    }),
+    modelsPath: '/v1/models',
+    modelsFetchHeaders: () => ({ 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }),
+  });
 
   return {
     name: 'anthropic',
@@ -122,52 +140,7 @@ function createAnthropicAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return composedBodyTransform; },
-
-    getValidationProbe() {
-      if (!apiKey) return null;
-      if (rawTarget !== 'api.anthropic.com') {
-        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
-      }
-      // POST /v1/messages with an empty body: 400 = key valid (bad body), 401 = key invalid
-      return {
-        url: `https://${rawTarget}/v1/messages`,
-        opts: {
-          method: 'POST',
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
-          },
-          body: '{}',
-        },
-      };
-    },
-
-    getModelsFetchConfig() {
-      if (!apiKey) return null;
-      // Use the configured base path so Anthropic-compatible endpoints with a
-      // path prefix populate /reflect and models.json correctly.
-      const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
-      return {
-        url: `https://${rawTarget}${modelsPath}`,
-        opts: {
-          method: 'GET',
-          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        },
-        cacheKey: 'anthropic',
-      };
-    },
-
-    getReflectionInfo() {
-      return {
-        provider: 'anthropic',
-        port: 10001,
-        base_url: 'http://api-proxy:10001',
-        configured: !!apiKey,
-        models_cache_key: 'anthropic',
-        models_url: 'http://api-proxy:10001/v1/models',
-      };
-    },
+    ...adapterMethods,
 
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */
     getUnconfiguredResponse() {

@@ -10,7 +10,7 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const { createBaseAdapterConfig } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
 const { OidcTokenProvider } = require('../oidc-token-provider');
 
 /**
@@ -91,6 +91,27 @@ function createOpenAIAdapter(env, deps = {}) {
     }
   }
   const oidcConfigured = !!(oidcProvider || awsOidcProvider);
+  const adapterMethods = createAdapterMethods({
+    apiKey,
+    rawTarget,
+    basePath,
+    provider: 'openai',
+    port: 10000,
+    defaultTarget: 'api.openai.com',
+    validationPath: '/v1/models',
+    validationHeaders: () => ({ 'Authorization': `Bearer ${apiKey}` }),
+    validationSkip: () => (oidcConfigured
+      ? { skip: true, reason: 'OIDC auth; validation via token acquisition' }
+      : null),
+    skipModelsFetch: () => oidcConfigured, // Models fetched after OIDC init
+    modelsPath: '/v1/models',
+    modelsFetchHeaders: () => ({ 'Authorization': `Bearer ${apiKey}` }),
+    reflectionConfigured: !!apiKey || oidcConfigured,
+    reflectionModelsPath: '/v1/models',
+    reflectionExtra: () => ({
+      auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
+    }),
+  });
 
   return {
     name: 'openai',
@@ -144,61 +165,7 @@ function createOpenAIAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return bodyTransform; },
-
-    /**
-     * Returns the validation probe config, or null to skip.
-     * Custom targets are skipped — we don't know their probe endpoints.
-     * OIDC-auth targets are skipped — validation requires an async token mint.
-     *
-     * @returns {{ url: string, opts: object }|{ skip: true, reason: string }|null}
-     */
-    getValidationProbe() {
-      if (oidcConfigured) {
-        return { skip: true, reason: 'OIDC auth; validation via token acquisition' };
-      }
-      if (!apiKey) return null;
-      if (rawTarget !== 'api.openai.com') {
-        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
-      }
-      return {
-        url: `https://${rawTarget}/v1/models`,
-        opts: { method: 'GET', headers: { 'Authorization': `Bearer ${apiKey}` } },
-      };
-    },
-
-    /**
-     * Returns the model-list fetch config for /reflect model population, or null.
-     * Uses the configured base path so prefixed OpenAI-compatible deployments
-     * (e.g. Databricks, Azure) populate /reflect and models.json correctly.
-     *
-     * @returns {{ url: string, opts: object, cacheKey: string }|null}
-     */
-    getModelsFetchConfig() {
-      if (oidcConfigured) return null; // Models fetched after OIDC init
-      if (!apiKey) return null;
-      const modelsPath = basePath ? `${basePath}/models` : '/v1/models';
-      return {
-        url: `https://${rawTarget}${modelsPath}`,
-        opts: { method: 'GET', headers: { 'Authorization': `Bearer ${apiKey}` } },
-        cacheKey: 'openai',
-      };
-    },
-
-    getReflectionInfo() {
-      let authTypeLabel = 'static-key';
-      if (oidcConfigured) {
-        authTypeLabel = awsOidcProvider ? `github-oidc/${authProvider}` : `github-oidc/${authProvider}`;
-      }
-      return {
-        provider: 'openai',
-        port: 10000,
-        base_url: 'http://api-proxy:10000',
-        configured: !!apiKey || oidcConfigured,
-        auth_type: oidcConfigured ? authTypeLabel : 'static-key',
-        models_cache_key: 'openai',
-        models_url: 'http://api-proxy:10000/v1/models',
-      };
-    },
+    ...adapterMethods,
 
     /** Response returned when port 10000 receives a proxy request but no key is set. */
     getUnconfiguredResponse() {
