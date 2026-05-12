@@ -71,7 +71,7 @@ describe('Protocol Support', () => {
   describe('HTTP/2 Support', () => {
     test('should support HTTP/2 connections', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS --http2 https://api.github.com/zen',
+        'curl -fsS --http2 https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -84,7 +84,7 @@ describe('Protocol Support', () => {
 
     test('should support HTTP/1.1 fallback', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS --http1.1 https://api.github.com/zen',
+        'curl -fsS --http1.1 https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -188,7 +188,7 @@ describe('Protocol Support', () => {
 
     test('should respect curl connect-timeout option', async () => {
       const result = await runner.runWithSudo(
-        'curl -f --connect-timeout 10 https://api.github.com/zen',
+        'curl -f --connect-timeout 10 https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
