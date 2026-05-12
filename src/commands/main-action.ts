@@ -20,19 +20,14 @@ import {
 } from '../host-iptables';
 import { runMainWorkflow } from '../cli-workflow';
 import { redactSecrets } from '../redact-secrets';
-import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from '../domain-patterns';
-import { loadAndMergeDomains } from '../rules';
-import { detectHostDnsServers } from '../dns-resolver';
-import { detectUpstreamProxy, parseProxyUrl, parseNoProxy } from '../upstream-proxy';
-import { loadAwfFileConfig, mapAwfFileConfigToCliOptions, applyConfigOptionsInPlaceWithCliPrecedence } from '../config-file';
-import { parseDomains, parseDomainsFile, processAgentImageOption } from '../domain-utils';
+import { SQUID_DANGEROUS_CHARS } from '../domain-patterns';
+import { parseDomains, processAgentImageOption } from '../domain-utils';
 import {
   validateApiProxyConfig,
   validateAnthropicCacheTailTtl,
   emitApiProxyTargetWarnings,
   emitCliProxyStatusLogs,
   warnClassicPATWithCopilotModel,
-  resolveApiTargetsToAllowedDomains,
 } from '../api-proxy-config';
 import {
   buildRateLimitConfig,
@@ -45,18 +40,15 @@ import {
   applyAgentTimeout,
   checkDockerHost,
   resolveDockerHostPathPrefix,
-  parseDnsServers,
-  parseDnsOverHttps,
-  processLocalhostKeyword,
   joinShellArgs,
   parseEnvironmentVariables,
   parseVolumeMounts,
   parseModelMultipliersCli,
 } from '../option-parsers';
-import {
-  resolveCopilotApiKey,
-  resolveCopilotApiRouting,
-} from '../copilot-api-resolver';
+import { resolveCopilotApiKey } from '../copilot-api-resolver';
+import { applyConfigFilePrecedence, resolveAllowedDomains, resolveBlockedDomains } from './preflight';
+import { resolveNetworkConfig } from './network-setup';
+import { registerSignalHandlers } from './signal-handler';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -108,22 +100,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   //
   const agentCommand = args.length === 1 ? args[0] : joinShellArgs(args);
 
-  if (options.config) {
-    try {
-      const fileConfig = loadAwfFileConfig(options.config as string);
-      const fileDerivedOptions = mapAwfFileConfigToCliOptions(fileConfig);
-      applyConfigOptionsInPlaceWithCliPrecedence(
-        options as Record<string, unknown>,
-        fileDerivedOptions,
-        // Commander marks explicit user flags with source "cli".
-        // We only apply config values when a flag was not explicitly provided.
-        (optionName: string) => getOptionValueSource(optionName) === 'cli'
-      );
-    } catch (error) {
-      console.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    }
-  }
+  applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource);
 
   // Parse and validate options
   const logLevel = options.logLevel as LogLevel;
@@ -189,133 +166,15 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     logger.warn('⚠️  If your Docker daemon uses a split runner/daemon filesystem, set --docker-host-path-prefix (for example: /host).');
   }
 
-  // Parse domains from both --allow-domains flag and --allow-domains-file
-  let allowedDomains: string[] = [];
-
-  // Parse domains from command-line flag if provided
-  if (options.allowDomains) {
-    allowedDomains = parseDomains(options.allowDomains as string);
-  }
-
-  // Parse domains from file if provided
-  if (options.allowDomainsFile) {
-    try {
-      const fileDomainsArray = parseDomainsFile(options.allowDomainsFile as string);
-      allowedDomains.push(...fileDomainsArray);
-    } catch (error) {
-      logger.error(`Failed to read domains file: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-
-  // Merge domains from --ruleset-file YAML files
-  if (options.rulesetFile && Array.isArray(options.rulesetFile) && options.rulesetFile.length > 0) {
-    try {
-      allowedDomains = loadAndMergeDomains(options.rulesetFile as string[], allowedDomains);
-    } catch (error) {
-      logger.error(`Failed to load ruleset file: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-
-  // Log when no domains are specified (all network access will be blocked)
-  if (allowedDomains.length === 0) {
-    logger.debug('No allowed domains specified - all network access will be blocked');
-  }
-
-  // Remove duplicates (in case domains appear in both sources)
-  allowedDomains = [...new Set(allowedDomains)];
-
-  // Handle special "localhost" keyword for Playwright testing
-  // This makes localhost testing work out of the box without requiring manual configuration
-  const localhostResult = processLocalhostKeyword(
-    allowedDomains,
-    (options.enableHostAccess as boolean) || false,
-    options.allowHostPorts as string | undefined
-  );
-
-  if (localhostResult.localhostDetected) {
-    allowedDomains = localhostResult.allowedDomains;
-
-    // Auto-enable host access
-    if (localhostResult.shouldEnableHostAccess) {
-      options.enableHostAccess = true;
-      logger.warn('⚠️  Security warning: localhost keyword enables host access - agent can reach services on your machine');
-      logger.info('ℹ️  localhost keyword detected - automatically enabling host access');
-    }
-
-    // Auto-configure common dev ports if not already specified
-    if (localhostResult.defaultPorts) {
-      options.allowHostPorts = localhostResult.defaultPorts;
-      logger.info('ℹ️  localhost keyword detected - allowing common development ports (3000, 4200, 5173, 8080, etc.)');
-      logger.info('   Use --allow-host-ports to customize the port list');
-    }
-  }
-
+  // Resolve allowed and blocked domains (parse, merge, validate)
   const {
-    copilotApiTarget: resolvedCopilotApiTarget,
-    copilotApiBasePath: resolvedCopilotApiBasePath,
-  } = resolveCopilotApiRouting(
-    { copilotApiTarget: options.copilotApiTarget as string | undefined },
-    process.env
-  );
-
-  // Automatically add API target values to allowlist when specified
-  // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
-  // the target domain is automatically accessible through the firewall
-  resolveApiTargetsToAllowedDomains(
-    {
-      copilotApiTarget: resolvedCopilotApiTarget,
-      openaiApiTarget: options.openaiApiTarget as string | undefined,
-      anthropicApiTarget: options.anthropicApiTarget as string | undefined,
-      geminiApiTarget: options.geminiApiTarget as string | undefined,
-    },
     allowedDomains,
-    process.env,
-    logger.debug.bind(logger)
-  );
+    localhostResult,
+    resolvedCopilotApiTarget,
+    resolvedCopilotApiBasePath,
+  } = resolveAllowedDomains(options as Record<string, unknown>);
 
-  // Validate all domains and patterns
-  for (const domain of allowedDomains) {
-    try {
-      validateDomainOrPattern(domain);
-    } catch (error) {
-      logger.error(`Invalid domain or pattern: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-
-  // Parse blocked domains from both --block-domains flag and --block-domains-file
-  let blockedDomains: string[] = [];
-
-  // Parse blocked domains from command-line flag if provided
-  if (options.blockDomains) {
-    blockedDomains = parseDomains(options.blockDomains as string);
-  }
-
-  // Parse blocked domains from file if provided
-  if (options.blockDomainsFile) {
-    try {
-      const fileBlockedDomainsArray = parseDomainsFile(options.blockDomainsFile as string);
-      blockedDomains.push(...fileBlockedDomainsArray);
-    } catch (error) {
-      logger.error(`Failed to read blocked domains file: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-
-  // Remove duplicates from blocked domains
-  blockedDomains = [...new Set(blockedDomains)];
-
-  // Validate all blocked domains and patterns
-  for (const domain of blockedDomains) {
-    try {
-      validateDomainOrPattern(domain);
-    } catch (error) {
-      logger.error(`Invalid blocked domain or pattern: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
+  const blockedDomains = resolveBlockedDomains(options as Record<string, unknown>);
 
   // Parse additional environment variables from --env flags
   let additionalEnv: Record<string, string> = {};
@@ -349,54 +208,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     logger.debug(`Parsed ${volumeMounts.length} volume mount(s)`);
   }
 
-  // Parse and validate DNS servers (auto-detect if not explicitly provided)
-  let dnsServers: string[];
-  if (options.dnsServers) {
-    try {
-      dnsServers = parseDnsServers(options.dnsServers as string);
-    } catch (error) {
-      logger.error(`Invalid DNS servers: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  } else {
-    dnsServers = detectHostDnsServers(logger);
-  }
-
-  // Parse and validate --dns-over-https
-  let dnsOverHttps: string | undefined;
-  const dohResult = parseDnsOverHttps(options.dnsOverHttps as string | boolean | undefined);
-  if (dohResult && 'error' in dohResult) {
-    logger.error(dohResult.error);
-    process.exit(1);
-  } else if (dohResult) {
-    dnsOverHttps = dohResult.url;
-    logger.info(`DNS-over-HTTPS enabled: ${dnsOverHttps}`);
-  }
-
-  // Detect or parse upstream proxy configuration
-  let upstreamProxy: import('../types').UpstreamProxyConfig | undefined;
-  if (options.upstreamProxy) {
-    // Explicit --upstream-proxy flag
-    try {
-      const { host, port } = parseProxyUrl(options.upstreamProxy as string);
-      // Parse no_proxy from environment even when --upstream-proxy is explicit
-      const noProxyStr = (process.env.no_proxy || process.env.NO_PROXY || '').trim();
-      const noProxy = noProxyStr ? parseNoProxy(noProxyStr) : [];
-      upstreamProxy = { host, port, ...(noProxy.length > 0 ? { noProxy } : {}) };
-      logger.info(`Upstream proxy (explicit): ${host}:${port}`);
-    } catch (error) {
-      logger.error(`Invalid --upstream-proxy: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  } else {
-    // Auto-detect from host environment variables
-    try {
-      upstreamProxy = detectUpstreamProxy();
-    } catch (error) {
-      logger.error(`Upstream proxy auto-detection failed: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
+  // Resolve network configuration (upstream proxy, DNS servers, DNS-over-HTTPS)
+  const { upstreamProxy, dnsServers, dnsOverHttps } = resolveNetworkConfig(options as Record<string, unknown>);
 
   // Parse --allow-urls for SSL Bump mode
   let allowedUrls: string[] | undefined;
@@ -742,29 +555,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     }
   };
 
-  // Register signal handlers
-  // Fast-kill the agent container immediately so it cannot outlive the awf
-  // process. GH Actions sends SIGTERM then SIGKILL ~10 s later; the full
-  // docker compose down in performCleanup() is too slow to finish in that
-  // window, leaving the container running as an orphan.
-  /* istanbul ignore next -- signal handlers cannot be unit-tested */
-  process.on('SIGINT', async () => {
-    if (containersStarted && !config.keepContainers) {
-      await fastKillAgentContainer();
-    }
-    await performCleanup('SIGINT');
-    console.error(`Process exiting with code: 130`);
-    process.exit(130); // Standard exit code for SIGINT
-  });
-
-  /* istanbul ignore next -- signal handlers cannot be unit-tested */
-  process.on('SIGTERM', async () => {
-    if (containersStarted && !config.keepContainers) {
-      await fastKillAgentContainer();
-    }
-    await performCleanup('SIGTERM');
-    console.error(`Process exiting with code: 143`);
-    process.exit(143); // Standard exit code for SIGTERM
+  // Register signal handlers for graceful shutdown
+  registerSignalHandlers({
+    getContainersStarted: () => containersStarted,
+    keepContainers: config.keepContainers,
+    fastKillAgentContainer,
+    performCleanup,
   });
 
   try {
