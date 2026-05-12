@@ -23,6 +23,7 @@ class BaseOidcTokenProvider {
     this._refreshInFlight = null;
     this._initialized = false;
     this._initError = null;
+    this._isShutdown = false;
   }
 
   /**
@@ -30,14 +31,19 @@ class BaseOidcTokenProvider {
    * @returns {Promise<void>}
    */
   async initialize() {
+    if (this._isShutdown) return;
+
     for (let attempt = 1; attempt <= this._maxInitRetries; attempt++) {
+      if (this._isShutdown) return;
       try {
         await this._doRefresh();
+        if (this._isShutdown) return;
         this._initialized = true;
         this._initError = null;
         logRequest('info', `${this._providerPrefix}_init_success`, this._getInitSuccessLogContext());
         return;
       } catch (err) {
+        if (this._isShutdown) return;
         this._initError = err;
         logRequest('warn', `${this._providerPrefix}_init_retry`, {
           attempt,
@@ -49,6 +55,7 @@ class BaseOidcTokenProvider {
         }
       }
     }
+    if (this._isShutdown) return;
     logRequest('error', `${this._providerPrefix}_init_failed`, {
       error: this._initError?.message,
       ...this._getInitFailureLogContext(),
@@ -62,6 +69,7 @@ class BaseOidcTokenProvider {
   }
 
   shutdown() {
+    this._isShutdown = true;
     if (this._refreshTimer) {
       clearTimeout(this._refreshTimer);
       this._refreshTimer = null;
@@ -70,6 +78,7 @@ class BaseOidcTokenProvider {
 
   /** @param {number} delayMs */
   _scheduleRefresh(delayMs) {
+    if (this._isShutdown) return;
     scheduleRefresh(this, delayMs, () => this._doRefresh(), this._providerPrefix);
   }
 

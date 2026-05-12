@@ -238,6 +238,30 @@ describe('AwsOidcTokenProvider', () => {
     provider.shutdown();
     await new Promise(resolve => failServer.close(resolve));
   });
+
+  it('should not schedule refresh after shutdown during in-flight refresh', async () => {
+    const provider = new AwsOidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      roleArn: 'arn:aws:iam::123456789012:role/my-role',
+      region: 'us-east-1',
+    });
+
+    let releaseRefresh;
+    provider._refreshCredentials = jest.fn(async () => {
+      await new Promise(resolve => { releaseRefresh = resolve; });
+      provider._scheduleRefresh(1000);
+    });
+
+    const initPromise = provider.initialize();
+    await new Promise(resolve => setImmediate(resolve));
+
+    provider.shutdown();
+    releaseRefresh();
+    await initPromise;
+
+    expect(provider._refreshTimer).toBeNull();
+  });
 });
 
 describe('OpenAI adapter with AWS OIDC', () => {
