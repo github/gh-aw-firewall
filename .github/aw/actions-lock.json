@@ -20,11 +20,6 @@
       "version": "v6.0.2",
       "sha": "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
     },
-    "actions/github-script@v8": {
-      "repo": "actions/github-script",
-      "version": "v8",
-      "sha": "ed597411d8f924073f98dfc5c65a23a2325f34cd"
-    },
     "actions/github-script@v9.0.0": {
       "repo": "actions/github-script",
       "version": "v9.0.0",
