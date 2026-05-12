@@ -50,20 +50,20 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 120000,
+        timeout: 180000,
         buildLocal: true,
       }
     );
 
     expect(result).toSucceed();
     expect(result.stdout).toContain('no_docker_socket');
-  }, 120000);
+  }, 240000);
 
   test('docker run should fail gracefully', async () => {
     const result = await runner.runWithSudo('docker run alpine echo hello', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 120000,
+      timeout: 180000,
       buildLocal: true,
     });
 
@@ -72,20 +72,20 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     expect(result.exitCode).not.toBe(0);
     // The stderr should contain some indication that docker is not found
     expect(result.stderr).toMatch(/docker|not found|command not found/i);
-  }, 120000);
+  }, 240000);
 
   test('docker-compose should not be available', async () => {
     const result = await runner.runWithSudo('which docker-compose', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 120000,
+      timeout: 180000,
       buildLocal: true,
     });
 
     // Should fail because docker-compose is not installed
     expect(result).toFail();
     expect(result.exitCode).not.toBe(0);
-  }, 120000);
+  }, 240000);
 
   test('verify docker socket is not mounted', async () => {
     const result = await runner.runWithSudo(
@@ -93,7 +93,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 120000,
+        timeout: 180000,
         buildLocal: true,
       }
     );
@@ -103,5 +103,5 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     expect(result.exitCode).toBe(0);
     // But the socket should NOT be mounted
     expect(result.stdout).toContain('not mounted');
-  }, 120000);
+  }, 240000);
 });

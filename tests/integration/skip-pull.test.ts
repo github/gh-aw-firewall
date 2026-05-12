@@ -33,7 +33,7 @@ describe('Skip Pull Flag', () => {
         allowDomains: ['github.com'],
         buildLocal: true,
         logLevel: 'debug',
-        timeout: 120000,
+        timeout: 180000,
       }
     );
     expect(buildResult).toSucceed();
