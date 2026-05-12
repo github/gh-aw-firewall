@@ -681,7 +681,7 @@ The API proxy can enforce a cumulative **effective token budget** per run. When 
 
 ### Configuration
 
-Set in the AWF config file (not available as a CLI flag):
+Set in the AWF config file or via the `--max-model-multiplier` CLI flag:
 
 ```json
 {
@@ -696,6 +696,14 @@ Set in the AWF config file (not available as a CLI flag):
   }
 }
 ```
+
+Or equivalently from the command line:
+
+```bash
+awf --max-model-multiplier o3-pro:15,o3:4,claude-sonnet-4-20250514:1,gpt-4.1-mini:0.5 ...
+```
+
+When both the config file and the CLI flag specify a multiplier for the same model, the **CLI flag takes precedence**.
 
 ### How tokens are weighted
 
@@ -742,18 +750,36 @@ WebSocket upgrade requests are also rejected with `429` when the budget is reach
 Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
 :::
 
-### Threshold tracking
+### Threshold tracking and token steering
 
-The proxy tracks which usage thresholds have been crossed:
+The proxy tracks which usage thresholds have been crossed and **injects a budget-warning message** into the body of the next eligible request sent to the upstream model:
 
-| Threshold | Tracked once per run |
-|-----------|-----------------------|
-| 50% | Yes |
-| 75% | Yes |
-| 90% | Yes |
-| 95% | Yes |
+| Threshold | Tracked once per run | Warning injected into next request |
+|-----------|-----------------------|-------------------------------------|
+| 50% | Yes | Yes |
+| 75% | Yes | Yes |
+| 90% | Yes | Yes |
+| 95% | Yes | Yes |
 
-Crossed thresholds are exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
+#### How steering messages are injected
+
+When a threshold is crossed, the proxy modifies the outgoing request body of the *next* API call to include a system-level warning. This ensures the agent receives budget information even if it doesn't parse headers or error responses. The message format is:
+
+```
+[AWF WARNING] You have used 75% of your effective token budget. Begin wrapping up your work.
+```
+
+The injection is provider-aware:
+
+| Provider | Injection mechanism |
+|----------|---------------------|
+| OpenAI / Copilot / OpenCode | Inserts `{"role":"system","content":"..."}` after existing system messages |
+| Anthropic | Appends to the `system` field (string concat or block append) |
+| Gemini | Appends `{"text":"..."}` to `systemInstruction.parts` |
+
+Each threshold is injected **at most once** per run. If the body cannot be parsed as JSON, injection is silently skipped for that request.
+
+Crossed thresholds are also exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
 
 ### Introspection
 

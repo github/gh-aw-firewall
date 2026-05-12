@@ -51,6 +51,7 @@ import {
   joinShellArgs,
   parseEnvironmentVariables,
   parseVolumeMounts,
+  parseModelMultipliersCli,
 } from '../option-parsers';
 import {
   resolveCopilotApiKey,
@@ -138,8 +139,25 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // so access through a Record cast with a proper type annotation.
   const modelAliases = (options as Record<string, unknown>).modelAliases as Record<string, string[]> | undefined;
   const maxEffectiveTokensOption = (options as Record<string, unknown>).maxEffectiveTokens as string | number | undefined;
-  const effectiveTokenModelMultipliers =
+  // Config-file multipliers (already a Record<string, number>)
+  const configFileMultipliers =
     (options as Record<string, unknown>).effectiveTokenModelMultipliers as Record<string, number> | undefined;
+  // CLI multipliers via --max-model-multiplier (model:multiplier,... format)
+  const maxModelMultiplierRaw = (options as Record<string, unknown>).maxModelMultiplier as string | undefined;
+  let cliMultipliers: Record<string, number> | undefined;
+  if (maxModelMultiplierRaw !== undefined) {
+    const parsed = parseModelMultipliersCli(maxModelMultiplierRaw);
+    if ('error' in parsed) {
+      console.error(`Error: ${parsed.error}`);
+      process.exit(1);
+    }
+    cliMultipliers = parsed.multipliers;
+  }
+  // CLI flag overrides config-file values for the same model name.
+  const effectiveTokenModelMultipliers =
+    (configFileMultipliers || cliMultipliers)
+      ? { ...configFileMultipliers, ...cliMultipliers }
+      : undefined;
   const maxEffectiveTokens = maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
 
   if (maxEffectiveTokens !== undefined && (!Number.isInteger(maxEffectiveTokens) || maxEffectiveTokens <= 0)) {

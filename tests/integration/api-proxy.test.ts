@@ -27,6 +27,9 @@ describe('API Proxy Sidecar', () => {
   });
 
   test('should start api-proxy sidecar with Anthropic key and pass healthcheck', async () => {
+    // This is the first test to run and may trigger a cold Docker build for the
+    // api-proxy / iptables-init images (not pre-built in the CI "Build local containers"
+    // step). Allow up to 5 minutes for the build + startup + run + teardown.
     const result = await runner.runWithSudo(
       `curl -s http://${API_PROXY_IP}:10001/health`,
       {
@@ -34,7 +37,7 @@ describe('API Proxy Sidecar', () => {
         enableApiProxy: true,
         buildLocal: true,
         logLevel: 'debug',
-        timeout: 120000,
+        timeout: 300000,
         env: {
           ANTHROPIC_API_KEY: 'sk-ant-fake-test-key-12345',
         },
@@ -44,7 +47,7 @@ describe('API Proxy Sidecar', () => {
     expect(result).toSucceed();
     expect(result.stdout).toContain('"status":"healthy"');
     expect(result.stdout).toContain('awf-api-proxy-anthropic');
-  }, 180000);
+  }, 360000);
 
   test('should start api-proxy sidecar with OpenAI key and pass healthcheck', async () => {
     const result = await runner.runWithSudo(

@@ -328,6 +328,14 @@ program
     '--no-rate-limit',
     'Disable rate limiting in the API proxy (requires --enable-api-proxy)',
   )
+  .option(
+    '--max-model-multiplier <model:multiplier,...>',
+    'Per-model cost multipliers for effective token accounting (requires --enable-api-proxy).\n' +
+    '                                       Format: comma-separated model:multiplier pairs, e.g.\n' +
+    '                                       claude-opus-4-5-1m:10,claude-opus-4-5-200k:2.5\n' +
+    '                                       Multipliers must be positive numbers. Models without\n' +
+    '                                       a multiplier default to 1×.',
+  )
 
   // -- CLI Proxy (external DIFC proxy) --
   .option(

@@ -12,6 +12,7 @@ import {
   checkDockerHost,
   resolveDockerHostPathPrefix,
   formatItem,
+  parseModelMultipliersCli,
 } from './option-parsers';
 
 describe('validateSkipPullWithBuildLocal', () => {
@@ -399,5 +400,91 @@ describe('formatItem', () => {
     const result = formatItem('--very-long-flag-name-that-exceeds-width', 'Description', 10, 2, 2, 80);
     expect(result).toContain('--very-long-flag-name-that-exceeds-width\n');
     expect(result).toContain('Description');
+  });
+});
+
+describe('parseModelMultipliersCli', () => {
+  it('returns empty object for undefined input', () => {
+    const result = parseModelMultipliersCli(undefined);
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) expect(result.multipliers).toEqual({});
+  });
+
+  it('returns empty object for empty string', () => {
+    const result = parseModelMultipliersCli('');
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) expect(result.multipliers).toEqual({});
+  });
+
+  it('parses a single model:multiplier pair', () => {
+    const result = parseModelMultipliersCli('claude-opus-4-5-1m:10');
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) {
+      expect(result.multipliers).toEqual({ 'claude-opus-4-5-1m': 10 });
+    }
+  });
+
+  it('parses multiple model:multiplier pairs', () => {
+    const result = parseModelMultipliersCli('claude-opus-4-5-200k:2.5,claude-opus-4-5-1m:10,gpt-4o-mini:0.5');
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) {
+      expect(result.multipliers).toEqual({
+        'claude-opus-4-5-200k': 2.5,
+        'claude-opus-4-5-1m': 10,
+        'gpt-4o-mini': 0.5,
+      });
+    }
+  });
+
+  it('uses the last colon as separator (model names may contain colons)', () => {
+    // e.g. namespaced model IDs
+    const result = parseModelMultipliersCli('provider:model:3');
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) {
+      expect(result.multipliers).toEqual({ 'provider:model': 3 });
+    }
+  });
+
+  it('returns error for entry without a colon', () => {
+    const result = parseModelMultipliersCli('gpt-4o');
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toContain('--max-model-multiplier');
+      expect(result.error).toContain('gpt-4o');
+    }
+  });
+
+  it('returns error for non-numeric multiplier', () => {
+    const result = parseModelMultipliersCli('gpt-4o:fast');
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toContain('positive number');
+    }
+  });
+
+  it('returns error for zero multiplier', () => {
+    const result = parseModelMultipliersCli('gpt-4o:0');
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toContain('positive number');
+    }
+  });
+
+  it('returns error for negative multiplier', () => {
+    const result = parseModelMultipliersCli('gpt-4o:-1');
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toContain('positive number');
+    }
+  });
+
+  it('ignores surrounding whitespace in entries', () => {
+    const result = parseModelMultipliersCli(' gpt-4o : 2 ');
+    // Note: the key is trimmed, so 'gpt-4o ' might fail - let's check actual behavior
+    // The parser does entry.slice(0, lastColon).trim()
+    expect('multipliers' in result).toBe(true);
+    if ('multipliers' in result) {
+      expect(result.multipliers['gpt-4o']).toBe(2);
+    }
   });
 });
