@@ -355,6 +355,30 @@ describe('generatePolicyManifest', () => {
       const result = generateSquidConfig(config);
       expect(result).toContain('cache_peer 10.0.0.50 parent 8080 0 no-query default');
     });
+
+    it('rejects unsafe upstream host values', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['github.com'],
+          port: defaultPort,
+          upstreamProxy: { host: 'proxy.corp.com\nhttp_access allow all', port: 3128 },
+        });
+      }).toThrow(/SECURITY/);
+    });
+
+    it('rejects unsafe upstream noProxy values', () => {
+      expect(() => {
+        generateSquidConfig({
+          domains: ['github.com'],
+          port: defaultPort,
+          upstreamProxy: {
+            host: 'proxy.corp.com',
+            port: 3128,
+            noProxy: ['internal.example.com#inject'],
+          },
+        });
+      }).toThrow(/SECURITY/);
+    });
   });
 
   describe('Api-Proxy Sidecar Configuration', () => {

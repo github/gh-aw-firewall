@@ -26,7 +26,7 @@ export interface PatternsByProtocol {
 
 /**
  * Defense-in-depth: assert a domain/regex/URL-pattern string is safe for Squid config interpolation.
- * Rejects whitespace, null bytes, quotes, semicolons, backticks, hash characters, and backslashes —
+ * Rejects whitespace, null bytes, quotes, semicolons, backticks, and hash characters —
  * all of which can inject directives, tokens, or comments into Squid config.
  */
 export function assertSafeForSquidConfig(value: string): string {

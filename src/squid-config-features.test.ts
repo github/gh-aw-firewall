@@ -434,6 +434,20 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('^https://github\\.com/myorg/[^\\s]*');
     });
 
+    it('should place URL pattern access rules after Safe_ports deny rules', () => {
+      const config: SquidConfig = {
+        ...sslBumpConfig,
+        urlPatterns: ['^https://github\\.com/myorg/[^\\s]*'],
+      };
+      const result = generateSquidConfig(config);
+
+      const safePortsDenyPos = result.indexOf('http_access deny CONNECT !Safe_ports');
+      const urlAllowPos = result.indexOf('http_access allow allowed_url_0');
+      expect(safePortsDenyPos).toBeGreaterThan(-1);
+      expect(urlAllowPos).toBeGreaterThan(-1);
+      expect(urlAllowPos).toBeGreaterThan(safePortsDenyPos);
+    });
+
     it('should handle HTTP-only protocol-restricted domains', () => {
       const config: SquidConfig = {
         domains: ['http://legacy-api.example.com'],

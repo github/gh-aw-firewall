@@ -219,6 +219,7 @@ export function generateSquidConfig(config: SquidConfig): string {
 
   // Generate SSL Bump section if enabled
   let sslBumpSection = '';
+  let sslBumpUrlAccessSection = '';
   // Port configuration: Use normal proxy mode (not intercept mode)
   // With targeted port redirection in iptables, traffic is explicitly redirected
   // to Squid on specific ports (80, 443, + user-specified), maintaining defense-in-depth
@@ -238,6 +239,25 @@ export function generateSquidConfig(config: SquidConfig): string {
       hasPatternsForSslBump,
       urlPatterns
     );
+    if (urlPatterns && urlPatterns.length > 0) {
+      const urlAccessLines = urlPatterns
+        .map((_, i) => `http_access allow allowed_url_${i}`)
+        .join('\n');
+
+      const denyNonMatching = hasPlainDomainsForSslBump
+        ? 'http_access deny !CONNECT allowed_domains'
+        : hasPatternsForSslBump
+          ? 'http_access deny !CONNECT allowed_domains_regex'
+          : '';
+
+      sslBumpUrlAccessSection = `
+# Allow HTTPS requests matching URL patterns
+${urlAccessLines}
+
+# Deny requests that don't match URL patterns
+${denyNonMatching}
+`;
+    }
     // SSL Bump section includes its own port config, so use that instead
     portConfig = '';
   }
@@ -396,6 +416,7 @@ acl dst_ipv6 dstdom_regex ^\\[?[0-9a-fA-F:]+\\]?$
 http_access deny dst_ipv4
 http_access deny dst_ipv6
 ${dlpAccessSection}
+${sslBumpUrlAccessSection}
 ${accessRulesSection}# Deny requests to unknown domains (not in allow-list)
 # This applies to all sources including localnet
 ${denyRule}
