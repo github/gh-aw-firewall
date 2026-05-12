@@ -7,7 +7,7 @@ import { UpstreamProxyConfig } from '../types';
 /**
  * The resolved network configuration produced by {@link resolveNetworkConfig}.
  */
-export interface NetworkSetupResult {
+interface NetworkSetupResult {
   upstreamProxy: UpstreamProxyConfig | undefined;
   dnsServers: string[];
   dnsOverHttps: string | undefined;

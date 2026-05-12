@@ -9,7 +9,7 @@ import {
 /**
  * Groups domains by their protocol restriction
  */
-export interface DomainsByProtocol {
+interface DomainsByProtocol {
   http: string[];
   https: string[];
   both: string[];
@@ -18,7 +18,7 @@ export interface DomainsByProtocol {
 /**
  * Groups patterns by their protocol restriction
  */
-export interface PatternsByProtocol {
+interface PatternsByProtocol {
   http: DomainPattern[];
   https: DomainPattern[];
   both: DomainPattern[];
@@ -50,7 +50,7 @@ export function formatDomainForSquid(domain: string): string {
 /**
  * Group plain domains by protocol
  */
-export function groupDomainsByProtocol(domains: PlainDomainEntry[]): DomainsByProtocol {
+function groupDomainsByProtocol(domains: PlainDomainEntry[]): DomainsByProtocol {
   const result: DomainsByProtocol = { http: [], https: [], both: [] };
   for (const entry of domains) {
     result[entry.protocol].push(entry.domain);
@@ -61,7 +61,7 @@ export function groupDomainsByProtocol(domains: PlainDomainEntry[]): DomainsByPr
 /**
  * Group patterns by protocol
  */
-export function groupPatternsByProtocol(patterns: DomainPattern[]): PatternsByProtocol {
+function groupPatternsByProtocol(patterns: DomainPattern[]): PatternsByProtocol {
   const result: PatternsByProtocol = { http: [], https: [], both: [] };
   for (const pattern of patterns) {
     result[pattern.protocol].push(pattern);

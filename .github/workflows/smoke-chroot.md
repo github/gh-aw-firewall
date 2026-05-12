@@ -49,7 +49,7 @@ safe-outputs:
 timeout-minutes: 20
 steps:
   - name: Setup Go
-    uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b
+    uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6.4.0
     with:
       go-version: '1.22'
   - name: Capture host versions for verification

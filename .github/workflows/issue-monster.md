@@ -45,7 +45,7 @@ jobs:
     steps:
       - name: Search for candidate issues
         id: search
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const { owner, repo } = context.repo;

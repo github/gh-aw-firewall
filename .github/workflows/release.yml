@@ -194,6 +194,15 @@ jobs:
           # (like libcap2-bin for capability dropping) are always freshly installed
           no-cache: true
 
+      - name: Verify seccomp blocks name_to_handle_at/open_by_handle_at
+        run: |
+          bash ./scripts/ci/check-agent-seccomp-syscalls.sh \
+            "ghcr.io/${{ github.repository }}/agent:${{ needs.bump-version.outputs.version_number }}" \
+            linux/amd64
+          bash ./scripts/ci/check-agent-seccomp-syscalls.sh \
+            "ghcr.io/${{ github.repository }}/agent:${{ needs.bump-version.outputs.version_number }}" \
+            linux/arm64
+
       - name: Sign Agent image with cosign
         run: |
           cosign sign --yes \
