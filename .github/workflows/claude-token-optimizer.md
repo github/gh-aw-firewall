@@ -6,9 +6,6 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
-  skip-if-match:
-    query: 'is:issue is:open label:claude-token-optimization'
-    max: 1
 permissions:
   contents: read
   actions: read
@@ -64,6 +61,33 @@ steps:
         echo "\u274c No log data downloaded (exit code $LOGS_EXIT)"
         echo '{"runs":[],"summary":{}}' > /tmp/gh-aw/token-audit/claude-logs.json
       fi
+  - name: List workflows already covered by open optimization issues
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      set -euo pipefail
+
+      echo "🔍 Checking for open optimization issues..."
+
+      # Fetch open optimization issues and extract workflow names from titles
+      # Title format: "⚡ Claude Token Optimization YYYY-MM-DD — <workflow-name>"
+      if ! gh issue list --repo "$GITHUB_REPOSITORY" \
+        --label claude-token-optimization \
+        --state open --limit 50 \
+        --json title -q '.[].title' \
+      | sed -n 's/.*— //p' \
+      | sort -u > /tmp/gh-aw/token-audit/already-optimized.txt; then
+        echo "⚠️ Failed to list open optimization issues; proceeding with an empty exclusion list"
+        : > /tmp/gh-aw/token-audit/already-optimized.txt
+      fi
+
+      COUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')
+      if [ "$COUNT" -gt 0 ]; then
+        echo "⏭️ $COUNT workflow(s) already have open optimization issues:"
+        cat /tmp/gh-aw/token-audit/already-optimized.txt
+      else
+        echo "✅ No open optimization issues — all workflows are eligible"
+      fi
 ---
 
 # Daily Claude Token Optimization Advisor
@@ -89,9 +113,19 @@ Read the full issue body to extract per-workflow statistics.
 
 ## Step 2: Identify the Most Token-Intensive Workflow
 
-From the report's **Workflow Summary** table, identify the workflow with:
+A pre-agent step wrote `/tmp/gh-aw/token-audit/already-optimized.txt` \u2014 a list of workflow names that already have open optimization issues. Read that file first:
+
+```bash
+cat /tmp/gh-aw/token-audit/already-optimized.txt
+```
+
+From the report's **Workflow Summary** table, rank all workflows by:
 1. Highest estimated cost (primary sort)
 2. Highest total token count (tiebreaker)
+
+**Skip any workflow whose name appears in `already-optimized.txt`** \u2014 an open optimization issue already tracks it. Select the highest-ranked workflow that is **not** in the exclusion list.
+
+If **all** workflows in the report are already covered by open issues, do **not** create an issue. Log a message noting that all heavy-usage workflows already have open optimization issues and stop without calling any safe-output tools.
 
 Extract these key metrics for the target workflow:
 - Total tokens per run
