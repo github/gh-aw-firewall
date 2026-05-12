@@ -313,7 +313,9 @@ describe('Chroot Edge Cases', () => {
       });
 
       expect(result).toSucceed();
-      expect(result.stdout).toMatch(/200|301|302/);
+      // Any HTTP response from the server proves the proxy allowed the connection.
+      // GitHub's API returns 403 for unauthenticated requests; 200/301/302 are also valid.
+      expect(result.stdout).toMatch(/^[1-5]\d\d$/);
     }, 120000);
 
     test('should block HTTPS to non-whitelisted domains', async () => {
