@@ -26,7 +26,7 @@ describe('Skip Pull Flag', () => {
   });
 
   test('should succeed with --skip-pull when images are pre-downloaded', async () => {
-    // Integration workflow pre-builds images before this test job runs.
+    // test-integration-suite.yml pre-builds local images before this job runs.
     const result = await runner.runWithSudo(
       'echo "skip-pull works"',
       {

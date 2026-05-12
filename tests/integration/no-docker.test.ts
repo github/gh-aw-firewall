@@ -12,8 +12,8 @@
  * The integration workflow pre-builds local images before this test file runs, so the
  * tests use `skipPull: true` to avoid image pulls/rebuilds during each test case.
  *
- * Known Issue: Building locally may fail due to NodeSource repository issues.
- * If tests fail with "docker found" errors, the images need to be rebuilt and published.
+ * If tests fail with "docker found" errors, the pre-built test images are stale and
+ * need to be rebuilt before running this suite.
  *
  * NOTE: docker-warning.test.ts was removed as redundant — the Docker stub-script
  * approach was superseded by removing docker-cli entirely. This file covers the
