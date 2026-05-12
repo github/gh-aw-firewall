@@ -271,6 +271,9 @@ function createAdapterMethods(opts) {
   const builtModelsFetchConfig = getModelsFetchConfig || (() => {
     if (skipModelsFetch && skipModelsFetch()) return null;
     if (!apiKey || !modelsPath || !modelsCacheKey) return null;
+    // Startup model fetch follows provider behavior of honoring explicit basePath
+    // prefixes for OpenAI-compatible gateways, while validation probes use the
+    // canonical default-target endpoint path.
     const path = basePath ? `${basePath}/models` : modelsPath;
     return {
       url: `https://${rawTarget}${path}`,

@@ -160,13 +160,16 @@ function createCopilotAdapter(env, deps = {}) {
   // A basePath of '/' (normalizeBasePath returns '/') is treated as no prefix to
   // avoid producing '//models'.
   const modelsPath = (basePath && basePath !== '/') ? `${basePath}/models` : '/models';
+  // Copilot has dual auth modes (GitHub OAuth vs BYOK) with different validation
+  // and model-fetch rules, so we override those two methods while still sharing
+  // the common reflection method shape from createAdapterMethods.
   const adapterMethods = createAdapterMethods({
     apiKey: authToken,
     rawTarget,
     basePath,
     provider: 'copilot',
     port: 10002,
-    modelsPath: '/models',
+    modelsPath,
     reflectionConfigured: !!authToken,
     reflectionModelsPath: modelsPath,
     getValidationProbe() {
