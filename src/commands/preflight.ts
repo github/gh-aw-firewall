@@ -50,7 +50,7 @@ export function applyConfigFilePrecedence(
       (optionName: string) => getOptionValueSource(optionName) === 'cli'
     );
   } catch (error) {
-    console.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error loading --config: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }

@@ -30,19 +30,16 @@ const mockedApiProxyConfig = apiProxyConfig as jest.Mocked<typeof apiProxyConfig
 
 describe('applyConfigFilePrecedence', () => {
   let processExitSpy: jest.SpyInstance;
-  let consoleErrorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
     processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('process.exit called');
     });
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
   });
 
   afterEach(() => {
     processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
   it('does nothing when options.config is not set', () => {
@@ -78,7 +75,7 @@ describe('applyConfigFilePrecedence', () => {
 
     const options: Record<string, unknown> = { config: '/bad/path.yml' };
     expect(() => applyConfigFilePrecedence(options, () => undefined)).toThrow('process.exit called');
-    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('File not found'));
+    expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('File not found'));
   });
 
   it('only applies config value when flag was not set via CLI', () => {

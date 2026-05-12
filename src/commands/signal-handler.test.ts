@@ -2,6 +2,8 @@ import { registerSignalHandlers, SignalHandlerDependencies } from './signal-hand
 
 describe('registerSignalHandlers', () => {
   let processOnSpy: jest.SpyInstance;
+  let processExitSpy: jest.SpyInstance;
+  let consoleErrorSpy: jest.SpyInstance;
   const handlers: Record<string, (...args: unknown[]) => void> = {};
 
   beforeEach(() => {
@@ -13,10 +15,16 @@ describe('registerSignalHandlers', () => {
         return process;
       }
     );
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
   });
 
   afterEach(() => {
     processOnSpy.mockRestore();
+    processExitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
     delete handlers['SIGINT'];
     delete handlers['SIGTERM'];
   });
@@ -38,8 +46,6 @@ describe('registerSignalHandlers', () => {
   it('fast-kills agent container on SIGINT when containers are started and keepContainers is false', async () => {
     const fastKill = jest.fn().mockResolvedValue(undefined);
     const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => true,
@@ -50,20 +56,15 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('exit');
+    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
     expect(fastKill).toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGINT');
     expect(processExitSpy).toHaveBeenCalledWith(130);
-
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
   it('skips fast-kill on SIGINT when containers are not started', async () => {
     const fastKill = jest.fn().mockResolvedValue(undefined);
     const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => false,
@@ -74,19 +75,14 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('exit');
+    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
     expect(fastKill).not.toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGINT');
-
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
   it('skips fast-kill on SIGINT when keepContainers is true', async () => {
     const fastKill = jest.fn().mockResolvedValue(undefined);
     const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => true,
@@ -97,18 +93,13 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGINT']()).rejects.toThrow('exit');
+    await expect(handlers['SIGINT']()).rejects.toThrow('process.exit called');
     expect(fastKill).not.toHaveBeenCalled();
-
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
   it('fast-kills agent container on SIGTERM when containers are started and keepContainers is false', async () => {
     const fastKill = jest.fn().mockResolvedValue(undefined);
     const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => true,
@@ -119,12 +110,10 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    await expect(handlers['SIGTERM']()).rejects.toThrow('exit');
+    await expect(handlers['SIGTERM']()).rejects.toThrow('process.exit called');
     expect(fastKill).toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
     expect(processExitSpy).toHaveBeenCalledWith(143);
-
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 });
+
