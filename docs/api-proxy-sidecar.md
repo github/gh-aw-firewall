@@ -210,6 +210,10 @@ The proxy enforces domain-level egress control:
 - Squid enforces the domain whitelist (L7 filtering)
 - iptables rules prevent the agent from bypassing the proxy
 
+:::note[Squid allow rule for api-proxy IP]
+Squid includes an explicit `allow_api_proxy_ip` ACL that permits traffic to the api-proxy IP **before** the raw-IP deny rules. This is required because some HTTP clients (such as Node.js `fetch`/`undici` with a `ProxyAgent`) route requests to the api-proxy through `HTTP_PROXY` without honouring `NO_PROXY` for raw IP addresses. Without this rule, those requests would be rejected by Squid's raw-IP deny rules even though `NO_PROXY=172.30.0.30` is set in the agent container.
+:::
+
 ### Resource limits
 
 The sidecar has strict resource constraints:
@@ -489,6 +493,12 @@ When `--enable-api-proxy` is active **and `GEMINI_API_KEY` is provided to the AW
 ```
 
 > **Note:** Exit code 41 ("no auth method") should no longer occur with `--enable-api-proxy` since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, ensure `--enable-api-proxy` is active.
+
+### Gemini requests blocked by Squid (connection refused / raw-IP denied)
+
+Some versions of the Gemini CLI use the Node.js `undici` HTTP client, which routes requests to the api-proxy sidecar (`http://172.30.0.30:10003`) through `HTTP_PROXY` even when `NO_PROXY=172.30.0.30` is set. Squid's raw-IP deny rules would then reject these connections.
+
+**Resolution (v0.x+):** AWF now adds a `allow_api_proxy_ip` ACL in the Squid configuration that explicitly permits connections to the api-proxy IP **before** the raw-IP deny rules. No action is required on your part — upgrading AWF to a version that includes this fix is sufficient.
 
 ### API keys not detected
 
