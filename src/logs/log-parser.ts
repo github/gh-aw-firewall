@@ -143,26 +143,6 @@ export function extractDomain(url: string, host: string, method: string): string
 }
 
 /**
- * Extracts the port from a domain:port string or URL
- *
- * @param url - URL field or domain:port string
- * @param method - HTTP method
- * @returns Port number string or undefined
- */
-export function extractPort(url: string, method: string): string | undefined {
-  if (method === 'CONNECT') {
-    const colonIndex = url.lastIndexOf(':');
-    if (colonIndex !== -1) {
-      const possiblePort = url.substring(colonIndex + 1);
-      if (/^\d+$/.test(possiblePort)) {
-        return possiblePort;
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
  * Parses a single line from the JSONL audit log (audit.jsonl).
  *
  * Format: {"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}

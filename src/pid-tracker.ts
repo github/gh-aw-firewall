@@ -24,9 +24,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PidTrackResult } from './types';
 
-// Re-export PidTrackResult for convenience
-export { PidTrackResult } from './types';
-
 /**
  * Parsed entry from /proc/net/tcp
  */

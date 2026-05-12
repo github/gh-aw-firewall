@@ -2,7 +2,7 @@
  * Log viewing utilities for Squid proxy logs
  */
 
-export { parseLogLine, extractDomain, extractPort } from './log-parser';
+export { parseLogLine, extractDomain } from './log-parser';
 export { LogFormatter } from './log-formatter';
 export {
   discoverLogSources,

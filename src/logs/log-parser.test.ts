@@ -2,7 +2,7 @@
  * Unit tests for log-parser.ts
  */
 
-import { parseLogLine, extractDomain, extractPort, parseAuditJsonlLine } from './log-parser';
+import { parseLogLine, extractDomain, parseAuditJsonlLine } from './log-parser';
 
 describe('log-parser', () => {
   describe('parseLogLine', () => {
@@ -221,26 +221,6 @@ describe('log-parser', () => {
     it('should return original URL if parsing fails', () => {
       // Invalid URL that can't be parsed
       expect(extractDomain(':::invalid', '-', 'GET')).toBe(':::invalid');
-    });
-  });
-
-  describe('extractPort', () => {
-    it('should extract port from CONNECT URL', () => {
-      expect(extractPort('api.github.com:443', 'CONNECT')).toBe('443');
-      expect(extractPort('example.com:8080', 'CONNECT')).toBe('8080');
-    });
-
-    it('should return undefined for CONNECT URL without port', () => {
-      expect(extractPort('api.github.com', 'CONNECT')).toBeUndefined();
-    });
-
-    it('should return undefined for non-CONNECT methods', () => {
-      expect(extractPort('http://example.com:80/', 'GET')).toBeUndefined();
-      expect(extractPort('http://example.com/', 'POST')).toBeUndefined();
-    });
-
-    it('should not extract non-numeric port', () => {
-      expect(extractPort('api.github.com:abc', 'CONNECT')).toBeUndefined();
     });
   });
 
