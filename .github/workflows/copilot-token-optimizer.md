@@ -69,14 +69,24 @@ steps:
 
       echo "🔍 Checking for open optimization issues..."
 
+      ISSUES_TMP=/tmp/gh-aw/token-audit/open-optimization-issues.txt
+
       # Fetch open optimization issues and extract workflow names from titles
       # Title format: "⚡ Copilot Token Optimization YYYY-MM-DD — <workflow-name>"
+      ISSUES_EXIT=0
       gh issue list --repo "$GITHUB_REPOSITORY" \
         --label copilot-token-optimization \
         --state open --limit 50 \
         --json title -q '.[].title' \
-      | sed -n 's/.*— //p' \
-      | sort -u > /tmp/gh-aw/token-audit/already-optimized.txt
+        > "$ISSUES_TMP" || ISSUES_EXIT=$?
+
+      if [ "$ISSUES_EXIT" -eq 0 ]; then
+        sed -n 's/.*— //p' "$ISSUES_TMP" \
+          | sort -u > /tmp/gh-aw/token-audit/already-optimized.txt
+      else
+        echo "⚠️ Unable to query open optimization issues (gh issue list exit code $ISSUES_EXIT); proceeding without exclusions"
+        : > /tmp/gh-aw/token-audit/already-optimized.txt
+      fi
 
       COUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')
       if [ "$COUNT" -gt 0 ]; then
