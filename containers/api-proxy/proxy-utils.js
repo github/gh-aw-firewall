@@ -274,7 +274,8 @@ function createAdapterMethods(opts) {
     // Startup model fetch follows provider behavior of honoring explicit basePath
     // prefixes for OpenAI-compatible gateways, while validation probes use the
     // canonical default-target endpoint path.
-    const path = basePath ? `${basePath}/models` : modelsPath;
+    const modelsPrefix = basePath === '/' ? '' : basePath;
+    const path = modelsPrefix ? `${modelsPrefix}/models` : modelsPath;
     return {
       url: `https://${rawTarget}${path}`,
       opts: { method: 'GET', headers: resolveValue(modelsFetchHeaders) },

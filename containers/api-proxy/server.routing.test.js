@@ -81,6 +81,24 @@ describe('createAdapterMethods', () => {
     });
   });
 
+  it('does not double-slash model fetch URL when basePath is root', () => {
+    const methods = createAdapterMethods({
+      apiKey: 'sk-test',
+      rawTarget: 'api.example.com',
+      basePath: '/',
+      provider: 'example',
+      port: 12345,
+      modelsPath: '/models',
+      modelsFetchHeaders: { Authorization: 'Bearer sk-test' },
+    });
+
+    expect(methods.getModelsFetchConfig()).toEqual({
+      url: 'https://api.example.com/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-test' } },
+      cacheKey: 'example',
+    });
+  });
+
   it('supports custom skip/override behavior and null model metadata', () => {
     const methods = createAdapterMethods({
       rawTarget: 'custom.example.com',
