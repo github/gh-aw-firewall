@@ -3,16 +3,18 @@ import * as fs from 'fs';
 import { WrapperConfig, LogLevel } from '../types';
 import { logger } from '../logger';
 import {
-  writeConfigs,
-  startContainers,
-  runAgentCommand,
   stopContainers,
   cleanup,
   preserveIptablesAudit,
-  fastKillAgentContainer,
   collectDiagnosticLogs,
-  setAwfDockerHost,
-} from '../docker-manager';
+} from '../container-cleanup';
+import {
+  writeConfigs,
+  startContainers,
+  runAgentCommand,
+  fastKillAgentContainer,
+} from '../container-lifecycle';
+import { setAwfDockerHost } from '../host-env';
 import {
   ensureFirewallNetwork,
   setupHostIptables,
