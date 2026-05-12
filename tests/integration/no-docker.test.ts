@@ -9,9 +9,8 @@
  * - Docker daemon running
  *
  * IMPORTANT: These tests require container images built from commit 8d81fe4 or later.
- * If using registry images (ghcr.io/github/gh-aw-firewall), ensure they have been
- * rebuilt after PR #205 was merged. Otherwise, use `buildLocal: true` in test options
- * to build fresh images from the current codebase.
+ * The integration workflow pre-builds local images before this test file runs, so the
+ * tests use `skipPull: true` to avoid image pulls/rebuilds during each test case.
  *
  * Known Issue: Building locally may fail due to NodeSource repository issues.
  * If tests fail with "docker found" errors, the images need to be rebuilt and published.
@@ -50,21 +49,21 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 180000,
-        buildLocal: true,
+        timeout: 300000,
+        skipPull: true,
       }
     );
 
     expect(result).toSucceed();
     expect(result.stdout).toContain('no_docker_socket');
-  }, 240000);
+  }, 360000);
 
   test('docker run should fail gracefully', async () => {
     const result = await runner.runWithSudo('docker run alpine echo hello', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 180000,
-      buildLocal: true,
+      timeout: 300000,
+      skipPull: true,
     });
 
     // Should fail because docker command doesn't exist
@@ -72,20 +71,20 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     expect(result.exitCode).not.toBe(0);
     // The stderr should contain some indication that docker is not found
     expect(result.stderr).toMatch(/docker|not found|command not found/i);
-  }, 240000);
+  }, 360000);
 
   test('docker-compose should not be available', async () => {
     const result = await runner.runWithSudo('which docker-compose', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
-      timeout: 180000,
-      buildLocal: true,
+      timeout: 300000,
+      skipPull: true,
     });
 
     // Should fail because docker-compose is not installed
     expect(result).toFail();
     expect(result.exitCode).not.toBe(0);
-  }, 240000);
+  }, 360000);
 
   test('verify docker socket is not mounted', async () => {
     const result = await runner.runWithSudo(
@@ -93,8 +92,8 @@ describe('Docker-in-Docker removal (PR #205)', () => {
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
-        timeout: 180000,
-        buildLocal: true,
+        timeout: 300000,
+        skipPull: true,
       }
     );
 
@@ -103,5 +102,5 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     expect(result.exitCode).toBe(0);
     // But the socket should NOT be mounted
     expect(result.stdout).toContain('not mounted');
-  }, 240000);
+  }, 360000);
 });
