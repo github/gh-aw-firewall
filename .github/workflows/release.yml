@@ -197,7 +197,11 @@ jobs:
       - name: Verify seccomp blocks name_to_handle_at/open_by_handle_at
         run: |
           bash ./scripts/ci/check-agent-seccomp-syscalls.sh \
-            "ghcr.io/${{ github.repository }}/agent@${{ steps.build_agent.outputs.digest }}"
+            "ghcr.io/${{ github.repository }}/agent:${{ needs.bump-version.outputs.version_number }}" \
+            linux/amd64
+          bash ./scripts/ci/check-agent-seccomp-syscalls.sh \
+            "ghcr.io/${{ github.repository }}/agent:${{ needs.bump-version.outputs.version_number }}" \
+            linux/arm64
 
       - name: Sign Agent image with cosign
         run: |
