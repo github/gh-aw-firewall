@@ -27,8 +27,9 @@ export {
 
 export { generateDockerCompose } from './compose-generator';
 
+export { writeConfigs } from './config-writer';
+
 export {
-  writeConfigs,
   startContainers,
   runAgentCommand,
   fastKillAgentContainer,
