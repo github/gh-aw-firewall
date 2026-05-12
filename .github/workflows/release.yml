@@ -194,6 +194,11 @@ jobs:
           # (like libcap2-bin for capability dropping) are always freshly installed
           no-cache: true
 
+      - name: Verify seccomp blocks Shocker syscalls
+        run: |
+          bash ./scripts/ci/check-agent-seccomp-syscalls.sh \
+            "ghcr.io/${{ github.repository }}/agent@${{ steps.build_agent.outputs.digest }}"
+
       - name: Sign Agent image with cosign
         run: |
           cosign sign --yes \
