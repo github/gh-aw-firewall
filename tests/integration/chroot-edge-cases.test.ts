@@ -316,7 +316,8 @@ describe('Chroot Edge Cases', () => {
       // Any HTTP response (1xx-5xx) from the server proves the proxy allowed the connection.
       // GitHub's API returns 403 for unauthenticated requests; 200/301/302 are also valid.
       // curl outputs "000" on connection failure, which this pattern excludes.
-      expect(result.stdout).toMatch(/^[1-9]\d{2}$/);
+      // Use the multiline flag so ^/$ match line boundaries within the full container stdout.
+      expect(result.stdout).toMatch(/^[1-9]\d{2}$/m);
     }, 120000);
 
     test('should block HTTPS to non-whitelisted domains', async () => {
