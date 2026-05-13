@@ -73,15 +73,19 @@ steps:
     run: |
       {
         echo "UNUSED_EXPORTS<<EOF"
-        npm install -g ts-prune 2>/dev/null | tail -5
-        ts-prune 2>/dev/null | grep -v "\.test\.ts" | head -40 || \
+        npm install -g ts-prune@0.10.3 2>&1 | tail -5
+        if command -v ts-prune >/dev/null 2>&1; then
+          ts-prune | grep -v "\.test\.ts" | head -40
+        else
+          echo "ts-prune unavailable, falling back to grep analysis"
           grep -rn "^export " src/ --include="*.ts" | grep -v "\.test\.ts" | \
-          while IFS=: read -r file line rest; do
-            name=$(echo "$rest" | sed -n 's/.*export \(function\|class\|const\|type\|interface\|enum\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/p')
-            [ -z "$name" ] && continue
-            count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
-            [ "$count" -eq 0 ] && echo "UNUSED: $name ($file:$line)"
-          done | head -30
+            while IFS=: read -r file line rest; do
+              name=$(echo "$rest" | sed -n 's/.*export \(function\|class\|const\|type\|interface\|enum\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/p')
+              [ -z "$name" ] && continue
+              count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
+              [ "$count" -eq 0 ] && echo "UNUSED: $name ($file:$line)"
+            done | head -30
+        fi
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 
@@ -90,8 +94,12 @@ steps:
     run: |
       {
         echo "CIRCULAR_DEPS<<EOF"
-        npm install -g madge 2>/dev/null | tail -5
-        madge --circular src/ 2>/dev/null | head -20 || echo "No circular deps detected"
+        npm install -g madge@8.0.0 2>&1 | tail -5
+        if command -v madge >/dev/null 2>&1; then
+          madge --circular src/ 2>&1 | head -20
+        else
+          echo "madge unavailable, cannot check circular deps"
+        fi
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 
@@ -107,8 +115,9 @@ steps:
           grep -v "^[A-Z]" | head -20
         echo "=== api-proxy provider exports ==="
         for f in containers/api-proxy/providers/*.js; do
-          [ -f "$f" ] && basename "$f" != "index.js" || continue
-          echo "--- $(basename $f) ---"
+          [ -f "$f" ] || continue
+          [ "$(basename "$f")" = "index.js" ] && continue
+          echo "--- $(basename "$f") ---"
           grep -n "^module\.exports\|^exports\." "$f" | head -3
         done
         echo "EOF"
@@ -196,7 +205,8 @@ The `containers/api-proxy/providers/` modules should follow the provider adapter
 ```bash
 echo "=== api-proxy/providers: check export consistency ==="
 for f in containers/api-proxy/providers/*.js; do
-  [ -f "$f" ] && basename "$f" != "index.js" || continue
+  [ -f "$f" ] || continue
+  [ "$(basename "$f")" = "index.js" ] && continue
   echo "--- $f ---"
   grep -n "^module\.exports\|^exports\." "$f" | head -5
 done | head -50
