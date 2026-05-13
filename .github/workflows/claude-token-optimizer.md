@@ -18,7 +18,7 @@ network:
     - github
 tools:
   github:
-    toolsets: [default, actions]
+    toolsets: [issues]
   bash: true
 safe-outputs:
   threat-detection:
@@ -27,7 +27,7 @@ safe-outputs:
     title-prefix: "\u26a1 Claude Token Optimization"
     labels: [claude-token-optimization]
     close-older-issues: true
-timeout-minutes: 25
+timeout-minutes: 15
 sandbox:
   agent:
     id: awf
@@ -88,24 +88,66 @@ steps:
       else
         echo "✅ No open optimization issues — all workflows are eligible"
       fi
+  - name: Identify top workflow and stage its file
+    run: |
+      set -euo pipefail
+
+      echo "📊 Selecting the top Claude workflow candidate..."
+
+      EXCLUDED_JSON=$(jq -R -s 'split("\n") | map(select(length > 0))' /tmp/gh-aw/token-audit/already-optimized.txt 2>/dev/null || echo '[]')
+
+      TOP_WORKFLOW=$(jq -r --argjson excluded "$EXCLUDED_JSON" '
+        [.runs[] | select(.token_usage != null and (.workflow_name // "") != "") | {workflow_name, token_usage}]
+        | group_by(.workflow_name)
+        | map({
+            name: .[0].workflow_name,
+            average_token_usage: (map(.token_usage) | add / length)
+          })
+        | map(select(.name as $name | ($excluded | index($name)) == null))
+        | sort_by(.average_token_usage)
+        | reverse
+        | .[0].name // ""
+      ' /tmp/gh-aw/token-audit/claude-logs.json)
+
+      echo "TOP_WORKFLOW=${TOP_WORKFLOW}" >> "$GITHUB_ENV"
+
+      if [ -z "$TOP_WORKFLOW" ]; then
+        echo "ℹ️ No eligible Claude workflow found in the downloaded run data"
+        echo "WORKFLOW_FILE=" >> "$GITHUB_ENV"
+        echo "TARGET_NOT_FOUND=1" >> "$GITHUB_ENV"
+        : > /tmp/gh-aw/token-audit/target-workflow.md
+        exit 0
+      fi
+
+      KEBAB=$(echo "$TOP_WORKFLOW" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+      FILE=$(grep -rl "^name: ${TOP_WORKFLOW}$" .github/workflows/*.md 2>/dev/null | head -1)
+      [ -z "$FILE" ] && FILE=".github/workflows/${KEBAB}.md"
+
+      echo "WORKFLOW_FILE=${FILE}" >> "$GITHUB_ENV"
+
+      if [ -f "$FILE" ]; then
+        cp "$FILE" /tmp/gh-aw/token-audit/target-workflow.md
+        echo "✅ Top workflow: ${TOP_WORKFLOW} → ${FILE}"
+      else
+        echo "⚠️ Unable to locate workflow file for ${TOP_WORKFLOW}"
+        echo "TARGET_NOT_FOUND=1" >> "$GITHUB_ENV"
+        : > /tmp/gh-aw/token-audit/target-workflow.md
+      fi
 ---
 
 # Daily Claude Token Optimization Advisor
 
 You are an AI agent that reads the latest Claude token usage report and produces **concrete, actionable optimization recommendations** for the most token-intensive Claude-engine workflow.
 
-**IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not read or explore unrelated workflow files. You may use: (1) the pre-downloaded run data at `/tmp/gh-aw/token-audit/`, (2) the token usage report issue fetched via the `gh issue` commands below, and (3) the single target workflow `.md` file identified in Step 3.
+**IMPORTANT:** Stay focused on the task. Follow these steps in order. Do not read or explore unrelated workflow files. You may use: (1) the pre-downloaded run data at `/tmp/gh-aw/token-audit/`, (2) the latest token usage report issue if one exists, and (3) the staged target workflow file at `/tmp/gh-aw/token-audit/target-workflow.md`.
+
+The pre-agent step already selected the top workflow candidate as `$TOP_WORKFLOW` and resolved its source path as `$WORKFLOW_FILE`. Read `/tmp/gh-aw/token-audit/target-workflow.md` directly. Do **not** search `.github/workflows` for the workflow file again.
+
+If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged and stop without calling any safe-output tools.
 
 ## Step 1: Find the Latest Token Usage Report
 
-Search for the most recent Claude token usage report issue:
-
-```bash
-gh issue list --repo "$GITHUB_REPOSITORY" \
-  --label claude-token-usage-report \
-  --state all --limit 1 \
-  --json number,title,body,createdAt,url
-```
+Use `gh issue list --repo "$GITHUB_REPOSITORY" --label claude-token-usage-report --state all --limit 1 --json number,title,body,createdAt,url` to fetch the most recent Claude token usage report issue.
 
 If no report exists, do **not** create an issue. Simply log a message noting that no token usage report was found and that the `claude-token-usage-analyzer` workflow should run first. Then stop without calling any safe-output tools.
 
@@ -113,19 +155,9 @@ Read the full issue body to extract per-workflow statistics.
 
 ## Step 2: Identify the Most Token-Intensive Workflow
 
-A pre-agent step wrote `/tmp/gh-aw/token-audit/already-optimized.txt` \u2014 a list of workflow names that already have open optimization issues. Read that file first:
+A pre-agent step already read `/tmp/gh-aw/token-audit/already-optimized.txt`, ranked workflows from `/tmp/gh-aw/token-audit/claude-logs.json`, skipped any workflow that already has an open optimization issue, and selected `$TOP_WORKFLOW`.
 
-```bash
-cat /tmp/gh-aw/token-audit/already-optimized.txt
-```
-
-From the report's **Workflow Summary** table, rank all workflows by:
-1. Highest estimated cost (primary sort)
-2. Highest total token count (tiebreaker)
-
-**Skip any workflow whose name appears in `already-optimized.txt`** \u2014 an open optimization issue already tracks it. Select the highest-ranked workflow that is **not** in the exclusion list.
-
-If **all** workflows in the report are already covered by open issues, do **not** create an issue. Log a message noting that all heavy-usage workflows already have open optimization issues and stop without calling any safe-output tools.
+Use the report body to confirm the selected workflow's metrics. If the report does not contain `$TOP_WORKFLOW`, log that mismatch and fall back to the pre-downloaded run data rather than selecting a different workflow.
 
 Extract these key metrics for the target workflow:
 - Total tokens per run
@@ -138,19 +170,7 @@ Extract these key metrics for the target workflow:
 
 ## Step 3: Analyze the Workflow Definition
 
-Resolve the workflow file name from the display name in the report. The report table uses display names (e.g., "Smoke Claude") but the files use kebab-case (e.g., `smoke-claude.md`). Map the name by searching for a matching `name:` field:
-
-```bash
-# Find workflow file by display name
-DISPLAY_NAME="Smoke Claude"  # from report
-WORKFLOW_FILE=$(grep -rl "^name: ${DISPLAY_NAME}$" .github/workflows/*.md 2>/dev/null | head -1)
-# Fallback: try kebab-case conversion
-if [ -z "$WORKFLOW_FILE" ]; then
-  KEBAB=$(echo "$DISPLAY_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-  WORKFLOW_FILE=".github/workflows/${KEBAB}.md"
-fi
-cat "$WORKFLOW_FILE"
-```
+Read `/tmp/gh-aw/token-audit/target-workflow.md` directly. Its source path is `$WORKFLOW_FILE`.
 
 Analyze:
 - **Tools loaded** \u2014 List all tools in the `tools:` section. Flag any that may not be needed.
@@ -158,16 +178,11 @@ Analyze:
 - **Prompt length** \u2014 Estimate the markdown body size. Is it verbose?
 - **Pre-agent steps** \u2014 Does it use `steps:` to pre-compute deterministic work?
 
-Read **only** the target workflow file. Do not open or read other workflow files (the `grep` above may scan filenames to resolve the correct file, but do not read their contents).
+Read **only** the staged target workflow file. Do not open or read other workflow files.
 
 ## Step 4: Analyze Recent Run Data
 
-The pre-agent step downloaded the last 7 days of Claude workflow logs to `/tmp/gh-aw/token-audit/claude-logs.json`. Filter for the target workflow:
-
-```bash
-cat /tmp/gh-aw/token-audit/claude-logs.json | \
-  jq --arg name "$WORKFLOW_NAME" '[.runs[] | select(.workflow_name == $name)]'
-```
+The pre-agent step downloaded the last 7 days of Claude workflow logs to `/tmp/gh-aw/token-audit/claude-logs.json`. Filter that file for `$TOP_WORKFLOW` to inspect only the selected workflow's runs.
 
 Determine per-run token breakdown, average turns, error patterns, cache write vs read ratio, and which tools are actually used vs loaded (`tool_usage` and `mcp_tool_usage` fields).
 
