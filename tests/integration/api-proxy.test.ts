@@ -231,7 +231,7 @@ describe('API Proxy Sidecar', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('COPILOT_TOKEN=placeholder-token-for-credential-isolation');
+    expect(result.stdout).toContain('COPILOT_TOKEN=ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   }, 180000);
 
   test('should report copilot in health providers when Copilot token is provided', async () => {

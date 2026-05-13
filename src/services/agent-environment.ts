@@ -17,6 +17,7 @@ import {
 import { logger } from '../logger';
 import { PROXY_ENV_VARS } from '../upstream-proxy';
 import { WrapperConfig } from '../types';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { NetworkConfig } from './squid-service';
 
 // ─── Agent Environment ────────────────────────────────────────────────────────
@@ -152,13 +153,13 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   // When api-proxy is enabled with Copilot, set placeholder tokens early
   // so --env-all won't override them with real values from host environment
   if (config.enableApiProxy && config.copilotGithubToken) {
-    environment.COPILOT_GITHUB_TOKEN = 'placeholder-token-for-credential-isolation';
+    environment.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
   if (config.enableApiProxy && config.copilotApiKey) {
-    environment.COPILOT_API_KEY = 'placeholder-token-for-credential-isolation';
+    environment.COPILOT_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_API_KEY set to placeholder value (early) to prevent --env-all override');
-    environment.COPILOT_PROVIDER_API_KEY = 'placeholder-token-for-credential-isolation';
+    environment.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value (early) to prevent --env-all override');
   }
 

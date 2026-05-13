@@ -59,7 +59,7 @@ describe('agent environment: credentials', () => {
       const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
       const env = result.services.agent.environment as Record<string, string>;
       // Placeholder is set to prevent --env-all from leaking the real key
-      expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      expect(env.COPILOT_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     } finally {
       if (original !== undefined) process.env.COPILOT_API_KEY = original;
       else delete process.env.COPILOT_API_KEY;
@@ -90,7 +90,7 @@ describe('agent environment: credentials', () => {
       const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
       const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
       const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_PROVIDER_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     } finally {
       if (original !== undefined) process.env.COPILOT_PROVIDER_API_KEY = original;
       else delete process.env.COPILOT_PROVIDER_API_KEY;
@@ -105,7 +105,7 @@ describe('agent environment: credentials', () => {
       const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
       const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
       const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_API_KEY).toBe('placeholder-token-for-credential-isolation');
+      expect(env.COPILOT_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     } finally {
       if (original !== undefined) process.env.COPILOT_API_KEY = original;
       else delete process.env.COPILOT_API_KEY;

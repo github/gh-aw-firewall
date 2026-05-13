@@ -129,7 +129,7 @@ GitHub Actions runners may have IPv6 enabled. The firewall must handle IPv6 DNS 
 | **Health endpoint with Anthropic-only** | Verifies port 10000 health shows `openai:false, anthropic:true` when only Anthropic key is provided. |
 | **Copilot healthcheck** | Starts with `COPILOT_GITHUB_TOKEN` on port 10002. |
 | **COPILOT_API_URL set** | Verifies `COPILOT_API_URL=http://172.30.0.30:10002`. |
-| **COPILOT_TOKEN placeholder** | Verifies `COPILOT_TOKEN=placeholder-token-for-credential-isolation`. |
+| **COPILOT_TOKEN placeholder** | Verifies `COPILOT_TOKEN=ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`. |
 | **Copilot in health providers** | Verifies health endpoint reports `copilot:true`. |
 
 ### Real-World Mapping

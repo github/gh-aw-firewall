@@ -9,6 +9,7 @@ import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from '../types';
 import { pickEnvVars } from '../env-utils';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 interface ApiProxyBuildResult {
@@ -33,7 +34,6 @@ interface ApiProxyServiceParams {
 // "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
 // are runtime-configurable and not limited to a fixed allowlist.
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
-
 function getCopilotModel(config: WrapperConfig): string | undefined {
   const envFileModel = config.envFile
     ? readEnvFile(config.envFile).COPILOT_MODEL
@@ -267,7 +267,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
 
     // Set placeholder token for GitHub Copilot CLI compatibility
     // Real authentication happens via COPILOT_API_URL pointing to api-proxy
-    agentEnvAdditions.COPILOT_TOKEN = 'placeholder-token-for-credential-isolation';
+    agentEnvAdditions.COPILOT_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
 
     // Note: COPILOT_GITHUB_TOKEN and COPILOT_API_KEY placeholders are set early (before --env-all)

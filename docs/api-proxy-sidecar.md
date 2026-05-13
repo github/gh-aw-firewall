@@ -143,12 +143,12 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `ANTHROPIC_AUTH_TOKEN` | `placeholder-token-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host | Placeholder token (real auth via BASE_URL) |
 | `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
 | `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Redirects Copilot CLI to proxy |
-| `COPILOT_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
-| `COPILOT_GITHUB_TOKEN` | `placeholder-token-for-credential-isolation` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token |
-| `COPILOT_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK placeholder token protected by one-shot-token |
+| `COPILOT_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
+| `COPILOT_GITHUB_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token |
+| `COPILOT_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_API_KEY` provided to host | BYOK placeholder token protected by one-shot-token |
 | `COPILOT_OFFLINE` | `true` | `COPILOT_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
 | `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar |
-| `COPILOT_PROVIDER_API_KEY` | `placeholder-token-for-credential-isolation` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
+| `COPILOT_PROVIDER_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
 | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
 | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini SDK to proxy (kept for backward compatibility) |
 | `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` provided to host | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
@@ -169,7 +169,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 :::
 
 :::tip[Placeholder tokens]
-Token variables in the agent are set to `placeholder-token-for-credential-isolation` instead of real values. This ensures:
+Token variables in the agent are set to placeholder values (for Copilot, `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`) instead of real values. This ensures:
 - Agent code cannot exfiltrate credentials
 - CLI tools that check for token presence still work
 - Real authentication happens via the `*_BASE_URL` or `*_API_URL` environment variables
