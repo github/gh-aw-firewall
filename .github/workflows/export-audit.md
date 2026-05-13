@@ -20,7 +20,6 @@ sandbox:
     version: v0.25.29
 network:
   allowed:
-    - node
     - github
 
 tools:
@@ -68,6 +67,52 @@ steps:
         npx tsc --noEmit 2>&1 | head -40 || true
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
+
+  - name: Detect unused exports (ts-prune)
+    id: unused_exports
+    run: |
+      {
+        echo "UNUSED_EXPORTS<<EOF"
+        npm install -g ts-prune 2>/dev/null | tail -2
+        ts-prune 2>/dev/null | grep -v "\.test\.ts" | head -40 || \
+          grep -rn "^export " src/ --include="*.ts" | grep -v "\.test\.ts" | \
+          while IFS=: read -r file line rest; do
+            name=$(echo "$rest" | sed -n 's/.*export \(function\|class\|const\|type\|interface\|enum\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/p')
+            [ -z "$name" ] && continue
+            count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
+            [ "$count" -eq 0 ] && echo "UNUSED: $name ($file:$line)"
+          done | head -30
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Detect circular dependencies (madge)
+    id: circular_deps
+    run: |
+      {
+        echo "CIRCULAR_DEPS<<EOF"
+        npm install -g madge 2>/dev/null | tail -2
+        madge --circular src/ 2>/dev/null | head -20 || echo "No circular deps detected"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Naming convention audit
+    id: naming_audit
+    run: |
+      {
+        echo "NAMING_ISSUES<<EOF"
+        echo "=== Types/interfaces not in PascalCase ==="
+        grep -rn "^export type\|^export interface" src/ --include="*.ts" | \
+          grep -v "\.test\.ts" | \
+          sed 's/.*export \(type\|interface\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/' | \
+          grep -v "^[A-Z]" | head -20
+        echo "=== api-proxy provider exports ==="
+        for f in containers/api-proxy/providers/*.js; do
+          [ -f "$f" ] && basename "$f" != "index.js" || continue
+          echo "--- $(basename $f) ---"
+          grep -n "^module\.exports\|^exports\." "$f" | head -3
+        done
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 ---
 
 # API Surface & Export Audit
@@ -90,84 +135,40 @@ Exported symbols sample:
 ${{ steps.exports.outputs.EXPORTS }}
 ```
 
-## Phase 1: Detect Unused Exports
-
-Use `ts-prune` or manual analysis to find exported symbols that are never imported elsewhere:
-
-```bash
-# Install ts-prune for unused export detection
-npm install -g ts-prune 2>&1 | tail -3
-
-# Run ts-prune to find unused exports
-ts-prune 2>/dev/null | grep -v "\.test\.ts" | head -60 || echo "ts-prune not available"
-
-# Manual fallback: cross-reference exports vs imports
-echo "=== Exports that may be unused (no matching import found) ==="
-grep -rn "^export " src/ --include="*.ts" | grep -v "\.test\.ts" | \
-  while IFS=: read -r file line rest; do
-    # Extract the exported name
-    name=$(echo "$rest" | sed -n 's/.*export \(function\|class\|const\|type\|interface\|enum\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/p')
-    [ -z "$name" ] && continue
-    # Count how many times it appears outside its own file.
-    # Use -w (whole-word) rather than "import.*name" so that
-    # multi-line import blocks (where each symbol sits on its own line)
-    # are counted correctly — the old pattern silently missed them.
-    count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
-    if [ "$count" -eq 0 ]; then
-      echo "POTENTIALLY UNUSED: $name (exported from $file:$line)"
-    fi
-  done | head -40
+Unused exports:
+```
+${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
 ```
 
-## Phase 2: Check Naming Conventions
-
-Verify consistency across modules:
-
-```bash
-echo "=== Function naming: camelCase vs others ==="
-grep -rn "^export function\|^export async function\|^export const.*=.*function\|^export const.*=.*=>" src/ --include="*.ts" | \
-  grep -v "\.test\.ts" | \
-  sed 's/.*export \(async \)\?function \([a-zA-Z_][a-zA-Z0-9_]*\).*/FUNC:\2/' | \
-  grep "FUNC:" | head -40
-
-echo "=== Type/interface naming: PascalCase check ==="
-grep -rn "^export type\|^export interface" src/ --include="*.ts" | \
-  grep -v "\.test\.ts" | \
-  sed 's/.*export \(type\|interface\) \([a-zA-Z_][a-zA-Z0-9_]*\).*/\2/' | \
-  grep -v "^[A-Z]" | head -20
-
-echo "=== Constants: should be UPPER_CASE or camelCase depending on context ==="
-grep -rn "^export const [A-Z_][A-Z0-9_]*\s*=" src/ --include="*.ts" | grep -v "\.test\.ts" | head -20
-
-echo "=== Check for inconsistent file naming (kebab-case expected) ==="
-find src -name "*.ts" ! -name "*.test.ts" | xargs -I{} basename {} | sort
+Circular dependencies:
+```
+${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
 ```
 
-## Phase 3: Detect Circular Dependencies
-
-```bash
-# Install madge for circular dependency detection
-npm install -g madge 2>&1 | tail -3
-
-echo "=== Circular dependencies in src/ ==="
-madge --circular src/ 2>/dev/null || \
-  echo "(madge not available — using manual analysis)"
-
-# Manual circular dependency check using grep
-echo "=== Cross-import analysis (potential cycles) ==="
-for f in src/*.ts; do
-  [ -f "$f" ] || continue
-  base=$(basename "$f" .ts)
-  # Find files that this module imports
-  imports=$(grep "from '\./" "$f" 2>/dev/null | sed "s/.*from '\.\///" | sed "s/'.*//" | head -5)
-  for imp in $imports; do
-    # Check if the imported module also imports back
-    if grep -q "from '\./${base}'" "src/${imp}.ts" 2>/dev/null; then
-      echo "POTENTIAL CYCLE: $base <-> $imp"
-    fi
-  done
-done
+Naming issues:
 ```
+${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+```
+
+## Phase 1: Review Unused Exports
+
+The pre-computed unused exports analysis is provided above in the **Pre-computed Data** section (`UNUSED_EXPORTS`). Review the results and verify each finding by checking all import sites, including test files and barrel exports (`index.ts`). Pay special attention to multi-line import blocks — TypeScript imports often list each symbol on its own line, which a single-line grep will miss. Use `grep -w` (whole-word matching) for verification.
+
+## Phase 2: Review Naming Conventions
+
+The pre-computed naming audit is provided above in the **Pre-computed Data** section (`NAMING_ISSUES`). Review the results for:
+- Types/interfaces not following PascalCase
+- api-proxy provider export inconsistencies
+
+Also verify function and constant naming conventions using the exported symbols sample:
+- Functions: camelCase
+- Types/interfaces: PascalCase
+- Constants: UPPER_CASE or camelCase depending on context
+- Files: kebab-case
+
+## Phase 3: Review Circular Dependencies
+
+The pre-computed circular dependency analysis is provided above in the **Pre-computed Data** section (`CIRCULAR_DEPS`). Review the results for any detected cycles between modules.
 
 ## Phase 4: Audit Test File Import Paths
 
@@ -178,8 +179,8 @@ echo "=== Test files: imports from src/ ==="
 for f in src/*.test.ts; do
   [ -f "$f" ] || continue
   echo "--- $f ---"
-  grep "^import\|^const.*=.*require" "$f" 2>/dev/null | head -10
-done
+  grep "^import\|^const.*=.*require" "$f" 2>/dev/null | head -5
+done | head -50
 
 echo "=== Check for tests importing from dist/ (should import from src/) ==="
 grep -rn "from '.*dist/\|require('.*dist/" src/ --include="*.test.ts" | head -10
@@ -198,7 +199,7 @@ for f in containers/api-proxy/providers/*.js; do
   [ -f "$f" ] && basename "$f" != "index.js" || continue
   echo "--- $f ---"
   grep -n "^module\.exports\|^exports\." "$f" | head -5
-done
+done | head -50
 
 echo "=== providers/index.js: registered providers ==="
 cat containers/api-proxy/providers/index.js 2>/dev/null | grep -n "require\|createAdapter\|register" | head -20
