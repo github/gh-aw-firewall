@@ -73,7 +73,7 @@ steps:
     run: |
       {
         echo "UNUSED_EXPORTS<<EOF"
-        npm install -g ts-prune 2>/dev/null | tail -2
+        npm install -g ts-prune 2>/dev/null | tail -5
         ts-prune 2>/dev/null | grep -v "\.test\.ts" | head -40 || \
           grep -rn "^export " src/ --include="*.ts" | grep -v "\.test\.ts" | \
           while IFS=: read -r file line rest; do
@@ -90,7 +90,7 @@ steps:
     run: |
       {
         echo "CIRCULAR_DEPS<<EOF"
-        npm install -g madge 2>/dev/null | tail -2
+        npm install -g madge 2>/dev/null | tail -5
         madge --circular src/ 2>/dev/null | head -20 || echo "No circular deps detected"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
