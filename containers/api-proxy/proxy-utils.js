@@ -171,6 +171,28 @@ function composeBodyTransforms(first, second) {
 }
 
 /**
+ * Build a standard provider-not-configured proxy response payload.
+ *
+ * @param {string} provider
+ * @param {number} port
+ * @param {string} message
+ * @returns {{ statusCode: number, body: { error: { message: string, type: string, provider: string, port: number } } }}
+ */
+function makeProviderNotConfiguredResponse(provider, port, message) {
+  return {
+    statusCode: 503,
+    body: {
+      error: {
+        message,
+        type: 'provider_not_configured',
+        provider,
+        port,
+      },
+    },
+  };
+}
+
+/**
  * Extract common adapter configuration from environment variables.
  *
  * Every non-Copilot adapter repeats the same three-line pattern to read
@@ -307,6 +329,7 @@ module.exports = {
   stripGeminiKeyParam,
   shouldStripHeader,
   composeBodyTransforms,
+  makeProviderNotConfiguredResponse,
   createBaseAdapterConfig,
   createAdapterMethods,
 };

@@ -4,7 +4,13 @@
  * Extracted from server.test.js lines 20–489, 1066–1296.
  */
 
-const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, createAdapterMethods } = require('./proxy-utils');
+const {
+  normalizeApiTarget,
+  normalizeBasePath,
+  buildUpstreamPath,
+  makeProviderNotConfiguredResponse,
+  createAdapterMethods,
+} = require('./proxy-utils');
 const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot');
 const { _testing: { resolveOpenCodeRoute } } = require('./providers/opencode');
 
@@ -122,6 +128,22 @@ describe('createAdapterMethods', () => {
       models_cache_key: null,
       models_url: null,
       note: 'extra',
+    });
+  });
+});
+
+describe('makeProviderNotConfiguredResponse', () => {
+  it('builds a standard provider_not_configured 503 payload', () => {
+    expect(makeProviderNotConfiguredResponse('anthropic', 10001, 'missing key')).toEqual({
+      statusCode: 503,
+      body: {
+        error: {
+          message: 'missing key',
+          type: 'provider_not_configured',
+          provider: 'anthropic',
+          port: 10001,
+        },
+      },
     });
   });
 });
