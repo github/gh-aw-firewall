@@ -1,8 +1,9 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { cleanupHostIptables, setupHostIptables, __testing } from './host-iptables';
+import { cleanupHostIptables, setupHostIptables } from './host-iptables';
+import { _resetIpv6State } from './host-iptables-shared';
 
 describe('host-iptables (cleanup)', () => {
-  setupHostIptablesTestSuite(__testing._resetIpv6State);
+  setupHostIptablesTestSuite(_resetIpv6State);
 
   describe('cleanupHostIptables', () => {
     it('should flush and delete both FW_WRAPPER and FW_WRAPPER_V6 chains', async () => {

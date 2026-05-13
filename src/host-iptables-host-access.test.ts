@@ -1,8 +1,9 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { HostAccessConfig, setupHostIptables, __testing } from './host-iptables';
+import { HostAccessConfig, setupHostIptables } from './host-iptables';
+import { _resetIpv6State } from './host-iptables-shared';
 
 describe('host-iptables (host access)', () => {
-  setupHostIptablesTestSuite(__testing._resetIpv6State);
+  setupHostIptablesTestSuite(_resetIpv6State);
 
   describe('setupHostIptables with host access', () => {
     it('should add gateway ACCEPT rules when hostAccess is enabled', async () => {
