@@ -56,7 +56,7 @@ steps:
     run: |
       mkdir -p /tmp/gh-aw/agent
       echo "Smoke test passed for Claude at $(date)" > /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
-      echo "Smoke test file pre-created: $(cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt)"
+      echo "Smoke test file pre-created at /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt"
 post-steps:
   - name: Show final Claude Code config
     if: always()
