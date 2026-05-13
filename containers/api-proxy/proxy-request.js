@@ -128,7 +128,7 @@ function sanitizeNullToolCallTypes(body) {
       if (
         toolCall &&
         typeof toolCall === 'object' &&
-        Object.prototype.hasOwnProperty.call(toolCall, 'type') &&
+        Object.hasOwn(toolCall, 'type') &&
         toolCall.type === null
       ) {
         if (toolCall.function && typeof toolCall.function === 'object') {
@@ -143,9 +143,6 @@ function sanitizeNullToolCallTypes(body) {
       nextToolCalls.push(toolCall);
     }
 
-    if (nextToolCalls.length !== message.tool_calls.length) {
-      changed = true;
-    }
     message.tool_calls = nextToolCalls;
   }
 
