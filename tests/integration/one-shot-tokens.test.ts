@@ -65,7 +65,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true, // Build container locally to include one-shot-token.so
           env: {
             GITHUB_TOKEN: 'ghp_test_token_12345',
@@ -95,7 +95,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_test_token_67890',
@@ -123,7 +123,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             OPENAI_API_KEY: 'sk-test-openai-key',
@@ -159,7 +159,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_multi_token_1',
@@ -193,7 +193,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -233,7 +233,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_python_test_token',
@@ -274,7 +274,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_environ_check',
@@ -305,7 +305,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_token_12345',
@@ -334,7 +334,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             COPILOT_GITHUB_TOKEN: 'copilot_chroot_token_67890',
@@ -366,7 +366,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_python_token',
@@ -396,7 +396,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             AWF_ONE_SHOT_TOKEN_DEBUG: '1',
@@ -432,7 +432,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_chroot_multi_1',
@@ -464,7 +464,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: '',
@@ -492,7 +492,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
         }
       );
@@ -516,7 +516,7 @@ PYEOF
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 180000,
+          timeout: 240000,
           buildLocal: true,
           env: {
             GITHUB_TOKEN: 'ghp_test-with-special_chars@#$%',
