@@ -21,7 +21,7 @@ import { logger } from './logger';
 /**
  * Recursively chown a directory and its contents
  */
-export function chownRecursive(dirPath: string, uid: number, gid: number): void {
+function chownRecursive(dirPath: string, uid: number, gid: number): void {
   fs.chownSync(dirPath, uid, gid);
   for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
     const fullPath = path.join(dirPath, entry.name);
@@ -90,7 +90,7 @@ export async function unmountSslTmpfs(sslDir: string): Promise<void> {
  *
  * @param filePath - Path to the file to securely wipe
  */
-export function secureWipeFile(filePath: string): void {
+function secureWipeFile(filePath: string): void {
   try {
     if (!fs.existsSync(filePath)) {
       return;
