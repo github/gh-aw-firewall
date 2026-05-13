@@ -85,6 +85,7 @@ function resolveDockerSocketPath(config: WrapperConfig): string {
  */
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const { config, sslConfig, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
+  const projectRoot = path.resolve(__dirname, '../..');
 
   const agentVolumes: string[] = [
     // Essential mounts that are always included
@@ -99,6 +100,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     // Init signal volume for iptables init container coordination
     `${initSignalDir}:/tmp/awf-init:rw`,
   ];
+
+  if (config.enableApiProxy) {
+    const healthCheckScript = path.join(projectRoot, 'containers/agent/api-proxy-health-check.sh');
+    if (fs.existsSync(healthCheckScript)) {
+      agentVolumes.push(`${healthCheckScript}:/usr/local/bin/api-proxy-health-check.sh:ro`);
+    }
+  }
 
   // Volume mounts for chroot /host to work properly with host binaries
   logger.debug('Using selective path mounts for security');

@@ -95,6 +95,29 @@ describe('agent service', () => {
       expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     });
 
+    it('should mount api-proxy health-check script when api-proxy is enabled', () => {
+      const configWithApiProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+      };
+      const result = generateDockerCompose(configWithApiProxy, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(volumes).toContainEqual(expect.stringMatching(/containers\/agent\/api-proxy-health-check\.sh:\/usr\/local\/bin\/api-proxy-health-check\.sh:ro$/));
+    });
+
+    it('should apply dockerHostPathPrefix to api-proxy health-check script mount', () => {
+      const configWithApiProxyAndPrefix = {
+        ...mockConfig,
+        enableApiProxy: true,
+        dockerHostPathPrefix: '/daemon-root',
+      };
+      const result = generateDockerCompose(configWithApiProxyAndPrefix, mockNetworkConfig);
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(volumes).toContainEqual(expect.stringMatching(/^\/daemon-root.*containers\/agent\/api-proxy-health-check\.sh:\/usr\/local\/bin\/api-proxy-health-check\.sh:ro$/));
+    });
+
     it('should use selective mounts when no custom mounts specified', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;
