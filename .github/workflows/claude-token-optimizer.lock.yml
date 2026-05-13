@@ -1,4 +1,4 @@
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"546333a72ec7480d80cba8a5bd0860d558400f132a5f166d50490e3610711221","compiler_version":"v0.72.1","strict":true,"agent_id":"copilot"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"22e5da791753b80d0f275ca3638d81fedd779a3e56d68c992e1e74cc60f9ca20","compiler_version":"v0.72.1","strict":true,"agent_id":"copilot"}
 # gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"de0fac2e4500dabe0009e67214ff5f5447ce83dd","version":"v6.0.2"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"bc56a0cad2f450c562810785ef38649c04db812a","version":"v0.72.1"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.25.29","digest":"sha256:e68f37e36962dcb3f3d1de680a49bc2302cefd001b941a7dc377155ec7ce42f4","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.25.29@sha256:e68f37e36962dcb3f3d1de680a49bc2302cefd001b941a7dc377155ec7ce42f4"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.25.29","digest":"sha256:d1219e4110684402aabbeb5a43858f26790c9d0be210581cf3f7a521bd2c87b6","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.25.29@sha256:d1219e4110684402aabbeb5a43858f26790c9d0be210581cf3f7a521bd2c87b6"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.25.29","digest":"sha256:8a71ad9e40454051672312917e51567abfb8251d7c294d086c48f63d84e4cb53","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.25.29@sha256:8a71ad9e40454051672312917e51567abfb8251d7c294d086c48f63d84e4cb53"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.3.6","digest":"sha256:2bb8eef86006a4c5963c55616a9c51c32f27bfdecb023b8aa6f91f6718d9171c","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.3.6@sha256:2bb8eef86006a4c5963c55616a9c51c32f27bfdecb023b8aa6f91f6718d9171c"},{"image":"ghcr.io/github/github-mcp-server:v1.0.3","digest":"sha256:2ac27ef03461ef2b877031b838a7d1fd7f12b12d4ace7796d8cad91446d55959","pinned_image":"ghcr.io/github/github-mcp-server:v1.0.3@sha256:2ac27ef03461ef2b877031b838a7d1fd7f12b12d4ace7796d8cad91446d55959"},{"image":"node:lts-alpine","digest":"sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f","pinned_image":"node:lts-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f"}]}
 #    ___                   _   _      
 #   / _ \                 | | (_)     
@@ -188,20 +188,20 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
-          cat << 'GH_AW_PROMPT_4fac83af9f1aadb4_EOF'
+          cat << 'GH_AW_PROMPT_6dbb618962d34e03_EOF'
           <system>
-          GH_AW_PROMPT_4fac83af9f1aadb4_EOF
+          GH_AW_PROMPT_6dbb618962d34e03_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_4fac83af9f1aadb4_EOF'
+          cat << 'GH_AW_PROMPT_6dbb618962d34e03_EOF'
           <safe-output-tools>
           Tools: create_issue, missing_tool, missing_data, noop
           </safe-output-tools>
-          GH_AW_PROMPT_4fac83af9f1aadb4_EOF
+          GH_AW_PROMPT_6dbb618962d34e03_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/mcp_cli_tools_prompt.md"
-          cat << 'GH_AW_PROMPT_4fac83af9f1aadb4_EOF'
+          cat << 'GH_AW_PROMPT_6dbb618962d34e03_EOF'
           <github-context>
           The following GitHub context information is available for this workflow:
           {{#if __GH_AW_GITHUB_ACTOR__ }}
@@ -230,13 +230,13 @@ jobs:
           {{/if}}
           </github-context>
           
-          GH_AW_PROMPT_4fac83af9f1aadb4_EOF
+          GH_AW_PROMPT_6dbb618962d34e03_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_4fac83af9f1aadb4_EOF'
+          cat << 'GH_AW_PROMPT_6dbb618962d34e03_EOF'
           </system>
           {{#runtime-import .github/workflows/shared/mcp/gh-aw.md}}
           {{#runtime-import .github/workflows/claude-token-optimizer.md}}
-          GH_AW_PROMPT_4fac83af9f1aadb4_EOF
+          GH_AW_PROMPT_6dbb618962d34e03_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -383,7 +383,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         name: List workflows already covered by open optimization issues
-        run: "set -euo pipefail\n\necho \"🔍 Checking for open optimization issues...\"\n\n# Fetch open optimization issues and extract workflow names from titles\n# Title format: \"⚡ Claude Token Optimization YYYY-MM-DD — <workflow-name>\"\ngh issue list --repo \"$GITHUB_REPOSITORY\" \\\n  --label claude-token-optimization \\\n  --state open --limit 50 \\\n  --json title -q '.[].title' \\\n| sed -n 's/.*— //p' \\\n| sort -u > /tmp/gh-aw/token-audit/already-optimized.txt\n\nCOUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')\nif [ \"$COUNT\" -gt 0 ]; then\n  echo \"⏭️ $COUNT workflow(s) already have open optimization issues:\"\n  cat /tmp/gh-aw/token-audit/already-optimized.txt\nelse\n  echo \"✅ No open optimization issues — all workflows are eligible\"\nfi\n"
+        run: "set -euo pipefail\n\necho \"🔍 Checking for open optimization issues...\"\n\n# Fetch open optimization issues and extract workflow names from titles\n# Title format: \"⚡ Claude Token Optimization YYYY-MM-DD — <workflow-name>\"\nif ! gh issue list --repo \"$GITHUB_REPOSITORY\" \\\n  --label claude-token-optimization \\\n  --state open --limit 50 \\\n  --json title -q '.[].title' \\\n| sed -n 's/.*— //p' \\\n| sort -u > /tmp/gh-aw/token-audit/already-optimized.txt; then\n  echo \"⚠️ Failed to list open optimization issues; proceeding with an empty exclusion list\"\n  : > /tmp/gh-aw/token-audit/already-optimized.txt\nfi\n\nCOUNT=$(wc -l < /tmp/gh-aw/token-audit/already-optimized.txt | tr -d ' ')\nif [ \"$COUNT\" -gt 0 ]; then\n  echo \"⏭️ $COUNT workflow(s) already have open optimization issues:\"\n  cat /tmp/gh-aw/token-audit/already-optimized.txt\nelse\n  echo \"✅ No open optimization issues — all workflows are eligible\"\nfi\n"
 
       - name: Configure Git credentials
         env:
@@ -474,9 +474,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_1ec037f92aeea528_EOF'
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_c5676f9954254c2a_EOF'
           {"create_issue":{"close_older_issues":true,"labels":["claude-token-optimization"],"max":1,"title_prefix":"⚡ Claude Token Optimization"},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_1ec037f92aeea528_EOF
+          GH_AW_SAFE_OUTPUTS_CONFIG_c5676f9954254c2a_EOF
       - name: Generate Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
@@ -676,7 +676,7 @@ jobs:
           
           mkdir -p /home/runner/.copilot
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_411a6c1d3ef9dfe0_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_5c00b64a05c7eb15_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
               "github": {
@@ -717,7 +717,7 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
-          GH_AW_MCP_CONFIG_411a6c1d3ef9dfe0_EOF
+          GH_AW_MCP_CONFIG_5c00b64a05c7eb15_EOF
       - name: Mount MCP servers as CLIs
         id: mount-mcp-clis
         continue-on-error: true
