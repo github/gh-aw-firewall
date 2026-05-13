@@ -416,6 +416,60 @@ describe('createProviderServer', () => {
     expect(authErrLog.message).toContain('400');
   });
 
+  it('normalizes null tool_call type before forwarding when upstream returns 400', async () => {
+    const { lines, spy } = collectLogOutput();
+    let writtenBody = null;
+    jest.spyOn(https, 'request').mockImplementation((options, callback) => {
+      const proxyReq = new EventEmitter();
+      proxyReq.write = jest.fn((chunk) => {
+        writtenBody = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      });
+      proxyReq.end = jest.fn(() => {
+        setImmediate(() => {
+          const proxyRes = new EventEmitter();
+          proxyRes.statusCode = 400;
+          proxyRes.headers = { 'content-type': 'application/json' };
+          proxyRes.pipe = jest.fn((destRes) => { destRes.end('{}'); });
+          callback(proxyRes);
+          setImmediate(() => proxyRes.emit('end'));
+        });
+      });
+      proxyReq.destroy = jest.fn();
+      return proxyReq;
+    });
+
+    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-test' });
+    const port = await startAdapter(adapter);
+    const body = {
+      model: 'gpt-5.4',
+      messages: [
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: null,
+              function: { name: 'edit', arguments: '{"path":"README.md"}' },
+            },
+          ],
+        },
+      ],
+    };
+    await fetch(port, '/v1/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    jest.restoreAllMocks();
+    spy.mockRestore();
+
+    const forwarded = JSON.parse(writtenBody);
+    expect(forwarded.messages[0].tool_calls[0].type).toBe('function');
+    const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 400);
+    expect(authErrLog).toBeDefined();
+  });
+
   it('emits upstream_auth_error when upstream returns 401', async () => {
     const { lines, spy } = collectLogOutput();
     mockHttpsWithStatus(401);

@@ -14,7 +14,7 @@
  * accepts OAuth tokens, not API keys.
  */
 
-const { normalizeApiTarget, normalizeBasePath, createAdapterMethods } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, createAdapterMethods, composeBodyTransforms } = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
@@ -138,6 +138,51 @@ function deriveGitHubApiBasePath(env = process.env) {
 }
 
 /**
+ * Normalize OpenAI-style tool calls that omit the required type field.
+ *
+ * Some Copilot/OpenAI-compatible responses can echo tool_calls entries with a
+ * null/undefined `type`, which later causes upstream validation failures when
+ * the same message history is sent back. This transform patches only
+ * function-style tool calls by setting `type: "function"`.
+ *
+ * @param {Buffer} body - Raw request body
+ * @returns {Buffer|null} Updated body or null when no changes are needed
+ */
+function normalizeNullTypeToolCalls(body) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.messages)) {
+    return null;
+  }
+
+  let changed = false;
+  for (const message of parsed.messages) {
+    if (!message || typeof message !== 'object' || Array.isArray(message) || !Array.isArray(message.tool_calls)) {
+      continue;
+    }
+
+    for (const toolCall of message.tool_calls) {
+      if (!toolCall || typeof toolCall !== 'object' || Array.isArray(toolCall)) continue;
+      const hasFunctionPayload =
+        toolCall.function &&
+        typeof toolCall.function === 'object' &&
+        !Array.isArray(toolCall.function);
+      if (toolCall.type == null && hasFunctionPayload) {
+        toolCall.type = 'function';
+        changed = true;
+      }
+    }
+  }
+
+  return changed ? Buffer.from(JSON.stringify(parsed)) : null;
+}
+
+/**
  * Create the GitHub Copilot provider adapter.
  *
  * @param {Record<string, string|undefined>} env - Environment variables
@@ -152,7 +197,10 @@ function createCopilotAdapter(env, deps = {}) {
   const rawTarget = deriveCopilotApiTarget(env);
   const basePath = normalizeBasePath(env.COPILOT_API_BASE_PATH);
 
-  const bodyTransform = deps.bodyTransform || null;
+  const bodyTransform = composeBodyTransforms(
+    deps.bodyTransform || null,
+    normalizeNullTypeToolCalls
+  );
 
   // Pre-computed models path used by getModelsFetchConfig and getReflectionInfo.
   // For BYOK/custom providers the base path prefix is included (e.g. /api/v1/models
@@ -334,5 +382,6 @@ module.exports = {
     deriveCopilotApiTarget,
     deriveGitHubApiTarget,
     deriveGitHubApiBasePath,
+    normalizeNullTypeToolCalls,
   },
 };

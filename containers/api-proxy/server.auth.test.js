@@ -5,7 +5,10 @@
  */
 
 const { shouldStripHeader } = require('./proxy-utils');
-const { _testing: { resolveCopilotAuthToken, stripBearerPrefix }, createCopilotAdapter } = require('./providers/copilot');
+const {
+  _testing: { resolveCopilotAuthToken, stripBearerPrefix, normalizeNullTypeToolCalls },
+  createCopilotAdapter,
+} = require('./providers/copilot');
 
 describe('shouldStripHeader', () => {
   it('should strip authorization header', () => {
@@ -132,6 +135,50 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_GITHUB_TOKEN: 'Bearer gho_abc123',
       COPILOT_API_KEY: 'Bearer sk-byok-key',
     })).toBe('gho_abc123');
+  });
+});
+
+describe('normalizeNullTypeToolCalls', () => {
+  it('normalizes null tool_call type to "function" in outgoing message history', () => {
+    const input = Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: null,
+              function: { name: 'edit', arguments: '{"path":"a.txt"}' },
+            },
+          ],
+        },
+      ],
+    }));
+
+    const transformed = normalizeNullTypeToolCalls(input);
+    expect(transformed).not.toBeNull();
+    const parsed = JSON.parse(transformed.toString('utf8'));
+    expect(parsed.messages[0].tool_calls[0].type).toBe('function');
+  });
+
+  it('returns null when no tool_call type normalization is needed', () => {
+    const input = Buffer.from(JSON.stringify({
+      messages: [
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'edit', arguments: '{}' },
+            },
+          ],
+        },
+      ],
+    }));
+
+    expect(normalizeNullTypeToolCalls(input)).toBeNull();
   });
 });
 
