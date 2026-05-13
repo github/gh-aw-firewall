@@ -1,4 +1,6 @@
-import { parseImageTag, buildRuntimeImageRef, IMAGE_DIGEST_KEYS } from './image-tag';
+import { parseImageTag, buildRuntimeImageRef } from './image-tag';
+
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);
 

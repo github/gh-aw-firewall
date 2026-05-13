@@ -145,7 +145,7 @@ export function loadRuleSet(filePath: string): RuleSet {
  * @param rule - A single domain rule
  * @returns Array of domain strings
  */
-export function expandRule(rule: Rule): string[] {
+function expandRule(rule: Rule): string[] {
   // The existing system already handles subdomain matching when a plain
   // domain is provided (e.g., "github.com" matches both github.com and
   // *.github.com in Squid config). So we just return the domain.

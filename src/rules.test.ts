@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadRuleSet, mergeRuleSets, expandRule, loadAndMergeDomains, RuleSet } from './rules';
+import { loadRuleSet, mergeRuleSets, loadAndMergeDomains, RuleSet } from './rules';
 
 describe('rules', () => {
   let testDir: string;
@@ -149,20 +149,6 @@ rules: []
 `);
       const result = loadRuleSet(filePath);
       expect(result.rules).toHaveLength(0);
-    });
-  });
-
-  describe('expandRule', () => {
-    it('should return the domain for subdomains: true', () => {
-      expect(expandRule({ domain: 'github.com', subdomains: true })).toEqual([
-        'github.com',
-      ]);
-    });
-
-    it('should return the domain for subdomains: false', () => {
-      expect(expandRule({ domain: 'github.com', subdomains: false })).toEqual([
-        'github.com',
-      ]);
     });
   });
 
