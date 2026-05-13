@@ -10,6 +10,7 @@ import { WrapperConfig } from '../types';
 interface AgentVolumesParams {
   config: WrapperConfig;
   sslConfig?: SslConfig;
+  projectRoot: string;
   effectiveHome: string;
   workspaceDir: string;
   agentLogsPath: string;
@@ -84,8 +85,7 @@ function resolveDockerSocketPath(config: WrapperConfig): string {
  * Builds the volume mount list for the agent container.
  */
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
-  const { config, sslConfig, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
-  const projectRoot = path.resolve(__dirname, '../..');
+  const { config, sslConfig, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
 
   const agentVolumes: string[] = [
     // Essential mounts that are always included
@@ -102,9 +102,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   ];
 
   if (config.enableApiProxy) {
-    const healthCheckScript = path.join(projectRoot, 'containers/agent/api-proxy-health-check.sh');
-    if (fs.existsSync(healthCheckScript)) {
-      agentVolumes.push(`${healthCheckScript}:/usr/local/bin/api-proxy-health-check.sh:ro`);
+    const healthCheckScript = path.resolve(projectRoot, 'containers/agent/api-proxy-health-check.sh');
+    try {
+      if (fs.statSync(healthCheckScript).isFile()) {
+        agentVolumes.push(`${healthCheckScript}:/usr/local/bin/api-proxy-health-check.sh:ro`);
+      }
+    } catch {
+      // Optional mount — skip if the source file is unavailable.
     }
   }
 

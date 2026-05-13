@@ -121,6 +121,7 @@ export function generateDockerCompose(
   const agentVolumes = buildAgentVolumes({
     config,
     sslConfig,
+    projectRoot,
     effectiveHome,
     workspaceDir,
     agentLogsPath,
