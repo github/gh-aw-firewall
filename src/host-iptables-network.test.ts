@@ -1,8 +1,9 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { cleanupFirewallNetwork, ensureFirewallNetwork, __testing } from './host-iptables';
+import { cleanupFirewallNetwork, ensureFirewallNetwork } from './host-iptables';
+import { _resetIpv6State } from './host-iptables-shared';
 
 describe('host-iptables (network)', () => {
-  setupHostIptablesTestSuite(__testing._resetIpv6State);
+  setupHostIptablesTestSuite(_resetIpv6State);
 
   describe('ensureFirewallNetwork', () => {
     it('should return network config when network already exists', async () => {
