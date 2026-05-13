@@ -115,12 +115,12 @@ steps:
         echo "ℹ️ No eligible Claude workflow found in the downloaded run data"
         echo "WORKFLOW_FILE=" >> "$GITHUB_ENV"
         echo "TARGET_NOT_FOUND=1" >> "$GITHUB_ENV"
-        : > /tmp/gh-aw/token-audit/target-workflow.md
+        touch /tmp/gh-aw/token-audit/target-workflow.md
         exit 0
       fi
 
-      KEBAB=$(echo "$TOP_WORKFLOW" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-      FILE=$(grep -rl "^name: ${TOP_WORKFLOW}$" .github/workflows/*.md 2>/dev/null | head -1)
+      KEBAB=$(printf '%s' "$TOP_WORKFLOW" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+      FILE=$(grep -Flx -- "name: ${TOP_WORKFLOW}" .github/workflows/*.md 2>/dev/null | head -1)
       [ -z "$FILE" ] && FILE=".github/workflows/${KEBAB}.md"
 
       echo "WORKFLOW_FILE=${FILE}" >> "$GITHUB_ENV"
@@ -131,7 +131,7 @@ steps:
       else
         echo "⚠️ Unable to locate workflow file for ${TOP_WORKFLOW}"
         echo "TARGET_NOT_FOUND=1" >> "$GITHUB_ENV"
-        : > /tmp/gh-aw/token-audit/target-workflow.md
+        touch /tmp/gh-aw/token-audit/target-workflow.md
       fi
 ---
 
