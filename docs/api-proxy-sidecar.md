@@ -791,6 +791,12 @@ When a threshold is crossed, the proxy modifies the outgoing request body of the
 [AWF TOKEN WARNING] You have used 90% of your effective token budget. Complete your current task and prepare final output.
 ```
 
+When `--agent-timeout` is configured, the proxy also injects runtime steering messages at the same thresholds:
+
+```
+[AWF TIME WARNING] You have used 90% of your allotted run time. Complete your current task and prepare final output.
+```
+
 The injection is provider-aware:
 
 | Provider | Injection mechanism |

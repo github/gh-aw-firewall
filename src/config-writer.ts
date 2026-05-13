@@ -4,7 +4,7 @@ import * as yaml from 'js-yaml';
 import { WrapperConfig, API_PROXY_PORTS } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
-import { generateSessionCa, initSslDb, parseUrlPatterns } from './ssl-bump';
+import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } from './ssl-bump';
 import {
   SQUID_PORT,
   SslConfig,
@@ -202,6 +202,9 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   if (config.sslBump) {
     logger.info('SSL Bump enabled - generating per-session CA certificate...');
     try {
+      if (!(await isOpenSslAvailable())) {
+        throw new Error('openssl is not available on this system');
+      }
       const caFiles = await generateSessionCa({ workDir: config.workDir });
       const sslDbPath = await initSslDb(config.workDir);
       sslConfig = { caFiles, sslDbPath };

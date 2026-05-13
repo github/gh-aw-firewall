@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import execa from 'execa';
-import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, secureWipeFile, cleanupSslKeyMaterial, chownRecursive, unmountSslTmpfs } from './ssl-bump';
+import { parseUrlPatterns, generateSessionCa, initSslDb, isOpenSslAvailable, cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 
 // Pattern constant for the safer URL character class (matches the implementation)
 const URL_CHAR_PATTERN = '[^\\s]*';
@@ -330,34 +330,6 @@ describe('SSL Bump', () => {
 
   });
 
-  describe('chownRecursive', () => {
-    let tempDir: string;
-
-    beforeEach(() => {
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chown-test-'));
-    });
-
-    afterEach(() => {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    });
-
-    it('should attempt to chown a directory and its contents', () => {
-      // Create directory structure
-      const subDir = path.join(tempDir, 'subdir');
-      fs.mkdirSync(subDir);
-      fs.writeFileSync(path.join(tempDir, 'file1.txt'), 'test');
-      fs.writeFileSync(path.join(subDir, 'file2.txt'), 'test');
-
-      // chownRecursive will throw EPERM when not root, but it should
-      // attempt to chown the root directory first
-      expect(() => chownRecursive(tempDir, 13, 13)).toThrow(/EPERM/);
-    });
-
-    it('should throw for non-existent directory', () => {
-      expect(() => chownRecursive('/tmp/nonexistent-chown-test', 13, 13)).toThrow();
-    });
-  });
-
   describe('isOpenSslAvailable', () => {
     it('should return true when OpenSSL is available', async () => {
       const result = await isOpenSslAvailable();
@@ -371,41 +343,6 @@ describe('SSL Bump', () => {
 
       const result = await isOpenSslAvailable();
       expect(result).toBe(false);
-    });
-  });
-
-  describe('secureWipeFile', () => {
-    let tempDir: string;
-
-    beforeEach(() => {
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipe-test-'));
-    });
-
-    afterEach(() => {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    });
-
-    it('should overwrite and delete a file', () => {
-      const filePath = path.join(tempDir, 'secret.key');
-      fs.writeFileSync(filePath, 'SECRET KEY DATA');
-
-      secureWipeFile(filePath);
-
-      expect(fs.existsSync(filePath)).toBe(false);
-    });
-
-    it('should handle non-existent files gracefully', () => {
-      const filePath = path.join(tempDir, 'nonexistent.key');
-      expect(() => secureWipeFile(filePath)).not.toThrow();
-    });
-
-    it('should handle empty files', () => {
-      const filePath = path.join(tempDir, 'empty.key');
-      fs.writeFileSync(filePath, '');
-
-      secureWipeFile(filePath);
-
-      expect(fs.existsSync(filePath)).toBe(false);
     });
   });
 

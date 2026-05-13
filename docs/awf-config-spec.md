@@ -564,6 +564,15 @@ If the request body cannot be parsed as JSON, or if the body format does not
 match the expected structure, the proxy MUST silently skip injection for that
 request and NOT re-queue the message.
 
+When token steering is enabled **and** `container.agentTimeout` is configured,
+the proxy MUST also inject runtime warnings at 80/90/95/99% of elapsed run time
+using the same queueing behavior (highest crossed threshold first, then one
+pending warning per subsequent request):
+
+```
+[AWF TIME WARNING] <threshold-specific text>
+```
+
 ### 10.6 Introspection
 
 When the API proxy `/reflect` endpoint is queried, the response MUST

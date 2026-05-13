@@ -14,7 +14,13 @@
  * accepts OAuth tokens, not API keys.
  */
 
-const { normalizeApiTarget, normalizeBasePath, createAdapterMethods, composeBodyTransforms } = require('../proxy-utils');
+const {
+  normalizeApiTarget,
+  normalizeBasePath,
+  makeProviderNotConfiguredResponse,
+  createAdapterMethods,
+  composeBodyTransforms,
+} = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
@@ -343,17 +349,11 @@ function createCopilotAdapter(env, deps = {}) {
 
     /** Response returned for all requests when no Copilot credentials are configured. */
     getUnconfiguredResponse() {
-      return {
-        statusCode: 503,
-        body: {
-          error: {
-            message: 'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_API_KEY to enable this provider.',
-            type: 'provider_not_configured',
-            provider: 'copilot',
-            port: 10002,
-          },
-        },
-      };
+      return makeProviderNotConfiguredResponse(
+        'copilot',
+        10002,
+        'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_API_KEY to enable this provider.'
+      );
     },
 
     /** /health response when not configured. */

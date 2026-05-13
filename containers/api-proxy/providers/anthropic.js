@@ -11,7 +11,12 @@
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
  */
 
-const { composeBodyTransforms, createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
+const {
+  composeBodyTransforms,
+  makeProviderNotConfiguredResponse,
+  createBaseAdapterConfig,
+  createAdapterMethods,
+} = require('../proxy-utils');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -144,17 +149,11 @@ function createAnthropicAdapter(env, deps = {}) {
 
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */
     getUnconfiguredResponse() {
-      return {
-        statusCode: 503,
-        body: {
-          error: {
-            message: 'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.',
-            type: 'provider_not_configured',
-            provider: 'anthropic',
-            port: 10001,
-          },
-        },
-      };
+      return makeProviderNotConfiguredResponse(
+        'anthropic',
+        10001,
+        'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.'
+      );
     },
 
     /** /health response when not configured. */

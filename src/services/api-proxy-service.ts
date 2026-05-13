@@ -126,6 +126,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       ...(config.maxRuns !== undefined && {
         AWF_MAX_RUNS: String(config.maxRuns),
       }),
+      ...(config.agentTimeout !== undefined && {
+        AWF_AGENT_TIMEOUT_MINUTES: String(config.agentTimeout),
+      }),
       // Model alias configuration
       ...(config.modelAliases && {
         AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),

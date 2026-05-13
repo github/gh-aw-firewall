@@ -1,5 +1,5 @@
 'use strict';
-const { createAdapterMethods } = require('../proxy-utils');
+const { makeProviderNotConfiguredResponse, createAdapterMethods } = require('../proxy-utils');
 
 /**
  * OpenCode provider adapter.
@@ -178,29 +178,17 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
     /** Response returned for all requests when OpenCode is not configured. */
     getUnconfiguredResponse() {
       if (!enabled) {
-        return {
-          statusCode: 503,
-          body: {
-            error: {
-              message: 'OpenCode proxy (port 10004) is not enabled. Set AWF_ENABLE_OPENCODE=true and configure at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.',
-              type: 'provider_not_configured',
-              provider: 'opencode',
-              port: 10004,
-            },
-          },
-        };
+        return makeProviderNotConfiguredResponse(
+          'opencode',
+          10004,
+          'OpenCode proxy (port 10004) is not enabled. Set AWF_ENABLE_OPENCODE=true and configure at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.'
+        );
       }
-      return {
-        statusCode: 503,
-        body: {
-          error: {
-            message: 'Credentials for OpenCode (port 10004) are not configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.',
-            type: 'provider_not_configured',
-            provider: 'opencode',
-            port: 10004,
-          },
-        },
-      };
+      return makeProviderNotConfiguredResponse(
+        'opencode',
+        10004,
+        'Credentials for OpenCode (port 10004) are not configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY.'
+      );
     },
 
     /** /health response when not configured. */

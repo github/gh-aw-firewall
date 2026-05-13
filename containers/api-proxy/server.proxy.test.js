@@ -9,7 +9,7 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests } = require('./proxy-request');
+const { resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetTimeoutSteeringForTests } = require('./proxy-request');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -354,15 +354,20 @@ describe('proxyRequest X-Initiator injection', () => {
    */
   function mockHttpsRequest() {
     let capturedOptions;
+    let capturedProxyReq;
     jest.spyOn(https, 'request').mockImplementation((options) => {
       capturedOptions = options;
       const proxyReq = new EventEmitter();
       proxyReq.end = jest.fn();
       proxyReq.write = jest.fn();
       proxyReq.destroy = jest.fn();
+      capturedProxyReq = proxyReq;
       return proxyReq;
     });
-    return { getCaptured: () => capturedOptions };
+    return {
+      getCaptured: () => capturedOptions,
+      getWrittenBody: () => capturedProxyReq?.write?.mock?.calls?.[0]?.[0],
+    };
   }
 
   it('injects x-initiator: agent when absent on direct copilot requests', () => {
@@ -419,6 +424,51 @@ describe('proxyRequest X-Initiator injection', () => {
     proxyRequest(req, makeRes(), 'api.openai.com', { 'Authorization': 'Bearer sk-test' }, 'opencode');
     req.emit('end');
     expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+
+  it('normalizes null tool_calls[].type to function before forwarding', () => {
+    const { getWrittenBody } = mockHttpsRequest();
+    const req = makeReq();
+
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [{
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call_1',
+          type: null,
+          function: { name: 'edit', arguments: '{"file":"x.ts"}' },
+        }],
+      }],
+    })));
+    req.emit('end');
+
+    const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
+    expect(forwarded.messages[0].tool_calls[0].type).toBe('function');
+  });
+
+  it('drops malformed tool calls with null type and no function payload', () => {
+    const { getWrittenBody } = mockHttpsRequest();
+    const req = makeReq();
+
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [{
+        role: 'assistant',
+        tool_calls: [
+          { id: 'call_ok', type: null, function: { name: 'edit', arguments: '{}' } },
+          { id: 'call_bad', type: null },
+        ],
+      }],
+    })));
+    req.emit('end');
+
+    const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
+    expect(forwarded.messages[0].tool_calls).toEqual([
+      { id: 'call_ok', type: 'function', function: { name: 'edit', arguments: '{}' } },
+    ]);
   });
 });
 
@@ -599,10 +649,20 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   // Integration tests that verify steering injection end-to-end use two
   // proxyRequest calls so that the same module instance that runs inside the
   // proxy handles both the threshold crossing and the body injection.
-  let getAndClearPendingSteeringMessage, injectSteeringMessage, reset;
+  let getAndClearPendingSteeringMessage;
+  let getAndClearPendingTimeoutSteeringMessage;
+  let injectSteeringMessage;
+  let reset;
+  let resetTimeout;
 
   beforeAll(() => {
-    ({ getAndClearPendingSteeringMessage, injectSteeringMessage, resetEffectiveTokenGuardForTests: reset } =
+    ({
+      getAndClearPendingSteeringMessage,
+      getAndClearPendingTimeoutSteeringMessage,
+      injectSteeringMessage,
+      resetEffectiveTokenGuardForTests: reset,
+      resetTimeoutSteeringForTests: resetTimeout,
+    } =
       require('./proxy-request'));
   });
 
@@ -610,21 +670,101 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
     process.env.AWF_ENABLE_TOKEN_STEERING = 'true';
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     reset();
+    resetTimeout();
     resetEffectiveTokenGuardForTests();
+    resetTimeoutSteeringForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     reset();
+    resetTimeout();
     resetEffectiveTokenGuardForTests();
+    resetTimeoutSteeringForTests();
     jest.restoreAllMocks();
   });
 
   it('returns null when no thresholds have been crossed', () => {
     expect(getAndClearPendingSteeringMessage()).toBeNull();
+  });
+
+  it('returns timeout steering warnings as runtime thresholds are crossed', () => {
+    process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
+    const start = 1_700_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
+    resetTimeout();
+
+    expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
+
+    nowSpy.mockReturnValue(start + (8 * 60 * 1000));
+    const msg80 = getAndClearPendingTimeoutSteeringMessage();
+    expect(msg80).toContain('[AWF TIME WARNING]');
+    expect(msg80).toContain('80%');
+    expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
+
+    nowSpy.mockReturnValue(start + Math.floor(9.6 * 60 * 1000));
+    const msg95 = getAndClearPendingTimeoutSteeringMessage();
+    const msg90 = getAndClearPendingTimeoutSteeringMessage();
+    expect(msg95).toContain('95%');
+    expect(msg90).toContain('90%');
+  });
+
+  it('injects timeout steering warning into OpenAI request body', () => {
+    process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
+    const start = 1_700_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
+    resetTimeout();
+
+    const upstreamReq1 = new EventEmitter();
+    upstreamReq1.end = jest.fn();
+    upstreamReq1.write = jest.fn();
+    upstreamReq1.destroy = jest.fn();
+
+    const upstreamReq2 = new EventEmitter();
+    upstreamReq2.end = jest.fn();
+    upstreamReq2.write = jest.fn();
+    upstreamReq2.destroy = jest.fn();
+
+    jest.spyOn(https, 'request')
+      .mockImplementationOnce(() => upstreamReq1)
+      .mockImplementationOnce(() => upstreamReq2);
+
+    const req1Body = Buffer.from(JSON.stringify({
+      messages: [{ role: 'user', content: 'First request' }],
+    }));
+    const req1 = new EventEmitter();
+    req1.url = '/v1/chat/completions';
+    req1.method = 'POST';
+    req1.headers = { 'content-type': 'application/json', 'content-length': String(req1Body.length) };
+    const res1 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req1.emit('data', req1Body);
+    req1.emit('end');
+
+    nowSpy.mockReturnValue(start + (8 * 60 * 1000));
+
+    const req2Body = Buffer.from(JSON.stringify({
+      messages: [{ role: 'user', content: 'Second request' }],
+    }));
+    const req2 = new EventEmitter();
+    req2.url = '/v1/chat/completions';
+    req2.method = 'POST';
+    req2.headers = { 'content-type': 'application/json', 'content-length': String(req2Body.length) };
+    const res2 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req2.emit('data', req2Body);
+    req2.emit('end');
+
+    expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
+    const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
+    expect(writtenBody2.messages[0].role).toBe('system');
+    expect(writtenBody2.messages[0].content).toContain('[AWF TIME WARNING]');
+    expect(writtenBody2.messages[0].content).toContain('80%');
   });
 
   it('injects 80% warning into an OpenAI request body and clears it on the next request', () => {
