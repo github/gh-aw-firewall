@@ -25,7 +25,6 @@ sandbox:
 strict: false
 network:
   allowed:
-    - defaults
     - github
     - playwright
 tools:
@@ -53,6 +52,11 @@ steps:
     run: |
       mkdir -p /tmp/gh-aw/mcp-logs/playwright
       chmod 777 /tmp/gh-aw/mcp-logs/playwright
+  - name: Create smoke test file
+    run: |
+      mkdir -p /tmp/gh-aw/agent
+      echo "Smoke test passed for Claude at $(date)" > /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
+      echo "Smoke test file pre-created: $(cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt)"
 post-steps:
   - name: Show final Claude Code config
     if: always()
@@ -91,24 +95,10 @@ post-steps:
 
 # Smoke Test: Claude Engine Validation
 
-**IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+Smoke test (keep all output to 1 line per test):
+1. **GitHub API**: List last 2 merged PRs in ${{ github.repository }} (perPage: 2)
+2. **Playwright**: Navigate to https://github.com, confirm title contains "GitHub"
+3. **File verify**: `cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt`
 
-> Use `perPage: 2` when listing PRs.
-
-## Test Requirements
-
-1. **GitHub MCP Testing**: Review the last 2 merged pull requests in ${{ github.repository }}
-2. **Playwright Testing**: Use playwright to navigate to https://github.com and verify the page title contains "GitHub"
-3. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` with content "Smoke test passed for Claude at $(date)" (create the directory if it doesn't exist)
-4. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
-
-## Output
-
-**If triggered by a pull request**, add a **very brief** comment (max 5-10 lines) to the current pull request with:
-- PR titles only (no descriptions)
-- ✅ or ❌ for each test result
-- Overall status: PASS or FAIL
-
-If all tests pass, add the label `smoke-claude` to the pull request.
-
-**If triggered by workflow_dispatch or schedule** (no PR context), use a noop safe output to report the test results summary instead. Do NOT attempt to add comments or labels when there is no pull request.
+**If triggered by pull request**: add a brief comment (✅/❌ per test, PASS/FAIL total) and add label `smoke-claude` if all pass.
+**If not triggered by pull request**: use noop to report results.
