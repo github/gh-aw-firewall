@@ -486,6 +486,26 @@ describe('API proxy sidecar', () => {
         expect(env.AWF_MAX_RUNS).toBeUndefined();
       });
 
+      it('should set AWF_AGENT_TIMEOUT_MINUTES in api-proxy when agentTimeout is configured', () => {
+        const configWithAgentTimeout = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          agentTimeout: 30,
+        };
+        const result = generateDockerCompose(configWithAgentTimeout, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_AGENT_TIMEOUT_MINUTES).toBe('30');
+      });
+
+      it('should not set AWF_AGENT_TIMEOUT_MINUTES in api-proxy when agentTimeout is not configured', () => {
+        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_AGENT_TIMEOUT_MINUTES).toBeUndefined();
+      });
+
       it('should set AWF_ENABLE_OPENCODE=true in api-proxy when enableOpenCode is true', () => {
         const configWithOpenCode = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', enableOpenCode: true };
         const result = generateDockerCompose(configWithOpenCode, mockNetworkConfigWithProxy);

@@ -120,6 +120,16 @@ const effectiveTokenConfigCache = {
   rawMultipliers: undefined,
   parsed: { max: null, multipliers: {} },
 };
+let timeoutSteeringState = {
+  configKey: null,
+  startTimeMs: 0,
+  emittedThresholds: new Set(),
+  uninjectedThresholds: new Set(),
+};
+const timeoutSteeringConfigCache = {
+  rawMinutes: undefined,
+  parsedMinutes: null,
+};
 
 // ── Max-runs guard ────────────────────────────────────────────────────────────
 let maxRunsGuardState = {
@@ -136,6 +146,54 @@ function parseMaxRuns(raw) {
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function createTimeoutSteeringState(configKey = null, startTimeMs = Date.now()) {
+  return {
+    configKey,
+    startTimeMs,
+    emittedThresholds: new Set(),
+    uninjectedThresholds: new Set(),
+  };
+}
+
+function parseAgentTimeoutMinutes(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function getTimeoutSteeringConfig() {
+  const rawMinutes = process.env.AWF_AGENT_TIMEOUT_MINUTES;
+  if (timeoutSteeringConfigCache.rawMinutes === rawMinutes) {
+    return timeoutSteeringConfigCache.parsedMinutes;
+  }
+  timeoutSteeringConfigCache.rawMinutes = rawMinutes;
+  timeoutSteeringConfigCache.parsedMinutes = parseAgentTimeoutMinutes(rawMinutes);
+  return timeoutSteeringConfigCache.parsedMinutes;
+}
+
+function getTimeoutSteeringState(timeoutMinutes) {
+  if (!timeoutMinutes) return null;
+  const configKey = String(timeoutMinutes);
+  if (timeoutSteeringState.configKey !== configKey) {
+    timeoutSteeringState = createTimeoutSteeringState(configKey);
+  }
+  return timeoutSteeringState;
+}
+
+function updateTimeoutSteeringThresholds(state, timeoutMinutes) {
+  if (!state || !timeoutMinutes) return;
+  const elapsedMs = Math.max(0, Date.now() - state.startTimeMs);
+  const timeoutMs = timeoutMinutes * 60 * 1000;
+  const percentElapsed = (elapsedMs / timeoutMs) * 100;
+  for (const threshold of ET_WARNING_THRESHOLDS) {
+    if (percentElapsed >= threshold && !state.emittedThresholds.has(threshold)) {
+      state.emittedThresholds.add(threshold);
+      state.uninjectedThresholds.add(threshold);
+    }
+  }
 }
 
 function getMaxRunsConfig() {
@@ -376,6 +434,12 @@ const ET_STEERING_MESSAGES = {
   95: 'You have used 95% of your effective token budget. Finalize and submit your work now.',
   99: 'You have used 99% of your effective token budget. You are about to be cut off. Submit immediately.',
 };
+const TIMEOUT_STEERING_MESSAGES = {
+  80: 'You have used 80% of your allotted run time. Begin planning to wrap up your current work.',
+  90: 'You have used 90% of your allotted run time. Complete your current task and prepare final output.',
+  95: 'You have used 95% of your allotted run time. Finalize and submit your work now.',
+  99: 'You have used 99% of your allotted run time. You are about to time out. Submit immediately.',
+};
 
 /**
  * Pop the highest-priority pending steering threshold and return its warning
@@ -396,6 +460,21 @@ function getAndClearPendingSteeringMessage() {
   const text = ET_STEERING_MESSAGES[maxThreshold] ||
     `You have used ${maxThreshold}% of your effective token budget.`;
   return `[AWF TOKEN WARNING] ${text}`;
+}
+
+function getAndClearPendingTimeoutSteeringMessage() {
+  const timeoutMinutes = getTimeoutSteeringConfig();
+  const state = getTimeoutSteeringState(timeoutMinutes);
+  if (!state) return null;
+
+  updateTimeoutSteeringThresholds(state, timeoutMinutes);
+  if (state.uninjectedThresholds.size === 0) return null;
+
+  const maxThreshold = Math.max(...state.uninjectedThresholds);
+  state.uninjectedThresholds.delete(maxThreshold);
+  const text = TIMEOUT_STEERING_MESSAGES[maxThreshold] ||
+    `You have used ${maxThreshold}% of your allotted run time.`;
+  return `[AWF TIME WARNING] ${text}`;
 }
 
 /**
@@ -461,6 +540,12 @@ function injectSteeringMessage(body, provider, message) {
   }
 
   return Buffer.from(JSON.stringify(parsed));
+}
+
+function resetTimeoutSteeringForTests() {
+  timeoutSteeringState = createTimeoutSteeringState();
+  timeoutSteeringConfigCache.rawMinutes = undefined;
+  timeoutSteeringConfigCache.parsedMinutes = null;
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -632,15 +717,19 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     // cumulative usage has crossed a threshold since the last injection.
     // Gated by AWF_ENABLE_TOKEN_STEERING=true (opt-in).
     if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
-      const steeringMsg = getAndClearPendingSteeringMessage();
-      if (steeringMsg) {
-        const steered = injectSteeringMessage(body, provider, steeringMsg);
+      const steeringMessages = [
+        { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
+        { type: 'token', message: getAndClearPendingSteeringMessage() },
+      ];
+      for (const { type, message } of steeringMessages) {
+        if (!message) continue;
+        const steered = injectSteeringMessage(body, provider, message);
         if (steered) {
           body = steered;
-          logRequest('info', 'token_steering', {
+          logRequest('info', `${type}_steering`, {
             request_id: requestId,
             provider,
-            message: steeringMsg,
+            message,
           });
         }
       }
@@ -1023,6 +1112,8 @@ module.exports = {
   // Exported for tests
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
+  resetTimeoutSteeringForTests,
   getAndClearPendingSteeringMessage,
+  getAndClearPendingTimeoutSteeringMessage,
   injectSteeringMessage,
 };
