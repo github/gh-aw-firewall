@@ -94,6 +94,73 @@ function extractBillingHeaders(headers) {
 }
 
 /**
+ * Sanitize OpenAI-compatible request history where tool_calls[].type is null.
+ *
+ * Normalizes null type to "function" when a function payload is present.
+ * Otherwise, drops the malformed tool_call entry.
+ *
+ * @param {Buffer} body
+ * @returns {{ body: Buffer, normalizedCount: number, droppedCount: number }|null}
+ */
+function sanitizeNullToolCallTypes(body) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.messages)) {
+    return null;
+  }
+
+  let changed = false;
+  let normalizedCount = 0;
+  let droppedCount = 0;
+
+  for (const message of parsed.messages) {
+    if (!message || typeof message !== 'object' || !Array.isArray(message.tool_calls)) {
+      continue;
+    }
+
+    const nextToolCalls = [];
+    for (const toolCall of message.tool_calls) {
+      if (
+        toolCall &&
+        typeof toolCall === 'object' &&
+        Object.prototype.hasOwnProperty.call(toolCall, 'type') &&
+        toolCall.type === null
+      ) {
+        if (toolCall.function && typeof toolCall.function === 'object') {
+          nextToolCalls.push({ ...toolCall, type: 'function' });
+          normalizedCount += 1;
+        } else {
+          droppedCount += 1;
+        }
+        changed = true;
+        continue;
+      }
+      nextToolCalls.push(toolCall);
+    }
+
+    if (nextToolCalls.length !== message.tool_calls.length) {
+      changed = true;
+    }
+    message.tool_calls = nextToolCalls;
+  }
+
+  if (!changed) {
+    return null;
+  }
+
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    normalizedCount,
+    droppedCount,
+  };
+}
+
+/**
  * Shared RateLimiter instance.
  * Exported so that management endpoints (healthResponse) can read getAllStatus().
  */
@@ -626,6 +693,19 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
       const transformed = bodyTransform(body);
       if (transformed) body = transformed;
+    }
+
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const sanitized = sanitizeNullToolCallTypes(body);
+      if (sanitized) {
+        body = sanitized.body;
+        logRequest('info', 'request_sanitized', {
+          request_id: requestId,
+          provider,
+          normalized_tool_calls: sanitized.normalizedCount,
+          dropped_tool_calls: sanitized.droppedCount,
+        });
+      }
     }
 
     // Token steering: inject budget-warning messages into the request body when

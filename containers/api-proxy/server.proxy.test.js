@@ -354,15 +354,20 @@ describe('proxyRequest X-Initiator injection', () => {
    */
   function mockHttpsRequest() {
     let capturedOptions;
+    let capturedProxyReq;
     jest.spyOn(https, 'request').mockImplementation((options) => {
       capturedOptions = options;
       const proxyReq = new EventEmitter();
       proxyReq.end = jest.fn();
       proxyReq.write = jest.fn();
       proxyReq.destroy = jest.fn();
+      capturedProxyReq = proxyReq;
       return proxyReq;
     });
-    return { getCaptured: () => capturedOptions };
+    return {
+      getCaptured: () => capturedOptions,
+      getWrittenBody: () => capturedProxyReq?.write?.mock?.calls?.[0]?.[0],
+    };
   }
 
   it('injects x-initiator: agent when absent on direct copilot requests', () => {
@@ -419,6 +424,51 @@ describe('proxyRequest X-Initiator injection', () => {
     proxyRequest(req, makeRes(), 'api.openai.com', { 'Authorization': 'Bearer sk-test' }, 'opencode');
     req.emit('end');
     expect(getCaptured().headers['x-initiator']).toBeUndefined();
+  });
+
+  it('normalizes null tool_calls[].type to function before forwarding', () => {
+    const { getWrittenBody } = mockHttpsRequest();
+    const req = makeReq();
+
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [{
+        role: 'assistant',
+        tool_calls: [{
+          id: 'call_1',
+          type: null,
+          function: { name: 'edit', arguments: '{"file":"x.ts"}' },
+        }],
+      }],
+    })));
+    req.emit('end');
+
+    const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
+    expect(forwarded.messages[0].tool_calls[0].type).toBe('function');
+  });
+
+  it('drops malformed tool calls with null type and no function payload', () => {
+    const { getWrittenBody } = mockHttpsRequest();
+    const req = makeReq();
+
+    proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      messages: [{
+        role: 'assistant',
+        tool_calls: [
+          { id: 'call_ok', type: null, function: { name: 'edit', arguments: '{}' } },
+          { id: 'call_bad', type: null },
+        ],
+      }],
+    })));
+    req.emit('end');
+
+    const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
+    expect(forwarded.messages[0].tool_calls).toEqual([
+      { id: 'call_ok', type: 'function', function: { name: 'edit', arguments: '{}' } },
+    ]);
   });
 });
 
