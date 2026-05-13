@@ -143,7 +143,7 @@ You are an AI agent that reads the latest Claude token usage report and produces
 
 The pre-agent step already selected the top workflow candidate as `$TOP_WORKFLOW` and resolved its source path as `$WORKFLOW_FILE`. Read `/tmp/gh-aw/token-audit/target-workflow.md` directly. Do **not** search `.github/workflows` for the workflow file again.
 
-If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged and stop without calling any safe-output tools.
+If `$TOP_WORKFLOW` is empty or `$TARGET_NOT_FOUND` is `1`, log that no eligible workflow file could be staged, exit immediately, and do not call any safe-output tools.
 
 ## Step 1: Find the Latest Token Usage Report
 
