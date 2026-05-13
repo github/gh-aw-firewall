@@ -4,7 +4,13 @@
  * Extracted from server.test.js lines 20–489, 1066–1296.
  */
 
-const { normalizeApiTarget, normalizeBasePath, buildUpstreamPath, createAdapterMethods } = require('./proxy-utils');
+const {
+  normalizeApiTarget,
+  normalizeBasePath,
+  buildUpstreamPath,
+  createAdapterMethods,
+  makeUnconfiguredHealthResponse,
+} = require('./proxy-utils');
 const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot');
 const { _testing: { resolveOpenCodeRoute } } = require('./providers/opencode');
 
@@ -122,6 +128,24 @@ describe('createAdapterMethods', () => {
       models_cache_key: null,
       models_url: null,
       note: 'extra',
+    });
+  });
+});
+
+describe('makeUnconfiguredHealthResponse', () => {
+  it('builds the standard not_configured health payload shape', () => {
+    expect(
+      makeUnconfiguredHealthResponse(
+        'awf-api-proxy-example',
+        'EXAMPLE_API_KEY not configured in api-proxy sidecar'
+      )
+    ).toEqual({
+      statusCode: 503,
+      body: {
+        status: 'not_configured',
+        service: 'awf-api-proxy-example',
+        error: 'EXAMPLE_API_KEY not configured in api-proxy sidecar',
+      },
     });
   });
 });

@@ -11,7 +11,7 @@
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
  */
 
-const { composeBodyTransforms, createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
+const { composeBodyTransforms, createBaseAdapterConfig, createAdapterMethods, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -159,10 +159,10 @@ function createAnthropicAdapter(env, deps = {}) {
 
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-anthropic', error: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar' },
-      };
+      return makeUnconfiguredHealthResponse(
+        'awf-api-proxy-anthropic',
+        'ANTHROPIC_API_KEY not configured in api-proxy sidecar'
+      );
     },
 
     // Exposed for introspection (logging, tests)

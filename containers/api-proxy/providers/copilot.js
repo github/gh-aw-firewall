@@ -14,7 +14,7 @@
  * accepts OAuth tokens, not API keys.
  */
 
-const { normalizeApiTarget, normalizeBasePath, createAdapterMethods } = require('../proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, createAdapterMethods, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { URL } = require('url');
 
 /**
@@ -310,10 +310,10 @@ function createCopilotAdapter(env, deps = {}) {
 
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_API_KEY not configured in api-proxy sidecar' },
-      };
+      return makeUnconfiguredHealthResponse(
+        'awf-api-proxy-copilot',
+        'COPILOT_GITHUB_TOKEN or COPILOT_API_KEY not configured in api-proxy sidecar'
+      );
     },
 
     // Exposed for introspection / testing

@@ -300,6 +300,24 @@ function createAdapterMethods(opts) {
   };
 }
 
+/**
+ * Build a standardized /health response for unconfigured providers.
+ *
+ * @param {string} serviceName
+ * @param {string} errorMessage
+ * @returns {{ statusCode: number, body: { status: string, service: string, error: string } }}
+ */
+function makeUnconfiguredHealthResponse(serviceName, errorMessage) {
+  return {
+    statusCode: 503,
+    body: {
+      status: 'not_configured',
+      service: serviceName,
+      error: errorMessage,
+    },
+  };
+}
+
 module.exports = {
   normalizeApiTarget,
   normalizeBasePath,
@@ -309,4 +327,5 @@ module.exports = {
   composeBodyTransforms,
   createBaseAdapterConfig,
   createAdapterMethods,
+  makeUnconfiguredHealthResponse,
 };

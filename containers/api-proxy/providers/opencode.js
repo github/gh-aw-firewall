@@ -1,5 +1,5 @@
 'use strict';
-const { createAdapterMethods } = require('../proxy-utils');
+const { createAdapterMethods, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 
 /**
  * OpenCode provider adapter.
@@ -208,10 +208,10 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
       const reason = !enabled
         ? 'AWF_ENABLE_OPENCODE not set to true'
         : 'no candidate provider credentials configured';
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-opencode', error: `OpenCode proxy not configured: ${reason}` },
-      };
+      return makeUnconfiguredHealthResponse(
+        'awf-api-proxy-opencode',
+        `OpenCode proxy not configured: ${reason}`
+      );
     },
 
     // Exposed for introspection / testing
