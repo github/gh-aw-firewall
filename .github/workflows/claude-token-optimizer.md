@@ -98,6 +98,7 @@ steps:
 
       TOP_WORKFLOW=$(jq -r --argjson excluded "$EXCLUDED_JSON" '
         [.runs[] | select(.token_usage != null and (.workflow_name // "") != "") | {workflow_name, token_usage}]
+        | sort_by(.workflow_name)
         | group_by(.workflow_name)
         | map({
             name: .[0].workflow_name,
