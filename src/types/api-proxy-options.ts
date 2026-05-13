@@ -7,15 +7,16 @@ export interface ApiProxyOptions {
    * Enable API proxy sidecar for holding authentication credentials
    *
    * When true, deploys a Node.js proxy sidecar container that:
-   * - Holds OpenAI, Anthropic, and GitHub Copilot API keys securely
+   * - Holds OpenAI, Anthropic, GitHub Copilot, and Google Gemini API keys securely
    * - Automatically injects authentication headers
    * - Routes all traffic through Squid to respect domain whitelisting
    * - Proxies requests to LLM providers
    *
-   * The sidecar exposes three endpoints accessible from the agent container:
+   * The sidecar exposes five endpoints accessible from the agent container:
    * - http://api-proxy:10000 - OpenAI API proxy (for Codex) {@link API_PROXY_PORTS.OPENAI}
    * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
    * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
+   * - http://api-proxy:10003 - Google Gemini API proxy {@link API_PROXY_PORTS.GEMINI}
    * - http://api-proxy:10004 - OpenCode API proxy (defaults to Copilot/OpenAI routing) {@link API_PROXY_PORTS.OPENCODE}
    *
    * When the corresponding API key is provided, the following environment
@@ -30,6 +31,7 @@ export interface ApiProxyOptions {
    * - ANTHROPIC_API_KEY - Optional Anthropic API key for Claude
    * - COPILOT_GITHUB_TOKEN - Optional GitHub token for Copilot
    * - COPILOT_API_KEY - Optional direct Copilot API key (BYOK)
+   * - GEMINI_API_KEY - Optional Google Gemini API key
    *
    * @default false
    * @example
