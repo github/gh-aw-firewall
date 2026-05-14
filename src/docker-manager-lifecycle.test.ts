@@ -1,4 +1,7 @@
-import { startContainers, stopContainers, fastKillAgentContainer, isAgentExternallyKilled, resetAgentExternallyKilled, AGENT_CONTAINER_NAME, runAgentCommand, setAwfDockerHost } from './docker-manager';
+import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost } from './docker-manager';
+import { isAgentExternallyKilled, resetAgentExternallyKilled } from './container-lifecycle';
+import { stopContainers } from './container-cleanup';
+import { AGENT_CONTAINER_NAME } from './host-env';
 import { logger } from './logger';
 import * as fs from 'fs';
 import * as path from 'path';

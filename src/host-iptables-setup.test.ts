@@ -1,6 +1,7 @@
 import { API_PROXY_PORTS } from './types';
 import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { isValidPortSpec, setupHostIptables } from './host-iptables';
+import { isValidPortSpec } from './host-iptables-rules';
+import { setupHostIptables } from './host-iptables';
 import { _testing } from './host-iptables-shared';
 
 // setupHostIptables intentionally allows the inclusive min:max API proxy port window.
