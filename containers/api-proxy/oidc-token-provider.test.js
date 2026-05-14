@@ -5,7 +5,7 @@ const { httpPost } = require('./github-oidc');
 const { OidcTokenProvider } = require('./oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
-// Helper to create a mock HTTP server that responds to token requests
+// Helper to create a mock OIDC server with Azure token exchange support
 function createMockOidcServer(handlers = {}) {
   return createBaseMockServer((url, req, res, body, routeHandlers) => {
     if (url.pathname.includes('/oauth2/v2.0/token') && req.method === 'POST') {
