@@ -2,7 +2,7 @@
  * Docker and container configuration types for the agentic workflow firewall
  */
 
-import type { UpstreamProxyConfig } from './config';
+import type { UpstreamProxyConfig } from './upstream-proxy';
 
 /**
  * Configuration for the Squid proxy server
