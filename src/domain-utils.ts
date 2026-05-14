@@ -104,7 +104,7 @@ const SAFE_BASE_IMAGE_PATTERNS = [
  * Checks if the given value is a preset name (default, act)
  */
 export function isAgentImagePreset(value: string | undefined): value is 'default' | 'act' {
-  return value === 'default' || value === 'act';
+  return value !== undefined && AGENT_IMAGE_PRESETS.includes(value as (typeof AGENT_IMAGE_PRESETS)[number]);
 }
 
 /**
