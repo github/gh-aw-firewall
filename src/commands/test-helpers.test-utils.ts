@@ -17,6 +17,13 @@ export const EMPTY_STATS: AggregatedStats = {
   timeRange: null,
 };
 
+function createEmptyStats(): AggregatedStats {
+  return {
+    ...EMPTY_STATS,
+    byDomain: new Map(),
+  };
+}
+
 /**
  * Creates typed mock references and registers shared beforeEach/afterEach
  * hooks for log command tests. Call once at the top of a describe block.
@@ -59,7 +66,7 @@ export type LogCommandTestHarness = ReturnType<typeof createLogCommandTestHarnes
 export function setupEmptyStatsHarness(harness: LogCommandTestHarness, source: LogSource): void {
   harness.mockedDiscovery.discoverLogSources.mockResolvedValue([source]);
   harness.mockedDiscovery.selectMostRecent.mockReturnValue(source);
-  harness.mockedAggregator.loadAndAggregate.mockResolvedValue(EMPTY_STATS);
+  harness.mockedAggregator.loadAndAggregate.mockImplementation(async () => createEmptyStats());
   harness.mockedFormatter.formatStats.mockReturnValue('');
 }
 
