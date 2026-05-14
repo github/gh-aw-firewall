@@ -5,7 +5,7 @@ const { AwsOidcTokenProvider } = require('./aws-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
 function createMockServer(handlers = {}) {
-  return createBaseMockServer((url, req, res, body, routeHandlers) => {
+  return createBaseMockServer((url, req, res, routeHandlers) => {
     if (url.pathname === '/' && url.searchParams.get('Action') === 'AssumeRoleWithWebIdentity') {
       const handler = routeHandlers.stsAssume || (() => ({
         statusCode: 200,

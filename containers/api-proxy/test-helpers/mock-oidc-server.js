@@ -2,8 +2,8 @@
 
 const http = require('http');
 
-function createBaseMockServer(providerRouteHandler, handlers = {}) {
-  const routeHandler = providerRouteHandler || (() => false);
+function createBaseMockServer(handleProviderRoute, handlers = {}) {
+  const routeHandler = handleProviderRoute || (() => false);
 
   return http.createServer((req, res) => {
     let body = '';
@@ -22,7 +22,7 @@ function createBaseMockServer(providerRouteHandler, handlers = {}) {
         return;
       }
 
-      const handled = routeHandler(url, req, res, body, handlers);
+      const handled = routeHandler(url, req, res, handlers, body);
       if (handled) {
         return;
       }

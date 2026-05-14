@@ -5,7 +5,7 @@ const { GcpOidcTokenProvider } = require('./gcp-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
 function createMockServer(handlers = {}) {
-  return createBaseMockServer((url, req, res, body, routeHandlers) => {
+  return createBaseMockServer((url, req, res, routeHandlers, body) => {
     if (url.pathname === '/v1/token' && req.method === 'POST') {
       const handler = routeHandlers.stsToken || (() => ({
         statusCode: 200,
