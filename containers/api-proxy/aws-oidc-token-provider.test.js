@@ -2,58 +2,38 @@
 
 const http = require('http');
 const { AwsOidcTokenProvider } = require('./aws-oidc-token-provider');
+const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
 function createMockServer(handlers = {}) {
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const url = new URL(req.url, `http://localhost`);
-
-      // GitHub OIDC token endpoint
-      if (url.pathname === '/token' && req.method === 'GET') {
-        const handler = handlers.oidcToken || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({ value: 'mock-github-oidc-jwt', count: 1 }),
-        }));
-        const result = handler(url, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
-
-      // AWS STS AssumeRoleWithWebIdentity
-      if (url.pathname === '/' && url.searchParams.get('Action') === 'AssumeRoleWithWebIdentity') {
-        const handler = handlers.stsAssume || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({
-            AssumeRoleWithWebIdentityResponse: {
-              AssumeRoleWithWebIdentityResult: {
-                Credentials: {
-                  AccessKeyId: 'AKIAIOSFODNN7EXAMPLE',
-                  SecretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-                  SessionToken: 'FwoGZXIvYXdzEBYaDN...',
-                  Expiration: new Date(Date.now() + 3600000).toISOString(),
-                },
-                AssumedRoleUser: {
-                  AssumedRoleId: 'AROA3XFRBF23:awf-oidc-session',
-                  Arn: 'arn:aws:sts::123456789012:assumed-role/role/awf-oidc-session',
-                },
+  return createBaseMockServer((url, req, res, body, routeHandlers) => {
+    if (url.pathname === '/' && url.searchParams.get('Action') === 'AssumeRoleWithWebIdentity') {
+      const handler = routeHandlers.stsAssume || (() => ({
+        statusCode: 200,
+        body: JSON.stringify({
+          AssumeRoleWithWebIdentityResponse: {
+            AssumeRoleWithWebIdentityResult: {
+              Credentials: {
+                AccessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+                SecretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+                SessionToken: 'FwoGZXIvYXdzEBYaDN...',
+                Expiration: new Date(Date.now() + 3600000).toISOString(),
+              },
+              AssumedRoleUser: {
+                AssumedRoleId: 'AROA3XFRBF23:awf-oidc-session',
+                Arn: 'arn:aws:sts::123456789012:assumed-role/role/awf-oidc-session',
               },
             },
-          }),
-        }));
-        const result = handler(url, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
+          },
+        }),
+      }));
+      const result = handler(url, req);
+      res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+      res.end(result.body);
+      return true;
+    }
 
-      res.writeHead(404);
-      res.end('Not found');
-    });
-  });
-  return server;
+    return false;
+  }, handlers);
 }
 
 describe('AwsOidcTokenProvider', () => {

@@ -2,62 +2,41 @@
 
 const http = require('http');
 const { GcpOidcTokenProvider } = require('./gcp-oidc-token-provider');
+const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
 function createMockServer(handlers = {}) {
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const url = new URL(req.url, `http://localhost`);
+  return createBaseMockServer((url, req, res, body, routeHandlers) => {
+    if (url.pathname === '/v1/token' && req.method === 'POST') {
+      const handler = routeHandlers.stsToken || (() => ({
+        statusCode: 200,
+        body: JSON.stringify({
+          access_token: 'mock-federated-token',
+          expires_in: 3600,
+          token_type: 'Bearer',
+        }),
+      }));
+      const result = handler(body, req);
+      res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+      res.end(result.body);
+      return true;
+    }
 
-      // GitHub OIDC token endpoint
-      if (url.pathname === '/token' && req.method === 'GET') {
-        const handler = handlers.oidcToken || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({ value: 'mock-github-oidc-jwt', count: 1 }),
-        }));
-        const result = handler(url, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
+    if (url.pathname.includes(':generateAccessToken') && req.method === 'POST') {
+      const handler = routeHandlers.impersonate || (() => ({
+        statusCode: 200,
+        body: JSON.stringify({
+          accessToken: 'mock-sa-token',
+          expireTime: new Date(Date.now() + 3600000).toISOString(),
+        }),
+      }));
+      const result = handler(body, req);
+      res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+      res.end(result.body);
+      return true;
+    }
 
-      // GCP STS token exchange
-      if (url.pathname === '/v1/token' && req.method === 'POST') {
-        const handler = handlers.stsToken || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({
-            access_token: 'mock-federated-token',
-            expires_in: 3600,
-            token_type: 'Bearer',
-          }),
-        }));
-        const result = handler(body, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
-
-      // GCP service account impersonation
-      if (url.pathname.includes(':generateAccessToken') && req.method === 'POST') {
-        const handler = handlers.impersonate || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({
-            accessToken: 'mock-sa-token',
-            expireTime: new Date(Date.now() + 3600000).toISOString(),
-          }),
-        }));
-        const result = handler(body, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
-
-      res.writeHead(404);
-      res.end('Not found');
-    });
-  });
-  return server;
+    return false;
+  }, handlers);
 }
 
 describe('GcpOidcTokenProvider', () => {

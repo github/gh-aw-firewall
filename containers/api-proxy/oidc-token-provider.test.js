@@ -3,44 +3,24 @@
 const http = require('http');
 const { httpPost } = require('./github-oidc');
 const { OidcTokenProvider } = require('./oidc-token-provider');
+const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
 
 // Helper to create a mock HTTP server that responds to token requests
 function createMockOidcServer(handlers = {}) {
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const url = new URL(req.url, `http://localhost`);
+  return createBaseMockServer((url, req, res, body, routeHandlers) => {
+    if (url.pathname.includes('/oauth2/v2.0/token') && req.method === 'POST') {
+      const handler = routeHandlers.azureToken || (() => ({
+        statusCode: 200,
+        body: JSON.stringify({ access_token: 'mock-azure-ad-token', expires_in: 3600 }),
+      }));
+      const result = handler(body, req);
+      res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+      res.end(result.body);
+      return true;
+    }
 
-      // GitHub OIDC token endpoint
-      if (url.pathname === '/token' && req.method === 'GET') {
-        const handler = handlers.oidcToken || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({ value: 'mock-github-oidc-jwt', count: 1 }),
-        }));
-        const result = handler(url, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
-
-      // Azure token exchange endpoint
-      if (url.pathname.includes('/oauth2/v2.0/token') && req.method === 'POST') {
-        const handler = handlers.azureToken || (() => ({
-          statusCode: 200,
-          body: JSON.stringify({ access_token: 'mock-azure-ad-token', expires_in: 3600 }),
-        }));
-        const result = handler(body, req);
-        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
-        res.end(result.body);
-        return;
-      }
-
-      res.writeHead(404);
-      res.end('Not found');
-    });
-  });
-  return server;
+    return false;
+  }, handlers);
 }
 
 describe('OidcTokenProvider', () => {
