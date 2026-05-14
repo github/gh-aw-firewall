@@ -19,7 +19,8 @@ COPY server.js logging.js metrics.js rate-limiter.js token-tracker.js \
      model-resolver.js proxy-utils.js anthropic-transforms.js \
      proxy-request.js model-discovery.js management.js oidc-token-provider.js \
      github-oidc.js aws-oidc-token-provider.js gcp-oidc-token-provider.js \
-     oidc-refresh-utils.js ./
+     oidc-refresh-utils.js body-transform.js rate-limit.js websocket-proxy.js ./
+COPY guards/ ./guards/
 COPY providers/ ./providers/
 
 # Create non-root user
