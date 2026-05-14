@@ -23,6 +23,7 @@ function resetIpv6State(): void {
 }
 
 /** @internal Test-only helpers */
+// ts-prune-ignore-next
 export const _testing = { resetIpv6State };
 
 /**

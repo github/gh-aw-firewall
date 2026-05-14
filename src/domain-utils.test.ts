@@ -266,17 +266,6 @@ describe('isAgentImagePreset', () => {
   });
 });
 
-describe('isAgentImagePreset', () => {
-  it('should recognize default and act as presets', () => {
-    expect(isAgentImagePreset('default')).toBe(true);
-    expect(isAgentImagePreset('act')).toBe(true);
-  });
-
-  it('should reject non-preset values', () => {
-    expect(isAgentImagePreset('custom')).toBe(false);
-  });
-});
-
 describe('validateAgentImage', () => {
   describe('presets', () => {
     it('should accept "default" preset', () => {

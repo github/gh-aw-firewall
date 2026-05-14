@@ -76,18 +76,3 @@ export function detectHostDnsServers(logger?: Logger): string[] {
   log.warn(`Could not detect host DNS servers; falling back to ${DEFAULT_DNS_SERVERS.join(', ')}`);
   return DEFAULT_DNS_SERVERS;
 }
-
-/**
- * Return the effective DNS server list.
- * If the user explicitly passed --dns-servers, use those.
- * Otherwise, auto-detect from the host.
- */
-function getEffectiveDnsServers(explicit: string[] | undefined, logger?: Logger): string[] {
-  if (explicit && explicit.length > 0) {
-    return explicit;
-  }
-  return detectHostDnsServers(logger);
-}
-
-/** @internal Test-only helpers */
-export const _testing = { getEffectiveDnsServers };

@@ -98,24 +98,11 @@ export function validateEnableTokenSteeringFlag(enableApiProxy: boolean, enableT
 }
 
 /**
- * Checks if any rate limit options are set in the CLI options.
- * Used to warn when rate limit flags are provided without --enable-api-proxy.
- */
-/**
  * Commander option accumulator for repeatable --ruleset-file flag.
  * Collects multiple values into an array.
  */
 export function collectRulesetFile(value: string, previous: string[] = []): string[] {
   return [...previous, value];
-}
-
-function hasRateLimitOptions(options: {
-  rateLimitRpm?: string;
-  rateLimitRph?: string;
-  rateLimitBytesPm?: string;
-  rateLimit?: boolean;
-}): boolean {
-  return !!(options.rateLimitRpm || options.rateLimitRph || options.rateLimitBytesPm || options.rateLimit === false);
 }
 
 /**
@@ -647,6 +634,3 @@ export function formatItem(
   }
   return `${indentStr}${term}`;
 }
-
-/** @internal Test-only helpers */
-export const _testing = { hasRateLimitOptions };

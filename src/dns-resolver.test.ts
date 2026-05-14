@@ -1,5 +1,4 @@
-import { parseResolvConf, detectHostDnsServers, _testing, DEFAULT_DNS_SERVERS } from './dns-resolver';
-const { getEffectiveDnsServers } = _testing;
+import { parseResolvConf, detectHostDnsServers, DEFAULT_DNS_SERVERS } from './dns-resolver';
 import * as fs from 'fs';
 
 jest.mock('fs');
@@ -113,27 +112,6 @@ describe('detectHostDnsServers', () => {
     );
     const result = detectHostDnsServers(mockLogger as any);
     expect(result).toEqual(['2001:4860:4860::8888']);
-  });
-});
-
-describe('getEffectiveDnsServers', () => {
-  it('returns explicit servers when provided', () => {
-    const result = getEffectiveDnsServers(['1.1.1.1', '9.9.9.9'], mockLogger as any);
-    expect(result).toEqual(['1.1.1.1', '9.9.9.9']);
-  });
-
-  it('calls auto-detect when explicit is undefined', () => {
-    mockedFs.readFileSync.mockReturnValue('nameserver 9.9.9.9\n');
-    const result = getEffectiveDnsServers(undefined, mockLogger as any);
-    expect(result).toEqual(['9.9.9.9']);
-  });
-
-  it('calls auto-detect when explicit is empty array', () => {
-    mockedFs.readFileSync.mockImplementation(() => {
-      throw new Error('ENOENT');
-    });
-    const result = getEffectiveDnsServers([], mockLogger as any);
-    expect(result).toEqual(DEFAULT_DNS_SERVERS);
   });
 });
 

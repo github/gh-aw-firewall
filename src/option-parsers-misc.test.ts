@@ -5,7 +5,6 @@ import {
   validateRateLimitFlags,
   validateEnableOpenCodeFlag,
   validateEnableTokenSteeringFlag,
-  _testing,
   parseMemoryLimit,
   parseAgentTimeout,
   applyAgentTimeout,
@@ -15,7 +14,6 @@ import {
   formatItem,
   parseModelMultipliersCli,
 } from './option-parsers';
-const { hasRateLimitOptions } = _testing;
 
 describe('validateSkipPullWithBuildLocal', () => {
   it('should return valid when both flags are false', () => {
@@ -166,32 +164,6 @@ describe('validateEnableTokenSteeringFlag', () => {
     const r = validateEnableTokenSteeringFlag(false, true);
     expect(r.valid).toBe(false);
     expect(r.error).toContain('--enable-api-proxy');
-  });
-});
-
-describe('hasRateLimitOptions', () => {
-  it('should return false when no rate limit options set', () => {
-    expect(hasRateLimitOptions({})).toBe(false);
-  });
-
-  it('should return true when rateLimitRpm is set', () => {
-    expect(hasRateLimitOptions({ rateLimitRpm: '30' })).toBe(true);
-  });
-
-  it('should return true when rateLimitRph is set', () => {
-    expect(hasRateLimitOptions({ rateLimitRph: '1000' })).toBe(true);
-  });
-
-  it('should return true when rateLimitBytesPm is set', () => {
-    expect(hasRateLimitOptions({ rateLimitBytesPm: '1048576' })).toBe(true);
-  });
-
-  it('should return true when rateLimit is explicitly false (--no-rate-limit)', () => {
-    expect(hasRateLimitOptions({ rateLimit: false })).toBe(true);
-  });
-
-  it('should return false when rateLimit is true', () => {
-    expect(hasRateLimitOptions({ rateLimit: true })).toBe(false);
   });
 });
 

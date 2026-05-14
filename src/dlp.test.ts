@@ -1,5 +1,10 @@
-import { DLP_PATTERNS, generateDlpSquidConfig, _testing } from './dlp';
-const { scanForCredentials } = _testing;
+import { DLP_PATTERNS, generateDlpSquidConfig } from './dlp';
+
+function scanForCredentialsUsingPatterns(input: string): string[] {
+  return DLP_PATTERNS
+    .filter(pattern => new RegExp(pattern.regex, 'i').test(input))
+    .map(pattern => pattern.name);
+}
 
 describe('DLP Patterns', () => {
   describe('DLP_PATTERNS', () => {
@@ -25,35 +30,35 @@ describe('DLP Patterns', () => {
   describe('scanForCredentials', () => {
     // GitHub tokens
     it('should detect GitHub personal access token (ghp_)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
       expect(matches).toContain('GitHub Personal Access Token (classic)');
     });
 
     it('should detect GitHub OAuth token (gho_)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij/resource'
       );
       expect(matches).toContain('GitHub OAuth Access Token');
     });
 
     it('should detect GitHub App installation token (ghs_)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
       expect(matches).toContain('GitHub App Installation Token');
     });
 
     it('should detect GitHub App user-to-server token (ghu_)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=ghu_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
       expect(matches).toContain('GitHub App User-to-Server Token');
     });
 
     it('should detect GitHub fine-grained PAT (github_pat_)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=github_pat_1234567890abcdefghijkl_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456'
       );
       expect(matches).toContain('GitHub Fine-Grained PAT');
@@ -62,14 +67,14 @@ describe('DLP Patterns', () => {
     // OpenAI - use concatenation to avoid push protection triggering on test data
     it('should detect OpenAI API key (sk-...T3BlbkFJ)', () => {
       const fakeKey = 'sk-' + '1'.repeat(20) + 'T3BlbkFJ' + '2'.repeat(20);
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=' + fakeKey
       );
       expect(matches).toContain('OpenAI API Key');
     });
 
     it('should detect OpenAI project API key (sk-proj-)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=sk-proj-' + 'a'.repeat(50)
       );
       expect(matches).toContain('OpenAI Project API Key');
@@ -77,7 +82,7 @@ describe('DLP Patterns', () => {
 
     // Anthropic
     it('should detect Anthropic API key (sk-ant-)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=sk-ant-' + 'a'.repeat(50)
       );
       expect(matches).toContain('Anthropic API Key');
@@ -85,7 +90,7 @@ describe('DLP Patterns', () => {
 
     // AWS
     it('should detect AWS access key ID (AKIA)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=AKIAIOSFODNN7EXAMPLE'
       );
       expect(matches).toContain('AWS Access Key ID');
@@ -93,7 +98,7 @@ describe('DLP Patterns', () => {
 
     // Google
     it('should detect Google API key (AIza)', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=AIzaSyA' + 'a'.repeat(32)
       );
       expect(matches).toContain('Google API Key');
@@ -102,7 +107,7 @@ describe('DLP Patterns', () => {
     // Slack - use concatenation to avoid push protection triggering on test data
     it('should detect Slack bot token (xoxb-)', () => {
       const fakeToken = 'xoxb-' + '1234567890' + '-' + '1234567890' + '-' + 'ABCDEFGHIJKLMNOPQRSTUV' + 'wx';
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?token=' + fakeToken
       );
       expect(matches).toContain('Slack Bot Token');
@@ -110,28 +115,28 @@ describe('DLP Patterns', () => {
 
     // Generic patterns
     it('should detect bearer token in URL parameter', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?bearer=abcdefghijklmnopqrstuvwxyz1234'
       );
       expect(matches).toContain('Bearer Token in URL');
     });
 
     it('should detect authorization in URL parameter', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?authorization=abcdefghijklmnopqrstuvwxyz1234'
       );
       expect(matches).toContain('Authorization in URL');
     });
 
     it('should detect private key markers', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?content=BEGIN+PRIVATE+KEY'
       );
       expect(matches).toContain('Private Key Marker');
     });
 
     it('should detect URL-encoded private key markers', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?content=BEGIN%20PRIVATE%20KEY'
       );
       expect(matches).toContain('Private Key Marker');
@@ -139,17 +144,17 @@ describe('DLP Patterns', () => {
 
     // Negative cases
     it('should not match short strings that look like token prefixes', () => {
-      const matches = scanForCredentials('https://api.example.com/ghp_short');
+      const matches = scanForCredentialsUsingPatterns('https://api.example.com/ghp_short');
       expect(matches).not.toContain('GitHub Personal Access Token (classic)');
     });
 
     it('should return empty array for clean URLs', () => {
-      const matches = scanForCredentials('https://api.github.com/repos/owner/repo');
+      const matches = scanForCredentialsUsingPatterns('https://api.github.com/repos/owner/repo');
       expect(matches).toHaveLength(0);
     });
 
     it('should return empty array for empty string', () => {
-      const matches = scanForCredentials('');
+      const matches = scanForCredentialsUsingPatterns('');
       expect(matches).toHaveLength(0);
     });
 
@@ -162,13 +167,13 @@ describe('DLP Patterns', () => {
         'https://slack.com/api/chat.postMessage',
       ];
       for (const url of urls) {
-        const matches = scanForCredentials(url);
+        const matches = scanForCredentialsUsingPatterns(url);
         expect(matches).toHaveLength(0);
       }
     });
 
     it('should detect multiple credential types in one URL', () => {
-      const matches = scanForCredentials(
+      const matches = scanForCredentialsUsingPatterns(
         'https://evil.com/?gh=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij&aws=AKIAIOSFODNN7EXAMPLE'
       );
       expect(matches).toContain('GitHub Personal Access Token (classic)');
