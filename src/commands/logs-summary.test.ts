@@ -6,7 +6,11 @@ import { summaryCommand } from './logs-summary';
 
 type SummaryCommandOptions = Parameters<typeof summaryCommand>[0];
 import { logger } from '../logger';
-import { createLogCommandTests, createLogCommandTestHarness } from './test-helpers.test-utils';
+import {
+  createLogCommandTests,
+  createLogCommandTestHarness,
+  setupEmptyStatsHarness,
+} from './test-helpers.test-utils';
 
 // Mock dependencies
 jest.mock('../logs/log-discovery');
@@ -56,19 +60,7 @@ describe('logs-summary command - logging behavior', () => {
       path: '/tmp/squid-logs-123',
       dateStr: 'Mon Jan 01 2024',
     };
-    const emptyStats = {
-      totalRequests: 0,
-      allowedRequests: 0,
-      deniedRequests: 0,
-      uniqueDomains: 0,
-      byDomain: new Map(),
-      timeRange: null,
-    };
-
-    harness.mockedDiscovery.discoverLogSources.mockResolvedValue([mockSource]);
-    harness.mockedDiscovery.selectMostRecent.mockReturnValue(mockSource);
-    harness.mockedAggregator.loadAndAggregate.mockResolvedValue(emptyStats);
-    harness.mockedFormatter.formatStats.mockReturnValue('');
+    setupEmptyStatsHarness(harness, mockSource);
 
     // pretty: shouldLog returns true → logger.info should be called
     await summaryCommand({ format: 'pretty' });
