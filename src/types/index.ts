@@ -10,13 +10,6 @@ export {
 
 export {
   type WrapperConfig,
-  type ContainerImageOptions,
-  type NetworkOptions,
-  type VolumeOptions,
-  type SecurityOptions,
-  type ApiProxyOptions,
-  type RateLimitOptions,
-  type RuntimeOptions,
 } from './wrapper-config';
 
 export { type UpstreamProxyConfig } from './upstream-proxy';
