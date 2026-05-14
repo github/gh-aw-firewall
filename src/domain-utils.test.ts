@@ -4,7 +4,6 @@ import {
   isValidIPv4,
   isValidIPv6,
   isAgentImagePreset,
-  AGENT_IMAGE_PRESETS,
   validateAgentImage,
   processAgentImageOption,
   DEFAULT_OPENAI_API_TARGET,
@@ -267,11 +266,14 @@ describe('isAgentImagePreset', () => {
   });
 });
 
-describe('AGENT_IMAGE_PRESETS', () => {
-  it('should contain default and act', () => {
-    expect(AGENT_IMAGE_PRESETS).toContain('default');
-    expect(AGENT_IMAGE_PRESETS).toContain('act');
-    expect(AGENT_IMAGE_PRESETS.length).toBe(2);
+describe('isAgentImagePreset', () => {
+  it('should recognize default and act as presets', () => {
+    expect(isAgentImagePreset('default')).toBe(true);
+    expect(isAgentImagePreset('act')).toBe(true);
+  });
+
+  it('should reject non-preset values', () => {
+    expect(isAgentImagePreset('custom')).toBe(false);
   });
 });
 

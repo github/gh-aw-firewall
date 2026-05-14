@@ -1,4 +1,5 @@
-import { DLP_PATTERNS, scanForCredentials, generateDlpSquidConfig } from './dlp';
+import { DLP_PATTERNS, generateDlpSquidConfig, _testing } from './dlp';
+const { scanForCredentials } = _testing;
 
 describe('DLP Patterns', () => {
   describe('DLP_PATTERNS', () => {

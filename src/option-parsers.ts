@@ -109,7 +109,7 @@ export function collectRulesetFile(value: string, previous: string[] = []): stri
   return [...previous, value];
 }
 
-export function hasRateLimitOptions(options: {
+function hasRateLimitOptions(options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
@@ -647,3 +647,6 @@ export function formatItem(
   }
   return `${indentStr}${term}`;
 }
+
+/** @internal Test-only helpers */
+export const _testing = { hasRateLimitOptions };

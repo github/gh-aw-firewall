@@ -80,7 +80,7 @@ export function isValidIPv6(ip: string): boolean {
 /**
  * Pre-defined agent image presets
  */
-export const AGENT_IMAGE_PRESETS = ['default', 'act'] as const;
+const AGENT_IMAGE_PRESETS = ['default', 'act'] as const;
 
 /**
  * Safe patterns for custom agent base images to prevent supply chain attacks.

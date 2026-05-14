@@ -1,13 +1,13 @@
 import { API_PROXY_PORTS } from './types';
 import { execaError, execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { isValidPortSpec, setupHostIptables } from './host-iptables';
-import { _resetIpv6State } from './host-iptables-shared';
+import { _testing } from './host-iptables-shared';
 
 // setupHostIptables intentionally allows the inclusive min:max API proxy port window.
 const apiProxyPortRange = `${Math.min(...Object.values(API_PROXY_PORTS))}:${Math.max(...Object.values(API_PROXY_PORTS))}`;
 
 describe('host-iptables (setup)', () => {
-  setupHostIptablesTestSuite(_resetIpv6State);
+  setupHostIptablesTestSuite(_testing.resetIpv6State);
 
   describe('setupHostIptables', () => {
     it('should throw error if iptables permission denied', async () => {

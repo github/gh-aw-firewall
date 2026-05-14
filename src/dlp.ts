@@ -134,7 +134,7 @@ export const DLP_PATTERNS: DlpPattern[] = [
  * @param input - The string to scan (URL, query parameter, etc.)
  * @returns Array of matched pattern names, empty if no matches
  */
-export function scanForCredentials(input: string): string[] {
+function scanForCredentials(input: string): string[] {
   const matches: string[] = [];
   for (const pattern of DLP_PATTERNS) {
     const regex = new RegExp(pattern.regex, 'i');
@@ -174,3 +174,6 @@ export function generateDlpSquidConfig(): { aclLines: string[]; accessRules: str
 
   return { aclLines, accessRules };
 }
+
+/** @internal Test-only helpers */
+export const _testing = { scanForCredentials };

@@ -1,4 +1,5 @@
-import { parseResolvConf, detectHostDnsServers, getEffectiveDnsServers, DEFAULT_DNS_SERVERS } from './dns-resolver';
+import { parseResolvConf, detectHostDnsServers, _testing, DEFAULT_DNS_SERVERS } from './dns-resolver';
+const { getEffectiveDnsServers } = _testing;
 import * as fs from 'fs';
 
 jest.mock('fs');

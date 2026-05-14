@@ -5,7 +5,7 @@ import {
   validateRateLimitFlags,
   validateEnableOpenCodeFlag,
   validateEnableTokenSteeringFlag,
-  hasRateLimitOptions,
+  _testing,
   parseMemoryLimit,
   parseAgentTimeout,
   applyAgentTimeout,
@@ -15,6 +15,7 @@ import {
   formatItem,
   parseModelMultipliersCli,
 } from './option-parsers';
+const { hasRateLimitOptions } = _testing;
 
 describe('validateSkipPullWithBuildLocal', () => {
   it('should return valid when both flags are false', () => {

@@ -82,9 +82,12 @@ export function detectHostDnsServers(logger?: Logger): string[] {
  * If the user explicitly passed --dns-servers, use those.
  * Otherwise, auto-detect from the host.
  */
-export function getEffectiveDnsServers(explicit: string[] | undefined, logger?: Logger): string[] {
+function getEffectiveDnsServers(explicit: string[] | undefined, logger?: Logger): string[] {
   if (explicit && explicit.length > 0) {
     return explicit;
   }
   return detectHostDnsServers(logger);
 }
+
+/** @internal Test-only helpers */
+export const _testing = { getEffectiveDnsServers };
