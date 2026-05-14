@@ -59,14 +59,23 @@ RUN set -eux; \
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
     # Install Node.js 22 from NodeSource
     # Check if Node.js 22 is already installed (common in runner images)
-    if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v22\.'; then \
+    # Note: node --version segfaults under QEMU arm64 emulation, so detect QEMU
+    # and skip the pre-check — just always install from NodeSource on QEMU.
+    UNDER_QEMU=false && \
+    if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
+    if [ "$UNDER_QEMU" = "true" ] || ! command -v node >/dev/null 2>&1 || ! node --version 2>/dev/null | grep -qE '^v22\.'; then \
         # Remove any existing nodejs packages first to avoid conflicts
         apt-get remove -y nodejs npm || true && \
         curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
         apt-get install -y nodejs && \
-        # Verify Node.js 22 was installed correctly
-        node --version | grep -q "^v22\." || (echo "ERROR: Node.js 22 not installed correctly" && exit 1) && \
-        npx --version || (echo "ERROR: npx not found" && exit 1); \
+        # Verify Node.js 22 was installed correctly (skip under QEMU — node segfaults)
+        if [ "$UNDER_QEMU" = "true" ]; then \
+            echo "Skipping node --version check (QEMU emulation detected)" && \
+            dpkg -l nodejs | grep -q "22\." || (echo "ERROR: nodejs 22 package not installed" && exit 1); \
+        else \
+            node --version | grep -q "^v22\." || (echo "ERROR: Node.js 22 not installed correctly" && exit 1) && \
+            npx --version || (echo "ERROR: npx not found" && exit 1); \
+        fi; \
     fi && \
     rm -rf /var/lib/apt/lists/*
 
