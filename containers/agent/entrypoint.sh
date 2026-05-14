@@ -742,12 +742,12 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # Actions runner normally does with GITHUB_PATH, preserving the version chosen
 # by setup-ruby / setup-python / setup-node / etc.
 if [ -n "${GITHUB_PATH}" ] && [ -f "${GITHUB_PATH}" ]; then
-  _gp_prefix=""
+  _github_path_prefix=""
   while IFS= read -r _gp_entry; do
     [ -z "${_gp_entry}" ] && continue
-    _gp_prefix="${_gp_prefix}${_gp_entry}:"
+    _github_path_prefix="${_github_path_prefix}${_gp_entry}:"
   done < "${GITHUB_PATH}"
-  [ -n "${_gp_prefix}" ] && export PATH="${_gp_prefix}${PATH}"
+  [ -n "${_github_path_prefix}" ] && export PATH="${_github_path_prefix}${PATH}"
 fi
 # Dynamically scan /opt/hostedtoolcache for all installed tool bin directories
 # This covers tools installed by any setup-* action (setup-ruby, setup-dart,
