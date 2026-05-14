@@ -8,9 +8,7 @@ export {
   CLI_PROXY_PORT,
 } from './ports';
 
-export {
-  type WrapperConfig,
-} from './wrapper-config';
+export type * from './wrapper-config';
 
 export { type UpstreamProxyConfig } from './upstream-proxy';
 export { type LogLevel } from './log-level';
