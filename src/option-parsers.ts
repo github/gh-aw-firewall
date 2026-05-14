@@ -1,50 +1,28 @@
-import { WrapperConfig, RateLimitConfig } from './types';
-import { isValidIPv4, isValidIPv6 } from './domain-utils';
-
-/**
- * Builds a RateLimitConfig from parsed CLI options.
- */
-export function buildRateLimitConfig(options: {
-  rateLimit?: boolean;
-  rateLimitRpm?: string;
-  rateLimitRph?: string;
-  rateLimitBytesPm?: string;
-}): { config: RateLimitConfig } | { error: string } {
-  // --no-rate-limit explicitly disables (even if other flags are set)
-  if (options.rateLimit === false) {
-    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
-  }
-
-  // Rate limiting is opt-in: disabled unless at least one --rate-limit-* flag is provided
-  const hasAnyLimit = options.rateLimitRpm !== undefined ||
-    options.rateLimitRph !== undefined ||
-    options.rateLimitBytesPm !== undefined;
-
-  if (!hasAnyLimit) {
-    return { config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 } };
-  }
-
-  // Defaults for any limit not explicitly set
-  const config: RateLimitConfig = { enabled: true, rpm: 600, rph: 10000, bytesPm: 52428800 };
-
-  if (options.rateLimitRpm !== undefined) {
-    const rpm = parseInt(options.rateLimitRpm, 10);
-    if (isNaN(rpm) || rpm <= 0) return { error: '--rate-limit-rpm must be a positive integer' };
-    config.rpm = rpm;
-  }
-  if (options.rateLimitRph !== undefined) {
-    const rph = parseInt(options.rateLimitRph, 10);
-    if (isNaN(rph) || rph <= 0) return { error: '--rate-limit-rph must be a positive integer' };
-    config.rph = rph;
-  }
-  if (options.rateLimitBytesPm !== undefined) {
-    const bytesPm = parseInt(options.rateLimitBytesPm, 10);
-    if (isNaN(bytesPm) || bytesPm <= 0) return { error: '--rate-limit-bytes-pm must be a positive integer' };
-    config.bytesPm = bytesPm;
-  }
-
-  return { config };
-}
+import { WrapperConfig } from './types';
+import {
+  buildRateLimitConfig as buildRateLimitConfigImpl,
+  validateRateLimitFlags as validateRateLimitFlagsImpl,
+  validateEnableOpenCodeFlag as validateEnableOpenCodeFlagImpl,
+  validateEnableTokenSteeringFlag as validateEnableTokenSteeringFlagImpl,
+} from './parsers/rate-limit-parsers';
+import {
+  validateAllowHostPorts as validateAllowHostPortsImpl,
+  validateAllowHostServicePorts as validateAllowHostServicePortsImpl,
+  applyHostServicePortsConfig as applyHostServicePortsConfigImpl,
+} from './parsers/host-port-parsers';
+import {
+  parseDnsServers as parseDnsServersImpl,
+  parseDnsOverHttps as parseDnsOverHttpsImpl,
+  processLocalhostKeyword as processLocalhostKeywordImpl,
+} from './parsers/dns-parsers';
+import {
+  escapeShellArg as escapeShellArgImpl,
+  joinShellArgs as joinShellArgsImpl,
+} from './parsers/shell-utils';
+import {
+  parseEnvironmentVariables as parseEnvironmentVariablesImpl,
+  parseVolumeMounts as parseVolumeMountsImpl,
+} from './parsers/volume-parsers';
 
 /**
  * Result of validating flag combinations
@@ -57,6 +35,18 @@ interface FlagValidationResult {
 }
 
 /**
+ * Builds a RateLimitConfig from parsed CLI options.
+ */
+export function buildRateLimitConfig(options: {
+  rateLimit?: boolean;
+  rateLimitRpm?: string;
+  rateLimitRph?: string;
+  rateLimitBytesPm?: string;
+}): ReturnType<typeof buildRateLimitConfigImpl> {
+  return buildRateLimitConfigImpl(options);
+}
+
+/**
  * Validates that rate-limit flags are not used without --enable-api-proxy.
  */
 export function validateRateLimitFlags(enableApiProxy: boolean, options: {
@@ -65,36 +55,21 @@ export function validateRateLimitFlags(enableApiProxy: boolean, options: {
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
 }): FlagValidationResult {
-  if (!enableApiProxy) {
-    const hasRateLimitFlags = options.rateLimitRpm !== undefined ||
-      options.rateLimitRph !== undefined ||
-      options.rateLimitBytesPm !== undefined ||
-      options.rateLimit === false;
-    if (hasRateLimitFlags) {
-      return { valid: false, error: 'Rate limit flags require --enable-api-proxy' };
-    }
-  }
-  return { valid: true };
+  return validateRateLimitFlagsImpl(enableApiProxy, options);
 }
 
 /**
  * Validates that --enable-opencode is not used without --enable-api-proxy.
  */
 export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCode: boolean): FlagValidationResult {
-  if (enableOpenCode && !enableApiProxy) {
-    return { valid: false, error: '--enable-opencode requires --enable-api-proxy' };
-  }
-  return { valid: true };
+  return validateEnableOpenCodeFlagImpl(enableApiProxy, enableOpenCode);
 }
 
 /**
  * Validates that --enable-token-steering is not used without --enable-api-proxy.
  */
 export function validateEnableTokenSteeringFlag(enableApiProxy: boolean, enableTokenSteering: boolean): FlagValidationResult {
-  if (enableTokenSteering && !enableApiProxy) {
-    return { valid: false, error: '--enable-token-steering requires --enable-api-proxy' };
-  }
-  return { valid: true };
+  return validateEnableTokenSteeringFlagImpl(enableApiProxy, enableTokenSteering);
 }
 
 /**
@@ -134,13 +109,7 @@ export function validateAllowHostPorts(
   allowHostPorts: string | undefined,
   enableHostAccess: boolean | undefined
 ): FlagValidationResult {
-  if (allowHostPorts && !enableHostAccess) {
-    return {
-      valid: false,
-      error: '--allow-host-ports requires --enable-host-access to be set',
-    };
-  }
-  return { valid: true };
+  return validateAllowHostPortsImpl(allowHostPorts, enableHostAccess);
 }
 
 /**
@@ -154,31 +123,7 @@ export function validateAllowHostServicePorts(
   allowHostServicePorts: string | undefined,
   enableHostAccess: boolean | undefined
 ): FlagValidationResult & { autoEnableHostAccess?: boolean } {
-  if (!allowHostServicePorts) {
-    return { valid: true };
-  }
-
-  const servicePorts = allowHostServicePorts.split(',').map(p => p.trim());
-  for (const port of servicePorts) {
-    if (!/^\d+$/.test(port)) {
-      return {
-        valid: false,
-        error: `Invalid port in --allow-host-service-ports: ${port}. Must be a numeric value`,
-      };
-    }
-    const portNum = parseInt(port, 10);
-    if (portNum < 1 || portNum > 65535) {
-      return {
-        valid: false,
-        error: `Invalid port in --allow-host-service-ports: ${port}. Must be a number between 1 and 65535`,
-      };
-    }
-  }
-
-  return {
-    valid: true,
-    autoEnableHostAccess: !enableHostAccess,
-  };
+  return validateAllowHostServicePortsImpl(allowHostServicePorts, enableHostAccess);
 }
 
 /**
@@ -193,23 +138,7 @@ export function applyHostServicePortsConfig(
   enableHostAccess: boolean | undefined,
   log: { warn: (msg: string) => void; info: (msg: string) => void }
 ): { valid: true; enableHostAccess: boolean | undefined } | { valid: false; error: string } {
-  const validation = validateAllowHostServicePorts(allowHostServicePorts, enableHostAccess);
-  if (!validation.valid) {
-    return { valid: false, error: validation.error! };
-  }
-
-  if (allowHostServicePorts) {
-    log.warn('--allow-host-service-ports bypasses dangerous port restrictions for host-local traffic.');
-    log.warn('Ensure host services on these ports do not provide external network access.');
-
-    if (validation.autoEnableHostAccess) {
-      log.warn('--allow-host-service-ports automatically enabling host access (ports 80/443 to host gateway also opened)');
-      enableHostAccess = true;
-    }
-    log.info(`Host service ports allowed (host gateway only): ${allowHostServicePorts}`);
-  }
-
-  return { valid: true, enableHostAccess };
+  return applyHostServicePortsConfigImpl(allowHostServicePorts, enableHostAccess, log);
 }
 
 /**
@@ -327,25 +256,8 @@ export function resolveDockerHostPathPrefix(
  * @throws Error if any IP address is invalid or if the list is empty
  */
 export function parseDnsServers(input: string): string[] {
-  const servers = input
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
-  if (servers.length === 0) {
-    throw new Error('At least one DNS server must be specified');
-  }
-
-  for (const server of servers) {
-    if (!isValidIPv4(server) && !isValidIPv6(server)) {
-      throw new Error(`Invalid DNS server IP address: ${server}`);
-    }
-  }
-
-  return servers;
+  return parseDnsServersImpl(input);
 }
-
-const DEFAULT_DOH_RESOLVER = 'https://dns.google/dns-query';
 
 /**
  * Parses and validates the --dns-over-https option value.
@@ -355,28 +267,7 @@ const DEFAULT_DOH_RESOLVER = 'https://dns.google/dns-query';
 export function parseDnsOverHttps(
   value: boolean | string | undefined
 ): { url: string } | { error: string } | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const resolvedUrl: string = value === true ? DEFAULT_DOH_RESOLVER : String(value);
-  if (!resolvedUrl.startsWith('https://')) {
-    return { error: '--dns-over-https resolver URL must start with https://' };
-  }
-  return { url: resolvedUrl };
-}
-
-/**
- * Result of processing the localhost keyword in allowed domains
- */
-interface LocalhostProcessingResult {
-  /** Updated array of allowed domains with localhost replaced by host.docker.internal */
-  allowedDomains: string[];
-  /** Whether the localhost keyword was found and processed */
-  localhostDetected: boolean;
-  /** Whether host access should be enabled (if not already enabled) */
-  shouldEnableHostAccess: boolean;
-  /** Default port list to use if no custom ports were specified */
-  defaultPorts?: string;
+  return parseDnsOverHttpsImpl(value);
 }
 
 /**
@@ -388,45 +279,13 @@ interface LocalhostProcessingResult {
  * @param allowedDomains - Array of allowed domains (may include localhost variants)
  * @param enableHostAccess - Whether host access is already enabled
  * @param allowHostPorts - Custom host ports if already specified
- * @returns LocalhostProcessingResult with the processed values
  */
 export function processLocalhostKeyword(
   allowedDomains: string[],
   enableHostAccess: boolean,
   allowHostPorts: string | undefined
-): LocalhostProcessingResult {
-  const localhostIndex = allowedDomains.findIndex(d => 
-    d === 'localhost' || d === 'http://localhost' || d === 'https://localhost'
-  );
-
-  if (localhostIndex === -1) {
-    return {
-      allowedDomains,
-      localhostDetected: false,
-      shouldEnableHostAccess: false,
-    };
-  }
-
-  // Remove localhost and replace with host.docker.internal
-  const localhostValue = allowedDomains[localhostIndex];
-  const updatedDomains = [...allowedDomains];
-  updatedDomains.splice(localhostIndex, 1);
-  
-  // Preserve protocol if specified
-  if (localhostValue.startsWith('http://')) {
-    updatedDomains.push('http://host.docker.internal');
-  } else if (localhostValue.startsWith('https://')) {
-    updatedDomains.push('https://host.docker.internal');
-  } else {
-    updatedDomains.push('host.docker.internal');
-  }
-
-  return {
-    allowedDomains: updatedDomains,
-    localhostDetected: true,
-    shouldEnableHostAccess: !enableHostAccess,
-    defaultPorts: allowHostPorts ? undefined : '3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090',
-  };
+): ReturnType<typeof processLocalhostKeywordImpl> {
+  return processLocalhostKeywordImpl(allowedDomains, enableHostAccess, allowHostPorts);
 }
 
 /**
@@ -435,15 +294,7 @@ export function processLocalhostKeyword(
  * @returns Escaped argument safe for shell execution
  */
 export function escapeShellArg(arg: string): string {
-  // If the argument doesn't contain special characters, return as-is
-  // Character class includes: letters, digits, underscore, dash, dot (literal), slash, equals, colon
-  if (/^[a-zA-Z0-9_\-./=:]+$/.test(arg)) {
-    return arg;
-  }
-  // Otherwise, wrap in single quotes and escape any single quotes inside
-  // The pattern '\\'' works by: ending the single-quoted string ('),
-  // adding an escaped single quote (\'), then starting a new single-quoted string (')
-  return `'${arg.replace(/'/g, "'\\''")}'`;
+  return escapeShellArgImpl(arg);
 }
 
 /**
@@ -452,7 +303,7 @@ export function escapeShellArg(arg: string): string {
  * @returns Command string with properly escaped arguments
  */
 export function joinShellArgs(args: string[]): string {
-  return args.map(escapeShellArg).join(' ');
+  return joinShellArgsImpl(args);
 }
 
 /**
@@ -463,18 +314,7 @@ export function joinShellArgs(args: string[]): string {
 export function parseEnvironmentVariables(
   envVars: string[]
 ): { success: true; env: Record<string, string> } | { success: false; invalidVar: string } {
-  const result: Record<string, string> = {};
-
-  for (const envVar of envVars) {
-    const match = envVar.match(/^([^=]+)=(.*)$/);
-    if (!match) {
-      return { success: false, invalidVar: envVar };
-    }
-    const [, key, value] = match;
-    result[key] = value;
-  }
-
-  return { success: true, env: result };
+  return parseEnvironmentVariablesImpl(envVars);
 }
 
 /**
@@ -485,91 +325,7 @@ export function parseEnvironmentVariables(
 export function parseVolumeMounts(
   mounts: string[]
 ): { success: true; mounts: string[] } | { success: false; invalidMount: string; reason: string } {
-  const result: string[] = [];
-
-  for (const mount of mounts) {
-    // Parse mount specification: host_path:container_path[:mode]
-    const parts = mount.split(':');
-
-    if (parts.length < 2 || parts.length > 3) {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Mount must be in format host_path:container_path[:mode]'
-      };
-    }
-
-    const [hostPath, containerPath, mode] = parts;
-
-    // Validate host path is not empty
-    if (!hostPath || hostPath.trim() === '') {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Host path cannot be empty'
-      };
-    }
-
-    // Validate container path is not empty
-    if (!containerPath || containerPath.trim() === '') {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Container path cannot be empty'
-      };
-    }
-
-    // Validate host path is absolute
-    if (!hostPath.startsWith('/')) {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Host path must be absolute (start with /)'
-      };
-    }
-
-    // Validate container path is absolute
-    if (!containerPath.startsWith('/')) {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Container path must be absolute (start with /)'
-      };
-    }
-
-    // Validate mode if specified
-    if (mode && mode !== 'ro' && mode !== 'rw') {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: 'Mount mode must be either "ro" or "rw"'
-      };
-    }
-
-    // Validate host path exists
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require('fs');
-      if (!fs.existsSync(hostPath)) {
-        return {
-          success: false,
-          invalidMount: mount,
-          reason: `Host path does not exist: ${hostPath}`
-        };
-      }
-    } catch (error) {
-      return {
-        success: false,
-        invalidMount: mount,
-        reason: `Failed to check host path: ${error}`
-      };
-    }
-
-    // Add to result list
-    result.push(mount);
-  }
-
-  return { success: true, mounts: result };
+  return parseVolumeMountsImpl(mounts);
 }
 
 /**
