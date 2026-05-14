@@ -78,11 +78,6 @@ export function isValidIPv6(ip: string): boolean {
 }
 
 /**
- * Pre-defined agent image presets
- */
-const AGENT_IMAGE_PRESETS = ['default', 'act'] as const;
-
-/**
  * Safe patterns for custom agent base images to prevent supply chain attacks.
  * Allows:
  * - Official Ubuntu images (ubuntu:XX.XX)
@@ -104,7 +99,7 @@ const SAFE_BASE_IMAGE_PATTERNS = [
  * Checks if the given value is a preset name (default, act)
  */
 export function isAgentImagePreset(value: string | undefined): value is 'default' | 'act' {
-  return value !== undefined && AGENT_IMAGE_PRESETS.includes(value as (typeof AGENT_IMAGE_PRESETS)[number]);
+  return value === 'default' || value === 'act';
 }
 
 /**
