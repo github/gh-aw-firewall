@@ -36,28 +36,39 @@ function makeManifest(rules: PolicyRule[]): PolicyManifest {
   };
 }
 
+function makeDefaultManifest(
+  domains: string[] = ['.github.com'],
+  allowRuleOverrides: Partial<PolicyRule> = {},
+): PolicyManifest {
+  return makeManifest([
+    {
+      id: 'allow-both-plain',
+      order: 1,
+      action: 'allow',
+      aclName: 'allowed_domains',
+      protocol: 'both',
+      domains,
+      description: 'Allow',
+      ...allowRuleOverrides,
+    },
+    {
+      id: 'deny-default',
+      order: 2,
+      action: 'deny',
+      aclName: 'all',
+      protocol: 'both',
+      domains: [],
+      description: 'Default deny',
+    },
+  ]);
+}
+
 describe('enrichWithPolicyRules', () => {
   it('should match allowed request to allow-both-plain rule', () => {
-    const manifest = makeManifest([
-      {
-        id: 'allow-both-plain',
-        order: 1,
-        action: 'allow',
-        aclName: 'allowed_domains',
-        protocol: 'both',
-        domains: ['.github.com'],
-        description: 'Allow HTTP and HTTPS traffic to these domains',
-      },
-      {
-        id: 'deny-default',
-        order: 2,
-        action: 'deny',
-        aclName: 'all',
-        protocol: 'both',
-        domains: [],
-        description: 'Default deny',
-      },
-    ]);
+    const manifest = makeDefaultManifest(
+      ['.github.com'],
+      { description: 'Allow HTTP and HTTPS traffic to these domains' },
+    );
 
     const entries = [makeEntry({ domain: 'github.com', isAllowed: true })];
     const enriched = enrichWithPolicyRules(entries, manifest);
@@ -67,26 +78,7 @@ describe('enrichWithPolicyRules', () => {
   });
 
   it('should match subdomain to parent domain rule', () => {
-    const manifest = makeManifest([
-      {
-        id: 'allow-both-plain',
-        order: 1,
-        action: 'allow',
-        aclName: 'allowed_domains',
-        protocol: 'both',
-        domains: ['.github.com'],
-        description: 'Allow',
-      },
-      {
-        id: 'deny-default',
-        order: 2,
-        action: 'deny',
-        aclName: 'all',
-        protocol: 'both',
-        domains: [],
-        description: 'Default deny',
-      },
-    ]);
+    const manifest = makeDefaultManifest();
 
     const entries = [makeEntry({ domain: 'api.github.com', isAllowed: true })];
     const enriched = enrichWithPolicyRules(entries, manifest);
@@ -95,26 +87,7 @@ describe('enrichWithPolicyRules', () => {
   });
 
   it('should match denied request to default deny rule', () => {
-    const manifest = makeManifest([
-      {
-        id: 'allow-both-plain',
-        order: 1,
-        action: 'allow',
-        aclName: 'allowed_domains',
-        protocol: 'both',
-        domains: ['.github.com'],
-        description: 'Allow',
-      },
-      {
-        id: 'deny-default',
-        order: 2,
-        action: 'deny',
-        aclName: 'all',
-        protocol: 'both',
-        domains: [],
-        description: 'Default deny',
-      },
-    ]);
+    const manifest = makeDefaultManifest();
 
     const entries = [makeEntry({
       domain: 'evil.com',
@@ -275,26 +248,7 @@ describe('enrichWithPolicyRules', () => {
 
 describe('computeRuleStats', () => {
   it('should count hits per rule', () => {
-    const manifest = makeManifest([
-      {
-        id: 'allow-both-plain',
-        order: 1,
-        action: 'allow',
-        aclName: 'allowed_domains',
-        protocol: 'both',
-        domains: ['.github.com'],
-        description: 'Allow',
-      },
-      {
-        id: 'deny-default',
-        order: 2,
-        action: 'deny',
-        aclName: 'all',
-        protocol: 'both',
-        domains: [],
-        description: 'Default deny',
-      },
-    ]);
+    const manifest = makeDefaultManifest();
 
     const entries: EnrichedLogEntry[] = [
       { ...makeEntry({ domain: 'github.com' }), matchedRuleId: 'allow-both-plain', matchReason: '' },
@@ -310,26 +264,7 @@ describe('computeRuleStats', () => {
   });
 
   it('should report 0 hits for unused rules', () => {
-    const manifest = makeManifest([
-      {
-        id: 'allow-both-plain',
-        order: 1,
-        action: 'allow',
-        aclName: 'allowed_domains',
-        protocol: 'both',
-        domains: ['.github.com'],
-        description: 'Allow',
-      },
-      {
-        id: 'deny-default',
-        order: 2,
-        action: 'deny',
-        aclName: 'all',
-        protocol: 'both',
-        domains: [],
-        description: 'Default deny',
-      },
-    ]);
+    const manifest = makeDefaultManifest();
 
     const stats = computeRuleStats([], manifest);
 
