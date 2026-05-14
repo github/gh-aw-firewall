@@ -744,6 +744,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 if [ -n "${GITHUB_PATH}" ] && [ -f "${GITHUB_PATH}" ]; then
   _github_path_prefix=""
   while IFS= read -r _gp_entry; do
+    _gp_entry="${_gp_entry%$'\r'}"  # strip trailing CR (Windows-style CRLF files)
     [ -z "${_gp_entry}" ] && continue
     _github_path_prefix="${_github_path_prefix}${_gp_entry}:"
   done < "${GITHUB_PATH}"
