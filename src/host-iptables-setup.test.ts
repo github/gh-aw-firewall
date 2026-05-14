@@ -1,5 +1,5 @@
 import { API_PROXY_PORTS } from './types';
-import { execaError, execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
+import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { isValidPortSpec, setupHostIptables } from './host-iptables';
 import { _testing } from './host-iptables-shared';
 
@@ -29,30 +29,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should create FW_WRAPPER chain and add rules', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 1,
-        }));
-
-      // Mock all subsequent iptables calls
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: 'Chain DOCKER-USER\nChain FW_WRAPPER',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks({ catchAllStdout: 'Chain DOCKER-USER\nChain FW_WRAPPER' });
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -107,35 +84,9 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should cleanup existing chain before creating new one', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check (exists)
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 0,
-        }))
-        // Mock DOCKER-USER list with existing references
-        .mockResolvedValueOnce(execaResult({
-          stdout: '1    FW_WRAPPER  all  --  *      *       0.0.0.0/0            0.0.0.0/0\n',
-          stderr: '',
-          exitCode: 0,
-        }));
-
-      // Mock all subsequent calls
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
+      setupDefaultIptablesMocks({ chainExists: true });
+      mockedExeca.mockResolvedValueOnce(execaResult({
+        stdout: '1    FW_WRAPPER  all  --  *      *       0.0.0.0/0            0.0.0.0/0\n',
       }));
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
@@ -162,29 +113,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should allow localhost traffic', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 1,
-        }));
-
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -203,29 +132,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should block multicast and link-local traffic', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 1,
-        }));
-
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -252,29 +159,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should log and block all UDP traffic (DNS to non-whitelisted servers gets blocked)', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 1,
-        }));
-
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -294,15 +179,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should add API proxy sidecar rules when apiProxyIp is provided', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
-
-      mockedExeca.mockResolvedValue(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], '172.30.0.30');
 
@@ -350,20 +227,8 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should skip inserting DOCKER-USER jump rule if it already exists', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
-
       // Default mock: all calls succeed, and DOCKER-USER listing includes bridge rule
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '1    FW_WRAPPER  all  --  -i fw-bridge  0.0.0.0/0            0.0.0.0/0',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks({ catchAllStdout: '1    FW_WRAPPER  all  --  -i fw-bridge  0.0.0.0/0            0.0.0.0/0' });
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -376,29 +241,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should not create IPv6 chain but should add DNS forwarding rules', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({
-          stdout: 'fw-bridge',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({
-          stdout: '',
-          stderr: '',
-          exitCode: 0,
-        }))
-        // Mock chain existence check (IPv4 chain doesn't exist)
-        .mockResolvedValueOnce(execaResult({
-          exitCode: 1,
-        }));
-
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -419,12 +262,7 @@ describe('host-iptables (setup)', () => {
 
     it('should disable IPv6 via sysctl when ip6tables unavailable', async () => {
       // Make ip6tables unavailable
-      mockedExeca
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // iptables -L DOCKER-USER permission check
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       // All subsequent calls succeed (except ip6tables)
       mockedExeca.mockImplementation(((cmd: string, _args: string[]) => {
@@ -442,15 +280,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should not disable IPv6 via sysctl when ip6tables is available', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
-
-      mockedExeca.mockResolvedValue(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
+      setupDefaultIptablesMocks();
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 
@@ -491,13 +321,7 @@ describe('host-iptables (setup)', () => {
 
   describe('setupHostIptables with cliProxyConfig', () => {
     it('should add iptables rules allowing cli-proxy to reach host gateway when cliProxyConfig is provided', async () => {
-      mockedExeca
-        // Mock getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // Mock iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // Mock chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         // getDockerBridgeGateway
@@ -526,10 +350,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should only add AWF gateway rule when Docker bridge gateway is unavailable', async () => {
-      mockedExeca
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'docker' && args.includes('bridge')) {
@@ -558,13 +379,7 @@ describe('host-iptables (setup)', () => {
 
   describe('setupHostIptables with IPv6 DNS servers', () => {
     it('should create FW_WRAPPER_V6 chain and add IPv6 DNS rules when ip6tables is available', async () => {
-      mockedExeca
-        // getNetworkBridgeName
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        // iptables -L DOCKER-USER (permission check)
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        // FW_WRAPPER chain existence check (doesn't exist)
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       // ip6tables available; FW_WRAPPER_V6 does not exist
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
@@ -600,10 +415,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should flush existing FW_WRAPPER_V6 chain if it already exists', async () => {
-      mockedExeca
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         // ip6tables availability check (-L -n without chain name)
@@ -627,10 +439,7 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should skip IPv6 DNS rules (not create chain) when ip6tables is unavailable', async () => {
-      mockedExeca
-        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
-        .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
+      setupDefaultIptablesMocks();
 
       mockedExeca.mockImplementation(((cmd: string) => {
         if (cmd === 'ip6tables') {

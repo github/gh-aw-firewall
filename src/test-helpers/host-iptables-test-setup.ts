@@ -59,3 +59,18 @@ export function setupHostIptablesTestSuite(resetIpv6State: () => void): void {
     resetIpv6State();
   });
 }
+
+export function setupDefaultIptablesMocks(
+  opts: {
+    chainExists?: boolean;
+    bridgeName?: string;
+    catchAllStdout?: string;
+  } = {}
+): void {
+  const { chainExists = false, bridgeName = 'fw-bridge', catchAllStdout = '' } = opts;
+  mockedExeca
+    .mockResolvedValueOnce(execaResult({ stdout: bridgeName, exitCode: 0 }))
+    .mockResolvedValueOnce(execaResult({ stdout: '', exitCode: 0 }))
+    .mockResolvedValueOnce(execaResult({ exitCode: chainExists ? 0 : 1 }));
+  mockedExeca.mockResolvedValue(execaResult({ stdout: catchAllStdout, exitCode: 0 }));
+}
