@@ -1,4 +1,4 @@
-import { WrapperConfig } from './types';
+import { WrapperConfig, RateLimitConfig } from './types';
 import {
   buildRateLimitConfig as buildRateLimitConfigImpl,
   validateRateLimitFlags as validateRateLimitFlagsImpl,
@@ -20,9 +20,9 @@ import {
   joinShellArgs as joinShellArgsImpl,
 } from './parsers/shell-utils';
 import {
-  parseEnvironmentVariables as parseEnvironmentVariablesImpl,
   parseVolumeMounts as parseVolumeMountsImpl,
 } from './parsers/volume-parsers';
+import { parseEnvironmentVariables as parseEnvironmentVariablesImpl } from './parsers/env-parsers';
 
 /**
  * Result of validating flag combinations
@@ -34,6 +34,13 @@ interface FlagValidationResult {
   error?: string;
 }
 
+interface LocalhostProcessingResult {
+  allowedDomains: string[];
+  localhostDetected: boolean;
+  shouldEnableHostAccess: boolean;
+  defaultPorts?: string;
+}
+
 /**
  * Builds a RateLimitConfig from parsed CLI options.
  */
@@ -42,7 +49,7 @@ export function buildRateLimitConfig(options: {
   rateLimitRpm?: string;
   rateLimitRph?: string;
   rateLimitBytesPm?: string;
-}): ReturnType<typeof buildRateLimitConfigImpl> {
+}): { config: RateLimitConfig } | { error: string } {
   return buildRateLimitConfigImpl(options);
 }
 
@@ -284,7 +291,7 @@ export function processLocalhostKeyword(
   allowedDomains: string[],
   enableHostAccess: boolean,
   allowHostPorts: string | undefined
-): ReturnType<typeof processLocalhostKeywordImpl> {
+): LocalhostProcessingResult {
   return processLocalhostKeywordImpl(allowedDomains, enableHostAccess, allowHostPorts);
 }
 
