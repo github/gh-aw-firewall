@@ -47,6 +47,18 @@ function getCopilotModel(config: WrapperConfig): string | undefined {
   return normalizedModel || undefined;
 }
 
+function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
+  const envFileValue = config.envFile
+    ? readEnvFile(config.envFile)[key]
+    : undefined;
+  const value =
+    config.additionalEnv?.[key] ??
+    envFileValue ??
+    (config.envAll ? process.env[key] : undefined);
+  const normalizedValue = value?.trim();
+  return normalizedValue || undefined;
+}
+
 function requiresResponsesWireApi(copilotModel: string): boolean {
   return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel);
 }
@@ -59,6 +71,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
+  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderApiKey = getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
 
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
@@ -91,6 +106,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // container at all (belt-and-suspenders for gh-aw#25137).
       ...(config.copilotApiTarget && { COPILOT_API_TARGET: stripScheme(config.copilotApiTarget) }),
       ...(config.copilotApiBasePath && { COPILOT_API_BASE_PATH: config.copilotApiBasePath }),
+      ...(copilotProviderType && { COPILOT_PROVIDER_TYPE: copilotProviderType }),
+      ...(copilotProviderBaseUrl && { COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl }),
+      ...(copilotProviderApiKey && { COPILOT_PROVIDER_API_KEY: copilotProviderApiKey }),
       ...(config.openaiApiTarget && { OPENAI_API_TARGET: stripScheme(config.openaiApiTarget) }),
       ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
       ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: stripScheme(config.anthropicApiTarget) }),

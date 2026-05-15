@@ -133,7 +133,20 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   const newChain = [...chain, key];
 
   // ── Find alias entry (case-insensitive) ───────────────────────────────────
-  const aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
+  let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
+
+  if (!aliasEntry) {
+    // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
+    // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
+    // define "gpt-5" alias patterns.
+    const familyAlias = key.match(/^(gpt-5)\.\d+(?:[._-].*)?$/)?.[1];
+    if (familyAlias) {
+      aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === familyAlias);
+      if (aliasEntry) {
+        log.push(`[model-resolver] fallback alias: "${requestedModel}" → "${aliasEntry[0]}"`);
+      }
+    }
+  }
 
   if (!aliasEntry) {
     // No alias defined — check if the model directly matches an available model for

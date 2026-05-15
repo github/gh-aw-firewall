@@ -10,8 +10,31 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const { createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
+const {
+  createBaseAdapterConfig,
+  createAdapterMethods,
+  normalizeBasePath,
+} = require('../proxy-utils');
 const { OidcTokenProvider } = require('../oidc-token-provider');
+
+function parseByokBaseUrl(baseUrl) {
+  if (!baseUrl) return { target: undefined, basePath: '' };
+  const trimmed = baseUrl.trim();
+  if (!trimmed) return { target: undefined, basePath: '' };
+
+  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    return {
+      target: parsed.hostname || undefined,
+      basePath: normalizeBasePath(parsed.pathname),
+    };
+  } catch {
+    return { target: undefined, basePath: '' };
+  }
+}
 
 /**
  * Create the OpenAI provider adapter.
@@ -21,12 +44,21 @@ const { OidcTokenProvider } = require('../oidc-token-provider');
  * @returns {import('./index').ProviderAdapter}
  */
 function createOpenAIAdapter(env, deps = {}) {
-  const { apiKey, rawTarget, basePath: explicitBasePath } = createBaseAdapterConfig(env, {
+  const { apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath } = createBaseAdapterConfig(env, {
     keyEnvVar: 'OPENAI_API_KEY',
     targetEnvVar: 'OPENAI_API_TARGET',
     basePathEnvVar: 'OPENAI_API_BASE_PATH',
     defaultTarget: 'api.openai.com',
   });
+  const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
+  const copilotAzureByokEnabled = providerType === 'azure';
+  const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
+  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseByokBaseUrl(env.COPILOT_PROVIDER_BASE_URL);
+
+  const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
+  const explicitOpenAITarget = env.OPENAI_API_TARGET ? openaiTarget : undefined;
+  const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
+  const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
 
   // For the default OpenAI endpoint, unversioned clients (e.g. Codex CLI sending
   // /responses) need a /v1 prefix to reach the correct versioned API surface.
@@ -175,7 +207,7 @@ function createOpenAIAdapter(env, deps = {}) {
       }
       return {
         statusCode: 404,
-        body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY or OIDC auth)' },
+        body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)' },
       };
     },
   };

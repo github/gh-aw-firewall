@@ -269,6 +269,36 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getReflectionInfo().auth_type).toBe('static-key');
   });
 
+  it('should configure OpenAI adapter from Copilot Azure BYOK env vars', () => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://my-resource.openai.azure.com/openai/deployments/gpt-5',
+      COPILOT_PROVIDER_API_KEY: 'azure-byok-key',
+    });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getTargetHost()).toBe('my-resource.openai.azure.com');
+    expect(adapter.getBasePath()).toBe('/openai/deployments/gpt-5');
+    expect(adapter.getAuthHeaders()).toEqual({ Authorization: 'Bearer azure-byok-key' });
+    expect(adapter.getReflectionInfo().auth_type).toBe('static-key');
+  });
+
+  it('should prefer explicit OPENAI_* config over Copilot Azure BYOK env vars', () => {
+    const adapter = createOpenAIAdapter({
+      OPENAI_API_KEY: 'sk-openai',
+      OPENAI_API_TARGET: 'gateway.example.com',
+      OPENAI_API_BASE_PATH: '/v2',
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://my-resource.openai.azure.com/openai/deployments/gpt-5',
+      COPILOT_PROVIDER_API_KEY: 'azure-byok-key',
+    });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getTargetHost()).toBe('gateway.example.com');
+    expect(adapter.getBasePath()).toBe('/v2');
+    expect(adapter.getAuthHeaders()).toEqual({ Authorization: 'Bearer sk-openai' });
+  });
+
   it('should not create OIDC provider when required vars are missing', () => {
     const adapter = createOpenAIAdapter({
       AWF_AUTH_TYPE: 'github-oidc',

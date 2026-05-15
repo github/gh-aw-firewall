@@ -900,6 +900,44 @@ describe('API proxy sidecar', () => {
         expect(env.COPILOT_PROVIDER_BASE_URL).toBeUndefined();
       });
 
+      it('should pass COPILOT_PROVIDER_TYPE/BASE_URL/API_KEY from additionalEnv to api-proxy', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          additionalEnv: {
+            COPILOT_PROVIDER_TYPE: 'azure',
+            COPILOT_PROVIDER_BASE_URL: 'https://example-resource.openai.azure.com/openai/deployments/test',
+            COPILOT_PROVIDER_API_KEY: 'azure-byok-key',
+          },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_TYPE).toBe('azure');
+        expect(env.COPILOT_PROVIDER_BASE_URL).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
+        expect(env.COPILOT_PROVIDER_API_KEY).toBe('azure-byok-key');
+      });
+
+      it('should pass COPILOT_PROVIDER_TYPE/BASE_URL/API_KEY from envFile to api-proxy', () => {
+        const envFilePath = path.join(mockConfig.workDir, '.env.azure-byok');
+        fs.writeFileSync(envFilePath, [
+          'COPILOT_PROVIDER_TYPE=azure',
+          'COPILOT_PROVIDER_BASE_URL=https://example-resource.openai.azure.com/openai/deployments/test',
+          'COPILOT_PROVIDER_API_KEY=azure-byok-key',
+        ].join('\n'));
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          envFile: envFilePath,
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_TYPE).toBe('azure');
+        expect(env.COPILOT_PROVIDER_BASE_URL).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
+        expect(env.COPILOT_PROVIDER_API_KEY).toBe('azure-byok-key');
+      });
+
       it.each(['gpt-5', 'openai/o3-mini', 'gpt-5.4-mini', 'GPT-5', 'O3'])('should set COPILOT_PROVIDER_WIRE_API=responses in GitHub token mode when COPILOT_MODEL is %s', (copilotModel) => {
         const configWithProxy = {
           ...mockConfig,

@@ -221,6 +221,17 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('claude-sonnet-4.6');
   });
 
+  it('should resolve gpt-5 minor-version aliases via gpt-5 family fallback', () => {
+    const result = resolveModel(
+      'gpt-5.4',
+      { 'gpt-5': ['copilot/gpt-5*'] },
+      { copilot: ['gpt-5.3', 'gpt-5.4'] },
+      'copilot'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5.4');
+  });
+
   it('should not match provider patterns for a different provider', () => {
     // "gpt-5-codex" only has copilot/... and openai/... patterns
     // When resolving for anthropic, there's nothing to match
