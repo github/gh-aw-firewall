@@ -298,6 +298,11 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
     // Sensitive header vars (OTEL_EXPORTER_OTLP_HEADERS and per-signal variants) are also
     // included in AWF_ONE_SHOT_TOKENS above, so they are cached on first access and removed
     // from /proc/self/environ to prevent exfiltration by compromised subprocesses.
+    // EXCLUDED_ENV_VARS guards against leaking proxy/Actions/AWF internal vars (e.g., if a
+    // future OTEL_ variable overlaps); the hasOwnProperty check prevents --env-all or earlier
+    // alwaysForwardVars entries from being silently overwritten.
+    // Note: process.env values are typed as string | undefined, so the value check is a
+    // required TypeScript type guard (Object.entries won't include missing keys at runtime).
     for (const [key, value] of Object.entries(process.env)) {
       if (key.startsWith('OTEL_') && value !== undefined
           && !EXCLUDED_ENV_VARS.has(key)
