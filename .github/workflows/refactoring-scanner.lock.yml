@@ -52,7 +52,7 @@
 name: "Refactoring Opportunity Scanner"
 "on":
   schedule:
-  - cron: "36 13 * * *"
+  - cron: "53 14 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

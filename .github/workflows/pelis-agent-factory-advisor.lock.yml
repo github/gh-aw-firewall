@@ -52,7 +52,7 @@
 name: "Pelis Agent Factory Advisor"
 "on":
   schedule:
-  - cron: "35 13 * * *"
+  - cron: "8 22 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

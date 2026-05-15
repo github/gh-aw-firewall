@@ -55,7 +55,7 @@
 name: "Daily Claude Token Usage Analyzer"
 "on":
   schedule:
-  - cron: "21 23 * * *"
+  - cron: "9 8 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

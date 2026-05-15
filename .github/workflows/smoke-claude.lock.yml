@@ -58,7 +58,7 @@ name: "Smoke Claude"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "53 */12 * * *"
+  - cron: "30 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:
@@ -459,7 +459,7 @@ jobs:
           EOF
           sudo chmod +x /usr/local/bin/awf
       - name: Install Claude Code CLI
-        run: npm install --ignore-scripts -g @anthropic-ai/claude-code@2.1.126
+        run: npm install -g @anthropic-ai/claude-code@2.1.126
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9

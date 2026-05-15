@@ -54,7 +54,7 @@
 name: "Daily Security Review and Threat Modeling"
 "on":
   schedule:
-  - cron: "51 3 * * *"
+  - cron: "11 12 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

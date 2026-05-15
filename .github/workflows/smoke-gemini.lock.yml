@@ -56,7 +56,7 @@ name: "Smoke Gemini"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "30 */12 * * *"
+  - cron: "31 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:
