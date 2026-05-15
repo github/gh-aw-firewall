@@ -36,24 +36,27 @@ You are an AI agent that detects potentially duplicate issues in this repository
 
 When a new issue is opened, analyze it to determine if it might be a duplicate of an existing issue.
 
-1. **Load cached issue data**: Use the cache-memory MCP server to retrieve previously stored issue signatures from `/tmp/gh-aw/cache-memory/`. The cache contains JSON data with issue numbers, titles, and key phrases.
+1. **Load cached issue data**: Read the file `/tmp/gh-aw/cache-memory/issues.json` using bash (e.g., `cat /tmp/gh-aw/cache-memory/issues.json`). This file contains previously stored issue signatures from prior workflow runs.
+
+   **Cold start handling**: If the file does not exist or is empty, this is a normal cold start — the cache has not been populated yet. Do NOT report `missing_data`. Instead, proceed directly to step 4 to search for issues via the GitHub API and populate the cache for future runs.
 
 2. **Fetch the new issue**: Get the details of issue #${{ github.event.issue.number }} in repository ${{ github.repository }}.
 
-3. **Compare with existing issues**:
+3. **Compare with cached issues** (skip if cache was empty):
    - Compare the new issue's title and body against cached issue data
    - Look for similar titles (considering typos, rephrasing, synonyms)
    - Look for similar problem descriptions in the body
    - Consider keyword overlap and semantic similarity
 
-4. **Search for potential duplicates**: If the cache is empty or you need more context, use GitHub search to find issues with similar keywords:
+4. **Search for potential duplicates via GitHub API**: Always search GitHub for issues with similar keywords, whether or not the cache had data:
    - Search for issues with similar titles or key terms
    - Focus on open issues first, then consider recently closed ones
    - Use `perPage: 10` initially to avoid token limits, paginate if needed
 
 5. **Update the cache**: Store the new issue's signature in the cache-memory for future comparisons:
-   - Save to `/tmp/gh-aw/cache-memory/issues.json`
+   - Write to `/tmp/gh-aw/cache-memory/issues.json` using bash (e.g., write the JSON content with `cat > /tmp/gh-aw/cache-memory/issues.json << 'EOF'`)
    - Include: issue number, title, key phrases extracted from body, creation date
+   - Merge with existing cache data if the file already existed
    - Keep the cache size manageable (store last 100 issues max)
 
 ## Duplicate Detection Criteria
