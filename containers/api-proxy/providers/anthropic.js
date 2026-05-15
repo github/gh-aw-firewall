@@ -107,11 +107,7 @@ function createAnthropicAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
      */
-    get participatesInValidation() { return this.isEnabled(); },
-
     isEnabled() { return !!apiKey; },
-    getTargetHost() { return rawTarget; },
-    getBasePath() { return basePath; },
 
     /**
      * Build Anthropic auth headers for this request.

@@ -59,11 +59,7 @@ function createGeminiAdapter(env, deps = {}) {
      * The 503-fallback server does NOT count toward the startup validation latch —
      * only the fully-configured server (when GEMINI_API_KEY is set) does.
      */
-    get participatesInValidation() { return this.isEnabled(); },
-
     isEnabled() { return !!apiKey; },
-    getTargetHost() { return rawTarget; },
-    getBasePath() { return basePath; },
 
     getAuthHeaders() {
       return { 'x-goog-api-key': apiKey };

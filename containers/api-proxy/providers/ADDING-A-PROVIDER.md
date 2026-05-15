@@ -17,13 +17,28 @@ Create `providers/<name>.js`. The adapter is a plain JS object (no class syntax 
 ```js
 'use strict';
 
-const { normalizeApiTarget, normalizeBasePath } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
 
 function createMyProviderAdapter(env, deps = {}) {
   // Read credentials and config from env at construction time
-  const apiKey   = (env.MY_PROVIDER_API_KEY || '').trim() || undefined;
-  const target   = normalizeApiTarget(env.MY_PROVIDER_API_TARGET) || 'api.myprovider.com';
-  const basePath = normalizeBasePath(env.MY_PROVIDER_API_BASE_PATH);
+  const { apiKey, rawTarget: target, basePath } = createBaseAdapterConfig(env, {
+    keyEnvVar: 'MY_PROVIDER_API_KEY',
+    targetEnvVar: 'MY_PROVIDER_API_TARGET',
+    basePathEnvVar: 'MY_PROVIDER_API_BASE_PATH',
+    defaultTarget: 'api.myprovider.com',
+  });
+  const adapterMethods = createAdapterMethods({
+    apiKey,
+    rawTarget: target,
+    basePath,
+    provider: 'my-provider',
+    port: 10005,
+    defaultTarget: 'api.myprovider.com',
+    validationPath: '/v1/models',
+    validationHeaders: () => ({ 'Authorization': `Bearer ${apiKey}` }),
+    modelsPath: '/v1/models',
+    modelsFetchHeaders: () => ({ 'Authorization': `Bearer ${apiKey}` }),
+  });
 
   const bodyTransform = deps.bodyTransform || null;   // model-alias rewriting etc.
 
@@ -34,12 +49,9 @@ function createMyProviderAdapter(env, deps = {}) {
 
     isManagementPort: false,   // true only for port 10000 (OpenAI)
     alwaysBind: false,         // set true to start a 503-stub when not configured
-    get participatesInValidation() { return this.isEnabled(); },
-
     // ── Credentials ──────────────────────────────────────────────────────────
     isEnabled()       { return !!apiKey; },
-    getTargetHost()   { return target; },
-    getBasePath()     { return basePath; },
+    ...adapterMethods,
 
     // ── Per-request auth headers ──────────────────────────────────────────────
     // `req` is the incoming http.IncomingMessage — inspect it for request-specific logic.
@@ -55,41 +67,13 @@ function createMyProviderAdapter(env, deps = {}) {
     // Return a function (body: Buffer) => Buffer|null, or null for no transform.
     getBodyTransform() { return bodyTransform; },
 
-    // ── Startup: credential validation ───────────────────────────────────────
-    // Return a probe config, a skip config, or null if validation is not applicable.
-    getValidationProbe() {
-      if (!apiKey) return null;
-      if (target !== 'api.myprovider.com') {
-        return { skip: true, reason: `Custom target ${target}; validation skipped` };
-      }
-      return {
-        url: `https://${target}/v1/models`,
-        opts: { method: 'GET', headers: { 'Authorization': `Bearer ${apiKey}` } },
-      };
-    },
-
-    // ── Startup: model listing ────────────────────────────────────────────────
-    // Return null to opt out of model fetching.
-    getModelsFetchConfig() {
-      if (!apiKey) return null;
-      return {
-        url:      `https://${target}/v1/models`,
-        opts:     { method: 'GET', headers: { 'Authorization': `Bearer ${apiKey}` } },
-        cacheKey: 'my-provider',   // key in cachedModels; must match name
-      };
-    },
-
-    // ── /reflect endpoint metadata ────────────────────────────────────────────
-    getReflectionInfo() {
-      return {
-        provider:        'my-provider',
-        port:            10005,
-        base_url:        'http://api-proxy:10005',
-        configured:      !!apiKey,
-        models_cache_key: 'my-provider',   // null when models are not fetched
-        models_url:       'http://api-proxy:10005/v1/models',
-      };
-    },
+    // createAdapterMethods provides:
+    // - participatesInValidation (defaults to !!apiKey)
+    // - getTargetHost()
+    // - getBasePath()
+    // - getValidationProbe()
+    // - getModelsFetchConfig()
+    // - getReflectionInfo()
   };
 }
 

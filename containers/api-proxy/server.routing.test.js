@@ -85,6 +85,25 @@ describe('createAdapterMethods', () => {
       models_cache_key: 'example',
       models_url: 'http://api-proxy:12345/v1/models',
     });
+    expect(methods.getTargetHost()).toBe('api.example.com');
+    expect(methods.getBasePath()).toBe('/api/v1');
+  });
+
+  it('defaults participatesInValidation from apiKey presence', () => {
+    const methods = createAdapterMethods({
+      rawTarget: 'api.example.com',
+      provider: 'example',
+      port: 12345,
+    });
+    const enabledMethods = createAdapterMethods({
+      apiKey: 'sk-test',
+      rawTarget: 'api.example.com',
+      provider: 'example',
+      port: 12345,
+    });
+
+    expect(methods.participatesInValidation).toBe(false);
+    expect(enabledMethods.participatesInValidation).toBe(true);
   });
 
   it('does not double-slash model fetch URL when basePath is root', () => {

@@ -241,6 +241,9 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {() => ({ url: string, opts: object, cacheKey: string }|null)} [opts.getModelsFetchConfig]
  * @param {() => object} [opts.getReflectionInfo]
  * @returns {{
+ *   getTargetHost: (req?: import('http').IncomingMessage) => string,
+ *   getBasePath: (req?: import('http').IncomingMessage) => string,
+ *   participatesInValidation: boolean,
  *   getValidationProbe: () => ({ url: string, opts: object }|{ skip: true, reason: string }|null),
  *   getModelsFetchConfig: () => ({ url: string, opts: object, cacheKey: string }|null),
  *   getReflectionInfo: () => object
@@ -263,6 +266,7 @@ function createAdapterMethods(opts) {
     skipModelsFetch,
     modelsFetchHeaders = validationHeaders,
     modelsCacheKey = provider,
+    participatesInValidation = !!apiKey,
     reflectionConfigured = !!apiKey,
     reflectionModelsPath = modelsPath,
     reflectionExtra = {},
@@ -316,6 +320,9 @@ function createAdapterMethods(opts) {
   }));
 
   return {
+    getTargetHost() { return rawTarget; },
+    getBasePath() { return basePath; },
+    participatesInValidation,
     getValidationProbe: builtValidationProbe,
     getModelsFetchConfig: builtModelsFetchConfig,
     getReflectionInfo: builtReflectionInfo,

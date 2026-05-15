@@ -335,11 +335,7 @@ function createCopilotAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when credentials are present) does.
      */
-    get participatesInValidation() { return this.isEnabled(); },
-
     isEnabled() { return !!authToken; },
-    getTargetHost() { return rawTarget; },
-    getBasePath() { return basePath; },
 
     /**
      * Build Copilot auth headers for this request.

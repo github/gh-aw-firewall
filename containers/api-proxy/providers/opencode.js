@@ -117,6 +117,10 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
      */
     alwaysBind: true,
 
+    // OpenCode is a routing layer over the base providers; those providers
+    // handle their own startup validation and model fetching.
+    ...adapterMethods,
+
     /**
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when enabled and a candidate is active) does.
@@ -170,10 +174,6 @@ function createOpenCodeAdapter(env, { candidateAdapters = [] } = {}) {
     getBodyTransform() {
       return resolveActiveAdapter()?.getBodyTransform() || null;
     },
-
-    // OpenCode is a routing layer over the base providers; those providers
-    // handle their own startup validation and model fetching.
-    ...adapterMethods,
 
     /** Response returned for all requests when OpenCode is not configured. */
     getUnconfiguredResponse() {

@@ -126,12 +126,7 @@ function createOpenAIAdapter(env, deps = {}) {
      */
     alwaysBind: true,
 
-    /** Port 10000 always counts toward the startup validation latch. */
-    participatesInValidation: true,
-
     isEnabled() { return !!apiKey || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady(); },
-    getTargetHost() { return rawTarget; },
-    getBasePath() { return basePath; },
 
     /**
      * Get the OIDC token provider (Azure or GCP — Bearer-token compatible).
@@ -166,6 +161,9 @@ function createOpenAIAdapter(env, deps = {}) {
 
     getBodyTransform() { return bodyTransform; },
     ...adapterMethods,
+
+    /** Port 10000 always counts toward the startup validation latch. */
+    participatesInValidation: true,
 
     /** Response returned when port 10000 receives a proxy request but no key is set. */
     getUnconfiguredResponse() {
