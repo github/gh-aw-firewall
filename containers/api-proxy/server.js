@@ -664,8 +664,8 @@ if (require.main === module) {
     });
   }
 
-  process.on('SIGTERM', async () => {
-    logRequest('info', 'shutdown', { message: 'Received SIGTERM, shutting down gracefully' });
+  async function shutdownGracefully(signal) {
+    logRequest('info', 'shutdown', { message: `Received ${signal}, shutting down gracefully` });
     for (const adapter of registeredAdapters) {
       if (typeof adapter.getOidcProvider === 'function') {
         adapter.getOidcProvider()?.shutdown();
@@ -676,21 +676,10 @@ if (require.main === module) {
     }
     await closeLogStream();
     process.exit(0);
-  });
+  }
 
-  process.on('SIGINT', async () => {
-    logRequest('info', 'shutdown', { message: 'Received SIGINT, shutting down gracefully' });
-    for (const adapter of registeredAdapters) {
-      if (typeof adapter.getOidcProvider === 'function') {
-        adapter.getOidcProvider()?.shutdown();
-      }
-      if (typeof adapter.getAwsOidcProvider === 'function') {
-        adapter.getAwsOidcProvider()?.shutdown();
-      }
-    }
-    await closeLogStream();
-    process.exit(0);
-  });
+  process.on('SIGTERM', async () => shutdownGracefully('SIGTERM'));
+  process.on('SIGINT', async () => shutdownGracefully('SIGINT'));
 }
 
 // ── Exports (for testing) ─────────────────────────────────────────────────────
