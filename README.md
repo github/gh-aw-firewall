@@ -36,7 +36,7 @@ The `--` separator divides firewall options from the command to run.
 ## Feature highlights
 
 - **Declarative config support**: `--config <path>` with JSON/YAML + published JSON Schema
-- **Domain and URL controls**: allow/deny domain rules, SSL Bump (`--ssl-bump`), and URL patterns (`--allow-urls`)
+- **Domain and URL controls**: allow/deny domain rules, SSL Bump (`--ssl-bump`), and URL patterns (`--allow-urls`, requires `--ssl-bump`)
 - **Data protection controls**: DLP scanning (`--enable-dlp`), DNS-over-HTTPS, and agent runtime limits (`--agent-timeout`)
 - **API proxy capabilities**: OpenAI, Anthropic, Copilot, and Gemini targets with rate limits, token steering, and Anthropic auto-cache
 - **Infrastructure flexibility**: upstream proxy chaining, host service access, Docker-in-Docker, custom mounts, memory limits, and TTY mode
@@ -48,7 +48,7 @@ The `--` separator divides firewall options from the command to run.
 - `awf logs` — inspect firewall logs in raw/pretty/json
   - `awf logs stats` — aggregate traffic statistics
   - `awf logs summary` — markdown/json summaries (great for GitHub Actions step summaries)
-  - `awf logs audit` — audit view with policy-rule matching
+  - `awf logs audit` — audit view with policy-rule matching (requires `policy-manifest.json`, typically from `--audit-dir`)
 
 For the complete CLI surface area, run `awf --help`.
 
