@@ -235,6 +235,24 @@ describe('OidcTokenProvider', () => {
     expect(provider._scheduleRefresh).toHaveBeenCalledWith(0);
     provider.shutdown();
   });
+
+  it('should not trigger refresh after shutdown', async () => {
+    const provider = new OidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      tenantId: 'test',
+      clientId: 'test',
+    });
+
+    provider._refreshToken = jest.fn().mockResolvedValue();
+    provider.shutdown();
+
+    expect(provider.getToken()).toBeNull();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(provider._refreshToken).not.toHaveBeenCalled();
+    expect(provider._refreshTimer).toBeNull();
+  });
 });
 
 describe('OpenAI adapter with OIDC', () => {
