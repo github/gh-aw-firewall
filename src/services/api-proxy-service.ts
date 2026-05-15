@@ -275,6 +275,15 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
 
     // Note: COPILOT_GITHUB_TOKEN and COPILOT_API_KEY placeholders are set early (before --env-all)
     // to prevent override by host environment variable
+
+    // Set the wire API based solely on the model, regardless of which auth path is active.
+    // GPT-5-family models must use the /responses endpoint; setting this here ensures the
+    // Copilot CLI uses the correct endpoint even when only copilotGithubToken is provided.
+    const copilotModel = getCopilotModel(config);
+    if (copilotModel && requiresResponsesWireApi(copilotModel)) {
+      agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
+      logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
+    }
   }
   if (config.copilotApiKey) {
     // Enable Copilot CLI offline + BYOK mode so it skips the GitHub OAuth handshake
@@ -291,12 +300,6 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     // COPILOT_PROVIDER_API_KEY placeholder: real key is held by the sidecar, never exposed to agent.
     // Set early placeholder (before this block) already handled above.
     logger.debug('COPILOT_PROVIDER_API_KEY placeholder set for credential isolation');
-
-    const copilotModel = getCopilotModel(config);
-    if (copilotModel && requiresResponsesWireApi(copilotModel)) {
-      agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
-      logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
-    }
   }
   // Only configure Gemini proxy routing when a Gemini API key is provided.
   // Previously this was unconditional, which caused the Gemini CLI's ~/.gemini
