@@ -4,6 +4,7 @@ import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 interface CliProxyBuildResult {
   /** The cli-proxy service definition to add to Docker Compose services. */
@@ -52,12 +53,15 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
     },
     // Enable host.docker.internal resolution for connecting to host DIFC proxy
     extra_hosts: ['host.docker.internal:host-gateway'],
-    volumes: [
-      // Log directory for HTTP server logs
-      `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
-      // Mount host CA cert for TLS verification
-      ...(config.difcProxyCaCert ? [`${config.difcProxyCaCert}:/tmp/proxy-tls/ca.crt:ro`] : []),
-    ],
+    volumes: applyHostPathPrefixToVolumes(
+      [
+        // Log directory for HTTP server logs
+        `${cliProxyLogsPath}:/var/log/cli-proxy:rw`,
+        // Mount host CA cert for TLS verification
+        ...(config.difcProxyCaCert ? [`${config.difcProxyCaCert}:/tmp/proxy-tls/ca.crt:ro`] : []),
+      ],
+      config.dockerHostPathPrefix,
+    ),
     environment: {
       // External DIFC proxy connection info for tcp-tunnel.js
       AWF_DIFC_PROXY_HOST: difcProxyHost,

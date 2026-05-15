@@ -3,6 +3,7 @@ import { SslConfig, SQUID_PORT, SQUID_CONTAINER_NAME } from '../host-env';
 import { parseImageTag, buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 /** Network configuration passed to service builders */
 export interface NetworkConfig {
@@ -56,6 +57,10 @@ export function buildSquidService(params: SquidServiceParams): any {
     squidVolumes.push(`${sslConfig.sslDbPath}:/var/spool/squid_ssl_db:rw`);
   }
 
+  // Apply --docker-host-path-prefix to all bind-mount sources so the daemon
+  // can resolve them on split runner/Docker daemon filesystems (e.g. ARC + DinD).
+  const translatedSquidVolumes = applyHostPathPrefixToVolumes(squidVolumes, config.dockerHostPathPrefix);
+
   // Squid service configuration
   const squidService: any = {
     container_name: SQUID_CONTAINER_NAME,
@@ -64,7 +69,7 @@ export function buildSquidService(params: SquidServiceParams): any {
         ipv4_address: networkConfig.squidIp,
       },
     },
-    volumes: squidVolumes,
+    volumes: translatedSquidVolumes,
     healthcheck: {
       test: ['CMD', 'nc', '-z', 'localhost', '3128'],
       interval: '1s',

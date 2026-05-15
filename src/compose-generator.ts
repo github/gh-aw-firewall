@@ -147,6 +147,7 @@ export function generateDockerCompose(
     environment,
     networkConfig,
     initSignalDir,
+    dockerHostPathPrefix: config.dockerHostPathPrefix,
   });
 
   // ── Assemble base services ─────────────────────────────────────────────────

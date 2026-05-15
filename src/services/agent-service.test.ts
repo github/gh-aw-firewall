@@ -132,6 +132,100 @@ describe('agent service', () => {
       expect(initService.restart).toBe('no');
     });
 
+    it('should mount init-signal dir without translation when dockerHostPathPrefix is unset', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const initService = result.services['iptables-init'] as any;
+      const volumes = initService.volumes as string[];
+
+      // Source path is the runner-side init-signal dir, container path is /tmp/awf-init
+      expect(volumes).toContain(`${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
+    });
+
+    it('should apply dockerHostPathPrefix to the iptables-init init-signal volume', () => {
+      // Regression: when --docker-host-path-prefix is set (e.g. ARC + DinD), the agent
+      // container's init-signal mount source is prefixed via translateBindMountHostPath.
+      // The iptables-init container's mount source must be prefixed identically — otherwise
+      // the two containers bind to different daemon-side directories and the agent times
+      // out with "No init container output log found" because the ready file written by
+      // setup-iptables.sh lands in a different bind-mount target.
+      const configWithPrefix = {
+        ...mockConfig,
+        dockerHostPathPrefix: '/host',
+      };
+      const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const initService = result.services['iptables-init'] as any;
+      const initVolumes = initService.volumes as string[];
+      const agentVolumes = result.services.agent.volumes as string[];
+
+      const expectedSource = `/host${mockConfig.workDir}/init-signal`;
+      expect(initVolumes).toContain(`${expectedSource}:/tmp/awf-init:rw`);
+
+      // The agent must mount the SAME daemon-side source so they share the ready file.
+      expect(agentVolumes).toContain(`${expectedSource}:/tmp/awf-init:rw`);
+    });
+
+    it('should normalize trailing slash in dockerHostPathPrefix for iptables-init mount', () => {
+      const configWithPrefix = {
+        ...mockConfig,
+        dockerHostPathPrefix: '/host/',
+      };
+      const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const initService = result.services['iptables-init'] as any;
+      const initVolumes = initService.volumes as string[];
+
+      expect(initVolumes).toContain(`/host${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
+    });
+
+    // Symmetric invariant: every absolute, non-kernel-virtual bind-mount source on every
+    // service must be prefixed when dockerHostPathPrefix is set. This catches the original
+    // class of bug (asymmetric translation between services that share a daemon-side dir)
+    // for any future service builder, not just iptables-init.
+    describe.each([
+      { name: 'unset', prefix: undefined as string | undefined, expectPrefixed: false },
+      { name: 'empty', prefix: '', expectPrefixed: false },
+      { name: 'whitespace', prefix: '   ', expectPrefixed: false },
+      { name: '/host', prefix: '/host', expectPrefixed: true },
+      { name: '/host/ (trailing slash)', prefix: '/host/', expectPrefixed: true },
+    ])('symmetric prefix translation across compose services (dockerHostPathPrefix=$name)', ({ prefix, expectPrefixed }) => {
+      it('every absolute, non-kernel-virtual bind-mount source is prefixed consistently', () => {
+        const cfg = {
+          ...mockConfig,
+          dockerHostPathPrefix: prefix,
+          // Exercise sibling services that also build bind mounts.
+          enableApiProxy: true,
+          difcProxyHost: 'proxy.example.com:18443',
+          difcProxyCaCert: '/etc/ssl/ca.crt',
+        };
+        const result = generateDockerCompose(cfg, mockNetworkConfig);
+
+        const allVolumes: string[] = [];
+        for (const [, svc] of Object.entries(result.services)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const volumes = (svc as any).volumes as string[] | undefined;
+          if (Array.isArray(volumes)) allVolumes.push(...volumes);
+        }
+
+        // Sanity: at least one workDir-derived mount on every service we touched
+        expect(allVolumes.some(v => v.includes(mockConfig.workDir))).toBe(true);
+
+        for (const mount of allVolumes) {
+          const [src] = mount.split(':');
+          // Skip relative sources (named volumes) and the kernel virtual / /dev/null exemptions
+          if (!src.startsWith('/')) continue;
+          if (src === '/dev/null' || src.startsWith('/dev') || src.startsWith('/sys') || src.startsWith('/proc')) continue;
+
+          if (expectPrefixed) {
+            expect(src).toMatch(/^\/host(\/|$)/);
+          } else {
+            expect(src).not.toMatch(/^\/host(\/|$)/);
+          }
+        }
+      });
+    });
+
     it('should apply container hardening measures', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
       const agent = result.services.agent;

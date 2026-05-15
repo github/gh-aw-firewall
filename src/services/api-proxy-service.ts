@@ -11,6 +11,7 @@ import { WrapperConfig, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from '../types'
 import { pickEnvVars } from '../env-utils';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 interface ApiProxyBuildResult {
   /** The api-proxy service definition to add to Docker Compose services. */
@@ -70,10 +71,13 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
         ipv4_address: networkConfig.proxyIp,
       },
     },
-    volumes: [
-      // Mount log directory for api-proxy logs
-      `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
-    ],
+    volumes: applyHostPathPrefixToVolumes(
+      [
+        // Mount log directory for api-proxy logs
+        `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
+      ],
+      config.dockerHostPathPrefix,
+    ),
     environment: {
       // Pass API keys securely to sidecar (not visible to agent)
       ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),

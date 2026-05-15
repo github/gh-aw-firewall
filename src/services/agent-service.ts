@@ -15,6 +15,7 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment';
 export { buildAgentVolumes } from './agent-volumes';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // ─── Agent Service ────────────────────────────────────────────────────────────
 
@@ -206,6 +207,12 @@ interface IptablesInitServiceParams {
   environment: Record<string, string>;
   networkConfig: NetworkConfig;
   initSignalDir: string;
+  // When the Docker daemon resolves bind-mount sources from a different filesystem
+  // view than the runner (e.g. ARC + DinD), translate the init-signal mount source
+  // through the same prefix used for agent volumes. Without this, the agent and
+  // iptables-init containers land on two different daemon-side directories and the
+  // ready/output.log handshake silently fails ("No init container output log found").
+  dockerHostPathPrefix?: string;
 }
 
 /**
@@ -214,7 +221,16 @@ interface IptablesInitServiceParams {
  * without ever granting NET_ADMIN to the agent itself.
  */
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
-  const { agentService, environment, networkConfig, initSignalDir } = params;
+  const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix } = params;
+
+  // The init-signal mount must use the same source path that the agent container uses,
+  // otherwise the two containers bind to different daemon-side directories and the
+  // ready-file handshake fails. buildAgentVolumes() applies dockerHostPathPrefix to its
+  // mounts, so do the same here via the shared helper.
+  const [initSignalMount] = applyHostPathPrefixToVolumes(
+    [`${initSignalDir}:/tmp/awf-init:rw`],
+    dockerHostPathPrefix,
+  );
 
   // SECURITY: iptables init container - sets up NAT rules in a separate container
   // that shares the agent's network namespace but NEVER gives NET_ADMIN to the agent.
@@ -225,7 +241,7 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
     network_mode: 'service:agent',
     // Only mount the init signal volume and the iptables setup script
     volumes: [
-      `${initSignalDir}:/tmp/awf-init:rw`,
+      initSignalMount,
     ],
     environment: {
       // Pass through environment variables needed by setup-iptables.sh
