@@ -17,6 +17,7 @@ const mockLogger = {
   warn: jest.fn(),
   error: jest.fn(),
   success: jest.fn(),
+  setLevel: jest.fn(),
 };
 
 export function loggerMockFactory() {
