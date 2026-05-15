@@ -212,7 +212,7 @@ sudo -E awf --allow-domains otel.example.com -- agent-command
 The following OTEL variables often carry bearer tokens or other credentials and are included in the one-shot token protection list (`AWF_ONE_SHOT_TOKENS`). They are cached on first access and removed from `/proc/self/environ`, preventing exfiltration by compromised subprocesses:
 
 | Variable | Content |
-|---|---|
+|----------|---------|
 | `OTEL_EXPORTER_OTLP_HEADERS` | Global auth headers (e.g. `Authorization=Bearer <token>`) |
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Per-signal auth headers |
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Per-signal auth headers |
@@ -237,7 +237,7 @@ The following OTEL variables often carry bearer tokens or other credentials and 
 ### Key OTEL variables by category
 
 | Category | Variables |
-|---|---|
+|----------|-----------|
 | **Sensitive (one-shot protected)** | `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` |
 | **Network-affecting** | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` |
 | **Safe / local config** | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SDK_DISABLED`, `OTEL_LOG_LEVEL`, `OTEL_PROPAGATORS`, `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_COMPRESSION` |
