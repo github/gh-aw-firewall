@@ -415,7 +415,7 @@ export function readEnvFile(filePath: string): Record<string, string> {
  * Checks if two subnets overlap
  * Returns true if the new subnet conflicts with an existing subnet
  */
-export function subnetsOverlap(subnet1: string, subnet2: string): boolean {
+function subnetsOverlap(subnet1: string, subnet2: string): boolean {
   // Parse CIDR notation: "172.17.0.0/16" -> ["172.17.0.0", "16"]
   const [ip1, cidr1] = subnet1.split('/');
   const [ip2, cidr2] = subnet2.split('/');
@@ -441,6 +441,10 @@ export function subnetsOverlap(subnet1: string, subnet2: string): boolean {
   // Check if ranges overlap
   return (start1 <= end2 && end1 >= start2);
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = { subnetsOverlap };
 
 /**
  * SSL configuration for Docker Compose (when SSL Bump is enabled)

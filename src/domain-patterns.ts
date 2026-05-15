@@ -88,6 +88,8 @@ export function isWildcardPattern(domain: string): boolean {
  * Uses character class instead of .* to prevent catastrophic backtracking (ReDoS).
  * Per RFC 1035, valid domain characters are: letters, digits, hyphens, and dots.
  */
+/** @internal Exported only for test assertions — not part of the public API. */
+// ts-prune-ignore-next
 export const DOMAIN_CHAR_PATTERN = '[a-zA-Z0-9.-]*';
 
 /**

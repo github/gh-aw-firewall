@@ -22,9 +22,9 @@ function resetIpv6State(): void {
   ipv6DisabledViaSysctl = false;
 }
 
-/** @internal Test-only helpers */
+/** @internal Exposed only for unit tests — not part of the public API. */
 // ts-prune-ignore-next
-export const _testing = { resetIpv6State };
+export const testHelpers = { resetIpv6State };
 
 /**
  * Gets the bridge interface name for the firewall network

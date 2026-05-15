@@ -1,9 +1,9 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { setupHostIptables } from './host-iptables';
-import { _testing } from './host-iptables-shared';
+import { testHelpers } from './host-iptables-shared';
 
 describe('host-iptables (doh)', () => {
-  setupHostIptablesTestSuite(_testing.resetIpv6State);
+  setupHostIptablesTestSuite(testHelpers.resetIpv6State);
 
   describe('setupHostIptables with DoH proxy', () => {
     it('should add HTTPS ACCEPT rule for DoH proxy when dohProxyIp is provided', async () => {

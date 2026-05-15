@@ -1,4 +1,4 @@
-import { subnetsOverlap, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './host-env';
+import { testHelpers, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './host-env';
 import { parseDifcProxyHost } from './docker-manager';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,31 +14,31 @@ describe('docker-manager utilities', () => {
   describe('subnetsOverlap', () => {
 
     it('should detect overlapping subnets with same CIDR', () => {
-      expect(subnetsOverlap('172.30.0.0/24', '172.30.0.0/24')).toBe(true);
+      expect(testHelpers.subnetsOverlap('172.30.0.0/24', '172.30.0.0/24')).toBe(true);
     });
 
     it('should detect non-overlapping subnets', () => {
-      expect(subnetsOverlap('172.30.0.0/24', '172.31.0.0/24')).toBe(false);
-      expect(subnetsOverlap('192.168.1.0/24', '192.168.2.0/24')).toBe(false);
+      expect(testHelpers.subnetsOverlap('172.30.0.0/24', '172.31.0.0/24')).toBe(false);
+      expect(testHelpers.subnetsOverlap('192.168.1.0/24', '192.168.2.0/24')).toBe(false);
     });
 
     it('should detect when smaller subnet is inside larger subnet', () => {
-      expect(subnetsOverlap('172.16.0.0/16', '172.16.5.0/24')).toBe(true);
-      expect(subnetsOverlap('172.16.5.0/24', '172.16.0.0/16')).toBe(true);
+      expect(testHelpers.subnetsOverlap('172.16.0.0/16', '172.16.5.0/24')).toBe(true);
+      expect(testHelpers.subnetsOverlap('172.16.5.0/24', '172.16.0.0/16')).toBe(true);
     });
 
     it('should detect partial overlap', () => {
-      expect(subnetsOverlap('172.30.0.0/23', '172.30.1.0/24')).toBe(true);
+      expect(testHelpers.subnetsOverlap('172.30.0.0/23', '172.30.1.0/24')).toBe(true);
     });
 
     it('should handle Docker default bridge network', () => {
-      expect(subnetsOverlap('172.17.0.0/16', '172.17.5.0/24')).toBe(true);
-      expect(subnetsOverlap('172.17.0.0/16', '172.18.0.0/16')).toBe(false);
+      expect(testHelpers.subnetsOverlap('172.17.0.0/16', '172.17.5.0/24')).toBe(true);
+      expect(testHelpers.subnetsOverlap('172.17.0.0/16', '172.18.0.0/16')).toBe(false);
     });
 
     it('should handle /32 (single host) networks', () => {
-      expect(subnetsOverlap('192.168.1.1/32', '192.168.1.1/32')).toBe(true);
-      expect(subnetsOverlap('192.168.1.1/32', '192.168.1.2/32')).toBe(false);
+      expect(testHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.1/32')).toBe(true);
+      expect(testHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.2/32')).toBe(false);
     });
   });
 
