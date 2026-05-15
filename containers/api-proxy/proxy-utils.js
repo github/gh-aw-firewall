@@ -234,6 +234,7 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {() => boolean} [opts.skipModelsFetch]
  * @param {Record<string,string>|(() => Record<string,string>)} [opts.modelsFetchHeaders]
  * @param {string|null} [opts.modelsCacheKey]
+ * @param {boolean} [opts.participatesInValidation]
  * @param {boolean} [opts.reflectionConfigured]
  * @param {string|null} [opts.reflectionModelsPath]
  * @param {Record<string, unknown>|(() => Record<string, unknown>)} [opts.reflectionExtra]
