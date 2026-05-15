@@ -775,14 +775,16 @@ for (const workflowPath of workflowPaths) {
 // custom provider "openai-proxy" that:
 //   - points to the AWF api-proxy sidecar at http://172.30.0.30:10000
 //   - sets supports_websockets=false to force REST (which respects base_url)
-//   - uses OPENAI_API_KEY (placeholder injected by AWF) for auth; the sidecar
-//     replaces it with the real key before forwarding to OpenAI
+//   - omits env_key so Codex does not hard-require OPENAI_API_KEY at startup;
+//     auth is handled by the sidecar
 // We then set model_provider = "openai-proxy" to activate it.
 //
 // See: https://developers.openai.com/codex/config-reference
 const codexConfigTomlHeredocRegex =
   /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
 const CODEX_PROXY_PROVIDER_SENTINEL = 'model_providers.openai-proxy';
+const CODEX_PROXY_ENV_KEY_REGEX =
+  /(^\s+\[model_providers\.openai-proxy\]\n(?:^\s+.*\n)*?)^\s+env_key = "OPENAI_API_KEY"\n/m;
 
 // Apply Codex-specific transformations to OpenAI/Codex workflow files only.
 // These transformations must not be applied to Claude, Copilot, or other
@@ -810,7 +812,6 @@ for (const workflowPath of codexWorkflowPaths) {
         `${indent}[model_providers.openai-proxy]\n` +
         `${indent}name = "OpenAI AWF proxy"\n` +
         `${indent}base_url = "http://172.30.0.30:10000"\n` +
-        `${indent}env_key = "OPENAI_API_KEY"\n` +
         `${indent}supports_websockets = false\n` +
         `${indent}\n`;
       content = content.replace(
@@ -827,6 +828,14 @@ for (const workflowPath of codexWorkflowPaths) {
     }
   } else {
     console.log(`  openai-proxy custom provider already present in Codex config.toml`);
+  }
+
+  // Remove legacy env_key for openai-proxy so Codex doesn't require OPENAI_API_KEY
+  // in the sandbox when auth is provided by the sidecar.
+  if (CODEX_PROXY_ENV_KEY_REGEX.test(content)) {
+    content = content.replace(CODEX_PROXY_ENV_KEY_REGEX, '$1');
+    modified = true;
+    console.log('  Removed legacy env_key from openai-proxy provider');
   }
 
   // Preserve empty lines as truly empty (no trailing whitespace) to keep the

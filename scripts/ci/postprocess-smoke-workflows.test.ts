@@ -234,6 +234,50 @@ describe('cacheRestoreKeyPrefixRegex', () => {
   });
 });
 
+// ── Codex openai-proxy provider injection tests ──────────────────────────────
+// Mirrors the patterns in postprocess-smoke-workflows.ts.
+
+const codexConfigTomlHeredocRegex =
+  /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
+const CODEX_PROXY_ENV_KEY_REGEX =
+  /(^\s+\[model_providers\.openai-proxy\]\n(?:^\s+.*\n)*?)^\s+env_key = "OPENAI_API_KEY"\n/m;
+
+describe('codexConfigTomlHeredocRegex + CODEX_PROXY_ENV_KEY_REGEX', () => {
+  it('injects openai-proxy provider without env_key', () => {
+    const input =
+      '          cat > "/tmp/gh-aw/mcp-config/config.toml" << GH_AW_CODEX_SHELL_POLICY_hash_EOF\n' +
+      '          [shell_environment_policy]\n' +
+      '          inherit = "core"\n';
+    const match = input.match(codexConfigTomlHeredocRegex);
+    expect(match).not.toBeNull();
+    const indent = match![1];
+    const modelProvidersBlock =
+      `${indent}model_provider = "openai-proxy"\n` +
+      `${indent}\n` +
+      `${indent}[model_providers.openai-proxy]\n` +
+      `${indent}name = "OpenAI AWF proxy"\n` +
+      `${indent}base_url = "http://172.30.0.30:10000"\n` +
+      `${indent}supports_websockets = false\n` +
+      `${indent}\n`;
+    const result = input.replace(codexConfigTomlHeredocRegex, `$1$2${modelProvidersBlock}$3`);
+    expect(result).toContain('[model_providers.openai-proxy]');
+    expect(result).not.toContain('env_key = "OPENAI_API_KEY"');
+  });
+
+  it('removes legacy env_key from openai-proxy provider blocks', () => {
+    const input =
+      '          [model_providers.openai-proxy]\n' +
+      '          name = "OpenAI AWF proxy"\n' +
+      '          base_url = "http://172.30.0.30:10000"\n' +
+      '          env_key = "OPENAI_API_KEY"\n' +
+      '          supports_websockets = false\n' +
+      '          [shell_environment_policy]\n';
+    const result = input.replace(CODEX_PROXY_ENV_KEY_REGEX, '$1');
+    expect(result).not.toContain('env_key = "OPENAI_API_KEY"');
+    expect(result).toContain('supports_websockets = false');
+  });
+});
+
 // ── Session state dir injection and Copy step replacement tests ──────────────
 // Mirrors the patterns in postprocess-smoke-workflows.ts.
 
