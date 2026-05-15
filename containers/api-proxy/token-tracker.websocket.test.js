@@ -306,4 +306,41 @@ describe('trackWebSocketTokenUsage', () => {
       done();
     }, 10);
   });
+
+  test('extracts OpenAI Responses API usage from response.completed WebSocket frame', (done) => {
+    const socket = new EventEmitter();
+    const metricsRef = { increment: jest.fn() };
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'ws-openai-responses',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    socket.emit('data', Buffer.from('HTTP/1.1 101 Switching Protocols\r\n\r\n'));
+    socket.emit('data', buildTextFrame(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 300,
+          output_tokens: 75,
+          total_tokens: 375,
+        },
+      },
+    })));
+    socket.emit('close');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total', { provider: 'openai' }, 300,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total', { provider: 'openai' }, 75,
+      );
+      done();
+    }, 10);
+  });
 });

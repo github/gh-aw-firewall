@@ -240,49 +240,54 @@ function extractUsageFromJson(body) {
   try {
     const text = body.toString('utf8');
     const json = JSON.parse(text);
-    const result = { usage: null, model: json.model || null };
+    const usageSource = (json.usage && typeof json.usage === 'object')
+      ? json.usage
+      : ((json.response && json.response.usage && typeof json.response.usage === 'object')
+        ? json.response.usage
+        : null);
+    const result = { usage: null, model: json.model || (json.response && json.response.model) || null };
 
-    if (json.usage && typeof json.usage === 'object') {
+    if (usageSource) {
       const usage = {};
       let hasField = false;
       // Anthropic fields
-      if (typeof json.usage.input_tokens === 'number') {
-        usage.input_tokens = json.usage.input_tokens;
+      if (typeof usageSource.input_tokens === 'number') {
+        usage.input_tokens = usageSource.input_tokens;
         hasField = true;
       }
-      if (typeof json.usage.output_tokens === 'number') {
-        usage.output_tokens = json.usage.output_tokens;
+      if (typeof usageSource.output_tokens === 'number') {
+        usage.output_tokens = usageSource.output_tokens;
         hasField = true;
       }
-      if (typeof json.usage.cache_creation_input_tokens === 'number') {
-        usage.cache_creation_input_tokens = json.usage.cache_creation_input_tokens;
+      if (typeof usageSource.cache_creation_input_tokens === 'number') {
+        usage.cache_creation_input_tokens = usageSource.cache_creation_input_tokens;
         hasField = true;
       }
-      if (typeof json.usage.cache_read_input_tokens === 'number') {
-        usage.cache_read_input_tokens = json.usage.cache_read_input_tokens;
+      if (typeof usageSource.cache_read_input_tokens === 'number') {
+        usage.cache_read_input_tokens = usageSource.cache_read_input_tokens;
         hasField = true;
       }
       // OpenAI/Copilot fields
-      if (typeof json.usage.prompt_tokens === 'number') {
-        usage.prompt_tokens = json.usage.prompt_tokens;
+      if (typeof usageSource.prompt_tokens === 'number') {
+        usage.prompt_tokens = usageSource.prompt_tokens;
         hasField = true;
       }
-      if (typeof json.usage.completion_tokens === 'number') {
-        usage.completion_tokens = json.usage.completion_tokens;
+      if (typeof usageSource.completion_tokens === 'number') {
+        usage.completion_tokens = usageSource.completion_tokens;
         hasField = true;
       }
-      if (typeof json.usage.total_tokens === 'number') {
-        usage.total_tokens = json.usage.total_tokens;
+      if (typeof usageSource.total_tokens === 'number') {
+        usage.total_tokens = usageSource.total_tokens;
         hasField = true;
       }
-      const reasoningTokens = extractReasoningTokens(json.usage);
+      const reasoningTokens = extractReasoningTokens(usageSource);
       if (typeof reasoningTokens === 'number') {
         usage.reasoning_tokens = reasoningTokens;
         hasField = true;
       }
       // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
-      if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
-        usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
+      if (usageSource.prompt_tokens_details && typeof usageSource.prompt_tokens_details.cached_tokens === 'number') {
+        usage.cache_read_input_tokens = usageSource.prompt_tokens_details.cached_tokens;
         hasField = true;
       }
       if (hasField) {
@@ -333,6 +338,23 @@ function extractUsageFromSseLine(line) {
     if (json.type === 'message_delta' && json.usage) {
       result.usage = {};
       if (typeof json.usage.output_tokens === 'number') result.usage.output_tokens = json.usage.output_tokens;
+      return result;
+    }
+
+    // OpenAI Responses API: usage in response object on completion events
+    if ((json.type === 'response.completed' || json.type === 'response.done')
+      && json.response && json.response.usage && typeof json.response.usage === 'object') {
+      const u = json.response.usage;
+      result.usage = {};
+      if (typeof u.input_tokens === 'number') result.usage.input_tokens = u.input_tokens;
+      if (typeof u.output_tokens === 'number') result.usage.output_tokens = u.output_tokens;
+      if (typeof u.total_tokens === 'number') result.usage.total_tokens = u.total_tokens;
+      const reasoningTokens = extractReasoningTokens(u);
+      if (typeof reasoningTokens === 'number') result.usage.reasoning_tokens = reasoningTokens;
+      if (u.prompt_tokens_details && typeof u.prompt_tokens_details.cached_tokens === 'number') {
+        result.usage.cache_read_input_tokens = u.prompt_tokens_details.cached_tokens;
+      }
+      result.model = json.response.model || result.model;
       return result;
     }
 

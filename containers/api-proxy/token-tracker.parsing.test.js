@@ -132,6 +132,29 @@ describe('extractUsageFromJson', () => {
     // Should NOT have cache_read_input_tokens
     expect(result.usage.cache_read_input_tokens).toBeUndefined();
   });
+
+  test('extracts OpenAI Responses API usage nested under response.usage', () => {
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        id: 'resp_123',
+        model: 'gpt-5-mini',
+        usage: {
+          input_tokens: 1234,
+          output_tokens: 567,
+          total_tokens: 1801,
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gpt-5-mini');
+    expect(result.usage).toEqual({
+      input_tokens: 1234,
+      output_tokens: 567,
+      total_tokens: 1801,
+    });
+  });
 });
 
 // ── extractUsageFromSseLine ───────────────────────────────────────────
@@ -183,6 +206,57 @@ describe('extractUsageFromSseLine', () => {
       prompt_tokens: 100,
       completion_tokens: 30,
       total_tokens: 130,
+    });
+  });
+
+  test('extracts OpenAI Responses API response.completed usage', () => {
+    const line = JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 1234,
+          output_tokens: 567,
+          total_tokens: 1801,
+        },
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.model).toBe('gpt-5');
+    expect(result.usage).toEqual({
+      input_tokens: 1234,
+      output_tokens: 567,
+      total_tokens: 1801,
+    });
+  });
+
+  test('extracts reasoning and cache tokens from OpenAI Responses API response.completed usage', () => {
+    const line = JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 25,
+          total_tokens: 125,
+          completion_tokens_details: {
+            reasoning_tokens: 7,
+          },
+          prompt_tokens_details: {
+            cached_tokens: 33,
+          },
+        },
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({
+      input_tokens: 100,
+      output_tokens: 25,
+      total_tokens: 125,
+      reasoning_tokens: 7,
+      cache_read_input_tokens: 33,
     });
   });
 

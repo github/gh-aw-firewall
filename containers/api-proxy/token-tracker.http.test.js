@@ -141,6 +141,49 @@ describe('trackTokenUsage', () => {
     }, 10);
   });
 
+  test('extracts usage from OpenAI Responses API streaming completion event', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-sse',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 1234, output_tokens: 567, total_tokens: 1801 },
+      },
+    }) + '\n\ndata: [DONE]\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        1234,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        567,
+      );
+      done();
+    }, 10);
+  });
+
   test('skips non-2xx responses', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };
