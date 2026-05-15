@@ -59,7 +59,7 @@ name: "Smoke Copilot BYOK"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "33 */12 * * *"
+  - cron: "26 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:

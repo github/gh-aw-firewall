@@ -50,7 +50,7 @@
 name: "Documentation Maintainer"
 "on":
   schedule:
-  - cron: "37 9 * * *"
+  - cron: "34 4 * * *"
     # Friendly format: daily (scattered)
   # skip-if-match: # Skip-if-match processed as search check in pre-activation job
     # max: 1

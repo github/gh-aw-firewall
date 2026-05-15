@@ -54,7 +54,7 @@
 name: "CI/CD Pipelines and Integration Tests Gap Assessment"
 "on":
   schedule:
-  - cron: "38 11 * * *"
+  - cron: "37 4 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

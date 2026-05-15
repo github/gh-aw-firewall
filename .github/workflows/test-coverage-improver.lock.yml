@@ -53,7 +53,7 @@
 name: "Weekly Test Coverage Improver"
 "on":
   schedule:
-  - cron: "8 14 * * 1"
+  - cron: "49 9 * * 0"
     # Friendly format: weekly (scattered)
   # skip-if-match: # Skip-if-match processed as search check in pre-activation job
     # max: 1

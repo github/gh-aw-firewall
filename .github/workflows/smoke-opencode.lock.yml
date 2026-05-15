@@ -61,7 +61,7 @@ name: "Smoke OpenCode"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "48 */12 * * *"
+  - cron: "29 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:

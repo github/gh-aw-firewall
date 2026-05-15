@@ -1,5 +1,6 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { cleanupFirewallNetwork, ensureFirewallNetwork } from './host-iptables';
+import { cleanupFirewallNetwork } from './host-iptables-network';
+import { ensureFirewallNetwork } from './host-iptables';
 import { _testing } from './host-iptables-shared';
 
 describe('host-iptables (network)', () => {

@@ -57,7 +57,7 @@ name: "Test Coverage Reporter"
     branches:
     - main
   schedule:
-  - cron: "35 11 * * *"
+  - cron: "25 4 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

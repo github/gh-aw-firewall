@@ -55,7 +55,7 @@ name: "Smoke Services"
     - reopened
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "31 */12 * * *"
+  - cron: "14 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:
