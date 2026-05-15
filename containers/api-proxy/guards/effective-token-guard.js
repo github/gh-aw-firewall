@@ -152,12 +152,13 @@ function getEffectiveTokenReflectState() {
       thresholds_crossed: [],
     };
   }
+  const reflectedTotal = Math.min(state.totalEffectiveTokens, config.max);
   return {
     enabled: true,
     max_effective_tokens: config.max,
-    total_effective_tokens: state.totalEffectiveTokens,
-    remaining_effective_tokens: Math.max(0, config.max - state.totalEffectiveTokens),
-    percent_used: Math.round((state.totalEffectiveTokens / config.max) * 10000) / 100,
+    total_effective_tokens: reflectedTotal,
+    remaining_effective_tokens: Math.max(0, config.max - reflectedTotal),
+    percent_used: Math.round((reflectedTotal / config.max) * 10000) / 100,
     thresholds_crossed: [...state.emittedThresholds].sort((a, b) => a - b),
   };
 }
