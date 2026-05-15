@@ -130,7 +130,7 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
     }),
     // Configure one-shot-token library with sensitive tokens to protect
     // These tokens are cached on first access and unset from /proc/self/environ
-    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY,COPILOT_PROVIDER_API_KEY',
+    AWF_ONE_SHOT_TOKENS: 'COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,GH_TOKEN,GITHUB_API_TOKEN,GITHUB_PAT,GH_ACCESS_TOKEN,OPENAI_API_KEY,OPENAI_KEY,ANTHROPIC_API_KEY,CLAUDE_API_KEY,CODEX_API_KEY,COPILOT_API_KEY,COPILOT_PROVIDER_API_KEY,OTEL_EXPORTER_OTLP_HEADERS,OTEL_EXPORTER_OTLP_TRACES_HEADERS,OTEL_EXPORTER_OTLP_METRICS_HEADERS,OTEL_EXPORTER_OTLP_LOGS_HEADERS',
   };
 
   // Copilot CLI requires Node.js. Ask the agent entrypoint to fail fast with a
@@ -284,9 +284,26 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
       'DOCKER_CONFIG',
       'DOCKER_API_VERSION',
       'DOCKER_DEFAULT_PLATFORM',
+      // Copilot OTEL file exporter path — written to a local file, no network needed.
+      // gh-aw uploads the resulting file as an Actions artifact.
+      'COPILOT_OTEL_FILE_EXPORTER_PATH',
     ] as const;
     for (const v of alwaysForwardVars) {
       if (process.env[v]) environment[v] = process.env[v]!;
+    }
+
+    // Forward all OTEL_* environment variables — standardized prefix per the OpenTelemetry spec.
+    // This covers the full set of ~50+ OTEL_ variables (safe, network-affecting, and sensitive)
+    // without requiring users to pass --env-all or list each variable explicitly.
+    // Sensitive header vars (OTEL_EXPORTER_OTLP_HEADERS and per-signal variants) are also
+    // included in AWF_ONE_SHOT_TOKENS above, so they are cached on first access and removed
+    // from /proc/self/environ to prevent exfiltration by compromised subprocesses.
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key.startsWith('OTEL_') && value !== undefined
+          && !EXCLUDED_ENV_VARS.has(key)
+          && !Object.prototype.hasOwnProperty.call(environment, key)) {
+        environment[key] = value;
+      }
     }
 
     // When DinD is exposed via a Unix socket override, keep the agent's default docker

@@ -304,4 +304,98 @@ describe('agent environment: credentials', () => {
       else delete process.env.GITHUB_TOKEN;
     }
   });
+
+  describe('OTEL environment variable forwarding', () => {
+    const otelVars: Record<string, string> = {
+      OTEL_SERVICE_NAME: 'my-service',
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com:4318',
+      OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=Bearer secret-token',
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'Authorization=Bearer traces-token',
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS: 'Authorization=Bearer metrics-token',
+      OTEL_EXPORTER_OTLP_LOGS_HEADERS: 'Authorization=Bearer logs-token',
+      OTEL_RESOURCE_ATTRIBUTES: 'host.name=runner01',
+      OTEL_SDK_DISABLED: 'false',
+    };
+
+    let origVals: Record<string, string | undefined>;
+
+    beforeEach(() => {
+      origVals = {};
+      for (const key of Object.keys(otelVars)) {
+        origVals[key] = process.env[key];
+        process.env[key] = otelVars[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of Object.keys(otelVars)) {
+        if (origVals[key] !== undefined) process.env[key] = origVals[key];
+        else delete process.env[key];
+      }
+    });
+
+    it('should auto-forward OTEL_* variables in default (non-env-all) mode', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+
+      expect(env.OTEL_SERVICE_NAME).toBe('my-service');
+      expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://otel.example.com:4318');
+      expect(env.OTEL_EXPORTER_OTLP_HEADERS).toBe('Authorization=Bearer secret-token');
+      expect(env.OTEL_EXPORTER_OTLP_TRACES_HEADERS).toBe('Authorization=Bearer traces-token');
+      expect(env.OTEL_EXPORTER_OTLP_METRICS_HEADERS).toBe('Authorization=Bearer metrics-token');
+      expect(env.OTEL_EXPORTER_OTLP_LOGS_HEADERS).toBe('Authorization=Bearer logs-token');
+      expect(env.OTEL_RESOURCE_ATTRIBUTES).toBe('host.name=runner01');
+      expect(env.OTEL_SDK_DISABLED).toBe('false');
+    });
+
+    it('should not forward OTEL_* variables when not set in host environment', () => {
+      for (const key of Object.keys(otelVars)) {
+        delete process.env[key];
+      }
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+
+      for (const key of Object.keys(otelVars)) {
+        expect(env[key]).toBeUndefined();
+      }
+    });
+
+    it('should include OTEL header vars in AWF_ONE_SHOT_TOKENS', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      const oneShot = env.AWF_ONE_SHOT_TOKENS ?? '';
+
+      expect(oneShot).toContain('OTEL_EXPORTER_OTLP_HEADERS');
+      expect(oneShot).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS');
+      expect(oneShot).toContain('OTEL_EXPORTER_OTLP_METRICS_HEADERS');
+      expect(oneShot).toContain('OTEL_EXPORTER_OTLP_LOGS_HEADERS');
+    });
+  });
+
+  describe('COPILOT_OTEL_FILE_EXPORTER_PATH forwarding', () => {
+    it('should forward COPILOT_OTEL_FILE_EXPORTER_PATH when set', () => {
+      const original = process.env.COPILOT_OTEL_FILE_EXPORTER_PATH;
+      process.env.COPILOT_OTEL_FILE_EXPORTER_PATH = '/tmp/otel-spans.json';
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.COPILOT_OTEL_FILE_EXPORTER_PATH).toBe('/tmp/otel-spans.json');
+      } finally {
+        if (original !== undefined) process.env.COPILOT_OTEL_FILE_EXPORTER_PATH = original;
+        else delete process.env.COPILOT_OTEL_FILE_EXPORTER_PATH;
+      }
+    });
+
+    it('should not set COPILOT_OTEL_FILE_EXPORTER_PATH when not in host environment', () => {
+      const original = process.env.COPILOT_OTEL_FILE_EXPORTER_PATH;
+      delete process.env.COPILOT_OTEL_FILE_EXPORTER_PATH;
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.COPILOT_OTEL_FILE_EXPORTER_PATH).toBeUndefined();
+      } finally {
+        if (original !== undefined) process.env.COPILOT_OTEL_FILE_EXPORTER_PATH = original;
+      }
+    });
+  });
 });

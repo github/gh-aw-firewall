@@ -192,6 +192,57 @@ When enabled, the library logs:
 
 **Note:** Debug output goes to stderr and does not interfere with command stdout. See `containers/agent/one-shot-token/README.md` for complete documentation.
 
+## OpenTelemetry (OTEL) Environment Variables
+
+AWF automatically forwards all `OTEL_*` environment variables and `COPILOT_OTEL_FILE_EXPORTER_PATH` into the agent container — no `--env-all` or explicit `--env` flags are required. This covers the full set of [OpenTelemetry SDK environment variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/).
+
+### Automatic forwarding
+
+Any variable present in the host environment with the `OTEL_` prefix is passed through:
+
+```bash
+export OTEL_SERVICE_NAME=my-agent
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4318
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $MY_OTEL_TOKEN"
+sudo -E awf --allow-domains otel.example.com -- agent-command
+```
+
+### Security: one-shot token protection for OTEL credentials
+
+The following OTEL variables often carry bearer tokens or other credentials and are included in the one-shot token protection list (`AWF_ONE_SHOT_TOKENS`). They are cached on first access and removed from `/proc/self/environ`, preventing exfiltration by compromised subprocesses:
+
+| Variable | Content |
+|---|---|
+| `OTEL_EXPORTER_OTLP_HEADERS` | Global auth headers (e.g. `Authorization=Bearer <token>`) |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Per-signal auth headers |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Per-signal auth headers |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Per-signal auth headers |
+
+### Network requirements
+
+- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. Add the OTLP collector domain to `--allow-domains`:
+
+  ```bash
+  awf --allow-domains otel.example.com -- agent-command
+  ```
+
+- **OTLP/gRPC (port 4317):** gRPC clients typically do not respect `HTTP_PROXY` env vars, and port 4317 is not covered by AWF's iptables DNAT rules (only 80/443). Traffic to port 4317 hits the default DROP rule and is blocked. Use `http/protobuf` protocol instead:
+
+  ```bash
+  export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+  ```
+
+- **File-based export (`COPILOT_OTEL_FILE_EXPORTER_PATH`):** Writes spans to a local file — no network access needed. AWF forwards this variable automatically. gh-aw uploads the file as an Actions artifact.
+
+### Key OTEL variables by category
+
+| Category | Variables |
+|---|---|
+| **Sensitive (one-shot protected)** | `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` |
+| **Network-affecting** | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` |
+| **Safe / local config** | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SDK_DISABLED`, `OTEL_LOG_LEVEL`, `OTEL_PROPAGATORS`, `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_COMPRESSION` |
+| **Copilot-specific** | `COPILOT_OTEL_FILE_EXPORTER_PATH` |
+
 ## Workflow-Scope Docker-in-Docker (`DOCKER_HOST`)
 
 When a GitHub Actions workflow enables Docker-in-Docker (DinD) at the **workflow scope** — for example by starting a `docker:dind` service container and setting `DOCKER_HOST: tcp://localhost:2375` in the runner's environment — AWF handles the conflict automatically.
