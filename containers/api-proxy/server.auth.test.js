@@ -115,11 +115,18 @@ describe('resolveCopilotAuthToken', () => {
     expect(resolveCopilotAuthToken({ COPILOT_API_KEY: '  sk-byok-key  ' })).toBe('sk-byok-key');
   });
 
-  it('should fall back to COPILOT_API_KEY when COPILOT_GITHUB_TOKEN is whitespace-only', () => {
+  it('should use COPILOT_API_KEY when COPILOT_GITHUB_TOKEN is whitespace-only', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: '  ',
       COPILOT_API_KEY: 'sk-byok-key',
     })).toBe('sk-byok-key');
+  });
+
+  it('should fall back to COPILOT_GITHUB_TOKEN when COPILOT_API_KEY is whitespace-only', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'gho_abc123',
+      COPILOT_API_KEY: '  ',
+    })).toBe('gho_abc123');
   });
 
   it('strips "Bearer " prefix from COPILOT_API_KEY when resolving', () => {
