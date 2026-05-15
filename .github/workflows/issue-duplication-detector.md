@@ -40,7 +40,10 @@ When a new issue is opened, analyze it to determine if it might be a duplicate o
 
    **Cold start handling**: If the file does not exist or is empty, this is a normal cold start — the cache has not been populated yet. Do NOT report `missing_data`. Still continue to step 2 to fetch the new issue details, skip step 3 because there is no cache to compare against, and then proceed to step 4 to search for issues via the GitHub API and populate the cache for future runs.
 
-2. **Fetch the new issue**: Get the details of issue #${{ github.event.issue.number }} in repository ${{ github.repository }}.
+2. **Fetch the new issue**: Use the `gh` CLI to get the issue details, since it has reliable authentication:
+   ```bash
+   gh issue view ${{ github.event.issue.number }} --repo ${{ github.repository }} --json number,title,body,labels,createdAt
+   ```
 
 3. **Compare with cached issues** (skip if cache was empty):
    - Compare the new issue's title and body against cached issue data
@@ -48,10 +51,12 @@ When a new issue is opened, analyze it to determine if it might be a duplicate o
    - Look for similar problem descriptions in the body
    - Consider keyword overlap and semantic similarity
 
-4. **Search for potential duplicates via GitHub API**: Always search GitHub for issues with similar keywords, whether or not the cache had data:
-   - Search for issues with similar titles or key terms
+4. **Search for potential duplicates via GitHub API**: Always search GitHub for issues with similar keywords, whether or not the cache had data. Use the `gh` CLI for reliable API access:
+   ```bash
+   gh search issues "<key terms>" --repo ${{ github.repository }} --state open --limit 10 --json number,title,body
+   gh issue list --repo ${{ github.repository }} --state open --limit 20 --json number,title,body,labels
+   ```
    - Focus on open issues first, then consider recently closed ones
-   - Use `perPage: 10` initially to avoid token limits, paginate if needed
 
 5. **Update the cache**: Store the new issue's signature in the cache-memory for future comparisons:
    - Write to `/tmp/gh-aw/cache-memory/issues.json` using bash (e.g., write the JSON content with `cat > /tmp/gh-aw/cache-memory/issues.json << 'EOF'`)
@@ -97,3 +102,4 @@ If one of these addresses your concern, please consider closing this issue as a 
 - Be helpful: Always explain why issues appear related
 - Respect the cache: Keep stored data minimal and relevant
 - Use pagination: Always use `perPage` parameter when listing/searching issues
+- **Prefer `gh` CLI over MCP tools for GitHub API access**: The `gh` CLI uses the automatic `GITHUB_TOKEN` which is always valid, whereas MCP tools may use a separate token that can expire. Use `gh issue view`, `gh issue list`, `gh search issues`, and `gh api` for reliable access.
