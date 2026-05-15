@@ -14,6 +14,9 @@ sandbox:
   agent:
     id: awf
     version: v0.25.29
+engine:
+  id: copilot
+  model: claude-haiku-4-5
 tools:
   edit:
   bash: true
@@ -27,11 +30,25 @@ safe-outputs:
     draft: false
 timeout-minutes: 15
 steps:
-  - name: Gather recent git changes
+  - name: Check for relevant changes
+    id: has-changes
+    run: |
+      COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l)
+      echo "changed_count=$COUNT" >> $GITHUB_OUTPUT
+      if [ "$COUNT" -gt 0 ]; then
+        echo "has_changes=true" >> $GITHUB_OUTPUT
+      else
+        echo "has_changes=false" >> $GITHUB_OUTPUT
+      fi
+  - name: Gather recent git diffs
     id: git-changes
     run: |
-      echo "RECENT_COMMITS<<EOF" >> $GITHUB_OUTPUT
-      git log --since="7 days ago" --name-only --format="%H %s" | head -200
+      echo "RECENT_DIFFS<<EOF" >> $GITHUB_OUTPUT
+      git log --since="7 days ago" --format="%H %s" -- src/ containers/ scripts/ | \
+        while read -r sha title; do
+          echo "=== Commit $sha: $title ==="
+          git show --stat --unified=3 "$sha" -- src/ containers/ scripts/ docs/ '*.md' 2>/dev/null | head -150
+        done | head -500
       echo "EOF" >> $GITHUB_OUTPUT
   - name: List documentation files
     id: doc-files
@@ -39,6 +56,13 @@ steps:
       echo "DOC_FILES<<EOF" >> $GITHUB_OUTPUT
       find docs/ -name "*.md" 2>/dev/null | sort
       find . -maxdepth 1 -name "*.md" | sort
+      echo "EOF" >> $GITHUB_OUTPUT
+  - name: Identify affected docs
+    id: affected-docs
+    run: |
+      echo "AFFECTED_DOCS<<EOF" >> $GITHUB_OUTPUT
+      git log --since="7 days ago" --name-only --format="" -- src/ containers/ scripts/ | \
+        grep -v '^$' | sort -u | head -30
       echo "EOF" >> $GITHUB_OUTPUT
 ---
 
@@ -58,29 +82,13 @@ This repository is a security-critical firewall for GitHub Copilot CLI. Accurate
 - MCP configuration changes
 - Security guidance updates
 
-## Recent Changes (Pre-computed)
-
-The following git commits from the past 7 days and their affected files have been pre-computed:
-
-```
-${{ steps.git-changes.outputs.RECENT_COMMITS }}
-```
-
-## Documentation Files
-
-The following documentation files exist in the repository:
-
-```
-${{ steps.doc-files.outputs.DOC_FILES }}
-```
-
-Review these files to identify what needs updating based on the recent changes above.
-
 ## Task Steps
 
 ### 1. Analyze Pre-computed Changes
 
-Review the git commit list above. For commits that touch source code (`src/`, `containers/`, `scripts/`), use `git show <sha>` to examine the actual diffs and understand what changed.
+If `${{ steps.has-changes.outputs.has_changes }}` is `false`, exit immediately using a no-op result without editing files or creating a PR.
+
+Use the pre-computed diffs below as your source of truth for recent source changes. Do not run `git show <sha>` per commit unless absolutely necessary.
 
 ### 2. Identify Documentation Gaps
 
@@ -88,7 +96,7 @@ Compare code changes with current documentation and identify what needs to be up
 
 ### 3. Review Current Documentation
 
-Read the documentation files listed above that are likely affected by the recent changes.
+Start with the prioritized list from `${{ steps.affected-docs.outputs.AFFECTED_DOCS }}`. Review the broader documentation list only when there is a clear link to the recent source changes.
 
 ### 4. Verify Code Examples
 
@@ -163,3 +171,29 @@ A successful run means:
 4. You verified code examples are correct
 5. You created a PR with clear descriptions of changes
 6. The PR is labeled with `documentation` and `ai-generated`
+
+---
+
+## Context for This Run
+
+### Relevant Source Changes Detected
+
+`${{ steps.has-changes.outputs.has_changes }}` (count: `${{ steps.has-changes.outputs.changed_count }}`)
+
+### Recent Changes (Pre-computed)
+
+```
+${{ steps.git-changes.outputs.RECENT_DIFFS }}
+```
+
+### Prioritized Documentation Files
+
+```
+${{ steps.affected-docs.outputs.AFFECTED_DOCS }}
+```
+
+### Documentation Files
+
+```
+${{ steps.doc-files.outputs.DOC_FILES }}
+```
