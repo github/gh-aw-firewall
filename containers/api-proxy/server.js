@@ -678,8 +678,8 @@ if (require.main === module) {
     process.exit(0);
   }
 
-  process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
-  process.on('SIGINT', () => shutdownGracefully('SIGINT'));
+  process.on('SIGTERM', async () => shutdownGracefully('SIGTERM'));
+  process.on('SIGINT', async () => shutdownGracefully('SIGINT'));
 }
 
 // ── Exports (for testing) ─────────────────────────────────────────────────────
