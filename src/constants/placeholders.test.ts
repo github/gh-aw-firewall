@@ -10,4 +10,12 @@ describe('COPILOT_PLACEHOLDER_TOKEN', () => {
 
     expect(match?.[1]).toBe(COPILOT_PLACEHOLDER_TOKEN);
   });
+
+  it('matches the api-proxy copilot.js placeholder value', () => {
+    const copilotJsPath = path.resolve(__dirname, '../../containers/api-proxy/providers/copilot.js');
+    const scriptContent = fs.readFileSync(copilotJsPath, 'utf8');
+    const match = scriptContent.match(/COPILOT_PLACEHOLDER_TOKEN\s*=\s*'([^']+)'/);
+
+    expect(match?.[1]).toBe(COPILOT_PLACEHOLDER_TOKEN);
+  });
 });

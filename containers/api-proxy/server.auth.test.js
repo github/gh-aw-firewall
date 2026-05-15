@@ -137,7 +137,7 @@ describe('resolveCopilotAuthToken', () => {
     })).toBe('gho_abc123');
   });
 
-  it('treats AWF placeholder COPILOT_API_KEY as absent when no GITHUB_TOKEN is set', () => {
+  it('treats AWF placeholder COPILOT_API_KEY as absent when no COPILOT_GITHUB_TOKEN is set', () => {
     expect(resolveCopilotAuthToken({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
   });
 
@@ -254,7 +254,7 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     expect(headers['Authorization']).toBe('Bearer gho_oauth_token');
   });
 
-  it('uses API key for /models GET when no GITHUB_TOKEN is set (BYOK-only mode)', () => {
+  it('uses API key for /models GET when no COPILOT_GITHUB_TOKEN is set (BYOK-only mode)', () => {
     const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeModelsReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
@@ -265,7 +265,7 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     expect(adapter.isEnabled()).toBe(true);
   });
 
-  it('is disabled when COPILOT_API_KEY is the AWF placeholder and no GITHUB_TOKEN is set', () => {
+  it('is disabled when COPILOT_API_KEY is the AWF placeholder and no COPILOT_GITHUB_TOKEN is set', () => {
     const adapter = createCopilotAdapter({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN });
     expect(adapter.isEnabled()).toBe(false);
   });
