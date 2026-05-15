@@ -202,7 +202,7 @@ Any variable present in the host environment with the `OTEL_` prefix is passed t
 
 ```bash
 export OTEL_SERVICE_NAME=my-agent
-export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $MY_OTEL_TOKEN"
 sudo -E awf --allow-domains otel.example.com -- agent-command
 ```
