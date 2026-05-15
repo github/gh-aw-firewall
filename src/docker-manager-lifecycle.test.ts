@@ -1,6 +1,5 @@
-import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost } from './docker-manager';
+import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost, stopContainers, getLocalDockerEnv } from './docker-manager';
 import { isAgentExternallyKilled, resetAgentExternallyKilled } from './container-lifecycle';
-import { stopContainers } from './container-cleanup';
 import { AGENT_CONTAINER_NAME } from './host-env';
 import { logger } from './logger';
 import * as fs from 'fs';
@@ -493,6 +492,12 @@ describe('docker-manager lifecycle', () => {
       } finally {
         fs.rmSync(testDir, { recursive: true, force: true });
       }
+    });
+
+    it('getLocalDockerEnv returns a ProcessEnv-shaped object', () => {
+      const env = getLocalDockerEnv();
+      expect(env).toBeDefined();
+      expect(typeof env).toBe('object');
     });
   });
 

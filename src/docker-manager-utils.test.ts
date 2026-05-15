@@ -1,4 +1,5 @@
-import { subnetsOverlap, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme, parseDifcProxyHost } from './host-env';
+import { subnetsOverlap, validateIdNotInSystemRange, getSafeHostUid, getSafeHostGid, getRealUserHome, extractGhHostFromServerUrl, readGitHubPathEntries, mergeGitHubPathEntries, readGitHubEnvEntries, parseGitHubEnvFile, readEnvFile, MIN_REGULAR_UID, ACT_PRESET_BASE_IMAGE, stripScheme } from './host-env';
+import { parseDifcProxyHost } from './docker-manager';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

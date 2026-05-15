@@ -119,5 +119,43 @@ describe('registerSignalHandlers', () => {
     expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
     expect(processExitSpy).toHaveBeenCalledWith(143);
   });
+
+  it('swallows errors thrown during SIGINT handling', async () => {
+    const fastKill = jest.fn().mockRejectedValue(new Error('kill failed'));
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+
+    const deps: SignalHandlerDependencies = {
+      getContainersStarted: () => true,
+      keepContainers: false,
+      fastKillAgentContainer: fastKill,
+      performCleanup,
+    };
+
+    registerSignalHandlers(deps);
+
+    // Should not throw even though fastKillAgentContainer rejects
+    handlers['SIGINT']();
+    await flushPromises();
+    expect(processExitSpy).toHaveBeenCalledWith(130);
+  });
+
+  it('swallows errors thrown during SIGTERM handling', async () => {
+    const fastKill = jest.fn().mockRejectedValue(new Error('kill failed'));
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+
+    const deps: SignalHandlerDependencies = {
+      getContainersStarted: () => true,
+      keepContainers: false,
+      fastKillAgentContainer: fastKill,
+      performCleanup,
+    };
+
+    registerSignalHandlers(deps);
+
+    // Should not throw even though fastKillAgentContainer rejects
+    handlers['SIGTERM']();
+    await flushPromises();
+    expect(processExitSpy).toHaveBeenCalledWith(143);
+  });
 });
 
