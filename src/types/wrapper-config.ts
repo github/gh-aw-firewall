@@ -2,7 +2,7 @@
  * Main wrapper configuration types grouped by domain.
  *
  * The monolithic WrapperConfigBase has been split into domain-scoped interfaces.
- * This file re-exports those interfaces and composes the final WrapperConfig type.
+ * This file imports those interfaces and composes the final WrapperConfig type.
  */
 
 import type { ContainerImageOptions } from './container-image-options';
