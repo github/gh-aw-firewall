@@ -23,10 +23,13 @@ const {
 } = require('../proxy-utils');
 const { URL } = require('url');
 
-// AWF injects this placeholder into the agent environment for credential isolation.
-// When this value appears as COPILOT_API_KEY in the sidecar environment it means
-// the sidecar received a dummy key (not a real BYOK credential) and should fall
-// back to COPILOT_GITHUB_TOKEN as the sole auth source.
+// AWF injects this sentinel value into the agent environment for credential isolation.
+// The ghu_ prefix is intentional: it matches the GitHub token shape that Copilot CLI
+// auth pre-checks expect, but the 36 repeated 'a' characters make it unambiguous as
+// a non-real placeholder.  It is defined in src/constants/placeholders.ts and must
+// stay in sync.  When this value appears as COPILOT_API_KEY in the sidecar environment
+// it means the sidecar received a dummy key (not a real BYOK credential) and should
+// fall back to COPILOT_GITHUB_TOKEN as the sole auth source.
 const COPILOT_PLACEHOLDER_TOKEN = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 /**
@@ -46,10 +49,13 @@ function stripBearerPrefix(value) {
 
 /**
  * Returns the COPILOT_API_KEY value from env if it is a real BYOK credential,
- * or undefined if it is the known AWF placeholder sentinel.
+ * or undefined in two cases:
+ *   1. COPILOT_API_KEY is not set (or is empty/whitespace-only).
+ *   2. COPILOT_API_KEY equals the known AWF placeholder sentinel — it was injected
+ *      by AWF for credential isolation and is not a usable BYOK credential.
  *
  * @param {Record<string, string|undefined>} env - Environment variables to inspect
- * @returns {string|undefined}
+ * @returns {string|undefined} The real BYOK key, or undefined when absent or placeholder.
  */
 function resolveApiKey(env) {
   const key = stripBearerPrefix(env.COPILOT_API_KEY);
