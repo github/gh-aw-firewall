@@ -1,9 +1,6 @@
 import { generateDockerCompose } from '../compose-generator';
 import { WrapperConfig } from '../types';
-import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { baseConfig, mockNetworkConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -14,13 +11,13 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 let mockConfig: WrapperConfig;
 
 describe('squid service', () => {
-  beforeEach(() => {
-    mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
-  });
-
-  afterEach(() => {
-    fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
-  });
+  useTempWorkDir(
+    baseConfig,
+    (config) => {
+      mockConfig = config;
+    },
+    () => mockConfig
+  );
 
     it('should configure squid container correctly', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);

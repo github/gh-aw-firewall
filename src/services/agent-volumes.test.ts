@@ -1,7 +1,7 @@
 import { generateDockerCompose } from '../compose-generator';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
-import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
+import { baseConfig, mockNetworkConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -16,13 +16,13 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 let mockConfig: WrapperConfig;
 
 describe('agent service', () => {
-  beforeEach(() => {
-    mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
-  });
-
-  afterEach(() => {
-    fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
-  });
+  useTempWorkDir(
+    baseConfig,
+    (config) => {
+      mockConfig = config;
+    },
+    () => mockConfig
+  );
 
     it('should mount required volumes in agent container (default behavior)', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);

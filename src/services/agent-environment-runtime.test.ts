@@ -1,9 +1,6 @@
 import { generateDockerCompose } from '../compose-generator';
 import { WrapperConfig } from '../types';
-import { baseConfig, mockNetworkConfig } from '../test-helpers/docker-test-fixtures.test-utils';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { baseConfig, mockNetworkConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -14,13 +11,13 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 let mockConfig: WrapperConfig;
 
 describe('agent environment: runtime', () => {
-  beforeEach(() => {
-    mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
-  });
-
-  afterEach(() => {
-    fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
-  });
+  useTempWorkDir(
+    baseConfig,
+    (config) => {
+      mockConfig = config;
+    },
+    () => mockConfig
+  );
 
   it('should set NO_COLOR=1 when tty is false (default)', () => {
     const result = generateDockerCompose(mockConfig, mockNetworkConfig);
