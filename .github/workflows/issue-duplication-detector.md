@@ -38,7 +38,7 @@ When a new issue is opened, analyze it to determine if it might be a duplicate o
 
 1. **Load cached issue data**: Read the file `/tmp/gh-aw/cache-memory/issues.json` using bash (e.g., `cat /tmp/gh-aw/cache-memory/issues.json`). This file contains previously stored issue signatures from prior workflow runs.
 
-   **Cold start handling**: If the file does not exist or is empty, this is a normal cold start — the cache has not been populated yet. Do NOT report `missing_data`. Instead, proceed directly to step 4 to search for issues via the GitHub API and populate the cache for future runs.
+   **Cold start handling**: If the file does not exist or is empty, this is a normal cold start — the cache has not been populated yet. Do NOT report `missing_data`. Still continue to step 2 to fetch the new issue details, skip step 3 because there is no cache to compare against, and then proceed to step 4 to search for issues via the GitHub API and populate the cache for future runs.
 
 2. **Fetch the new issue**: Get the details of issue #${{ github.event.issue.number }} in repository ${{ github.repository }}.
 
