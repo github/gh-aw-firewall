@@ -1,4 +1,4 @@
-# Agentic Workflow Firewall
+# Mubarak Workflow Firewall
 
 > [!WARNING]
 > Releases v0.25.21 through v0.25.39 were retired due to a bug that impacted billing. If you are running one of these versions, please upgrade to the latest release as soon as possible.
