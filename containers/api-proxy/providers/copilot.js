@@ -64,10 +64,13 @@ function resolveApiKey(env) {
 
 /**
  * Resolves the Copilot auth token from environment variables.
- * COPILOT_GITHUB_TOKEN (GitHub OAuth) takes precedence over COPILOT_API_KEY (direct key).
+ * COPILOT_API_KEY (direct BYOK key) takes precedence over COPILOT_GITHUB_TOKEN (GitHub OAuth).
  *
- * The AWF placeholder token is treated as absent so that when AWF injects it as
- * a dummy COPILOT_API_KEY the sidecar still uses COPILOT_GITHUB_TOKEN for auth.
+ * The AWF placeholder token is treated as absent (via resolveApiKey) so that when AWF
+ * injects it as a dummy COPILOT_API_KEY the sidecar falls back to COPILOT_GITHUB_TOKEN.
+ * This ensures that when a real BYOK key is configured alongside a GitHub token, the BYOK
+ * key is used for inference rather than inadvertently sending a GitHub OAuth token to a
+ * third-party provider.
  *
  * Any accidental "Bearer " prefix is stripped via stripBearerPrefix so that
  * the injected Authorization header is exactly "Bearer <token>" rather than
@@ -78,7 +81,7 @@ function resolveApiKey(env) {
  * @returns {string|undefined} The resolved auth token, or undefined if neither is set
  */
 function resolveCopilotAuthToken(env = process.env) {
-  return stripBearerPrefix(env.COPILOT_GITHUB_TOKEN) || resolveApiKey(env);
+  return resolveApiKey(env) || stripBearerPrefix(env.COPILOT_GITHUB_TOKEN);
 }
 
 /**
@@ -345,7 +348,7 @@ function createCopilotAdapter(env, deps = {}) {
      * Build Copilot auth headers for this request.
      *
      * The Copilot /models endpoint only accepts COPILOT_GITHUB_TOKEN (GitHub OAuth).
-     * All other requests use the resolved auth token (COPILOT_GITHUB_TOKEN or COPILOT_API_KEY).
+     * All other requests use the resolved auth token (COPILOT_API_KEY when real, otherwise COPILOT_GITHUB_TOKEN).
      *
      * @param {import('http').IncomingMessage} req
      * @returns {Record<string, string>}

@@ -820,7 +820,7 @@ describe('API proxy sidecar', () => {
         expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
       });
 
-      it.each(['gpt-5', 'openai/o3-mini', 'provider:gpt-5_preview', 'GPT-5', 'O3'])('should set COPILOT_PROVIDER_WIRE_API=responses in BYOK mode when COPILOT_MODEL is %s', (copilotModel) => {
+      it.each(['gpt-5', 'openai/o3-mini', 'gpt-5.4-mini', 'provider:gpt-5_preview', 'GPT-5', 'O3'])('should set COPILOT_PROVIDER_WIRE_API=responses in BYOK mode when COPILOT_MODEL is %s', (copilotModel) => {
         const configWithProxy = {
           ...mockConfig,
           enableApiProxy: true,
