@@ -129,11 +129,11 @@ steps:
       {
         echo "TEST_IMPORTS<<EOF"
         echo "=== Test files: imports from src/ ==="
-        for f in src/*.test.ts; do
+        find src -type f -name "*.test.ts" | sort | while IFS= read -r f; do
           [ -f "$f" ] || continue
           echo "--- $f ---"
           grep "^import\|^const.*=.*require" "$f" 2>/dev/null | head -5
-        done | head -50
+        done
         echo "=== Check for tests importing from dist/ ==="
         grep -rn "from '.*dist/\|require('.*dist/" src/ --include="*.test.ts" | head -10
         echo "=== Check for tests reaching into private implementation ==="
