@@ -5,7 +5,8 @@ description: |
   container security, and domain validation - the core security components of the firewall.
 
 on:
-  schedule: weekly
+  schedule:
+    - cron: '0 8,20 * * *'
   workflow_dispatch:
   skip-if-match:
     query: 'is:pr is:open in:title "[Test Coverage]"'
