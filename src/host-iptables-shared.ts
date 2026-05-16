@@ -109,20 +109,39 @@ export async function disableIpv6ViaSysctl(): Promise<void> {
 
 /**
  * Adds both UDP and TCP ACCEPT rules on port 53 for the given destination to a chain.
- * This helper ensures DNS allowlist rules are always added as a consistent pair,
- * preventing security inconsistencies when the rule structure changes.
+ * This helper keeps DNS allowlist rules as a consistent pair by rolling back any
+ * successfully-added rule if a later add fails.
  */
 export async function addDnsRules(
   cmd: 'iptables' | 'ip6tables',
   chain: string,
   destination: string,
 ): Promise<void> {
-  for (const proto of ['udp', 'tcp'] as const) {
-    await execa(cmd, [
-      '-t', 'filter', '-A', chain,
-      '-p', proto, '-d', destination, '--dport', '53',
-      '-j', 'ACCEPT',
-    ]);
+  const addedProtos: Array<'udp' | 'tcp'> = [];
+
+  try {
+    for (const proto of ['udp', 'tcp'] as const) {
+      await execa(cmd, [
+        '-t', 'filter', '-A', chain,
+        '-p', proto, '-d', destination, '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
+      addedProtos.push(proto);
+    }
+  } catch (error) {
+    for (const proto of addedProtos.reverse()) {
+      try {
+        await execa(cmd, [
+          '-t', 'filter', '-D', chain,
+          '-p', proto, '-d', destination, '--dport', '53',
+          '-j', 'ACCEPT',
+        ]);
+      } catch (rollbackError) {
+        logger.warn(`Failed to roll back ${cmd} DNS ${proto} rule for ${destination}:`, rollbackError);
+      }
+    }
+
+    throw error;
   }
 }
 
