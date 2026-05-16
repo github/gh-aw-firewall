@@ -17,7 +17,7 @@ function validateFormat(format: string, validFormats: string[]): void {
 }
 
 /**
- * Predownload action handler — exported for testing.
+ * Module-internal action handler for the `predownload` subcommand.
  */
 async function handlePredownloadAction(options: {
   imageRegistry: string;
