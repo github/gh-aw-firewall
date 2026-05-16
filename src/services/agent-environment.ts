@@ -3,17 +3,17 @@ import {
   SQUID_PORT,
   MAX_ENV_VALUE_SIZE,
   ENV_SIZE_WARNING_THRESHOLD,
+} from '../constants';
+import { SslConfig } from '../host-env';
+import { getSafeHostUid, getSafeHostGid, getRealUserHome } from '../host-identity';
+import {
   TOOLCHAIN_ENV_VARS,
-  SslConfig,
-  getSafeHostUid,
-  getSafeHostGid,
-  getRealUserHome,
   extractGhHostFromServerUrl,
   readGitHubPathEntries,
   readGitHubEnvEntries,
   mergeGitHubPathEntries,
   readEnvFile,
-} from '../host-env';
+} from '../github-env';
 import { logger } from '../logger';
 import { PROXY_ENV_VARS } from '../upstream-proxy';
 import { WrapperConfig } from '../types';

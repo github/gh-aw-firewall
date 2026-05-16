@@ -5,13 +5,9 @@ import { WrapperConfig, API_PROXY_PORTS } from './types';
 import { logger } from './logger';
 import { generateSquidConfig, generatePolicyManifest } from './squid-config';
 import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } from './ssl-bump';
-import {
-  SQUID_PORT,
-  SslConfig,
-  getSafeHostUid,
-  getSafeHostGid,
-  getRealUserHome,
-} from './host-env';
+import { SQUID_PORT } from './constants';
+import { SslConfig } from './host-env';
+import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-identity';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 
 // When bundled with esbuild, this global is replaced at build time with the

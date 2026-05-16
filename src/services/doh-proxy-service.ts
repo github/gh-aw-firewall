@@ -1,4 +1,4 @@
-import { DOH_PROXY_CONTAINER_NAME } from '../host-env';
+import { DOH_PROXY_CONTAINER_NAME } from '../constants';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig } from './squid-service';

@@ -1,5 +1,6 @@
 import * as path from 'path';
-import { SslConfig, SQUID_PORT, SQUID_CONTAINER_NAME } from '../host-env';
+import { SQUID_PORT, SQUID_CONTAINER_NAME } from '../constants';
+import { SslConfig } from '../host-env';
 import { parseImageTag, buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';

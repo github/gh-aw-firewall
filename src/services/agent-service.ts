@@ -3,10 +3,8 @@ import {
   AGENT_CONTAINER_NAME,
   IPTABLES_INIT_CONTAINER_NAME,
   SQUID_PORT,
-  ACT_PRESET_BASE_IMAGE,
-  getSafeHostUid,
-  getSafeHostGid,
-} from '../host-env';
+} from '../constants';
+import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
 import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';

@@ -1,5 +1,6 @@
 import * as path from 'path';
-import { CLI_PROXY_CONTAINER_NAME, parseDifcProxyHost } from '../host-env';
+import { CLI_PROXY_CONTAINER_NAME } from '../constants';
+import { parseDifcProxyHost } from '../host-env';
 import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';

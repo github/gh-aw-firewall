@@ -10,8 +10,8 @@ import {
   SQUID_CONTAINER_NAME,
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
-  getLocalDockerEnv,
-} from './host-env';
+} from './constants';
+import { getLocalDockerEnv } from './docker-host';
 
 /**
  * Collects diagnostic logs from AWF containers on failure.

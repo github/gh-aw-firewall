@@ -10,8 +10,8 @@ import {
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
-  getLocalDockerEnv,
-} from './host-env';
+} from './constants';
+import { getLocalDockerEnv } from './docker-host';
 
 /**
  * Flag set by fastKillAgentContainer() to signal runAgentCommand() that

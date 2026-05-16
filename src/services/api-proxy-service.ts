@@ -2,9 +2,9 @@ import * as path from 'path';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
-  readEnvFile,
-  stripScheme,
-} from '../host-env';
+} from '../constants';
+import { stripScheme } from '../host-env';
+import { readEnvFile } from '../github-env';
 import { buildRuntimeImageRef } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, API_PROXY_PORTS, API_PROXY_HEALTH_PORT } from '../types';
