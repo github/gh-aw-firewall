@@ -307,11 +307,7 @@ ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
 ```
 
 Test imports:
-```
-${{ steps.test_imports.outputs.TEST_IMPORTS }}
-```
+Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
 
 API proxy exports:
-```
-${{ steps.apip_exports.outputs.APIP_EXPORTS }}
-```
+Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
