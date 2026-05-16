@@ -2,6 +2,7 @@ import { DOH_PROXY_CONTAINER_NAME } from '../constants';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig } from './squid-service';
+import { buildContainerSecurityHardening } from './service-security';
 
 interface DohProxyServiceParams {
   config: WrapperConfig;
@@ -34,12 +35,8 @@ export function buildDohProxyService(params: DohProxyServiceParams): any {
       retries: 5,
       start_period: '2s',
     },
-    // Security hardening: Drop all capabilities
-    cap_drop: ['ALL'],
-    security_opt: ['no-new-privileges:true'],
-    mem_limit: '128m',
-    memswap_limit: '128m',
-    pids_limit: 50,
+    // Security hardening and resource limits to prevent DoS attacks
+    ...buildContainerSecurityHardening({ memLimit: '128m', pidsLimit: 50 }),
   };
 
   logger.info(`DNS-over-HTTPS proxy sidecar enabled - DNS queries encrypted via ${config.dnsOverHttps}`);

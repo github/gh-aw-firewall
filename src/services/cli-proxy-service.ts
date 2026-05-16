@@ -6,6 +6,7 @@ import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { buildContainerSecurityHardening } from './service-security';
 
 interface CliProxyBuildResult {
   /** The cli-proxy service definition to add to Docker Compose services. */
@@ -91,12 +92,8 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
         condition: 'service_healthy',
       },
     },
-    cap_drop: ['ALL'],
-    security_opt: ['no-new-privileges:true'],
-    mem_limit: '256m',
-    memswap_limit: '256m',
-    pids_limit: 50,
-    cpu_shares: 256,
+    // Security hardening and resource limits to prevent DoS attacks
+    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 50, cpuShares: 256 }),
     stop_grace_period: '2s',
   };
 

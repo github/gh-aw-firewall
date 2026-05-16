@@ -12,6 +12,7 @@ import { pickEnvVars } from '../env-utils';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { buildContainerSecurityHardening } from './service-security';
 
 interface ApiProxyBuildResult {
   /** The api-proxy service definition to add to Docker Compose services. */
@@ -208,16 +209,8 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       retries: 15,
       start_period: '30s',
     },
-    // Security hardening: Drop all capabilities
-    cap_drop: ['ALL'],
-    security_opt: [
-      'no-new-privileges:true',
-    ],
-    // Resource limits to prevent DoS attacks
-    mem_limit: '512m',
-    memswap_limit: '512m',
-    pids_limit: 100,
-    cpu_shares: 512,
+    // Security hardening and resource limits to prevent DoS attacks
+    ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: '2s',
   };
 
