@@ -6,9 +6,10 @@
 
 const { shouldStripHeader } = require('./proxy-utils');
 const {
-  _testing: { resolveCopilotAuthToken, resolveApiKey, stripBearerPrefix, normalizeNullTypeToolCalls, COPILOT_PLACEHOLDER_TOKEN },
+  _testing: { resolveCopilotAuthToken, resolveApiKey, stripBearerPrefix, COPILOT_PLACEHOLDER_TOKEN },
   createCopilotAdapter,
 } = require('./providers/copilot');
+const { sanitizeNullToolCallTypes } = require('./body-transform');
 
 describe('shouldStripHeader', () => {
   it('should strip authorization header', () => {
@@ -170,7 +171,7 @@ describe('resolveApiKey', () => {
   });
 });
 
-describe('normalizeNullTypeToolCalls', () => {
+describe('sanitizeNullToolCallTypes (via copilot body transform)', () => {
   it('normalizes null tool_call type to "function" in outgoing message history', () => {
     const input = Buffer.from(JSON.stringify({
       model: 'gpt-5.4',
@@ -188,9 +189,9 @@ describe('normalizeNullTypeToolCalls', () => {
       ],
     }));
 
-    const transformed = normalizeNullTypeToolCalls(input);
-    expect(transformed).not.toBeNull();
-    const parsed = JSON.parse(transformed.toString('utf8'));
+    const result = sanitizeNullToolCallTypes(input);
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString('utf8'));
     expect(parsed.messages[0].tool_calls[0].type).toBe('function');
   });
 
@@ -210,7 +211,7 @@ describe('normalizeNullTypeToolCalls', () => {
       ],
     }));
 
-    expect(normalizeNullTypeToolCalls(input)).toBeNull();
+    expect(sanitizeNullToolCallTypes(input)).toBeNull();
   });
 });
 
