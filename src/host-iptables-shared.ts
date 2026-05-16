@@ -108,6 +108,25 @@ export async function disableIpv6ViaSysctl(): Promise<void> {
 }
 
 /**
+ * Adds both UDP and TCP ACCEPT rules on port 53 for the given destination to a chain.
+ * This helper ensures DNS allowlist rules are always added as a consistent pair,
+ * preventing security inconsistencies when the rule structure changes.
+ */
+export async function addDnsRules(
+  cmd: 'iptables' | 'ip6tables',
+  chain: string,
+  destination: string,
+): Promise<void> {
+  for (const proto of ['udp', 'tcp'] as const) {
+    await execa(cmd, [
+      '-t', 'filter', '-A', chain,
+      '-p', proto, '-d', destination, '--dport', '53',
+      '-j', 'ACCEPT',
+    ]);
+  }
+}
+
+/**
  * Re-enables IPv6 via sysctl if it was previously disabled.
  */
 export async function enableIpv6ViaSysctl(): Promise<void> {

@@ -7,6 +7,7 @@ import {
   CHAIN_NAME,
   CHAIN_NAME_V6,
   NETWORK_NAME,
+  addDnsRules,
   disableIpv6ViaSysctl,
   getDockerBridgeGateway,
   getNetworkBridgeName,
@@ -224,28 +225,10 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     const isV6 = dnsServer.includes(':');
     if (isV6) {
       if (ip6tablesAvailable) {
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'udp', '-d', dnsServer, '--dport', '53',
-          '-j', 'ACCEPT',
-        ]);
-        await execa('ip6tables', [
-          '-t', 'filter', '-A', CHAIN_NAME_V6,
-          '-p', 'tcp', '-d', dnsServer, '--dport', '53',
-          '-j', 'ACCEPT',
-        ]);
+        await addDnsRules('ip6tables', CHAIN_NAME_V6, dnsServer);
       }
     } else {
-      await execa('iptables', [
-        '-t', 'filter', '-A', CHAIN_NAME,
-        '-p', 'udp', '-d', dnsServer, '--dport', '53',
-        '-j', 'ACCEPT',
-      ]);
-      await execa('iptables', [
-        '-t', 'filter', '-A', CHAIN_NAME,
-        '-p', 'tcp', '-d', dnsServer, '--dport', '53',
-        '-j', 'ACCEPT',
-      ]);
+      await addDnsRules('iptables', CHAIN_NAME, dnsServer);
     }
   }
 
@@ -259,16 +242,7 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   // 5a. Allow DNS traffic to DoH proxy sidecar (when enabled)
   if (dohProxyIp) {
     logger.debug(`Allowing DNS traffic to DoH proxy sidecar at ${dohProxyIp}:53`);
-    await execa('iptables', [
-      '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'udp', '-d', dohProxyIp, '--dport', '53',
-      '-j', 'ACCEPT',
-    ]);
-    await execa('iptables', [
-      '-t', 'filter', '-A', CHAIN_NAME,
-      '-p', 'tcp', '-d', dohProxyIp, '--dport', '53',
-      '-j', 'ACCEPT',
-    ]);
+    await addDnsRules('iptables', CHAIN_NAME, dohProxyIp);
   }
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
