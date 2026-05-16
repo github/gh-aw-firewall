@@ -122,6 +122,43 @@ steps:
         done
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
+
+  - name: Audit test file imports
+    id: test_imports
+    run: |
+      {
+        echo "TEST_IMPORTS<<EOF"
+        echo "=== Test files: imports from src/ ==="
+        find src -type f -name "*.test.ts" | sort | while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          echo "--- $f ---"
+          grep "^import\|^const.*=.*require" "$f" 2>/dev/null | head -5
+        done
+        echo "=== Check for tests importing from dist/ ==="
+        grep -rn "from '.*dist/\|require('.*dist/" src/ --include="*.test.ts" | head -10
+        echo "=== Check for tests reaching into private implementation ==="
+        grep -rn "from '\.\.\/\.\.\/" src/ --include="*.test.ts" | head -10
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Audit api-proxy module exports
+    id: apip_exports
+    run: |
+      {
+        echo "APIP_EXPORTS<<EOF"
+        echo "=== api-proxy/providers: export consistency ==="
+        for f in containers/api-proxy/providers/*.js; do
+          [ -f "$f" ] || continue
+          [ "$(basename "$f")" = "index.js" ] && continue
+          echo "--- $f ---"
+          grep -n "^module\.exports\|^exports\." "$f" | head -5
+        done | head -50
+        echo "=== providers/index.js: registered providers ==="
+        cat containers/api-proxy/providers/index.js 2>/dev/null | grep -n "require\|createAdapter\|register" | head -20
+        echo "=== server.js: imports from providers ==="
+        grep -n "require.*providers\|from.*providers" containers/api-proxy/server.js 2>/dev/null | head -10
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 ---
 
 # API Surface & Export Audit
@@ -132,40 +169,13 @@ You are a code quality engineer auditing the `${{ github.repository }}` codebase
 
 This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. The TypeScript source lives in `src/` and is compiled to `dist/`. Container JavaScript lives in `containers/api-proxy/`.
 
-## Pre-computed Data
-
-TypeScript build output:
-```
-${{ steps.ts-errors.outputs.TS_ERRORS }}
-```
-
-Exported symbols sample:
-```
-${{ steps.exports.outputs.EXPORTS }}
-```
-
-Unused exports:
-```
-${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
-```
-
-Circular dependencies:
-```
-${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
-```
-
-Naming issues:
-```
-${{ steps.naming_audit.outputs.NAMING_ISSUES }}
-```
-
 ## Phase 1: Review Unused Exports
 
-The pre-computed unused exports analysis is provided above in the **Pre-computed Data** section (`UNUSED_EXPORTS`). Review the results and verify each finding by checking all import sites, including test files and barrel exports (`index.ts`). Pay special attention to multi-line import blocks — TypeScript imports often list each symbol on its own line, which a single-line grep will miss. Use `grep -w` (whole-word matching) for verification.
+The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS`). Review the results and verify each finding by checking all import sites, including test files and barrel exports (`index.ts`). Pay special attention to multi-line import blocks — TypeScript imports often list each symbol on its own line, which a single-line grep will miss. Use `grep -w` (whole-word matching) for verification.
 
 ## Phase 2: Review Naming Conventions
 
-The pre-computed naming audit is provided above in the **Pre-computed Data** section (`NAMING_ISSUES`). Review the results for:
+The pre-computed naming audit is provided in the **Pre-computed Data** section below (`NAMING_ISSUES`). Review the results for:
 - Types/interfaces not following PascalCase
 - api-proxy provider export inconsistencies
 
@@ -177,46 +187,15 @@ Also verify function and constant naming conventions using the exported symbols 
 
 ## Phase 3: Review Circular Dependencies
 
-The pre-computed circular dependency analysis is provided above in the **Pre-computed Data** section (`CIRCULAR_DEPS`). Review the results for any detected cycles between modules.
+The pre-computed circular dependency analysis is provided in the **Pre-computed Data** section below (`CIRCULAR_DEPS`). Review the results for any detected cycles between modules.
 
 ## Phase 4: Audit Test File Import Paths
 
-Verify that test files import from the correct modules (not reaching into internal implementation details):
-
-```bash
-echo "=== Test files: imports from src/ ==="
-for f in src/*.test.ts; do
-  [ -f "$f" ] || continue
-  echo "--- $f ---"
-  grep "^import\|^const.*=.*require" "$f" 2>/dev/null | head -5
-done | head -50
-
-echo "=== Check for tests importing from dist/ (should import from src/) ==="
-grep -rn "from '.*dist/\|require('.*dist/" src/ --include="*.test.ts" | head -10
-
-echo "=== Check for tests reaching into private/internal implementation ==="
-grep -rn "from '\.\.\/\.\.\/" src/ --include="*.test.ts" | head -10
-```
+Review the pre-computed test import audit (`TEST_IMPORTS`) to confirm test files import from correct modules and do not reach into private implementation details.
 
 ## Phase 5: Audit api-proxy Module Exports
 
-The `containers/api-proxy/providers/` modules should follow the provider adapter pattern:
-
-```bash
-echo "=== api-proxy/providers: check export consistency ==="
-for f in containers/api-proxy/providers/*.js; do
-  [ -f "$f" ] || continue
-  [ "$(basename "$f")" = "index.js" ] && continue
-  echo "--- $f ---"
-  grep -n "^module\.exports\|^exports\." "$f" | head -5
-done | head -50
-
-echo "=== providers/index.js: registered providers ==="
-cat containers/api-proxy/providers/index.js 2>/dev/null | grep -n "require\|createAdapter\|register" | head -20
-
-echo "=== server.js: imports from providers ==="
-grep -n "require.*providers\|from.*providers" containers/api-proxy/server.js 2>/dev/null | head -10
-```
+Review the pre-computed api-proxy export audit (`APIP_EXPORTS`) and verify provider modules follow the adapter pattern and are consistently registered.
 
 ## Phase 6: Check for Existing Issues
 
@@ -240,6 +219,13 @@ Score each finding:
 | Dead export in security-critical module | +2 |
 
 File issues only for findings with score ≥ 3. Cap at 5 issues per run.
+
+## Verification Budget
+
+To control token usage, limit verification to the **top 10 candidates** by score. For each candidate:
+- Run at most 2 bash commands to confirm (one bounded recursive `grep -rw` over relevant source paths, one targeted check)
+- If not confirmed in 2 checks, mark as "unconfirmed" and skip filing
+- Do NOT loop over all files for each candidate — use one whole-word grep across relevant source directories only (for example `src/`, `lib/`, `app/`, `test/`) or explicitly exclude generated/dependency directories such as `node_modules/`, `dist/`, `build/`, and `coverage/`
 
 ### Issue Format
 
@@ -290,3 +276,38 @@ Unused export / Naming inconsistency / Circular dependency / Import path issue
 - **ts-prune / madge unavailable**: Fall back to grep-based analysis with a note that results may be incomplete
 - **All findings already tracked**: Skip creation and log that existing issues cover the findings
 - **No issues found**: Log a summary and exit without creating issues
+
+---
+
+## Pre-computed Data
+
+TypeScript build output:
+```
+${{ steps.ts-errors.outputs.TS_ERRORS }}
+```
+
+Exported symbols sample:
+```
+${{ steps.exports.outputs.EXPORTS }}
+```
+
+Unused exports:
+```
+${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
+```
+
+Circular dependencies:
+```
+${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
+```
+
+Naming issues:
+```
+${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+```
+
+Test imports:
+Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
+
+API proxy exports:
+Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
