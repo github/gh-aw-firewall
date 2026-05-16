@@ -121,7 +121,7 @@ steps:
       fi
 
       KEBAB=$(printf '%s' "$TOP_WORKFLOW" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')
-      FILE=$(grep -Flx -- "name: ${TOP_WORKFLOW}" .github/workflows/*.md 2>/dev/null | head -1)
+      FILE=$(grep -Flx -- "name: ${TOP_WORKFLOW}" .github/workflows/*.md 2>/dev/null | head -1 || true)
       [ -z "$FILE" ] && FILE=".github/workflows/${KEBAB}.md"
 
       echo "WORKFLOW_FILE=${FILE}" >> "$GITHUB_ENV"
