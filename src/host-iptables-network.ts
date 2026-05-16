@@ -51,7 +51,7 @@ export async function ensureFirewallNetwork(): Promise<{
 /**
  * Removes the firewall network
  */
-export async function cleanupFirewallNetwork(): Promise<void> {
+async function cleanupFirewallNetwork(): Promise<void> {
   logger.debug(`Removing firewall network '${NETWORK_NAME}'...`);
 
   try {
@@ -62,3 +62,6 @@ export async function cleanupFirewallNetwork(): Promise<void> {
     // Don't throw - cleanup should be best-effort
   }
 }
+
+/** @internal Exposed for testing only */
+export const testHelpers = { cleanupFirewallNetwork };

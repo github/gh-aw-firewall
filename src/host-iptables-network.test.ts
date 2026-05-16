@@ -1,7 +1,9 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { cleanupFirewallNetwork } from './host-iptables-network';
+import { testHelpers as networkTestHelpers } from './host-iptables-network';
 import { ensureFirewallNetwork } from './host-iptables';
 import { testHelpers } from './host-iptables-shared';
+
+const { cleanupFirewallNetwork } = networkTestHelpers;
 
 describe('host-iptables (network)', () => {
   setupHostIptablesTestSuite(testHelpers.resetIpv6State);
