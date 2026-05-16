@@ -1,6 +1,6 @@
 ---
 description: |
-  Weekly workflow that analyzes test coverage, identifies under-tested security-critical code paths,
+  Twice-daily workflow that analyzes test coverage, identifies under-tested security-critical code paths,
   and creates PRs with additional tests. Focuses on iptables manipulation, Squid ACL rules,
   container security, and domain validation - the core security components of the firewall.
 
@@ -103,7 +103,7 @@ steps:
       } >> "$GITHUB_OUTPUT"
 ---
 
-# Weekly Test Coverage Improver
+# Test Coverage Improver
 
 You are a security-focused test engineer for `${{ github.repository }}`. Your mission is to systematically improve test coverage, prioritizing security-critical code paths in this network firewall tool.
 
@@ -142,6 +142,7 @@ Good tests should:
 - ❌ Submit failing tests
 - ❌ Reduce coverage in any file
 - ❌ Remove or modify existing passing tests
+- ❌ Use `sudo` or the `awf` CLI — you are already running inside the sandbox; run `npm test` directly
 
 ## Your Task
 
