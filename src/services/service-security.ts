@@ -1,10 +1,16 @@
 /**
- * Shared container security-hardening helpers.
+ * Security-hardening helpers for unprivileged proxy sidecar containers.
  *
- * Centralises the `cap_drop`, `security_opt`, and resource-limit fields that
- * must be applied uniformly to every sidecar service built by the firewall.
+ * This module centralises the `cap_drop`, `security_opt`, and resource-limit
+ * fields shared by the lightweight proxy sidecars (api-proxy, cli-proxy,
+ * doh-proxy) that run without any Linux capabilities.
+ *
+ * Note: other services such as `squid-service` and `agent-service` have
+ * different hardening requirements (custom cap_drop sets, seccomp profiles,
+ * AppArmor options) and should NOT use this helper.
+ *
  * Using a single helper means a future hardening change (e.g. adding
- * `read_only: true`) propagates to all sidecars automatically.
+ * `read_only: true`) propagates to all three proxy sidecars automatically.
  */
 
 interface ContainerResourceLimits {
@@ -20,10 +26,11 @@ interface ContainerResourceLimits {
 }
 
 /**
- * Returns the standard security-hardening fields for a sidecar service.
+ * Returns the standard security-hardening fields for an unprivileged proxy
+ * sidecar (api-proxy, cli-proxy, doh-proxy).
  *
- * The `cap_drop` and `security_opt` values are identical for every sidecar;
- * only the resource limits vary per service.
+ * `cap_drop: ['ALL']` and `security_opt: ['no-new-privileges:true']` are
+ * fixed; resource limits are caller-supplied because they differ per service.
  *
  * @example
  * ```ts
