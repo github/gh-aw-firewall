@@ -223,9 +223,9 @@ File issues only for findings with score ≥ 3. Cap at 5 issues per run.
 ## Verification Budget
 
 To control token usage, limit verification to the **top 10 candidates** by score. For each candidate:
-- Run at most 2 bash commands to confirm (one broad `grep -rw`, one targeted check)
+- Run at most 2 bash commands to confirm (one bounded recursive `grep -rw` over relevant source paths, one targeted check)
 - If not confirmed in 2 checks, mark as "unconfirmed" and skip filing
-- Do NOT loop over all files for each candidate — use whole-word grep across the whole repo in one command
+- Do NOT loop over all files for each candidate — use one whole-word grep across relevant source directories only (for example `src/`, `lib/`, `app/`, `test/`) or explicitly exclude generated/dependency directories such as `node_modules/`, `dist/`, `build/`, and `coverage/`
 
 ### Issue Format
 
