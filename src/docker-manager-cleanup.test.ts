@@ -11,6 +11,17 @@ import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
+// Mock host identity functions so chownSync uses the real uid/gid
+// (on macOS, gid < 1000 gets clamped to 1000 which causes EPERM)
+jest.mock('./host-env', () => {
+  const actual = jest.requireActual('./host-env');
+  return {
+    ...actual,
+    getSafeHostUid: () => String(process.getuid?.() ?? 1000),
+    getSafeHostGid: () => String(process.getgid?.() ?? 1000),
+  };
+});
+
 describe('docker-manager writeConfigs and cleanup', () => {
   describe('writeConfigs', () => {
     let testDir: string;

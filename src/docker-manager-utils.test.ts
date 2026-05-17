@@ -217,8 +217,12 @@ describe('docker-manager utilities', () => {
       process.env.SUDO_USER = 'root';
       process.env.HOME = '/some/other/path';
 
-      // Should find root's home directory from /etc/passwd
-      expect(getRealUserHome()).toBe('/root');
+      // Read actual root home from /etc/passwd (differs by platform: /root on Linux, /var/root on macOS)
+      const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
+      const rootLine = passwd.split('\n').find(line => line.startsWith('root:'));
+      const expectedRootHome = rootLine ? rootLine.split(':')[5] : '/root';
+
+      expect(getRealUserHome()).toBe(expectedRootHome);
     });
 
     it('should fall back to HOME when SUDO_USER not found in /etc/passwd', () => {
@@ -236,9 +240,13 @@ describe('docker-manager utilities', () => {
       process.env.SUDO_USER = 'root';
       process.env.HOME = '/custom/home';
 
+      // Read actual root home from /etc/passwd (differs by platform)
+      const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
+      const rootLine = passwd.split('\n').find(line => line.startsWith('root:'));
+      const expectedRootHome = rootLine ? rootLine.split(':')[5] : '/root';
+
       // With getuid undefined, uid is undefined (falsy), so it attempts passwd lookup
-      // Should find root's home directory from /etc/passwd
-      expect(getRealUserHome()).toBe('/root');
+      expect(getRealUserHome()).toBe(expectedRootHome);
     });
   });
 
