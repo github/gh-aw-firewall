@@ -72,27 +72,31 @@ describe('registerSubcommands', () => {
   });
 
   describe('predownload defaults', () => {
-    it('sets default image-registry to ghcr.io/github/gh-aw-firewall', () => {
+    it('sets default image-registry to ghcr.io/github/gh-aw-firewall', async () => {
       const program = makeProgram();
       const predownload = program.commands.find((c) => c.name() === 'predownload')!;
+      await program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' });
       expect(predownload.opts().imageRegistry).toBe('ghcr.io/github/gh-aw-firewall');
     });
 
-    it('sets default image-tag to latest', () => {
+    it('sets default image-tag to latest', async () => {
       const program = makeProgram();
       const predownload = program.commands.find((c) => c.name() === 'predownload')!;
+      await program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' });
       expect(predownload.opts().imageTag).toBe('latest');
     });
 
-    it('sets default enable-api-proxy to false', () => {
+    it('sets default enable-api-proxy to false', async () => {
       const program = makeProgram();
       const predownload = program.commands.find((c) => c.name() === 'predownload')!;
+      await program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' });
       expect(predownload.opts().enableApiProxy).toBe(false);
     });
 
-    it('sets default agent-image to default', () => {
+    it('sets default agent-image to default', async () => {
       const program = makeProgram();
       const predownload = program.commands.find((c) => c.name() === 'predownload')!;
+      await program.parseAsync(['node', 'awf', 'predownload'], { from: 'node' });
       expect(predownload.opts().agentImage).toBe('default');
     });
   });
@@ -125,7 +129,9 @@ describe('registerSubcommands', () => {
 
     it('exits with code 1 for invalid format in logs stats subcommand', async () => {
       const program = makeProgram();
-      await program.parseAsync(['node', 'awf', 'logs', 'stats', '--format', 'bogus'], { from: 'node' });
+      const logsCmd = program.commands.find((c) => c.name() === 'logs')!;
+      const statsCmd = logsCmd.commands.find((c) => c.name() === 'stats')!;
+      await statsCmd.parseAsync(['node', 'awf', '--format', 'bogus'], { from: 'node' });
       expect(processExitSpy).toHaveBeenCalledWith(1);
       expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid format'));
     });
@@ -138,7 +144,9 @@ describe('registerSubcommands', () => {
 
     it('exits with code 1 for invalid format in logs summary subcommand', async () => {
       const program = makeProgram();
-      await program.parseAsync(['node', 'awf', 'logs', 'summary', '--format', 'bogus'], { from: 'node' });
+      const logsCmd = program.commands.find((c) => c.name() === 'logs')!;
+      const summaryCmd = logsCmd.commands.find((c) => c.name() === 'summary')!;
+      await summaryCmd.parseAsync(['node', 'awf', '--format', 'bogus'], { from: 'node' });
       expect(processExitSpy).toHaveBeenCalledWith(1);
       expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid format'));
     });
@@ -151,7 +159,9 @@ describe('registerSubcommands', () => {
 
     it('exits with code 1 for invalid format in logs audit subcommand', async () => {
       const program = makeProgram();
-      await program.parseAsync(['node', 'awf', 'logs', 'audit', '--format', 'bogus'], { from: 'node' });
+      const logsCmd = program.commands.find((c) => c.name() === 'logs')!;
+      const auditCmd = logsCmd.commands.find((c) => c.name() === 'audit')!;
+      await auditCmd.parseAsync(['node', 'awf', '--format', 'bogus'], { from: 'node' });
       expect(processExitSpy).toHaveBeenCalledWith(1);
       expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid format'));
     });

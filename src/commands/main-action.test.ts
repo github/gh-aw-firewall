@@ -13,6 +13,7 @@ jest.mock('./validate-options');
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
+import * as hostIptables from '../host-iptables';
 import * as cliWorkflow from '../cli-workflow';
 import * as redactSecrets from '../redact-secrets';
 import * as optionParsers from '../option-parsers';
@@ -22,6 +23,7 @@ import * as validateOptions from './validate-options';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
+const mockedHostIptables = hostIptables as jest.Mocked<typeof hostIptables>;
 const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
 const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
@@ -54,7 +56,12 @@ describe('createMainAction', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      if (code === 1) {
+        throw new Error(`process.exit: ${code}`);
+      }
+      return undefined as never;
+    });
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
     getOptionValueSource = jest.fn().mockReturnValue(undefined);
 
@@ -76,8 +83,9 @@ describe('createMainAction', () => {
   describe('when args is empty', () => {
     it('exits with code 1 and prints usage error', async () => {
       const action = createMainAction(getOptionValueSource);
-      await action([], {});
+      await expect(action([], {})).rejects.toThrow('process.exit: 1');
       expect(processExitSpy).toHaveBeenCalledWith(1);
+      expect(mockedOptionParsers.joinShellArgs).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('No command specified')
       );
@@ -194,11 +202,19 @@ describe('createMainAction', () => {
     it('calls performCleanup and exits with code 1', async () => {
       mockedCliWorkflow.runMainWorkflow.mockRejectedValue(new Error('docker failed'));
       const action = createMainAction(getOptionValueSource);
-      await action(['echo hi'], {});
+      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
       expect(mockedLogger.error).toHaveBeenCalledWith(
         'Fatal error:',
         expect.any(Error)
       );
+      expect(mockedDockerManager.cleanup).toHaveBeenCalledWith(
+        STUB_CONFIG.workDir,
+        false,
+        STUB_CONFIG.proxyLogsDir,
+        STUB_CONFIG.auditDir,
+        STUB_CONFIG.sessionStateDir
+      );
+      expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);
     });
   });
@@ -223,14 +239,13 @@ describe('createMainAction', () => {
       const configDebugCall = debugCalls.find((args) =>
         String(args[0]).includes('Configuration')
       );
-      if (configDebugCall) {
-        const serialized = String(configDebugCall[1]);
-        expect(serialized).not.toContain('sk-secret');
-        expect(serialized).not.toContain('ant-secret');
-        expect(serialized).not.toContain('ghp-secret');
-        expect(serialized).not.toContain('cop-secret');
-        expect(serialized).not.toContain('gem-secret');
-      }
+      expect(configDebugCall).toBeDefined();
+      const serialized = String(configDebugCall?.[1]);
+      expect(serialized).not.toContain('sk-secret');
+      expect(serialized).not.toContain('ant-secret');
+      expect(serialized).not.toContain('ghp-secret');
+      expect(serialized).not.toContain('cop-secret');
+      expect(serialized).not.toContain('gem-secret');
     });
   });
 });
