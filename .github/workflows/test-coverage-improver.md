@@ -1,12 +1,12 @@
 ---
 description: |
-  Twice-daily workflow that analyzes test coverage, identifies under-tested security-critical code paths,
+  Daily workflow that analyzes test coverage, identifies under-tested security-critical code paths,
   and creates PRs with additional tests. Focuses on iptables manipulation, Squid ACL rules,
   container security, and domain validation - the core security components of the firewall.
 
 on:
   schedule:
-    - cron: '0 8,20 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
   skip-if-match:
     query: 'is:pr is:open in:title "[Test Coverage]"'
@@ -30,9 +30,7 @@ tools:
   github:
     toolsets: [repos, pull_requests]
   bash:
-    - "npm run build"
     - "npm run test"
-    - "npm run test:coverage"
     - "npm run lint"
     - "cat:src/*.test.ts"
     - "cat:src/*.ts"
@@ -67,15 +65,6 @@ steps:
   - name: Run coverage
     run: npm run test:coverage 2>&1 | tail -10
     id: coverage
-
-  - name: Read coverage summary JSON
-    id: coverage-summary
-    run: |
-      {
-        echo "COVERAGE_JSON<<EOF"
-        cat coverage/coverage-summary.json
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
 
   - name: Read COVERAGE_SUMMARY.md
     id: coverage-md
@@ -238,23 +227,30 @@ describe('functionName', () => {
    npm run test
    ```
 
-2. **Run coverage** to verify improvement:
-   ```bash
-   npm run test:coverage
-   ```
-
-3. **Run linting** to ensure code quality:
+2. **Run linting** to ensure code quality:
    ```bash
    npm run lint
    ```
 
+3. **Use the pre-computed coverage artifacts** to confirm you targeted the right gap:
+   - Review the `COVERAGE_SUMMARY.md` and low-coverage list below
+   - If you need more detail, inspect `coverage/coverage-summary.json` with the allowed `cat` tool
+
 4. **Create a PR** with:
-   - Clear description of what coverage was improved
-   - Before/after coverage numbers
-   - List of security-critical paths now covered
-   - Any edge cases or error handling added
+    - Clear description of what coverage was improved
+    - Before/after coverage numbers
+    - List of security-critical paths now covered
+    - Any edge cases or error handling added
 
 ## Current Coverage Status
+
+Use this run-specific context after reviewing the static guidance above.
+
+| File | Expected Coverage | Priority |
+|------|-------------------|----------|
+| `src/docker-manager.ts` | <20% | High (container lifecycle) |
+| `src/cli.ts` | 0% | High (entry point) |
+| `src/host-iptables.ts` | ~84% | Medium (edge cases) |
 
 ### COVERAGE_SUMMARY.md
 
@@ -262,20 +258,8 @@ describe('functionName', () => {
 ${{ steps.coverage-md.outputs.COVERAGE_MD }}
 ```
 
-### Coverage JSON (full)
-
-```json
-${{ steps.coverage-summary.outputs.COVERAGE_JSON }}
-```
-
 ### Files Below 80% Coverage
 
 ```
 ${{ steps.low-coverage.outputs.LOW_COVERAGE }}
 ```
-
-| File | Expected Coverage | Priority |
-|------|-------------------|----------|
-| `src/docker-manager.ts` | <20% | High (container lifecycle) |
-| `src/cli.ts` | 0% | High (entry point) |
-| `src/host-iptables.ts` | ~84% | Medium (edge cases) |
