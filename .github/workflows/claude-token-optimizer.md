@@ -34,6 +34,19 @@ sandbox:
     version: v0.25.29
 strict: true
 steps:
+  - name: Install awf dependencies
+    run: npm ci
+  - name: Build awf
+    run: npm run build
+  - name: Install awf binary (local)
+    run: |
+      WORKSPACE_PATH="${GITHUB_WORKSPACE:-$(pwd)}"
+      NODE_BIN="$(command -v node)"
+      sudo tee /usr/local/bin/awf > /dev/null <<EOF
+      #!/bin/bash
+      exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" "\$@"
+      EOF
+      sudo chmod +x /usr/local/bin/awf
   - name: Download recent Claude workflow logs
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
