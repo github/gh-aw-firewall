@@ -1,0 +1,191 @@
+/**
+ * Token usage persistence layer for AWF API Proxy.
+ *
+ * Manages the NDJSON token-usage log file: stream lifecycle, record
+ * validation, and disk writes.  Also owns the optional diagnostics log
+ * (AWF_DEBUG_TOKENS=1).
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { logRequest } = require('./logging');
+
+// Token usage log file path (inside the mounted log volume)
+const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
+const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
+const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.log');
+const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
+
+// AWF version used to identify schema version in JSONL records.
+// Set to the container image version at build time via ARG AWF_VERSION in the Dockerfile
+// (baked in by the release workflow with --build-arg AWF_VERSION=<version>).
+// Falls back to "0.0.0-dev" for local/un-versioned builds.
+const AWF_VERSION = process.env.AWF_VERSION;
+if (!AWF_VERSION) {
+  // Log a warning (to stderr to avoid polluting stdout) when running without the env var.
+  // This can happen during local development or tests outside the container.
+  process.stderr.write('{"level":"warn","event":"awf_version_missing","message":"AWF_VERSION env var not set; _schema will use 0.0.0-dev"}\n');
+}
+const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION || '0.0.0-dev'}`;
+
+let logStream = null;
+let diagStream = null;
+
+/**
+ * Write a diagnostic line to the diagnostics log file.
+ * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
+ * Data is sanitized to prevent writing raw network content to disk.
+ */
+function diag(msg, data) {
+  if (!DIAG_ENABLED) return;
+  try {
+    if (!diagStream) {
+      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+      diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
+      diagStream.on('error', () => { diagStream = null; });
+    }
+    // Sanitize: only log known safe fields, omit raw response data
+    let safeData = data;
+    if (data && typeof data === 'object') {
+      const { raw_sample, ...rest } = data;
+      safeData = rest;
+    }
+    const line = `${new Date().toISOString()} ${msg}` +
+      (safeData ? ' ' + JSON.stringify(safeData) : '') + '\n';
+    diagStream.write(line);
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Get or create the JSONL append stream for token usage logs.
+ * Uses a lazy singleton — created on first write.
+ */
+function getLogStream() {
+  if (logStream) return logStream;
+  try {
+    // Ensure directory exists
+    fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+    logStream = fs.createWriteStream(TOKEN_LOG_FILE, { flags: 'a' });
+    logStream.on('error', (err) => {
+      logRequest('warn', 'token_log_error', { error: err.message });
+      logStream = null;
+    });
+    return logStream;
+  } catch (err) {
+    logRequest('warn', 'token_log_init_error', { error: err.message });
+    return null;
+  }
+}
+
+/**
+ * Validate a token usage record against the token-usage schema contract.
+ *
+ * Checks that all required fields are present and have the expected types.
+ * Logs a warning and returns false if the record is non-conformant; does
+ * not throw, so a bad record is dropped rather than crashing the proxy.
+ *
+ * @param {object} record - The record to validate
+ * @returns {boolean} true if the record is valid, false otherwise
+ */
+function validateTokenUsageRecord(record) {
+  if (!record || typeof record !== 'object') {
+    logRequest('warn', 'token_record_schema_violation', {
+      field: 'record',
+      expected: 'object',
+      actual: record === null ? 'null' : typeof record,
+    });
+    return false;
+  }
+
+  const required = [
+    ['_schema', 'string'],
+    ['timestamp', 'string'],
+    ['request_id', 'string'],
+    ['provider', 'string'],
+    ['model', 'string'],
+    ['path', 'string'],
+    ['status', 'number'],
+    ['streaming', 'boolean'],
+    ['input_tokens', 'number'],
+    ['output_tokens', 'number'],
+    ['cache_read_tokens', 'number'],
+    ['cache_write_tokens', 'number'],
+    ['duration_ms', 'number'],
+  ];
+
+  for (const [field, expectedType] of required) {
+    // eslint-disable-next-line valid-typeof
+    if (typeof record[field] !== expectedType) {
+      logRequest('warn', 'token_record_schema_violation', {
+        request_id: record.request_id,
+        field,
+        expected: expectedType,
+        actual: typeof record[field],
+      });
+      return false;
+    }
+  }
+
+  if (!/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/.test(record._schema)) {
+    logRequest('warn', 'token_record_schema_violation', {
+      request_id: record.request_id,
+      field: '_schema',
+      expected: 'token-usage/v<semver>',
+      actual: record._schema,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Write a token usage record to the JSONL log file.
+ * Validates the record against the token-usage schema before writing.
+ * Handles backpressure by dropping writes when the stream buffer is full.
+ */
+function writeTokenUsage(record) {
+  if (!validateTokenUsageRecord(record)) return;
+
+  const stream = getLogStream();
+  if (stream && !stream.writableEnded) {
+    const ok = stream.write(JSON.stringify(record) + '\n');
+    if (!ok) {
+      // Backpressure — stream buffer full. Drop this write rather than
+      // accumulating unbounded memory. The 'drain' event will unblock
+      // future writes naturally.
+      logRequest('warn', 'token_log_backpressure', { request_id: record.request_id });
+    }
+  }
+}
+
+/**
+ * Close the log stream (for graceful shutdown).
+ * Returns a Promise that resolves once the stream has flushed.
+ */
+function closeLogStream() {
+  return new Promise((resolve) => {
+    let pending = 0;
+    const check = () => { if (pending === 0) resolve(); };
+    if (logStream) {
+      pending++;
+      logStream.end(() => { logStream = null; pending--; check(); });
+    }
+    if (diagStream) {
+      pending++;
+      diagStream.end(() => { diagStream = null; pending--; check(); });
+    }
+    if (pending === 0) resolve();
+  });
+}
+
+module.exports = {
+  TOKEN_LOG_FILE,
+  TOKEN_USAGE_SCHEMA,
+  diag,
+  validateTokenUsageRecord,
+  writeTokenUsage,
+  closeLogStream,
+};
