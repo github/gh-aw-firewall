@@ -77,6 +77,7 @@ function trackTokenUsage(proxyRes, opts) {
   // Accumulate response body for usage extraction
   const chunks = [];
   let totalBytes = 0;
+  let bufferedBytes = 0;
   let overflow = false;
 
   // For streaming: accumulate usage across SSE events
@@ -120,7 +121,17 @@ function trackTokenUsage(proxyRes, opts) {
         partialLine = combined;
       }
     } else if (!overflow) {
-      chunks.push(Buffer.from(text, 'utf8'));
+      const chunkBuffer = Buffer.from(text, 'utf8');
+      if (bufferedBytes + chunkBuffer.length > MAX_BUFFER_SIZE) {
+        const attemptedBytes = bufferedBytes + chunkBuffer.length;
+        overflow = true;
+        chunks.length = 0;
+        bufferedBytes = 0;
+        diag('HTTP_TRACK_BUFFER_OVERFLOW', { request_id: requestId, provider, buffered_bytes: attemptedBytes });
+        return;
+      }
+      chunks.push(chunkBuffer);
+      bufferedBytes += chunkBuffer.length;
     }
   }
 

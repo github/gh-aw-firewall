@@ -36,9 +36,9 @@ let diagStream = null;
 /**
  * Write a diagnostic line to the diagnostics log file.
  * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
- * Data is sanitized to prevent writing raw network content to disk.
+ * Does not persist request/response payload data.
  */
-function diag(msg, data) {
+function diag(msg, _data) {
   if (!DIAG_ENABLED) return;
   try {
     if (!diagStream) {
@@ -46,14 +46,10 @@ function diag(msg, data) {
       diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
       diagStream.on('error', () => { diagStream = null; });
     }
-    // Sanitize: only log known safe fields, omit raw response data
-    let safeData = data;
-    if (data && typeof data === 'object') {
-      const { raw_sample, ...rest } = data;
-      safeData = rest;
-    }
-    const line = `${new Date().toISOString()} ${msg}` +
-      (safeData ? ' ' + JSON.stringify(safeData) : '') + '\n';
+    const safeMsg = typeof msg === 'string'
+      ? msg.replace(/[^\w:-]/g, '_').slice(0, 64)
+      : 'DIAG';
+    const line = `${new Date().toISOString()} ${safeMsg}\n`;
     diagStream.write(line);
   } catch { /* best-effort */ }
 }
