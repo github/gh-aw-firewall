@@ -129,6 +129,7 @@ function handleRequestError(err, {
   statusCode,
   clientMessage,
   extraMetrics,
+  onHeadersSent,
 }) {
   const duration = Date.now() - startTime;
   metrics.gaugeDec('active_requests', { provider });
@@ -139,7 +140,11 @@ function handleRequestError(err, {
     path: sanitizeForLog(req.url), duration_ms: duration,
     error: sanitizeForLog(err.message), upstream_host: targetHost,
   });
-  if (!res.headersSent) res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  if (res.headersSent) {
+    if (onHeadersSent) onHeadersSent(err);
+    return;
+  }
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: clientMessage, message: err.message }));
 }
 
@@ -389,6 +394,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
           startTime,
           statusCode: 502,
           clientMessage: 'Response stream error',
+          onHeadersSent: () => {
+            if (typeof res.destroy === 'function') res.destroy(err);
+          },
         });
       });
 
