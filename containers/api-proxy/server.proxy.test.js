@@ -472,6 +472,95 @@ describe('proxyRequest X-Initiator injection', () => {
   });
 });
 
+describe('proxyRequest error handling', () => {
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  function makeRes() {
+    return {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn(),
+    };
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns 400 when the client request stream errors', () => {
+    const req = makeReq();
+    const res = makeRes();
+
+    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req.emit('error', new Error('client stream failed'));
+
+    expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({
+      error: 'Client error',
+      message: 'client stream failed',
+    });
+  });
+
+  it('returns 502 when the upstream response stream errors', () => {
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    jest.spyOn(https, 'request').mockImplementation((_options, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req.emit('end');
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = {};
+    proxyRes.pipe = jest.fn();
+    responseHandler(proxyRes);
+    proxyRes.emit('error', new Error('upstream stream failed'));
+
+    expect(res.writeHead).toHaveBeenCalledWith(502, { 'Content-Type': 'application/json' });
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({
+      error: 'Response stream error',
+      message: 'upstream stream failed',
+    });
+  });
+
+  it('returns 502 when the upstream proxy request errors', () => {
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
+    req.emit('end');
+    upstreamRequest.emit('error', new Error('upstream connect failed'));
+
+    expect(res.writeHead).toHaveBeenCalledWith(502, { 'Content-Type': 'application/json' });
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({
+      error: 'Proxy error',
+      message: 'upstream connect failed',
+    });
+  });
+});
+
 describe('proxyRequest effective token guard', () => {
   function makeReq(headers = {}) {
     const req = new EventEmitter();
