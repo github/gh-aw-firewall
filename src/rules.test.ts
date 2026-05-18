@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadRuleSet, mergeRuleSets, loadAndMergeDomains, RuleSet } from './rules';
+import { loadRuleSet, loadAndMergeDomains } from './rules';
 
 describe('rules', () => {
   let testDir: string;
@@ -152,37 +152,6 @@ rules: []
     });
   });
 
-  describe('mergeRuleSets', () => {
-    it('should merge multiple rulesets and deduplicate', () => {
-      const ruleSet1: RuleSet = {
-        version: 1,
-        rules: [
-          { domain: 'github.com', subdomains: true },
-          { domain: 'npmjs.org', subdomains: true },
-        ],
-      };
-      const ruleSet2: RuleSet = {
-        version: 1,
-        rules: [
-          { domain: 'github.com', subdomains: true }, // duplicate
-          { domain: 'pypi.org', subdomains: true },
-        ],
-      };
-
-      const result = mergeRuleSets([ruleSet1, ruleSet2]);
-      expect(result).toEqual(['github.com', 'npmjs.org', 'pypi.org']);
-    });
-
-    it('should handle empty rulesets', () => {
-      expect(mergeRuleSets([])).toEqual([]);
-    });
-
-    it('should handle rulesets with empty rules', () => {
-      const ruleSet: RuleSet = { version: 1, rules: [] };
-      expect(mergeRuleSets([ruleSet])).toEqual([]);
-    });
-  });
-
   describe('loadAndMergeDomains', () => {
     it('should merge file domains with CLI domains', () => {
       const filePath = writeRuleFile('rules.yml', `
@@ -224,6 +193,24 @@ rules:
 
       const result = loadAndMergeDomains([file1, file2], []);
       expect(result).toEqual(['github.com', 'npmjs.org']);
+    });
+
+    it('should deduplicate domains across multiple ruleset files', () => {
+      const file1 = writeRuleFile('rules1.yml', `
+version: 1
+rules:
+  - domain: github.com
+  - domain: npmjs.org
+`);
+      const file2 = writeRuleFile('rules2.yml', `
+version: 1
+rules:
+  - domain: github.com
+  - domain: pypi.org
+`);
+
+      const result = loadAndMergeDomains([file1, file2], []);
+      expect(result).toEqual(['github.com', 'npmjs.org', 'pypi.org']);
     });
 
     it('should work with no CLI domains', () => {

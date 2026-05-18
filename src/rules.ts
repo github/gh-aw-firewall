@@ -158,7 +158,7 @@ function expandRule(rule: Rule): string[] {
  * @param ruleSets - Array of parsed RuleSet objects
  * @returns Array of unique domain strings
  */
-export function mergeRuleSets(ruleSets: RuleSet[]): string[] {
+function mergeRuleSets(ruleSets: RuleSet[]): string[] {
   const domains = new Set<string>();
 
   for (const ruleSet of ruleSets) {
