@@ -1,67 +1,54 @@
-# Dependabot configuration for automated dependency updates
-# See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-#
-# PR budget: ~5 total across all ecosystems (2 + 1 + 1 + 1 = 5)
-# Each ecosystem groups ALL deps into a single PR to minimize noise.
-
-version: 2
 updates:
-  # npm ecosystem - root package.json
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 2
-    groups:
-      all-npm-dependencies:
-        patterns:
-          - "*"
-
-  # npm ecosystem - docs-site
-  - package-ecosystem: "npm"
-    directory: "/docs-site"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 1
-    groups:
-      all-docs-site-dependencies:
-        patterns:
-          - "*"
-
-  # Docker ecosystem - agent container
-  - package-ecosystem: "docker"
-    directory: "/containers/agent"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 1
-    groups:
-      all-docker-agent:
-        patterns:
-          - "*"
-
-  # Docker ecosystem - squid container
-  - package-ecosystem: "docker"
-    directory: "/containers/squid"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 1
-    groups:
-      all-docker-squid:
-        patterns:
-          - "*"
-
-  # GitHub Actions ecosystem
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 1
-    groups:
-      all-github-actions:
-        patterns:
-          - "*"
+- directory: /
+  groups:
+    all-npm-dependencies:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 2
+  package-ecosystem: npm
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /docs-site
+  groups:
+    all-docs-site-dependencies:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: npm
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/agent
+  groups:
+    all-docker-agent:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/squid
+  groups:
+    all-docker-squid:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /
+  groups:
+    all-github-actions:
+      patterns:
+      - "*"
+  ignore:
+  - dependency-name: "github/gh-aw-actions/**" # Managed by gh aw compile. Version-locked to the gh-aw compiler; do not bump.
+  open-pull-requests-limit: 1
+  package-ecosystem: github-actions
+  schedule:
+    day: monday
+    interval: weekly
+version: 2
