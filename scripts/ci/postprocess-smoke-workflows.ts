@@ -96,9 +96,11 @@ const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 
 // Ensure engine CLI installs include --ignore-scripts for supply-chain security.
 // The gh-aw compiler omits this flag for Claude Code (though Codex has it).
-// Match: "npm install -g @anthropic-ai/claude-code@<version>" without --ignore-scripts
+// Match a Claude Code npm install line that does not already include
+// --ignore-scripts, while tolerating additional npm install flags before `-g`.
+// Capture only the package spec so existing replacement logic can keep using $1.
 const claudeCodeInstallRegex =
-  /run: npm install(?! --ignore-scripts) -g (@anthropic-ai\/claude-code@[\d.]+)/g;
+  /run: npm install\b(?![^\n]*\s--ignore-scripts\b)(?:[^\n]*?\s-g\s+)(@anthropic-ai\/claude-code@[\d.]+)/g;
 
 // Work around gh-aw compiler bug (gh-aw#26565) where Copilot model fallback is
 // emitted as an empty string:
