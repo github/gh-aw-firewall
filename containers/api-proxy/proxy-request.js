@@ -119,6 +119,35 @@ function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
 }
 
+function handleRequestError(err, {
+  res,
+  requestId,
+  provider,
+  req,
+  targetHost,
+  startTime,
+  statusCode,
+  clientMessage,
+  extraMetrics,
+  onHeadersSent,
+}) {
+  const duration = Date.now() - startTime;
+  metrics.gaugeDec('active_requests', { provider });
+  metrics.increment('requests_errors_total', { provider });
+  if (extraMetrics) extraMetrics(duration);
+  logRequest('error', 'request_error', {
+    request_id: requestId, provider, method: req.method,
+    path: sanitizeForLog(req.url), duration_ms: duration,
+    error: sanitizeForLog(err.message), upstream_host: targetHost,
+  });
+  if (res.headersSent) {
+    if (onHeadersSent) onHeadersSent(err);
+    return;
+  }
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: clientMessage, message: err.message }));
+}
+
 const checkRateLimit = createRateLimitChecker({
   limiter,
   metrics,
@@ -201,16 +230,16 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   req.on('error', (err) => {
     if (errored) return;
     errored = true;
-    const duration = Date.now() - startTime;
-    metrics.gaugeDec('active_requests', { provider });
-    metrics.increment('requests_errors_total', { provider });
-    logRequest('error', 'request_error', {
-      request_id: requestId, provider, method: req.method,
-      path: sanitizeForLog(req.url), duration_ms: duration,
-      error: sanitizeForLog(err.message), upstream_host: targetHost,
+    handleRequestError(err, {
+      res,
+      requestId,
+      provider,
+      req,
+      targetHost,
+      startTime,
+      statusCode: 400,
+      clientMessage: 'Client error',
     });
-    if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Client error', message: err.message }));
   });
 
   req.on('data', chunk => {
@@ -356,16 +385,19 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
 
       proxyRes.on('error', (err) => {
-        const duration = Date.now() - startTime;
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_errors_total', { provider });
-        logRequest('error', 'request_error', {
-          request_id: requestId, provider, method: req.method,
-          path: sanitizeForLog(req.url), duration_ms: duration,
-          error: sanitizeForLog(err.message), upstream_host: targetHost,
+        handleRequestError(err, {
+          res,
+          requestId,
+          provider,
+          req,
+          targetHost,
+          startTime,
+          statusCode: 502,
+          clientMessage: 'Response stream error',
+          onHeadersSent: () => {
+            if (typeof res.destroy === 'function') res.destroy(err);
+          },
         });
-        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Response stream error', message: err.message }));
       });
 
       const billingInfo = extractBillingHeaders(proxyRes.headers);
@@ -419,18 +451,20 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     });
 
     proxyReq.on('error', (err) => {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_errors_total', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('error', 'request_error', {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), duration_ms: duration,
-        error: sanitizeForLog(err.message), upstream_host: targetHost,
+      handleRequestError(err, {
+        res,
+        requestId,
+        provider,
+        req,
+        targetHost,
+        startTime,
+        statusCode: 502,
+        clientMessage: 'Proxy error',
+        extraMetrics: (duration) => {
+          metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
+          metrics.observe('request_duration_ms', duration, { provider });
+        },
       });
-      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Proxy error', message: err.message }));
     });
 
     if (body.length > 0) proxyReq.write(body);
