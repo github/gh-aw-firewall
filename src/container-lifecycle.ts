@@ -457,16 +457,18 @@ export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<vo
 
 /**
  * Returns whether the agent was externally killed via fastKillAgentContainer().
- * @internal Exported for testing.
  */
-export function isAgentExternallyKilled(): boolean {
+function isAgentExternallyKilled(): boolean {
   return agentExternallyKilled;
 }
 
 /**
  * Resets the externally-killed flag. Only used in tests.
- * @internal Exported for testing.
  */
-export function resetAgentExternallyKilled(): void {
+function resetAgentExternallyKilled(): void {
   agentExternallyKilled = false;
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = { isAgentExternallyKilled, resetAgentExternallyKilled };

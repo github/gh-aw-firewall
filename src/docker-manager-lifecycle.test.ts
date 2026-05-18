@@ -1,5 +1,5 @@
 import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost, stopContainers, getLocalDockerEnv } from './docker-manager';
-import { isAgentExternallyKilled, resetAgentExternallyKilled } from './container-lifecycle';
+import { testHelpers as lifecycleTestHelpers } from './container-lifecycle';
 import { AGENT_CONTAINER_NAME } from './host-env';
 import { logger } from './logger';
 import * as fs from 'fs';
@@ -366,7 +366,7 @@ describe('docker-manager lifecycle', () => {
   describe('fastKillAgentContainer', () => {
     beforeEach(() => {
       jest.clearAllMocks();
-      resetAgentExternallyKilled();
+      lifecycleTestHelpers.resetAgentExternallyKilled();
     });
 
     it('should call docker stop with default 3-second timeout', async () => {
@@ -402,16 +402,16 @@ describe('docker-manager lifecycle', () => {
     it('should set the externally-killed flag', async () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      expect(isAgentExternallyKilled()).toBe(false);
+      expect(lifecycleTestHelpers.isAgentExternallyKilled()).toBe(false);
       await fastKillAgentContainer();
-      expect(isAgentExternallyKilled()).toBe(true);
+      expect(lifecycleTestHelpers.isAgentExternallyKilled()).toBe(true);
     });
 
     it('should set the externally-killed flag even when docker stop fails', async () => {
       mockExecaFn.mockRejectedValueOnce(new Error('docker not found'));
 
       await fastKillAgentContainer();
-      expect(isAgentExternallyKilled()).toBe(true);
+      expect(lifecycleTestHelpers.isAgentExternallyKilled()).toBe(true);
     });
   });
 
@@ -507,7 +507,7 @@ describe('docker-manager lifecycle', () => {
     beforeEach(() => {
       testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
       jest.clearAllMocks();
-      resetAgentExternallyKilled();
+      lifecycleTestHelpers.resetAgentExternallyKilled();
     });
 
     afterEach(() => {
