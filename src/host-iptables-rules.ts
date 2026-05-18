@@ -8,6 +8,7 @@ import {
   CHAIN_NAME_V6,
   NETWORK_NAME,
   addDnsRules,
+  cleanupChain,
   disableIpv6ViaSysctl,
   getDockerBridgeGateway,
   getNetworkBridgeName,
@@ -110,34 +111,7 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     const { exitCode } = await execa('iptables', ['-t', 'filter', '-L', CHAIN_NAME, '-n'], { reject: false });
     if (exitCode === 0) {
       logger.debug(`Chain '${CHAIN_NAME}' already exists, cleaning up...`);
-
-      // First, remove any references from DOCKER-USER
-      const { stdout } = await execa('iptables', [
-        '-t', 'filter', '-L', 'DOCKER-USER', '-n', '--line-numbers',
-      ], { reject: false });
-
-      const lines = stdout.split('\n');
-      const lineNumbers: number[] = [];
-      for (const line of lines) {
-        if (line.includes(CHAIN_NAME)) {
-          const match = line.match(/^(\d+)/);
-          if (match) {
-            lineNumbers.push(parseInt(match[1], 10));
-          }
-        }
-      }
-
-      // Delete rules in reverse order
-      for (const lineNum of lineNumbers.reverse()) {
-        logger.debug(`Removing reference to ${CHAIN_NAME} from DOCKER-USER line ${lineNum}`);
-        await execa('iptables', [
-          '-t', 'filter', '-D', 'DOCKER-USER', lineNum.toString(),
-        ], { reject: false });
-      }
-
-      // Then flush and delete the chain
-      await execa('iptables', ['-t', 'filter', '-F', CHAIN_NAME], { reject: false });
-      await execa('iptables', ['-t', 'filter', '-X', CHAIN_NAME], { reject: false });
+      await cleanupChain('iptables', CHAIN_NAME);
     }
   } catch (error) {
     // Ignore errors
