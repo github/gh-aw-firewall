@@ -6,7 +6,13 @@
 
 const { shouldStripHeader } = require('./proxy-utils');
 const {
-  _testing: { resolveCopilotAuthToken, resolveApiKey, stripBearerPrefix, COPILOT_PLACEHOLDER_TOKEN },
+  _testing: {
+    resolveCopilotAuthToken,
+    resolveApiKey,
+    stripBearerPrefix,
+    COPILOT_PLACEHOLDER_TOKEN,
+    COPILOT_DUMMY_BYOK_KEY,
+  },
   createCopilotAdapter,
 } = require('./providers/copilot');
 const { sanitizeNullToolCallTypes } = require('./body-transform');
@@ -53,6 +59,11 @@ describe('stripBearerPrefix', () => {
   it('strips "Bearer " prefix case-insensitively', () => {
     expect(stripBearerPrefix('bearer sk-or-v1-abc')).toBe('sk-or-v1-abc');
     expect(stripBearerPrefix('BEARER sk-or-v1-abc')).toBe('sk-or-v1-abc');
+  });
+
+  it('strips "token " prefix case-insensitively', () => {
+    expect(stripBearerPrefix('token sk-or-v1-abc')).toBe('sk-or-v1-abc');
+    expect(stripBearerPrefix('TOKEN sk-or-v1-abc')).toBe('sk-or-v1-abc');
   });
 
   it('strips leading whitespace before "Bearer "', () => {
@@ -155,6 +166,13 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     })).toBe('gho_real_token');
   });
+
+  it('uses COPILOT_GITHUB_TOKEN when COPILOT_API_KEY is the offline BYOK dummy key', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'gho_real_token',
+      COPILOT_API_KEY: COPILOT_DUMMY_BYOK_KEY,
+    })).toBe('gho_real_token');
+  });
 });
 
 describe('resolveApiKey', () => {
@@ -164,6 +182,10 @@ describe('resolveApiKey', () => {
 
   it('returns undefined when COPILOT_API_KEY is the AWF placeholder', () => {
     expect(resolveApiKey({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+  });
+
+  it('returns undefined when COPILOT_API_KEY is the offline BYOK dummy key', () => {
+    expect(resolveApiKey({ COPILOT_API_KEY: COPILOT_DUMMY_BYOK_KEY })).toBeUndefined();
   });
 
   it('returns undefined when COPILOT_API_KEY is not set', () => {

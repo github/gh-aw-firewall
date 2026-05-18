@@ -32,9 +32,11 @@ const { URL } = require('url');
 // it means the sidecar received a dummy key (not a real BYOK credential) and should
 // fall back to COPILOT_GITHUB_TOKEN as the sole auth source.
 const COPILOT_PLACEHOLDER_TOKEN = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const COPILOT_DUMMY_BYOK_KEY = 'dummy-byok-key-for-offline-mode';
 
 /**
- * Strip any accidental "Bearer " prefix from a raw credential value and trim
+ * Strip any accidental "Bearer " or "token " prefix from a raw credential
+ * value and trim
  * surrounding whitespace.  Returns undefined when the result is empty so that
  * callers can use `|| undefined` fall-through cleanly.
  *
@@ -45,7 +47,7 @@ const COPILOT_PLACEHOLDER_TOKEN = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
  * @returns {string|undefined}
  */
 function stripBearerPrefix(value) {
-  return ((value || '').replace(/^\s*Bearer\s+/i, '').trim()) || undefined;
+  return ((value || '').replace(/^\s*(?:Bearer|token)\s+/i, '').trim()) || undefined;
 }
 
 /**
@@ -60,7 +62,7 @@ function stripBearerPrefix(value) {
  */
 function resolveApiKey(env) {
   const key = stripBearerPrefix(env.COPILOT_API_KEY);
-  return key === COPILOT_PLACEHOLDER_TOKEN ? undefined : key;
+  return key === COPILOT_PLACEHOLDER_TOKEN || key === COPILOT_DUMMY_BYOK_KEY ? undefined : key;
 }
 
 /**
@@ -367,5 +369,6 @@ module.exports = {
     deriveGitHubApiTarget,
     deriveGitHubApiBasePath,
     COPILOT_PLACEHOLDER_TOKEN,
+    COPILOT_DUMMY_BYOK_KEY,
   },
 };
