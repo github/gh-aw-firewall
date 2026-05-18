@@ -36,18 +36,6 @@ interface ApiProxyServiceParams {
 // "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
 // are runtime-configurable and not limited to a fixed allowlist.
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
-function getCopilotModel(config: WrapperConfig): string | undefined {
-  const envFileModel = config.envFile
-    ? readEnvFile(config.envFile).COPILOT_MODEL
-    : undefined;
-  const model =
-    config.additionalEnv?.COPILOT_MODEL ??
-    envFileModel ??
-    (config.envAll ? process.env.COPILOT_MODEL : undefined);
-  const normalizedModel = model?.trim();
-  return normalizedModel || undefined;
-}
-
 function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
   const envFileValue = config.envFile
     ? readEnvFile(config.envFile)[key]
@@ -294,7 +282,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     // Set the wire API based solely on the model, regardless of which auth path is active.
     // GPT-5-family models must use the /responses endpoint; setting this here ensures the
     // Copilot CLI uses the correct endpoint even when only copilotGithubToken is provided.
-    const copilotModel = getCopilotModel(config);
+    const copilotModel = getConfigEnvValue(config, 'COPILOT_MODEL');
     if (copilotModel && requiresResponsesWireApi(copilotModel)) {
       agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
       logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
