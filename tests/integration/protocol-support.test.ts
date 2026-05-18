@@ -29,7 +29,7 @@ describe('Protocol Support', () => {
   describe('HTTPS Connections', () => {
     test('should allow HTTPS to allowed domain', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS https://api.github.com/zen',
+        'curl -fsS https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -55,7 +55,7 @@ describe('Protocol Support', () => {
 
     test('should handle HTTPS with verbose output', async () => {
       const result = await runner.runWithSudo(
-        'curl -v https://api.github.com/zen 2>&1 | grep -E "SSL|TLS" | head -5 || true',
+        'curl -v https://github.com 2>&1 | grep -E "SSL|TLS" | head -5 || true',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -117,7 +117,7 @@ describe('Protocol Support', () => {
   describe('Connection Headers', () => {
     test('should pass custom headers', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS -H "Accept: application/vnd.github+json" https://api.github.com/zen',
+        'curl -fsS -H "Accept: text/html" https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -130,7 +130,7 @@ describe('Protocol Support', () => {
 
     test('should pass User-Agent header', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS -A "Test-Agent/1.0" https://api.github.com/zen',
+        'curl -fsS -A "Test-Agent/1.0" https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -145,7 +145,7 @@ describe('Protocol Support', () => {
   describe('IPv4/IPv6', () => {
     test('should support IPv4 connections', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS -4 https://api.github.com/zen',
+        'curl -fsS -4 https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -159,7 +159,7 @@ describe('Protocol Support', () => {
     test('should handle IPv6 (may not be available)', async () => {
       // IPv6 may not be available in all environments
       const result = await runner.runWithSudo(
-        'curl -fsS -6 https://api.github.com/zen || exit 0',
+        'curl -fsS -6 https://github.com || exit 0',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -175,7 +175,7 @@ describe('Protocol Support', () => {
   describe('Connection Timeouts', () => {
     test('should respect curl max-time option', async () => {
       const result = await runner.runWithSudo(
-        'curl -f --max-time 5 https://api.github.com/zen',
+        'curl -f --max-time 5 https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',

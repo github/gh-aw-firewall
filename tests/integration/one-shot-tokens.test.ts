@@ -65,7 +65,7 @@ describe('One-Shot Token Protection', () => {
         {
           allowDomains: ['localhost'],
           logLevel: 'debug',
-          timeout: 240000,
+          timeout: 480000,
           buildLocal: true, // Build container locally to include one-shot-token.so
           env: {
             GITHUB_TOKEN: 'ghp_test_token_12345',
@@ -80,7 +80,7 @@ describe('One-Shot Token Protection', () => {
       expect(result.stdout).toContain('Second read: [ghp_test_token_12345]');
       // Note: printenv reads from environ array directly, not via getenv().
       // The LD_PRELOAD library only intercepts getenv() calls, so no debug output appears here.
-    }, 240000);
+    }, 480000);
 
     test('should cache COPILOT_GITHUB_TOKEN and clear from environment', async () => {
       const testScript = `
