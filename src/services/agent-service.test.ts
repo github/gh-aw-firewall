@@ -1,6 +1,4 @@
-import { generateDockerCompose } from '../compose-generator';
-import { WrapperConfig } from '../types';
-import { baseConfig, mockNetworkConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures.test-utils';
+import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
