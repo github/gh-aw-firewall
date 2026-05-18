@@ -94,6 +94,14 @@ const sessionStateDirInjectionRegex =
   /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
 const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 
+// Ensure engine CLI installs include --ignore-scripts for supply-chain security.
+// The gh-aw compiler omits this flag for Claude Code (though Codex has it).
+// Match a Claude Code npm install line that does not already include
+// --ignore-scripts, while tolerating additional npm install flags before `-g`.
+// Capture only the package spec so existing replacement logic can keep using $1.
+const claudeCodeInstallRegex =
+  /run: npm install\b(?![^\n]*\s--ignore-scripts\b)(?:[^\n]*?\s-g\s+)(@anthropic-ai\/claude-code@[\d.]+)/g;
+
 // Work around gh-aw compiler bug (gh-aw#26565) where Copilot model fallback is
 // emitted as an empty string:
 //   COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}
@@ -418,6 +426,17 @@ for (const workflowPath of workflowPaths) {
     );
   } else {
     console.log(`  --session-state-dir already present (or no awf invocation found)`);
+  }
+
+  // Inject --ignore-scripts into Claude Code npm install commands for supply-chain security
+  claudeCodeInstallRegex.lastIndex = 0;
+  const claudeCodeMatches = content.match(claudeCodeInstallRegex);
+  if (claudeCodeMatches) {
+    content = content.replace(claudeCodeInstallRegex, 'run: npm install --ignore-scripts -g $1');
+    modified = true;
+    console.log(
+      `  Injected --ignore-scripts in ${claudeCodeMatches.length} Claude Code install(s)`
+    );
   }
 
   // Replace the "Copy Copilot session state files to logs" step with an inline

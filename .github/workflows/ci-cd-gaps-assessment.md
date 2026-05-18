@@ -10,6 +10,7 @@ permissions:
   pull-requests: read
 imports:
   - shared/mcp-pagination.md
+  - uses: shared/mcp/gh-aw.md
 sandbox:
   agent:
     id: awf
