@@ -9,6 +9,8 @@ permissions:
   issues: read
   pull-requests: read
   discussions: read
+imports:
+  - uses: shared/mcp/gh-aw.md
 tools:
   agentic-workflows:
   bash:
