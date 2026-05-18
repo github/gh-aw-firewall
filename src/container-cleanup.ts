@@ -223,6 +223,63 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   }
 }
 
+type PreserveDirectoryOptions = {
+  runtimeDir?: string;
+  runtimeSubdir?: string;
+  workDir: string;
+  workSubdir: string;
+  destinationBaseName: string;
+  timestamp: string;
+  availableLabel: string;
+  preservedLabel: string;
+  permissionErrorMessage: string;
+  preserveErrorMessage: string;
+  chmodPreservedDir?: boolean;
+  runtimeDirMustExist?: boolean;
+};
+
+function preserveDirectory({
+  runtimeDir,
+  runtimeSubdir,
+  workDir,
+  workSubdir,
+  destinationBaseName,
+  timestamp,
+  availableLabel,
+  preservedLabel,
+  permissionErrorMessage,
+  preserveErrorMessage,
+  chmodPreservedDir = false,
+  runtimeDirMustExist = true,
+}: PreserveDirectoryOptions): void {
+  if (runtimeDir) {
+    const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
+    if (!runtimeDirMustExist || fs.existsSync(targetDir)) {
+      try {
+        execa.sync('chmod', ['-R', 'a+rX', targetDir]);
+        logger.info(`${availableLabel} available at: ${targetDir}`);
+      } catch (error) {
+        logger.debug(permissionErrorMessage, error);
+      }
+    }
+    return;
+  }
+
+  const sourceDir = path.join(workDir, workSubdir);
+  const destinationDir = path.join(os.tmpdir(), `${destinationBaseName}-${timestamp}`);
+  if (fs.existsSync(sourceDir) && fs.readdirSync(sourceDir).length > 0) {
+    try {
+      fs.renameSync(sourceDir, destinationDir);
+      if (chmodPreservedDir) {
+        execa.sync('chmod', ['-R', 'a+rX', destinationDir]);
+      }
+      logger.info(`${preservedLabel} preserved at: ${destinationDir}`);
+    } catch (error) {
+      logger.debug(preserveErrorMessage, error);
+    }
+  }
+}
+
 export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?: string, auditDir?: string, sessionStateDir?: string): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
@@ -251,111 +308,68 @@ export async function cleanup(workDir: string, keepFiles: boolean, proxyLogsDir?
       }
 
       // Preserve agent session-state (contains events.jsonl, session data from Copilot CLI)
-      if (sessionStateDir) {
-        // Session state was written directly to sessionStateDir during runtime (timeout-safe)
-        // Just fix permissions so they're readable for artifact upload
-        if (fs.existsSync(sessionStateDir)) {
-          try {
-            execa.sync('chmod', ['-R', 'a+rX', sessionStateDir]);
-            logger.info(`Agent session state available at: ${sessionStateDir}`);
-          } catch (error) {
-            logger.debug('Could not fix session state permissions:', error);
-          }
-        }
-      } else {
-        const agentSessionStateDir = path.join(workDir, 'agent-session-state');
-        const agentSessionStateDestination = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
-        if (fs.existsSync(agentSessionStateDir) && fs.readdirSync(agentSessionStateDir).length > 0) {
-          try {
-            fs.renameSync(agentSessionStateDir, agentSessionStateDestination);
-            logger.info(`Agent session state preserved at: ${agentSessionStateDestination}`);
-          } catch (error) {
-            logger.debug('Could not preserve agent session state:', error);
-          }
-        }
-      }
+      // Session state was written directly to sessionStateDir during runtime (timeout-safe)
+      // Just fix permissions so it's readable for artifact upload.
+      preserveDirectory({
+        runtimeDir: sessionStateDir,
+        workDir,
+        workSubdir: 'agent-session-state',
+        destinationBaseName: 'awf-agent-session-state',
+        timestamp,
+        availableLabel: 'Agent session state',
+        preservedLabel: 'Agent session state',
+        permissionErrorMessage: 'Could not fix session state permissions:',
+        preserveErrorMessage: 'Could not preserve agent session state:',
+      });
 
       // Preserve api-proxy logs before cleanup
-      if (proxyLogsDir) {
-        // Logs were written inside proxyLogsDir/api-proxy-logs during runtime (timeout-safe)
-        // Just fix permissions so they're readable
-        const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
-        if (fs.existsSync(apiProxyLogsDir)) {
-          try {
-            execa.sync('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
-            logger.info(`API proxy logs available at: ${apiProxyLogsDir}`);
-          } catch (error) {
-            logger.debug('Could not fix api-proxy log permissions:', error);
-          }
-        }
-      } else {
-        // Default behavior: move from workDir/api-proxy-logs to timestamped /tmp directory
-        const apiProxyLogsDir = path.join(workDir, 'api-proxy-logs');
-        const apiProxyLogsDestination = path.join(os.tmpdir(), `api-proxy-logs-${timestamp}`);
-        if (fs.existsSync(apiProxyLogsDir) && fs.readdirSync(apiProxyLogsDir).length > 0) {
-          try {
-            fs.renameSync(apiProxyLogsDir, apiProxyLogsDestination);
-            logger.info(`API proxy logs preserved at: ${apiProxyLogsDestination}`);
-          } catch (error) {
-            logger.debug('Could not preserve api-proxy logs:', error);
-          }
-        }
-      }
+      // Logs were written inside proxyLogsDir/api-proxy-logs during runtime (timeout-safe)
+      // Just fix permissions so they're readable.
+      preserveDirectory({
+        runtimeDir: proxyLogsDir,
+        runtimeSubdir: 'api-proxy-logs',
+        workDir,
+        workSubdir: 'api-proxy-logs',
+        destinationBaseName: 'api-proxy-logs',
+        timestamp,
+        availableLabel: 'API proxy logs',
+        preservedLabel: 'API proxy logs',
+        permissionErrorMessage: 'Could not fix api-proxy log permissions:',
+        preserveErrorMessage: 'Could not preserve api-proxy logs:',
+      });
 
       // Preserve cli-proxy (mcpg DIFC proxy audit) logs before cleanup
-      if (proxyLogsDir) {
-        const cliProxyLogsDir = path.join(proxyLogsDir, 'cli-proxy-logs');
-        if (fs.existsSync(cliProxyLogsDir)) {
-          try {
-            execa.sync('chmod', ['-R', 'a+rX', cliProxyLogsDir]);
-            logger.info(`CLI proxy logs available at: ${cliProxyLogsDir}`);
-          } catch (error) {
-            logger.debug('Could not fix cli-proxy log permissions:', error);
-          }
-        }
-      } else {
-        const cliProxyLogsDir = path.join(workDir, 'cli-proxy-logs');
-        const cliProxyLogsDestination = path.join(os.tmpdir(), `cli-proxy-logs-${timestamp}`);
-        if (fs.existsSync(cliProxyLogsDir) && fs.readdirSync(cliProxyLogsDir).length > 0) {
-          try {
-            fs.renameSync(cliProxyLogsDir, cliProxyLogsDestination);
-            logger.info(`CLI proxy logs preserved at: ${cliProxyLogsDestination}`);
-          } catch (error) {
-            logger.debug('Could not preserve cli-proxy logs:', error);
-          }
-        }
-      }
+      preserveDirectory({
+        runtimeDir: proxyLogsDir,
+        runtimeSubdir: 'cli-proxy-logs',
+        workDir,
+        workSubdir: 'cli-proxy-logs',
+        destinationBaseName: 'cli-proxy-logs',
+        timestamp,
+        availableLabel: 'CLI proxy logs',
+        preservedLabel: 'CLI proxy logs',
+        permissionErrorMessage: 'Could not fix cli-proxy log permissions:',
+        preserveErrorMessage: 'Could not preserve cli-proxy logs:',
+      });
 
       // Handle squid logs
-      if (proxyLogsDir) {
-        // Logs were written directly to proxyLogsDir during runtime (timeout-safe)
-        // Just fix permissions so they're readable
-        try {
-          execa.sync('chmod', ['-R', 'a+rX', proxyLogsDir]);
-          logger.info(`Squid logs available at: ${proxyLogsDir}`);
-        } catch (error) {
-          logger.debug('Could not fix squid log permissions:', error);
-        }
-      } else {
-        // Default behavior: move from workDir/squid-logs to timestamped /tmp directory
-        const squidLogsDir = path.join(workDir, 'squid-logs');
-        const squidLogsDestination = path.join(os.tmpdir(), `squid-logs-${timestamp}`);
-
-        if (fs.existsSync(squidLogsDir) && fs.readdirSync(squidLogsDir).length > 0) {
-          try {
-            fs.renameSync(squidLogsDir, squidLogsDestination);
-
-            // Make logs readable by GitHub Actions runner for artifact upload
-            // Squid creates logs as 'proxy' user (UID 13) which runner cannot read
-            // chmod a+rX sets read for all users, and execute for dirs (capital X)
-            execa.sync('chmod', ['-R', 'a+rX', squidLogsDestination]);
-
-            logger.info(`Squid logs preserved at: ${squidLogsDestination}`);
-          } catch (error) {
-            logger.debug('Could not preserve squid logs:', error);
-          }
-        }
-      }
+      // Logs were written directly to proxyLogsDir during runtime (timeout-safe)
+      // Just fix permissions so they're readable.
+      preserveDirectory({
+        runtimeDir: proxyLogsDir,
+        workDir,
+        workSubdir: 'squid-logs',
+        destinationBaseName: 'squid-logs',
+        timestamp,
+        availableLabel: 'Squid logs',
+        preservedLabel: 'Squid logs',
+        permissionErrorMessage: 'Could not fix squid log permissions:',
+        preserveErrorMessage: 'Could not preserve squid logs:',
+        // Make moved logs readable for artifact upload when preserving default squid logs.
+        chmodPreservedDir: true,
+        // Existing behavior attempts chmod directly on proxyLogsDir and handles any resulting error.
+        runtimeDirMustExist: false,
+      });
 
       // Preserve audit artifacts
       if (auditDir) {

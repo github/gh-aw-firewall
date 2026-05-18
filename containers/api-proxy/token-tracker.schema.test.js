@@ -2,14 +2,9 @@
  * Tests for token-tracker.js (schema validation)
  */
 
-const os = require('os');
-const path = require('path');
 const fs = require('fs');
 
-// Redirect token log output to a temp dir to avoid /var/log permission errors
-// Keep a shared directory for the full Jest process to avoid cross-file env races.
-const tokenLogDir = process.env.AWF_TOKEN_LOG_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'token-tracker-test-'));
-process.env.AWF_TOKEN_LOG_DIR = tokenLogDir;
+require('./test-helpers/token-tracker-setup');
 
 const {
   trackTokenUsage,

@@ -6,7 +6,7 @@ import { resolveCopilotApiKey } from '../copilot-api-resolver';
  *
  * All fields must already be parsed and validated by the caller.
  */
-export interface BuildConfigInputs {
+interface BuildConfigInputs {
   options: Record<string, unknown>;
   agentCommand: string;
   logLevel: LogLevel;

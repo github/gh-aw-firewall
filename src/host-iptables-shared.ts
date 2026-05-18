@@ -146,6 +146,44 @@ export async function addDnsRules(
 }
 
 /**
+ * Removes references to a chain from DOCKER-USER, then flushes and deletes the chain.
+ */
+export async function cleanupChain(
+  cmd: 'iptables' | 'ip6tables',
+  chainName: string,
+  options: {
+    removeDockerUserReferences?: boolean;
+    matchPredicate?: (line: string) => boolean;
+  } = {},
+): Promise<void> {
+  const { removeDockerUserReferences = true, matchPredicate } = options;
+
+  if (removeDockerUserReferences) {
+    const { stdout } = await execa(cmd, [
+      '-t', 'filter', '-L', 'DOCKER-USER', '-n', '--line-numbers',
+    ], { reject: false });
+
+    const lineNumbers: number[] = [];
+    for (const line of stdout.split('\n')) {
+      const shouldDelete = matchPredicate ? matchPredicate(line) : line.includes(chainName);
+      if (shouldDelete) {
+        const match = line.match(/^(\d+)/);
+        if (match) {
+          lineNumbers.push(parseInt(match[1], 10));
+        }
+      }
+    }
+
+    for (const lineNum of lineNumbers.reverse()) {
+      await execa(cmd, ['-t', 'filter', '-D', 'DOCKER-USER', lineNum.toString()], { reject: false });
+    }
+  }
+
+  await execa(cmd, ['-t', 'filter', '-F', chainName], { reject: false });
+  await execa(cmd, ['-t', 'filter', '-X', chainName], { reject: false });
+}
+
+/**
  * Re-enables IPv6 via sysctl if it was previously disabled.
  */
 export async function enableIpv6ViaSysctl(): Promise<void> {
