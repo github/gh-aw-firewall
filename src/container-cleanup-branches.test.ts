@@ -7,10 +7,11 @@
  *  - cleanup() branches for cli-proxy logs, audit dir, session state, and SSL
  */
 
-import { cleanup, collectDiagnosticLogs } from './docker-manager';
+import { cleanup, collectDiagnosticLogs } from './container-cleanup';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as yaml from 'js-yaml';
 
 // Mock execa
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
@@ -69,7 +70,8 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), 'version: "3"\n');
     await collectDiagnosticLogs(testDir);
     const diagnosticsDir = path.join(testDir, 'diagnostics');
-    expect(fs.existsSync(path.join(diagnosticsDir, 'docker-compose.yml'))).toBe(true);
+    const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
+    expect(yaml.load(sanitized)).toEqual({ version: '3' });
   });
 
   it('sanitizes when services is an array instead of an object', async () => {
@@ -80,7 +82,8 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     );
     await collectDiagnosticLogs(testDir);
     const diagnosticsDir = path.join(testDir, 'diagnostics');
-    expect(fs.existsSync(path.join(diagnosticsDir, 'docker-compose.yml'))).toBe(true);
+    const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
+    expect(yaml.load(sanitized)).toEqual({ version: '3', services: [{ name: 'agent' }] });
   });
 
   it('skips service entries that are not plain objects', async () => {
@@ -89,7 +92,15 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), raw);
     await collectDiagnosticLogs(testDir);
     const diagnosticsDir = path.join(testDir, 'diagnostics');
-    expect(fs.existsSync(path.join(diagnosticsDir, 'docker-compose.yml'))).toBe(true);
+    const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
+    expect(yaml.load(sanitized)).toEqual({
+      services: {
+        broken_service: null,
+        valid_service: {
+          image: 'nginx',
+        },
+      },
+    });
   });
 
   it('preserves all env vars when service has no environment key', async () => {
@@ -102,6 +113,13 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       'utf8'
     );
     expect(sanitized).not.toContain('[REDACTED]');
+    expect(yaml.load(sanitized)).toEqual({
+      services: {
+        agent: {
+          image: 'ubuntu:22.04',
+        },
+      },
+    });
   });
 
   it('redacts secrets in array-form environment entries', async () => {
@@ -171,6 +189,9 @@ describe('cleanup - cli-proxy logs', () => {
     const timestamp = path.basename(testDir).replace('awf-', '');
     const destination = path.join(os.tmpdir(), `cli-proxy-logs-${timestamp}`);
     expect(fs.existsSync(destination)).toBe(true);
+    const movedLogPath = path.join(destination, 'difc-proxy.log');
+    expect(fs.existsSync(movedLogPath)).toBe(true);
+    expect(fs.readFileSync(movedLogPath, 'utf8')).toBe('audit entry\n');
     // testDir is deleted by cleanup; clean up the destination
     if (fs.existsSync(destination)) {
       fs.rmSync(destination, { recursive: true, force: true });
@@ -314,7 +335,8 @@ describe('cleanup - SSL directory', () => {
   });
 
   it('calls unmountSslTmpfs when ssl directory exists in workDir', async () => {
-    const { unmountSslTmpfs } = jest.requireMock('./ssl-bump') as {
+    const { cleanupSslKeyMaterial, unmountSslTmpfs } = jest.requireMock('./ssl-bump') as {
+      cleanupSslKeyMaterial: jest.Mock;
       unmountSslTmpfs: jest.Mock;
     };
     unmountSslTmpfs.mockResolvedValue(undefined);
@@ -325,6 +347,7 @@ describe('cleanup - SSL directory', () => {
 
     await cleanup(testDir, false);
 
+    expect(cleanupSslKeyMaterial).toHaveBeenCalledWith(testDir);
     expect(unmountSslTmpfs).toHaveBeenCalledWith(sslDir);
   });
 
