@@ -9,11 +9,9 @@ type EngineInstallSecurityRule = {
   expectedDescription: string;
 };
 
+// NOTE: Claude Code is intentionally excluded — its postinstall script downloads
+// the platform-specific native binary, which is required for it to function.
 const engineInstallSecurityRules: EngineInstallSecurityRule[] = [
-  {
-    packageName: '@anthropic-ai/claude-code',
-    expectedDescription: 'Claude Code CLI installs must include --ignore-scripts',
-  },
   {
     packageName: '@openai/codex',
     expectedDescription: 'Codex CLI installs must include --ignore-scripts',
