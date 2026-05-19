@@ -1,83 +1,27 @@
-import { WrapperConfig, RateLimitConfig } from './types';
-import {
-  buildRateLimitConfig as buildRateLimitConfigImpl,
-  validateRateLimitFlags as validateRateLimitFlagsImpl,
-  validateEnableOpenCodeFlag as validateEnableOpenCodeFlagImpl,
-  validateEnableTokenSteeringFlag as validateEnableTokenSteeringFlagImpl,
+import { type FlagValidationResult, type WrapperConfig } from './types';
+
+export {
+  buildRateLimitConfig,
+  validateRateLimitFlags,
+  validateEnableOpenCodeFlag,
+  validateEnableTokenSteeringFlag,
 } from './parsers/rate-limit-parsers';
-import {
-  validateAllowHostPorts as validateAllowHostPortsImpl,
-  validateAllowHostServicePorts as validateAllowHostServicePortsImpl,
-  applyHostServicePortsConfig as applyHostServicePortsConfigImpl,
+export {
+  validateAllowHostPorts,
+  validateAllowHostServicePorts,
+  applyHostServicePortsConfig,
 } from './parsers/host-port-parsers';
-import {
-  parseDnsServers as parseDnsServersImpl,
-  parseDnsOverHttps as parseDnsOverHttpsImpl,
-  processLocalhostKeyword as processLocalhostKeywordImpl,
+export {
+  parseDnsServers,
+  parseDnsOverHttps,
+  processLocalhostKeyword,
 } from './parsers/dns-parsers';
-import {
-  escapeShellArg as escapeShellArgImpl,
-  joinShellArgs as joinShellArgsImpl,
+export {
+  escapeShellArg,
+  joinShellArgs,
 } from './parsers/shell-utils';
-import {
-  parseVolumeMounts as parseVolumeMountsImpl,
-} from './parsers/volume-parsers';
-import { parseEnvironmentVariables as parseEnvironmentVariablesImpl } from './parsers/env-parsers';
-
-/**
- * Result of validating flag combinations
- */
-interface FlagValidationResult {
-  /** Whether the validation passed */
-  valid: boolean;
-  /** Error message if validation failed */
-  error?: string;
-}
-
-interface LocalhostProcessingResult {
-  allowedDomains: string[];
-  localhostDetected: boolean;
-  shouldEnableHostAccess: boolean;
-  defaultPorts?: string;
-}
-
-/**
- * Builds a RateLimitConfig from parsed CLI options.
- */
-export function buildRateLimitConfig(options: {
-  rateLimit?: boolean;
-  rateLimitRpm?: string;
-  rateLimitRph?: string;
-  rateLimitBytesPm?: string;
-}): { config: RateLimitConfig } | { error: string } {
-  return buildRateLimitConfigImpl(options);
-}
-
-/**
- * Validates that rate-limit flags are not used without --enable-api-proxy.
- */
-export function validateRateLimitFlags(enableApiProxy: boolean, options: {
-  rateLimit?: boolean;
-  rateLimitRpm?: string;
-  rateLimitRph?: string;
-  rateLimitBytesPm?: string;
-}): FlagValidationResult {
-  return validateRateLimitFlagsImpl(enableApiProxy, options);
-}
-
-/**
- * Validates that --enable-opencode is not used without --enable-api-proxy.
- */
-export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCode: boolean): FlagValidationResult {
-  return validateEnableOpenCodeFlagImpl(enableApiProxy, enableOpenCode);
-}
-
-/**
- * Validates that --enable-token-steering is not used without --enable-api-proxy.
- */
-export function validateEnableTokenSteeringFlag(enableApiProxy: boolean, enableTokenSteering: boolean): FlagValidationResult {
-  return validateEnableTokenSteeringFlagImpl(enableApiProxy, enableTokenSteering);
-}
+export { parseVolumeMounts } from './parsers/volume-parsers';
+export { parseEnvironmentVariables } from './parsers/env-parsers';
 
 /**
  * Commander option accumulator for repeatable --ruleset-file flag.
@@ -104,48 +48,6 @@ export function validateSkipPullWithBuildLocal(
     };
   }
   return { valid: true };
-}
-
-/**
- * Validates that --allow-host-ports is only used with --enable-host-access
- * @param allowHostPorts - The --allow-host-ports value (undefined if not provided)
- * @param enableHostAccess - Whether --enable-host-access flag was provided
- * @returns FlagValidationResult with validation status and error message
- */
-export function validateAllowHostPorts(
-  allowHostPorts: string | undefined,
-  enableHostAccess: boolean | undefined
-): FlagValidationResult {
-  return validateAllowHostPortsImpl(allowHostPorts, enableHostAccess);
-}
-
-/**
- * Validates --allow-host-service-ports values.
- * Ports must be numeric and in the range 1-65535.
- * Unlike --allow-host-ports, dangerous ports are intentionally allowed because
- * these ports are restricted to the host gateway IP only (not the internet).
- * Returns an object indicating whether host access should be auto-enabled.
- */
-export function validateAllowHostServicePorts(
-  allowHostServicePorts: string | undefined,
-  enableHostAccess: boolean | undefined
-): FlagValidationResult & { autoEnableHostAccess?: boolean } {
-  return validateAllowHostServicePortsImpl(allowHostServicePorts, enableHostAccess);
-}
-
-/**
- * Applies --allow-host-service-ports validation and config mutations.
- * Extracted from the main command handler for testability.
- *
- * Returns { valid: false, error } if validation fails (caller should exit).
- * Returns { valid: true, enableHostAccess } with the (possibly mutated) value.
- */
-export function applyHostServicePortsConfig(
-  allowHostServicePorts: string | undefined,
-  enableHostAccess: boolean | undefined,
-  log: { warn: (msg: string) => void; info: (msg: string) => void }
-): { valid: true; enableHostAccess: boolean | undefined } | { valid: false; error: string } {
-  return applyHostServicePortsConfigImpl(allowHostServicePorts, enableHostAccess, log);
 }
 
 /**
@@ -254,85 +156,6 @@ export function resolveDockerHostPathPrefix(
   }
 
   return { dockerHostPathPrefix: undefined, autoApplied: false };
-}
-
-/**
- * Parses and validates DNS servers from a comma-separated string
- * @param input - Comma-separated DNS server string (e.g., "8.8.8.8,1.1.1.1")
- * @returns Array of validated DNS server IP addresses
- * @throws Error if any IP address is invalid or if the list is empty
- */
-export function parseDnsServers(input: string): string[] {
-  return parseDnsServersImpl(input);
-}
-
-/**
- * Parses and validates the --dns-over-https option value.
- * Commander sets the value to `true` when the flag is used without an argument.
- * Returns the resolved URL, or an error string.
- */
-export function parseDnsOverHttps(
-  value: boolean | string | undefined
-): { url: string } | { error: string } | undefined {
-  return parseDnsOverHttpsImpl(value);
-}
-
-/**
- * Processes the localhost keyword in the allowed domains list.
- * This function handles the logic for replacing localhost with host.docker.internal,
- * preserving protocol prefixes, and determining whether to auto-enable host access
- * and default development ports.
- *
- * @param allowedDomains - Array of allowed domains (may include localhost variants)
- * @param enableHostAccess - Whether host access is already enabled
- * @param allowHostPorts - Custom host ports if already specified
- */
-export function processLocalhostKeyword(
-  allowedDomains: string[],
-  enableHostAccess: boolean,
-  allowHostPorts: string | undefined
-): LocalhostProcessingResult {
-  return processLocalhostKeywordImpl(allowedDomains, enableHostAccess, allowHostPorts);
-}
-
-/**
- * Escapes a shell argument by wrapping it in single quotes and escaping any single quotes within it
- * @param arg - Argument to escape
- * @returns Escaped argument safe for shell execution
- */
-export function escapeShellArg(arg: string): string {
-  return escapeShellArgImpl(arg);
-}
-
-/**
- * Joins an array of shell arguments into a single command string, properly escaping each argument
- * @param args - Array of arguments
- * @returns Command string with properly escaped arguments
- */
-export function joinShellArgs(args: string[]): string {
-  return joinShellArgsImpl(args);
-}
-
-/**
- * Parses environment variables from an array of KEY=VALUE strings
- * @param envVars Array of environment variable strings in KEY=VALUE format
- * @returns Object with parsed key-value pairs on success, or error details on failure
- */
-export function parseEnvironmentVariables(
-  envVars: string[]
-): { success: true; env: Record<string, string> } | { success: false; invalidVar: string } {
-  return parseEnvironmentVariablesImpl(envVars);
-}
-
-/**
- * Parses and validates volume mount specifications
- * @param mounts Array of volume mount strings in host_path:container_path[:mode] format
- * @returns Object with parsed mount strings on success, or error details on failure
- */
-export function parseVolumeMounts(
-  mounts: string[]
-): { success: true; mounts: string[] } | { success: false; invalidMount: string; reason: string } {
-  return parseVolumeMountsImpl(mounts);
 }
 
 /**

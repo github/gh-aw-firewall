@@ -1,9 +1,12 @@
-import { testHelpers, stripScheme } from './host-env';
 import {
-  validateIdNotInSystemRange,
+  testHelpers,
   getSafeHostUid,
   getSafeHostGid,
   getRealUserHome,
+  stripScheme,
+} from './host-env';
+import {
+  validateIdNotInSystemRange,
   MIN_REGULAR_UID,
   ACT_PRESET_BASE_IMAGE,
 } from './host-identity';
