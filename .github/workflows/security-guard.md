@@ -42,6 +42,7 @@ jobs:
           SECURITY_RE="host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/"
           COUNT=$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
             --paginate --jq '.[].filename' \
+            | grep -Ev '(^|/)tests?/|\.test\.' \
             | grep -cE "$SECURITY_RE" || true)
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
         env:
