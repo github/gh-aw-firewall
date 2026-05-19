@@ -1,28 +1,33 @@
-import { DLP_PATTERNS, generateDlpSquidConfig } from './dlp';
+import { generateDlpSquidConfig } from './dlp';
+
+const DLP_ACL_PREFIX = 'acl dlp_blocked url_regex -i ';
+
+function getDlpRegexPatterns(): string[] {
+  const { aclLines } = generateDlpSquidConfig();
+  return aclLines
+    .filter(line => line.startsWith(DLP_ACL_PREFIX))
+    .map(line => line.slice(DLP_ACL_PREFIX.length));
+}
 
 function scanForCredentialsUsingPatterns(input: string): string[] {
-  return DLP_PATTERNS
-    .filter(pattern => new RegExp(pattern.regex, 'i').test(input))
-    .map(pattern => pattern.name);
+  return getDlpRegexPatterns().filter(regex => new RegExp(regex, 'i').test(input));
 }
 
 describe('DLP Patterns', () => {
-  describe('DLP_PATTERNS', () => {
+  describe('generated DLP ACL patterns', () => {
     it('should have at least 10 built-in patterns', () => {
-      expect(DLP_PATTERNS.length).toBeGreaterThanOrEqual(10);
+      expect(getDlpRegexPatterns().length).toBeGreaterThanOrEqual(10);
     });
 
-    it('should have name, description, and regex for each pattern', () => {
-      for (const pattern of DLP_PATTERNS) {
-        expect(pattern.name).toBeTruthy();
-        expect(pattern.description).toBeTruthy();
-        expect(pattern.regex).toBeTruthy();
+    it('should have non-empty regex for each pattern', () => {
+      for (const regex of getDlpRegexPatterns()) {
+        expect(regex).toBeTruthy();
       }
     });
 
     it('should have valid regex patterns', () => {
-      for (const pattern of DLP_PATTERNS) {
-        expect(() => new RegExp(pattern.regex, 'i')).not.toThrow();
+      for (const regex of getDlpRegexPatterns()) {
+        expect(() => new RegExp(regex, 'i')).not.toThrow();
       }
     });
   });
@@ -33,35 +38,35 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('GitHub Personal Access Token (classic)');
+      expect(matches).toContain('ghp_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub OAuth token (gho_)', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij/resource'
       );
-      expect(matches).toContain('GitHub OAuth Access Token');
+      expect(matches).toContain('gho_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub App installation token (ghs_)', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('GitHub App Installation Token');
+      expect(matches).toContain('ghs_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub App user-to-server token (ghu_)', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=ghu_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('GitHub App User-to-Server Token');
+      expect(matches).toContain('ghu_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub fine-grained PAT (github_pat_)', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=github_pat_1234567890abcdefghijkl_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456'
       );
-      expect(matches).toContain('GitHub Fine-Grained PAT');
+      expect(matches).toContain('github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}');
     });
 
     // OpenAI - use concatenation to avoid push protection triggering on test data
@@ -70,14 +75,14 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=' + fakeKey
       );
-      expect(matches).toContain('OpenAI API Key');
+      expect(matches).toContain('sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}');
     });
 
     it('should detect OpenAI project API key (sk-proj-)', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=sk-proj-' + 'a'.repeat(50)
       );
-      expect(matches).toContain('OpenAI Project API Key');
+      expect(matches).toContain('sk-proj-[a-zA-Z0-9_-]{40,}');
     });
 
     // Anthropic
@@ -85,7 +90,7 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=sk-ant-' + 'a'.repeat(50)
       );
-      expect(matches).toContain('Anthropic API Key');
+      expect(matches).toContain('sk-ant-[a-zA-Z0-9_-]{40,}');
     });
 
     // AWS
@@ -93,7 +98,7 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=AKIAIOSFODNN7EXAMPLE'
       );
-      expect(matches).toContain('AWS Access Key ID');
+      expect(matches).toContain('AKIA[0-9A-Z]{16}');
     });
 
     // Google
@@ -101,7 +106,7 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?key=AIzaSyA' + 'a'.repeat(32)
       );
-      expect(matches).toContain('Google API Key');
+      expect(matches).toContain('AIza[a-zA-Z0-9_-]{35}');
     });
 
     // Slack - use concatenation to avoid push protection triggering on test data
@@ -110,7 +115,7 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/?token=' + fakeToken
       );
-      expect(matches).toContain('Slack Bot Token');
+      expect(matches).toContain('xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}');
     });
 
     // Generic patterns
@@ -118,34 +123,34 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?bearer=abcdefghijklmnopqrstuvwxyz1234'
       );
-      expect(matches).toContain('Bearer Token in URL');
+      expect(matches).toContain('[?&]bearer[_=][a-zA-Z0-9._-]{20,}');
     });
 
     it('should detect authorization in URL parameter', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?authorization=abcdefghijklmnopqrstuvwxyz1234'
       );
-      expect(matches).toContain('Authorization in URL');
+      expect(matches).toContain('[?&]authorization=[a-zA-Z0-9._-]{20,}');
     });
 
     it('should detect private key markers', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?content=BEGIN+PRIVATE+KEY'
       );
-      expect(matches).toContain('Private Key Marker');
+      expect(matches).toContain('PRIVATE(%20|\\+|%2B)KEY');
     });
 
     it('should detect URL-encoded private key markers', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://api.example.com/data?content=BEGIN%20PRIVATE%20KEY'
       );
-      expect(matches).toContain('Private Key Marker');
+      expect(matches).toContain('PRIVATE(%20|\\+|%2B)KEY');
     });
 
     // Negative cases
     it('should not match short strings that look like token prefixes', () => {
       const matches = scanForCredentialsUsingPatterns('https://api.example.com/ghp_short');
-      expect(matches).not.toContain('GitHub Personal Access Token (classic)');
+      expect(matches).toHaveLength(0);
     });
 
     it('should return empty array for clean URLs', () => {
@@ -176,8 +181,8 @@ describe('DLP Patterns', () => {
       const matches = scanForCredentialsUsingPatterns(
         'https://evil.com/?gh=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij&aws=AKIAIOSFODNN7EXAMPLE'
       );
-      expect(matches).toContain('GitHub Personal Access Token (classic)');
-      expect(matches).toContain('AWS Access Key ID');
+      expect(matches).toContain('ghp_[a-zA-Z0-9]{36}');
+      expect(matches).toContain('AKIA[0-9A-Z]{16}');
       expect(matches.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -191,7 +196,7 @@ describe('DLP Patterns', () => {
 
       // Should have one url_regex ACL per pattern
       const aclEntries = aclLines.filter(l => l.startsWith('acl dlp_blocked'));
-      expect(aclEntries.length).toBe(DLP_PATTERNS.length);
+      expect(aclEntries.length).toBeGreaterThanOrEqual(10);
 
       // Each ACL should use url_regex -i
       for (const entry of aclEntries) {

@@ -37,7 +37,7 @@ interface DlpPattern {
  * - Use case-insensitive matching where appropriate
  * - Avoid overly broad patterns that would block legitimate traffic
  */
-export const DLP_PATTERNS: DlpPattern[] = [
+const DLP_PATTERNS: DlpPattern[] = [
   // GitHub tokens
   {
     name: 'GitHub Personal Access Token (classic)',
