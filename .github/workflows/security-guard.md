@@ -11,7 +11,7 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 10
+  max-turns: 6
 tools:
   github:
     mode: gh-proxy
@@ -106,30 +106,7 @@ This repository implements a **network firewall for AI agents** that provides L7
 
 ### Critical Security Components
 
-1. **Host-level iptables rules** (`src/host-iptables.ts`)
-   - DOCKER-USER chain rules for egress filtering
-   - DNS exfiltration prevention (only trusted DNS servers allowed)
-   - IPv4 and IPv6 traffic filtering
-   - Multicast and link-local blocking
-
-2. **Container iptables setup** (`containers/agent/setup-iptables.sh`)
-   - NAT rules redirecting HTTP/HTTPS to Squid proxy
-   - DNS filtering within containers
-
-3. **Squid proxy configuration** (`src/squid-config.ts`)
-   - Domain ACL rules (allowlist and blocklist)
-   - Protocol-specific filtering (HTTP vs HTTPS)
-   - Access rule ordering (deny before allow)
-
-4. **Container security hardening** (`src/docker-manager.ts`, `containers/agent/`)
-   - Capability dropping (NET_RAW, SYS_PTRACE, SYS_MODULE, etc.)
-   - Seccomp profile (`containers/agent/seccomp-profile.json`)
-   - Privilege dropping to non-root user (awfuser)
-   - Resource limits (memory, PIDs, CPU)
-
-5. **Domain pattern validation** (`src/domain-patterns.ts`)
-   - Wildcard pattern security (prevents overly broad patterns)
-   - Protocol prefix handling
+Key subsystems: `src/host-iptables.ts` (host egress), `containers/agent/setup-iptables.sh` (container NAT), `src/squid-config.ts` (domain ACL), `src/docker-manager.ts` + `containers/agent/` (container hardening), `src/domain-patterns.ts` (wildcard validation). Check for: weakened DROP/REJECT, expanded ACCEPT, capability additions, seccomp relaxations, and input validation removal.
 
 ## Your Task
 
@@ -137,20 +114,19 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Use the pre-fetched diff below as your primary source of truth**; only fall back to `gh pr diff` / `gh api` if the diff is truncated and you need the remainder
+3. **Do NOT call `gh pr diff`, `git diff`, or `gh api .../files` — the complete diff is already included below under "Changed Files (Pre-fetched)".** Only use direct file reads to inspect specific files for surrounding security context.
 4. **Do not use local branch comparisons or commit history** (for example `git diff main...HEAD` or `git log main..`) unless you first confirm the base branch exists locally; the checkout may contain only the PR branch, and these calls waste turns
 5. **Use direct file reads from the checked-out repository** only for files you need to inspect further (e.g., to understand adjacent security context)
 6. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
 
-Check for these security-weakening changes: new/expanded ACCEPT rules, weakened DROP/REJECT, firewall chain rewiring, DNS or IPv6 bypasses, Squid ACL/order regressions, non-80/443 egress allowances, wildcard/domain validation bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxations, removal of resource/user hardening, input validation removal, command injection risk, hardcoded secrets, security-disabling env var changes, or risky dependency updates.
-
-If the changed files are only tests, docs, or other non-production artifacts and the diff does not modify runtime security behavior, avoid unnecessary exploration and call the `safeoutputs noop` tool after the brief verification.
+Check for: ACCEPT expansion, DROP/REJECT weakening, firewall chain changes, DNS/IPv6 bypasses, Squid ACL regressions, extra egress ports, wildcard bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxation, hardening removal, injection risk, and hardcoded secrets.
 
 ## Output Format
 
 **IMPORTANT: Be concise.** Report each security finding in ≤ 150 words. Maximum 5 findings total.
+**STOP EARLY:** If the pre-fetched diff shows no security-weakening changes, call `safeoutputs noop` immediately. For PRs touching only tests, docs, or non-security files, one turn should be enough.
 
 If you find security concerns:
 1. Add a comment to the PR explaining each concern
