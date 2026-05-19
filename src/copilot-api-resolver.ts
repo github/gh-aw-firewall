@@ -31,7 +31,7 @@ function parseProviderBaseUrl(providerBaseUrl: string | undefined): URL | undefi
  * Derive a Copilot API target hostname from COPILOT_PROVIDER_BASE_URL.
  * Returns undefined when the value is empty or not a valid URL/host.
  */
-export function deriveCopilotApiTargetFromProviderBaseUrl(
+function deriveCopilotApiTargetFromProviderBaseUrl(
   providerBaseUrl: string | undefined
 ): string | undefined {
   return parseProviderBaseUrl(providerBaseUrl)?.hostname || undefined;
@@ -41,7 +41,7 @@ export function deriveCopilotApiTargetFromProviderBaseUrl(
  * Derive a Copilot API base-path prefix from COPILOT_PROVIDER_BASE_URL.
  * Returns undefined when the value is empty, invalid, or has no path.
  */
-export function deriveCopilotApiBasePathFromProviderBaseUrl(
+function deriveCopilotApiBasePathFromProviderBaseUrl(
   providerBaseUrl: string | undefined
 ): string | undefined {
   const url = parseProviderBaseUrl(providerBaseUrl);
@@ -82,3 +82,10 @@ export function resolveCopilotApiRouting(
       copilotApiBasePathFromProviderBaseUrl,
   };
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  deriveCopilotApiTargetFromProviderBaseUrl,
+  deriveCopilotApiBasePathFromProviderBaseUrl,
+};

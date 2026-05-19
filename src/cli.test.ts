@@ -20,10 +20,12 @@ import { Command } from 'commander';
 import * as cliModule from './cli';
 import {
   resolveCopilotApiKey,
-  deriveCopilotApiTargetFromProviderBaseUrl,
-  deriveCopilotApiBasePathFromProviderBaseUrl,
   resolveCopilotApiRouting,
+  testHelpers as copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
+
+const { deriveCopilotApiTargetFromProviderBaseUrl, deriveCopilotApiBasePathFromProviderBaseUrl } =
+  copilotApiResolverTestHelpers;
 import { redactSecrets } from './redact-secrets';
 
 type MockedCommanderModule = typeof import('commander') & {
