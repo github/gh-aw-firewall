@@ -1,6 +1,6 @@
 import type { CaFiles } from './ssl-bump';
 
-// Re-export production-consumed symbols only.
+// Re-export production-consumed symbols, plus internal test-only helpers.
 export {
   SQUID_PORT,
 } from './constants';
