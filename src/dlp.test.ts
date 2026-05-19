@@ -1,15 +1,15 @@
 import { generateDlpSquidConfig } from './dlp';
 
-const DLP_ACL_PREFIX = 'acl dlp_blocked url_regex -i ';
+const DLP_ACL_REGEX = /^acl\s+dlp_blocked\s+url_regex\s+-i\s+(.+)$/;
 
 function getDlpRegexPatterns(): string[] {
   const { aclLines } = generateDlpSquidConfig();
   return aclLines
-    .filter(line => line.startsWith(DLP_ACL_PREFIX))
-    .map(line => line.slice(DLP_ACL_PREFIX.length));
+    .map(line => line.match(DLP_ACL_REGEX)?.[1] ?? null)
+    .filter((regex): regex is string => regex !== null);
 }
 
-function scanForCredentialsUsingPatterns(input: string): string[] {
+function findMatchingDlpRegexes(input: string): string[] {
   return getDlpRegexPatterns().filter(regex => new RegExp(regex, 'i').test(input));
 }
 
@@ -35,132 +35,132 @@ describe('DLP Patterns', () => {
   describe('scanForCredentials', () => {
     // GitHub tokens
     it('should detect GitHub personal access token (ghp_)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/data?token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('ghp_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('ghp_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub OAuth token (gho_)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij/resource'
       );
-      expect(matches).toContain('gho_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('gho_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub App installation token (ghs_)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('ghs_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('ghs_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub App user-to-server token (ghu_)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=ghu_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matches).toContain('ghu_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('ghu_[a-zA-Z0-9]{36}');
     });
 
     it('should detect GitHub fine-grained PAT (github_pat_)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=github_pat_1234567890abcdefghijkl_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456'
       );
-      expect(matches).toContain('github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}');
+      expect(matchingRegexes).toContain('github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}');
     });
 
     // OpenAI - use concatenation to avoid push protection triggering on test data
     it('should detect OpenAI API key (sk-...T3BlbkFJ)', () => {
       const fakeKey = 'sk-' + '1'.repeat(20) + 'T3BlbkFJ' + '2'.repeat(20);
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=' + fakeKey
       );
-      expect(matches).toContain('sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}');
+      expect(matchingRegexes).toContain('sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}');
     });
 
     it('should detect OpenAI project API key (sk-proj-)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=sk-proj-' + 'a'.repeat(50)
       );
-      expect(matches).toContain('sk-proj-[a-zA-Z0-9_-]{40,}');
+      expect(matchingRegexes).toContain('sk-proj-[a-zA-Z0-9_-]{40,}');
     });
 
     // Anthropic
     it('should detect Anthropic API key (sk-ant-)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=sk-ant-' + 'a'.repeat(50)
       );
-      expect(matches).toContain('sk-ant-[a-zA-Z0-9_-]{40,}');
+      expect(matchingRegexes).toContain('sk-ant-[a-zA-Z0-9_-]{40,}');
     });
 
     // AWS
     it('should detect AWS access key ID (AKIA)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=AKIAIOSFODNN7EXAMPLE'
       );
-      expect(matches).toContain('AKIA[0-9A-Z]{16}');
+      expect(matchingRegexes).toContain('AKIA[0-9A-Z]{16}');
     });
 
     // Google
     it('should detect Google API key (AIza)', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=AIzaSyA' + 'a'.repeat(32)
       );
-      expect(matches).toContain('AIza[a-zA-Z0-9_-]{35}');
+      expect(matchingRegexes).toContain('AIza[a-zA-Z0-9_-]{35}');
     });
 
     // Slack - use concatenation to avoid push protection triggering on test data
     it('should detect Slack bot token (xoxb-)', () => {
       const fakeToken = 'xoxb-' + '1234567890' + '-' + '1234567890' + '-' + 'ABCDEFGHIJKLMNOPQRSTUV' + 'wx';
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?token=' + fakeToken
       );
-      expect(matches).toContain('xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}');
+      expect(matchingRegexes).toContain('xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}');
     });
 
     // Generic patterns
     it('should detect bearer token in URL parameter', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/data?bearer=abcdefghijklmnopqrstuvwxyz1234'
       );
-      expect(matches).toContain('[?&]bearer[_=][a-zA-Z0-9._-]{20,}');
+      expect(matchingRegexes).toContain('[?&]bearer[_=][a-zA-Z0-9._-]{20,}');
     });
 
     it('should detect authorization in URL parameter', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/data?authorization=abcdefghijklmnopqrstuvwxyz1234'
       );
-      expect(matches).toContain('[?&]authorization=[a-zA-Z0-9._-]{20,}');
+      expect(matchingRegexes).toContain('[?&]authorization=[a-zA-Z0-9._-]{20,}');
     });
 
     it('should detect private key markers', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/data?content=BEGIN+PRIVATE+KEY'
       );
-      expect(matches).toContain('PRIVATE(%20|\\+|%2B)KEY');
+      expect(matchingRegexes).toContain('PRIVATE(%20|\\+|%2B)KEY');
     });
 
     it('should detect URL-encoded private key markers', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/data?content=BEGIN%20PRIVATE%20KEY'
       );
-      expect(matches).toContain('PRIVATE(%20|\\+|%2B)KEY');
+      expect(matchingRegexes).toContain('PRIVATE(%20|\\+|%2B)KEY');
     });
 
     // Negative cases
     it('should not match short strings that look like token prefixes', () => {
-      const matches = scanForCredentialsUsingPatterns('https://api.example.com/ghp_short');
-      expect(matches).toHaveLength(0);
+      const matchingRegexes = findMatchingDlpRegexes('https://api.example.com/ghp_short');
+      expect(matchingRegexes).toHaveLength(0);
     });
 
     it('should return empty array for clean URLs', () => {
-      const matches = scanForCredentialsUsingPatterns('https://api.github.com/repos/owner/repo');
-      expect(matches).toHaveLength(0);
+      const matchingRegexes = findMatchingDlpRegexes('https://api.github.com/repos/owner/repo');
+      expect(matchingRegexes).toHaveLength(0);
     });
 
     it('should return empty array for empty string', () => {
-      const matches = scanForCredentialsUsingPatterns('');
-      expect(matches).toHaveLength(0);
+      const matchingRegexes = findMatchingDlpRegexes('');
+      expect(matchingRegexes).toHaveLength(0);
     });
 
     it('should not match normal domain names or paths', () => {
@@ -172,18 +172,18 @@ describe('DLP Patterns', () => {
         'https://slack.com/api/chat.postMessage',
       ];
       for (const url of urls) {
-        const matches = scanForCredentialsUsingPatterns(url);
-        expect(matches).toHaveLength(0);
+        const matchingRegexes = findMatchingDlpRegexes(url);
+        expect(matchingRegexes).toHaveLength(0);
       }
     });
 
     it('should detect multiple credential types in one URL', () => {
-      const matches = scanForCredentialsUsingPatterns(
+      const matchingRegexes = findMatchingDlpRegexes(
         'https://evil.com/?gh=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij&aws=AKIAIOSFODNN7EXAMPLE'
       );
-      expect(matches).toContain('ghp_[a-zA-Z0-9]{36}');
-      expect(matches).toContain('AKIA[0-9A-Z]{16}');
-      expect(matches.length).toBeGreaterThanOrEqual(2);
+      expect(matchingRegexes).toContain('ghp_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('AKIA[0-9A-Z]{16}');
+      expect(matchingRegexes.length).toBeGreaterThanOrEqual(2);
     });
   });
 
