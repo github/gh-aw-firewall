@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadRuleSet, loadAndMergeDomains } from './rules';
+import { loadAndMergeDomains } from './rules';
 
 describe('rules', () => {
   let testDir: string;
@@ -22,7 +22,7 @@ describe('rules', () => {
     return filePath;
   }
 
-  describe('loadRuleSet', () => {
+  describe('loadAndMergeDomains (ruleset parsing)', () => {
     it('should parse a valid YAML ruleset', () => {
       const filePath = writeRuleFile('rules.yml', `
 version: 1
@@ -32,37 +32,34 @@ rules:
   - domain: npmjs.org
     subdomains: false
 `);
-      const result = loadRuleSet(filePath);
-      expect(result.version).toBe(1);
-      expect(result.rules).toHaveLength(2);
-      expect(result.rules[0]).toEqual({ domain: 'github.com', subdomains: true });
-      expect(result.rules[1]).toEqual({ domain: 'npmjs.org', subdomains: false });
+      const result = loadAndMergeDomains([filePath], []);
+      expect(result).toEqual(['github.com', 'npmjs.org']);
     });
 
-    it('should default subdomains to true when not specified', () => {
+    it('should allow domains when subdomains is not specified', () => {
       const filePath = writeRuleFile('rules.yml', `
 version: 1
 rules:
   - domain: github.com
 `);
-      const result = loadRuleSet(filePath);
-      expect(result.rules[0].subdomains).toBe(true);
+      const result = loadAndMergeDomains([filePath], []);
+      expect(result).toEqual(['github.com']);
     });
 
     it('should throw for missing file', () => {
-      expect(() => loadRuleSet('/nonexistent/rules.yml')).toThrow(
+      expect(() => loadAndMergeDomains(['/nonexistent/rules.yml'], [])).toThrow(
         'Ruleset file not found: /nonexistent/rules.yml'
       );
     });
 
     it('should throw for invalid YAML', () => {
       const filePath = writeRuleFile('bad.yml', '{ invalid yaml: [}');
-      expect(() => loadRuleSet(filePath)).toThrow('Invalid YAML');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('Invalid YAML');
     });
 
     it('should throw for empty file', () => {
       const filePath = writeRuleFile('empty.yml', '');
-      expect(() => loadRuleSet(filePath)).toThrow('is empty');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('is empty');
     });
 
     it('should throw for missing version field', () => {
@@ -70,7 +67,7 @@ rules:
 rules:
   - domain: github.com
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('missing required "version" field');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('missing required "version" field');
     });
 
     it('should throw for unsupported version', () => {
@@ -79,14 +76,14 @@ version: 2
 rules:
   - domain: github.com
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('Unsupported ruleset version 2');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('Unsupported ruleset version 2');
     });
 
     it('should throw for missing rules field', () => {
       const filePath = writeRuleFile('no-rules.yml', `
 version: 1
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('missing required "rules" field');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('missing required "rules" field');
     });
 
     it('should throw for non-array rules', () => {
@@ -94,7 +91,7 @@ version: 1
 version: 1
 rules: "not an array"
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('"rules" field in');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('"rules" field in');
     });
 
     it('should throw for rule without domain', () => {
@@ -103,7 +100,7 @@ version: 1
 rules:
   - subdomains: true
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('missing required "domain" string field');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('missing required "domain" string field');
     });
 
     it('should throw for rule with empty domain', () => {
@@ -112,7 +109,7 @@ version: 1
 rules:
   - domain: "  "
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('empty "domain" field');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('empty "domain" field');
     });
 
     it('should throw for non-boolean subdomains', () => {
@@ -122,7 +119,7 @@ rules:
   - domain: github.com
     subdomains: "yes"
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('"subdomains" must be a boolean');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('"subdomains" must be a boolean');
     });
 
     it('should throw for non-object rule', () => {
@@ -131,7 +128,7 @@ version: 1
 rules:
   - "github.com"
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('must be an object');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('must be an object');
     });
 
     it('should throw for non-object top level', () => {
@@ -139,7 +136,7 @@ rules:
 - github.com
 - npmjs.org
 `);
-      expect(() => loadRuleSet(filePath)).toThrow('must contain a YAML object');
+      expect(() => loadAndMergeDomains([filePath], [])).toThrow('must contain a YAML object');
     });
 
     it('should handle an empty rules array', () => {
@@ -147,8 +144,8 @@ rules:
 version: 1
 rules: []
 `);
-      const result = loadRuleSet(filePath);
-      expect(result.rules).toHaveLength(0);
+      const result = loadAndMergeDomains([filePath], []);
+      expect(result).toEqual([]);
     });
   });
 

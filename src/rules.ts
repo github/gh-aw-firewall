@@ -25,7 +25,7 @@ interface Rule {
 /**
  * Top-level structure of a YAML ruleset file
  */
-export interface RuleSet {
+interface RuleSet {
   /** Schema version (must be 1) */
   version: number;
   /** Array of domain rules */
@@ -39,7 +39,7 @@ export interface RuleSet {
  * @returns Parsed and validated RuleSet
  * @throws Error if the file doesn't exist, contains invalid YAML, or fails validation
  */
-export function loadRuleSet(filePath: string): RuleSet {
+function loadRuleSet(filePath: string): RuleSet {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Ruleset file not found: ${filePath}`);
   }
