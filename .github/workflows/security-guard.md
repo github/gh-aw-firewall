@@ -114,7 +114,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Do NOT call `gh pr diff`, `git diff`, or `gh api .../files` — the complete diff is already included below under "Changed Files (Pre-fetched)".** Only use direct file reads to inspect specific files for surrounding security context.
+3. **Use the pre-fetched diff below as your primary source of truth. Do NOT call `gh pr diff`, `git diff`, or `gh api .../files`.** If you see `[DIFF TRUNCATED ...]`, fetch full context once with `mcp__github__get_pull_request_diff`, then continue.
 4. **Do not use local branch comparisons or commit history** (for example `git diff main...HEAD` or `git log main..`) unless you first confirm the base branch exists locally; the checkout may contain only the PR branch, and these calls waste turns
 5. **Use direct file reads from the checked-out repository** only for files you need to inspect further (e.g., to understand adjacent security context)
 6. **Collect evidence** with specific file names, line numbers, and code snippets
@@ -126,7 +126,7 @@ Check for: ACCEPT expansion, DROP/REJECT weakening, firewall chain changes, DNS/
 ## Output Format
 
 **IMPORTANT: Be concise.** Report each security finding in ≤ 150 words. Maximum 5 findings total.
-**STOP EARLY:** If the pre-fetched diff shows no security-weakening changes, call `safeoutputs noop` immediately. For PRs touching only tests, docs, or non-security files, one turn should be enough.
+**STOP EARLY:** If the pre-fetched diff shows no security-weakening changes, call `safeoutputs noop` immediately. If `[DIFF TRUNCATED ...]` is present, fetch full context once with `mcp__github__get_pull_request_diff` before deciding to noop.
 
 If you find security concerns:
 1. Add a comment to the PR explaining each concern
