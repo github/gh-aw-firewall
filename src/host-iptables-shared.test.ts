@@ -1,4 +1,4 @@
-import { execaResult, mockedExeca } from './test-helpers/host-iptables-test-setup';
+import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import {
   addDnsRules,
   cleanupChain,
@@ -9,12 +9,10 @@ import {
   isIp6tablesAvailable,
   testHelpers,
 } from './host-iptables-shared';
+import { logger } from './logger';
 
 describe('host-iptables-shared', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    testHelpers.resetIpv6State();
-  });
+  setupHostIptablesTestSuite(testHelpers.resetIpv6State);
 
   describe('cleanupChain', () => {
     it('removes matching DOCKER-USER references in reverse order before deleting the chain', async () => {
@@ -116,6 +114,9 @@ describe('host-iptables-shared', () => {
       const result = await getDockerBridgeGateway();
 
       expect(result).toBeNull();
+      expect(jest.mocked(logger).warn).toHaveBeenCalledWith(
+        'Docker bridge gateway returned invalid IPv4: not-an-ip, skipping'
+      );
     });
 
     it('returns null when docker command fails', async () => {
