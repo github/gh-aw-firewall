@@ -98,7 +98,7 @@ const SAFE_BASE_IMAGE_PATTERNS = [
 /**
  * Checks if the given value is a preset name (default, act)
  */
-export function isAgentImagePreset(value: string | undefined): value is 'default' | 'act' {
+function isAgentImagePreset(value: string | undefined): value is 'default' | 'act' {
   return value === 'default' || value === 'act';
 }
 
@@ -109,7 +109,7 @@ export function isAgentImagePreset(value: string | undefined): value is 'default
  * @param image - Agent image value (preset or custom image reference)
  * @returns Object with valid boolean and optional error message
  */
-export function validateAgentImage(image: string): { valid: boolean; error?: string } {
+function validateAgentImage(image: string): { valid: boolean; error?: string } {
   // Presets are always valid
   if (isAgentImagePreset(image)) {
     return { valid: true };

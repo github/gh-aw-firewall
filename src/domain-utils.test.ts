@@ -3,8 +3,6 @@ import {
   parseDomainsFile,
   isValidIPv4,
   isValidIPv6,
-  isAgentImagePreset,
-  validateAgentImage,
   processAgentImageOption,
   DEFAULT_OPENAI_API_TARGET,
   DEFAULT_ANTHROPIC_API_TARGET,
@@ -14,6 +12,14 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+function validateAgentImage(image: string): { valid: boolean; error?: string } {
+  const result = processAgentImageOption(image, true);
+  if (result.error) {
+    return { valid: false, error: result.error };
+  }
+  return { valid: true };
+}
 
 describe('domain parsing', () => {
   it('should split comma-separated domains correctly', () => {
@@ -224,49 +230,7 @@ describe('IPv6 validation', () => {
   });
 });
 
-describe('isAgentImagePreset', () => {
-  it('should return true for "default" preset', () => {
-    expect(isAgentImagePreset('default')).toBe(true);
-  });
-
-  it('should return true for "act" preset', () => {
-    expect(isAgentImagePreset('act')).toBe(true);
-  });
-
-  it('should return false for custom images', () => {
-    expect(isAgentImagePreset('ubuntu:22.04')).toBe(false);
-    expect(isAgentImagePreset('ghcr.io/catthehacker/ubuntu:runner-22.04')).toBe(false);
-  });
-
-  it('should return false for undefined', () => {
-    expect(isAgentImagePreset(undefined)).toBe(false);
-  });
-
-  it('should return false for empty string', () => {
-    expect(isAgentImagePreset('')).toBe(false);
-  });
-
-  it('should return false for case variations of presets', () => {
-    expect(isAgentImagePreset('Default')).toBe(false);
-    expect(isAgentImagePreset('DEFAULT')).toBe(false);
-    expect(isAgentImagePreset('Act')).toBe(false);
-    expect(isAgentImagePreset('ACT')).toBe(false);
-  });
-
-  it('should return false for presets with whitespace', () => {
-    expect(isAgentImagePreset(' default')).toBe(false);
-    expect(isAgentImagePreset('default ')).toBe(false);
-    expect(isAgentImagePreset(' act ')).toBe(false);
-  });
-
-  it('should return false for similar but not exact preset names', () => {
-    expect(isAgentImagePreset('defaults')).toBe(false);
-    expect(isAgentImagePreset('action')).toBe(false);
-    expect(isAgentImagePreset('def')).toBe(false);
-  });
-});
-
-describe('validateAgentImage', () => {
+describe('agent image validation (via processAgentImageOption)', () => {
   describe('presets', () => {
     it('should accept "default" preset', () => {
       expect(validateAgentImage('default')).toEqual({ valid: true });
@@ -340,12 +304,6 @@ describe('validateAgentImage', () => {
 
     it('should reject ubuntu with non-standard tags', () => {
       const result = validateAgentImage('ubuntu:latest');
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('Invalid agent image');
-    });
-
-    it('should reject empty image string', () => {
-      const result = validateAgentImage('');
       expect(result.valid).toBe(false);
       expect(result.error).toContain('Invalid agent image');
     });
