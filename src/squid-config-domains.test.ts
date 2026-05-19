@@ -1,6 +1,6 @@
 import { generateSquidConfig } from './squid-config';
 import { SquidConfig } from './types';
-import { DOMAIN_CHAR_PATTERN } from './domain-patterns';
+const WILDCARD_DOMAIN_CHARS = '[a-zA-Z0-9.-]*';
 
 describe('generateSquidConfig', () => {
   const defaultPort = 3128;
@@ -324,7 +324,7 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('acl allowed_domains_regex dstdom_regex -i');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.github\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`);
     });
 
     it('should use separate ACLs for plain and pattern domains', () => {
@@ -335,7 +335,7 @@ describe('generateSquidConfig', () => {
       const result = generateSquidConfig(config);
       expect(result).toContain('acl allowed_domains dstdomain .example.com');
       expect(result).toContain('acl allowed_domains_regex dstdom_regex -i');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.github\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`);
     });
 
     it('should combine ACLs in http_access rule when both present', () => {
@@ -378,7 +378,7 @@ describe('generateSquidConfig', () => {
       const result = generateSquidConfig(config);
       // api.github.com should be removed since *.github.com covers it
       expect(result).not.toContain('acl allowed_domains dstdomain .api.github.com');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.github\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`);
     });
 
     it('should handle middle wildcard patterns', () => {
@@ -387,7 +387,7 @@ describe('generateSquidConfig', () => {
         port: defaultPort,
       };
       const result = generateSquidConfig(config);
-      expect(result).toContain(`^api-${DOMAIN_CHAR_PATTERN}\\.example\\.com$`);
+      expect(result).toContain(`^api-${WILDCARD_DOMAIN_CHARS}\\.example\\.com$`);
     });
 
     it('should handle multiple wildcard patterns', () => {
@@ -396,9 +396,9 @@ describe('generateSquidConfig', () => {
         port: defaultPort,
       };
       const result = generateSquidConfig(config);
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.github\\.com$`);
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.gitlab\\.com$`);
-      expect(result).toContain(`^api-${DOMAIN_CHAR_PATTERN}\\.example\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.github\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.gitlab\\.com$`);
+      expect(result).toContain(`^api-${WILDCARD_DOMAIN_CHARS}\\.example\\.com$`);
       // Should only have regex ACLs
       expect(result).not.toContain('acl allowed_domains dstdomain');
     });
@@ -459,7 +459,7 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('acl allowed_http_only_regex dstdom_regex -i');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.example\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.example\\.com$`);
       expect(result).toContain('http_access allow !CONNECT allowed_http_only_regex');
     });
 
@@ -470,7 +470,7 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('acl allowed_https_only_regex dstdom_regex -i');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.secure\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.secure\\.com$`);
       expect(result).toContain('http_access allow CONNECT allowed_https_only_regex');
     });
 
@@ -481,11 +481,11 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       // HTTP-only pattern
-      expect(result).toContain(`acl allowed_http_only_regex dstdom_regex -i ^${DOMAIN_CHAR_PATTERN}\\.api\\.com$`);
+      expect(result).toContain(`acl allowed_http_only_regex dstdom_regex -i ^${WILDCARD_DOMAIN_CHARS}\\.api\\.com$`);
       // HTTPS-only pattern
-      expect(result).toContain(`acl allowed_https_only_regex dstdom_regex -i ^${DOMAIN_CHAR_PATTERN}\\.secure\\.com$`);
+      expect(result).toContain(`acl allowed_https_only_regex dstdom_regex -i ^${WILDCARD_DOMAIN_CHARS}\\.secure\\.com$`);
       // Both protocols pattern
-      expect(result).toContain(`acl allowed_domains_regex dstdom_regex -i ^${DOMAIN_CHAR_PATTERN}\\.both\\.com$`);
+      expect(result).toContain(`acl allowed_domains_regex dstdom_regex -i ^${WILDCARD_DOMAIN_CHARS}\\.both\\.com$`);
     });
   });
 

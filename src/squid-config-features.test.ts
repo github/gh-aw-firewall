@@ -1,6 +1,6 @@
 import { generateSquidConfig } from './squid-config';
 import { SquidConfig } from './types';
-import { DOMAIN_CHAR_PATTERN } from './domain-patterns';
+const WILDCARD_DOMAIN_CHARS = '[a-zA-Z0-9.-]*';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version: AWF_VERSION } = require('../package.json') as { version: string };
 
@@ -258,7 +258,7 @@ describe('generateSquidConfig', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).toContain('acl blocked_domains_regex dstdom_regex -i');
-      expect(result).toContain(`^${DOMAIN_CHAR_PATTERN}\\.internal\\.example\\.com$`);
+      expect(result).toContain(`^${WILDCARD_DOMAIN_CHARS}\\.internal\\.example\\.com$`);
       expect(result).toContain('http_access deny blocked_domains_regex');
     });
 
