@@ -1,9 +1,4 @@
-import { RateLimitConfig } from '../types';
-
-interface FlagValidationResult {
-  valid: boolean;
-  error?: string;
-}
+import { type FlagValidationResult, type RateLimitConfig } from '../types';
 
 /**
  * Builds a RateLimitConfig from parsed CLI options.

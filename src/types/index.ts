@@ -13,6 +13,7 @@ export type * from './wrapper-config';
 export { type UpstreamProxyConfig } from './upstream-proxy';
 export { type LogLevel } from './log-level';
 export { type RateLimitConfig } from './rate-limit';
+export { type FlagValidationResult } from './validation';
 
 export {
   type SquidConfig,
