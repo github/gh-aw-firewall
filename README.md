@@ -75,7 +75,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Token usage schema](schemas/token-usage.schema.json) — JSON Schema for per-call token usage records (`token-usage.jsonl`)
 - [Schemas README](schemas/README.md) — versioning policy, record identification, and validation examples
 - [Enterprise configuration](docs/enterprise-configuration.md) — GitHub Enterprise Cloud and Server setup
-- [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation
+- [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation (glibc-based daemon hosts)
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
 - [SSL Bump](docs/ssl-bump.md) — HTTPS content inspection for URL path filtering
