@@ -181,9 +181,11 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
+          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
           GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
           GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
           GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
           GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
         # poutine:ignore untrusted_checkout_exec
         run: |
@@ -244,9 +246,11 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_ENGINE_ID: "copilot"
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
           GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
           GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
           GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
           GH_AW_EXPR_A04AFDAF: ${{ steps.ts-errors.outputs.TS_ERRORS }}
           GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
         with:
@@ -270,9 +274,11 @@ jobs:
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
           GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'
           GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: ${{ needs.pre_activation.outputs.activated }}
+          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
           GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
           GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
           GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
           GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
         with:
           script: |
@@ -296,9 +302,11 @@ jobs:
                 GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
                 GH_AW_MCP_CLI_SERVERS_LIST: process.env.GH_AW_MCP_CLI_SERVERS_LIST,
                 GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: process.env.GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED,
+                GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: process.env.GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS,
                 GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: process.env.GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS,
                 GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: process.env.GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS,
                 GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: process.env.GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES,
+                GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: process.env.GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS,
                 GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: process.env.GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS
               }
             });
@@ -1243,4 +1251,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

@@ -199,12 +199,12 @@ Review the pre-computed api-proxy export audit (`APIP_EXPORTS`) and verify provi
 
 ## Phase 6: Check for Existing Issues
 
-Before creating new issues, check BOTH open AND closed issues:
+Before creating new issues, run a **single combined search** per candidate:
 
-1. Search for issues with `[Export Audit]` prefix mentioning the same symbol or file using `state: all` (or equivalent `is:open` + `is:closed`)
-2. Search for issues with the `code-quality` label mentioning the same symbol or file using `state: all` (or equivalent `is:open` + `is:closed`)
-3. Skip any finding that already has an open tracking issue
-4. For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
+`repo:${{ github.repository }} is:issue state:all "[Export Audit] (symbol-or-file)"`
+
+- Skip any finding that already has an open tracking issue
+- For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
 
 ## Phase 7: Prioritize and File Issues
 
@@ -222,7 +222,7 @@ File issues only for findings with score ≥ 3. Cap at 5 issues per run.
 
 ## Verification Budget
 
-To control token usage, limit verification to the **top 10 candidates** by score. For each candidate:
+To control token usage, limit verification to the **top 5 candidates** by score. For each candidate:
 - Run at most 2 bash commands to confirm (one bounded recursive `grep -rw` over relevant source paths, one targeted check)
 - If not confirmed in 2 checks, mark as "unconfirmed" and skip filing
 - Do NOT loop over all files for each candidate — use one whole-word grep across relevant source directories only (for example `src/`, `lib/`, `app/`, `test/`) or explicitly exclude generated/dependency directories such as `node_modules/`, `dist/`, `build/`, and `coverage/`
@@ -307,7 +307,11 @@ ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
 ```
 
 Test imports:
-Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
+```
+${{ steps.test_imports.outputs.TEST_IMPORTS }}
+```
 
 API proxy exports:
-Compute this during execution from the repository contents; do not rely on pre-rendered step outputs for this section.
+```
+${{ steps.apip_exports.outputs.APIP_EXPORTS }}
+```
