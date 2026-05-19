@@ -15,7 +15,7 @@ sandbox:
     id: awf
     version: v0.25.29
 engine:
-  id: copilot
+  id: claude
   model: claude-haiku-4-5
 tools:
   edit:
