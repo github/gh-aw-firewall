@@ -25,9 +25,8 @@ function validateImageReference(image: string): void {
 
 /**
  * Resolves the list of image references to pull based on the given options.
- * @internal Exported for testing only.
  */
-export function resolveImages(options: PredownloadOptions): string[] {
+function resolveImages(options: PredownloadOptions): string[] {
   const { imageRegistry, imageTag, agentImage, enableApiProxy } = options;
   const parsedImageTag = parseImageTag(imageTag);
   const images: string[] = [];
