@@ -1,7 +1,4 @@
-interface FlagValidationResult {
-  valid: boolean;
-  error?: string;
-}
+import { type FlagValidationResult } from '../types';
 
 /**
  * Validates that --allow-host-ports is only used with --enable-host-access
