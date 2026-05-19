@@ -23,10 +23,10 @@ import {
   resolveCopilotApiRouting,
   testHelpers as copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
+import { redactSecrets } from './redact-secrets';
 
 const { deriveCopilotApiTargetFromProviderBaseUrl, deriveCopilotApiBasePathFromProviderBaseUrl } =
   copilotApiResolverTestHelpers;
-import { redactSecrets } from './redact-secrets';
 
 type MockedCommanderModule = typeof import('commander') & {
   __createdCommands?: Command[];
