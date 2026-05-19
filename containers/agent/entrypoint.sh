@@ -590,7 +590,9 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
 
   # Chroot mode currently requires a glibc-based host userspace.
   # Alpine/musl hosts do not provide a compatible capsh/bash toolchain.
-  if [ -f /host/etc/alpine-release ] || ls /host/lib/ld-musl-*.so.1 /host/usr/lib/ld-musl-*.so.1 >/dev/null 2>&1; then
+  if [ -f /host/etc/alpine-release ] || \
+     compgen -G '/host/lib/ld-musl-*.so.1' >/dev/null || \
+     compgen -G '/host/usr/lib/ld-musl-*.so.1' >/dev/null; then
     echo "[entrypoint][ERROR] AWF chroot mode requires a glibc-based daemon host (Ubuntu/Debian/RHEL-family)."
     echo "[entrypoint][ERROR] Detected Alpine/musl host filesystem under /host."
     echo "[entrypoint][ERROR] Alpine/musl daemon hosts are not currently supported in chroot mode."
@@ -600,7 +602,7 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   # Verify capsh is available on the host (required for privilege drop)
   if ! chroot /host /bin/sh -c 'command -v capsh >/dev/null 2>&1'; then
     echo "[entrypoint][ERROR] capsh not found on host system"
-    echo "[entrypoint][ERROR] Install libcap2-bin package: apt-get install libcap2-bin"
+    echo "[entrypoint][ERROR] Install capsh (Debian/Ubuntu: libcap2-bin; RHEL/Fedora: libcap)"
     exit 1
   fi
 
