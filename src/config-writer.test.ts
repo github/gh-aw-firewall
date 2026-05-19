@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+const mockGetRealUserHome = jest.fn();
+
 // jest.mock() calls are hoisted before imports — keep them at the top.
 
 // fs.chownSync is non-configurable and cannot be overridden with jest.spyOn.
@@ -23,7 +25,11 @@ jest.mock('./host-env', () => ({
   SQUID_PORT: 3128,
   getSafeHostUid: jest.fn().mockReturnValue('1000'),
   getSafeHostGid: jest.fn().mockReturnValue('1000'),
-  getRealUserHome: jest.fn(),
+  getRealUserHome: mockGetRealUserHome,
+}));
+
+jest.mock('./host-identity', () => ({
+  getRealUserHome: mockGetRealUserHome,
 }));
 
 jest.mock('./squid-config', () => ({
@@ -38,7 +44,7 @@ jest.mock('./compose-generator', () => ({
 
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable } from './ssl-bump';
-import { getRealUserHome } from './host-env';
+import { getRealUserHome } from './host-identity';
 
 describe('writeConfigs', () => {
   let tempDir: string;

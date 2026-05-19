@@ -1,5 +1,5 @@
 import { generateDockerCompose } from './compose-generator';
-import { ACT_PRESET_BASE_IMAGE } from './host-env';
+import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
