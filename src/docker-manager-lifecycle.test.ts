@@ -1,6 +1,6 @@
 import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost, stopContainers, getLocalDockerEnv } from './docker-manager';
 import { testHelpers as lifecycleTestHelpers } from './container-lifecycle';
-import { AGENT_CONTAINER_NAME } from './host-env';
+import { AGENT_CONTAINER_NAME } from './constants';
 import { logger } from './logger';
 import * as fs from 'fs';
 import * as path from 'path';
