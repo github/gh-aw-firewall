@@ -199,9 +199,9 @@ Review the pre-computed api-proxy export audit (`APIP_EXPORTS`) and verify provi
 
 ## Phase 6: Check for Existing Issues
 
-Before creating new issues, run a **single combined search** per candidate:
+Before creating new issues, run a **single combined search** per candidate using the CLI/tool option to include all issue states (for example, `--state all`):
 
-`repo:${{ github.repository }} is:issue state:all "[Export Audit] (symbol-or-file)"`
+`repo:${{ github.repository }} is:issue "[Export Audit] (symbol-or-file)"`
 
 - Skip any finding that already has an open tracking issue
 - For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
