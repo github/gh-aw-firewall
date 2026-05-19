@@ -1,16 +1,8 @@
 import type { CaFiles } from './ssl-bump';
 
-// Re-export from focused modules for backward compatibility.
+// Re-export production-consumed symbols only.
 export {
   SQUID_PORT,
-  AGENT_CONTAINER_NAME,
-  SQUID_CONTAINER_NAME,
-  IPTABLES_INIT_CONTAINER_NAME,
-  API_PROXY_CONTAINER_NAME,
-  DOH_PROXY_CONTAINER_NAME,
-  CLI_PROXY_CONTAINER_NAME,
-  MAX_ENV_VALUE_SIZE,
-  ENV_SIZE_WARNING_THRESHOLD,
 } from './constants';
 
 export {
@@ -19,23 +11,10 @@ export {
 } from './docker-host';
 
 export {
-  ACT_PRESET_BASE_IMAGE,
-  MIN_REGULAR_UID,
-  validateIdNotInSystemRange,
   getSafeHostUid,
   getSafeHostGid,
   getRealUserHome,
 } from './host-identity';
-
-export {
-  extractGhHostFromServerUrl,
-  readGitHubPathEntries,
-  readGitHubEnvEntries,
-  parseGitHubEnvFile,
-  TOOLCHAIN_ENV_VARS,
-  mergeGitHubPathEntries,
-  readEnvFile,
-} from './github-env';
 
 /**
  * Checks if two subnets overlap
