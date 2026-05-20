@@ -15,8 +15,8 @@
  *     domain whitelist is respected.
  *   - Otherwise: writes span NDJSON to /var/log/api-proxy/otel.jsonl as a
  *     local fallback (mirrors the MCPG /tmp/gh-aw/otel.jsonl pattern).
- *   - Completely no-op (zero overhead) when OTEL_EXPORTER_OTLP_ENDPOINT is
- *     unset AND file logging is unavailable.
+ *   - Network export remains opt-in. When OTLP is unset, only best-effort
+ *     local file writes are attempted (no outbound network traffic).
  *
  * Environment variables consumed:
  *   OTEL_EXPORTER_OTLP_ENDPOINT   - OTLP/HTTP collector URL (e.g. https://otel.example.com:4318)
@@ -58,6 +58,7 @@ const HTTPS_PROXY_URL  = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 
 const SCOPE_NAME     = 'awf-api-proxy';
 const OTEL_LOG_FILE  = '/var/log/api-proxy/otel.jsonl';
+const EXPORT_TIMEOUT_MS = 10_000;
 
 /** Module-level state, populated by init(). */
 let _provider = null;
@@ -190,10 +191,16 @@ class ProxyAwareOtlpExporter {
    * @param {import('@opentelemetry/resources').Resource} opts.resource
    */
   constructor({ url, headers, httpsProxy, resource }) {
-    const normalised = url.endsWith('/v1/traces')
-      ? url
-      : `${url.replace(/\/$/, '')}/v1/traces`;
-    this._parsedUrl = new URL(normalised);
+    const parsed = new URL(url);
+    const trimmedPath = parsed.pathname.replace(/\/+$/, '');
+    if (trimmedPath === '' || trimmedPath === '/') {
+      parsed.pathname = '/v1/traces';
+    } else if (trimmedPath.endsWith('/v1/traces')) {
+      parsed.pathname = trimmedPath;
+    } else {
+      parsed.pathname = `${trimmedPath}/v1/traces`;
+    }
+    this._parsedUrl = parsed;
     this._headers   = headers || {};
     this._agent     = httpsProxy ? new HttpsProxyAgent(httpsProxy) : undefined;
     this._resource  = resource;
@@ -205,6 +212,12 @@ class ProxyAwareOtlpExporter {
    */
   export(spans, resultCallback) {
     if (!spans || spans.length === 0) { resultCallback({ code: 0 }); return; }
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      resultCallback(result);
+    };
 
     let bodyBuf;
     try {
@@ -212,7 +225,7 @@ class ProxyAwareOtlpExporter {
         resourceSpans: buildResourceSpans(spans, this._resource),
       }), 'utf8');
     } catch (err) {
-      resultCallback({ code: 1, error: err });
+      settle({ code: 1, error: err });
       return;
     }
 
@@ -225,7 +238,7 @@ class ProxyAwareOtlpExporter {
     const reqOptions = {
       hostname: this._parsedUrl.hostname,
       port,
-      path:     this._parsedUrl.pathname,
+      path:     `${this._parsedUrl.pathname}${this._parsedUrl.search || ''}`,
       method:   'POST',
       headers:  {
         'Content-Type':   'application/json',
@@ -235,14 +248,24 @@ class ProxyAwareOtlpExporter {
     };
     if (this._agent) reqOptions.agent = this._agent;
 
-    const req = Transport.request(reqOptions, (res) => {
-      res.on('data',  () => {});
-      res.on('end',   () => {
-        const ok = res.statusCode >= 200 && res.statusCode < 300;
-        resultCallback({ code: ok ? 0 : 1 });
+    let req;
+    try {
+      req = Transport.request(reqOptions, (res) => {
+        res.on('data',  () => {});
+        res.on('error', (err) => { settle({ code: 1, error: err }); });
+        res.on('end',   () => {
+          const ok = res.statusCode >= 200 && res.statusCode < 300;
+          settle({ code: ok ? 0 : 1 });
+        });
       });
+    } catch (err) {
+      settle({ code: 1, error: err });
+      return;
+    }
+    req.setTimeout(EXPORT_TIMEOUT_MS, () => {
+      req.destroy(new Error(`OTLP export timeout after ${EXPORT_TIMEOUT_MS}ms`));
     });
-    req.on('error', (err) => { resultCallback({ code: 1, error: err }); });
+    req.on('error', (err) => { settle({ code: 1, error: err }); });
     req.write(bodyBuf);
     req.end();
   }

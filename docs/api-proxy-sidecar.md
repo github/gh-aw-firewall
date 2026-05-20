@@ -926,9 +926,9 @@ LLM provider.
 
 ### Activation
 
-Tracing is **opt-in** and activated solely by the presence of `OTEL_EXPORTER_OTLP_ENDPOINT`.
-When the variable is absent the api-proxy still records spans to a local NDJSON fallback file
-(`/var/log/api-proxy/otel.jsonl`) with zero network overhead.
+Network export is **opt-in** and activated by `OTEL_EXPORTER_OTLP_ENDPOINT`.
+When the variable is absent, the api-proxy uses a best-effort local NDJSON fallback file
+(`/var/log/api-proxy/otel.jsonl`) and emits no OTLP network traffic.
 
 | Mode | When | Behaviour |
 |------|------|-----------|
@@ -943,7 +943,7 @@ by AWF. You do **not** need to pass them explicitly.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | No | OTLP/HTTP collector URL (e.g. `https://otel.example.com:4318`). Activates network export. Must be in the Squid allowlist. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | No | Comma-separated `key=value` auth headers (e.g. `Authorization=****** |
+| `OTEL_EXPORTER_OTLP_HEADERS` | No | Comma-separated `key=value` auth headers (e.g. `Authorization=******`). |
 | `OTEL_SERVICE_NAME` | No | Service name tag on spans. Defaults to `awf-api-proxy`. |
 | `GITHUB_AW_OTEL_TRACE_ID` | No | W3C trace-id of the parent workflow trace. Spans become children of this trace. |
 | `GITHUB_AW_OTEL_PARENT_SPAN_ID` | No | W3C span-id of the parent workflow span. |
@@ -963,7 +963,6 @@ Each proxied request produces a single span:
 | Attribute | Source |
 |-----------|--------|
 | `gen_ai.system` | Provider name (`openai`, `anthropic`, `copilot`, …) |
-| `gen_ai.request.model` | Model from request body |
 | `gen_ai.response.model` | Model from response |
 | `gen_ai.usage.input_tokens` | From token tracker |
 | `gen_ai.usage.output_tokens` | From token tracker |

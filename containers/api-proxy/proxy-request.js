@@ -85,6 +85,15 @@ const limiter = rateLimiter.create();
 /** When false, token-budget warnings are never injected into request bodies. */
 const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
 
+function getUrlPathForSpan(requestUrl) {
+  if (typeof requestUrl !== 'string' || !requestUrl) return '/';
+  try {
+    return new URL(requestUrl, 'http://localhost').pathname || '/';
+  } catch {
+    return '/';
+  }
+}
+
 // ── Billing header extraction ─────────────────────────────────────────────────
 
 /**
@@ -217,7 +226,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   const span = otel.startRequestSpan({
     provider,
     method:    req.method,
-    path:      sanitizeForLog(req.url),
+    path:      getUrlPathForSpan(req.url),
     requestId,
   });
 

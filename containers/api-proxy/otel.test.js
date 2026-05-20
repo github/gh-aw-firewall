@@ -13,6 +13,7 @@
 
 const { InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
 const { SpanKind, SpanStatusCode } = require('@opentelemetry/api');
+const { EventEmitter } = require('events');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -107,8 +108,8 @@ describe('otel — _parseOtlpHeaders', () => {
 
   test('handles value with = in it', () => {
     const otel = loadOtel();
-    expect(otel._parseOtlpHeaders('Authorization=******')).toEqual({
-      Authorization: '******',
+    expect(otel._parseOtlpHeaders('Authorization=abc==')).toEqual({
+      Authorization: 'abc==',
     });
   });
 
@@ -434,6 +435,94 @@ describe('otel — ProxyAwareOtlpExporter', () => {
       resource:   new Resource({}),
     });
     expect(exp._parsedUrl.pathname).toBe('/v1/traces');
+  });
+
+  test('preserves query string when normalizing endpoint', () => {
+    const { _ProxyAwareOtlpExporter } = loadOtel();
+    const { Resource } = require('@opentelemetry/resources');
+    const exp = new _ProxyAwareOtlpExporter({
+      url:        'https://otel.example.com:4318?api-version=1',
+      headers:    {},
+      httpsProxy: null,
+      resource:   new Resource({}),
+    });
+    expect(exp._parsedUrl.pathname).toBe('/v1/traces');
+    expect(exp._parsedUrl.search).toBe('?api-version=1');
+  });
+
+  test('includes query string in export request path', (done) => {
+    const { _ProxyAwareOtlpExporter } = loadOtel();
+    const { Resource } = require('@opentelemetry/resources');
+    const reqSpy = jest.spyOn(require('https'), 'request').mockImplementation((options, cb) => {
+      try {
+        expect(options.path).toBe('/v1/traces?api-version=1');
+      } catch (err) {
+        process.nextTick(() => done(err));
+      }
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      process.nextTick(() => {
+        cb(res);
+        res.emit('end');
+      });
+      return {
+        on: jest.fn(),
+        setTimeout: jest.fn(),
+        write: jest.fn(),
+        end: jest.fn(),
+      };
+    });
+    const exp = new _ProxyAwareOtlpExporter({
+      url:        'https://otel.example.com:4318?api-version=1',
+      headers:    {},
+      httpsProxy: null,
+      resource:   new Resource({}),
+    });
+    const span = {
+      spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
+      name: 'test',
+      kind: 2,
+      startTime: [1, 0],
+      endTime: [1, 1],
+      attributes: {},
+      events: [],
+      status: { code: 1 },
+    };
+    exp.export([span], (result) => {
+      reqSpy.mockRestore();
+      expect(result.code).toBe(0);
+      done();
+    });
+  });
+
+  test('returns failure when request creation throws synchronously', (done) => {
+    const { _ProxyAwareOtlpExporter } = loadOtel();
+    const { Resource } = require('@opentelemetry/resources');
+    const reqSpy = jest.spyOn(require('https'), 'request').mockImplementation(() => {
+      throw new Error('bad request options');
+    });
+    const exp = new _ProxyAwareOtlpExporter({
+      url:        'https://otel.example.com:4318',
+      headers:    {},
+      httpsProxy: null,
+      resource:   new Resource({}),
+    });
+    const span = {
+      spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
+      name: 'test',
+      kind: 2,
+      startTime: [1, 0],
+      endTime: [1, 1],
+      attributes: {},
+      events: [],
+      status: { code: 1 },
+    };
+    exp.export([span], (result) => {
+      reqSpy.mockRestore();
+      expect(result.code).toBe(1);
+      expect(result.error).toBeInstanceOf(Error);
+      done();
+    });
   });
 
   test('calls resultCallback with code 0 for empty spans', (done) => {
