@@ -13,7 +13,7 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
-const { sanitizeNullToolCallTypes, injectSteeringMessage } = require('./body-transform');
+const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
@@ -343,6 +343,14 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
             message,
           });
         }
+      }
+    }
+
+    // Inject stream_options.include_usage so streaming responses include token data
+    if (req.method === 'POST') {
+      const streamOpts = injectStreamOptions(body, provider);
+      if (streamOpts) {
+        body = streamOpts.body;
       }
     }
 

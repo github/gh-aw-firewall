@@ -124,7 +124,40 @@ function injectSteeringMessage(body, provider, message) {
   return Buffer.from(JSON.stringify(parsed));
 }
 
+/**
+ * Inject `stream_options: { include_usage: true }` into OpenAI-compatible
+ * streaming requests so that the final SSE chunk includes token usage data.
+ * This is required for the token tracker (and OTEL spans) to capture usage.
+ *
+ * Only modifies the body when `stream: true` is present and `stream_options`
+ * is not already set.  Anthropic and Gemini use different mechanisms and are
+ * skipped.
+ *
+ * @param {Buffer} body
+ * @param {string} provider - 'openai' | 'copilot' | 'opencode' | 'anthropic' | 'gemini'
+ * @returns {{ body: Buffer, injected: boolean }|null}
+ */
+function injectStreamOptions(body, provider) {
+  // Only applies to OpenAI-compatible providers
+  if (provider === 'anthropic' || provider === 'gemini') return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (!parsed.stream) return null;
+  if (parsed.stream_options) return null;
+
+  parsed.stream_options = { include_usage: true };
+  return { body: Buffer.from(JSON.stringify(parsed)), injected: true };
+}
+
 module.exports = {
   sanitizeNullToolCallTypes,
   injectSteeringMessage,
+  injectStreamOptions,
 };
