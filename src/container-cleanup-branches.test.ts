@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
+import { useCleanupTestDir } from './test-helpers/docker-test-fixtures.test-utils';
 
 // Mock execa
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
@@ -33,43 +34,28 @@ jest.mock('./host-env', () => {
   };
 });
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
-}
-
 // ─── sanitizeDockerComposeYaml edge cases (via collectDiagnosticLogs) ────────
 
 describe('sanitizeDockerComposeYaml edge cases', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
   });
 
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
   it('returns raw string when YAML parses to a non-object (null)', async () => {
     // "null" is valid YAML that parses to null — the sanitizer should return the raw content
-    fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), 'null');
-    await collectDiagnosticLogs(testDir);
-    const diagnosticsDir = path.join(testDir, 'diagnostics');
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), 'null');
+    await collectDiagnosticLogs(getDir());
+    const diagnosticsDir = path.join(getDir(), 'diagnostics');
     const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
     expect(sanitized).toBe('null');
   });
 
   it('sanitizes when compose has no services key', async () => {
     // Parsed object but without a "services" key — should dump the yaml without error
-    fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), 'version: "3"\n');
-    await collectDiagnosticLogs(testDir);
-    const diagnosticsDir = path.join(testDir, 'diagnostics');
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), 'version: "3"\n');
+    await collectDiagnosticLogs(getDir());
+    const diagnosticsDir = path.join(getDir(), 'diagnostics');
     const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
     expect(yaml.load(sanitized)).toEqual({ version: '3' });
   });
@@ -77,11 +63,11 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
   it('sanitizes when services is an array instead of an object', async () => {
     // services is an array — should be treated as "no services to sanitize"
     fs.writeFileSync(
-      path.join(testDir, 'docker-compose.yml'),
+      path.join(getDir(), 'docker-compose.yml'),
       ['version: "3"', 'services:', '  - name: agent'].join('\n')
     );
-    await collectDiagnosticLogs(testDir);
-    const diagnosticsDir = path.join(testDir, 'diagnostics');
+    await collectDiagnosticLogs(getDir());
+    const diagnosticsDir = path.join(getDir(), 'diagnostics');
     const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
     expect(yaml.load(sanitized)).toEqual({ version: '3', services: [{ name: 'agent' }] });
   });
@@ -89,9 +75,9 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
   it('skips service entries that are not plain objects', async () => {
     // A service entry whose value is a primitive (null/string) — should not throw
     const raw = ['services:', '  broken_service: null', '  valid_service:', '    image: nginx'].join('\n');
-    fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), raw);
-    await collectDiagnosticLogs(testDir);
-    const diagnosticsDir = path.join(testDir, 'diagnostics');
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), raw);
+    await collectDiagnosticLogs(getDir());
+    const diagnosticsDir = path.join(getDir(), 'diagnostics');
     const sanitized = fs.readFileSync(path.join(diagnosticsDir, 'docker-compose.yml'), 'utf8');
     expect(yaml.load(sanitized)).toEqual({
       services: {
@@ -106,10 +92,10 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
   it('preserves all env vars when service has no environment key', async () => {
     // Service without an "environment" field — no redaction needed
     const raw = ['services:', '  agent:', '    image: ubuntu:22.04'].join('\n');
-    fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), raw);
-    await collectDiagnosticLogs(testDir);
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), raw);
+    await collectDiagnosticLogs(getDir());
     const sanitized = fs.readFileSync(
-      path.join(testDir, 'diagnostics', 'docker-compose.yml'),
+      path.join(getDir(), 'diagnostics', 'docker-compose.yml'),
       'utf8'
     );
     expect(sanitized).not.toContain('[REDACTED]');
@@ -132,10 +118,10 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       '      - NORMAL_VAR=keep_me',
       '      - NO_EQUALS_HERE',
     ].join('\n');
-    fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), raw);
-    await collectDiagnosticLogs(testDir);
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), raw);
+    await collectDiagnosticLogs(getDir());
     const sanitized = fs.readFileSync(
-      path.join(testDir, 'diagnostics', 'docker-compose.yml'),
+      path.join(getDir(), 'diagnostics', 'docker-compose.yml'),
       'utf8'
     );
     expect(sanitized).not.toContain('ghp_array');
@@ -148,18 +134,9 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
 // ─── cleanup() missing branch coverage ───────────────────────────────────────
 
 describe('cleanup - cli-proxy logs', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   it('chmods cli-proxy-logs inside proxyLogsDir when it exists', async () => {
@@ -169,7 +146,7 @@ describe('cleanup - cli-proxy logs', () => {
       fs.mkdirSync(cliProxyLogsDir, { recursive: true });
       fs.writeFileSync(path.join(cliProxyLogsDir, 'difc-proxy.log'), 'audit entry\n');
 
-      await cleanup(testDir, false, proxyLogsDir);
+      await cleanup(getDir(), false, proxyLogsDir);
 
       expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', cliProxyLogsDir]);
     } finally {
@@ -180,13 +157,13 @@ describe('cleanup - cli-proxy logs', () => {
   });
 
   it('moves non-empty cli-proxy-logs to /tmp when proxyLogsDir is not specified', async () => {
-    const cliProxyLogsDir = path.join(testDir, 'cli-proxy-logs');
+    const cliProxyLogsDir = path.join(getDir(), 'cli-proxy-logs');
     fs.mkdirSync(cliProxyLogsDir, { recursive: true });
     fs.writeFileSync(path.join(cliProxyLogsDir, 'difc-proxy.log'), 'audit entry\n');
 
-    await cleanup(testDir, false);
+    await cleanup(getDir(), false);
 
-    const timestamp = path.basename(testDir).replace('awf-', '');
+    const timestamp = path.basename(getDir()).replace('awf-', '');
     const destination = path.join(os.tmpdir(), `cli-proxy-logs-${timestamp}`);
     expect(fs.existsSync(destination)).toBe(true);
     const movedLogPath = path.join(destination, 'difc-proxy.log');
@@ -199,31 +176,22 @@ describe('cleanup - cli-proxy logs', () => {
   });
 
   it('does not move empty cli-proxy-logs directory', async () => {
-    const cliProxyLogsDir = path.join(testDir, 'cli-proxy-logs');
+    const cliProxyLogsDir = path.join(getDir(), 'cli-proxy-logs');
     fs.mkdirSync(cliProxyLogsDir, { recursive: true });
     // leave it empty
 
-    await cleanup(testDir, false);
+    await cleanup(getDir(), false);
 
-    const timestamp = path.basename(testDir).replace('awf-', '');
+    const timestamp = path.basename(getDir()).replace('awf-', '');
     const destination = path.join(os.tmpdir(), `cli-proxy-logs-${timestamp}`);
     expect(fs.existsSync(destination)).toBe(false);
   });
 });
 
 describe('cleanup - api-proxy logs via proxyLogsDir', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   it('chmods api-proxy-logs inside proxyLogsDir when it exists and is non-empty', async () => {
@@ -233,7 +201,7 @@ describe('cleanup - api-proxy logs via proxyLogsDir', () => {
       fs.mkdirSync(apiProxyLogsDir, { recursive: true });
       fs.writeFileSync(path.join(apiProxyLogsDir, 'proxy.log'), 'request\n');
 
-      await cleanup(testDir, false, proxyLogsDir);
+      await cleanup(getDir(), false, proxyLogsDir);
 
       expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
     } finally {
@@ -245,60 +213,42 @@ describe('cleanup - api-proxy logs via proxyLogsDir', () => {
 });
 
 describe('cleanup - audit dir', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   it('skips chmod when auditDir is specified but does not exist', async () => {
     const nonExistentAuditDir = path.join(os.tmpdir(), `awf-nonexistent-audit-${Date.now()}`);
 
-    await cleanup(testDir, false, undefined, nonExistentAuditDir);
+    await cleanup(getDir(), false, undefined, nonExistentAuditDir);
 
     expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', nonExistentAuditDir]);
   });
 
   it('does not move empty default audit directory', async () => {
-    const defaultAuditDir = path.join(testDir, 'audit');
+    const defaultAuditDir = path.join(getDir(), 'audit');
     fs.mkdirSync(defaultAuditDir, { recursive: true });
     // leave it empty
 
-    await cleanup(testDir, false);
+    await cleanup(getDir(), false);
 
-    const timestamp = path.basename(testDir).replace('awf-', '');
+    const timestamp = path.basename(getDir()).replace('awf-', '');
     const destination = path.join(os.tmpdir(), `awf-audit-${timestamp}`);
     expect(fs.existsSync(destination)).toBe(false);
   });
 });
 
 describe('cleanup - sessionStateDir', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   it('skips chmod when sessionStateDir is specified but does not exist', async () => {
     const nonExistentStateDir = path.join(os.tmpdir(), `awf-nonexistent-state-${Date.now()}`);
 
-    await cleanup(testDir, false, undefined, undefined, nonExistentStateDir);
+    await cleanup(getDir(), false, undefined, undefined, nonExistentStateDir);
 
     expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', nonExistentStateDir]);
   });
@@ -308,7 +258,7 @@ describe('cleanup - sessionStateDir', () => {
     try {
       fs.writeFileSync(path.join(stateDir, 'events.jsonl'), '{"type":"start"}\n');
 
-      await cleanup(testDir, false, undefined, undefined, stateDir);
+      await cleanup(getDir(), false, undefined, undefined, stateDir);
 
       expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', stateDir]);
     } finally {
@@ -320,18 +270,9 @@ describe('cleanup - sessionStateDir', () => {
 });
 
 describe('cleanup - SSL directory', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = makeTmpDir();
+  const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue(undefined);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   it('calls unmountSslTmpfs when ssl directory exists in workDir', async () => {
@@ -341,13 +282,13 @@ describe('cleanup - SSL directory', () => {
     };
     unmountSslTmpfs.mockResolvedValue(undefined);
 
-    const sslDir = path.join(testDir, 'ssl');
+    const sslDir = path.join(getDir(), 'ssl');
     fs.mkdirSync(sslDir, { recursive: true });
     fs.writeFileSync(path.join(sslDir, 'ca.pem'), 'fake-cert');
 
-    await cleanup(testDir, false);
+    await cleanup(getDir(), false);
 
-    expect(cleanupSslKeyMaterial).toHaveBeenCalledWith(testDir);
+    expect(cleanupSslKeyMaterial).toHaveBeenCalledWith(getDir());
     expect(unmountSslTmpfs).toHaveBeenCalledWith(sslDir);
   });
 
@@ -356,7 +297,7 @@ describe('cleanup - SSL directory', () => {
       unmountSslTmpfs: jest.Mock;
     };
 
-    await cleanup(testDir, false);
+    await cleanup(getDir(), false);
 
     expect(unmountSslTmpfs).not.toHaveBeenCalled();
   });

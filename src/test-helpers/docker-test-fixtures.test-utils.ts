@@ -36,6 +36,34 @@ export const mockNetworkConfig = {
 };
 
 /**
+ * Shared temporary directory lifecycle for cleanup-related unit tests.
+ *
+ * Creates a fresh `awf-*` temp dir before each test and removes it after.
+ * An optional `resetMocks` callback (defaults to `jest.clearAllMocks()`) is
+ * invoked in `beforeEach` immediately after the directory is created.
+ *
+ * @returns An object with a `getDir()` accessor for the current temp dir path.
+ */
+export function useCleanupTestDir(
+  resetMocks: () => void = () => jest.clearAllMocks()
+): { getDir: () => string } {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
+    resetMocks();
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  return { getDir: () => testDir };
+}
+
+/**
  * Shared temporary workDir lifecycle for Docker-related unit tests.
  */
 export function useTempWorkDir(
