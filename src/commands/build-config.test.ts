@@ -54,19 +54,46 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
   };
 }
 
+const ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'COPILOT_GITHUB_TOKEN',
+  'GEMINI_API_KEY',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'AWF_AUDIT_DIR',
+  'AWF_SESSION_STATE_DIR',
+  'OPENAI_API_TARGET',
+  'OPENAI_API_BASE_PATH',
+  'ANTHROPIC_API_TARGET',
+  'ANTHROPIC_API_BASE_PATH',
+  'GEMINI_API_TARGET',
+  'GEMINI_API_BASE_PATH',
+] as const;
+
 describe('buildConfig', () => {
+  let savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>;
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockResolveCopilotApiKey.mockReturnValue(undefined);
-    // Clear env vars that affect the output
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.COPILOT_GITHUB_TOKEN;
-    delete process.env.GEMINI_API_KEY;
-    delete process.env.GITHUB_TOKEN;
-    delete process.env.GH_TOKEN;
-    delete process.env.AWF_AUDIT_DIR;
-    delete process.env.AWF_SESSION_STATE_DIR;
+    // Snapshot and clear env vars that affect the output
+    savedEnv = {};
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    // Restore original env vars
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
+    }
   });
 
   describe('basic config assembly', () => {
@@ -224,21 +251,18 @@ describe('buildConfig', () => {
         options: { ...makeInputs().options, openaiApiTarget: 'https://override.example.com' },
       }));
       expect(config.openaiApiTarget).toBe('https://override.example.com');
-      delete process.env.OPENAI_API_TARGET;
     });
 
     it('should fall back to ANTHROPIC_API_TARGET env var', () => {
       process.env.ANTHROPIC_API_TARGET = 'https://my-anthropic.example.com';
       const config = buildConfig(makeInputs());
       expect(config.anthropicApiTarget).toBe('https://my-anthropic.example.com');
-      delete process.env.ANTHROPIC_API_TARGET;
     });
 
     it('should fall back to GEMINI_API_TARGET env var', () => {
       process.env.GEMINI_API_TARGET = 'https://my-gemini.example.com';
       const config = buildConfig(makeInputs());
       expect(config.geminiApiTarget).toBe('https://my-gemini.example.com');
-      delete process.env.GEMINI_API_TARGET;
     });
   });
 
