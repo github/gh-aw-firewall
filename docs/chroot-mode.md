@@ -299,10 +299,14 @@ sudo mv /etc/resolv.conf.awf-backup-* /etc/resolv.conf
 
 | Requirement | Description |
 |-------------|-------------|
+| glibc-based host userspace | Required for chroot execution chain (`capsh` + `bash`) |
 | `capsh` | Must be installed on host (usually in `libcap2-bin` package) |
+| `/bin/bash` | Must exist and be executable on host |
 | User by UID | Host user must exist in `/etc/passwd` |
 | Docker | Standard Docker requirement |
 | sudo | Required for iptables manipulation |
+
+**Important:** Alpine/musl daemon hosts are not currently supported in chroot mode. AWF now fails fast with a clear startup error when musl/Alpine is detected under `/host`.
 
 ### Installing capsh
 
@@ -324,6 +328,16 @@ sudo dnf install libcap
 ```
 
 **Fix**: Install the `libcap2-bin` package on the host.
+
+### Error: Alpine/musl host detected
+
+```
+[entrypoint][ERROR] AWF chroot mode requires a glibc-based daemon host ...
+```
+
+**Cause**: The Docker daemon host filesystem mounted at `/host` is Alpine/musl-based. Chroot mode currently expects glibc-compatible host binaries for `capsh` and `/bin/bash`.
+
+**Fix**: Run AWF on a glibc-based daemon host (for example Ubuntu/Debian/RHEL-family).
 
 ### Error: Working directory does not exist
 
