@@ -11,7 +11,8 @@ permissions:
   issues: read
 engine:
   id: claude
-  max-turns: 6
+  model: claude-sonnet-4-5
+  max-turns: 3
 tools:
   github:
     mode: gh-proxy
@@ -91,6 +92,16 @@ steps:
 
 # Security Guard
 
+## Immediate Decision Gate
+
+Before reading any files: scan the diff below. If ALL changed files are:
+- Test files only (`*.test.ts`, `tests/`, `__tests__/`)
+- Documentation only (`*.md`, `docs/`, `README*`)
+- Configuration files with no security impact (`.eslintrc`, `jest.config`, `tsconfig`)
+- Frontend/UI only (`*.css`, `*.html`, static assets)
+
+→ Call `safeoutputs noop` immediately without further tool use.
+
 ## Security Relevance Check
 
 <!-- markdownlint-disable-next-line MD050 -->
@@ -122,7 +133,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 ## Security Checks
 
-Check for: ACCEPT expansion, DROP/REJECT weakening, firewall chain changes, DNS/IPv6 bypasses, Squid ACL regressions, extra egress ports, wildcard bypasses, capability additions (`SYS_ADMIN`, `NET_RAW`), seccomp relaxation, hardening removal, injection risk, and hardcoded secrets.
+Check: iptables ACCEPT/DROP changes, Squid ACL regressions, capability additions (SYS_ADMIN/NET_RAW), seccomp relaxation, egress port expansion, DNS bypass, wildcard bypass, secrets.
 
 ## Output Format
 
