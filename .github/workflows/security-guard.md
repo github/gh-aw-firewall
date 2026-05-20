@@ -92,16 +92,6 @@ steps:
 
 # Security Guard
 
-## Immediate Decision Gate
-
-Before reading any files: scan the diff below. If ALL changed files are:
-- Test files only (`*.test.ts`, `tests/`, `__tests__/`)
-- Documentation only (`*.md`, `docs/`, `README*`)
-- Configuration files with no security impact (`.eslintrc`, `jest.config`, `tsconfig`)
-- Frontend/UI only (`*.css`, `*.html`, static assets)
-
-→ Call `safeoutputs noop` immediately without further tool use.
-
 ## Security Relevance Check
 
 <!-- markdownlint-disable-next-line MD050 -->
@@ -133,7 +123,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 ## Security Checks
 
-Check: iptables ACCEPT/DROP changes, Squid ACL regressions, capability additions (SYS_ADMIN/NET_RAW), seccomp relaxation, egress port expansion, DNS bypass, wildcard bypass, secrets.
+Check: ACCEPT and DROP/REJECT weakening, firewall chain changes, Squid ACL regressions, capability additions (SYS_ADMIN/NET_RAW), seccomp relaxations, egress expansion, DNS/wildcard bypass, input validation weakening, secrets.
 
 ## Output Format
 

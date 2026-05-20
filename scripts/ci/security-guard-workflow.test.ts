@@ -6,16 +6,19 @@ const securityGuardSourcePath = path.join(workflowsDir, 'security-guard.md');
 const securityGuardLockPath = path.join(workflowsDir, 'security-guard.lock.yml');
 
 describe('security guard workflow optimization config', () => {
-  it('pins model/turn limits and includes fast noop gate', () => {
+  it('pins model/turn limits and keeps key security checks in prompt', () => {
     const source = fs.readFileSync(securityGuardSourcePath, 'utf-8');
 
     expect(source).toContain('model: claude-sonnet-4-5');
     expect(source).toContain('max-turns: 3');
-    expect(source).toContain('## Immediate Decision Gate');
-    expect(source).toContain('Call `safeoutputs noop` immediately without further tool use.');
-    expect(source).toContain(
-      'Check: iptables ACCEPT/DROP changes, Squid ACL regressions, capability additions (SYS_ADMIN/NET_RAW), seccomp relaxation, egress port expansion, DNS bypass, wildcard bypass, secrets.'
-    );
+    expect(source).toContain('## Security Checks');
+    expect(source).toContain('ACCEPT and DROP/REJECT weakening');
+    expect(source).toContain('firewall chain changes');
+    expect(source).toContain('Squid ACL regressions');
+    expect(source).toContain('capability additions (SYS_ADMIN/NET_RAW)');
+    expect(source).toContain('seccomp relaxations');
+    expect(source).toContain('input validation weakening');
+    expect(source).toContain('secrets');
   });
 
   it('compiles the model/turn settings into lock workflow', () => {
