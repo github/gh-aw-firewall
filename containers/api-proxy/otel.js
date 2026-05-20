@@ -415,9 +415,10 @@ function startRequestSpan({ provider, method, path, requestId }) {
       attributes: {
         [ATTR_HTTP_REQUEST_METHOD]: method,
         [ATTR_URL_PATH]:            path,
-        'awf.provider':             provider,
+        'gen_ai.provider.name':     provider,
+        'gen_ai.operation.name':    'chat',
+        'gen_ai.request.stream':    true,
         'awf.request_id':           requestId,
-        'gen_ai.system':            provider,
       },
     },
     parentCtx,
@@ -444,17 +445,19 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
       span.setAttribute('gen_ai.response.model', model);
     }
     span.setAttributes({
-      'gen_ai.usage.input_tokens':  normalizedUsage.input_tokens,
-      'gen_ai.usage.output_tokens': normalizedUsage.output_tokens,
-      'awf.cache_read_tokens':      normalizedUsage.cache_read_tokens,
-      'awf.cache_write_tokens':     normalizedUsage.cache_write_tokens,
-      'awf.streaming':              streaming,
+      'gen_ai.usage.input_tokens':                normalizedUsage.input_tokens,
+      'gen_ai.usage.output_tokens':               normalizedUsage.output_tokens,
+      'gen_ai.usage.cache_read.input_tokens':     normalizedUsage.cache_read_tokens,
+      'gen_ai.usage.cache_creation.input_tokens': normalizedUsage.cache_write_tokens,
+      'gen_ai.usage.reasoning.output_tokens':     normalizedUsage.reasoning_tokens || 0,
+      'gen_ai.request.stream':                    streaming,
     });
     span.addEvent('gen_ai.usage', {
-      'gen_ai.usage.input_tokens':  normalizedUsage.input_tokens,
-      'gen_ai.usage.output_tokens': normalizedUsage.output_tokens,
-      'awf.cache_read_tokens':      normalizedUsage.cache_read_tokens,
-      'awf.cache_write_tokens':     normalizedUsage.cache_write_tokens,
+      'gen_ai.usage.input_tokens':                normalizedUsage.input_tokens,
+      'gen_ai.usage.output_tokens':               normalizedUsage.output_tokens,
+      'gen_ai.usage.cache_read.input_tokens':     normalizedUsage.cache_read_tokens,
+      'gen_ai.usage.cache_creation.input_tokens': normalizedUsage.cache_write_tokens,
+      'gen_ai.usage.reasoning.output_tokens':     normalizedUsage.reasoning_tokens || 0,
     });
   } catch { /* best-effort */ }
 }
