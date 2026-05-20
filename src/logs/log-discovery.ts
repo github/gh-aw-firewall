@@ -9,9 +9,7 @@ import { glob } from 'glob';
 import execa from 'execa';
 import { LogSource } from '../types';
 import { logger } from '../logger';
-
-/** Default container name for the Squid proxy */
-const SQUID_CONTAINER_NAME = 'awf-squid';
+import { SQUID_CONTAINER_NAME } from '../constants';
 
 /**
  * Discovers all available log sources (running containers and preserved log directories)
