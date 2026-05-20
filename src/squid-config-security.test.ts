@@ -4,6 +4,14 @@ import { SquidConfig } from './types';
 describe('defense-in-depth: rejects injected values', () => {
   const defaultPort = 3128;
 
+  const sslBumpBase = {
+    domains: ['evil.com'],
+    port: defaultPort,
+    sslBump: true as const,
+    caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
+    sslDbPath: '/tmp/ssl_db',
+  } satisfies Partial<Parameters<typeof generateSquidConfig>[0]>;
+
   it('should reject newline in domain via validateDomainOrPattern', () => {
     expect(() => {
       generateSquidConfig({
@@ -18,42 +26,21 @@ describe('defense-in-depth: rejects injected values', () => {
     // The assertSafeForSquidConfig guard should catch this.
     const maliciousPattern = 'https://evil.com/path\nhttp_access allow all';
     expect(() => {
-      generateSquidConfig({
-        domains: ['evil.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
-        sslDbPath: '/tmp/ssl_db',
-        urlPatterns: [maliciousPattern],
-      });
+      generateSquidConfig({ ...sslBumpBase, urlPatterns: [maliciousPattern] });
     }).toThrow(/SECURITY/);
   });
 
   it('should reject hash character in URL pattern (Squid comment injection)', () => {
     const maliciousPattern = 'https://evil.com/path#http_access allow all';
     expect(() => {
-      generateSquidConfig({
-        domains: ['evil.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
-        sslDbPath: '/tmp/ssl_db',
-        urlPatterns: [maliciousPattern],
-      });
+      generateSquidConfig({ ...sslBumpBase, urlPatterns: [maliciousPattern] });
     }).toThrow(/SECURITY/);
   });
 
   it('should reject semicolon in URL pattern (Squid token injection)', () => {
     const maliciousPattern = 'https://evil.com/path;injected';
     expect(() => {
-      generateSquidConfig({
-        domains: ['evil.com'],
-        port: defaultPort,
-        sslBump: true,
-        caFiles: { certPath: '/tmp/cert.pem', keyPath: '/tmp/key.pem' },
-        sslDbPath: '/tmp/ssl_db',
-        urlPatterns: [maliciousPattern],
-      });
+      generateSquidConfig({ ...sslBumpBase, urlPatterns: [maliciousPattern] });
     }).toThrow(/SECURITY/);
   });
 
