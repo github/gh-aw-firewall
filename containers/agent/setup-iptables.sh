@@ -195,6 +195,28 @@ is_valid_port_spec() {
   fi
 }
 
+# Allow AWF_HOST_SERVICE_PORTS entries to a destination IP.
+# Port validation is intentionally strict to prevent malformed iptables rules.
+allow_service_ports_to_ip() {
+  local dest_ip="$1"
+  local log_each_port="${2:-false}"
+  local port=""
+
+  for port in "${HSP_PORTS[@]}"; do
+    port=$(echo "$port" | xargs)
+    if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+      echo "[iptables] WARNING: Skipping invalid service port: $port"
+      continue
+    fi
+    if [ -n "$port" ]; then
+      if [ "$log_each_port" = "true" ]; then
+        echo "[iptables]   Allow host service port $port to $dest_ip"
+      fi
+      iptables -A OUTPUT -p tcp -d "$dest_ip" --dport "$port" -j ACCEPT
+    fi
+  done
+}
+
 # Bypass Squid for host.docker.internal when host access is enabled.
 # MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
 # where Squid fails with "Invalid URL" because rmcp sends relative URLs.
@@ -269,36 +291,17 @@ if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
 
   if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
     echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_HOST_SERVICE_PORTS"
-    for port in "${HSP_PORTS[@]}"; do
-      port=$(echo "$port" | xargs)
-      if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-        echo "[iptables] WARNING: Skipping invalid service port: $port"
-        continue
-      fi
-      if [ -n "$port" ]; then
-        echo "[iptables]   Allow host service port $port to $HSP_HOST_GW_IP"
-        # FILTER: allow traffic to host gateway on this port
-        # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
-        iptables -A OUTPUT -p tcp -d "$HSP_HOST_GW_IP" --dport "$port" -j ACCEPT
-      fi
-    done
+    # FILTER: allow traffic to host gateway on these ports
+    # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+    allow_service_ports_to_ip "$HSP_HOST_GW_IP" "true"
   fi
 
   # Also allow to network gateway (same as the host access block does)
   if [ -n "$HSP_NET_GW_IP" ] && is_valid_ipv4 "$HSP_NET_GW_IP" && [ "$HSP_NET_GW_IP" != "$HSP_HOST_GW_IP" ]; then
     echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_HOST_SERVICE_PORTS"
-    for port in "${HSP_PORTS[@]}"; do
-      port=$(echo "$port" | xargs)
-      if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-        echo "[iptables] WARNING: Skipping invalid service port: $port"
-        continue
-      fi
-      if [ -n "$port" ]; then
-        # FILTER: allow traffic to network gateway on this port
-        # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
-        iptables -A OUTPUT -p tcp -d "$HSP_NET_GW_IP" --dport "$port" -j ACCEPT
-      fi
-    done
+    # FILTER: allow traffic to network gateway on these ports
+    # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+    allow_service_ports_to_ip "$HSP_NET_GW_IP"
   fi
 fi
 
