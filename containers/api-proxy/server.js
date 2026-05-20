@@ -241,13 +241,9 @@ async function probeProvider(provider, url, opts, timeoutMs) {
 /**
  * Validate configured API keys by probing each provider's endpoint.
  *
- * Accepts either:
- *   - An adapters array (production): uses each adapter's getValidationProbe()
- *   - An overrides object (test compatibility): uses inline probe logic
- *
- * @param {import('./providers').ProviderAdapter[]|object} [adaptersOrOverrides={}]
+ * @param {import('./providers').ProviderAdapter[]} [adapters=[]]
  */
-async function validateApiKeys(adaptersOrOverrides = {}) {
+async function validateApiKeys(adapters = []) {
   const mode = (process.env.AWF_VALIDATE_KEYS || 'warn').toLowerCase();
   if (mode === 'off') {
     logRequest('info', 'key_validation', { message: 'Key validation disabled (AWF_VALIDATE_KEYS=off)' });
@@ -255,116 +251,20 @@ async function validateApiKeys(adaptersOrOverrides = {}) {
     return;
   }
 
-  // ── Adapter-based path (production) ─────────────────────────────────────────
-  if (Array.isArray(adaptersOrOverrides)) {
-    const adapters = adaptersOrOverrides;
-    const TIMEOUT_MS = 10_000;
-    const probes = [];
-
-    for (const adapter of adapters) {
-      const probe = adapter.getValidationProbe?.();
-      if (!probe) continue;
-
-      if (probe.skip) {
-        keyValidationResults[adapter.name] = { status: 'skipped', message: probe.reason };
-        logRequest('info', 'key_validation', { provider: adapter.name, ...keyValidationResults[adapter.name] });
-        continue;
-      }
-
-      probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS));
-    }
-
-    if (probes.length === 0) {
-      logRequest('info', 'key_validation', { message: 'No providers to validate' });
-      keyValidationComplete = true;
-      return;
-    }
-
-    await Promise.allSettled(probes);
-    keyValidationComplete = true;
-    _summarizeValidationFailures(mode);
-    return;
-  }
-
-  // ── Legacy override path (test compatibility) ────────────────────────────────
-  const overrides = adaptersOrOverrides;
-  const ov = (key, fallback) => key in overrides ? overrides[key] : fallback;
-
-  // Re-read module-level adapter state for defaults (keeps tests self-contained)
-  const openaiAdapter   = registeredAdapters.find(a => a.name === 'openai');
-  const anthropicAdapter = registeredAdapters.find(a => a.name === 'anthropic');
-  const copilotAdapter  = registeredAdapters.find(a => a.name === 'copilot');
-  const geminiAdapter   = registeredAdapters.find(a => a.name === 'gemini');
-
-  // Rather than trying to introspect adapters for every key, use process.env as fallback
-  const _ov = (key, envKey) => key in overrides ? overrides[key] : (process.env[envKey] || '').trim() || undefined;
-  const openaiKeyV    = _ov('openaiKey',    'OPENAI_API_KEY');
-  const openaiTarget  = ov('openaiTarget',  openaiAdapter?.getTargetHost?.() ?? 'api.openai.com');
-  const anthropicKeyV = _ov('anthropicKey', 'ANTHROPIC_API_KEY');
-  const anthropicTarget = ov('anthropicTarget', anthropicAdapter?.getTargetHost?.() ?? 'api.anthropic.com');
-  const copilotGithubToken = _ov('copilotGithubToken', 'COPILOT_GITHUB_TOKEN');
-  const copilotApiKey      = _ov('copilotApiKey',      'COPILOT_API_KEY');
-  const copilotAuthToken   = ov('copilotAuthToken', copilotAdapter?._githubToken ?? copilotAdapter?.isEnabled?.() ?? undefined);
-  const copilotTarget  = ov('copilotTarget', copilotAdapter?.getTargetHost?.() ?? 'api.githubcopilot.com');
-  const copilotIntegrationId = ov('copilotIntegrationId', copilotAdapter?._integrationId ?? 'copilot-developer-cli');
-  const geminiKeyV    = _ov('geminiKey',    'GEMINI_API_KEY');
-  const geminiTarget  = ov('geminiTarget',  geminiAdapter?.getTargetHost?.() ?? 'generativelanguage.googleapis.com');
-  const TIMEOUT_MS    = ov('timeoutMs', 10_000);
-
+  const TIMEOUT_MS = 10_000;
   const probes = [];
 
-  // --- Copilot ---
-  if (copilotGithubToken) {
-    if (copilotTarget !== 'api.githubcopilot.com') {
-      keyValidationResults.copilot = { status: 'skipped', message: `Custom target ${copilotTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
-    } else {
-      probes.push(probeProvider('copilot', `https://${copilotTarget}/models`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${copilotGithubToken}`, 'Copilot-Integration-Id': copilotIntegrationId },
-      }, TIMEOUT_MS));
-    }
-  } else if (copilotApiKey && !copilotGithubToken) {
-    keyValidationResults.copilot = { status: 'skipped', message: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode' };
-    logRequest('info', 'key_validation', { provider: 'copilot', ...keyValidationResults.copilot });
-  }
+  for (const adapter of adapters) {
+    const probe = adapter.getValidationProbe?.();
+    if (!probe) continue;
 
-  // --- OpenAI ---
-  if (openaiKeyV) {
-    if (openaiTarget !== 'api.openai.com') {
-      keyValidationResults.openai = { status: 'skipped', message: `Custom target ${openaiTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'openai', ...keyValidationResults.openai });
-    } else {
-      probes.push(probeProvider('openai', `https://${openaiTarget}/v1/models`, {
-        method: 'GET', headers: { 'Authorization': `Bearer ${openaiKeyV}` },
-      }, TIMEOUT_MS));
+    if (probe.skip) {
+      keyValidationResults[adapter.name] = { status: 'skipped', message: probe.reason };
+      logRequest('info', 'key_validation', { provider: adapter.name, ...keyValidationResults[adapter.name] });
+      continue;
     }
-  }
 
-  // --- Anthropic ---
-  if (anthropicKeyV) {
-    if (anthropicTarget !== 'api.anthropic.com') {
-      keyValidationResults.anthropic = { status: 'skipped', message: `Custom target ${anthropicTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'anthropic', ...keyValidationResults.anthropic });
-    } else {
-      probes.push(probeProvider('anthropic', `https://${anthropicTarget}/v1/messages`, {
-        method: 'POST',
-        headers: { 'x-api-key': anthropicKeyV, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: '{}',
-      }, TIMEOUT_MS));
-    }
-  }
-
-  // --- Gemini ---
-  if (geminiKeyV) {
-    if (geminiTarget !== 'generativelanguage.googleapis.com') {
-      keyValidationResults.gemini = { status: 'skipped', message: `Custom target ${geminiTarget}; validation skipped` };
-      logRequest('info', 'key_validation', { provider: 'gemini', ...keyValidationResults.gemini });
-    } else {
-      probes.push(probeProvider('gemini', `https://${geminiTarget}/v1beta/models`, {
-        method: 'GET', headers: { 'x-goog-api-key': geminiKeyV },
-      }, TIMEOUT_MS));
-    }
+    probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS));
   }
 
   if (probes.length === 0) {
@@ -404,79 +304,21 @@ function _summarizeValidationFailures(mode) {
 /**
  * Fetch available models for each configured provider and cache them.
  *
- * Accepts either:
- *   - An adapters array (production): uses each adapter's getModelsFetchConfig()
- *   - An overrides object (test compatibility): uses inline fetch logic
- *
- * @param {import('./providers').ProviderAdapter[]|object} [adaptersOrOverrides={}]
+ * @param {import('./providers').ProviderAdapter[]} [adapters=[]]
  */
-async function fetchStartupModels(adaptersOrOverrides = {}) {
-  // ── Adapter-based path (production) ─────────────────────────────────────────
-  if (Array.isArray(adaptersOrOverrides)) {
-    const adapters = adaptersOrOverrides;
-    const TIMEOUT_MS = 10_000;
-    const fetches = [];
-
-    for (const adapter of adapters) {
-      const config = adapter.getModelsFetchConfig?.();
-      if (!config) continue;
-
-      fetches.push(
-        fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
-          cachedModels[config.cacheKey] = extractModelIds(json);
-        })
-      );
-    }
-
-    await Promise.allSettled(fetches);
-    modelFetchComplete = true;
-    return;
-  }
-
-  // ── Legacy override path (test compatibility) ────────────────────────────────
-  const overrides = adaptersOrOverrides;
-  const _ov = (key, envKey) => key in overrides ? overrides[key] : (process.env[envKey] || '').trim() || undefined;
-  const ov  = (key, fallback) => key in overrides ? overrides[key] : fallback;
-
-  const copilotAdapter = registeredAdapters.find(a => a.name === 'copilot');
-  const geminiAdapter  = registeredAdapters.find(a => a.name === 'gemini');
-
-  const openaiKey    = _ov('openaiKey',         'OPENAI_API_KEY');
-  const openaiTarget = ov('openaiTarget',        normalizeApiTarget(process.env.OPENAI_API_TARGET) || 'api.openai.com');
-  const anthropicKey  = _ov('anthropicKey',      'ANTHROPIC_API_KEY');
-  const anthropicTarget = ov('anthropicTarget',  normalizeApiTarget(process.env.ANTHROPIC_API_TARGET) || 'api.anthropic.com');
-  const copilotGithubToken = _ov('copilotGithubToken', 'COPILOT_GITHUB_TOKEN');
-  const copilotTarget  = ov('copilotTarget', copilotAdapter?.getTargetHost?.() ?? 'api.githubcopilot.com');
-  const copilotIntegrationId = ov('copilotIntegrationId', copilotAdapter?._integrationId ?? 'copilot-developer-cli');
-  const geminiKey    = _ov('geminiKey',           'GEMINI_API_KEY');
-  const geminiTarget = ov('geminiTarget',         geminiAdapter?.getTargetHost?.() ?? 'generativelanguage.googleapis.com');
-  const TIMEOUT_MS   = ov('timeoutMs', 10_000);
-
+async function fetchStartupModels(adapters = []) {
+  const TIMEOUT_MS = 10_000;
   const fetches = [];
 
-  if (openaiKey) {
-    fetches.push(fetchJson(`https://${openaiTarget}/v1/models`, {
-      method: 'GET', headers: { 'Authorization': `Bearer ${openaiKey}` },
-    }, TIMEOUT_MS).then((json) => { cachedModels.openai = extractModelIds(json); }));
-  }
+  for (const adapter of adapters) {
+    const config = adapter.getModelsFetchConfig?.();
+    if (!config) continue;
 
-  if (anthropicKey) {
-    fetches.push(fetchJson(`https://${anthropicTarget}/v1/models`, {
-      method: 'GET', headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-    }, TIMEOUT_MS).then((json) => { cachedModels.anthropic = extractModelIds(json); }));
-  }
-
-  if (copilotGithubToken) {
-    fetches.push(fetchJson(`https://${copilotTarget}/models`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${copilotGithubToken}`, 'Copilot-Integration-Id': copilotIntegrationId },
-    }, TIMEOUT_MS).then((json) => { cachedModels.copilot = extractModelIds(json); }));
-  }
-
-  if (geminiKey) {
-    fetches.push(fetchJson(`https://${geminiTarget}/v1beta/models`, {
-      method: 'GET', headers: { 'x-goog-api-key': geminiKey },
-    }, TIMEOUT_MS).then((json) => { cachedModels.gemini = extractModelIds(json); }));
+    fetches.push(
+      fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
+        cachedModels[config.cacheKey] = extractModelIds(json);
+      })
+    );
   }
 
   await Promise.allSettled(fetches);

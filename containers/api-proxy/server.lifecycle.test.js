@@ -35,14 +35,7 @@ describe('healthResponse', () => {
   });
 
   it('should include models_fetch_complete: true after model fetch completes', async () => {
-    // Pass explicit undefined overrides so no real network calls are made
-    await fetchStartupModels({
-      openaiKey: undefined,
-      anthropicKey: undefined,
-      copilotGithubToken: undefined,
-      copilotAuthToken: undefined,
-      geminiKey: undefined,
-    });
+    await fetchStartupModels([]);
     const result = healthResponse();
     expect(result.models_fetch_complete).toBe(true);
   });

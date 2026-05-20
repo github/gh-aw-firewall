@@ -11,6 +11,13 @@ const { EventEmitter } = require('events');
 const { httpProbe, fetchJson, extractModelIds, fetchStartupModels, reflectEndpoints, cachedModels, resetModelCacheState } = require('./server');
 const { createCopilotAdapter } = require('./providers/copilot');
 
+function createModelsAdapter(name, config) {
+  return {
+    name,
+    getModelsFetchConfig: () => config,
+  };
+}
+
 describe('httpProbe', () => {
   let server;
   let serverPort;
@@ -279,36 +286,54 @@ describe('fetchStartupModels', () => {
 
   it('should populate cachedModels.openai when OpenAI key is configured', async () => {
     mockHttpsRequestWithBody(200, '{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}');
-    await fetchStartupModels({ openaiKey: 'sk-test', openaiTarget: 'api.openai.com', timeoutMs: 5000 });
+    await fetchStartupModels([createModelsAdapter('openai', {
+      cacheKey: 'openai',
+      url: 'https://api.openai.com/v1/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-test' } },
+    })]);
     expect(cachedModels.openai).toEqual(['gpt-4o', 'gpt-4o-mini']);
   });
 
   it('should populate cachedModels.anthropic when Anthropic key is configured', async () => {
     mockHttpsRequestWithBody(200, '{"data":[{"id":"claude-opus-4-5"},{"id":"claude-haiku-4-5"}]}');
-    await fetchStartupModels({ anthropicKey: 'sk-ant-test', anthropicTarget: 'api.anthropic.com', timeoutMs: 5000 });
+    await fetchStartupModels([createModelsAdapter('anthropic', {
+      cacheKey: 'anthropic',
+      url: 'https://api.anthropic.com/v1/models',
+      opts: { method: 'GET', headers: { 'x-api-key': 'sk-ant-test', 'anthropic-version': '2023-06-01' } },
+    })]);
     expect(cachedModels.anthropic).toEqual(['claude-haiku-4-5', 'claude-opus-4-5']);
   });
 
   it('should populate cachedModels.copilot when Copilot token is configured', async () => {
     mockHttpsRequestWithBody(200, '{"data":[{"id":"gpt-4o"},{"id":"o3-mini"}]}');
-    await fetchStartupModels({
-      copilotGithubToken: 'gho_test',
-      copilotAuthToken: 'gho_test',
-      copilotTarget: 'api.githubcopilot.com',
-      timeoutMs: 5000,
-    });
+    await fetchStartupModels([createModelsAdapter('copilot', {
+      cacheKey: 'copilot',
+      url: 'https://api.githubcopilot.com/models',
+      opts: {
+        method: 'GET',
+        headers: { Authorization: 'Bearer gho_test', 'Copilot-Integration-Id': 'copilot-developer-cli' },
+      },
+    })]);
     expect(cachedModels.copilot).toEqual(['gpt-4o', 'o3-mini']);
   });
 
   it('should populate cachedModels.gemini when Gemini key is configured', async () => {
     mockHttpsRequestWithBody(200, '{"models":[{"name":"models/gemini-1.5-pro"},{"name":"models/gemini-1.5-flash"}]}');
-    await fetchStartupModels({ geminiKey: 'gemini-test-key', geminiTarget: 'generativelanguage.googleapis.com', timeoutMs: 5000 });
+    await fetchStartupModels([createModelsAdapter('gemini', {
+      cacheKey: 'gemini',
+      url: 'https://generativelanguage.googleapis.com/v1beta/models',
+      opts: { method: 'GET', headers: { 'x-goog-api-key': 'gemini-test-key' } },
+    })]);
     expect(cachedModels.gemini).toEqual(['gemini-1.5-flash', 'gemini-1.5-pro']);
   });
 
   it('should set cachedModels.openai to null when models fetch returns error status', async () => {
     mockHttpsRequestWithBody(401, '{"error":"unauthorized"}');
-    await fetchStartupModels({ openaiKey: 'sk-bad', openaiTarget: 'api.openai.com', timeoutMs: 5000 });
+    await fetchStartupModels([createModelsAdapter('openai', {
+      cacheKey: 'openai',
+      url: 'https://api.openai.com/v1/models',
+      opts: { method: 'GET', headers: { Authorization: 'Bearer sk-bad' } },
+    })]);
     expect(cachedModels.openai).toBeNull();
     const reflect = reflectEndpoints();
     expect(reflect.models_fetch_complete).toBe(true);
@@ -316,12 +341,7 @@ describe('fetchStartupModels', () => {
 
   it('should skip Copilot models fetch when only BYOK key (no GitHub token) is configured', async () => {
     const spy = jest.spyOn(https, 'request');
-    await fetchStartupModels({
-      copilotGithubToken: undefined,
-      copilotAuthToken: 'sk-byok-copilot-key', // BYOK — derived from COPILOT_API_KEY
-      copilotTarget: 'api.githubcopilot.com',
-      timeoutMs: 5000,
-    });
+    await fetchStartupModels([createModelsAdapter('copilot', null)]);
     // No HTTPS request should have been made for the copilot models endpoint
     expect(spy).not.toHaveBeenCalled();
     expect(cachedModels.copilot).toBeUndefined();
@@ -341,13 +361,7 @@ describe('fetchStartupModels', () => {
 
   it('should skip fetching when no keys are configured', async () => {
     const spy = jest.spyOn(https, 'request');
-    await fetchStartupModels({
-      openaiKey: undefined,
-      anthropicKey: undefined,
-      copilotGithubToken: undefined,
-      copilotAuthToken: undefined,
-      geminiKey: undefined,
-    });
+    await fetchStartupModels([]);
     expect(spy).not.toHaveBeenCalled();
     expect(cachedModels).toEqual({});
     const reflect = reflectEndpoints();
@@ -379,7 +393,7 @@ describe('reflectEndpoints', () => {
   });
 
   it('should report models_fetch_complete true after fetch completes', async () => {
-    await fetchStartupModels({});
+    await fetchStartupModels([]);
     const result = reflectEndpoints();
     expect(result.models_fetch_complete).toBe(true);
   });
