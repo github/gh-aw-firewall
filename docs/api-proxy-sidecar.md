@@ -916,6 +916,91 @@ if (response.status === 429) {
 }
 ```
 
+## OpenTelemetry distributed tracing
+
+The api-proxy sidecar emits one [OpenTelemetry](https://opentelemetry.io/) CLIENT span per
+proxied LLM API request. Spans carry GenAI semantic-convention attributes (token usage, model,
+provider) and are automatically attached as children of the parent workflow trace, enabling
+end-to-end distributed tracing from the GitHub Actions workflow through the api-proxy to the
+LLM provider.
+
+### Activation
+
+Tracing is **opt-in** and activated solely by the presence of `OTEL_EXPORTER_OTLP_ENDPOINT`.
+When the variable is absent the api-proxy still records spans to a local NDJSON fallback file
+(`/var/log/api-proxy/otel.jsonl`) with zero network overhead.
+
+| Mode | When | Behaviour |
+|------|------|-----------|
+| **OTLP/HTTP export** | `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Spans exported via HTTP POST routed through the Squid proxy (so the domain whitelist is respected). |
+| **File fallback** | Endpoint not set | Spans appended as NDJSON to `/var/log/api-proxy/otel.jsonl`. |
+
+### Environment variables
+
+The following variables are automatically forwarded from the host into the api-proxy container
+by AWF. You do **not** need to pass them explicitly.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | OTLP/HTTP collector URL (e.g. `https://otel.example.com:4318`). Activates network export. Must be in the Squid allowlist. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | No | Comma-separated `key=value` auth headers (e.g. `Authorization=****** |
+| `OTEL_SERVICE_NAME` | No | Service name tag on spans. Defaults to `awf-api-proxy`. |
+| `GITHUB_AW_OTEL_TRACE_ID` | No | W3C trace-id of the parent workflow trace. Spans become children of this trace. |
+| `GITHUB_AW_OTEL_PARENT_SPAN_ID` | No | W3C span-id of the parent workflow span. |
+
+### Span design
+
+Each proxied request produces a single span:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `api_proxy.{provider}.request` |
+| **Kind** | `CLIENT` |
+| **Parent** | Constructed from `GITHUB_AW_OTEL_TRACE_ID` + `GITHUB_AW_OTEL_PARENT_SPAN_ID` |
+
+#### Span attributes (GenAI semantic conventions)
+
+| Attribute | Source |
+|-----------|--------|
+| `gen_ai.system` | Provider name (`openai`, `anthropic`, `copilot`, …) |
+| `gen_ai.request.model` | Model from request body |
+| `gen_ai.response.model` | Model from response |
+| `gen_ai.usage.input_tokens` | From token tracker |
+| `gen_ai.usage.output_tokens` | From token tracker |
+| `awf.cache_read_tokens` | Cache-read tokens (Anthropic prompt cache) |
+| `awf.cache_write_tokens` | Cache-write tokens (Anthropic prompt cache) |
+| `http.request.method` | `GET` / `POST` |
+| `http.response.status_code` | Upstream HTTP status |
+| `url.path` | Request path |
+| `awf.request_id` | Internal request UUID |
+| `awf.streaming` | `true` when response is `text/event-stream` |
+| `awf.provider` | Provider name |
+
+#### Span events
+
+| Event | When emitted |
+|-------|-------------|
+| `gen_ai.usage` | At span end; attributes mirror the token-usage attributes above |
+| `exception` | On upstream or proxy errors |
+
+### Proxy routing for OTLP export
+
+OTLP/HTTP exports are routed through the Squid proxy (`HTTPS_PROXY` / `HTTP_PROXY`) so that
+they respect the domain allowlist. Add the OTEL collector hostname to your allowlist:
+
+```yaml
+# awf-config.yml
+allowDomains:
+  - otel.example.com
+```
+
+### Integration with gh-aw workflows
+
+If your workflow uses the `observability.otlp` frontmatter block, gh-aw automatically sets
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`,
+`GITHUB_AW_OTEL_TRACE_ID`, and `GITHUB_AW_OTEL_PARENT_SPAN_ID`. AWF forwards all of these
+into the api-proxy container, so no extra configuration is needed.
+
 ## Limitations
 
 - Keys must be set as environment variables (not file-based)

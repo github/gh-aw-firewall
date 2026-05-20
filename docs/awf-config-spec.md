@@ -313,6 +313,30 @@ When the API proxy sidecar is enabled, the following rules apply:
    requests. Sidecar port assignments: 10000 (OpenAI), 10001 (Anthropic),
    10002 (Copilot), 10003 (Gemini), 10004 (OpenCode).
 
+6. A conforming implementation MUST forward the following OpenTelemetry
+   variables from the host into the **api-proxy sidecar** container so that
+   the sidecar can participate in the distributed trace established by the
+   workflow:
+
+   | Variable | Description |
+   |----------|-------------|
+   | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP collector URL. When present, activates span export via Squid proxy. |
+   | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` auth headers for the OTLP endpoint. |
+   | `OTEL_SERVICE_NAME` | Service name tag. Defaults to `awf-api-proxy` when not set. |
+   | `GITHUB_AW_OTEL_TRACE_ID` | W3C trace-id of the parent workflow trace. |
+   | `GITHUB_AW_OTEL_PARENT_SPAN_ID` | W3C span-id of the parent workflow span. |
+
+   These variables are NOT forwarded to the agent container via this mechanism;
+   the agent receives OTEL variables through the standard `OTEL_*` prefix
+   forwarding described in §8.4.
+
+   When `OTEL_EXPORTER_OTLP_ENDPOINT` is absent, the sidecar writes span
+   NDJSON to `/var/log/api-proxy/otel.jsonl` as a local fallback.
+   When `GITHUB_AW_OTEL_TRACE_ID` / `GITHUB_AW_OTEL_PARENT_SPAN_ID` are
+   present and valid hex, each sidecar span is created as a child of the
+   specified parent span, enabling end-to-end distributed tracing from the
+   GitHub Actions workflow through the api-proxy to the LLM provider.
+
 ### 9.3 API Proxy Disabled (`apiProxy.enabled = false`)
 
 When the API proxy sidecar is disabled (the default):

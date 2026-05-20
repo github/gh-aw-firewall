@@ -55,9 +55,10 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeTracking() to signal span completion
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, onUsage } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, onUsage, onSpanEnd } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -176,6 +177,7 @@ function trackTokenUsage(proxyRes, opts) {
         status: proxyRes.statusCode,
       });
       diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
+      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
       return;
     }
 
@@ -223,7 +225,10 @@ function trackTokenUsage(proxyRes, opts) {
     diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, compressed, content_encoding: contentEncoding });
 
     const normalized = normalizeUsage(usage);
-    if (!normalized) return;
+    if (!normalized) {
+      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+      return;
+    }
     if (typeof onUsage === 'function') {
       try {
         onUsage(normalized, model || 'unknown');
@@ -274,6 +279,8 @@ function trackTokenUsage(proxyRes, opts) {
       cache_write_tokens: normalized.cache_write_tokens,
       streaming,
     });
+
+    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
   }
 }
 

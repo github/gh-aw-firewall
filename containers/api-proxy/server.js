@@ -68,6 +68,17 @@ try {
   }
 }
 
+let otelShutdown;
+try {
+  ({ shutdown: otelShutdown } = require('./otel'));
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    otelShutdown = () => Promise.resolve();
+  } else {
+    throw err;
+  }
+}
+
 if (!HTTPS_PROXY) {
   logRequest('warn', 'startup', { message: 'No HTTPS_PROXY configured, requests will go direct' });
 }
@@ -517,6 +528,7 @@ if (require.main === module) {
       }
     }
     await closeLogStream();
+    await otelShutdown();
     process.exit(0);
   }
 

@@ -121,6 +121,23 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // Prevent curl health check from routing localhost through Squid
       NO_PROXY: `localhost,127.0.0.1,::1`,
       no_proxy: `localhost,127.0.0.1,::1`,
+      // OpenTelemetry distributed tracing — forward endpoint, headers, service name, and
+      // parent trace context so api-proxy spans are children of the workflow trace.
+      // OTEL_EXPORTER_OTLP_ENDPOINT activates OTLP/HTTP export (via Squid); when absent
+      // spans are written to /var/log/api-proxy/otel.jsonl as a local file fallback.
+      ...(process.env.OTEL_EXPORTER_OTLP_ENDPOINT && {
+        OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+      }),
+      ...(process.env.OTEL_EXPORTER_OTLP_HEADERS && {
+        OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
+      }),
+      OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME || 'awf-api-proxy',
+      ...(process.env.GITHUB_AW_OTEL_TRACE_ID && {
+        GITHUB_AW_OTEL_TRACE_ID: process.env.GITHUB_AW_OTEL_TRACE_ID,
+      }),
+      ...(process.env.GITHUB_AW_OTEL_PARENT_SPAN_ID && {
+        GITHUB_AW_OTEL_PARENT_SPAN_ID: process.env.GITHUB_AW_OTEL_PARENT_SPAN_ID,
+      }),
       // Rate limiting configuration
       ...(config.rateLimitConfig && {
         AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),

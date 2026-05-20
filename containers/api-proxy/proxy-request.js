@@ -50,6 +50,28 @@ try {
   }
 }
 
+// ── Optional OTEL tracing (graceful degradation when not bundled) ─────────────
+let otel;
+try {
+  otel = require('./otel');
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    // No-op shims so callers need no guard checks
+    const noop = () => {};
+    const noopSpan = { setAttribute: noop, setAttributes: noop, addEvent: noop, setStatus: noop, recordException: noop, end: noop };
+    otel = {
+      startRequestSpan:  () => noopSpan,
+      setTokenAttributes: noop,
+      endSpan:           noop,
+      endSpanError:      noop,
+      shutdown:          () => Promise.resolve(),
+      isEnabled:         () => false,
+    };
+  } else {
+    throw err;
+  }
+}
+
 // ── Module-level constants (read from env at load time) ───────────────────────
 const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
@@ -191,6 +213,14 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
 
+  // Start OTEL span (no-op when OTEL is not configured).
+  const span = otel.startRequestSpan({
+    provider,
+    method:    req.method,
+    path:      sanitizeForLog(req.url),
+    requestId,
+  });
+
   res.setHeader('X-Request-ID', requestId);
   metrics.gaugeInc('active_requests', { provider });
 
@@ -215,6 +245,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       duration_ms: duration,
       upstream_host: targetHost,
     });
+    otel.endSpan(span, 400);
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Bad Request', message: 'URL must be a relative path' }));
     return;
@@ -230,6 +261,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
   req.on('error', (err) => {
     if (errored) return;
     errored = true;
+    otel.endSpanError(span, err, 400);
     handleRequestError(err, {
       res,
       requestId,
@@ -255,6 +287,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
         request_bytes: totalBytes, upstream_host: targetHost,
       });
+      otel.endSpan(span, 413);
       if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
       return;
@@ -352,6 +385,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         total_effective_tokens: etBlock.totalEffectiveTokens,
         max_effective_tokens: etBlock.maxEffectiveTokens,
       });
+      otel.endSpan(span, 429);
       res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
       res.end(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
       return;
@@ -369,6 +403,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         invocation_count: mrBlock.invocationCount,
         max_runs: mrBlock.maxRuns,
       });
+      otel.endSpan(span, 429);
       res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
       res.end(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
       return;
@@ -385,6 +420,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
 
       proxyRes.on('error', (err) => {
+        otel.endSpanError(span, err, 502);
         handleRequestError(err, {
           res,
           requestId,
@@ -436,6 +472,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
       res.writeHead(proxyRes.statusCode, resHeaders);
       proxyRes.pipe(res);
+
+      const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
       trackTokenUsage(proxyRes, {
         requestId,
         provider,
@@ -445,12 +483,17 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         billingInfo,
         initiatorSent,
         onUsage: (normalizedUsage, model) => {
+          otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
           applyEffectiveTokenUsage(normalizedUsage, model);
+        },
+        onSpanEnd: (statusCode) => {
+          otel.endSpan(span, statusCode);
         },
       });
     });
 
     proxyReq.on('error', (err) => {
+      otel.endSpanError(span, err, 502);
       handleRequestError(err, {
         res,
         requestId,
