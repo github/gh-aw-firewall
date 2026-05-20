@@ -145,9 +145,10 @@ describe('otel — startRequestSpan', () => {
     expect(s.kind).toBe(SpanKind.CLIENT);
     expect(s.attributes['http.request.method']).toBe('POST');
     expect(s.attributes['url.path']).toBe('/v1/chat/completions');
-    expect(s.attributes['awf.provider']).toBe('openai');
+    expect(s.attributes['gen_ai.provider.name']).toBe('openai');
     expect(s.attributes['awf.request_id']).toBe('req-001');
-    expect(s.attributes['gen_ai.system']).toBe('openai');
+    expect(s.attributes['gen_ai.operation.name']).toBe('chat');
+    expect(s.attributes['gen_ai.request.stream']).toBe(true);
   });
 
   test('span name includes provider name', async () => {
@@ -234,9 +235,9 @@ describe('otel — setTokenAttributes', () => {
     expect(s.attributes['gen_ai.response.model']).toBe('gpt-4o');
     expect(s.attributes['gen_ai.usage.input_tokens']).toBe(1000);
     expect(s.attributes['gen_ai.usage.output_tokens']).toBe(500);
-    expect(s.attributes['awf.cache_read_tokens']).toBe(200);
-    expect(s.attributes['awf.cache_write_tokens']).toBe(50);
-    expect(s.attributes['awf.streaming']).toBe(false);
+    expect(s.attributes['gen_ai.usage.cache_read.input_tokens']).toBe(200);
+    expect(s.attributes['gen_ai.usage.cache_creation.input_tokens']).toBe(50);
+    expect(s.attributes['gen_ai.request.stream']).toBe(false);
 
     const usageEvent = s.events.find(e => e.name === 'gen_ai.usage');
     expect(usageEvent).toBeDefined();
