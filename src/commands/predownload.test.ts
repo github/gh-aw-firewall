@@ -99,5 +99,37 @@ describe('predownload', () => {
         expect((error as Error & { exitCode?: number }).exitCode).toBe(1);
       }
     });
+
+    it('should pull agent-act image for act preset', async () => {
+      await predownloadCommand({ ...defaults, agentImage: 'act' });
+
+      expect(execa).toHaveBeenCalledWith(
+        'docker',
+        ['pull', 'ghcr.io/github/gh-aw-firewall/agent-act:latest'],
+        { stdio: 'inherit' },
+      );
+    });
+
+    it('should pull custom image reference as-is', async () => {
+      await predownloadCommand({ ...defaults, agentImage: 'myregistry.io/myimage:v1.2.3' });
+
+      expect(execa).toHaveBeenCalledWith(
+        'docker',
+        ['pull', 'myregistry.io/myimage:v1.2.3'],
+        { stdio: 'inherit' },
+      );
+    });
+
+    it('should throw when custom image starts with a dash', async () => {
+      await expect(
+        predownloadCommand({ ...defaults, agentImage: '-malicious' }),
+      ).rejects.toThrow('Invalid image reference "-malicious": must not start with "-"');
+    });
+
+    it('should throw when custom image contains whitespace', async () => {
+      await expect(
+        predownloadCommand({ ...defaults, agentImage: 'my image' }),
+      ).rejects.toThrow('Invalid image reference "my image": must not contain whitespace');
+    });
   });
 });
