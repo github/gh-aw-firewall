@@ -225,7 +225,10 @@ describe('createMainAction', () => {
       mockedValidateOptions.validateOptions.mockReturnValue(
         configWithKeep as unknown as import('../types').WrapperConfig
       );
-      mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
+      mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, _deps, callbacks) => {
+        await callbacks.performCleanup();
+        return 0;
+      });
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
       // cleanup should NOT be called (keepContainers=true)
@@ -249,8 +252,9 @@ describe('createMainAction', () => {
       // Make runMainWorkflow call both onContainersStarted and onHostIptablesSetup
       mockedCliWorkflow.runMainWorkflow.mockImplementation(
         async (_config, _deps, callbacks) => {
-          callbacks.onHostIptablesSetup();
-          callbacks.onContainersStarted();
+          callbacks.onHostIptablesSetup?.();
+          callbacks.onContainersStarted?.();
+          await callbacks.performCleanup();
           return 0;
         }
       );
@@ -271,18 +275,14 @@ describe('createMainAction', () => {
       mockedSignalHandler.registerSignalHandlers.mockImplementation((opts) => {
         capturedSignalHandlers = opts;
       });
-      // Throw so cleanup runs
-      mockedCliWorkflow.runMainWorkflow.mockRejectedValue(new Error('interrupted'));
-
+      mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
       const action = createMainAction(getOptionValueSource);
-      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+      await action(['echo hi'], {});
 
-      // Simulate a signal cleanup via the registered handler (calls performCleanup('SIGINT'))
-      // We can't call it directly, but we verify signal handlers were registered
       expect(capturedSignalHandlers).toBeDefined();
-      expect(typeof capturedSignalHandlers!.getContainersStarted).toBe('function');
-      // getContainersStarted should return false (containers never started)
-      expect(capturedSignalHandlers!.getContainersStarted()).toBe(false);
+      mockedLogger.info.mockClear();
+      await capturedSignalHandlers!.performCleanup('SIGINT');
+      expect(mockedLogger.info).toHaveBeenCalledWith('Received SIGINT, cleaning up...');
     });
   });
 
@@ -294,7 +294,7 @@ describe('createMainAction', () => {
       });
       mockedCliWorkflow.runMainWorkflow.mockImplementation(
         async (_config, _deps, callbacks) => {
-          callbacks.onContainersStarted();
+          callbacks.onContainersStarted?.();
           return 0;
         }
       );
@@ -307,14 +307,12 @@ describe('createMainAction', () => {
     });
   });
 
-  describe('performCleanup with signal', () => {
-    it('logs the signal name when called with a signal string', async () => {
+  describe('fatal error cleanup after containers started', () => {
+    it('stops containers during cleanup when workflow fails after startup callbacks', async () => {
       mockedCliWorkflow.runMainWorkflow.mockImplementation(
         async (_config, _deps, callbacks) => {
-          callbacks.onHostIptablesSetup();
-          callbacks.onContainersStarted();
-          // Simulate receiving a signal by calling performCleanup directly via the workflow
-          // This is accessed indirectly — we test by rejecting after containers are started
+          callbacks.onHostIptablesSetup?.();
+          callbacks.onContainersStarted?.();
           throw new Error('signal test');
         }
       );
