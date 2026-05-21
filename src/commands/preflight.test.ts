@@ -243,6 +243,47 @@ describe('resolveAllowedDomains', () => {
     expect(result.resolvedCopilotApiTarget).toBe('custom.copilot.com');
     expect(result.resolvedCopilotApiBasePath).toBe('/v1');
   });
+
+  it('handles localhost detected but shouldEnableHostAccess=false', () => {
+    mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
+      allowedDomains: ['localhost'],
+      localhostDetected: true,
+      shouldEnableHostAccess: false,
+    });
+    mockedDomainUtils.parseDomains.mockReturnValue(['localhost']);
+
+    const options: Record<string, unknown> = { allowDomains: 'localhost' };
+    const result = resolveAllowedDomains(options);
+
+    expect(result.localhostResult.localhostDetected).toBe(true);
+    // enableHostAccess should NOT be set when shouldEnableHostAccess is false
+    expect(options.enableHostAccess).toBeUndefined();
+    expect(mockedLogger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('localhost keyword enables host access')
+    );
+  });
+
+  it('handles localhost detected without defaultPorts', () => {
+    mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
+      allowedDomains: ['localhost'],
+      localhostDetected: true,
+      shouldEnableHostAccess: false,
+      defaultPorts: undefined,
+    });
+    mockedDomainUtils.parseDomains.mockReturnValue(['localhost']);
+
+    const options: Record<string, unknown> = { allowDomains: 'localhost' };
+    resolveAllowedDomains(options);
+
+    // allowHostPorts should NOT be set when defaultPorts is undefined
+    expect(options.allowHostPorts).toBeUndefined();
+  });
+
+  it('skips ruleset merge when rulesetFile array is empty', () => {
+    const result = resolveAllowedDomains({ rulesetFile: [] });
+    expect(mockedRules.loadAndMergeDomains).not.toHaveBeenCalled();
+    expect(result.allowedDomains).toEqual([]);
+  });
 });
 
 describe('resolveBlockedDomains', () => {
