@@ -235,16 +235,16 @@ describe('otel — setTokenAttributes', () => {
     expect(s.attributes['gen_ai.response.model']).toBe('gpt-4o');
     expect(s.attributes['gen_ai.usage.input_tokens']).toBe(1000);
     expect(s.attributes['gen_ai.usage.output_tokens']).toBe(500);
-    expect(s.attributes['awf.usage.cache_read_tokens']).toBe(200);
-    expect(s.attributes['awf.usage.cache_write_tokens']).toBe(50);
+    expect(s.attributes['cache_read_tokens_count']).toBe(200);
+    expect(s.attributes['cache_write_tokens_count']).toBe(50);
     expect(s.attributes['gen_ai.request.stream']).toBe(false);
 
     const usageEvent = s.events.find(e => e.name === 'gen_ai.usage');
     expect(usageEvent).toBeDefined();
     expect(usageEvent.attributes['gen_ai.usage.input_tokens']).toBe(1000);
     expect(usageEvent.attributes['gen_ai.usage.output_tokens']).toBe(500);
-    expect(usageEvent.attributes['awf.usage.cache_read_tokens']).toBe(200);
-    expect(usageEvent.attributes['awf.usage.cache_write_tokens']).toBe(50);
+    expect(usageEvent.attributes['cache_read_tokens_count']).toBe(200);
+    expect(usageEvent.attributes['cache_write_tokens_count']).toBe(50);
   });
 
   test('does not set gen_ai.response.model when model is "unknown"', async () => {

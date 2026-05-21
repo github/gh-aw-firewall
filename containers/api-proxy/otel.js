@@ -449,17 +449,17 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
       'gen_ai.usage.input_tokens':      normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':     normalizedUsage.output_tokens,
       'gen_ai.request.stream':          streaming,
-      // Cache and reasoning as custom attributes (Sentry drops unknown gen_ai.usage.* keys)
-      'awf.usage.cache_read_tokens':    normalizedUsage.cache_read_tokens,
-      'awf.usage.cache_write_tokens':   normalizedUsage.cache_write_tokens,
-      'awf.usage.reasoning_tokens':     normalizedUsage.reasoning_tokens || 0,
+      // Cache and reasoning — use Sentry measurement naming (no dots, _count suffix)
+      'cache_read_tokens_count':        normalizedUsage.cache_read_tokens,
+      'cache_write_tokens_count':       normalizedUsage.cache_write_tokens,
+      'reasoning_tokens_count':         normalizedUsage.reasoning_tokens || 0,
     });
     span.addEvent('gen_ai.usage', {
       'gen_ai.usage.input_tokens':      normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':     normalizedUsage.output_tokens,
-      'awf.usage.cache_read_tokens':    normalizedUsage.cache_read_tokens,
-      'awf.usage.cache_write_tokens':   normalizedUsage.cache_write_tokens,
-      'awf.usage.reasoning_tokens':     normalizedUsage.reasoning_tokens || 0,
+      'cache_read_tokens_count':        normalizedUsage.cache_read_tokens,
+      'cache_write_tokens_count':       normalizedUsage.cache_write_tokens,
+      'reasoning_tokens_count':         normalizedUsage.reasoning_tokens || 0,
     });
   } catch { /* best-effort */ }
 }
