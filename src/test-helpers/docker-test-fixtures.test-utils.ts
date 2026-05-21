@@ -47,7 +47,7 @@ export const mockNetworkConfig = {
 export function useCleanupTestDir(
   resetMocks: () => void = () => jest.clearAllMocks()
 ): { getDir: () => string } {
-  let testDir: string;
+  let testDir: string | undefined;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
@@ -55,12 +55,19 @@ export function useCleanupTestDir(
   });
 
   afterEach(() => {
-    if (fs.existsSync(testDir)) {
+    if (testDir) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   });
 
-  return { getDir: () => testDir };
+  return {
+    getDir: () => {
+      if (!testDir) {
+        throw new Error('Cleanup test directory is not initialized');
+      }
+      return testDir;
+    },
+  };
 }
 
 /**
