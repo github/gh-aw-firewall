@@ -445,21 +445,21 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
       span.setAttribute('gen_ai.response.model', model);
     }
     span.setAttributes({
-      // Standard GenAI semconv (Sentry recognizes these)
+      // Standard GenAI semconv (Sentry recognizes these as numeric)
       'gen_ai.usage.input_tokens':      normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':     normalizedUsage.output_tokens,
       'gen_ai.request.stream':          streaming,
-      // Cache and reasoning — use Sentry measurement naming (no dots, _count suffix)
-      'cache_read_tokens_count':        normalizedUsage.cache_read_tokens,
-      'cache_write_tokens_count':       normalizedUsage.cache_write_tokens,
-      'reasoning_tokens_count':         normalizedUsage.reasoning_tokens || 0,
+      // Cache and reasoning as strings (Sentry drops unknown numeric attrs but keeps strings)
+      'awf.cache_read_tokens':          String(normalizedUsage.cache_read_tokens),
+      'awf.cache_write_tokens':         String(normalizedUsage.cache_write_tokens),
+      'awf.reasoning_tokens':           String(normalizedUsage.reasoning_tokens || 0),
     });
     span.addEvent('gen_ai.usage', {
       'gen_ai.usage.input_tokens':      normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':     normalizedUsage.output_tokens,
-      'cache_read_tokens_count':        normalizedUsage.cache_read_tokens,
-      'cache_write_tokens_count':       normalizedUsage.cache_write_tokens,
-      'reasoning_tokens_count':         normalizedUsage.reasoning_tokens || 0,
+      'awf.cache_read_tokens':          String(normalizedUsage.cache_read_tokens),
+      'awf.cache_write_tokens':         String(normalizedUsage.cache_write_tokens),
+      'awf.reasoning_tokens':           String(normalizedUsage.reasoning_tokens || 0),
     });
   } catch { /* best-effort */ }
 }
