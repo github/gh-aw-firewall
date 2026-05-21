@@ -966,8 +966,9 @@ Each proxied request produces a single span:
 | `gen_ai.response.model` | Model from response |
 | `gen_ai.usage.input_tokens` | From token tracker |
 | `gen_ai.usage.output_tokens` | From token tracker |
-| `awf.cache_read_tokens` | Cache-read tokens (Anthropic prompt cache) |
-| `awf.cache_write_tokens` | Cache-write tokens (Anthropic prompt cache) |
+| `awf.cached_read` | Cache-read tokens (Anthropic prompt cache) |
+| `awf.cached_write` | Cache-write tokens (Anthropic prompt cache) |
+| `awf.reasoning` | Reasoning/thinking tokens |
 | `http.request.method` | `GET` / `POST` |
 | `http.response.status_code` | Upstream HTTP status |
 | `url.path` | Request path |

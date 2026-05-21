@@ -27,7 +27,7 @@ api_proxy.<provider>.request
 
 Examples: `api_proxy.copilot.request`, `api_proxy.anthropic.request`, `api_proxy.openai.request`
 
-Spans are children of the workflow's parent trace (linked via `AWF_OTEL_TRACE_ID` / `AWF_OTEL_SPAN_ID` env vars).
+Spans are children of the workflow's parent trace (linked via `GITHUB_AW_OTEL_TRACE_ID` / `GITHUB_AW_OTEL_PARENT_SPAN_ID` env vars).
 
 ## Attribute Locations in Sentry UI
 
@@ -86,8 +86,8 @@ OTEL tracing is enabled by setting these environment variables in the agent cont
 |----------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL (e.g., Sentry's ingest URL) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Auth headers (e.g., Sentry DSN) |
-| `AWF_OTEL_TRACE_ID` | Parent trace ID (32-char hex) for span nesting |
-| `AWF_OTEL_SPAN_ID` | Parent span ID (16-char hex) for span nesting |
+| `GITHUB_AW_OTEL_TRACE_ID` | Parent trace ID (32-char hex) for span nesting |
+| `GITHUB_AW_OTEL_PARENT_SPAN_ID` | Parent span ID (16-char hex) for span nesting |
 | `HTTPS_PROXY` | Proxy URL — the OTLP exporter routes through Squid |
 
 When no OTLP endpoint is configured, spans are written to `/var/log/awf/otel.jsonl` for local debugging.
