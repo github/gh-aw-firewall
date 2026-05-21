@@ -137,6 +137,11 @@ describe('docker-manager lifecycle', () => {
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
       );
       expect(upCalls).toHaveLength(2);
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        ['compose', 'down', '-v', '-t', '1'],
+        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit', reject: false })
+      );
     });
 
     it('should retry once when awf-api-proxy exits during startup', async () => {
