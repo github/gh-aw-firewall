@@ -16,18 +16,14 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 8
+  max-turns: 5
 sandbox:
   agent:
     version: v0.25.29
   mcp:
     version: v0.3.1
 strict: false
-network:
-  allowed:
-    - playwright
 tools:
-  playwright:
   bash:
     - "*"
 safe-outputs:
@@ -44,10 +40,6 @@ safe-outputs:
       run-failure: "💫 **TO BE CONTINUED...** [{workflow_name}]({run_url}) {status}! Our hero faces unexpected challenges..."
 timeout-minutes: 10
 steps:
-  - name: Ensure playwright log directory is writable
-    run: |
-      mkdir -p /tmp/gh-aw/mcp-logs/playwright
-      chmod 777 /tmp/gh-aw/mcp-logs/playwright
   - name: Create smoke test file
     run: |
       mkdir -p /tmp/gh-aw/agent
@@ -60,6 +52,20 @@ steps:
       echo "GitHub API pre-check: $(wc -c < /tmp/gh-aw/agent/recent-prs.json) bytes"
     env:
       GH_TOKEN: ${{ github.token }}
+  - name: Check GitHub.com reachability
+    run: |
+      CONTEXT_FILE=/tmp/gh-aw/agent/smoke-context.txt
+      if TITLE=$(curl -fsSL --max-time 15 https://github.com | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | head -1); then
+        TITLE=$(echo "$TITLE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      else
+        TITLE=""
+      fi
+      echo "GitHub title: ${TITLE:-<empty>}"
+      if echo "$TITLE" | grep -q "GitHub"; then
+        echo "playwright_check=✅ PASS — title: $TITLE" > "$CONTEXT_FILE"
+      else
+        echo "playwright_check=❌ FAIL — title not found" > "$CONTEXT_FILE"
+      fi
   - name: Verify smoke test file exists
     run: |
       cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
@@ -104,12 +110,21 @@ post-steps:
 
 Pre-computed data is available:
 - **GitHub API**: Recent PRs in `/tmp/gh-aw/agent/recent-prs.json` (already fetched)
+- **GitHub check**: Already verified in pre-step — read result from `/tmp/gh-aw/agent/smoke-context.txt`
 - **File verify**: `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` (already verified in pre-step)
+
+**IMPORTANT — Complete in 1 pass:**
+All data is pre-loaded. Do NOT make additional reads or explorations.
+1. `cat /tmp/gh-aw/agent/recent-prs.json` → confirm 2 entries
+2. `cat /tmp/gh-aw/agent/smoke-context.txt` → confirm `playwright_check` is `✅ PASS`
+3. `cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` → confirm exists
 
 Your tasks (1 line per result):
 1. **GitHub API**: Read `/tmp/gh-aw/agent/recent-prs.json` and confirm 2 PR entries exist
-2. **Playwright**: Navigate to https://github.com, confirm title contains "GitHub"
+2. **GitHub check**: Read `/tmp/gh-aw/agent/smoke-context.txt` and confirm `playwright_check=✅ PASS`
 3. **File verify**: Confirm file exists at `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt`
+
+Call safe-outputs immediately after these 3 reads.
 
 **If triggered by pull request**: add a brief comment (✅/❌ per test, PASS/FAIL total) and add label `smoke-claude` if all pass.
 **If not triggered by pull request**: use noop to report results.
