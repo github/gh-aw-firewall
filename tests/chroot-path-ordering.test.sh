@@ -68,7 +68,7 @@ run_path_test() {
       "${ENTRYPOINT}" |
     sed \
       -e "s|/opt/hostedtoolcache|${TOOLCACHE}|g" \
-      -e "s|/home/runner/work/_tool|${RUNNER_TOOLCACHE}|g"
+      -e "s|\${HOME}/work/_tool|${RUNNER_TOOLCACHE}|g"
   )"
 
   # Run the script in a sub-shell with a clean environment
