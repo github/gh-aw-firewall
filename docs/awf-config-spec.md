@@ -345,6 +345,27 @@ When the API proxy sidecar is disabled (the default):
    directly to the agent container.
 2. No proxy-routing variables or placeholder values SHALL be injected.
 
+### 9.4 Credential Exclusion Requires API Proxy
+
+*This constraint is normative for tools generating AWF configurations.*
+
+A conforming configuration MUST NOT exclude a source credential (§9.1) via
+`environment.excludeEnv` unless `apiProxy.enabled` is `true`. Excluding a
+credential without enabling the API proxy leaves the agent with no key and
+no placeholder, causing authentication failures at runtime.
+
+Tools that compile AWF configurations (e.g., `gh-aw`) MUST ensure that when
+an LLM agent requires an API key (OpenAI, Anthropic, Gemini, etc.), **one**
+of the following holds:
+
+1. `apiProxy.enabled = true` — the real key is held by the sidecar, and a
+   placeholder is injected for tool compatibility; or
+2. The key is forwarded directly to the agent container (non-proxy mode).
+
+Emitting `excludeEnv: ["OPENAI_API_KEY"]` without `apiProxy.enabled: true`
+is a configuration error. A conforming implementation MAY emit a warning
+when this condition is detected.
+
 ### 9.4 One-Shot Token Protection
 
 Real credentials forwarded to the agent — whether source credentials in
