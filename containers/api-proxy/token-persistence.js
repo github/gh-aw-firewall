@@ -138,6 +138,54 @@ function validateTokenUsageRecord(record) {
 }
 
 /**
+ * Build a token usage record for JSONL persistence.
+ *
+ * @param {object} normalized - Normalized usage object from normalizeUsage()
+ * @param {object} opts
+ * @param {string} opts.requestId
+ * @param {string} opts.provider
+ * @param {string|null} opts.model
+ * @param {string} opts.reqPath
+ * @param {number} opts.status
+ * @param {boolean} opts.streaming
+ * @param {number} opts.duration
+ * @param {number} opts.responseBytes
+ * @returns {object}
+ */
+function buildTokenUsageRecord(normalized, opts) {
+  const { requestId, provider, model, reqPath, status, streaming, duration, responseBytes } = opts;
+  return {
+    _schema: TOKEN_USAGE_SCHEMA,
+    timestamp: new Date().toISOString(),
+    request_id: requestId,
+    provider,
+    model: model || 'unknown',
+    path: reqPath,
+    status,
+    streaming,
+    input_tokens: normalized.input_tokens,
+    output_tokens: normalized.output_tokens,
+    cache_read_tokens: normalized.cache_read_tokens,
+    cache_write_tokens: normalized.cache_write_tokens,
+    duration_ms: duration,
+    response_bytes: responseBytes,
+  };
+}
+
+/**
+ * Increment token usage metrics when a metrics sink is available.
+ *
+ * @param {object|null} metricsRef
+ * @param {string} provider
+ * @param {object} normalized
+ */
+function incrementTokenMetrics(metricsRef, provider, normalized) {
+  if (!metricsRef) return;
+  metricsRef.increment('input_tokens_total', { provider }, normalized.input_tokens);
+  metricsRef.increment('output_tokens_total', { provider }, normalized.output_tokens);
+}
+
+/**
  * Write a token usage record to the JSONL log file.
  * Validates the record against the token-usage schema before writing.
  * Handles backpressure by dropping writes when the stream buffer is full.
@@ -181,6 +229,8 @@ module.exports = {
   TOKEN_LOG_FILE,
   TOKEN_USAGE_SCHEMA,
   diag,
+  buildTokenUsageRecord,
+  incrementTokenMetrics,
   validateTokenUsageRecord,
   writeTokenUsage,
   closeLogStream,

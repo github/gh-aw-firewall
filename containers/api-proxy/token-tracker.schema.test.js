@@ -13,6 +13,7 @@ const {
   writeTokenUsage,
   closeLogStream,
 } = require('./token-tracker');
+const { buildTokenUsageRecord, incrementTokenMetrics } = require('./token-persistence');
 const { EventEmitter } = require('events');
 
 afterAll(async () => {
@@ -93,6 +94,48 @@ describe('validateTokenUsageRecord', () => {
   test('rejects a non-object primitive without throwing', () => {
     expect(validateTokenUsageRecord('not-an-object')).toBe(false);
     expect(validateTokenUsageRecord(42)).toBe(false);
+  });
+});
+
+describe('shared token usage helpers', () => {
+  test('buildTokenUsageRecord returns schema-compatible record shape', () => {
+    const record = buildTokenUsageRecord({
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+    }, {
+      requestId: 'helper-record-test',
+      provider: 'openai',
+      model: null,
+      reqPath: '/v1/chat/completions',
+      status: 200,
+      streaming: false,
+      duration: 123,
+      responseBytes: 456,
+    });
+
+    expect(record).toMatchObject({
+      request_id: 'helper-record-test',
+      provider: 'openai',
+      model: 'unknown',
+      path: '/v1/chat/completions',
+      status: 200,
+      streaming: false,
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+      duration_ms: 123,
+      response_bytes: 456,
+    });
+    expect(validateTokenUsageRecord(record)).toBe(true);
+  });
+
+  test('incrementTokenMetrics is a no-op when metrics sink is missing', () => {
+    expect(() => {
+      incrementTokenMetrics(null, 'anthropic', { input_tokens: 1, output_tokens: 2 });
+    }).not.toThrow();
   });
 });
 

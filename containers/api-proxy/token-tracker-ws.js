@@ -11,7 +11,12 @@
 
 const { logRequest } = require('./logging');
 const { extractUsageFromSseLine, normalizeUsage } = require('./token-parsers');
-const { writeTokenUsage, TOKEN_USAGE_SCHEMA, diag } = require('./token-persistence');
+const {
+  writeTokenUsage,
+  buildTokenUsageRecord,
+  incrementTokenMetrics,
+  diag,
+} = require('./token-persistence');
 
 /**
  * Parse WebSocket frames from a buffer (server→client direction, unmasked).
@@ -198,27 +203,18 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       }
     }
 
-    if (metricsRef) {
-      metricsRef.increment('input_tokens_total', { provider }, normalized.input_tokens);
-      metricsRef.increment('output_tokens_total', { provider }, normalized.output_tokens);
-    }
+    incrementTokenMetrics(metricsRef, provider, normalized);
 
-    const record = {
-      _schema: TOKEN_USAGE_SCHEMA,
-      timestamp: new Date().toISOString(),
-      request_id: requestId,
+    const record = buildTokenUsageRecord(normalized, {
+      requestId,
       provider,
-      model: streamingModel || 'unknown',
-      path: reqPath,
+      model: streamingModel,
+      reqPath,
       status: 101,
       streaming: true,
-      input_tokens: normalized.input_tokens,
-      output_tokens: normalized.output_tokens,
-      cache_read_tokens: normalized.cache_read_tokens,
-      cache_write_tokens: normalized.cache_write_tokens,
-      duration_ms: duration,
-      response_bytes: totalBytes - headerBytes,
-    };
+      duration,
+      responseBytes: totalBytes - headerBytes,
+    });
 
     writeTokenUsage(record);
 
