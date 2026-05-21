@@ -33,8 +33,13 @@ tools:
     - "npm run test"
     - "npm run lint"
     - "cat:src/*.test.ts"
-    - "cat:tests/integration/squid*.test.ts"
-    - "cat:tests/integration/docker*.test.ts"
+    - "cat:src/docker-manager.ts"
+    - "cat:src/cli.ts"
+    - "cat:src/host-iptables.ts"
+    - "cat:src/squid-config.ts"
+    - "cat:src/domain-patterns.ts"
+    - "cat:tests/integration/*docker*.test.ts"
+    - "cat:tests/integration/blocked-domains.test.ts"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"
     - "ls:src"
@@ -88,25 +93,6 @@ steps:
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 
-  - name: Read top low-coverage source files
-    id: target-files
-    run: |
-      {
-        echo "TARGET_FILES<<EOF"
-        node -e "
-          const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-          const low = Object.entries(d)
-            .filter(([k, v]) => k !== 'total' && v.statements.pct < 80)
-            .sort((a, b) => a[1].statements.pct - b[1].statements.pct)
-            .slice(0, 3)
-            .map(([k]) => k);
-          low.forEach(f => {
-            console.log('=== ' + f + ' ===');
-            try { console.log(require('fs').readFileSync(f, 'utf8')); } catch(e) {}
-          });
-        " 2>/dev/null || echo "(not available)"
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
 ---
 
 # Test Coverage Improver
@@ -164,7 +150,7 @@ Before starting, check if there's already an open PR with test coverage improvem
 
 The build, test run, and coverage report have already been executed as pre-steps. Use the pre-computed results below instead of running them again.
 
-> **Context budget:** The pre-steps have provided everything you need.
+> **Context budget:** The pre-steps have provided the coverage artifacts you need.
 > Read at most **1 source file and 1 existing test file** to confirm patterns, then write tests immediately.
 > Do **not** run `npm run test:coverage` or re-read coverage files — the pre-computed data below is authoritative.
 
@@ -256,8 +242,8 @@ describe('functionName', () => {
    ```
 
 3. **Use the pre-computed coverage artifacts** to confirm you targeted the right gap:
-   - Review the `COVERAGE_SUMMARY.md` and low-coverage list below
-   - If you need more detail, inspect `coverage/coverage-summary.json` with the allowed `cat` tool
+    - Review the `COVERAGE_SUMMARY.md` and low-coverage list below
+    - If you need more detail, use the pre-computed `LOW_COVERAGE` output below (do not rerun coverage analysis)
 
 4. **Create a PR** with:
     - Clear description of what coverage was improved
@@ -285,10 +271,4 @@ ${{ steps.coverage-md.outputs.COVERAGE_MD }}
 
 ```
 ${{ steps.low-coverage.outputs.LOW_COVERAGE }}
-```
-
-### Target Source Files (pre-loaded)
-
-```
-${{ steps.target-files.outputs.TARGET_FILES }}
 ```
