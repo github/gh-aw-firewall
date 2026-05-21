@@ -26,7 +26,6 @@ const path = require('path');
 
 const { stripAnsi, applyAnsiStrip } = require('./transforms/ansi-strip');
 const {
-  withCacheControl,
   injectCacheBreakpoints,
   upgradeEphemeralTtl,
   MAX_CACHE_BREAKPOINTS,
