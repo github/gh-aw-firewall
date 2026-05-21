@@ -768,13 +768,17 @@ if [ -n "${GITHUB_PATH}" ] && [ -f "${GITHUB_PATH}" ]; then
   done < "${GITHUB_PATH}"
   [ -n "${_github_path_prefix}" ] && export PATH="${_github_path_prefix}${PATH}"
 fi
-# Dynamically scan /opt/hostedtoolcache for all installed tool bin directories
-# This covers tools installed by any setup-* action (setup-ruby, setup-dart,
-# setup-python, setup-node, setup-go, setup-java, etc.)
+# Dynamically scan toolcache roots for all installed tool bin directories.
+# This covers tools installed by setup-* actions on both hosted runners
+# (/opt/hostedtoolcache) and self-hosted runners (/home/runner/work/_tool).
 # Append (not prepend) so that $GITHUB_PATH entries and standard paths above
 # retain priority; discovered toolcache dirs serve as fallbacks only.
-if [ -d "/opt/hostedtoolcache" ]; then
-  for tool_dir in /opt/hostedtoolcache/*/; do
+append_toolcache_bins() {
+  local toolcache_root="$1"
+  if [ ! -d "${toolcache_root}" ]; then
+    return
+  fi
+  for tool_dir in "${toolcache_root}"/*/; do
     for version_dir in "$tool_dir"*/; do
       for arch_dir in "$version_dir"*/; do
         if [ -d "${arch_dir}bin" ]; then
@@ -786,7 +790,9 @@ if [ -d "/opt/hostedtoolcache" ]; then
       done
     done
   done
-fi
+}
+append_toolcache_bins "/opt/hostedtoolcache"
+append_toolcache_bins "/home/runner/work/_tool"
 # Add user's local bin if it exists
 [ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
 # Add Cargo bin for Rust (common in development)
@@ -813,7 +819,7 @@ if ! command -v node >/dev/null 2>&1; then
   echo "[entrypoint][ERROR] Copilot CLI requires Node.js, but 'node' is not available inside AWF chroot." >&2
   echo "[entrypoint][ERROR] Ensure Node.js is installed on the runner and reachable from PATH inside the chroot." >&2
   echo "[entrypoint][ERROR] If using setup-node or nvm, verify the install path is present and bind-mounted into /host." >&2
-  echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/... and $HOME/.nvm/..." >&2
+  echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/..., /home/runner/work/_tool/..., and $HOME/.nvm/..." >&2
   exit 127
 fi
 AWFEOF

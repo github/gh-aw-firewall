@@ -347,6 +347,36 @@ describe('agent service', () => {
       expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
     });
 
+    it('should mount self-hosted runner toolcache when present under HOME/work/_tool', () => {
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+      const originalHome = process.env.HOME;
+      const originalSudoUser = process.env.SUDO_USER;
+      delete process.env.SUDO_USER;
+      process.env.HOME = fakeHome;
+
+      try {
+        const toolcacheDir = path.join(fakeHome, 'work', '_tool');
+        fs.mkdirSync(toolcacheDir, { recursive: true });
+
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
     it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
       const originalHome = process.env.HOME;
@@ -365,6 +395,8 @@ describe('agent service', () => {
         expect(fs.existsSync(copilotDir)).toBe(false);
         // The blanket .copilot mount should be absent
         expect(volumes).not.toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+        // Optional self-hosted runner toolcache mount should also be absent
+        expect(volumes).not.toContain(`${fakeHome}/work/_tool:/host${fakeHome}/work/_tool:ro`);
         // But session-state and logs overlays are always present
         expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/session-state:rw`));
         expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/logs:rw`));

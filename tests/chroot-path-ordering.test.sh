@@ -44,6 +44,12 @@ printf '#!/bin/sh\necho "ruby 3.3.0"\n' > "${TOOLCACHE}/Ruby/3.3.0/x64/bin/ruby"
 chmod +x "${TOOLCACHE}/Ruby/3.1.0/x64/bin/ruby"
 chmod +x "${TOOLCACHE}/Ruby/3.3.0/x64/bin/ruby"
 
+# Build a fake self-hosted runner toolcache with a Node.js version
+RUNNER_TOOLCACHE="${TMPDIR_TEST}/home/runner/work/_tool"
+mkdir -p "${RUNNER_TOOLCACHE}/node/20.19.0/x64/bin"
+printf '#!/bin/sh\necho "node 20.19.0"\n' > "${RUNNER_TOOLCACHE}/node/20.19.0/x64/bin/node"
+chmod +x "${RUNNER_TOOLCACHE}/node/20.19.0/x64/bin/node"
+
 # ---------------------------------------------------------------------------
 # Helper: run the extracted PATH logic in a clean environment, then evaluate
 # the resulting PATH with a provided test expression.
@@ -54,13 +60,15 @@ run_path_test() {
   local check_expr="$3"          # bash expression to evaluate after PATH is set
 
   # Build the inline script from the relevant heredoc section of entrypoint.sh.
-  # We replace /opt/hostedtoolcache with our fake TOOLCACHE so the test is
+  # We replace the toolcache roots with fake test fixtures so the test is
   # self-contained and doesn't depend on the host runner layout.
   local script
   script="$(
     sed -n '/^# Prepend entries from \$GITHUB_PATH/,/^AWFEOF$/{ /^AWFEOF$/d; p; }' \
       "${ENTRYPOINT}" |
-    sed "s|/opt/hostedtoolcache|${TOOLCACHE}|g"
+    sed \
+      -e "s|/opt/hostedtoolcache|${TOOLCACHE}|g" \
+      -e "s|/home/runner/work/_tool|${RUNNER_TOOLCACHE}|g"
   )"
 
   # Run the script in a sub-shell with a clean environment
@@ -150,6 +158,29 @@ if run_path_test "${GP_FILE_DUP}" "${BASE_PATH}" "
   pass "toolcache scan does not duplicate a directory already in PATH from GITHUB_PATH"
 else
   fail "toolcache scan duplicated a directory already in PATH from GITHUB_PATH"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 5: Self-hosted runner toolcache is scanned for fallback binaries
+# ---------------------------------------------------------------------------
+FALLBACK_BASE_PATH="/tmp/awf-empty-path"
+
+if run_path_test "" "${FALLBACK_BASE_PATH}" "
+  case \"\${PATH}\" in
+    *\"${RUNNER_TOOLCACHE}/node/20.19.0/x64/bin\"*) exit 0;;
+    *) exit 1;;
+  esac
+"; then
+  pass "self-hosted runner toolcache bins are appended to PATH"
+else
+  fail "self-hosted runner toolcache bins were not added to PATH"
+fi
+
+if run_path_test "" "${FALLBACK_BASE_PATH}" \
+  '[ "$(command -v node 2>/dev/null)" = "${RUNNER_TOOLCACHE}/node/20.19.0/x64/bin/node" ]'; then
+  pass "node resolves from self-hosted runner toolcache fallback"
+else
+  fail "node does not resolve from self-hosted runner toolcache fallback"
 fi
 
 # ---------------------------------------------------------------------------

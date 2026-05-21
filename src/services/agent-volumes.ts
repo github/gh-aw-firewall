@@ -203,6 +203,12 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // Mount ~/.nvm for Node.js installations managed by nvm on self-hosted runners
   agentVolumes.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
+  // Mount self-hosted runner toolcache when present (e.g. ARC/DinD under $HOME/work/_tool)
+  const runnerToolCacheDir = path.join(effectiveHome, 'work', '_tool');
+  if (fs.existsSync(runnerToolCacheDir)) {
+    agentVolumes.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
+  }
+
   // Minimal /etc - only what's needed for runtime
   // Note: /etc/shadow is NOT mounted (contains password hashes)
   agentVolumes.push(
