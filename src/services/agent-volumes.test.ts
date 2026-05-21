@@ -377,6 +377,40 @@ describe('agent service', () => {
       }
     });
 
+    it('should not mount HOME/work/_tool when it is a symlink', () => {
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+      const symlinkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-target-'));
+      const originalHome = process.env.HOME;
+      const originalSudoUser = process.env.SUDO_USER;
+      delete process.env.SUDO_USER;
+      process.env.HOME = fakeHome;
+
+      try {
+        const workDir = path.join(fakeHome, 'work');
+        fs.mkdirSync(workDir, { recursive: true });
+        const toolcacheDir = path.join(workDir, '_tool');
+        fs.symlinkSync(symlinkTarget, toolcacheDir);
+
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).not.toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+        fs.rmSync(symlinkTarget, { recursive: true, force: true });
+      }
+    });
+
     it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
       const originalHome = process.env.HOME;

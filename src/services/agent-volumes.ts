@@ -204,9 +204,16 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   agentVolumes.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
   // Mount self-hosted runner toolcache when present (e.g. ARC/DinD under $HOME/work/_tool)
+  // Use lstatSync (not existsSync/statSync) so a symlink at _tool does not pass the
+  // isDirectory() check — prevents an attacker from redirecting the bind-mount via symlink.
   const runnerToolCacheDir = path.join(effectiveHome, 'work', '_tool');
-  if (fs.existsSync(runnerToolCacheDir)) {
-    agentVolumes.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
+  try {
+    const stat = fs.lstatSync(runnerToolCacheDir);
+    if (stat.isDirectory()) {
+      agentVolumes.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
+    }
+  } catch {
+    // Directory does not exist or is not accessible — skip the optional mount
   }
 
   // Minimal /etc - only what's needed for runtime

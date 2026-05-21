@@ -770,7 +770,7 @@ if [ -n "${GITHUB_PATH}" ] && [ -f "${GITHUB_PATH}" ]; then
 fi
 # Dynamically scan toolcache roots for all installed tool bin directories.
 # This covers tools installed by setup-* actions on both hosted runners
-# (/opt/hostedtoolcache) and self-hosted runners (/home/runner/work/_tool).
+# (/opt/hostedtoolcache) and self-hosted runners ($HOME/work/_tool).
 # Append (not prepend) so that $GITHUB_PATH entries and standard paths above
 # retain priority; discovered toolcache dirs serve as fallbacks only.
 append_toolcache_bins() {
@@ -792,7 +792,7 @@ append_toolcache_bins() {
   done
 }
 append_toolcache_bins "/opt/hostedtoolcache"
-append_toolcache_bins "/home/runner/work/_tool"
+append_toolcache_bins "${HOME}/work/_tool"
 # Add user's local bin if it exists
 [ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
 # Add Cargo bin for Rust (common in development)
@@ -819,7 +819,7 @@ if ! command -v node >/dev/null 2>&1; then
   echo "[entrypoint][ERROR] Copilot CLI requires Node.js, but 'node' is not available inside AWF chroot." >&2
   echo "[entrypoint][ERROR] Ensure Node.js is installed on the runner and reachable from PATH inside the chroot." >&2
   echo "[entrypoint][ERROR] If using setup-node or nvm, verify the install path is present and bind-mounted into /host." >&2
-  echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/..., /home/runner/work/_tool/..., and $HOME/.nvm/..." >&2
+  echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/..., $HOME/work/_tool/..., and $HOME/.nvm/..." >&2
   exit 127
 fi
 AWFEOF
