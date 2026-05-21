@@ -37,9 +37,11 @@ function applyAnsiStrip(body) {
   if (!Array.isArray(body.messages)) return body;
 
   const messages = body.messages.map(msg => {
+    if (!msg || typeof msg !== 'object') return msg;
     if (!Array.isArray(msg.content)) return msg;
 
     const content = msg.content.map(block => {
+      if (!block || typeof block !== 'object') return block;
       if (block.type !== 'tool_result') return block;
 
       // tool_result.content may be a plain string …
@@ -50,6 +52,7 @@ function applyAnsiStrip(body) {
       // … or an array of typed sub-blocks
       if (Array.isArray(block.content)) {
         const inner = block.content.map(b => {
+          if (!b || typeof b !== 'object') return b;
           if (b.type === 'text' && typeof b.text === 'string') {
             return { ...b, text: stripAnsi(b.text) };
           }

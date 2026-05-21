@@ -174,6 +174,17 @@ describe('applyAnsiStrip', () => {
     expect(result).not.toBe(body);
     expect(body.messages[0].content[0].content).toBe('\x1B[0m'); // original untouched
   });
+
+  it('ignores malformed message/content entries without throwing', () => {
+    const body = {
+      messages: [null, { role: 'user', content: [null, { type: 'text', text: 'ok' }] }],
+    };
+    expect(() => applyAnsiStrip(body)).not.toThrow();
+    const result = applyAnsiStrip(body);
+    expect(result.messages[0]).toBeNull();
+    expect(result.messages[1].content[0]).toBeNull();
+    expect(result.messages[1].content[1]).toEqual({ type: 'text', text: 'ok' });
+  });
 });
 
 // ── applyToolDrop ─────────────────────────────────────────────────────────────
@@ -240,6 +251,18 @@ describe('applyToolDrop', () => {
     const result = applyToolDrop(body, ['NotebookEdit'], pattern);
     expect(result.system[0].text).not.toContain('NotebookEdit');
     expect(result.tools).toBeUndefined();
+  });
+
+  it('ignores malformed tool/system entries without throwing', () => {
+    const body = {
+      messages: [],
+      tools: [null, { name: 'NotebookEdit' }],
+      system: [null, { type: 'text', text: 'Use NotebookEdit.' }],
+    };
+    expect(() => applyToolDrop(body, ['NotebookEdit'])).not.toThrow();
+    const result = applyToolDrop(body, ['NotebookEdit']);
+    expect(result.tools).toEqual([null]);
+    expect(result.system).toEqual([null, { type: 'text', text: 'Use .' }]);
   });
 });
 
@@ -398,6 +421,11 @@ describe('injectCacheBreakpoints', () => {
     const body = { messages: [] };
     expect(() => injectCacheBreakpoints(body)).not.toThrow();
   });
+
+  it('handles malformed message entries gracefully', () => {
+    const body = { messages: [null, { role: 'user', content: [{ type: 'text', text: 'ok' }] }] };
+    expect(() => injectCacheBreakpoints(body)).not.toThrow();
+  });
 });
 
 // Helper: count total cache_control breakpoints in a body
@@ -496,6 +524,15 @@ describe('upgradeEphemeralTtl', () => {
     const once = upgradeEphemeralTtl(body, '5m');
     const twice = upgradeEphemeralTtl(once, '5m');
     expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+  });
+
+  it('handles malformed entries without throwing', () => {
+    const body = {
+      tools: [null, { name: 'T', cache_control: { type: 'ephemeral' } }],
+      system: [null, { type: 'text', cache_control: { type: 'ephemeral' } }],
+      messages: [null, { role: 'user', content: [null, makeBlock('tail', { type: 'ephemeral' })] }],
+    };
+    expect(() => upgradeEphemeralTtl(body, '5m')).not.toThrow();
   });
 });
 

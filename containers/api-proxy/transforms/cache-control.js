@@ -29,6 +29,7 @@ const EXTENDED_CACHE_BETA = 'extended-cache-ttl-2025-04-11';
  * @returns {object}
  */
 function withCacheControl(block, cacheControl) {
+  if (!block || typeof block !== 'object') return block;
   return { ...block, cache_control: cacheControl };
 }
 
@@ -59,29 +60,37 @@ function injectCacheBreakpoints(body, tailTtl = '5m') {
   if (slotsUsed < MAX_CACHE_BREAKPOINTS &&
       Array.isArray(result.tools) && result.tools.length > 0) {
     const tools = [...result.tools];
-    tools[tools.length - 1] = withCacheControl(tools[tools.length - 1], { type: 'ephemeral', ttl: '1h' });
-    result.tools = tools;
-    slotsUsed++;
+    const lastTool = tools[tools.length - 1];
+    if (lastTool && typeof lastTool === 'object') {
+      tools[tools.length - 1] = withCacheControl(lastTool, { type: 'ephemeral', ttl: '1h' });
+      result.tools = tools;
+      slotsUsed++;
+    }
   }
 
   // Slot 2: last system block
   if (slotsUsed < MAX_CACHE_BREAKPOINTS &&
       Array.isArray(result.system) && result.system.length > 0) {
     const system = [...result.system];
-    system[system.length - 1] = withCacheControl(system[system.length - 1], { type: 'ephemeral', ttl: '1h' });
-    result.system = system;
-    slotsUsed++;
+    const lastSystemBlock = system[system.length - 1];
+    if (lastSystemBlock && typeof lastSystemBlock === 'object') {
+      system[system.length - 1] = withCacheControl(lastSystemBlock, { type: 'ephemeral', ttl: '1h' });
+      result.system = system;
+      slotsUsed++;
+    }
   }
 
   // Slot 3: last block of messages[0]
   const msgs = result.messages;
+  const firstMsg = Array.isArray(msgs) && msgs.length > 0 ? msgs[0] : null;
   if (slotsUsed < MAX_CACHE_BREAKPOINTS &&
       Array.isArray(msgs) && msgs.length > 0 &&
-      Array.isArray(msgs[0].content) && msgs[0].content.length > 0) {
-    const content = [...msgs[0].content];
+      firstMsg && typeof firstMsg === 'object' &&
+      Array.isArray(firstMsg.content) && firstMsg.content.length > 0) {
+    const content = [...firstMsg.content];
     content[content.length - 1] = withCacheControl(content[content.length - 1], { type: 'ephemeral', ttl: '1h' });
     const messages = [...msgs];
-    messages[0] = { ...msgs[0], content };
+    messages[0] = { ...firstMsg, content };
     result.messages = messages;
     slotsUsed++;
   }
@@ -92,7 +101,8 @@ function injectCacheBreakpoints(body, tailTtl = '5m') {
       Array.isArray(result.messages) && result.messages.length > 1) {
     const messages = result.messages;
     const lastMsg = messages[messages.length - 1];
-    if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+    if (lastMsg && typeof lastMsg === 'object' &&
+        Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
       const content = [...lastMsg.content];
       content[content.length - 1] = withCacheControl(
         content[content.length - 1],
@@ -130,6 +140,7 @@ function upgradeEphemeralTtl(body, tailTtl = '5m') {
   if (Array.isArray(body.messages)) {
     outer: for (let i = body.messages.length - 1; i >= 0; i--) {
       const msg = body.messages[i];
+      if (!msg || typeof msg !== 'object') continue;
       if (!Array.isArray(msg.content)) continue;
       for (let j = msg.content.length - 1; j >= 0; j--) {
         const b = msg.content[j];
@@ -147,6 +158,7 @@ function upgradeEphemeralTtl(body, tailTtl = '5m') {
   // Upgrade tools — these are always static, so always use 1h
   if (Array.isArray(result.tools)) {
     const tools = result.tools.map(tool => {
+      if (!tool || typeof tool !== 'object') return tool;
       if (!tool.cache_control ||
           tool.cache_control.type !== 'ephemeral' ||
           tool.cache_control.ttl) return tool;
@@ -158,6 +170,7 @@ function upgradeEphemeralTtl(body, tailTtl = '5m') {
   // Upgrade system blocks — also static, always use 1h
   if (Array.isArray(result.system)) {
     const system = result.system.map(block => {
+      if (!block || typeof block !== 'object') return block;
       if (!block.cache_control ||
           block.cache_control.type !== 'ephemeral' ||
           block.cache_control.ttl) return block;
@@ -169,6 +182,7 @@ function upgradeEphemeralTtl(body, tailTtl = '5m') {
   // Upgrade messages — tail keeps tailTtl; everything else gets 1h
   if (Array.isArray(result.messages)) {
     const messages = result.messages.map((msg, mi) => {
+      if (!msg || typeof msg !== 'object') return msg;
       if (!Array.isArray(msg.content)) return msg;
       const content = msg.content.map((block, bi) => {
         if (!block ||

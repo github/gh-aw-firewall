@@ -44,7 +44,10 @@ function applyToolDrop(body, toolNames, scrubPattern = null) {
 
   // Remove matching entries from the tools array
   if (Array.isArray(result.tools)) {
-    const filtered = result.tools.filter(tool => !dropSet.has(tool.name));
+    const filtered = result.tools.filter(tool => {
+      if (!tool || typeof tool !== 'object') return true;
+      return !dropSet.has(tool.name);
+    });
     if (filtered.length < result.tools.length) {
       if (filtered.length === 0) {
         result = { ...result };
@@ -61,6 +64,7 @@ function applyToolDrop(body, toolNames, scrubPattern = null) {
   if (Array.isArray(result.system)) {
     const pattern = scrubPattern || buildToolScrubPattern([...dropSet]);
     result.system = result.system.map(block => {
+      if (!block || typeof block !== 'object') return block;
       if (block.type !== 'text' || typeof block.text !== 'string') return block;
       const scrubbed = block.text.replace(pattern, '');
       return scrubbed === block.text ? block : { ...block, text: scrubbed };
