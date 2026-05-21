@@ -620,8 +620,14 @@ pending warning per subsequent request):
 
 ### 10.6 Introspection
 
-When the API proxy `/reflect` endpoint is queried, the response MUST
-include the current effective-token state:
+The API proxy exposes a `GET /reflect` endpoint on every provider port
+(10000–10004). Each port returns the same aggregate reflection payload, whose
+`endpoints` array lists all provider adapters. Only the management port
+(10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
+ports still serve provider-local `/health` responses.
+
+When the `/reflect` endpoint is queried, the response MUST include the
+current effective-token state:
 
 ```json
 {
@@ -685,8 +691,8 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 ### 11.3 Introspection
 
-When the API proxy `/reflect` endpoint is queried, the response MUST include
-the current max-runs state:
+The `/reflect` endpoint (available on all provider ports 10000–10004; see
+§10.6) MUST include the current max-runs state:
 
 ```json
 {
