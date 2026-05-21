@@ -54,12 +54,17 @@ steps:
       GH_TOKEN: ${{ github.token }}
   - name: Check GitHub.com reachability
     run: |
-      TITLE=$(curl -s --max-time 15 https://github.com | grep -oP '(?<=<title>)[^<]+' | head -1)
-      echo "GitHub title: $TITLE"
-      if echo "$TITLE" | grep -q "GitHub"; then
-        echo "playwright_check=✅ PASS — title: $TITLE" >> /tmp/gh-aw/agent/smoke-context.txt
+      CONTEXT_FILE=/tmp/gh-aw/agent/smoke-context.txt
+      if TITLE=$(curl -fsSL --max-time 15 https://github.com | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | head -1); then
+        TITLE=$(echo "$TITLE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       else
-        echo "playwright_check=❌ FAIL — title not found" >> /tmp/gh-aw/agent/smoke-context.txt
+        TITLE=""
+      fi
+      echo "GitHub title: ${TITLE:-<empty>}"
+      if echo "$TITLE" | grep -q "GitHub"; then
+        echo "playwright_check=✅ PASS — title: $TITLE" > "$CONTEXT_FILE"
+      else
+        echo "playwright_check=❌ FAIL — title not found" > "$CONTEXT_FILE"
       fi
   - name: Verify smoke test file exists
     run: |

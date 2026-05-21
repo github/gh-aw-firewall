@@ -12,6 +12,9 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('max-turns: 5');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
+    expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
+    expect(source).not.toContain("grep -oP '(?<=<title>)[^<]+'");
+    expect(source).toContain('> "$CONTEXT_FILE"');
     expect(source).toContain('**IMPORTANT — Complete in 1 pass:**');
     expect(source).not.toContain('tools:\n  playwright:');
     expect(source).not.toContain('    - playwright');
@@ -24,6 +27,10 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).toContain('--max-turns 5');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
+    expect(lock).toContain(
+      'github/gh-aw-actions/setup@efa55847f72aadb03490d955263ff911bf758700 # v0.74.8'
+    );
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.74.8');
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');
