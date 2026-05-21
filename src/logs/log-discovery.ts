@@ -145,7 +145,7 @@ export function selectMostRecent(sources: LogSource[]): LogSource | null {
  * @param containerName - Name of the container to check
  * @returns true if container is running, false otherwise
  */
-export async function isContainerRunning(containerName: string): Promise<boolean> {
+async function isContainerRunning(containerName: string): Promise<boolean> {
   try {
     const { stdout } = await execa('docker', [
       'ps',
@@ -162,6 +162,10 @@ export async function isContainerRunning(containerName: string): Promise<boolean
     return false;
   }
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = { isContainerRunning };
 
 /**
  * Validates and creates a LogSource from a user-specified path or "running" keyword

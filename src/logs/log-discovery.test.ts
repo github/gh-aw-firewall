@@ -8,7 +8,7 @@ import * as os from 'os';
 import {
   discoverLogSources,
   selectMostRecent,
-  isContainerRunning,
+  testHelpers,
   validateSource,
   listLogSources,
 } from './log-discovery';
@@ -42,7 +42,7 @@ describe('log-discovery', () => {
     it('should return true when container is running', async () => {
       mockedExeca.mockResolvedValue({ stdout: 'awf-squid', stderr: '' } as never);
 
-      const result = await isContainerRunning('awf-squid');
+      const result = await testHelpers.isContainerRunning('awf-squid');
 
       expect(result).toBe(true);
       expect(mockedExeca).toHaveBeenCalledWith('docker', [
@@ -57,7 +57,7 @@ describe('log-discovery', () => {
     it('should return false when container is not running', async () => {
       mockedExeca.mockResolvedValue({ stdout: '', stderr: '' } as never);
 
-      const result = await isContainerRunning('awf-squid');
+      const result = await testHelpers.isContainerRunning('awf-squid');
 
       expect(result).toBe(false);
     });
@@ -65,7 +65,7 @@ describe('log-discovery', () => {
     it('should return false when container name does not match exactly', async () => {
       mockedExeca.mockResolvedValue({ stdout: 'awf-squid-old', stderr: '' } as never);
 
-      const result = await isContainerRunning('awf-squid');
+      const result = await testHelpers.isContainerRunning('awf-squid');
 
       expect(result).toBe(false);
     });
@@ -73,7 +73,7 @@ describe('log-discovery', () => {
     it('should return false when docker command fails', async () => {
       mockedExeca.mockRejectedValue(new Error('Docker not available'));
 
-      const result = await isContainerRunning('awf-squid');
+      const result = await testHelpers.isContainerRunning('awf-squid');
 
       expect(result).toBe(false);
     });
