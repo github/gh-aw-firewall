@@ -447,17 +447,17 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
     span.setAttributes({
       'gen_ai.usage.input_tokens':                normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':               normalizedUsage.output_tokens,
-      'gen_ai.usage.cache_read.input_tokens':     normalizedUsage.cache_read_tokens,
-      'gen_ai.usage.cache_creation.input_tokens': normalizedUsage.cache_write_tokens,
-      'gen_ai.usage.reasoning.output_tokens':     normalizedUsage.reasoning_tokens || 0,
+      'gen_ai.usage.cache_read_input_tokens':     normalizedUsage.cache_read_tokens,
+      'gen_ai.usage.cache_creation_input_tokens': normalizedUsage.cache_write_tokens,
+      'gen_ai.usage.reasoning_output_tokens':     normalizedUsage.reasoning_tokens || 0,
       'gen_ai.request.stream':                    streaming,
     });
     span.addEvent('gen_ai.usage', {
       'gen_ai.usage.input_tokens':                normalizedUsage.input_tokens,
       'gen_ai.usage.output_tokens':               normalizedUsage.output_tokens,
-      'gen_ai.usage.cache_read.input_tokens':     normalizedUsage.cache_read_tokens,
-      'gen_ai.usage.cache_creation.input_tokens': normalizedUsage.cache_write_tokens,
-      'gen_ai.usage.reasoning.output_tokens':     normalizedUsage.reasoning_tokens || 0,
+      'gen_ai.usage.cache_read_input_tokens':     normalizedUsage.cache_read_tokens,
+      'gen_ai.usage.cache_creation_input_tokens': normalizedUsage.cache_write_tokens,
+      'gen_ai.usage.reasoning_output_tokens':     normalizedUsage.reasoning_tokens || 0,
     });
   } catch { /* best-effort */ }
 }
