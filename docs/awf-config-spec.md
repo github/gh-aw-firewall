@@ -621,9 +621,10 @@ pending warning per subsequent request):
 ### 10.6 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port
-(10000–10004). Each port returns reflection metadata for its own provider
-adapter. The management port (10000, OpenAI) additionally serves `/health`
-and `/metrics`.
+(10000–10004). Each port returns the same aggregate reflection payload, whose
+`endpoints` array lists all provider adapters. Only the management port
+(10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
+ports still serve provider-local `/health` responses.
 
 When the `/reflect` endpoint is queried, the response MUST include the
 current effective-token state:
