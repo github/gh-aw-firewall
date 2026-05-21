@@ -74,7 +74,8 @@ describe('squid service', () => {
       expect(inlineScript).not.toContain('chown -R');
       // The SSL DB chown is conditional on the dir existing so it is a no-op
       // when SSL Bump is disabled but engages automatically when it is enabled.
-      expect(inlineScript).toContain('if [ -d /var/spool/squid_ssl_db ]; then chown proxy:proxy /var/spool/squid_ssl_db; fi');
+      // Falls back to chmod 0777 if chown is denied (tolerant, like config-writer.ts).
+      expect(inlineScript).toContain('if [ -d /var/spool/squid_ssl_db ]; then chown proxy:proxy /var/spool/squid_ssl_db 2>/dev/null || chmod 0777 /var/spool/squid_ssl_db; fi');
       // Privileges must drop before squid itself starts. We use su (always
       // present in the ubuntu/squid base) rather than gosu or runuser.
       expect(inlineScript).toContain('exec su -s /bin/bash proxy -c');

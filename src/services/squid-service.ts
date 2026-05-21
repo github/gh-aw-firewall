@@ -118,13 +118,20 @@ export function buildSquidService(params: SquidServiceParams): any {
   // ubuntu; su is in util-linux and present without any extra install. This
   // keeps the change wrapper-only with no rebuild of the squid container.
   //
+  // The chown is tolerant: if chown fails (e.g. root-squash NFS, or the dir is
+  // already owned by the proxy user on a FS that denies root chown), we fall
+  // back to chmod 0777 — the same strategy as config-writer.ts — so the
+  // container does not exit when the directory is already writable.
+  // The chown is non-recursive (no -R): only the bind-mount dir's own
+  // ownership is repaired, not its (potentially large) contents.
+  //
   // Use $$ to escape $ for Docker Compose variable interpolation.
   // Docker Compose interprets $VAR as variable substitution in YAML values;
   // $$ produces a literal $ that the shell inside the container will expand.
   const SQUID_PROXY_USER = 'proxy';
   const chownPreflight =
-    `chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/log/squid && ` +
-    `if [ -d /var/spool/squid_ssl_db ]; then chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/spool/squid_ssl_db; fi`;
+    `chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/log/squid 2>/dev/null || chmod 0777 /var/log/squid` +
+    `; if [ -d /var/spool/squid_ssl_db ]; then chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/spool/squid_ssl_db 2>/dev/null || chmod 0777 /var/spool/squid_ssl_db; fi`;
   const dropToProxy = `exec su -s /bin/bash ${SQUID_PROXY_USER} -c`;
 
   squidService.user = '0:0';
