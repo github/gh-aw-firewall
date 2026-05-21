@@ -99,20 +99,53 @@ export function buildSquidService(params: SquidServiceParams): any {
   // squid.conf fails because the daemon creates a directory at the missing path.
   // Passing the config as a base64-encoded env var works universally because
   // env vars are part of the container spec sent via the Docker API.
+  //
+  // The entrypoint also runs a chown preflight as root to repair the
+  // bind-mount source ownership on split runner/Docker daemon filesystems
+  // (e.g. ARC + DinD). The wrapper chowns /workDir/squid-logs to UID 13:13
+  // in config-writer.ts, but only against the runner's view of the filesystem.
+  // On DinD the daemon's view of that path starts empty and Docker auto-creates
+  // it as root-owned, overriding the Dockerfile-baked /var/log/squid (proxy-
+  // owned) inside the container. Squid (UID 13) then exits 1 the first time it
+  // tries to open access.log. The non-recursive chown here repairs the dir's
+  // own ownership before squid starts. On shared-filesystem runners it is a
+  // no-op because the dir is already 13:13. After the chown the entrypoint
+  // drops to the proxy user via 'su -s /bin/bash proxy -c ...' before the
+  // image's own entrypoint script runs (which does the IPv6 strip and execs
+  // squid as the proxy user).
+  //
+  // su is used instead of runuser/gosu because the squid base image is plain
+  // ubuntu; su is in util-linux and present without any extra install. This
+  // keeps the change wrapper-only with no rebuild of the squid container.
+  //
+  // Use $$ to escape $ for Docker Compose variable interpolation.
+  // Docker Compose interprets $VAR as variable substitution in YAML values;
+  // $$ produces a literal $ that the shell inside the container will expand.
+  const SQUID_PROXY_USER = 'proxy';
+  const chownPreflight =
+    `chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/log/squid && ` +
+    `if [ -d /var/spool/squid_ssl_db ]; then chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/spool/squid_ssl_db; fi`;
+  const dropToProxy = `exec su -s /bin/bash ${SQUID_PROXY_USER} -c`;
+
+  squidService.user = '0:0';
   if (squidConfigContent) {
     const configB64 = Buffer.from(squidConfigContent).toString('base64');
     squidService.environment = {
       ...squidService.environment,
       AWF_SQUID_CONFIG_B64: configB64,
     };
-    // Override entrypoint to decode the config before starting squid.
-    // The original entrypoint (/usr/local/bin/entrypoint.sh) is called after decoding.
-    // Use $$ to escape $ for Docker Compose variable interpolation.
-    // Docker Compose interprets $VAR as variable substitution in YAML values;
-    // $$ produces a literal $ that the shell inside the container will expand.
+    // After the chown, drop to proxy and decode the config there (so the
+    // resulting /etc/squid/squid.conf is proxy-owned and the image
+    // entrypoint's later sed -i succeeds), then exec the image entrypoint.
     squidService.entrypoint = [
       '/bin/bash', '-c',
-      'echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && exec /usr/local/bin/entrypoint.sh',
+      `${chownPreflight} && ${dropToProxy} 'echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && exec /usr/local/bin/entrypoint.sh'`,
+    ];
+  } else {
+    // No config injection — just chown + drop + run the image entrypoint.
+    squidService.entrypoint = [
+      '/bin/bash', '-c',
+      `${chownPreflight} && ${dropToProxy} 'exec /usr/local/bin/entrypoint.sh'`,
     ];
   }
 
