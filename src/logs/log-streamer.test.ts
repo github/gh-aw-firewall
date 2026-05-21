@@ -23,6 +23,15 @@ jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').l
 const mockedExeca = execa as jest.MockedFunction<typeof execa>;
 const mockedFs = fs as jest.Mocked<typeof fs>;
 
+function makeMockExecaProcess(): { stdout: Readable; kill: jest.Mock } {
+  const stdout = new Readable({
+    read() {
+      this.push(null);
+    },
+  });
+  return { stdout, kill: jest.fn() };
+}
+
 describe('log-streamer', () => {
   let stdoutWriteSpy: jest.SpyInstance;
 
@@ -83,17 +92,7 @@ describe('log-streamer', () => {
       };
       const formatter = new LogFormatter({ format: 'raw' });
 
-      const mockStdout = new Readable({
-        read() {
-          this.push(null);
-        },
-      });
-
-      const mockProcess = {
-        stdout: mockStdout,
-        kill: jest.fn(),
-      };
-
+      const mockProcess = makeMockExecaProcess();
       mockedExeca.mockReturnValue(mockProcess as never);
 
       await streamLogs({
@@ -117,17 +116,7 @@ describe('log-streamer', () => {
       };
       const formatter = new LogFormatter({ format: 'raw' });
 
-      const mockStdout = new Readable({
-        read() {
-          this.push(null);
-        },
-      });
-
-      const mockProcess = {
-        stdout: mockStdout,
-        kill: jest.fn(),
-      };
-
+      const mockProcess = makeMockExecaProcess();
       mockedExeca.mockReturnValue(mockProcess as never);
 
       // Simulate SIGTERM by resolving with signal
@@ -219,17 +208,7 @@ describe('log-streamer', () => {
 
       mockedFs.existsSync.mockReturnValue(true);
 
-      const mockStdout = new Readable({
-        read() {
-          this.push(null);
-        },
-      });
-
-      const mockProcess = {
-        stdout: mockStdout,
-        kill: jest.fn(),
-      };
-
+      const mockProcess = makeMockExecaProcess();
       mockedExeca.mockReturnValue(mockProcess as never);
 
       await streamLogs({
