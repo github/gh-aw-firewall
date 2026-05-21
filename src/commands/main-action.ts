@@ -21,6 +21,7 @@ import { joinShellArgs } from '../option-parsers';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
+import { probeSplitFilesystem } from '../dind-probe';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -81,6 +82,21 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // Apply --docker-host override for AWF's own container operations.
   // This must be called before startContainers/stopContainers/runAgentCommand.
   setAwfDockerHost(config.awfDockerHost);
+
+  // Auto-detect split filesystem in DinD environments when no explicit prefix is set.
+  // This probe runs a lightweight container to check if the daemon can see runner paths.
+  if (!config.dockerHostPathPrefix) {
+    const probeResult = await probeSplitFilesystem(config.workDir);
+    if (probeResult.prefix) {
+      config.dockerHostPathPrefix = probeResult.prefix;
+      logger.info(`Auto-applied --docker-host-path-prefix ${probeResult.prefix} (DinD split filesystem detected)`);
+    } else if (probeResult.splitDetected) {
+      logger.warn(
+        '⚠️  Split runner/daemon filesystem detected but no known prefix worked. ' +
+        'Set --docker-host-path-prefix manually if bind mounts fail.',
+      );
+    }
+  }
 
   // Log config with redacted secrets - remove API keys entirely
   // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
