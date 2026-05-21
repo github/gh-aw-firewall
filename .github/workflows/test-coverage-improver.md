@@ -33,16 +33,13 @@ tools:
     - "npm run test"
     - "npm run lint"
     - "cat:src/*.test.ts"
-    - "cat:src/*.ts"
-    - "cat:tests/**"
-    - "cat:coverage/coverage-summary.json"
+    - "cat:tests/integration/squid*.test.ts"
+    - "cat:tests/integration/docker*.test.ts"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"
     - "ls:src"
     - "ls:tests"
     - "ls:coverage"
-    - "head:*"
-    - "tail:*"
 
 safe-outputs:
   threat-detection:
@@ -88,6 +85,26 @@ steps:
           if (low.length === 0) { console.log('All files are above 80% coverage.'); }
           else { low.forEach(([k, v]) => console.log(k + ' \u2014 ' + v.statements.pct + '%')); }
         " 2>/dev/null || echo "(coverage summary not available)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Read top low-coverage source files
+    id: target-files
+    run: |
+      {
+        echo "TARGET_FILES<<EOF"
+        node -e "
+          const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
+          const low = Object.entries(d)
+            .filter(([k, v]) => k !== 'total' && v.statements.pct < 80)
+            .sort((a, b) => a[1].statements.pct - b[1].statements.pct)
+            .slice(0, 3)
+            .map(([k]) => k);
+          low.forEach(f => {
+            console.log('=== ' + f + ' ===');
+            try { console.log(require('fs').readFileSync(f, 'utf8')); } catch(e) {}
+          });
+        " 2>/dev/null || echo "(not available)"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 ---
@@ -147,6 +164,10 @@ Before starting, check if there's already an open PR with test coverage improvem
 
 The build, test run, and coverage report have already been executed as pre-steps. Use the pre-computed results below instead of running them again.
 
+> **Context budget:** The pre-steps have provided everything you need.
+> Read at most **1 source file and 1 existing test file** to confirm patterns, then write tests immediately.
+> Do **not** run `npm run test:coverage` or re-read coverage files — the pre-computed data below is authoritative.
+
 **Examine the coverage data** and identify:
 - Files with statement coverage below 80%
 - Functions with 0% coverage
@@ -193,9 +214,11 @@ Create tests that:
 3. **Mock external dependencies** - Use `jest.mock()` for Docker, iptables, etc.
 4. **Test error paths** - Verify error handling works correctly
 5. **Include security tests**:
-   - Injection prevention
-   - Input validation
-   - Privilege handling
+    - Injection prevention
+    - Input validation
+    - Privilege handling
+
+> Do **not** run `npm run test` or `npm run lint` until after you have written new tests.
 
 Example test structure:
 ```typescript
@@ -262,4 +285,10 @@ ${{ steps.coverage-md.outputs.COVERAGE_MD }}
 
 ```
 ${{ steps.low-coverage.outputs.LOW_COVERAGE }}
+```
+
+### Target Source Files (pre-loaded)
+
+```
+${{ steps.target-files.outputs.TARGET_FILES }}
 ```
