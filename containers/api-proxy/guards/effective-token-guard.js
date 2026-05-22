@@ -1,5 +1,7 @@
 'use strict';
 
+const { parsePositiveInteger } = require('./guard-utils');
+
 const ET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 
 const ET_DEFAULT_WEIGHTS = Object.freeze({
@@ -33,13 +35,6 @@ const effectiveTokenConfigCache = {
   parsed: { max: null, multipliers: {} },
 };
 
-function parseMaxEffectiveTokens(raw) {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
 function parseModelMultipliers(raw) {
   if (!raw || String(raw).trim() === '') return {};
   try {
@@ -69,7 +64,7 @@ function getEffectiveTokenConfig() {
   effectiveTokenConfigCache.rawMultipliers = rawMultipliers;
   const parsedMultipliers = Object.freeze(parseModelMultipliers(rawMultipliers));
   effectiveTokenConfigCache.parsed = {
-    max: parseMaxEffectiveTokens(rawMax),
+    max: parsePositiveInteger(rawMax),
     multipliers: parsedMultipliers,
   };
   return effectiveTokenConfigCache.parsed;
