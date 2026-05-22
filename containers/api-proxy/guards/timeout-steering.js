@@ -1,6 +1,7 @@
 'use strict';
 
 const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
+const { parsePositiveInteger } = require('./guard-utils');
 
 const TIMEOUT_STEERING_MESSAGES = {
   80: 'You have used 80% of your allotted run time. Begin planning to wrap up your current work.',
@@ -25,20 +26,13 @@ const timeoutSteeringConfigCache = {
   parsedMinutes: null,
 };
 
-function parseAgentTimeoutMinutes(raw) {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
 function getTimeoutSteeringConfig() {
   const rawMinutes = process.env.AWF_AGENT_TIMEOUT_MINUTES;
   if (timeoutSteeringConfigCache.rawMinutes === rawMinutes) {
     return timeoutSteeringConfigCache.parsedMinutes;
   }
   timeoutSteeringConfigCache.rawMinutes = rawMinutes;
-  timeoutSteeringConfigCache.parsedMinutes = parseAgentTimeoutMinutes(rawMinutes);
+  timeoutSteeringConfigCache.parsedMinutes = parsePositiveInteger(rawMinutes);
   return timeoutSteeringConfigCache.parsedMinutes;
 }
 

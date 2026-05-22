@@ -1,5 +1,7 @@
 'use strict';
 
+const { parsePositiveInteger } = require('./guard-utils');
+
 let maxRunsGuardState = {
   configKey: null,
   invocationCount: 0,
@@ -10,20 +12,13 @@ const maxRunsConfigCache = {
   parsed: null,
 };
 
-function parseMaxRuns(raw) {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
 function getMaxRunsConfig() {
   const rawMax = process.env.AWF_MAX_RUNS;
   if (maxRunsConfigCache.rawMax === rawMax) {
     return maxRunsConfigCache.parsed;
   }
   maxRunsConfigCache.rawMax = rawMax;
-  maxRunsConfigCache.parsed = parseMaxRuns(rawMax);
+  maxRunsConfigCache.parsed = parsePositiveInteger(rawMax);
   return maxRunsConfigCache.parsed;
 }
 

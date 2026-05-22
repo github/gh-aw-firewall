@@ -4,19 +4,7 @@ import execa from 'execa';
 import { SslConfig } from '../host-env';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
-import {
-  normalizeDockerHostPathPrefix,
-  translateBindMountHostPath,
-  applyHostPathPrefixToVolumes,
-} from './host-path-prefix';
-
-// Re-export for backwards compatibility — call sites that previously imported
-// these helpers from agent-volumes.ts continue to work.
-export {
-  normalizeDockerHostPathPrefix,
-  translateBindMountHostPath,
-  applyHostPathPrefixToVolumes,
-};
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // ─── Agent Volumes ────────────────────────────────────────────────────────────
 

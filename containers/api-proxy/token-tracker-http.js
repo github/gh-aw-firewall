@@ -28,7 +28,12 @@ const {
   extractUsageFromJson,
   normalizeUsage,
 } = require('./token-parsers');
-const { writeTokenUsage, TOKEN_USAGE_SCHEMA, diag } = require('./token-persistence');
+const {
+  writeTokenUsage,
+  buildTokenUsageRecord,
+  incrementTokenMetrics,
+  diag,
+} = require('./token-persistence');
 
 // Max response body to buffer for non-streaming usage extraction (5 MB).
 // Responses larger than this are still forwarded but usage is not extracted.
@@ -238,28 +243,19 @@ function trackTokenUsage(proxyRes, opts) {
     }
 
     // Update metrics
-    if (metricsRef) {
-      metricsRef.increment('input_tokens_total', { provider }, normalized.input_tokens);
-      metricsRef.increment('output_tokens_total', { provider }, normalized.output_tokens);
-    }
+    incrementTokenMetrics(metricsRef, provider, normalized);
 
     // Build log record
-    const record = {
-      _schema: TOKEN_USAGE_SCHEMA,
-      timestamp: new Date().toISOString(),
-      request_id: requestId,
+    const record = buildTokenUsageRecord(normalized, {
+      requestId,
       provider,
-      model: model || 'unknown',
-      path: reqPath,
+      model,
+      reqPath,
       status: proxyRes.statusCode,
       streaming,
-      input_tokens: normalized.input_tokens,
-      output_tokens: normalized.output_tokens,
-      cache_read_tokens: normalized.cache_read_tokens,
-      cache_write_tokens: normalized.cache_write_tokens,
-      duration_ms: duration,
-      response_bytes: totalBytes,
-    };
+      duration,
+      responseBytes: totalBytes,
+    });
 
     // Include billing/quota info when available (Copilot PRU tracking)
     if (initiatorSent) record.x_initiator = initiatorSent;

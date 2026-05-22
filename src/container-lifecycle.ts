@@ -4,6 +4,7 @@ import execa from 'execa';
 import { BlockedTarget } from './types';
 import { logger } from './logger';
 import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
+import { runComposeDown } from './container-cleanup';
 import {
   AGENT_CONTAINER_NAME,
   SQUID_CONTAINER_NAME,
@@ -218,13 +219,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 
       // Tear down before retry so Docker Compose starts fresh
       try {
-        await execa('docker', ['compose', 'down', '-v', '-t', '1'], {
-          cwd: workDir,
-          stdout: process.stderr,
-          stderr: 'inherit',
-          env: getLocalDockerEnv(),
-          reject: false,
-        });
+        await runComposeDown(workDir, { reject: false });
       } catch (cleanupError) {
         // Best-effort cleanup — proceed with retry regardless
         logger.debug('Cleanup before retry failed (proceeding anyway):', cleanupError);

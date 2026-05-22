@@ -21,7 +21,7 @@ permissions:
 sandbox:
   agent:
     id: awf
-    version: v0.25.29
+    version: v0.25.51
 network:
   allowed:
     - github
