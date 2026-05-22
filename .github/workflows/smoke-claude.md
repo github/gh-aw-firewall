@@ -125,7 +125,8 @@ Your tasks (1 line per result):
 3. **File verify**: Confirm file exists at `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt`
 
 Call safe-outputs immediately after these 3 reads.
-- Call tools directly (`add_comment`, `add_labels`, `noop`) — do not run `safeoutputs ...` via Bash/CLI.
+- Use the `safeoutputs` CLI (`add_comment`, `add_labels`, `noop`) with real arguments.
+- Do not use pipe-to-stdin for safeoutputs JSON payloads. Write JSON to `/tmp/gh-aw/agent/*.json` and pass it with input redirection (`safeoutputs <tool> . < /tmp/gh-aw/agent/<file>.json`).
 - Never call `add_comment` or `add_labels` with empty arguments. If you're not ready to send final output, call `noop` with a short message.
 
 **If triggered by pull request**: add a brief comment (✅/❌ per test, PASS/FAIL total) and add label `smoke-claude` if all pass.
