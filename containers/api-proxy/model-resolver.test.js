@@ -232,6 +232,18 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-5.4');
   });
 
+  it('should fall back to highest available gpt-5 model when requested gpt-5 minor is unavailable', () => {
+    const result = resolveModel(
+      'gpt-5.5',
+      aliases,
+      { copilot: ['gpt-5.2', 'gpt-5.4', 'gpt-4.1'] },
+      'copilot'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5.4');
+    expect(result.log.some(l => l.includes('falling back to "gpt-5.4"'))).toBe(true);
+  });
+
   it('should not match provider patterns for a different provider', () => {
     // "gpt-5-codex" only has copilot/... and openai/... patterns
     // When resolving for anthropic, there's nothing to match
@@ -331,6 +343,21 @@ describe('rewriteModelInBody', () => {
     const body = Buffer.from(JSON.stringify({ model: 'unknown-alias', messages: [] }));
     const result = rewriteModelInBody(body, 'copilot', aliases, availableModels);
     expect(result).toBeNull();
+  });
+
+  it('should rewrite to highest available gpt-5 model when requested minor is unavailable', () => {
+    const body = Buffer.from(JSON.stringify({ model: 'gpt-5.5', messages: [] }));
+    const result = rewriteModelInBody(
+      body,
+      'copilot',
+      aliases,
+      { copilot: ['gpt-5.2', 'gpt-5.4', 'gpt-4.1'] }
+    );
+    expect(result).not.toBeNull();
+    expect(result.originalModel).toBe('gpt-5.5');
+    expect(result.resolvedModel).toBe('gpt-5.4');
+    const parsed = JSON.parse(result.body.toString('utf8'));
+    expect(parsed.model).toBe('gpt-5.4');
   });
 
   it('should try the default alias when model field is absent', () => {
