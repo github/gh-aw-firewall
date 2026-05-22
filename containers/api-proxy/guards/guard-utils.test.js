@@ -21,7 +21,7 @@ describe('guard-utils', () => {
       [1, 1],
       ['1', 1],
       [' 42 ', 42],
-    ])('returns %p for raw value %p', (raw, expected) => {
+    ])('for raw value %p returns %p', (raw, expected) => {
       expect(parsePositiveInteger(raw)).toBe(expected);
     });
   });
