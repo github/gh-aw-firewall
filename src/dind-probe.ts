@@ -34,7 +34,7 @@ const DOCKER_PING_TIMEOUT_MS = 5000;
 /** Lightweight image for the probe — busybox is smaller than alpine */
 const PROBE_IMAGE = 'busybox:latest';
 
-export interface ProbeResult {
+interface ProbeResult {
   /** The detected prefix, or undefined if filesystem is shared or undetectable */
   prefix: string | undefined;
   /** Whether the probe detected a split filesystem */
