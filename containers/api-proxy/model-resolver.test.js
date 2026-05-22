@@ -7,6 +7,7 @@ const {
   globMatch,
   extractVersionNumbers,
   compareByVersion,
+  selectMiddlePowerFallback,
   resolveModel,
   rewriteModelInBody,
 } = require('./model-resolver');
@@ -45,6 +46,17 @@ describe('parseModelAliases', () => {
 
   it('should return null when an array entry is not a string', () => {
     expect(parseModelAliases(JSON.stringify({ models: { sonnet: [123] } }))).toBeNull();
+  });
+
+  it('should parse extended alias entries with patterns and fallback flag', () => {
+    const raw = JSON.stringify({
+      models: {
+        sonnet: { patterns: ['copilot/*sonnet*'], fallback: false },
+      },
+    });
+    const result = parseModelAliases(raw);
+    expect(result).not.toBeNull();
+    expect(result.models.sonnet).toEqual({ patterns: ['copilot/*sonnet*'], fallback: false });
   });
 
   it('should parse a valid config', () => {
@@ -204,9 +216,11 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('claude-sonnet-4.6');
   });
 
-  it('should return null when no alias matches and model is not available', () => {
+  it('should activate middle-power fallback when no alias matches and model is unavailable', () => {
     const result = resolveModel('unknown-model', aliases, availableModels, 'copilot');
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result.fallback.activated).toBe(true);
+    expect(result.fallback.reason).toBe('no_alias_match_and_not_in_available_models');
   });
 
   it('should return a direct match when model is already in available list', () => {
@@ -244,11 +258,12 @@ describe('resolveModel', () => {
     expect(result.log.some(l => l.includes('falling back to "gpt-5.4"'))).toBe(true);
   });
 
-  it('should not match provider patterns for a different provider', () => {
+  it('should fall back when provider patterns do not match current provider', () => {
     // "gpt-5-codex" only has copilot/... and openai/... patterns
-    // When resolving for anthropic, there's nothing to match
+    // When resolving for anthropic, alias expansion has no candidates.
     const result = resolveModel('gpt-5-codex', aliases, availableModels, 'anthropic');
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result.fallback.activated).toBe(true);
   });
 
   it('should include a resolution log', () => {
@@ -298,6 +313,85 @@ describe('resolveModel', () => {
     expect(result).not.toBeNull();
     expect(result.resolvedModel).toBe('claude-sonnet-4.6');
   });
+
+  it('should skip middle-power fallback when globally disabled', () => {
+    const result = resolveModel(
+      'unknown-model',
+      aliases,
+      availableModels,
+      'copilot',
+      [],
+      { enabled: false, strategy: 'middle_power' }
+    );
+    expect(result).toBeNull();
+  });
+
+  it('should skip middle-power fallback for aliases with fallback=false', () => {
+    const result = resolveModel(
+      'sonnet',
+      { sonnet: { patterns: ['openai/*sonnet*'], fallback: false } },
+      availableModels,
+      'copilot'
+    );
+    expect(result).toBeNull();
+  });
+});
+
+describe('selectMiddlePowerFallback', () => {
+  it('sorts Anthropic tiers as opus > sonnet > haiku and picks median', () => {
+    const result = selectMiddlePowerFallback(
+      'unknown',
+      { anthropic: ['claude-haiku-4-5', 'claude-opus-4-1', 'claude-sonnet-4-5'] },
+      'anthropic',
+      'no_alias_match_and_not_in_available_models',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(result.fallback.candidates.map(c => c.model)).toEqual([
+      'claude-opus-4-1',
+      'claude-sonnet-4-5',
+      'claude-haiku-4-5',
+    ]);
+    expect(result.resolvedModel).toBe('claude-sonnet-4-5');
+  });
+
+  it('sorts OpenAI/Copilot tiers as gpt-5 > gpt-4 > gpt-3.5 and picks median', () => {
+    const result = selectMiddlePowerFallback(
+      'unknown',
+      { openai: ['gpt-3.5-turbo', 'gpt-5.2', 'gpt-4.1'] },
+      'openai',
+      'no_alias_match_and_not_in_available_models',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(result.fallback.candidates.map(c => c.model)).toEqual([
+      'gpt-5.2',
+      'gpt-4.1',
+      'gpt-3.5-turbo',
+    ]);
+    expect(result.resolvedModel).toBe('gpt-4.1');
+  });
+
+  it('uses lexicographic sorting for unknown providers and picks median', () => {
+    const result = selectMiddlePowerFallback(
+      'unknown',
+      { gemini: ['z-model', 'a-model', 'm-model'] },
+      'gemini',
+      'no_alias_match_and_not_in_available_models',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(result.fallback.candidates.map(c => c.model)).toEqual(['a-model', 'm-model', 'z-model']);
+    expect(result.resolvedModel).toBe('m-model');
+  });
+
+  it('returns null when no models are available for provider', () => {
+    const result = selectMiddlePowerFallback(
+      'unknown',
+      { copilot: [] },
+      'copilot',
+      'no_alias_match_and_not_in_available_models',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(result).toBeNull();
+  });
 });
 
 // ── rewriteModelInBody ─────────────────────────────────────────────────────
@@ -339,10 +433,11 @@ describe('rewriteModelInBody', () => {
     expect(result).toBeNull();
   });
 
-  it('should return null when alias cannot be resolved', () => {
+  it('should rewrite to middle-power fallback when alias cannot be resolved', () => {
     const body = Buffer.from(JSON.stringify({ model: 'unknown-alias', messages: [] }));
     const result = rewriteModelInBody(body, 'copilot', aliases, availableModels);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result.fallback.activated).toBe(true);
   });
 
   it('should rewrite to highest available gpt-5 model when requested minor is unavailable', () => {

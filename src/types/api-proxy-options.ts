@@ -4,6 +4,20 @@
 
 export interface ApiProxyOptions {
   /**
+   * Model fallback policy for unresolved model selections in the API proxy.
+   *
+   * When enabled, if direct model selection and alias resolution both fail,
+   * the proxy selects a "middle-power" model (median by capability tier) from
+   * available provider models as a safety fallback.
+   *
+   * @default { enabled: true, strategy: 'middle_power' }
+   */
+  modelFallback?: {
+    enabled?: boolean;
+    strategy?: 'middle_power';
+  };
+
+  /**
    * Enable API proxy sidecar for holding authentication credentials
    *
    * When true, deploys a Node.js proxy sidecar container that:

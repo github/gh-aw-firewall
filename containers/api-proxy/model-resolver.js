@@ -19,6 +19,13 @@
  * case-insensitive, and sorted by semver semantics (highest version first).
  */
 
+const { getTierSortedModels } = require('./model-discovery');
+
+const DEFAULT_MODEL_FALLBACK = Object.freeze({
+  enabled: true,
+  strategy: 'middle_power',
+});
+
 /**
  * Parse model aliases configuration from a raw JSON string.
  *
@@ -37,12 +44,23 @@ function parseModelAliases(rawConfig) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   if (!parsed.models || typeof parsed.models !== 'object' || Array.isArray(parsed.models)) return null;
 
-  // Validate structure: each value must be an array of strings
+  // Validate structure: each value must be either:
+  //   - string[] (legacy alias syntax)
+  //   - { patterns: string[], fallback?: boolean } (extended alias syntax)
   for (const [, value] of Object.entries(parsed.models)) {
-    if (!Array.isArray(value)) return null;
-    for (const entry of value) {
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry !== 'string') return null;
+      }
+      continue;
+    }
+
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (!Array.isArray(value.patterns)) return null;
+    for (const entry of value.patterns) {
       if (typeof entry !== 'string') return null;
     }
+    if (value.fallback !== undefined && typeof value.fallback !== 'boolean') return null;
   }
 
   return { models: parsed.models };
@@ -103,6 +121,67 @@ function compareByVersion(a, b) {
   return a.localeCompare(b); // Lexicographic fallback
 }
 
+function normalizeFallbackConfig(modelFallbackConfig) {
+  const config = modelFallbackConfig && typeof modelFallbackConfig === 'object'
+    ? modelFallbackConfig
+    : DEFAULT_MODEL_FALLBACK;
+  return {
+    enabled: config.enabled !== false,
+    strategy: config.strategy || 'middle_power',
+  };
+}
+
+function resolveAliasDefinition(rawAlias) {
+  if (Array.isArray(rawAlias)) {
+    return { patterns: rawAlias, fallback: true };
+  }
+  if (!rawAlias || typeof rawAlias !== 'object' || Array.isArray(rawAlias)) {
+    return { patterns: [], fallback: true };
+  }
+  return {
+    patterns: Array.isArray(rawAlias.patterns) ? rawAlias.patterns : [],
+    fallback: rawAlias.fallback !== false,
+  };
+}
+
+function inferModelFamilyPrefix(requestedModel) {
+  const key = String(requestedModel || '').toLowerCase();
+  const gptFamily = key.match(/^(gpt-\d+(?:\.\d+)?)/)?.[1];
+  if (gptFamily) return gptFamily;
+  if (key.includes('claude')) return 'claude';
+  if (key.includes('gemini')) return 'gemini';
+  return null;
+}
+
+function selectMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, modelFallbackConfig) {
+  const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
+  if (!fallbackConfig.enabled || fallbackConfig.strategy !== 'middle_power') return null;
+
+  const providerModels = Array.isArray(availableModels[currentProvider]) ? availableModels[currentProvider] : [];
+  if (providerModels.length === 0) return null;
+
+  const familyPrefix = inferModelFamilyPrefix(requestedModel);
+  const familyCandidates = familyPrefix
+    ? providerModels.filter(model => model.toLowerCase().startsWith(familyPrefix))
+    : [];
+  const selectedPool = familyCandidates.length > 0 ? familyCandidates : providerModels;
+  const sortedCandidates = getTierSortedModels(currentProvider, selectedPool);
+  if (sortedCandidates.length === 0) return null;
+
+  const medianIndex = Math.floor((sortedCandidates.length - 1) / 2);
+  return {
+    resolvedModel: sortedCandidates[medianIndex].model,
+    fallback: {
+      activated: true,
+      reason,
+      selection_method: 'middle_power_median',
+      available_models_count: providerModels.length,
+      used_family_filter: familyCandidates.length > 0,
+      candidates: sortedCandidates,
+    },
+  };
+}
+
 /**
  * Resolve a model name through the alias chain for a given provider.
  *
@@ -115,15 +194,17 @@ function compareByVersion(a, b) {
  * 3. Collect all candidates, sort by version (highest first), return the best match
  *
  * @param {string} requestedModel - Model name from the request body (or "" for default)
- * @param {Record<string, string[]>} aliases - Alias map from parseModelAliases()
+ * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Alias map from parseModelAliases()
  * @param {Record<string, string[]|null>} availableModels - Cached provider models
  * @param {string} currentProvider - Provider handling this request (e.g. "copilot")
  * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
- * @returns {{ resolvedModel: string, log: string[] } | null}
+ * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = []) {
+function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
   const log = [];
   const key = requestedModel.toLowerCase();
+  const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
 
   // ── Loop detection ────────────────────────────────────────────────────────
   if (chain.includes(key)) {
@@ -155,7 +236,13 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
     const direct = providerModels.find(m => m.toLowerCase() === key);
     if (direct) {
       log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
-      return { resolvedModel: direct, log };
+      return {
+        resolvedModel: direct,
+        log,
+        fallback: fallbackConfig.enabled
+          ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+          : undefined,
+      };
     }
 
     // If a gpt-5.<minor> model is requested but unavailable, fall back to the
@@ -168,14 +255,33 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
         const sorted = [...new Set(familyCandidates)].sort(compareByVersion);
         const fallback = sorted[0];
         log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
-        return { resolvedModel: fallback, log };
+        return {
+          resolvedModel: fallback,
+          log,
+          fallback: fallbackConfig.enabled
+            ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
+            : undefined,
+        };
       }
+    }
+    const middlePowerFallback = selectMiddlePowerFallback(
+      requestedModel,
+      availableModels,
+      currentProvider,
+      'no_alias_match_and_not_in_available_models',
+      fallbackConfig
+    );
+    if (middlePowerFallback) {
+      log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);
+      return { resolvedModel: middlePowerFallback.resolvedModel, log, fallback: middlePowerFallback.fallback };
     }
     // No match at all — cannot resolve.
     return null;
   }
 
-  const [aliasKey, patterns] = aliasEntry;
+  const [aliasKey, aliasRaw] = aliasEntry;
+  const aliasDefinition = resolveAliasDefinition(aliasRaw);
+  const patterns = aliasDefinition.patterns;
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
   // ── Expand each pattern ───────────────────────────────────────────────────
@@ -186,7 +292,7 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
 
     if (slashIdx === -1) {
       // Recursive alias reference (no provider prefix)
-      const sub = resolveModel(pattern, aliases, availableModels, currentProvider, newChain);
+      const sub = resolveModel(pattern, aliases, availableModels, currentProvider, newChain, fallbackConfig);
       if (sub) {
         log.push(...sub.log);
         candidates.push(sub.resolvedModel);
@@ -209,6 +315,20 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
 
   if (candidates.length === 0) {
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
+    const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
+    if (aliasDefinition.fallback && hasProviderPattern) {
+      const middlePowerFallback = selectMiddlePowerFallback(
+        requestedModel,
+        availableModels,
+        currentProvider,
+        'no_alias_match_and_not_in_available_models',
+        fallbackConfig
+      );
+      if (middlePowerFallback) {
+        log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);
+        return { resolvedModel: middlePowerFallback.resolvedModel, log, fallback: middlePowerFallback.fallback };
+      }
+    }
     return null;
   }
 
@@ -225,7 +345,13 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
       : '')
   );
 
-  return { resolvedModel: resolved, log };
+  return {
+    resolvedModel: resolved,
+    log,
+    fallback: fallbackConfig.enabled
+      ? { activated: false, selection_method: 'middle_power_median', reason: 'normal_resolution_succeeded' }
+      : undefined,
+  };
 }
 
 /**
@@ -236,11 +362,12 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
  *
  * @param {Buffer} body - Raw request body bytes
  * @param {string} provider - Current provider (e.g. "copilot")
- * @param {Record<string, string[]>} aliases - Parsed alias map
+ * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Parsed alias map
  * @param {Record<string, string[]|null>} availableModels - Cached models per provider
- * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, log: string[] } | null}
+ * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function rewriteModelInBody(body, provider, aliases, availableModels) {
+function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
   // Only attempt rewrite for non-empty bodies
   if (!body || body.length === 0) return null;
 
@@ -256,7 +383,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels) {
   // Determine the requested model. If absent, try the default alias ("").
   const originalModel = typeof parsed.model === 'string' ? parsed.model : '';
 
-  const resolution = resolveModel(originalModel, aliases, availableModels, provider);
+  const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig);
   if (!resolution) return null;
 
   const { resolvedModel, log } = resolution;
@@ -268,7 +395,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels) {
   parsed.model = resolvedModel;
   const newBody = Buffer.from(JSON.stringify(parsed), 'utf8');
 
-  return { body: newBody, originalModel, resolvedModel, log };
+  return { body: newBody, originalModel, resolvedModel, log, fallback: resolution.fallback };
 }
 
 module.exports = {
@@ -276,6 +403,7 @@ module.exports = {
   globMatch,
   extractVersionNumbers,
   compareByVersion,
+  selectMiddlePowerFallback,
   resolveModel,
   rewriteModelInBody,
 };

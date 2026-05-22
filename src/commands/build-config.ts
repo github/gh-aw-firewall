@@ -100,6 +100,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     enableDlp: options.enableDlp as boolean,
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean,
+    modelFallback: options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
     enableOpenCode: options.enableOpencode as boolean,
     anthropicAutoCache: options.anthropicAutoCache as boolean,
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,

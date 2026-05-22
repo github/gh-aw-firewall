@@ -109,6 +109,19 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         expect(env.AWF_AGENT_TIMEOUT_MINUTES).toBe('30');
       });
 
+      it('should set AWF_MODEL_FALLBACK when modelFallback is configured', () => {
+        const configWithModelFallback = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          modelFallback: { enabled: false, strategy: 'middle_power' as const },
+        };
+        const result = generateDockerCompose(configWithModelFallback, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
+      });
+
       it('should not set AWF_AGENT_TIMEOUT_MINUTES in api-proxy when agentTimeout is not configured', () => {
         const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
