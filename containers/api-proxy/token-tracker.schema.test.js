@@ -13,7 +13,13 @@ const {
   writeTokenUsage,
   closeLogStream,
 } = require('./token-tracker');
-const { buildTokenUsageRecord, incrementTokenMetrics } = require('./token-persistence');
+const {
+  buildTokenUsageRecord,
+  buildTokenDiagRecord,
+  incrementTokenMetrics,
+  validateTokenDiagRecord,
+  TOKEN_DIAG_SCHEMA,
+} = require('./token-persistence');
 const { EventEmitter } = require('events');
 
 afterAll(async () => {
@@ -136,6 +142,30 @@ describe('shared token usage helpers', () => {
     expect(() => {
       incrementTokenMetrics(null, 'anthropic', { input_tokens: 1, output_tokens: 2 });
     }).not.toThrow();
+  });
+});
+
+describe('token-diag schema helpers', () => {
+  test('buildTokenDiagRecord returns schema-compatible record shape', () => {
+    const record = buildTokenDiagRecord('MODEL_ALIAS_REWRITE', {
+      provider: 'copilot',
+      original_model: 'gpt-5.5',
+      resolved_model: 'gpt-5.4',
+    });
+    expect(record).toMatchObject({
+      _schema: TOKEN_DIAG_SCHEMA,
+      event: 'MODEL_ALIAS_REWRITE',
+    });
+    expect(validateTokenDiagRecord(record)).toBe(true);
+  });
+
+  test('validateTokenDiagRecord rejects invalid diag schema record', () => {
+    expect(validateTokenDiagRecord({
+      _schema: 'token-diag/v1',
+      timestamp: new Date().toISOString(),
+      event: 'MODEL_ALIAS_REWRITE',
+      data: {},
+    })).toBe(false);
   });
 });
 

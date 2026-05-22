@@ -29,6 +29,7 @@ if (!AWF_VERSION) {
   process.stderr.write('{"level":"warn","event":"awf_version_missing","message":"AWF_VERSION env var not set; _schema will use 0.0.0-dev"}\n');
 }
 const TOKEN_USAGE_SCHEMA = `token-usage/v${AWF_VERSION || '0.0.0-dev'}`;
+const TOKEN_DIAG_SCHEMA = `token-diag/v${AWF_VERSION || '0.0.0-dev'}`;
 
 let logStream = null;
 let diagStream = null;
@@ -38,7 +39,26 @@ let diagStream = null;
  * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
  * Does not persist request/response payload data.
  */
-function diag(msg, _data) {
+function validateTokenDiagRecord(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return false;
+  if (typeof record._schema !== 'string') return false;
+  if (!/^token-diag\/v\d+\.\d+\.\d+(-\w+)?$/.test(record._schema)) return false;
+  if (typeof record.timestamp !== 'string') return false;
+  if (typeof record.event !== 'string') return false;
+  if (record.data !== undefined && (typeof record.data !== 'object' || record.data === null || Array.isArray(record.data))) return false;
+  return true;
+}
+
+function buildTokenDiagRecord(event, data) {
+  return {
+    _schema: TOKEN_DIAG_SCHEMA,
+    timestamp: new Date().toISOString(),
+    event: typeof event === 'string' ? event : 'DIAG',
+    ...(data && typeof data === 'object' && !Array.isArray(data) ? { data } : {}),
+  };
+}
+
+function diag(msg, data) {
   if (!DIAG_ENABLED) return;
   try {
     if (!diagStream) {
@@ -46,11 +66,9 @@ function diag(msg, _data) {
       diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
       diagStream.on('error', () => { diagStream = null; });
     }
-    const safeMsg = typeof msg === 'string'
-      ? msg.replace(/[^\w:-]/g, '_').slice(0, 64)
-      : 'DIAG';
-    const line = `${new Date().toISOString()} ${safeMsg}\n`;
-    diagStream.write(line);
+    const record = buildTokenDiagRecord(msg, data);
+    if (!validateTokenDiagRecord(record)) return;
+    diagStream.write(JSON.stringify(record) + '\n');
   } catch { /* best-effort */ }
 }
 
@@ -228,9 +246,12 @@ function closeLogStream() {
 module.exports = {
   TOKEN_LOG_FILE,
   TOKEN_USAGE_SCHEMA,
+  TOKEN_DIAG_SCHEMA,
   diag,
+  buildTokenDiagRecord,
   buildTokenUsageRecord,
   incrementTokenMetrics,
+  validateTokenDiagRecord,
   validateTokenUsageRecord,
   writeTokenUsage,
   closeLogStream,
