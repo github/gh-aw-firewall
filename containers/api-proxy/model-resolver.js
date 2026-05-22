@@ -157,6 +157,20 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
       log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
       return { resolvedModel: direct, log };
     }
+
+    // If a gpt-5.<minor> model is requested but unavailable, fall back to the
+    // highest available model in the same family for this provider.
+    const family = key.match(/^(gpt-5)\.\d+$/)?.[1];
+    if (family) {
+      const familyPrefix = `${family}.`;
+      const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
+      if (familyCandidates.length > 0) {
+        const sorted = [...new Set(familyCandidates)].sort(compareByVersion);
+        const fallback = sorted[0];
+        log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
+        return { resolvedModel: fallback, log };
+      }
+    }
     // No match at all — cannot resolve.
     return null;
   }
