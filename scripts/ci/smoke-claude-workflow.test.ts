@@ -16,6 +16,8 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain("grep -oP '(?<=<title>)[^<]+'");
     expect(source).toContain('> "$CONTEXT_FILE"');
     expect(source).toContain('**IMPORTANT — Complete in 1 pass:**');
+    expect(source).toContain('do not run `safeoutputs ...` via Bash/CLI');
+    expect(source).toContain('Never call `add_comment` or `add_labels` with empty arguments');
     expect(source).not.toContain('tools:\n  playwright:');
     expect(source).not.toContain('    - playwright');
     expect(source).not.toContain('Ensure playwright log directory is writable');
