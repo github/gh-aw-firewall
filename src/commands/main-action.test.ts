@@ -7,6 +7,7 @@ jest.mock('../host-iptables');
 jest.mock('../cli-workflow');
 jest.mock('../redact-secrets');
 jest.mock('../option-parsers');
+jest.mock('../dind-probe');
 jest.mock('./preflight');
 jest.mock('./signal-handler');
 jest.mock('./validate-options');
@@ -17,6 +18,7 @@ import * as hostIptables from '../host-iptables';
 import * as cliWorkflow from '../cli-workflow';
 import * as redactSecrets from '../redact-secrets';
 import * as optionParsers from '../option-parsers';
+import * as dindProbe from '../dind-probe';
 import * as preflight from './preflight';
 import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
@@ -27,6 +29,7 @@ const mockedHostIptables = hostIptables as jest.Mocked<typeof hostIptables>;
 const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
 const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
+const mockedDindProbe = dindProbe as jest.Mocked<typeof dindProbe>;
 const mockedPreflight = preflight as jest.Mocked<typeof preflight>;
 const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
@@ -71,6 +74,11 @@ describe('createMainAction', () => {
     mockedDockerManager.setAwfDockerHost.mockImplementation(() => {});
     mockedRedactSecrets.redactSecrets.mockImplementation((s: string) => s);
     mockedOptionParsers.joinShellArgs.mockImplementation((args: string[]) => args.join(' '));
+    mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
+      prefix: undefined,
+      splitDetected: false,
+      inconclusive: false,
+    });
     mockedSignalHandler.registerSignalHandlers.mockImplementation(() => {});
     mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
   });
