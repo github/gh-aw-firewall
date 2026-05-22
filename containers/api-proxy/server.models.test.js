@@ -105,6 +105,71 @@ describe('makeModelBodyTransform', () => {
     // gpt-4o is a direct match with no rewrite needed (resolvedModel === original)
     expect(result).toBeNull();
   });
+
+  it('should write structured model alias diagnostics to token-diag.log', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-diag-'));
+    const prevDebugTokens = process.env.AWF_DEBUG_TOKENS;
+    const prevLogDir = process.env.AWF_TOKEN_LOG_DIR;
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+
+    process.env.AWF_DEBUG_TOKENS = '1';
+    process.env.AWF_TOKEN_LOG_DIR = tmpDir;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+
+    let isolatedServer;
+    let tokenPersistence;
+
+    try {
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+        tokenPersistence = require('./token-persistence');
+      });
+
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = ['claude-sonnet-4.5', 'claude-sonnet-4.6'];
+
+      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transformed = transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      expect(transformed).toBeInstanceOf(Buffer);
+
+      await tokenPersistence.closeLogStream();
+
+      const diagPath = path.join(tmpDir, 'token-diag.log');
+      expect(fs.existsSync(diagPath)).toBe(true);
+
+      const records = fs.readFileSync(diagPath, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line));
+
+      expect(records.some(r => r.event === 'MODEL_ALIAS_RESOLUTION_STEP')).toBe(true);
+      const rewrite = records.find(r => r.event === 'MODEL_ALIAS_REWRITE');
+      expect(rewrite).toBeDefined();
+      expect(rewrite._schema).toMatch(/^token-diag\/v\d+\.\d+\.\d+(-\w+)?$/);
+      expect(rewrite.data.provider).toBe('copilot');
+      expect(rewrite.data.original_model).toBe('sonnet');
+      expect(rewrite.data.resolved_model).toBe('claude-sonnet-4.6');
+      expect(Array.isArray(rewrite.data.resolution_steps)).toBe(true);
+    } finally {
+      if (tokenPersistence) await tokenPersistence.closeLogStream();
+
+      if (prevDebugTokens === undefined) delete process.env.AWF_DEBUG_TOKENS;
+      else process.env.AWF_DEBUG_TOKENS = prevDebugTokens;
+
+      if (prevLogDir === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+      else process.env.AWF_TOKEN_LOG_DIR = prevLogDir;
+
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
 });
 
 // ── buildModelsJson ────────────────────────────────────────────────────────

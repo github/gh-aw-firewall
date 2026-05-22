@@ -25,6 +25,7 @@
 const http = require('http');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
+const { diag } = require('./token-persistence');
 
 // ── Sub-modules ───────────────────────────────────────────────────────────────
 const {
@@ -115,13 +116,27 @@ function makeModelBodyTransform(provider) {
   return (body) => {
     const result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels);
     if (!result) return null;
+    const originalModel = sanitizeForLog(result.originalModel) || '(none)';
+    const resolvedModel = sanitizeForLog(result.resolvedModel);
     for (const line of result.log) {
       logRequest('info', 'model_resolution', { message: line, provider });
+      diag('MODEL_ALIAS_RESOLUTION_STEP', {
+        provider,
+        original_model: originalModel,
+        resolved_model: resolvedModel,
+        step: line,
+      });
     }
     logRequest('info', 'model_rewrite', {
       provider,
-      original_model: sanitizeForLog(result.originalModel) || '(none)',
-      resolved_model: sanitizeForLog(result.resolvedModel),
+      original_model: originalModel,
+      resolved_model: resolvedModel,
+    });
+    diag('MODEL_ALIAS_REWRITE', {
+      provider,
+      original_model: originalModel,
+      resolved_model: resolvedModel,
+      resolution_steps: result.log,
     });
     return result.body;
   };
