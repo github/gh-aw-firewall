@@ -28,6 +28,46 @@ const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy'
 
 const GEMINI_MODEL_NAME_PREFIX = 'models/';
 
+function getModelCapabilityTier(provider, modelId) {
+  const providerKey = String(provider || '').toLowerCase();
+  const model = String(modelId || '').toLowerCase();
+
+  if (providerKey === 'anthropic') {
+    if (model.includes('opus')) return 5;
+    if (model.includes('sonnet')) return 4;
+    if (model.includes('haiku')) return 3;
+    return 1;
+  }
+
+  if (providerKey === 'openai' || providerKey === 'copilot') {
+    if (/gpt-5(?:[.\-]|$)/i.test(model)) return 5;
+    if (/gpt-4(?:[.\-]|$)/i.test(model) || model.includes('gpt-4o')) return 4;
+    if (model.includes('gpt-3.5')) return 3;
+    return 1;
+  }
+
+  return null;
+}
+
+function getTierSortedModels(provider, models) {
+  if (!Array.isArray(models) || models.length === 0) return [];
+
+  const unique = [...new Set(models.filter(m => typeof m === 'string' && m.length > 0))];
+  if (unique.length === 0) return [];
+
+  const ranked = unique.map(model => ({
+    model,
+    tier: getModelCapabilityTier(provider, model),
+  }));
+
+  const hasTiering = ranked.some(entry => Number.isFinite(entry.tier));
+  ranked.sort((a, b) => {
+    if (!hasTiering) return a.model.localeCompare(b.model);
+    return (b.tier - a.tier) || a.model.localeCompare(b.model);
+  });
+  return ranked;
+}
+
 // ── buildRequest ──────────────────────────────────────────────────────────────
 /**
  * Shared HTTP/HTTPS request setup used by fetchJson and httpProbe.
@@ -225,6 +265,8 @@ module.exports = {
   fetchJson,
   httpProbe,
   extractModelIds,
+  getModelCapabilityTier,
+  getTierSortedModels,
   buildModelsJson,
   writeModelsJson,
 };

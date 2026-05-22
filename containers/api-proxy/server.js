@@ -90,6 +90,25 @@ if (!HTTPS_PROXY) {
 // and rewritten to a concrete model name before forwarding to upstream.
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
+const DEFAULT_MODEL_FALLBACK = Object.freeze({ enabled: true, strategy: 'middle_power' });
+
+function parseModelFallbackConfig(rawConfig) {
+  if (!rawConfig) return { ...DEFAULT_MODEL_FALLBACK };
+  try {
+    const parsed = JSON.parse(rawConfig);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...DEFAULT_MODEL_FALLBACK };
+    const enabled = parsed.enabled === undefined ? true : Boolean(parsed.enabled);
+    const strategy = typeof parsed.strategy === 'string' && parsed.strategy.trim()
+      ? parsed.strategy.trim()
+      : DEFAULT_MODEL_FALLBACK.strategy;
+    return { enabled, strategy };
+  } catch {
+    return { ...DEFAULT_MODEL_FALLBACK };
+  }
+}
+
+const MODEL_FALLBACK_RAW = (process.env.AWF_MODEL_FALLBACK || '').trim() || undefined;
+const MODEL_FALLBACK = parseModelFallbackConfig(MODEL_FALLBACK_RAW);
 if (MODEL_ALIASES) {
   logRequest('info', 'startup', {
     message: 'Model aliases loaded',
@@ -101,6 +120,10 @@ if (MODEL_ALIASES) {
     message: 'AWF_MODEL_ALIASES is set but could not be parsed — model aliasing disabled',
   });
 }
+logRequest('info', 'startup', {
+  message: 'Model fallback policy loaded',
+  model_fallback: MODEL_FALLBACK,
+});
 
 /**
  * Build a body-transform function for a given provider that rewrites the
@@ -109,15 +132,44 @@ if (MODEL_ALIASES) {
  * Returns null when model aliasing is not configured.
  *
  * @param {string} provider - Provider name (e.g. "copilot")
- * @returns {((body: Buffer) => Buffer | null) | null}
+ * @returns {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null}
  */
 function makeModelBodyTransform(provider) {
   if (!MODEL_ALIASES) return null;
-  return (body) => {
-    const result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels);
+  return async (body) => {
+    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+    if (!result || (result.fallback && result.fallback.activated)) {
+      await refreshProviderModelsForResolution(provider);
+      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+    }
     if (!result) return null;
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
     const resolvedModel = sanitizeForLog(result.resolvedModel);
+    if (MODEL_FALLBACK.enabled && result.fallback) {
+      if (result.fallback.activated) {
+        logRequest('warn', 'model_fallback_activated', {
+          provider,
+          original_model: originalModel,
+          fallback_model: resolvedModel,
+          reason: result.fallback.reason,
+          available_models_count: result.fallback.available_models_count,
+          selection_method: result.fallback.selection_method,
+        });
+        logRequest('debug', 'model_fallback_candidates', {
+          provider,
+          original_model: originalModel,
+          candidates: result.fallback.candidates,
+          selection_method: result.fallback.selection_method,
+        });
+      } else {
+        logRequest('info', 'model_fallback_skipped', {
+          provider,
+          original_model: originalModel,
+          reason: result.fallback.reason,
+          selection_method: result.fallback.selection_method,
+        });
+      }
+    }
     for (const line of result.log) {
       logRequest('info', 'model_resolution', { message: line, provider });
       diag('MODEL_ALIAS_RESOLUTION_STEP', {
@@ -164,6 +216,30 @@ const cachedModels = {};
 /** Set to true once fetchStartupModels() has run (regardless of success). */
 let modelFetchComplete = false;
 
+async function refreshProviderModelsForResolution(provider) {
+  const adapter = registeredAdapters.find(a => a.name === provider);
+  const config = adapter?.getModelsFetchConfig?.();
+  if (!config) return;
+
+  try {
+    const json = await fetchJson(config.url, config.opts, 10_000);
+    const extracted = extractModelIds(json);
+    if (Array.isArray(extracted) && extracted.length > 0) {
+      cachedModels[config.cacheKey] = extracted;
+      logRequest('debug', 'model_cache_refresh', {
+        provider,
+        cache_key: config.cacheKey,
+        models_count: extracted.length,
+      });
+    }
+  } catch (err) {
+    logRequest('debug', 'model_cache_refresh_failed', {
+      provider,
+      error: String(err && err.message ? err.message : err),
+    });
+  }
+}
+
 /** Reset model cache state (used in tests). */
 function resetModelCacheState() {
   for (const key of Object.keys(cachedModels)) {
@@ -201,6 +277,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getLimiter:            () => limiter,
   httpsProxy:            HTTPS_PROXY,
   getModelAliases:       () => MODEL_ALIASES,
+  getModelFallback:      () => MODEL_FALLBACK,
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getMaxRunsUsage:       () => getMaxRunsReflectState(),
 });
@@ -575,6 +652,8 @@ module.exports = {
   fetchJson,
   makeModelBodyTransform,
   MODEL_ALIASES,
+  MODEL_FALLBACK,
+  parseModelFallbackConfig,
   // Management (re-exported from management.js via factory)
   reflectEndpoints,
   healthResponse,

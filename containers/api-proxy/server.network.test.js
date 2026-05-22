@@ -392,6 +392,14 @@ describe('reflectEndpoints', () => {
     expect(result.models_fetch_complete).toBe(false);
   });
 
+  it('should include model fallback settings in reflect output', () => {
+    const result = reflectEndpoints();
+    expect(result.model_fallback).toEqual({
+      enabled: true,
+      strategy: 'middle_power',
+    });
+  });
+
   it('should report models_fetch_complete true after fetch completes', async () => {
     await fetchStartupModels([]);
     const result = reflectEndpoints();

@@ -161,6 +161,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       ...(config.modelAliases && {
         AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
       }),
+      ...(config.modelFallback && {
+        AWF_MODEL_FALLBACK: JSON.stringify(config.modelFallback),
+      }),
       // Anthropic prompt-cache optimizations
       ...(config.anthropicAutoCache && {
         AWF_ANTHROPIC_AUTO_CACHE: '1',

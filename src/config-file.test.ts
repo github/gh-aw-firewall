@@ -143,6 +143,14 @@ describe('config-file', () => {
         .toContain('config.apiProxy.maxRuns must be a positive integer');
     });
 
+    it('validates apiProxy.modelFallback fields', () => {
+      expect(validateAwfFileConfig({ apiProxy: { modelFallback: { enabled: true, strategy: 'middle_power' } } })).toEqual([]);
+      expect(validateAwfFileConfig({ apiProxy: { modelFallback: { enabled: 'yes' } } }))
+        .toContain('config.apiProxy.modelFallback.enabled must be a boolean');
+      expect(validateAwfFileConfig({ apiProxy: { modelFallback: { strategy: 'unknown' } } }))
+        .toContain('config.apiProxy.modelFallback.strategy must be one of: middle_power');
+    });
+
     it('rejects non-object apiProxy.targets', () => {
       const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
       expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -615,6 +623,13 @@ describe('config-file', () => {
     it('maps maxRuns field', () => {
       const result = mapAwfFileConfigToCliOptions({ apiProxy: { maxRuns: 42 } });
       expect(result.maxRuns).toBe(42);
+    });
+
+    it('maps modelFallback field', () => {
+      const result = mapAwfFileConfigToCliOptions({
+        apiProxy: { modelFallback: { enabled: false, strategy: 'middle_power' } },
+      });
+      expect(result.modelFallback).toEqual({ enabled: false, strategy: 'middle_power' });
     });
 
     it('leaves maxRuns undefined when not set', () => {

@@ -215,7 +215,7 @@ const proxyWebSocket = createProxyWebSocket({
  * @param {object} injectHeaders - Auth headers to inject
  * @param {string} provider - Provider name for logging and metrics
  * @param {string} [basePath=''] - Optional base-path prefix
- * @param {((body: Buffer) => Buffer | null) | null} [bodyTransform=null]
+ * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} [bodyTransform=null]
  */
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null) {
   const clientRequestId = req.headers['x-request-id'];
@@ -304,13 +304,13 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     chunks.push(chunk);
   });
 
-  req.on('end', () => {
+  req.on('end', async () => {
     if (rejected || errored) return;
     let body = Buffer.concat(chunks);
     const inboundBytes = body.length;
 
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
-      const transformed = bodyTransform(body);
+      const transformed = await bodyTransform(body);
       if (transformed) body = transformed;
     }
 

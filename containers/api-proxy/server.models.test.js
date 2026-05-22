@@ -106,6 +106,61 @@ describe('makeModelBodyTransform', () => {
     expect(result).toBeNull();
   });
 
+  it('refreshes provider model cache when stale and rewrites using fresh models', async () => {
+    const https = require('https');
+    const { EventEmitter } = require('events');
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    const prevCopilotToken = process.env.COPILOT_GITHUB_TOKEN;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+    process.env.COPILOT_GITHUB_TOKEN = 'ghu_test_token_for_models_fetch';
+
+    const requestSpy = jest.spyOn(https, 'request').mockImplementation((options, callback) => {
+      const req = new EventEmitter();
+      req.write = jest.fn();
+      req.end = jest.fn(() => {
+        setImmediate(() => {
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          res.resume = jest.fn();
+          callback(res);
+          setImmediate(() => {
+            res.emit('data', Buffer.from('{"data":[{"id":"claude-sonnet-4.6"}]}'));
+            res.emit('end');
+          });
+        });
+      });
+      req.destroy = jest.fn();
+      req.on = EventEmitter.prototype.on;
+      return req;
+    });
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = null; // stale / unavailable cache
+
+      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      expect(transformed).toBeInstanceOf(Buffer);
+      expect(JSON.parse(transformed.toString('utf8')).model).toBe('claude-sonnet-4.6');
+      expect(requestSpy).toHaveBeenCalled();
+    } finally {
+      requestSpy.mockRestore();
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
+      if (prevCopilotToken === undefined) delete process.env.COPILOT_GITHUB_TOKEN;
+      else process.env.COPILOT_GITHUB_TOKEN = prevCopilotToken;
+    }
+  });
+
   it('should write structured model alias diagnostics to token-diag.log', async () => {
     const fs = require('fs');
     const os = require('os');
@@ -133,7 +188,7 @@ describe('makeModelBodyTransform', () => {
       isolatedServer.cachedModels.copilot = ['claude-sonnet-4.5', 'claude-sonnet-4.6'];
 
       const transform = isolatedServer.makeModelBodyTransform('copilot');
-      const transformed = transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
       expect(transformed).toBeInstanceOf(Buffer);
 
       await tokenPersistence.closeLogStream();
@@ -168,6 +223,81 @@ describe('makeModelBodyTransform', () => {
       else process.env.AWF_MODEL_ALIASES = prevAliases;
 
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
+
+  it('emits model_fallback_activated and model_fallback_candidates logs when middle fallback is used', async () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+
+    const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      stdoutSpy.mockClear();
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'];
+
+      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      expect(transformed).toBeInstanceOf(Buffer);
+
+      const records = stdoutSpy.mock.calls
+        .map(([line]) => String(line).trim())
+        .filter(Boolean)
+        .map(line => JSON.parse(line));
+
+      expect(records.some(r => r.event === 'model_fallback_activated' && r.level === 'warn')).toBe(true);
+      expect(records.some(r => r.event === 'model_fallback_candidates' && r.level === 'debug')).toBe(true);
+    } finally {
+      stdoutSpy.mockRestore();
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
+    }
+  });
+
+  it('emits model_fallback_skipped log when normal resolution succeeds', async () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+
+    const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      stdoutSpy.mockClear();
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = ['claude-sonnet-4.6', 'claude-haiku-4.5'];
+
+      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      expect(transformed).toBeInstanceOf(Buffer);
+
+      const records = stdoutSpy.mock.calls
+        .map(([line]) => String(line).trim())
+        .filter(Boolean)
+        .map(line => JSON.parse(line));
+
+      expect(records.some(r => r.event === 'model_fallback_skipped' && r.level === 'info')).toBe(true);
+    } finally {
+      stdoutSpy.mockRestore();
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
     }
   });
 });
@@ -346,5 +476,12 @@ describe('composeBodyTransforms', () => {
   it('when both return null, composed returns null', () => {
     const composed = composeBodyTransforms(noOp, noOp);
     expect(composed(Buffer.from('hello'))).toBeNull();
+  });
+
+  it('supports async transforms in composition', async () => {
+    const asyncUpper = async (buf) => Buffer.from(buf.toString('utf8').toUpperCase(), 'utf8');
+    const composed = composeBodyTransforms(asyncUpper, exclaim);
+    const out = await composed(Buffer.from('hello'));
+    expect(out.toString()).toBe('HELLO!');
   });
 });

@@ -153,17 +153,41 @@ function shouldStripHeader(name) {
  *   - If second returns null, return whatever first returned.
  *   - If both return null, return null.
  *
- * @param {((body: Buffer) => Buffer | null) | null} first
- * @param {((body: Buffer) => Buffer | null) | null} second
- * @returns {((body: Buffer) => Buffer | null) | null}
+ * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} first
+ * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} second
+ * @returns {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null}
  */
 function composeBodyTransforms(first, second) {
   if (!first && !second) return null;
   if (!first) return second;
   if (!second) return first;
+  const isPromise = (v) => v && typeof v.then === 'function';
   return (body) => {
     const a = first(body);
+    if (isPromise(a)) {
+      return Promise.resolve(a).then((aResolved) => {
+        const b = second(aResolved !== null ? aResolved : body);
+        if (isPromise(b)) {
+          return Promise.resolve(b).then((bResolved) => {
+            if (bResolved !== null) return bResolved;
+            if (aResolved !== null) return aResolved;
+            return null;
+          });
+        }
+        if (b !== null) return b;
+        if (aResolved !== null) return aResolved;
+        return null;
+      });
+    }
+
     const b = second(a !== null ? a : body);
+    if (isPromise(b)) {
+      return Promise.resolve(b).then((bResolved) => {
+        if (bResolved !== null) return bResolved;
+        if (a !== null) return a;
+        return null;
+      });
+    }
     if (b !== null) return b;
     if (a !== null) return a;
     return null;

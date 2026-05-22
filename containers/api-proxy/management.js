@@ -25,6 +25,7 @@ const metrics = require('./metrics');
  * @property {() => import('./rate-limiter').RateLimiter} getLimiter
  * @property {string|undefined}     httpsProxy            - Value of HTTPS_PROXY env var at startup
  * @property {() => object|null}    getModelAliases       - Returns parsed MODEL_ALIASES (or null)
+ * @property {() => { enabled: boolean, strategy: string }} getModelFallback - Returns fallback config
  * @property {() => object}         getEffectiveTokenUsage - Returns effective token usage summary
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
  */
@@ -46,6 +47,7 @@ function createManagementHandlers(deps) {
     getLimiter,
     httpsProxy,
     getModelAliases,
+    getModelFallback,
     getEffectiveTokenUsage,
     getMaxRunsUsage,
   } = deps;
@@ -95,6 +97,7 @@ function createManagementHandlers(deps) {
       }),
       models_fetch_complete: isModelFetchComplete(),
       model_aliases: modelAliases ? modelAliases.models : null,
+      model_fallback: getModelFallback(),
       effective_tokens: getEffectiveTokenUsage(),
       runs: getMaxRunsUsage(),
     };
