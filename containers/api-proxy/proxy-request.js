@@ -85,6 +85,73 @@ const limiter = rateLimiter.create();
 /** When false, token-budget warnings are never injected into request bodies. */
 const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
 
+const anthropicDeprecatedBetaValues = new Set();
+const ANTHROPIC_DEPRECATED_BETA_PATTERN = /Unexpected value\(s\)\s+`([^`]+)`\s+for the `anthropic-beta` header/;
+
+function normalizeAnthropicBetaHeaderValue(value) {
+  if (!value) return '';
+  return Array.isArray(value) ? value.join(',') : String(value);
+}
+
+function splitAnthropicBetaHeaderValue(value) {
+  return normalizeAnthropicBetaHeaderValue(value).split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function updateAnthropicBetaHeader(headers, values) {
+  if (!values.length) {
+    delete headers['anthropic-beta'];
+    return;
+  }
+  headers['anthropic-beta'] = values.join(',');
+}
+
+function stripAnthropicBetaValuesFromHeaders(headers, valuesToStrip) {
+  if (!headers['anthropic-beta'] || !valuesToStrip.size) return null;
+  const existingValues = splitAnthropicBetaHeaderValue(headers['anthropic-beta']);
+  if (!existingValues.length) {
+    delete headers['anthropic-beta'];
+    return { removed: [], remaining: [] };
+  }
+  const remaining = existingValues.filter(value => !valuesToStrip.has(value));
+  const removed = existingValues.filter(value => valuesToStrip.has(value));
+  if (!removed.length) return null;
+  updateAnthropicBetaHeader(headers, remaining);
+  return { removed, remaining };
+}
+
+function maybeStripLearnedAnthropicBetaHeaders(headers, requestId) {
+  const stripped = stripAnthropicBetaValuesFromHeaders(headers, anthropicDeprecatedBetaValues);
+  if (!stripped) return;
+  logRequest('warn', 'anthropic_beta_stripped', {
+    request_id: requestId,
+    provider: 'anthropic',
+    mode: 'cached',
+    removed_values: stripped.removed,
+    remaining_values: stripped.remaining,
+    message: 'Removed deprecated anthropic-beta values learned from prior upstream 400 responses',
+  });
+}
+
+function getAnthropicDeprecatedBetaValueFromBody(body) {
+  const match = body.toString('utf8').match(ANTHROPIC_DEPRECATED_BETA_PATTERN);
+  return match ? match[1].trim() : null;
+}
+
+function learnAndStripAnthropicBetaHeader(headers, deprecatedValue, requestId) {
+  anthropicDeprecatedBetaValues.add(deprecatedValue);
+  const stripped = stripAnthropicBetaValuesFromHeaders(headers, new Set([deprecatedValue]));
+  if (!stripped) return null;
+  logRequest('warn', 'anthropic_beta_stripped', {
+    request_id: requestId,
+    provider: 'anthropic',
+    mode: 'retry',
+    removed_values: stripped.removed,
+    remaining_values: stripped.remaining,
+    message: `Removed deprecated anthropic-beta value rejected by Anthropic: ${deprecatedValue}`,
+  });
+  return stripped;
+}
+
 function getUrlPathForSpan(requestUrl) {
   if (typeof requestUrl !== 'string' || !requestUrl) return '/';
   try {
@@ -364,6 +431,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
+    if (provider === 'anthropic') {
+      maybeStripLearnedAnthropicBetaHeaders(headers, requestId);
+    }
+
     const isCopilotHost =
       targetHost === 'githubcopilot.com' ||
       targetHost.endsWith('.githubcopilot.com');
@@ -426,17 +497,135 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
-    const options = {
-      hostname: targetHost, port: 443, path: upstreamPath,
-      method: req.method, headers,
-      agent: proxyAgent,
+    const logRequestCompletion = (statusCode, responseBytes, initiatorSent, billingInfo) => {
+      const duration = Date.now() - startTime;
+      const sc = metrics.statusClass(statusCode);
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
+      metrics.increment('response_bytes_total', { provider }, responseBytes);
+      metrics.observe('request_duration_ms', duration, { provider });
+      if (statusCode >= 200 && statusCode < 300) {
+        applyMaxRunsInvocation();
+      }
+      const logFields = {
+        request_id: requestId, provider, method: req.method,
+        path: sanitizeForLog(req.url), status: statusCode,
+        duration_ms: duration, request_bytes: requestBytes,
+        response_bytes: responseBytes, upstream_host: targetHost,
+      };
+      if (initiatorSent) logFields.x_initiator = initiatorSent;
+      if (billingInfo) logFields.billing = billingInfo;
+      logRequest('info', 'request_complete', logFields);
     };
 
-    const proxyReq = https.request(options, (proxyRes) => {
-      let responseBytes = 0;
-      proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
+    const logUpstreamAuthError = (statusCode) => {
+      if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
+        logRequest('warn', 'upstream_auth_error', {
+          request_id: requestId, provider, status: statusCode,
+          upstream_host: targetHost, path: sanitizeForLog(req.url),
+          message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
+        });
+      }
+    };
 
-      proxyRes.on('error', (err) => {
+    const sendUpstreamRequest = (requestHeaders, hasRetried = false) => {
+      const options = {
+        hostname: targetHost, port: 443, path: upstreamPath,
+        method: req.method, headers: requestHeaders,
+        agent: proxyAgent,
+      };
+
+      const proxyReq = https.request(options, (proxyRes) => {
+        let responseBytes = 0;
+        const billingInfo = extractBillingHeaders(proxyRes.headers);
+        const initiatorSent = requestHeaders['x-initiator'] || null;
+        const shouldBufferAnthropic400 =
+          provider === 'anthropic' &&
+          !hasRetried &&
+          proxyRes.statusCode === 400 &&
+          !!requestHeaders['anthropic-beta'];
+
+        proxyRes.on('error', (err) => {
+          otel.endSpanError(span, err, 502);
+          handleRequestError(err, {
+            res,
+            requestId,
+            provider,
+            req,
+            targetHost,
+            startTime,
+            statusCode: 502,
+            clientMessage: 'Response stream error',
+            onHeadersSent: () => {
+              if (typeof res.destroy === 'function') res.destroy(err);
+            },
+          });
+        });
+
+        if (shouldBufferAnthropic400) {
+          const bufferedChunks = [];
+          proxyRes.on('data', (chunk) => {
+            responseBytes += chunk.length;
+            bufferedChunks.push(chunk);
+          });
+          proxyRes.on('end', () => {
+            const responseBody = Buffer.concat(bufferedChunks);
+            const deprecatedValue = getAnthropicDeprecatedBetaValueFromBody(responseBody);
+            if (deprecatedValue) {
+              const retryHeaders = { ...requestHeaders };
+              const stripped = learnAndStripAnthropicBetaHeader(retryHeaders, deprecatedValue, requestId);
+              if (stripped) {
+                sendUpstreamRequest(retryHeaders, true);
+                return;
+              }
+            }
+
+            logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo);
+            logUpstreamAuthError(proxyRes.statusCode);
+
+            const resHeaders = {
+              ...proxyRes.headers,
+              'x-request-id': requestId,
+              'content-length': String(responseBody.length),
+            };
+            delete resHeaders['transfer-encoding'];
+            res.writeHead(proxyRes.statusCode, resHeaders);
+            res.end(responseBody);
+            otel.endSpan(span, proxyRes.statusCode);
+          });
+          return;
+        }
+
+        proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
+        proxyRes.on('end', () => {
+          logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo);
+        });
+
+        const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
+        logUpstreamAuthError(proxyRes.statusCode);
+        res.writeHead(proxyRes.statusCode, resHeaders);
+        proxyRes.pipe(res);
+
+        const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
+        trackTokenUsage(proxyRes, {
+          requestId,
+          provider,
+          path: sanitizeForLog(req.url),
+          startTime,
+          metrics,
+          billingInfo,
+          initiatorSent,
+          onUsage: (normalizedUsage, model) => {
+            otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
+            applyEffectiveTokenUsage(normalizedUsage, model);
+          },
+          onSpanEnd: (statusCode) => {
+            otel.endSpan(span, statusCode);
+          },
+        });
+      });
+
+      proxyReq.on('error', (err) => {
         otel.endSpanError(span, err, 502);
         handleRequestError(err, {
           res,
@@ -446,89 +635,19 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
           targetHost,
           startTime,
           statusCode: 502,
-          clientMessage: 'Response stream error',
-          onHeadersSent: () => {
-            if (typeof res.destroy === 'function') res.destroy(err);
+          clientMessage: 'Proxy error',
+          extraMetrics: (duration) => {
+            metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
+            metrics.observe('request_duration_ms', duration, { provider });
           },
         });
       });
 
-      const billingInfo = extractBillingHeaders(proxyRes.headers);
-      const initiatorSent = headers['x-initiator'] || null;
+      if (body.length > 0) proxyReq.write(body);
+      proxyReq.end();
+    };
 
-      proxyRes.on('end', () => {
-        const duration = Date.now() - startTime;
-        const sc = metrics.statusClass(proxyRes.statusCode);
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
-        metrics.increment('response_bytes_total', { provider }, responseBytes);
-        metrics.observe('request_duration_ms', duration, { provider });
-        if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
-          applyMaxRunsInvocation();
-        }
-        const logFields = {
-          request_id: requestId, provider, method: req.method,
-          path: sanitizeForLog(req.url), status: proxyRes.statusCode,
-          duration_ms: duration, request_bytes: requestBytes,
-          response_bytes: responseBytes, upstream_host: targetHost,
-        };
-        if (initiatorSent) logFields.x_initiator = initiatorSent;
-        if (billingInfo) logFields.billing = billingInfo;
-        logRequest('info', 'request_complete', logFields);
-      });
-
-      const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
-
-      if (proxyRes.statusCode === 400 || proxyRes.statusCode === 401 || proxyRes.statusCode === 403) {
-        logRequest('warn', 'upstream_auth_error', {
-          request_id: requestId, provider, status: proxyRes.statusCode,
-          upstream_host: targetHost, path: sanitizeForLog(req.url),
-          message: `Upstream returned ${proxyRes.statusCode} — check that the API key is valid and correctly formatted`,
-        });
-      }
-
-      res.writeHead(proxyRes.statusCode, resHeaders);
-      proxyRes.pipe(res);
-
-      const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
-      trackTokenUsage(proxyRes, {
-        requestId,
-        provider,
-        path: sanitizeForLog(req.url),
-        startTime,
-        metrics,
-        billingInfo,
-        initiatorSent,
-        onUsage: (normalizedUsage, model) => {
-          otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-          applyEffectiveTokenUsage(normalizedUsage, model);
-        },
-        onSpanEnd: (statusCode) => {
-          otel.endSpan(span, statusCode);
-        },
-      });
-    });
-
-    proxyReq.on('error', (err) => {
-      otel.endSpanError(span, err, 502);
-      handleRequestError(err, {
-        res,
-        requestId,
-        provider,
-        req,
-        targetHost,
-        startTime,
-        statusCode: 502,
-        clientMessage: 'Proxy error',
-        extraMetrics: (duration) => {
-          metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-          metrics.observe('request_duration_ms', duration, { provider });
-        },
-      });
-    });
-
-    if (body.length > 0) proxyReq.write(body);
-    proxyReq.end();
+    sendUpstreamRequest(headers);
   });
 }
 
@@ -546,6 +665,7 @@ module.exports = {
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
   resetTimeoutSteeringForTests,
+  resetAnthropicDeprecatedBetaHeadersForTests: () => anthropicDeprecatedBetaValues.clear(),
   getAndClearPendingSteeringMessage,
   getAndClearPendingTimeoutSteeringMessage,
   injectSteeringMessage,
