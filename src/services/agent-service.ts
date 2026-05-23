@@ -11,8 +11,8 @@ import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 // Re-export functions for backwards compatibility
-export { buildAgentEnvironment } from './agent-environment';
-export { buildAgentVolumes } from './agent-volumes/volume-builder';
+export { buildAgentEnvironment } from './agent-environment/environment-builder';
+export { buildAgentVolumes } from './agent-volumes';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // ─── Agent Service ────────────────────────────────────────────────────────────

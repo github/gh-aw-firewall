@@ -102,6 +102,7 @@ the corresponding CLI flag.
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
+- `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
 - `apiProxy.auth.provider` → *(config-only; maps to `AWF_AUTH_PROVIDER`)*
@@ -707,6 +708,132 @@ The `/reflect` endpoint (available on all provider ports 10000–10004; see
 
 When `maxRuns` is not configured, the `enabled` field MUST be `false` and
 `max_runs` and `remaining_runs` MUST be `null`.
+
+## 12. Model Fallback
+
+*This section is normative.*
+
+When `apiProxy.modelFallback` is configured, the API proxy provides automatic
+model selection when a requested model is unavailable. The fallback mechanism
+ensures requests complete gracefully without requiring explicit agent-side
+handling.
+
+### 12.1 Configuration
+
+Model fallback is controlled via `apiProxy.modelFallback`:
+
+```json
+{
+  "apiProxy": {
+    "modelFallback": {
+      "enabled": true,
+      "strategy": "middle_power"
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable/disable the fallback mechanism |
+| `strategy` | string | `middle_power` | Selection strategy (`middle_power` is currently the only strategy) |
+
+### 12.2 Middle-Power Strategy
+
+When `strategy` is `middle_power`, the proxy selects the median capability-tier
+model from the available models for the current provider.
+
+**Capability tiers** are assigned based on model family and version:
+
+| Provider | Tier 5 | Tier 4 | Tier 3 | Tier 1 |
+|----------|--------|--------|--------|--------|
+| Anthropic | `claude-opus*` | `claude-sonnet*` | `claude-haiku*` | (other) |
+| OpenAI / Copilot | `gpt-5*` | `gpt-4*`, `gpt-4o*` | `gpt-3.5*` | (other) |
+| Gemini | (reserved) | (reserved) | (reserved) | (all) |
+
+**Selection algorithm:**
+1. Sort available models by capability tier (highest first), then lexicographically
+2. Select the median model from the sorted list
+3. Log the selection with the reason and full candidate list
+
+**Example:**
+```
+Available: ['gpt-3.5-turbo', 'gpt-5.2', 'gpt-4.1']
+Sorted:   ['gpt-5.2' (tier 5), 'gpt-4.1' (tier 4), 'gpt-3.5-turbo' (tier 3)]
+Median:   gpt-4.1 (index 1 of 0-2)
+```
+
+### 12.3 Activation Conditions
+
+The fallback is activated when:
+
+1. **Direct match fails**: The requested model is not found in the available
+   models list for the provider.
+2. **Family version fallback doesn't apply**: For `gpt-5.*` models on OpenAI,
+   if a lower `gpt-5.*` version is available, use that before triggering
+   middle-power fallback.
+3. **Alias has no candidates**: An alias pattern matched but produced no
+   resolvable models on the current provider.
+
+The fallback is **NOT** activated when:
+- A direct model match is found (return it immediately)
+- A family version fallback is available (for `gpt-5.*` only)
+- The fallback is disabled (`enabled: false`)
+- An alias has `fallback: false` (see §12.4)
+
+### 12.4 Extended Alias Syntax
+
+Model aliases now support an extended syntax that permits per-alias fallback
+control:
+
+**Legacy syntax** (string array):
+```json
+{
+  "models": {
+    "sonnet": ["copilot/*sonnet*", "openai/*sonnet*"]
+  }
+}
+```
+Fallback is **enabled** by default for legacy syntax.
+
+**Extended syntax** (object with patterns):
+```json
+{
+  "models": {
+    "sonnet": {
+      "patterns": ["copilot/*sonnet*"],
+      "fallback": false
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `patterns` | string[] | — | Glob patterns to match against available models |
+| `fallback` | boolean | `true` | Enable fallback for this alias if no candidates are found |
+
+When `fallback: false`, if the alias patterns produce no candidates, the
+resolution returns `null` instead of activating middle-power fallback.
+
+### 12.5 Introspection
+
+The health endpoint (`GET /health`) includes a `model_fallback` field in the
+response:
+
+```json
+{
+  "status": "healthy",
+  "service": "awf-api-proxy",
+  "model_fallback": {
+    "enabled": true,
+    "strategy": "middle_power"
+  }
+}
+```
+
+The `/reflect` endpoint does not include fallback state by design (it is static
+per run).
 
 ## Normative References
 
