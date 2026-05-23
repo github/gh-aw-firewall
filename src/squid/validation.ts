@@ -13,7 +13,12 @@ export function validateApiProxyIp(apiProxyIp?: string): void {
 }
 
 export function validateAndSanitizeHostAccessPort(port: string): string {
-  const parts = port.split('-');
+  const sanitizedPort = port.trim();
+  if (!/^\d+(?:-\d+)?$/.test(sanitizedPort)) {
+    throw new Error(`Invalid port: ${port}. Must be a number between 1 and 65535`);
+  }
+
+  const parts = sanitizedPort.split('-');
   if (parts.length === 2 && parts[0] !== '' && parts[1] !== '') {
     const start = parseInt(parts[0], 10);
     const end = parseInt(parts[1], 10);
@@ -31,7 +36,7 @@ export function validateAndSanitizeHostAccessPort(port: string): string {
       }
     }
   } else {
-    const portNum = parseInt(port, 10);
+    const portNum = parseInt(sanitizedPort, 10);
 
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
       throw new Error(`Invalid port: ${port}. Must be a number between 1 and 65535`);
@@ -45,7 +50,7 @@ export function validateAndSanitizeHostAccessPort(port: string): string {
     }
   }
 
-  return port.replace(/[^0-9-]/g, '');
+  return sanitizedPort;
 }
 
 export function validateApiProxyPort(proxyPort: number): void {

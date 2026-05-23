@@ -12,8 +12,16 @@ describe('squid validation helpers', () => {
   });
 
   describe('validateAndSanitizeHostAccessPort', () => {
+    it('trims surrounding whitespace for valid ports', () => {
+      expect(validateAndSanitizeHostAccessPort(' 3000 ')).toBe('3000');
+    });
+
     it('preserves valid port ranges', () => {
       expect(validateAndSanitizeHostAccessPort('3000-3010')).toBe('3000-3010');
+    });
+
+    it('rejects mixed-character input that could parse inconsistently', () => {
+      expect(() => validateAndSanitizeHostAccessPort('2\n2')).toThrow('Invalid port: 2\n2. Must be a number between 1 and 65535');
     });
 
     it('rejects dangerous ports', () => {
