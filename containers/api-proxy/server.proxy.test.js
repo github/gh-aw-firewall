@@ -9,23 +9,26 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const {
-  resetEffectiveTokenGuardForTests,
-  resetMaxRunsGuardForTests,
-  resetTimeoutSteeringForTests,
-} = require('./proxy-request');
+let resetEffectiveTokenGuardForTests;
+let resetMaxRunsGuardForTests;
+let resetTimeoutSteeringForTests;
+let resetAnthropicDeprecatedBetaHeadersForTests;
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let proxyWebSocket;
 let healthResponse;
-let resetAnthropicDeprecatedBetaHeadersForTests;
 
 beforeAll(() => {
   delete process.env.HTTPS_PROXY;
   jest.resetModules();
   ({ proxyRequest, proxyWebSocket, healthResponse } = require('./server'));
-  ({ resetAnthropicDeprecatedBetaHeadersForTests } = require('./proxy-request'));
+  ({
+    resetEffectiveTokenGuardForTests,
+    resetMaxRunsGuardForTests,
+    resetTimeoutSteeringForTests,
+    resetAnthropicDeprecatedBetaHeadersForTests,
+  } = require('./proxy-request'));
 });
 
 beforeEach(() => {
