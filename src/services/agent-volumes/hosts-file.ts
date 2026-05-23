@@ -39,7 +39,7 @@ export function generateHostsFileMount(config: WrapperConfig): string {
       const { stdout } = execa.sync('docker', [
         'network', 'inspect', 'bridge',
         '-f', '{{(index .IPAM.Config 0).Gateway}}'
-      ]);
+      ], { timeout: 5000, maxBuffer: 1024 });
       const hostGatewayIp = stdout.trim();
       const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
       if (hostGatewayIp && ipv4Regex.test(hostGatewayIp)) {
