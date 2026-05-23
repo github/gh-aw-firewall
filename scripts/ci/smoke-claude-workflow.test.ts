@@ -29,7 +29,9 @@ describe('smoke claude workflow optimization config', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
     expect(lock).toContain('--max-turns 5');
-    expect(lock).toContain('actions: read');
+    expect(lock).toMatch(
+      /jobs:\n(?:[^\n]*\n)*?  agent:\n(?:[^\n]*\n)*?    permissions:\n(?:[^\n]*\n)*?      actions: read/
+    );
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain(
