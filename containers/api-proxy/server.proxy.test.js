@@ -9,7 +9,10 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 const { EventEmitter } = require('events');
-const { resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetTimeoutSteeringForTests } = require('./proxy-request');
+let resetEffectiveTokenGuardForTests;
+let resetMaxRunsGuardForTests;
+let resetTimeoutSteeringForTests;
+let resetAnthropicDeprecatedBetaHeadersForTests;
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -20,6 +23,16 @@ beforeAll(() => {
   delete process.env.HTTPS_PROXY;
   jest.resetModules();
   ({ proxyRequest, proxyWebSocket, healthResponse } = require('./server'));
+  ({
+    resetEffectiveTokenGuardForTests,
+    resetMaxRunsGuardForTests,
+    resetTimeoutSteeringForTests,
+    resetAnthropicDeprecatedBetaHeadersForTests,
+  } = require('./proxy-request'));
+});
+
+beforeEach(() => {
+  resetAnthropicDeprecatedBetaHeadersForTests();
 });
 
 afterAll(() => {
@@ -470,6 +483,160 @@ describe('proxyRequest X-Initiator injection', () => {
     expect(forwarded.messages[0].tool_calls).toEqual([
       { id: 'call_ok', type: 'function', function: { name: 'edit', arguments: '{}' } },
     ]);
+  });
+});
+
+describe('proxyRequest anthropic deprecated beta handling', () => {
+  function makeReq(headers = {}) {
+    const req = new EventEmitter();
+    req.url = '/v1/messages';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', ...headers };
+    return req;
+  }
+
+  function makeRes() {
+    const res = {
+      headersSent: false,
+      setHeader: jest.fn(),
+      writeHead: jest.fn(() => {
+        res.headersSent = true;
+      }),
+      end: jest.fn(),
+      destroy: jest.fn(),
+    };
+    return res;
+  }
+
+  function makeProxyReq() {
+    const proxyReq = new EventEmitter();
+    proxyReq.end = jest.fn();
+    proxyReq.write = jest.fn();
+    proxyReq.destroy = jest.fn();
+    return proxyReq;
+  }
+
+  function makeProxyRes(statusCode, headers = { 'content-type': 'application/json' }) {
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = statusCode;
+    proxyRes.headers = headers;
+    proxyRes.pipe = jest.fn();
+    return proxyRes;
+  }
+
+  function getStructuredLogs(writeSpy, eventName) {
+    return writeSpy.mock.calls
+      .map(([line]) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(entry => entry && entry.event === eventName);
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('retries once after Anthropic rejects a deprecated anthropic-beta value', () => {
+    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const responseHandlers = [];
+    const capturedOptions = [];
+
+    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      capturedOptions.push(options);
+      responseHandlers.push(cb);
+      return makeProxyReq();
+    });
+
+    const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07,other-beta' });
+    const res = makeRes();
+    proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0].headers['anthropic-beta']).toBe('context-1m-2025-08-07,other-beta');
+
+    const firstResponse = makeProxyRes(400);
+    responseHandlers[0](firstResponse);
+    firstResponse.emit('data', Buffer.from(
+      '400 Unexpected value(s) `context-1m-2025-08-07` for the `anthropic-beta` header.'
+    ));
+    firstResponse.emit('end');
+
+    expect(capturedOptions).toHaveLength(2);
+    expect(capturedOptions[1].headers['anthropic-beta']).toBe('other-beta');
+
+    const secondResponse = makeProxyRes(200);
+    responseHandlers[1](secondResponse);
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
+      'x-request-id': expect.any(String),
+    }));
+    secondResponse.emit('data', Buffer.from('{"ok":true}'));
+    secondResponse.emit('end');
+
+    const stripLogs = getStructuredLogs(stdoutWriteSpy, 'anthropic_beta_stripped');
+    expect(stripLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        mode: 'retry',
+        removed_values: ['context-1m-2025-08-07'],
+        remaining_values: ['other-beta'],
+      }),
+    ]));
+  });
+
+  it('proactively strips learned deprecated anthropic-beta values on later requests', () => {
+    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const responseHandlers = [];
+    const capturedOptions = [];
+
+    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      capturedOptions.push(options);
+      responseHandlers.push(cb);
+      return makeProxyReq();
+    });
+
+    const learnReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
+    const learnRes = makeRes();
+    proxyRequest(learnReq, learnRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    learnReq.emit('end');
+
+    const rejection = makeProxyRes(400);
+    responseHandlers[0](rejection);
+    rejection.emit('data', Buffer.from(
+      'Unexpected value(s) `context-1m-2025-08-07` for the `anthropic-beta` header'
+    ));
+    rejection.emit('end');
+
+    expect(capturedOptions[1].headers['anthropic-beta']).toBeUndefined();
+
+    const retrySuccess = makeProxyRes(200);
+    responseHandlers[1](retrySuccess);
+    retrySuccess.emit('data', Buffer.from('{"ok":true}'));
+    retrySuccess.emit('end');
+
+    const nextReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
+    const nextRes = makeRes();
+    proxyRequest(nextReq, nextRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    nextReq.emit('end');
+
+    expect(capturedOptions[2].headers['anthropic-beta']).toBeUndefined();
+
+    const laterSuccess = makeProxyRes(200);
+    responseHandlers[2](laterSuccess);
+    laterSuccess.emit('data', Buffer.from('{"ok":true}'));
+    laterSuccess.emit('end');
+
+    const stripLogs = getStructuredLogs(stdoutWriteSpy, 'anthropic_beta_stripped');
+    expect(stripLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        mode: 'cached',
+        removed_values: ['context-1m-2025-08-07'],
+        remaining_values: [],
+      }),
+    ]));
   });
 });
 
