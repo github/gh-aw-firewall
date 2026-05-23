@@ -148,7 +148,12 @@ Resolve the workflow file name from the display name in the report. The report t
 # Find workflow file by display name
 DISPLAY_NAME="Smoke Copilot"  # from report
 WORKFLOW_FILE=$(grep -rl "^name: ${DISPLAY_NAME}$" .github/workflows/*.md 2>/dev/null | head -1)
-# Fallback: try kebab-case conversion
+# Fallback: search .lock.yml files (workflow name may not be in .md frontmatter)
+if [ -z "$WORKFLOW_FILE" ]; then
+  LOCK_FILE=$(grep -Flx "name: \"${DISPLAY_NAME}\"" .github/workflows/*.lock.yml 2>/dev/null | head -1)
+  [ -n "$LOCK_FILE" ] && WORKFLOW_FILE="${LOCK_FILE%.lock.yml}.md"
+fi
+# Last resort: try kebab-case conversion
 if [ -z "$WORKFLOW_FILE" ]; then
   KEBAB=$(echo "$DISPLAY_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
   WORKFLOW_FILE=".github/workflows/${KEBAB}.md"
