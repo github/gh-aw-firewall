@@ -139,6 +139,10 @@ function getAnthropicDeprecatedBetaValueFromBody(body) {
 
 function learnAndStripAnthropicBetaHeader(headers, deprecatedValue, requestId) {
   anthropicDeprecatedBetaValues.add(deprecatedValue);
+  if (anthropicDeprecatedBetaValues.size > 200) {
+    const oldest = anthropicDeprecatedBetaValues.values().next().value;
+    if (oldest !== undefined) anthropicDeprecatedBetaValues.delete(oldest);
+  }
   const stripped = stripAnthropicBetaValuesFromHeaders(headers, new Set([deprecatedValue]));
   if (!stripped) return null;
   logRequest('warn', 'anthropic_beta_stripped', {
