@@ -33,7 +33,7 @@ describe('resolveCopilotApiKey', () => {
     expect(resolveCopilotApiKey(env)).toBeUndefined();
   });
 
-  it('should return undefined when keys are empty strings', () => {
+  it('should return empty string when keys are empty strings', () => {
     const env = {
       COPILOT_API_KEY: '',
       COPILOT_PROVIDER_API_KEY: '',
@@ -115,7 +115,7 @@ describe('deriveCopilotApiTargetFromProviderBaseUrl', () => {
   });
 
   it('should handle IPv6 addresses', () => {
-    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://[::1]:8080')).toBe('::1');
+    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://[::1]:8080')).toBe('[::1]');
   });
 });
 

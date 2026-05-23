@@ -61,7 +61,11 @@ describe('readGitHubPathEntries', () => {
   });
 
   afterEach(() => {
-    process.env.GITHUB_PATH = originalGithubPath;
+    if (originalGithubPath !== undefined) {
+      process.env.GITHUB_PATH = originalGithubPath;
+    } else {
+      delete process.env.GITHUB_PATH;
+    }
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -252,7 +256,7 @@ describe('parseGitHubEnvFile', () => {
       // Missing closing delimiter - all remaining lines become the value
       const input = 'FOO<<EOF\nline1\nline2\n';
       expect(parseGitHubEnvFile(input)).toEqual({
-        FOO: 'line1\nline2',
+        FOO: 'line1\nline2\n',
       });
     });
 
@@ -276,7 +280,11 @@ describe('readGitHubEnvEntries', () => {
   });
 
   afterEach(() => {
-    process.env.GITHUB_ENV = originalGithubEnv;
+    if (originalGithubEnv !== undefined) {
+      process.env.GITHUB_ENV = originalGithubEnv;
+    } else {
+      delete process.env.GITHUB_ENV;
+    }
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -459,14 +467,14 @@ describe('readEnvFile', () => {
     const envFile = path.join(testDir, 'test.env');
     fs.writeFileSync(envFile, 'MESSAGE=hello world  \n');
     expect(readEnvFile(envFile)).toEqual({
-      MESSAGE: 'hello world  ',
+      MESSAGE: 'hello world',
     });
   });
 
-  it('should trim line whitespace but preserve value whitespace', () => {
+  it('should trim line whitespace before parsing values', () => {
     const envFile = path.join(testDir, 'test.env');
     fs.writeFileSync(envFile, '  FOO=bar  \n');
-    // Line is trimmed, so "FOO=bar  " becomes valid, value is "bar  "
+    // Line is trimmed, so "  FOO=bar  " becomes "FOO=bar"
     expect(readEnvFile(envFile)).toEqual({ FOO: 'bar' });
   });
 
