@@ -12,7 +12,7 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment';
-export { buildAgentVolumes } from './agent-volumes';
+export { buildAgentVolumes } from './agent-volumes/volume-builder';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // ─── Agent Service ────────────────────────────────────────────────────────────
