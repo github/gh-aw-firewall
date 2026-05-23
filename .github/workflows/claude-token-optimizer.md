@@ -135,6 +135,10 @@ steps:
 
       KEBAB=$(printf '%s' "$TOP_WORKFLOW" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')
       FILE=$(grep -Flx -- "name: ${TOP_WORKFLOW}" .github/workflows/*.md 2>/dev/null | head -1 || true)
+      if [ -z "$FILE" ]; then
+        LOCK_FILE=$(grep -Flx -- "name: \"${TOP_WORKFLOW}\"" .github/workflows/*.lock.yml 2>/dev/null | head -1 || true)
+        [ -n "$LOCK_FILE" ] && FILE="${LOCK_FILE%.lock.yml}.md"
+      fi
       [ -z "$FILE" ] && FILE=".github/workflows/${KEBAB}.md"
 
       echo "WORKFLOW_FILE=${FILE}" >> "$GITHUB_ENV"

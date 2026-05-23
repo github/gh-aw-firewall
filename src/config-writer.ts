@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { WrapperConfig, API_PROXY_PORTS } from './types';
 import { logger } from './logger';
-import { generateSquidConfig, generatePolicyManifest } from './squid-config';
+import { generatePolicyManifest, generateSquidConfig } from './squid-config';
 import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } from './ssl-bump';
 import { SslConfig, SQUID_PORT, getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';

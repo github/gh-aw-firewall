@@ -361,6 +361,91 @@ The sidecar container:
 - **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (OpenCode, requires `--enable-opencode`)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
+## Model Fallback
+
+When a model requested by an agent is unavailable on the target provider, the API proxy can automatically select an alternative using the **middle-power strategy**. This ensures requests complete without interruption.
+
+### Configuration
+
+Enable model fallback in your AWF config or via CLI:
+
+**Config file:**
+```yaml
+apiProxy:
+  modelFallback:
+    enabled: true
+    strategy: middle_power
+```
+
+**CLI:**
+Currently, model fallback is enabled by default when the API proxy is active. Set `apiProxy.modelFallback.enabled: false` in the config file to disable it.
+
+### How it works
+
+When a model request is not found:
+
+1. The proxy checks if an exact model match exists on the provider — if so, use it
+2. For `gpt-5.*` requests on OpenAI, check if a lower `gpt-5.*` version is available — if so, use it
+3. Check if a model alias can resolve the request — if so, use the result
+4. **Activate fallback** (if enabled): Select the median-tier model from all available models
+   - Sorts models by capability tier: **Opus/GPT-5** (tier 5) → **Sonnet/GPT-4** (tier 4) → **Haiku/GPT-3.5** (tier 3) → others
+   - Selects the middle model from this sorted list
+   - Logs the fallback reason and full candidate list
+
+**Example:**
+```
+Agent requests: "unknown-model" on Anthropic
+Available models: ["claude-haiku-4-5", "claude-opus-4-1", "claude-sonnet-4-5"]
+Sorted by tier: ["claude-opus-4-1" (tier 5), "claude-sonnet-4-5" (tier 4), "claude-haiku-4-5" (tier 3)]
+Selected: claude-sonnet-4-5 (median)
+Reason: no_alias_match_and_not_in_available_models
+```
+
+### Extended Alias Syntax
+
+Model aliases now support per-alias fallback control:
+
+**Legacy syntax** (string array) — fallback is **enabled**:
+```yaml
+apiProxy:
+  models:
+    sonnet: ["copilot/*sonnet*", "openai/*sonnet*"]
+```
+
+**Extended syntax** (object with patterns and fallback flag):
+```yaml
+apiProxy:
+  models:
+    fast:
+      patterns: ["copilot/gpt-4*", "openai/gpt-4*"]
+      fallback: false  # Disable fallback for this alias
+    sonnet:
+      patterns: ["copilot/*sonnet*"]
+      fallback: true   # Enable fallback (default)
+```
+
+When `fallback: false`, if the alias patterns produce no candidates, resolution fails instead of trying middle-power fallback.
+
+### Disabling Fallback
+
+To disable automatic fallback and return an error when a model is unavailable:
+
+```yaml
+apiProxy:
+  modelFallback:
+    enabled: false
+```
+
+Or for a specific alias:
+
+```yaml
+apiProxy:
+  models:
+    strict-sonnet:
+      patterns: ["copilot/*sonnet*"]
+      fallback: false
+```
+
 ### Health check
 
 Docker healthcheck on the `/health` endpoint (port 10000):
@@ -379,6 +464,7 @@ The `/health` endpoint returns a JSON object that includes a `models_fetch_compl
   "providers": { "openai": true, "anthropic": false, "gemini": false, "copilot": false },
   "key_validation": { "complete": true, "results": { "openai": "valid" } },
   "models_fetch_complete": true,
+  "model_fallback": { "enabled": true, "strategy": "middle_power" },
   "metrics_summary": { "total_requests": 0, "success_rate": 100, "avg_latency_ms": 0 },
   "rate_limits": {}
 }
