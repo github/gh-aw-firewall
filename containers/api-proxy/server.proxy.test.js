@@ -936,7 +936,7 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('learns multiple deprecated values across separate requests', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const responseHandlers = [];
     const capturedOptions = [];
 
