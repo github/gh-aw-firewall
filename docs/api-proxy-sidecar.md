@@ -255,6 +255,15 @@ The Node.js proxy automatically:
   - **OpenAI**: `Authorization: Bearer $OPENAI_API_KEY`
   - **Anthropic**: `x-api-key: $ANTHROPIC_API_KEY` and `anthropic-version: 2023-06-01` (if not already set by the client)
 
+#### Anthropic deprecated header value handling
+
+The proxy automatically detects and corrects deprecated `anthropic-beta` header values:
+- **Automatic retry**: When Anthropic returns a 400 error indicating a deprecated `anthropic-beta` value (e.g., `context-1m-2025-08-07`), the proxy removes the deprecated value and retries the request without affecting other beta values
+- **Learning**: After detecting a deprecated value in one request, the proxy proactively strips it from all subsequent requests in the same run
+- **Transparent**: This retry and correction happens automatically without requiring any changes to client code
+
+Example: If a request includes `anthropic-beta: context-1m-2025-08-07,other-beta` and Anthropic rejects the first value, the proxy retries with `anthropic-beta: other-beta`, and future requests in the same run will also skip the deprecated value.
+
 :::caution
 The proxy enforces a 10 MB request body size limit to prevent denial-of-service via large payloads.
 :::
