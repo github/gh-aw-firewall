@@ -60,11 +60,20 @@ jest.mock('../build-config', () => ({
     allowedDomains: args.allowedDomains,
     blockedDomains: args.blockedDomains,
     enableApiProxy: false,
+    enableOpenCode: false,
+    enableTokenSteering: false,
     envAll: false,
     envFile: undefined,
-    allowHostServicePorts: [],
+    awfDockerHost: undefined,
+    dockerHostPathPrefix: undefined,
+    openaiApiKey: undefined,
+    anthropicApiKey: undefined,
+    copilotGithubToken: undefined,
+    copilotApiKey: undefined,
+    geminiApiKey: undefined,
+    allowHostServicePorts: undefined,
     enableHostAccess: false,
-    allowHostPorts: [],
+    allowHostPorts: undefined,
     skipPull: false,
     buildLocal: false,
   })),
@@ -86,15 +95,20 @@ describe('config-assembly', () => {
   });
 
   const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
+    dockerHostCheck: { valid: true },
     allowedDomains: ['example.com'],
     blockedDomains: [],
-    localhostResult: { localhostDetected: false, domains: [] },
+    localhostResult: {
+      allowedDomains: ['example.com'],
+      localhostDetected: false,
+      shouldEnableHostAccess: false,
+    },
     upstreamProxy: undefined,
     dnsServers: ['8.8.8.8'],
     dnsOverHttps: undefined,
     resolvedCopilotApiTarget: undefined,
     resolvedCopilotApiBasePath: undefined,
-    dockerHostPathPrefixResolution: { dockerHostPathPrefix: undefined },
+    dockerHostPathPrefixResolution: { dockerHostPathPrefix: undefined, autoApplied: false },
   });
 
   const createMinimalAgentOptions = (): AgentOptionsResult => ({
@@ -103,14 +117,54 @@ describe('config-assembly', () => {
     allowedUrls: [],
   });
 
+  const createBuildConfigResult = (
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    agentCommand: 'echo test',
+    logLevel: 'info',
+    allowedDomains: ['example.com'],
+    blockedDomains: [],
+    enableApiProxy: false,
+    enableOpenCode: false,
+    enableTokenSteering: false,
+    envAll: false,
+    envFile: undefined,
+    awfDockerHost: undefined,
+    dockerHostPathPrefix: undefined,
+    openaiApiKey: undefined,
+    anthropicApiKey: undefined,
+    copilotGithubToken: undefined,
+    copilotApiKey: undefined,
+    geminiApiKey: undefined,
+    allowHostServicePorts: undefined,
+    enableHostAccess: false,
+    allowHostPorts: undefined,
+    skipPull: false,
+    buildLocal: false,
+    ...overrides,
+  });
+
+  const mockBuildConfigOnce = (overrides: Record<string, unknown>): void => {
+    mockBuildConfig.mockReturnValueOnce(createBuildConfigResult(overrides));
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     
     // Get reference to the mocked buildConfig
     mockBuildConfig = buildConfig as jest.Mock;
     
+    mockBuildConfig.mockImplementation((args: any) =>
+      createBuildConfigResult({
+        agentCommand: args.agentCommand,
+        logLevel: args.logLevel,
+        allowedDomains: args.allowedDomains,
+        blockedDomains: args.blockedDomains,
+      }),
+    );
+
     // Mock process.exit to throw an error instead (so we can test error paths)
-    mockExit = jest.spyOn(process, 'exit').mockImplementation((code?: number) => {
+    mockExit = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new Error(`process.exit(${code})`);
     });
 
@@ -138,7 +192,7 @@ describe('config-assembly', () => {
 
   describe('docker-host validation', () => {
     it('should reject non-unix:// docker host URIs', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         awfDockerHost: 'tcp://127.0.0.1:2375',
         dockerHostPathPrefix: undefined,
       });
@@ -159,7 +213,7 @@ describe('config-assembly', () => {
     });
 
     it('should accept unix:// docker host URIs', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         awfDockerHost: 'unix:///var/run/docker.sock',
         dockerHostPathPrefix: undefined,
       });
@@ -177,7 +231,7 @@ describe('config-assembly', () => {
     });
 
     it('should reject relative docker-host-path-prefix', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         awfDockerHost: undefined,
         dockerHostPathPrefix: 'relative/path',
       });
@@ -198,7 +252,7 @@ describe('config-assembly', () => {
     });
 
     it('should accept absolute docker-host-path-prefix', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         awfDockerHost: undefined,
         dockerHostPathPrefix: '/host',
       });
@@ -218,7 +272,7 @@ describe('config-assembly', () => {
 
   describe('rate limit validation', () => {
     it('should exit if rate limit config build fails', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableApiProxy: true,
       });
 
@@ -263,7 +317,7 @@ describe('config-assembly', () => {
     });
 
     it('should set rate limit config when API proxy is enabled', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableApiProxy: true,
       });
 
@@ -339,7 +393,7 @@ describe('config-assembly', () => {
 
   describe('environment variable warnings', () => {
     it('should warn when --env-all is used', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envAll: true,
       });
 
@@ -360,7 +414,7 @@ describe('config-assembly', () => {
     });
 
     it('should log debug message when --env-file is used', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: '/tmp/test.env',
       });
 
@@ -466,7 +520,7 @@ describe('config-assembly', () => {
 
   describe('host access warnings', () => {
     it('should warn when host access is enabled with host.docker.internal', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableHostAccess: true,
       });
 
@@ -495,7 +549,7 @@ describe('config-assembly', () => {
     });
 
     it('should warn when host access is enabled with subdomain of host.docker.internal', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableHostAccess: true,
       });
 
@@ -521,7 +575,7 @@ describe('config-assembly', () => {
     });
 
     it('should not warn when host access is enabled without host.docker.internal', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableHostAccess: true,
       });
 
@@ -549,7 +603,7 @@ describe('config-assembly', () => {
 
   describe('API proxy configuration', () => {
     it('should log API proxy status when enabled', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         enableApiProxy: true,
         openaiApiKey: 'sk-test',
         anthropicApiKey: 'test-key',
@@ -578,7 +632,7 @@ describe('config-assembly', () => {
       const envFilePath = path.join(testDir, 'test.env');
       fs.writeFileSync(envFilePath, 'COPILOT_MODEL=gpt-4\n');
 
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: envFilePath,
         copilotGithubToken: 'ghp_testtoken',
       });
@@ -602,7 +656,7 @@ describe('config-assembly', () => {
       const envFilePath = path.join(testDir, 'test.env');
       fs.writeFileSync(envFilePath, 'export COPILOT_MODEL=gpt-4\n');
 
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: envFilePath,
         copilotGithubToken: 'ghp_testtoken',
       });
@@ -626,7 +680,7 @@ describe('config-assembly', () => {
       const envFilePath = path.join(testDir, 'test.env');
       fs.writeFileSync(envFilePath, '# COPILOT_MODEL=gpt-4\nOTHER_VAR=value\n');
 
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: envFilePath,
         copilotGithubToken: 'ghp_testtoken',
       });
@@ -647,7 +701,7 @@ describe('config-assembly', () => {
     });
 
     it('should handle unreadable env file gracefully', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: '/nonexistent/file.env',
         copilotGithubToken: 'ghp_testtoken',
       });
@@ -665,7 +719,7 @@ describe('config-assembly', () => {
     });
 
     it('should detect COPILOT_MODEL from --env flags', () => {
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         copilotGithubToken: 'ghp_testtoken',
       });
 
@@ -689,32 +743,33 @@ describe('config-assembly', () => {
 
     it('should detect COPILOT_MODEL from host env when --env-all is active', () => {
       const originalCopilotModel = process.env.COPILOT_MODEL;
-      process.env.COPILOT_MODEL = 'gpt-4';
+      try {
+        process.env.COPILOT_MODEL = 'gpt-4';
 
-      mockBuildConfig.mockReturnValueOnce({
-        envAll: true,
-        copilotGithubToken: 'ghp_testtoken',
-      });
+        mockBuildConfigOnce({
+          envAll: true,
+          copilotGithubToken: 'ghp_testtoken',
+        });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          createMinimalAgentOptions(),
+        );
 
-      expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-        true,
-        true, // COPILOT_MODEL detected from host env
-        expect.any(Function),
-      );
-
-      // Cleanup
-      if (originalCopilotModel) {
-        process.env.COPILOT_MODEL = originalCopilotModel;
-      } else {
-        delete process.env.COPILOT_MODEL;
+        expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
+          true,
+          true, // COPILOT_MODEL detected from host env
+          expect.any(Function),
+        );
+      } finally {
+        if (originalCopilotModel) {
+          process.env.COPILOT_MODEL = originalCopilotModel;
+        } else {
+          delete process.env.COPILOT_MODEL;
+        }
       }
     });
 
@@ -724,7 +779,7 @@ describe('config-assembly', () => {
       fs.writeFileSync(envFilePath1, 'VAR1=value1\n');
       fs.writeFileSync(envFilePath2, 'COPILOT_MODEL=gpt-4\n');
 
-      mockBuildConfig.mockReturnValueOnce({
+      mockBuildConfigOnce({
         envFile: [envFilePath1, envFilePath2],
         copilotGithubToken: 'ghp_testtoken',
       });
