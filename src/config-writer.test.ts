@@ -350,33 +350,38 @@ describe('writeConfigs', () => {
 
   describe('seccomp profile', () => {
     it('throws error when seccomp profile is not found', async () => {
-      // Mock __dirname to point to a location where seccomp profile doesn't exist
-      const originalDirname = __dirname;
-      Object.defineProperty(global, '__dirname', {
-        value: '/nonexistent/path',
-        writable: true,
-        configurable: true,
+      const originalExistsSync = fs.existsSync;
+      const existsSyncSpy = jest.spyOn(fs, 'existsSync').mockImplementation((filePath: fs.PathLike) => {
+        const normalizedPath =
+          typeof filePath === 'string' ? filePath : filePath.toString();
+
+        if (
+          normalizedPath === 'seccomp-profile.json' ||
+          normalizedPath.endsWith(`${path.sep}seccomp-profile.json`)
+        ) {
+          return false;
+        }
+
+        return originalExistsSync(filePath);
       });
 
-      await expect(
-        writeConfigs({
-          workDir: tempDir,
-          sslBump: false,
-          allowedDomains: [],
-          agentCommand: 'echo test',
-          logLevel: 'info',
-          keepContainers: false,
-          buildLocal: false,
-          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-          imageTag: 'latest',
-        })
-      ).rejects.toThrow(/Seccomp profile not found/);
-
-      Object.defineProperty(global, '__dirname', {
-        value: originalDirname,
-        writable: true,
-        configurable: true,
-      });
+      try {
+        await expect(
+          writeConfigs({
+            workDir: tempDir,
+            sslBump: false,
+            allowedDomains: [],
+            agentCommand: 'echo test',
+            logLevel: 'info',
+            keepContainers: false,
+            buildLocal: false,
+            imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+            imageTag: 'latest',
+          })
+        ).rejects.toThrow(/Seccomp profile not found/);
+      } finally {
+        existsSyncSpy.mockRestore();
+      }
     });
   });
 
