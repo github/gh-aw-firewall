@@ -9,7 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-step GitHub check and stricter turn budget in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 2');
+    expect(source).toContain('max-turns: 10');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -31,18 +31,18 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('Ensure playwright log directory is writable');
   });
 
-  it('compiles the workflow without playwright tools and with max-turns 2', () => {
+  it('compiles the workflow without playwright tools and with max-turns 10', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 2');
+    expect(lock).toContain('--max-turns 10');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');
     expect(lock).toContain('Report turn usage');
     expect(lock).toContain(
-      'github/gh-aw-actions/setup@efa55847f72aadb03490d955263ff911bf758700 # v0.74.8'
+      'github/gh-aw-actions/setup@d3abfe96a194bce3a523ed2093ddedd5704cdf62 # v0.74.4'
     );
-    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.74.8');
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.74.4');
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');
