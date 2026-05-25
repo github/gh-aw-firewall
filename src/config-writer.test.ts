@@ -6,12 +6,19 @@ const mockGetRealUserHome = jest.fn();
 
 // jest.mock() calls are hoisted before imports — keep them at the top.
 
-// fs.chownSync is non-configurable and cannot be overridden with jest.spyOn.
-// Use a module-level mock that replaces only chownSync, keeping all other
-// fs functions real so directory/file creation in writeConfigs works normally.
+// fs.chownSync and fs.existsSync are non-configurable and cannot be overridden
+// with jest.spyOn. Use a module-level mock that replaces them with jest.fn()
+// wrappers, keeping all other fs functions real so directory/file creation in
+// writeConfigs works normally.
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
-  return { ...actual, chownSync: jest.fn() };
+  return {
+    ...actual,
+    chownSync: jest.fn(),
+    existsSync: jest.fn((...args: Parameters<typeof actual.existsSync>) =>
+      actual.existsSync(...args)
+    ),
+  };
 });
 
 jest.mock('./ssl-bump', () => ({
@@ -350,8 +357,9 @@ describe('writeConfigs', () => {
 
   describe('seccomp profile', () => {
     it('throws error when seccomp profile is not found', async () => {
-      const originalExistsSync = fs.existsSync;
-      const existsSyncSpy = jest.spyOn(fs, 'existsSync').mockImplementation((filePath: fs.PathLike) => {
+      const existsSyncMock = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+      const originalImpl = existsSyncMock.getMockImplementation()!;
+      existsSyncMock.mockImplementation((filePath: fs.PathLike) => {
         const normalizedPath =
           typeof filePath === 'string' ? filePath : filePath.toString();
 
@@ -362,7 +370,7 @@ describe('writeConfigs', () => {
           return false;
         }
 
-        return originalExistsSync(filePath);
+        return originalImpl(filePath);
       });
 
       try {
@@ -380,7 +388,7 @@ describe('writeConfigs', () => {
           })
         ).rejects.toThrow(/Seccomp profile not found/);
       } finally {
-        existsSyncSpy.mockRestore();
+        existsSyncMock.mockImplementation(originalImpl);
       }
     });
   });
