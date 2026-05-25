@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 2
+  max-turns: 10
 sandbox:
   agent:
     version: v0.25.29
