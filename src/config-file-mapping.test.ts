@@ -35,7 +35,6 @@ describe('mapAwfFileConfigToCliOptions', () => {
   it('maps all API proxy target fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
-        enableOpenCode: true,
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
           copilot: { host: 'api.githubcopilot.com' },
@@ -44,7 +43,6 @@ describe('mapAwfFileConfigToCliOptions', () => {
       },
     });
 
-    expect(result.enableOpencode).toBe(true);
     expect(result.openaiApiTarget).toBe('api.openai.com');
     expect(result.openaiApiBasePath).toBe('/v1');
     expect(result.copilotApiTarget).toBe('api.githubcopilot.com');

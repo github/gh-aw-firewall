@@ -71,14 +71,9 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.enabled must be a boolean');
   });
 
-  it('accepts boolean apiProxy.enableOpenCode', () => {
-    expect(validateAwfFileConfig({ apiProxy: { enableOpenCode: true } })).toEqual([]);
-    expect(validateAwfFileConfig({ apiProxy: { enableOpenCode: false } })).toEqual([]);
-  });
-
-  it('rejects non-boolean apiProxy.enableOpenCode', () => {
-    const errors = validateAwfFileConfig({ apiProxy: { enableOpenCode: 'yes' } });
-    expect(errors).toContain('config.apiProxy.enableOpenCode must be a boolean');
+  it('rejects apiProxy.enableOpenCode as unsupported', () => {
+    const errors = validateAwfFileConfig({ apiProxy: { enableOpenCode: true } });
+    expect(errors).toContain('config.apiProxy.enableOpenCode is not supported');
   });
 
   it('accepts boolean apiProxy.enableTokenSteering', () => {
