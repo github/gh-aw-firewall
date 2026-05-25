@@ -306,8 +306,9 @@ const proxyWebSocket = createProxyWebSocket({
 
 /**
  * Build the headers object for the upstream request.
- * Strips hop-by-hop headers, merges injected auth headers, sets the request-id,
- * and adjusts content-length when the body was transformed.
+ * Strips headers matched by `shouldStripHeader()`, merges injected auth
+ * headers, sets the request-id, and adjusts content-length when the body was
+ * transformed.
  *
  * @param {Buffer} body - Final (possibly transformed) request body
  * @param {number} inboundBytes - Original body size before transforms
