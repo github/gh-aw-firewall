@@ -289,10 +289,63 @@ function stripEncryptedInclude(body, requestPath = '') {
   };
 }
 
+/**
+ * Strip reasoning parameters from Responses API requests.
+ *
+ * The CI API key tier may not support reasoning features. Codex sends
+ * reasoning.effort unconditionally, causing 400 "reasoning.effort is not
+ * supported with this model" errors.
+ *
+ * @param {Buffer} body
+ * @param {string} requestPath
+ * @returns {{ body: Buffer, strippedKeys: string[], model: string|null }|null}
+ */
+function stripReasoningEffort(body, requestPath = '') {
+  const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
+  if (!/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const strippedKeys = [];
+
+  if (parsed.reasoning && typeof parsed.reasoning === 'object') {
+    if ('effort' in parsed.reasoning) {
+      strippedKeys.push(`reasoning.effort=${parsed.reasoning.effort}`);
+      delete parsed.reasoning.effort;
+    }
+    if ('summary' in parsed.reasoning) {
+      strippedKeys.push(`reasoning.summary=${parsed.reasoning.summary}`);
+      delete parsed.reasoning.summary;
+    }
+    // Remove empty reasoning object
+    if (Object.keys(parsed.reasoning).length === 0) {
+      delete parsed.reasoning;
+    }
+  }
+
+  if (strippedKeys.length === 0) return null;
+
+  const model = (typeof parsed.model === 'string') ? parsed.model : null;
+
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    strippedKeys,
+    model,
+  };
+}
+
 module.exports = {
   sanitizeNullToolCallTypes,
   injectSteeringMessage,
   injectStreamOptions,
   stripUnrecognizedToolTypes,
   stripEncryptedInclude,
+  stripReasoningEffort,
 };

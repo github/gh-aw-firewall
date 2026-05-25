@@ -1,4 +1,4 @@
-const { injectStreamOptions, stripUnrecognizedToolTypes, stripEncryptedInclude } = require('./body-transform');
+const { injectStreamOptions, stripUnrecognizedToolTypes, stripEncryptedInclude, stripReasoningEffort } = require('./body-transform');
 
 describe('injectStreamOptions', () => {
   test('injects include_usage for streaming chat completions requests', () => {
@@ -206,5 +206,72 @@ describe('stripEncryptedInclude', () => {
     const result = stripEncryptedInclude(body, 'v1/responses');
     expect(result).not.toBeNull();
     expect(result.strippedValues).toEqual(['reasoning.encrypted_content']);
+  });
+});
+
+describe('stripReasoningEffort', () => {
+  test('returns null for non-responses path', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.3-codex',
+      input: 'hello',
+      reasoning: { effort: 'medium' },
+    }));
+    const result = stripReasoningEffort(body, '/v1/chat/completions');
+    expect(result).toBeNull();
+  });
+
+  test('strips reasoning.effort from responses path', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.3-codex',
+      input: 'hello',
+      reasoning: { effort: 'medium' },
+    }));
+    const result = stripReasoningEffort(body, '/v1/responses');
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString());
+    expect(parsed.reasoning).toBeUndefined();
+    expect(result.strippedKeys).toEqual(['reasoning.effort=medium']);
+    expect(result.model).toBe('gpt-5.3-codex');
+  });
+
+  test('strips reasoning.effort and reasoning.summary together', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      reasoning: { effort: 'high', summary: 'auto' },
+    }));
+    const result = stripReasoningEffort(body, '/v1/responses');
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString());
+    expect(parsed.reasoning).toBeUndefined();
+    expect(result.strippedKeys).toContain('reasoning.effort=high');
+    expect(result.strippedKeys).toContain('reasoning.summary=auto');
+  });
+
+  test('preserves other reasoning fields', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      reasoning: { effort: 'medium', some_future_field: true },
+    }));
+    const result = stripReasoningEffort(body, '/v1/responses');
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString());
+    expect(parsed.reasoning).toEqual({ some_future_field: true });
+  });
+
+  test('returns null when no reasoning field present', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+    }));
+    const result = stripReasoningEffort(body, '/v1/responses');
+    expect(result).toBeNull();
+  });
+
+  test('returns null for invalid JSON', () => {
+    const body = Buffer.from('not json');
+    const result = stripReasoningEffort(body, '/v1/responses');
+    expect(result).toBeNull();
   });
 });
