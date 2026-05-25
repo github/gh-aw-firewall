@@ -7,6 +7,7 @@ import { generatePolicyManifest, generateSquidConfig } from './squid-config';
 import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } from './ssl-bump';
 import { SslConfig, SQUID_PORT, getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
+import { resolveLogPaths } from './log-paths';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -61,31 +62,32 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     onExists: () => fs.chmodSync(config.workDir, 0o700),
   });
 
+  // Resolve all log/state directory paths from a single source of truth
+  const logPaths = resolveLogPaths(config);
+
   // Create agent logs directory for persistence
   // Chown to host user so Copilot CLI can write logs (AWF runs as root, agent runs as host user)
-  const agentLogsDir = path.join(config.workDir, 'agent-logs');
-  ensureDirectory(agentLogsDir, {
+  ensureDirectory(logPaths.agentLogs, {
     onAfterEnsure: () => {
       try {
-        fs.chownSync(agentLogsDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+        fs.chownSync(logPaths.agentLogs, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
       } catch { /* ignore chown failures in non-root context */ }
     },
   });
-  logger.debug(`Agent logs directory created at: ${agentLogsDir}`);
+  logger.debug(`Agent logs directory created at: ${logPaths.agentLogs}`);
 
   // Create agent session-state directory for persistence (events.jsonl, session data)
   // If sessionStateDir is specified, write directly there (timeout-safe, predictable path)
   // Otherwise, use workDir/agent-session-state (will be moved to /tmp after cleanup)
   // Chown to host user so Copilot CLI can create session subdirs and write events.jsonl
-  const agentSessionStateDir = config.sessionStateDir || path.join(config.workDir, 'agent-session-state');
-  ensureDirectory(agentSessionStateDir, {
+  ensureDirectory(logPaths.sessionState, {
     onAfterEnsure: () => {
       try {
-        fs.chownSync(agentSessionStateDir, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+        fs.chownSync(logPaths.sessionState, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
       } catch { /* ignore chown failures in non-root context */ }
     },
   });
-  logger.debug(`Agent session-state directory created at: ${agentSessionStateDir}`);
+  logger.debug(`Agent session-state directory created at: ${logPaths.sessionState}`);
 
   // Create squid logs directory for persistence
   // If proxyLogsDir is specified, write directly there (timeout-safe)
@@ -96,47 +98,40 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Set ownership so proxy user can write logs without root privileges
   const SQUID_PROXY_UID = 13;
   const SQUID_PROXY_GID = 13;
-  const squidLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
-  ensureDirectory(squidLogsDir, {
+  ensureDirectory(logPaths.squidLogs, {
     mode: 0o755,
     onCreate: () => {
       try {
-        fs.chownSync(squidLogsDir, SQUID_PROXY_UID, SQUID_PROXY_GID);
+        fs.chownSync(logPaths.squidLogs, SQUID_PROXY_UID, SQUID_PROXY_GID);
       } catch {
         // Fallback to world-writable if chown fails (e.g., non-root context)
-        fs.chmodSync(squidLogsDir, 0o777);
+        fs.chmodSync(logPaths.squidLogs, 0o777);
       }
     },
   });
-  logger.debug(`Squid logs directory created at: ${squidLogsDir}`);
+  logger.debug(`Squid logs directory created at: ${logPaths.squidLogs}`);
 
   // Create api-proxy logs directory for persistence
   // If proxyLogsDir is specified, write inside it as a subdirectory (timeout-safe,
   // and included in the firewall-audit-logs artifact upload automatically)
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
   // Note: API proxy runs as user 'apiproxy' (non-root)
-  const apiProxyLogsDir = config.proxyLogsDir
-    ? path.join(config.proxyLogsDir, 'api-proxy-logs')
-    : path.join(config.workDir, 'api-proxy-logs');
-  ensureDirectory(apiProxyLogsDir, {
+  ensureDirectory(logPaths.apiProxyLogs, {
     mode: 0o777,
     onCreate: () => {
       // Explicitly set permissions to 0o777 (not affected by umask)
-      fs.chmodSync(apiProxyLogsDir, 0o777);
+      fs.chmodSync(logPaths.apiProxyLogs, 0o777);
     },
   });
-  logger.debug(`API proxy logs directory created at: ${apiProxyLogsDir}`);
+  logger.debug(`API proxy logs directory created at: ${logPaths.apiProxyLogs}`);
 
   // Create CLI proxy logs directory for persistence
   // Note: CLI proxy runs as user 'cliproxy' (non-root)
-  const cliProxyLogsDir = config.proxyLogsDir
-    ? path.join(config.proxyLogsDir, 'cli-proxy-logs')
-    : path.join(config.workDir, 'cli-proxy-logs');
-  ensureDirectory(cliProxyLogsDir, {
+  ensureDirectory(logPaths.cliProxyLogs, {
     mode: 0o777,
-    onCreate: () => fs.chmodSync(cliProxyLogsDir, 0o777),
+    onCreate: () => fs.chmodSync(logPaths.cliProxyLogs, 0o777),
   });
-  logger.debug(`CLI proxy logs directory created at: ${cliProxyLogsDir}`);
+  logger.debug(`CLI proxy logs directory created at: ${logPaths.cliProxyLogs}`);
 
   // Create /tmp/gh-aw/mcp-logs directory
   // This directory exists on the HOST for MCP gateway to write logs

@@ -5,6 +5,7 @@ import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseImageTag } from './image-tag';
 import { SslConfig } from './host-env';
 import { getRealUserHome } from './host-identity';
+import { resolveLogPaths } from './log-paths';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptablesInitService } from './services/agent-service';
 import { buildApiProxyService } from './services/api-proxy-service';
@@ -45,27 +46,8 @@ export function generateDockerCompose(
 
   // ── Log / state paths ──────────────────────────────────────────────────────
 
-  // Squid logs path: use proxyLogsDir if specified (direct write), otherwise workDir/squid-logs
-  const squidLogsPath = config.proxyLogsDir || `${config.workDir}/squid-logs`;
-
-  // Session state path: use sessionStateDir if specified (timeout-safe, predictable path),
-  // otherwise workDir/agent-session-state (will be moved to /tmp after cleanup)
-  const sessionStatePath = config.sessionStateDir || `${config.workDir}/agent-session-state`;
-
-  // Agent logs path: always workDir/agent-logs (moved to /tmp after cleanup)
-  const agentLogsPath = `${config.workDir}/agent-logs`;
-
-  // API proxy logs path: if proxyLogsDir is specified, write inside it as a subdirectory
-  // so that token-usage.jsonl is included in the firewall-audit-logs artifact automatically.
-  // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
-  const apiProxyLogsPath = config.proxyLogsDir
-    ? path.join(config.proxyLogsDir, 'api-proxy-logs')
-    : path.join(config.workDir, 'api-proxy-logs');
-
-  // CLI proxy logs path: write to workDir/cli-proxy-logs (will be moved to /tmp after cleanup)
-  const cliProxyLogsPath = config.proxyLogsDir
-    ? path.join(config.proxyLogsDir, 'cli-proxy-logs')
-    : path.join(config.workDir, 'cli-proxy-logs');
+  const logPaths = resolveLogPaths(config);
+  const { squidLogs: squidLogsPath, sessionState: sessionStatePath, agentLogs: agentLogsPath, apiProxyLogs: apiProxyLogsPath, cliProxyLogs: cliProxyLogsPath } = logPaths;
 
   // ── Init-signal directory ──────────────────────────────────────────────────
 
