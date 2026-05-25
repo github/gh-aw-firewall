@@ -6,7 +6,8 @@
   "type": "object",
   "required": [
     "_schema",
-    "ts",
+    "timestamp",
+    "event",
     "client",
     "host",
     "dest",
@@ -22,9 +23,16 @@
       "pattern": "^audit/v\\d+\\.\\d+\\.\\d+(-\\w+)?$",
       "description": "Schema identifier and version for this record (e.g. \"audit/v0.26.0\"). Dev builds use \"audit/v0.0.0-dev\"."
     },
-    "ts": {
-      "type": "number",
-      "description": "Unix timestamp with millisecond precision (e.g. 1761074374.646)."
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "ISO 8601 UTC timestamp with millisecond precision (e.g. 2026-05-25T09:00:00.000Z)."
+    },
+    "event": {
+      "type": "string",
+      "enum": ["http_access", "http_access_allowed", "http_access_denied"],
+      "description": "Stable event discriminator for audit records."
     },
     "client": {
       "type": "string",

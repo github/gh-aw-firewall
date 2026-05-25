@@ -59,7 +59,7 @@ try {
  * Each line is a self-contained JSON object for easy parsing.
  */
 function accessLog(entry) {
-  const record = { ts: new Date().toISOString(), ...entry };
+  const record = { timestamp: new Date().toISOString(), ...entry };
   const line = JSON.stringify(record);
   if (logStream) {
     logStream.write(line + '\n');

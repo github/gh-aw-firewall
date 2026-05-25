@@ -32,6 +32,7 @@ describe('validateTokenUsageRecord', () => {
   const validRecord = {
     _schema: 'token-usage/v0.0.0-dev',
     timestamp: '2025-01-01T00:00:00.000Z',
+    event: 'token_usage',
     request_id: 'req-123',
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
@@ -74,6 +75,11 @@ describe('validateTokenUsageRecord', () => {
 
   test('rejects a record with non-string timestamp', () => {
     expect(validateTokenUsageRecord({ ...validRecord, timestamp: 1234567890 })).toBe(false);
+  });
+
+  test('rejects a record missing event', () => {
+    const { event, ...noEvent } = validRecord;
+    expect(validateTokenUsageRecord(noEvent)).toBe(false);
   });
 
   test('rejects a record with non-number input_tokens', () => {
@@ -122,6 +128,7 @@ describe('shared token usage helpers', () => {
     });
 
     expect(record).toMatchObject({
+      event: 'token_usage',
       request_id: 'helper-record-test',
       provider: 'openai',
       model: 'unknown',
@@ -216,6 +223,7 @@ describe('token-usage JSONL record schema field', () => {
     const record = {
       _schema: 'token-usage/v0.0.0',
       timestamp: new Date().toISOString(),
+      event: 'token_usage',
       request_id: 'direct-write-test',
       provider: 'openai',
       model: 'gpt-4o',

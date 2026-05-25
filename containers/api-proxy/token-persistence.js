@@ -116,6 +116,7 @@ function validateTokenUsageRecord(record) {
   const required = [
     ['_schema', 'string'],
     ['timestamp', 'string'],
+    ['event', 'string'],
     ['request_id', 'string'],
     ['provider', 'string'],
     ['model', 'string'],
@@ -175,6 +176,7 @@ function buildTokenUsageRecord(normalized, opts) {
   return {
     _schema: TOKEN_USAGE_SCHEMA,
     timestamp: new Date().toISOString(),
+    event: 'token_usage',
     request_id: requestId,
     provider,
     model: model || 'unknown',

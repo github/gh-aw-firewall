@@ -14,6 +14,7 @@
 const { InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
 const { SpanKind, SpanStatusCode } = require('@opentelemetry/api');
 const { EventEmitter } = require('events');
+const fs = require('fs');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ function loadOtel(envOverrides = {}) {
     'GITHUB_AW_OTEL_PARENT_SPAN_ID',
     'HTTPS_PROXY',
     'HTTP_PROXY',
+    'AWF_VERSION',
   ];
   for (const k of keys) {
     saved[k] = process.env[k];
@@ -542,6 +544,40 @@ describe('otel — ProxyAwareOtlpExporter', () => {
 });
 
 describe('otel — FileSpanExporter', () => {
+  test('export() writes timestamp/event/_schema in JSONL record', (done) => {
+    const { _FileSpanExporter } = loadOtel({ AWF_VERSION: '1.2.3' });
+    const writes = [];
+    const mockStream = {
+      write: jest.fn((chunk) => { writes.push(chunk); return true; }),
+      on: jest.fn(),
+    };
+    const createWriteStreamSpy = jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream);
+
+    const exp = new _FileSpanExporter('/tmp/otel.jsonl');
+    const span = {
+      spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
+      parentSpanId: null,
+      name: 'test_span',
+      kind: 2,
+      startTime: [1700000000, 0],
+      endTime: [1700000000, 1000000],
+      attributes: {},
+      events: [],
+      status: { code: 1 },
+    };
+
+    exp.export([span], (result) => {
+      createWriteStreamSpy.mockRestore();
+      expect(result.code).toBe(0);
+      expect(writes).toHaveLength(1);
+      const parsed = JSON.parse(writes[0].trim());
+      expect(parsed._schema).toBe('otel-span/v1.2.3');
+      expect(parsed.event).toBe('otel_span');
+      expect(parsed.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      done();
+    });
+  });
+
   test('export() calls resultCallback with code 0 (best-effort)', (done) => {
     const { _FileSpanExporter } = loadOtel();
     // Use a path that likely fails (directory doesn't exist)

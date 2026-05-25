@@ -8,6 +8,8 @@ This directory contains [JSON Schema](https://json-schema.org/) files for the JS
 |---|---|---|
 | [`token-usage.schema.json`](token-usage.schema.json) | `token-usage.jsonl` | `containers/api-proxy/token-tracker.js` |
 | [`audit.schema.json`](audit.schema.json) | `audit.jsonl` | Squid proxy (`src/squid-config.ts`) |
+| [`otel-span.schema.json`](otel-span.schema.json) | `otel.jsonl` | `containers/api-proxy/otel.js` local file exporter |
+| [`cli-proxy-access.schema.json`](cli-proxy-access.schema.json) | `access.jsonl` | `containers/cli-proxy/server.js` |
 
 ## Schema versioning policy
 
@@ -23,8 +25,8 @@ Schema files do not carry an independent version suffix. Instead, the repo relea
 Every JSONL record includes a `_schema` field that identifies the record type and the AWF version that produced it:
 
 ```json
-{ "_schema": "token-usage/v0.26.0", "timestamp": "2025-01-01T00:00:00.000Z", ... }
-{ "_schema": "audit/v0.26.0", "ts": 1761074374.646, ... }
+{ "_schema": "token-usage/v0.26.0", "timestamp": "2025-01-01T00:00:00.000Z", "event": "token_usage", ... }
+{ "_schema": "audit/v0.26.0", "timestamp": "2026-05-25T09:00:00.000Z", "event": "http_access", ... }
 ```
 
 The `_schema` field uses the pattern `<type>/v<semver>`. Consumers should use a prefix match (`_schema.startsWith("audit/")`) rather than an exact match to handle future versions gracefully.
@@ -36,6 +38,8 @@ Each release publishes all schemas as release assets:
 ```
 https://github.com/github/gh-aw-firewall/releases/download/<tag>/audit.schema.json
 https://github.com/github/gh-aw-firewall/releases/download/<tag>/token-usage.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/otel-span.schema.json
+https://github.com/github/gh-aw-firewall/releases/download/<tag>/cli-proxy-access.schema.json
 https://github.com/github/gh-aw-firewall/releases/download/<tag>/awf-config.schema.json
 ```
 
@@ -44,6 +48,8 @@ For always-latest (main branch) references:
 ```
 https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/audit.schema.json
 https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/token-usage.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/otel-span.schema.json
+https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/cli-proxy-access.schema.json
 https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/awf-config.schema.json
 ```
 

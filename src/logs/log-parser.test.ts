@@ -226,7 +226,7 @@ describe('log-parser', () => {
 
   describe('parseAuditJsonlLine', () => {
     it('should parse a valid JSONL CONNECT entry', () => {
-      const line = '{"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const line = '{"timestamp":"2025-10-21T19:19:34.646Z","event":"http_access","client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
       const entry = parseAuditJsonlLine(line);
 
       expect(entry).not.toBeNull();
@@ -240,8 +240,16 @@ describe('log-parser', () => {
       expect(entry!.isHttps).toBe(true);
     });
 
+    it('should continue to parse legacy records with ts epoch timestamp', () => {
+      const line = '{"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.timestamp).toBeCloseTo(1761074374.646);
+    });
+
     it('should parse a denied JSONL entry', () => {
-      const line = '{"ts":1760994429.358,"client":"172.30.0.20","host":"evil.com:443","dest":"-:-","method":"CONNECT","status":403,"decision":"TCP_DENIED","url":"evil.com:443"}';
+      const line = '{"timestamp":"2025-10-20T21:07:09.358Z","event":"http_access","client":"172.30.0.20","host":"evil.com:443","dest":"-:-","method":"CONNECT","status":403,"decision":"TCP_DENIED","url":"evil.com:443"}';
       const entry = parseAuditJsonlLine(line);
 
       expect(entry).not.toBeNull();
@@ -251,7 +259,7 @@ describe('log-parser', () => {
     });
 
     it('should parse a HTTP GET entry', () => {
-      const line = '{"ts":1700000000.000,"client":"172.30.0.20","host":"example.com","dest":"93.184.216.34:80","method":"GET","status":200,"decision":"TCP_MISS","url":"http://example.com/"}';
+      const line = '{"timestamp":"2023-11-14T22:13:20.000Z","event":"http_access","client":"172.30.0.20","host":"example.com","dest":"93.184.216.34:80","method":"GET","status":200,"decision":"TCP_MISS","url":"http://example.com/"}';
       const entry = parseAuditJsonlLine(line);
 
       expect(entry).not.toBeNull();
@@ -271,7 +279,7 @@ describe('log-parser', () => {
     });
 
     it('should parse records that include the _schema field', () => {
-      const line = '{"_schema":"audit/v0.23.1","ts":1774290908.910,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.116.5:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const line = '{"_schema":"audit/v0.23.1","timestamp":"2026-03-23T18:35:08.910Z","event":"http_access","client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.116.5:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
       const entry = parseAuditJsonlLine(line);
 
       expect(entry).not.toBeNull();

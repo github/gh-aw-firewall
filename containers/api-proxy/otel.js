@@ -59,6 +59,8 @@ const HTTPS_PROXY_URL  = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 const SCOPE_NAME     = 'awf-api-proxy';
 const OTEL_LOG_FILE  = '/var/log/api-proxy/otel.jsonl';
 const EXPORT_TIMEOUT_MS = 10_000;
+const AWF_VERSION = process.env.AWF_VERSION || '0.0.0-dev';
+const OTEL_SPAN_SCHEMA = `otel-span/v${AWF_VERSION}`;
 
 /** Module-level state, populated by init(). */
 let _provider = null;
@@ -303,7 +305,9 @@ class FileSpanExporter {
         try {
           const ctx = span.spanContext();
           const record = {
+            _schema:      OTEL_SPAN_SCHEMA,
             timestamp:    new Date().toISOString(),
+            event:        'otel_span',
             traceId:      ctx.traceId,
             spanId:       ctx.spanId,
             parentSpanId: span.parentSpanId || null,

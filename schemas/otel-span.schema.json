@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/otel-span.schema.json",
+  "title": "AWF OTel Span Log Record",
+  "description": "A single OpenTelemetry span record emitted to otel.jsonl by the AWF api-proxy sidecar local exporter.",
+  "type": "object",
+  "required": ["_schema", "timestamp", "event", "traceId", "spanId", "name", "kind", "startTimeMs", "endTimeMs"],
+  "additionalProperties": true,
+  "properties": {
+    "_schema": {
+      "type": "string",
+      "pattern": "^otel-span/v\\d+\\.\\d+\\.\\d+(-\\w+)?$",
+      "description": "Schema identifier and version for this record (e.g. \"otel-span/v0.26.0\"). Dev builds use \"otel-span/v0.0.0-dev\"."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "ISO 8601 UTC timestamp with millisecond precision."
+    },
+    "event": {
+      "type": "string",
+      "const": "otel_span",
+      "description": "Stable event discriminator for OTel span records."
+    },
+    "traceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "spanId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "parentSpanId": {
+      "type": ["string", "null"]
+    },
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "startTimeMs": {
+      "type": "number"
+    },
+    "endTimeMs": {
+      "type": "number"
+    },
+    "attributes": {
+      "type": "object"
+    },
+    "events": {
+      "type": "array"
+    },
+    "status": {
+      "type": "object"
+    }
+  }
+}

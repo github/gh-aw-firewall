@@ -145,7 +145,9 @@ export function extractDomain(url: string, host: string, method: string): string
 /**
  * Parses a single line from the JSONL audit log (audit.jsonl).
  *
- * Format: {"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+ * Format:
+ * - Current: {"timestamp":"2026-05-25T09:00:00.000Z","event":"http_access","client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
+ * - Legacy:  {"ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}
  *
  * @param line - Raw JSONL line
  * @returns Parsed log entry or null if parsing failed
@@ -208,8 +210,18 @@ export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
     const host = obj.host || '-';
     const domain = extractDomain(url, host, method);
 
+    let timestamp = 0;
+    if (typeof obj.timestamp === 'string') {
+      const parsed = Date.parse(obj.timestamp);
+      if (!Number.isNaN(parsed)) {
+        timestamp = parsed / 1000;
+      }
+    } else if (typeof obj.ts === 'number') {
+      timestamp = obj.ts;
+    }
+
     return {
-      timestamp: obj.ts || 0,
+      timestamp,
       clientIp: obj.client || '-',
       clientPort: '-', // Not in JSONL format
       host,

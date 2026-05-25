@@ -153,7 +153,8 @@ describe('generateSquidConfig', () => {
       // Required fields per audit.schema.json
       const auditLine = result.split('\n').find(l => l.startsWith('logformat audit_jsonl'));
       expect(auditLine).toBeDefined();
-      expect(auditLine).toContain('"ts":');
+      expect(auditLine).toContain('"timestamp":');
+      expect(auditLine).toContain('"event":"http_access"');
       expect(auditLine).toContain('"client":');
       expect(auditLine).toContain('"host":');
       expect(auditLine).toContain('"dest":');
