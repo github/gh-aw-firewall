@@ -17,6 +17,7 @@ export {
 } from './parsers/dns-parsers';
 export {
   joinShellArgs,
+  escapeShellArg,
 } from './parsers/shell-utils';
 export { parseVolumeMounts } from './parsers/volume-parsers';
 export { parseEnvironmentVariables } from './parsers/env-parsers';
