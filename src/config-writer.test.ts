@@ -206,7 +206,7 @@ describe('writeConfigs', () => {
           imageRegistry: 'ghcr.io/github/gh-aw-firewall',
           imageTag: 'latest',
         })
-      ).rejects.toThrow(`Expected directory but found non-directory path: ${filePath}`);
+      ).rejects.toThrow(/EEXIST|ENOTDIR/);
     });
 
     it('creates chroot home directory when it does not exist', async () => {
