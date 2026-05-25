@@ -12,7 +12,7 @@
 // squid, api-proxy, cli-proxy) so the rewrite is symmetric across services
 // that share daemon-side directories.
 
-export function normalizeDockerHostPathPrefix(prefix: string): string {
+function normalizeDockerHostPathPrefix(prefix: string): string {
   const trimmed = prefix.trim();
   if (!trimmed) return '';
   const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
