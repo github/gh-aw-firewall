@@ -52,7 +52,7 @@ const DLP_PATTERNS: DlpPattern[] = [
   {
     name: 'GitHub App Installation Token',
     description: 'GitHub App installation access token (ghs_)',
-    regex: 'ghs_[A-Za-z0-9._]{36,}',
+    regex: 'ghs_[A-Za-z0-9._-]{36,}',
   },
   {
     name: 'GitHub App User-to-Server Token',

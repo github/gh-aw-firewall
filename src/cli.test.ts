@@ -111,7 +111,7 @@ describe('cli', () => {
     });
 
     it('should redact stateless GitHub app installation tokens', () => {
-      const token = `ghs_${'A'.repeat(170)}.${'b'.repeat(170)}_${'c'.repeat(170)}`;
+      const token = `ghs_${'A'.repeat(170)}.${'b'.repeat(170)}-${'c'.repeat(170)}_${'d'.repeat(170)}`;
       const command = `echo ${token}`;
       const result = redactSecrets(command);
 
