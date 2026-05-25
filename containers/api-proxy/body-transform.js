@@ -135,11 +135,17 @@ function injectSteeringMessage(body, provider, message) {
  *
  * @param {Buffer} body
  * @param {string} provider - 'openai' | 'copilot' | 'anthropic' | 'gemini'
+ * @param {string} [requestPath] - Incoming request path (e.g. /v1/chat/completions)
  * @returns {{ body: Buffer, injected: boolean }|null}
  */
-function injectStreamOptions(body, provider) {
+function injectStreamOptions(body, provider, requestPath = '') {
   // Only applies to OpenAI-compatible providers
   if (provider === 'anthropic' || provider === 'gemini') return null;
+
+  // The OpenAI Responses API rejects stream_options.include_usage.
+  // Skip injection for /responses and /vN/responses routes.
+  const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
+  if (/^\/(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
 
   let parsed;
   try {

@@ -445,7 +445,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     // Inject stream_options.include_usage so streaming responses include token data
     if (req.method === 'POST') {
-      const streamOpts = injectStreamOptions(body, provider);
+      const streamOpts = injectStreamOptions(body, provider, req.url);
       if (streamOpts) {
         body = streamOpts.body;
       }
