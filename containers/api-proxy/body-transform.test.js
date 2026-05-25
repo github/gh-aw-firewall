@@ -1,4 +1,4 @@
-const { injectStreamOptions, stripUnrecognizedToolTypes } = require('./body-transform');
+const { injectStreamOptions, stripUnrecognizedToolTypes, stripEncryptedInclude } = require('./body-transform');
 
 describe('injectStreamOptions', () => {
   test('injects include_usage for streaming chat completions requests', () => {
@@ -118,5 +118,93 @@ describe('stripUnrecognizedToolTypes', () => {
     const result = stripUnrecognizedToolTypes(body, 'v1/responses');
     expect(result).not.toBeNull();
     expect(result.strippedCount).toBe(1);
+  });
+});
+
+describe('stripEncryptedInclude', () => {
+  test('strips reasoning.encrypted_content from include array', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      include: ['reasoning.encrypted_content'],
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/responses');
+
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString('utf8'));
+    expect(parsed.include).toBeUndefined();
+    expect(result.strippedValues).toEqual(['reasoning.encrypted_content']);
+    expect(result.model).toBe('gpt-5.5');
+  });
+
+  test('preserves non-encrypted include values', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      include: ['reasoning.encrypted_content', 'file_search_call.results'],
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/responses');
+
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result.body.toString('utf8'));
+    expect(parsed.include).toEqual(['file_search_call.results']);
+    expect(result.strippedValues).toEqual(['reasoning.encrypted_content']);
+  });
+
+  test('returns null for non-responses paths', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      include: ['reasoning.encrypted_content'],
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/chat/completions');
+    expect(result).toBeNull();
+  });
+
+  test('returns null when no encrypted values present', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      include: ['file_search_call.results'],
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/responses');
+    expect(result).toBeNull();
+  });
+
+  test('returns null when include is not an array', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/responses');
+    expect(result).toBeNull();
+  });
+
+  test('returns model as null when not present in body', () => {
+    const body = Buffer.from(JSON.stringify({
+      input: 'hello',
+      include: ['reasoning.encrypted_content'],
+    }));
+
+    const result = stripEncryptedInclude(body, '/v1/responses');
+
+    expect(result).not.toBeNull();
+    expect(result.model).toBeNull();
+  });
+
+  test('handles path without leading slash', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.5',
+      input: 'hello',
+      include: ['reasoning.encrypted_content'],
+    }));
+
+    const result = stripEncryptedInclude(body, 'v1/responses');
+    expect(result).not.toBeNull();
+    expect(result.strippedValues).toEqual(['reasoning.encrypted_content']);
   });
 });

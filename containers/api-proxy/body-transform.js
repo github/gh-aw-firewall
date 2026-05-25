@@ -228,9 +228,71 @@ function stripUnrecognizedToolTypes(body, requestPath = '') {
   };
 }
 
+/**
+ * Strip the `include` parameter from OpenAI Responses API requests when it
+ * contains values unsupported by the target model.
+ *
+ * Codex CLI may request encrypted content via `include: ["reasoning.encrypted_content"]`
+ * which only reasoning-capable models support. When this hits a model that doesn't
+ * support it, OpenAI returns a 400 "Encrypted content is not supported with this model."
+ *
+ * This is a defensive workaround — the client (Codex) should ideally check model
+ * capabilities before requesting encrypted content. This transform prevents 400
+ * errors when there's a model/feature mismatch.
+ *
+ * We strip any `include` entries containing "encrypted" to avoid these errors.
+ * If the array becomes empty after filtering, the field is removed entirely.
+ *
+ * @param {Buffer} body
+ * @param {string} [requestPath] - Incoming request path
+ * @returns {{ body: Buffer, strippedValues: string[], model: string|null }|null}
+ */
+function stripEncryptedInclude(body, requestPath = '') {
+  // Only apply to Responses API paths
+  const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
+  if (!/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.include)) {
+    return null;
+  }
+
+  const strippedValues = [];
+  const filtered = parsed.include.filter((value) => {
+    if (typeof value === 'string' && value.toLowerCase().includes('encrypted')) {
+      strippedValues.push(value);
+      return false;
+    }
+    return true;
+  });
+
+  if (strippedValues.length === 0) return null;
+
+  if (filtered.length === 0) {
+    delete parsed.include;
+  } else {
+    parsed.include = filtered;
+  }
+
+  const model = (typeof parsed.model === 'string') ? parsed.model : null;
+
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    strippedValues,
+    model,
+  };
+}
+
 module.exports = {
   sanitizeNullToolCallTypes,
   injectSteeringMessage,
   injectStreamOptions,
   stripUnrecognizedToolTypes,
+  stripEncryptedInclude,
 };
