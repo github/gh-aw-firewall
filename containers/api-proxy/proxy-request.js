@@ -302,6 +302,250 @@ const proxyWebSocket = createProxyWebSocket({
   applyEffectiveTokenUsage,
 });
 
+// ── Proxy helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Build the headers object for the upstream request.
+ * Strips headers matched by `shouldStripHeader()`, merges injected auth
+ * headers, sets the request-id, and adjusts content-length when the body was
+ * transformed.
+ *
+ * @param {Buffer} body - Final (possibly transformed) request body
+ * @param {number} inboundBytes - Original body size before transforms
+ * @param {import('http').IncomingMessage} req
+ * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string }} opts
+ * @returns {object} Headers object for the upstream request
+ */
+function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId }) {
+  const headers = {};
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (!shouldStripHeader(name)) headers[name] = value;
+  }
+  headers['x-request-id'] = requestId;
+  Object.assign(headers, injectHeaders);
+
+  if (provider === 'anthropic' || provider === 'copilot') {
+    maybeStripLearnedHeaderValues(headers, requestId, provider);
+  }
+
+  const isCopilotHost =
+    targetHost === 'githubcopilot.com' ||
+    targetHost.endsWith('.githubcopilot.com');
+  if (isCopilotHost && !headers['x-initiator']) {
+    headers['x-initiator'] = 'agent';
+  }
+
+  if (body.length !== inboundBytes) {
+    headers['content-length'] = String(body.length);
+    delete headers['transfer-encoding'];
+  }
+
+  const injectedKey = Object.entries(injectHeaders).find(([k]) =>
+    ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
+  )?.[1];
+  if (injectedKey) {
+    const keyPreview = injectedKey.length > 8
+      ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
+      : '(short)';
+    logRequest('debug', 'auth_inject', {
+      request_id: requestId, provider,
+      key_length: injectedKey.length, key_preview: keyPreview,
+      has_anthropic_version: !!headers['anthropic-version'],
+    });
+  }
+
+  return headers;
+}
+
+/**
+ * Log request completion: emit metrics and a structured `request_complete` log.
+ *
+ * @param {number} statusCode
+ * @param {number} responseBytes
+ * @param {string|null} initiatorSent
+ * @param {object|null} billingInfo
+ * @param {{ startTime: number, provider: string, req: object, requestBytes: number, targetHost: string, requestId: string }} ctx
+ */
+function logRequestCompletion(statusCode, responseBytes, initiatorSent, billingInfo, {
+  startTime, provider, req, requestBytes, targetHost, requestId,
+}) {
+  const duration = Date.now() - startTime;
+  const sc = metrics.statusClass(statusCode);
+  metrics.gaugeDec('active_requests', { provider });
+  metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
+  metrics.increment('response_bytes_total', { provider }, responseBytes);
+  metrics.observe('request_duration_ms', duration, { provider });
+  if (statusCode >= 200 && statusCode < 300) {
+    applyMaxRunsInvocation();
+  }
+  const logFields = {
+    request_id: requestId, provider, method: req.method,
+    path: sanitizeForLog(req.url), status: statusCode,
+    duration_ms: duration, request_bytes: requestBytes,
+    response_bytes: responseBytes, upstream_host: targetHost,
+  };
+  if (initiatorSent) logFields.x_initiator = initiatorSent;
+  if (billingInfo) logFields.billing = billingInfo;
+  logRequest('info', 'request_complete', logFields);
+}
+
+/**
+ * Emit a warning log when the upstream returns an auth-related 4xx status.
+ *
+ * @param {number} statusCode
+ * @param {{ requestId: string, provider: string, targetHost: string, req: object }} ctx
+ */
+function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req }) {
+  if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
+    logRequest('warn', 'upstream_auth_error', {
+      request_id: requestId, provider, status: statusCode,
+      upstream_host: targetHost, path: sanitizeForLog(req.url),
+      message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
+    });
+  }
+}
+
+/**
+ * Handle the upstream response: stream or buffer it, track tokens, handle errors,
+ * and optionally retry once when a deprecated header value caused a 400.
+ *
+ * @param {import('http').IncomingMessage} proxyRes
+ * @param {object} requestHeaders - Headers that were sent with the upstream request
+ * @param {{ res: object, provider: string, requestId: string, req: object,
+ *           targetHost: string, startTime: number, span: object, requestBytes: number,
+ *           hasRetried: boolean, onRetry: Function }} ctx
+ */
+function handleUpstreamResponse(proxyRes, requestHeaders, {
+  res, provider, requestId, req, targetHost, startTime, span, requestBytes, hasRetried, onRetry,
+}) {
+  let responseBytes = 0;
+  const billingInfo = extractBillingHeaders(proxyRes.headers);
+  const initiatorSent = requestHeaders['x-initiator'] || null;
+  const shouldBuffer400ForHeaderStrip =
+    (provider === 'anthropic' || provider === 'copilot') &&
+    !hasRetried &&
+    proxyRes.statusCode === 400;
+
+  const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
+  const authErrCtx = { requestId, provider, targetHost, req };
+
+  proxyRes.on('error', (err) => {
+    otel.endSpanError(span, err, 502);
+    handleRequestError(err, {
+      res, requestId, provider, req, targetHost, startTime,
+      statusCode: 502, clientMessage: 'Response stream error',
+      onHeadersSent: () => {
+        if (typeof res.destroy === 'function') res.destroy(err);
+      },
+    });
+  });
+
+  if (shouldBuffer400ForHeaderStrip) {
+    const bufferedChunks = [];
+    proxyRes.on('data', (chunk) => {
+      responseBytes += chunk.length;
+      bufferedChunks.push(chunk);
+    });
+    proxyRes.on('end', () => {
+      const responseBody = Buffer.concat(bufferedChunks);
+      const deprecated = parseDeprecatedHeaderFromBody(responseBody);
+      if (deprecated) {
+        const retryHeaders = { ...requestHeaders };
+        const stripped = learnAndStripDeprecatedHeaderValue(
+          retryHeaders, deprecated.header, deprecated.value, requestId, provider,
+        );
+        if (stripped) {
+          onRetry(retryHeaders);
+          return;
+        }
+      }
+
+      logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+      logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
+
+      const resHeaders = {
+        ...proxyRes.headers,
+        'x-request-id': requestId,
+        'content-length': String(responseBody.length),
+      };
+      delete resHeaders['transfer-encoding'];
+      res.writeHead(proxyRes.statusCode, resHeaders);
+      res.end(responseBody);
+      otel.endSpan(span, proxyRes.statusCode);
+    });
+    return;
+  }
+
+  proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
+  proxyRes.on('end', () => {
+    logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+  });
+
+  const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
+  logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
+  res.writeHead(proxyRes.statusCode, resHeaders);
+  proxyRes.pipe(res);
+
+  const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
+  trackTokenUsage(proxyRes, {
+    requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent,
+    onUsage: (normalizedUsage, model) => {
+      otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
+      applyEffectiveTokenUsage(normalizedUsage, model);
+    },
+    onSpanEnd: (statusCode) => {
+      otel.endSpan(span, statusCode);
+    },
+  });
+}
+
+/**
+ * Create and dispatch the upstream HTTPS request.
+ * Sets up the proxyReq error handler, writes the body, and delegates response
+ * handling to handleUpstreamResponse (including the one-shot retry path).
+ *
+ * @param {object} requestHeaders - Headers for the upstream request
+ * @param {{ body: Buffer, targetHost: string, upstreamPath: string, req: object,
+ *           res: object, provider: string, requestId: string, startTime: number,
+ *           span: object, requestBytes: number, hasRetried?: boolean }} ctx
+ */
+function sendUpstreamRequest(requestHeaders, {
+  body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+  hasRetried = false,
+}) {
+  const options = {
+    hostname: targetHost, port: 443, path: upstreamPath,
+    method: req.method, headers: requestHeaders,
+    agent: proxyAgent,
+  };
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    handleUpstreamResponse(proxyRes, requestHeaders, {
+      body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
+      hasRetried,
+      onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
+        body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+        hasRetried: true,
+      }),
+    });
+  });
+
+  proxyReq.on('error', (err) => {
+    otel.endSpanError(span, err, 502);
+    handleRequestError(err, {
+      res, requestId, provider, req, targetHost, startTime,
+      statusCode: 502, clientMessage: 'Proxy error',
+      extraMetrics: (duration) => {
+        metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
+        metrics.observe('request_duration_ms', duration, { provider });
+      },
+    });
+  });
+
+  if (body.length > 0) proxyReq.write(body);
+  proxyReq.end();
+}
+
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
@@ -454,42 +698,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
-    const headers = {};
-    for (const [name, value] of Object.entries(req.headers)) {
-      if (!shouldStripHeader(name)) headers[name] = value;
-    }
-    headers['x-request-id'] = requestId;
-    Object.assign(headers, injectHeaders);
-
-    if (provider === 'anthropic' || provider === 'copilot') {
-      maybeStripLearnedHeaderValues(headers, requestId, provider);
-    }
-
-    const isCopilotHost =
-      targetHost === 'githubcopilot.com' ||
-      targetHost.endsWith('.githubcopilot.com');
-    if (isCopilotHost && !headers['x-initiator']) {
-      headers['x-initiator'] = 'agent';
-    }
-
-    if (body.length !== inboundBytes) {
-      headers['content-length'] = String(body.length);
-      delete headers['transfer-encoding'];
-    }
-
-    const injectedKey = Object.entries(injectHeaders).find(([k]) =>
-      ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
-    )?.[1];
-    if (injectedKey) {
-      const keyPreview = injectedKey.length > 8
-        ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
-        : '(short)';
-      logRequest('debug', 'auth_inject', {
-        request_id: requestId, provider,
-        key_length: injectedKey.length, key_preview: keyPreview,
-        has_anthropic_version: !!headers['anthropic-version'],
-      });
-    }
+    const headers = buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId });
 
     const etBlock = getEffectiveTokenBlockState();
     if (etBlock && etBlock.maxExceeded) {
@@ -527,156 +736,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
-    const logRequestCompletion = (statusCode, responseBytes, initiatorSent, billingInfo) => {
-      const duration = Date.now() - startTime;
-      const sc = metrics.statusClass(statusCode);
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
-      metrics.increment('response_bytes_total', { provider }, responseBytes);
-      metrics.observe('request_duration_ms', duration, { provider });
-      if (statusCode >= 200 && statusCode < 300) {
-        applyMaxRunsInvocation();
-      }
-      const logFields = {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), status: statusCode,
-        duration_ms: duration, request_bytes: requestBytes,
-        response_bytes: responseBytes, upstream_host: targetHost,
-      };
-      if (initiatorSent) logFields.x_initiator = initiatorSent;
-      if (billingInfo) logFields.billing = billingInfo;
-      logRequest('info', 'request_complete', logFields);
-    };
-
-    const logUpstreamAuthError = (statusCode) => {
-      if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
-        logRequest('warn', 'upstream_auth_error', {
-          request_id: requestId, provider, status: statusCode,
-          upstream_host: targetHost, path: sanitizeForLog(req.url),
-          message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
-        });
-      }
-    };
-
-    const sendUpstreamRequest = (requestHeaders, hasRetried = false) => {
-      const options = {
-        hostname: targetHost, port: 443, path: upstreamPath,
-        method: req.method, headers: requestHeaders,
-        agent: proxyAgent,
-      };
-
-      const proxyReq = https.request(options, (proxyRes) => {
-        let responseBytes = 0;
-        const billingInfo = extractBillingHeaders(proxyRes.headers);
-        const initiatorSent = requestHeaders['x-initiator'] || null;
-        const shouldBuffer400ForHeaderStrip =
-          (provider === 'anthropic' || provider === 'copilot') &&
-          !hasRetried &&
-          proxyRes.statusCode === 400;
-
-        proxyRes.on('error', (err) => {
-          otel.endSpanError(span, err, 502);
-          handleRequestError(err, {
-            res,
-            requestId,
-            provider,
-            req,
-            targetHost,
-            startTime,
-            statusCode: 502,
-            clientMessage: 'Response stream error',
-            onHeadersSent: () => {
-              if (typeof res.destroy === 'function') res.destroy(err);
-            },
-          });
-        });
-
-        if (shouldBuffer400ForHeaderStrip) {
-          const bufferedChunks = [];
-          proxyRes.on('data', (chunk) => {
-            responseBytes += chunk.length;
-            bufferedChunks.push(chunk);
-          });
-          proxyRes.on('end', () => {
-            const responseBody = Buffer.concat(bufferedChunks);
-            const deprecated = parseDeprecatedHeaderFromBody(responseBody);
-            if (deprecated) {
-              const retryHeaders = { ...requestHeaders };
-              const stripped = learnAndStripDeprecatedHeaderValue(retryHeaders, deprecated.header, deprecated.value, requestId, provider);
-              if (stripped) {
-                sendUpstreamRequest(retryHeaders, true);
-                return;
-              }
-            }
-
-            logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo);
-            logUpstreamAuthError(proxyRes.statusCode);
-
-            const resHeaders = {
-              ...proxyRes.headers,
-              'x-request-id': requestId,
-              'content-length': String(responseBody.length),
-            };
-            delete resHeaders['transfer-encoding'];
-            res.writeHead(proxyRes.statusCode, resHeaders);
-            res.end(responseBody);
-            otel.endSpan(span, proxyRes.statusCode);
-          });
-          return;
-        }
-
-        proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
-        proxyRes.on('end', () => {
-          logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo);
-        });
-
-        const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
-        logUpstreamAuthError(proxyRes.statusCode);
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        proxyRes.pipe(res);
-
-        const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
-        trackTokenUsage(proxyRes, {
-          requestId,
-          provider,
-          path: sanitizeForLog(req.url),
-          startTime,
-          metrics,
-          billingInfo,
-          initiatorSent,
-          onUsage: (normalizedUsage, model) => {
-            otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-            applyEffectiveTokenUsage(normalizedUsage, model);
-          },
-          onSpanEnd: (statusCode) => {
-            otel.endSpan(span, statusCode);
-          },
-        });
-      });
-
-      proxyReq.on('error', (err) => {
-        otel.endSpanError(span, err, 502);
-        handleRequestError(err, {
-          res,
-          requestId,
-          provider,
-          req,
-          targetHost,
-          startTime,
-          statusCode: 502,
-          clientMessage: 'Proxy error',
-          extraMetrics: (duration) => {
-            metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-            metrics.observe('request_duration_ms', duration, { provider });
-          },
-        });
-      });
-
-      if (body.length > 0) proxyReq.write(body);
-      proxyReq.end();
-    };
-
-    sendUpstreamRequest(headers);
+    sendUpstreamRequest(headers, {
+      body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+    });
   });
 }
 
