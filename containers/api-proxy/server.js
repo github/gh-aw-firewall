@@ -436,56 +436,61 @@ async function fetchStartupModels(adapters = []) {
  * behaviour (auth, URL transforms, body transforms) is delegated to the adapter.
  *
  * @param {import('./providers').ProviderAdapter} adapter
- * @returns {http.Server}
+ * @returns {(req: http.IncomingMessage, res: http.ServerResponse) => void}
  */
-function createProviderServer(adapter) {
-  const server = http.createServer((req, res) => {
-    // ── Management endpoints (designated port only) ──────────────────────────
-    if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
-
-    // ── Provider-local health endpoint ───────────────────────────────────────
-    if (req.url === '/health' && req.method === 'GET') {
-      if (adapter.isEnabled()) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', service: `awf-api-proxy-${adapter.name}` }));
-      } else if (adapter.getUnconfiguredHealthResponse) {
-        const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
-        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(body));
-      } else {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'not_configured', service: `awf-api-proxy-${adapter.name}` }));
-      }
-      return;
-    }
-
-    // ── Provider-local reflect endpoint ──────────────────────────────────────
-    if (req.url === '/reflect' && req.method === 'GET') {
+function createHealthCheckHandler(adapter) {
+  return (req, res) => {
+    if (adapter.isEnabled()) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(reflectEndpoints()));
-      return;
+      res.end(JSON.stringify({ status: 'healthy', service: `awf-api-proxy-${adapter.name}` }));
+    } else if (adapter.getUnconfiguredHealthResponse) {
+      const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    } else {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'not_configured', service: `awf-api-proxy-${adapter.name}` }));
     }
+  };
+}
 
-    // ── Disabled adapter: return provider-specific error ─────────────────────
-    if (!adapter.isEnabled()) {
-      const response = adapter.getUnconfiguredResponse
-        ? adapter.getUnconfiguredResponse()
-        : { statusCode: 503, body: { error: `${adapter.name} proxy not configured` } };
-      res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(response.body));
-      return;
-    }
+/**
+ * @returns {(req: http.IncomingMessage, res: http.ServerResponse) => void}
+ */
+function createReflectHandler() {
+  return (_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(reflectEndpoints()));
+  };
+}
 
-    // ── Rate limiting ─────────────────────────────────────────────────────────
+/**
+ * @param {import('./providers').ProviderAdapter} adapter
+ * @returns {(req: http.IncomingMessage, res: http.ServerResponse) => void}
+ */
+function createDisabledProviderHandler(adapter) {
+  return (_req, res) => {
+    const response = adapter.getUnconfiguredResponse
+      ? adapter.getUnconfiguredResponse()
+      : { statusCode: 503, body: { error: `${adapter.name} proxy not configured` } };
+    res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(response.body));
+  };
+}
+
+/**
+ * @param {import('./providers').ProviderAdapter} adapter
+ * @returns {(req: http.IncomingMessage, res: http.ServerResponse) => void}
+ */
+function createProxyHandler(adapter) {
+  return (req, res) => {
     const contentLength = parseInt(req.headers['content-length'] || '0', 10);
     if (checkRateLimit(req, res, adapter.name, contentLength)) return;
 
-    // ── Optional URL transform ────────────────────────────────────────────────
     if (adapter.transformRequestUrl) {
       req.url = adapter.transformRequestUrl(req.url);
     }
 
-    // ── Proxy ─────────────────────────────────────────────────────────────────
     proxyRequest(
       req, res,
       adapter.getTargetHost(req),
@@ -494,10 +499,15 @@ function createProviderServer(adapter) {
       adapter.getBasePath(req),
       adapter.getBodyTransform()
     );
-  });
+  };
+}
 
-  // ── WebSocket upgrade ─────────────────────────────────────────────────────
-  server.on('upgrade', (req, socket, head) => {
+/**
+ * @param {import('./providers').ProviderAdapter} adapter
+ * @returns {(req: http.IncomingMessage, socket: import('net').Socket, head: Buffer) => void}
+ */
+function createWebSocketUpgradeHandler(adapter) {
+  return (req, socket, head) => {
     if (!adapter.isEnabled()) {
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
@@ -515,7 +525,41 @@ function createProviderServer(adapter) {
       adapter.name,
       adapter.getBasePath(req)
     );
+  };
+}
+
+/**
+ * @param {import('./providers').ProviderAdapter} adapter
+ * @returns {http.Server}
+ */
+function createProviderServer(adapter) {
+  const handleHealthCheck = createHealthCheckHandler(adapter);
+  const handleReflect = createReflectHandler();
+  const handleDisabledProvider = createDisabledProviderHandler(adapter);
+  const handleProxy = createProxyHandler(adapter);
+
+  const server = http.createServer((req, res) => {
+    if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
+
+    if (req.url === '/health' && req.method === 'GET') {
+      handleHealthCheck(req, res);
+      return;
+    }
+
+    if (req.url === '/reflect' && req.method === 'GET') {
+      handleReflect(req, res);
+      return;
+    }
+
+    if (!adapter.isEnabled()) {
+      handleDisabledProvider(req, res);
+      return;
+    }
+
+    handleProxy(req, res);
   });
+
+  server.on('upgrade', createWebSocketUpgradeHandler(adapter));
 
   return server;
 }
