@@ -11,7 +11,7 @@ import { buildSslMounts } from './ssl-mounts';
 import { buildSystemMounts } from './system-mounts';
 import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
 
-export interface AgentVolumesParams {
+interface AgentVolumesParams {
   config: WrapperConfig;
   sslConfig?: SslConfig;
   projectRoot: string;

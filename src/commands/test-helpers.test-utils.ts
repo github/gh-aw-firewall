@@ -8,7 +8,7 @@ import * as statsFormatter from '../logs/stats-formatter';
 import { LogSource } from '../types';
 import { AggregatedStats } from '../logs/log-aggregator';
 
-export const EMPTY_STATS: AggregatedStats = {
+const EMPTY_STATS: AggregatedStats = {
   totalRequests: 0,
   allowedRequests: 0,
   deniedRequests: 0,
