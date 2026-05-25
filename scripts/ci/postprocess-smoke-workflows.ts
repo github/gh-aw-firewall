@@ -84,6 +84,11 @@ const shallowDepthRegex = /^(\s+)depth: 1\n/gm;
 // instead of pre-built GHCR images that may be stale.
 const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
+// When no --image-tag is present (e.g. version pins removed), the compiler still
+// emits --skip-pull alone. Replace standalone --skip-pull with --build-local so
+// smoke tests build containers from source (including api-proxy fixes).
+const standaloneSkipPullRegex = /--skip-pull(?!\s+--build-local)/g;
+
 // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
 // (events.jsonl) is written to a predictable host path that artifact upload can
 // read.  We anchor to --audit-dir (which is always present in compiled lock
@@ -403,6 +408,15 @@ for (const workflowPath of workflowPaths) {
     content = content.replace(imageTagRegex, '--build-local');
     modified = true;
     console.log(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+  }
+
+  // Replace standalone --skip-pull (no --image-tag present) with --build-local
+  standaloneSkipPullRegex.lastIndex = 0;
+  const skipPullMatches = content.match(standaloneSkipPullRegex);
+  if (skipPullMatches) {
+    content = content.replace(standaloneSkipPullRegex, '--build-local');
+    modified = true;
+    console.log(`  Replaced ${skipPullMatches.length} standalone --skip-pull with --build-local`);
   }
 
   // Inject --session-state-dir into AWF invocations so Copilot CLI session-state

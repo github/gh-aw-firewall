@@ -144,8 +144,9 @@ function injectStreamOptions(body, provider, requestPath = '') {
 
   // The OpenAI Responses API rejects stream_options.include_usage.
   // Skip injection for /responses and /vN/responses routes.
+  // The leading slash is optional because some clients omit it (e.g. Codex CLI).
   const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
-  if (/^\/(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
+  if (/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
 
   let parsed;
   try {
@@ -158,9 +159,14 @@ function injectStreamOptions(body, provider, requestPath = '') {
   if (!parsed.stream) return null;
   if (parsed.stream_options) return null;
 
+  // Secondary guard: Responses API bodies have an 'input' field but no 'messages' array.
+  // This catches requests that arrive with an unrecognised path form.
+  if (parsed.input !== undefined && !Array.isArray(parsed.messages)) return null;
+
   parsed.stream_options = { include_usage: true };
   return { body: Buffer.from(JSON.stringify(parsed)), injected: true };
 }
+
 
 module.exports = {
   sanitizeNullToolCallTypes,

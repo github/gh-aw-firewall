@@ -13,7 +13,9 @@ permissions:
   pull-requests: read
   discussions: read
 name: Smoke Codex
-engine: codex
+engine:
+  id: codex
+  model: gpt-5.4
 sandbox:
   mcp:
     version: v0.3.1

@@ -695,6 +695,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       }
     }
 
+
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
