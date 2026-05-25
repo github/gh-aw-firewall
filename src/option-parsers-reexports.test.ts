@@ -13,14 +13,12 @@ describe('option parser facade re-exports', () => {
     expect(optionParsers.validateEnableTokenSteeringFlag).toBe(rateLimitParsers.validateEnableTokenSteeringFlag);
 
     expect(optionParsers.validateAllowHostPorts).toBe(hostPortParsers.validateAllowHostPorts);
-    expect(optionParsers.validateAllowHostServicePorts).toBe(hostPortParsers.validateAllowHostServicePorts);
     expect(optionParsers.applyHostServicePortsConfig).toBe(hostPortParsers.applyHostServicePortsConfig);
 
     expect(optionParsers.parseDnsServers).toBe(dnsParsers.parseDnsServers);
     expect(optionParsers.parseDnsOverHttps).toBe(dnsParsers.parseDnsOverHttps);
     expect(optionParsers.processLocalhostKeyword).toBe(dnsParsers.processLocalhostKeyword);
 
-    expect(optionParsers.escapeShellArg).toBe(shellUtils.escapeShellArg);
     expect(optionParsers.joinShellArgs).toBe(shellUtils.joinShellArgs);
 
     expect(optionParsers.parseEnvironmentVariables).toBe(envParsers.parseEnvironmentVariables);

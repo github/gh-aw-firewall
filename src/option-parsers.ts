@@ -7,7 +7,6 @@ export {
 } from './parsers/rate-limit-parsers';
 export {
   validateAllowHostPorts,
-  validateAllowHostServicePorts,
   applyHostServicePortsConfig,
 } from './parsers/host-port-parsers';
 export {
@@ -16,7 +15,6 @@ export {
   processLocalhostKeyword,
 } from './parsers/dns-parsers';
 export {
-  escapeShellArg,
   joinShellArgs,
 } from './parsers/shell-utils';
 export { parseVolumeMounts } from './parsers/volume-parsers';
