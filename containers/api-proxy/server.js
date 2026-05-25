@@ -430,10 +430,7 @@ async function fetchStartupModels(adapters = []) {
 
 // ── Generic provider server factory ──────────────────────────────────────────
 /**
- * Create an HTTP server for a provider adapter.
- *
- * The factory is completely agnostic of provider details — all provider-specific
- * behaviour (auth, URL transforms, body transforms) is delegated to the adapter.
+ * Create a health-check request handler for a provider adapter.
  *
  * @param {import('./providers').ProviderAdapter} adapter
  * @returns {(req: http.IncomingMessage, res: http.ServerResponse) => void}
@@ -529,6 +526,11 @@ function createWebSocketUpgradeHandler(adapter) {
 }
 
 /**
+ * Create an HTTP server for a provider adapter.
+ *
+ * The factory is completely agnostic of provider details — all provider-specific
+ * behaviour (auth, URL transforms, body transforms) is delegated to the adapter.
+ *
  * @param {import('./providers').ProviderAdapter} adapter
  * @returns {http.Server}
  */
