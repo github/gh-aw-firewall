@@ -7,6 +7,7 @@ export {
 } from './parsers/rate-limit-parsers';
 export {
   validateAllowHostPorts,
+  validateAllowHostServicePorts,
   applyHostServicePortsConfig,
 } from './parsers/host-port-parsers';
 export {
