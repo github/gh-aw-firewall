@@ -10,5 +10,5 @@ export function redactSecrets(command: string): string {
     // Redact tokens in environment variables (TOKEN, SECRET, PASSWORD, KEY, API_KEY, etc)
     .replace(/(\w*(?:TOKEN|SECRET|PASSWORD|KEY|AUTH)\w*)=(\S+)/gi, '$1=***REDACTED***')
     // Redact GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
-    .replace(/\b(gh[pousr]_[a-zA-Z0-9]{36,255})/g, '***REDACTED***');
+    .replace(/\b(gh[pousr]_[A-Za-z0-9._]{36,})/g, '***REDACTED***');
 }

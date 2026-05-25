@@ -110,6 +110,15 @@ describe('cli', () => {
       expect(result).not.toContain('ghp_');
     });
 
+    it('should redact stateless GitHub app installation tokens', () => {
+      const token = `ghs_${'A'.repeat(170)}.${'b'.repeat(170)}_${'c'.repeat(170)}`;
+      const command = `echo ${token}`;
+      const result = redactSecrets(command);
+
+      expect(result).toBe('echo ***REDACTED***');
+      expect(result).not.toContain(token);
+    });
+
     it('should redact multiple secrets in one command', () => {
       const command = 'GITHUB_TOKEN=ghp_token API_KEY=secret curl -H "Authorization: Bearer ghp_bearer"';
       const result = redactSecrets(command);
