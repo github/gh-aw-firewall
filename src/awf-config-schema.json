@@ -267,7 +267,8 @@
             },
             "tokenLogDir": {
               "type": "string",
-              "description": "Directory for token-usage.jsonl and token-diag.jsonl files. Defaults to /var/log/api-proxy.",
+              "description": "Directory for token-usage.jsonl and token-diag.jsonl files. Must be /var/log/api-proxy (or a subdirectory) so logs are captured by AWF's bind mount.",
+              "pattern": "^/var/log/api-proxy(?:/.*)?$",
               "default": "/var/log/api-proxy"
             }
           }
