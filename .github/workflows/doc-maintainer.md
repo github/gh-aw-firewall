@@ -53,9 +53,11 @@ steps:
       printf '%s\n' "$HAS_CHANGES" > /tmp/gh-aw/doc-maintainer-context/has-changes.txt
   - name: Gather recent git diffs
     id: git-changes
+    env:
+      EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES: ${{ steps.has-changes.outputs.has_changes }}
     run: |
       CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
-      if [ "${{ steps.has-changes.outputs.has_changes }}" = "true" ]; then
+      if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
         git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=3 -- src/ containers/ scripts/ docs/ '*.md' | head -500 > "$CONTEXT_DIR/recent-diffs.txt"
       else
         echo "No relevant source changes detected in the past 7 days." > "$CONTEXT_DIR/recent-diffs.txt"
@@ -82,6 +84,8 @@ steps:
       } >> "$GITHUB_OUTPUT"
   - name: Identify affected docs
     id: affected-docs
+    env:
+      EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES: ${{ steps.has-changes.outputs.has_changes }}
     run: |
       CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
       DOC_POOL=$(mktemp)
@@ -90,14 +94,14 @@ steps:
 
       cat "$CONTEXT_DIR/doc-files.txt" > "$DOC_POOL"
 
-      if [ "${{ steps.has-changes.outputs.has_changes }}" = "true" ]; then
+      if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
         git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
           while read -r sha; do
             git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
           done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -30 > "$AFFECTED" || true
       fi
 
-      if [ ! -s "$AFFECTED" ] && [ "${{ steps.has-changes.outputs.has_changes }}" = "true" ]; then
+      if [ ! -s "$AFFECTED" ] && [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
         git log --since="7 days ago" --name-only --format="" -- src/ containers/ scripts/ | \
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true

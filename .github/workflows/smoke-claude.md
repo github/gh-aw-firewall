@@ -41,17 +41,20 @@ safe-outputs:
 timeout-minutes: 10
 steps:
   - name: Create smoke test file
+    env:
+      EXPR_GITHUB_RUN_ID: ${{ github.run_id }}
     run: |
       mkdir -p /tmp/gh-aw/agent
-      echo "Smoke test passed for Claude at $(date)" > /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
-      echo "Smoke test file pre-created at /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt"
+      echo "Smoke test passed for Claude at $(date)" > /tmp/gh-aw/agent/smoke-test-claude-$EXPR_GITHUB_RUN_ID.txt
+      echo "Smoke test file pre-created at /tmp/gh-aw/agent/smoke-test-claude-$EXPR_GITHUB_RUN_ID.txt"
   - name: Pre-fetch GitHub API data
     run: |
-      gh pr list --repo ${{ github.repository }} --limit 2 --state merged --json number,title,mergedAt \
+      gh pr list --repo $EXPR_GITHUB_REPOSITORY --limit 2 --state merged --json number,title,mergedAt \
         > /tmp/gh-aw/agent/recent-prs.json
       echo "GitHub API pre-check: $(wc -c < /tmp/gh-aw/agent/recent-prs.json) bytes"
     env:
       GH_TOKEN: ${{ github.token }}
+      EXPR_GITHUB_REPOSITORY: ${{ github.repository }}
   - name: Check GitHub.com reachability
     run: |
       CONTEXT_FILE=/tmp/gh-aw/agent/smoke-context.txt
@@ -67,15 +70,21 @@ steps:
         echo "playwright_check=❌ FAIL — title not found" > "$CONTEXT_FILE"
       fi
   - name: Verify smoke test file exists
+    env:
+      EXPR_GITHUB_RUN_ID: ${{ github.run_id }}
     run: |
-      cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
+      cat /tmp/gh-aw/agent/smoke-test-claude-$EXPR_GITHUB_RUN_ID.txt
       echo "File verification: PASS"
   - name: Export workflow context
+    env:
+      EXPR_GITHUB_EVENT_NAME: ${{ github.event_name }}
+      EXPR_GITHUB_RUN_ID: ${{ github.run_id }}
+      EXPR_b14517fc: ${{ github.event.pull_request.number || '' }}
     run: |
       cat > /tmp/gh-aw/agent/workflow-context.env << 'ENVEOF'
-      export GITHUB_EVENT_NAME="${{ github.event_name }}"
-      export GITHUB_RUN_ID="${{ github.run_id }}"
-      export PR_NUMBER="${{ github.event.pull_request.number || '' }}"
+      export GITHUB_EVENT_NAME="$EXPR_GITHUB_EVENT_NAME"
+      export GITHUB_RUN_ID="$EXPR_GITHUB_RUN_ID"
+      export PR_NUMBER="$EXPR_b14517fc"
       ENVEOF
       echo "Context exported to /tmp/gh-aw/agent/workflow-context.env"
 post-steps:
