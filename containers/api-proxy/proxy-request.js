@@ -411,12 +411,12 @@ function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req
  *
  * @param {import('http').IncomingMessage} proxyRes
  * @param {object} requestHeaders - Headers that were sent with the upstream request
- * @param {{ body: Buffer, res: object, provider: string, requestId: string, req: object,
+ * @param {{ res: object, provider: string, requestId: string, req: object,
  *           targetHost: string, startTime: number, span: object, requestBytes: number,
  *           hasRetried: boolean, onRetry: Function }} ctx
  */
 function handleUpstreamResponse(proxyRes, requestHeaders, {
-  body, res, provider, requestId, req, targetHost, startTime, span, requestBytes, hasRetried, onRetry,
+  res, provider, requestId, req, targetHost, startTime, span, requestBytes, hasRetried, onRetry,
 }) {
   let responseBytes = 0;
   const billingInfo = extractBillingHeaders(proxyRes.headers);
