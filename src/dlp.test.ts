@@ -52,7 +52,14 @@ describe('DLP Patterns', () => {
       const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=ghs_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij'
       );
-      expect(matchingRegexes).toContain('ghs_[a-zA-Z0-9]{36}');
+      expect(matchingRegexes).toContain('ghs_[A-Za-z0-9._]{36,}');
+    });
+
+    it('should detect new-format GitHub App installation token (ghs_) with dots', () => {
+      const matchingRegexes = findMatchingDlpRegexes(
+        'https://api.example.com/?key=ghs_ABC.DEF.GHIJKLMNOPQRSTUVWXYZabcdefghij'
+      );
+      expect(matchingRegexes).toContain('ghs_[A-Za-z0-9._]{36,}');
     });
 
     it('should detect GitHub App user-to-server token (ghu_)', () => {
