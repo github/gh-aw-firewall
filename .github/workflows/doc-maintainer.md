@@ -20,6 +20,7 @@ engine:
 tools:
   edit:
   bash: true
+  github: false
 safe-outputs:
   threat-detection:
     enabled: false
@@ -180,52 +181,14 @@ Keep updates:
 
 After making updates, the safe-outputs system will automatically create a PR. Include in your changes:
 
-**PR Description Format**:
-```markdown
-## Documentation Sync - [Date Range]
-
-This PR synchronizes documentation with code changes from the past 7 days.
-
-### Changes Made
-
-- Updated `file.md`: Description of change
-- Fixed example in `file.md`: What was wrong and how it was fixed
-
-### Code Changes Referenced
-
-- Commit `abc1234`: Brief description
-- Commit `def5678`: Brief description
-
-### Verification
-
-- [ ] Code examples tested/verified
-- [ ] Links checked
-- [ ] Consistent with existing style
-```
+**PR Description**: Summarize updated docs, reference the triggering code changes, and list what was verified.
 
 ## Guidelines
 
-- **Be Conservative**: Only update what is clearly out of sync
-- **Be Accurate**: Verify all changes against the actual code
-- **Be Minimal**: Make the smallest changes necessary
-- **Be Consistent**: Match the existing documentation style
-- **Document Sources**: Reference the commits that triggered updates
+- Be conservative, accurate, minimal, and consistent with existing style.
+- Reference the commits that triggered your updates.
 
-## Edge Cases
-
-- **No relevant changes**: If there are no code changes affecting documentation, exit gracefully without creating a PR
-- **Already synced**: If documentation is already up-to-date, exit gracefully
-- **Complex changes**: For significant architectural changes, document what you can and note areas needing human review
-
-## Success Criteria
-
-A successful run means:
-1. You reviewed all commits from the past 7 days
-2. You identified documentation that is out of sync with code
-3. You updated the relevant documentation files
-4. You verified code examples are correct
-5. You created a PR with clear descriptions of changes
-6. The PR is labeled with `documentation` and `ai-generated`
+**Success**: Review 7-day commits, update out-of-sync docs, verify examples, and create a clear PR summary.
 
 ---
 
