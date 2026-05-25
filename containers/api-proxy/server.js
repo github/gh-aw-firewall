@@ -24,7 +24,7 @@
 
 const http = require('http');
 const { sanitizeForLog, logRequest } = require('./logging');
-const { parseModelAliases, rewriteModelInBody } = require('./model-resolver');
+const { parseModelAliases, rewriteModelInBody, filterResolvableAliases } = require('./model-resolver');
 const { diag } = require('./token-persistence');
 
 // ── Sub-modules ───────────────────────────────────────────────────────────────
@@ -276,7 +276,10 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getKeyValidationState: () => ({ complete: keyValidationComplete, results: keyValidationResults }),
   getLimiter:            () => limiter,
   httpsProxy:            HTTPS_PROXY,
-  getModelAliases:       () => MODEL_ALIASES,
+  getModelAliases:       () => {
+    if (!MODEL_ALIASES) return null;
+    return { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) };
+  },
   getModelFallback:      () => MODEL_FALLBACK,
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getMaxRunsUsage:       () => getMaxRunsReflectState(),
@@ -293,7 +296,10 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
  * @returns {object}
  */
 function buildModelsJson() {
-  return _buildModelsJson(registeredAdapters, cachedModels, MODEL_ALIASES);
+  const filteredAliases = MODEL_ALIASES
+    ? { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) }
+    : null;
+  return _buildModelsJson(registeredAdapters, cachedModels, filteredAliases);
 }
 
 /**
@@ -302,7 +308,10 @@ function buildModelsJson() {
  * @param {string} [logDir] - Directory to write models.json to
  */
 function writeModelsJson(logDir) {
-  return _writeModelsJson(registeredAdapters, cachedModels, MODEL_ALIASES, logDir);
+  const filteredAliases = MODEL_ALIASES
+    ? { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) }
+    : null;
+  return _writeModelsJson(registeredAdapters, cachedModels, filteredAliases, logDir);
 }
 
 // ── Startup: key validation ────────────────────────────────────────────────────

@@ -363,6 +363,65 @@ describe('buildModelsJson', () => {
     expect(ts.toString()).not.toBe('Invalid Date');
   });
 
+  it('should filter out model_aliases that cannot be resolved with known model data', () => {
+    // This test requires an isolated module with specific AWF_MODEL_ALIASES config.
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({
+      models: {
+        sonnet: ['copilot/*sonnet*'],
+        'no-match': ['copilot/nonexistent-model'],
+      },
+    });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: false });
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => { isolatedServer = require('./server'); });
+
+      isolatedServer.resetModelCacheState();
+      // Only copilot has model data — and it has no 'nonexistent-model'
+      isolatedServer.cachedModels.copilot = ['claude-sonnet-4.6'];
+
+      const result = isolatedServer.buildModelsJson();
+      // 'sonnet' resolves to 'claude-sonnet-4.6' → kept
+      expect(result.model_aliases).toHaveProperty('sonnet');
+      // 'no-match' resolves to nothing → filtered out
+      expect(result.model_aliases).not.toHaveProperty('no-match');
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
+    }
+  });
+
+  it('should keep all model_aliases when no provider has model data yet', () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({
+      models: {
+        sonnet: ['copilot/*sonnet*'],
+        'no-match': ['copilot/nonexistent-model'],
+      },
+    });
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => { isolatedServer = require('./server'); });
+
+      isolatedServer.resetModelCacheState();
+      // No model data for any provider
+
+      const result = isolatedServer.buildModelsJson();
+      // Both aliases should be present since we don't yet know what's available
+      expect(result.model_aliases).toHaveProperty('sonnet');
+      expect(result.model_aliases).toHaveProperty('no-match');
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+    }
+  });
+
 });
 
 // ── writeModelsJson ────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ const {
   extractVersionNumbers,
   compareByVersion,
   selectMiddlePowerFallback,
+  filterResolvableAliases,
   resolveModel,
   rewriteModelInBody,
 } = require('./model-resolver');
@@ -484,5 +485,95 @@ describe('rewriteModelInBody', () => {
     const parsed = JSON.parse(result.body.toString('utf8'));
     expect(parsed.messages).toEqual(original.messages);
     expect(parsed.temperature).toBe(0.7);
+  });
+});
+
+// ── filterResolvableAliases ───────────────────────────────────────────────────
+
+describe('filterResolvableAliases', () => {
+  const aliases = {
+    sonnet: ['copilot/*sonnet*', 'anthropic/*sonnet*'],
+    'gpt-5-codex': ['copilot/gpt-5*-codex', 'openai/gpt-5*-codex'],
+    '': ['sonnet'],
+  };
+
+  it('should keep aliases that resolve for at least one provider with model data', () => {
+    const availableModels = {
+      copilot: ['claude-sonnet-4.6', 'gpt-4o'],
+    };
+    const result = filterResolvableAliases(aliases, availableModels);
+    // 'sonnet' resolves via copilot/*sonnet* → claude-sonnet-4.6
+    expect(result).toHaveProperty('sonnet');
+    // '' → 'sonnet' which resolves, so '' is kept too
+    expect(result).toHaveProperty('');
+    // 'gpt-5-codex' has no matching models
+    expect(result).not.toHaveProperty('gpt-5-codex');
+  });
+
+  it('should return all aliases when no provider has model data', () => {
+    const result = filterResolvableAliases(aliases, {});
+    expect(Object.keys(result)).toEqual(Object.keys(aliases));
+  });
+
+  it('should return all aliases when all provider caches are null', () => {
+    const result = filterResolvableAliases(aliases, { copilot: null, openai: null });
+    expect(Object.keys(result)).toEqual(Object.keys(aliases));
+  });
+
+  it('should filter out aliases whose patterns match no available model', () => {
+    const availableModels = {
+      copilot: ['gpt-4o', 'gpt-5.2'],
+    };
+    const result = filterResolvableAliases(aliases, availableModels);
+    // 'sonnet' has no match in copilot (no sonnet models)
+    expect(result).not.toHaveProperty('sonnet');
+    // 'gpt-5-codex' has no match
+    expect(result).not.toHaveProperty('gpt-5-codex');
+    // '' → 'sonnet' → no match → filtered out too
+    expect(result).not.toHaveProperty('');
+  });
+
+  it('should keep an alias if it resolves for any one of multiple providers', () => {
+    const availableModels = {
+      copilot: ['gpt-4o'],              // no sonnet models
+      anthropic: ['claude-3-5-sonnet-20241022'],  // has sonnet
+    };
+    const result = filterResolvableAliases(aliases, availableModels);
+    // 'sonnet' has anthropic/*sonnet* which matches
+    expect(result).toHaveProperty('sonnet');
+  });
+
+  it('should keep recursive aliases that ultimately resolve', () => {
+    const availableModels = { copilot: ['claude-sonnet-4.6'] };
+    const result = filterResolvableAliases(aliases, availableModels);
+    // '' → 'sonnet' → copilot/*sonnet* → resolves
+    expect(result).toHaveProperty('');
+  });
+
+  it('should return aliases unchanged when aliases is empty', () => {
+    const result = filterResolvableAliases({}, { copilot: ['gpt-4o'] });
+    expect(result).toEqual({});
+  });
+
+  it('should preserve the original alias values (not mutate)', () => {
+    const availableModels = { copilot: ['claude-sonnet-4.6'] };
+    const result = filterResolvableAliases(aliases, availableModels);
+    expect(result.sonnet).toBe(aliases.sonnet);
+  });
+
+  it('should return the input unchanged when aliases is not an object', () => {
+    expect(filterResolvableAliases(null, { copilot: ['gpt-4o'] })).toBeNull();
+    expect(filterResolvableAliases(undefined, { copilot: ['gpt-4o'] })).toBeUndefined();
+  });
+
+  it('should handle extended alias syntax (object with patterns)', () => {
+    const extendedAliases = {
+      sonnet: { patterns: ['copilot/*sonnet*'], fallback: false },
+      legacy: { patterns: ['copilot/gpt-3*'], fallback: true },
+    };
+    const availableModels = { copilot: ['claude-sonnet-4.6'] };
+    const result = filterResolvableAliases(extendedAliases, availableModels);
+    expect(result).toHaveProperty('sonnet');
+    expect(result).not.toHaveProperty('legacy');
   });
 });

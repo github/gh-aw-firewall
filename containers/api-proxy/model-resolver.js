@@ -358,6 +358,50 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
 }
 
 /**
+ * Filter an alias map to only include aliases resolvable to at least one
+ * available model for at least one provider that has model data.
+ *
+ * An alias is kept when:
+ *   - No provider has model data yet (unknown state — keep all aliases).
+ *   - The alias resolves to a concrete model for at least one provider with data.
+ *
+ * Middle-power fallback is intentionally disabled during filtering so that only
+ * genuine alias→model matches are counted; fallback selections would keep aliases
+ * alive even after all their target models have been retired.
+ *
+ * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases
+ * @param {Record<string, string[]|null>} availableModels - Cached models per provider (null = not yet fetched)
+ * @returns {Record<string, string[]|{patterns: string[], fallback?: boolean}>}
+ */
+function filterResolvableAliases(aliases, availableModels) {
+  if (!aliases || typeof aliases !== 'object') return aliases;
+
+  // Providers with a non-empty model list (data is available)
+  const providersWithData = Object.entries(availableModels)
+    .filter(([, models]) => Array.isArray(models) && models.length > 0)
+    .map(([provider]) => provider);
+
+  // No model data yet — cannot make decisions, keep all aliases
+  if (providersWithData.length === 0) return aliases;
+
+  const noFallback = { enabled: false };
+  const result = {};
+
+  for (const aliasKey of Object.keys(aliases)) {
+    const canResolve = providersWithData.some(provider => {
+      const resolution = resolveModel(aliasKey, aliases, availableModels, provider, [], noFallback);
+      return resolution !== null;
+    });
+
+    if (canResolve) {
+      result[aliasKey] = aliases[aliasKey];
+    }
+  }
+
+  return result;
+}
+
+/**
  * Attempt to rewrite the "model" field in a JSON request body using the alias map.
  *
  * Returns the rewritten body buffer and the resolution log when a rewrite occurs.
@@ -407,6 +451,7 @@ module.exports = {
   extractVersionNumbers,
   compareByVersion,
   selectMiddlePowerFallback,
+  filterResolvableAliases,
   resolveModel,
   rewriteModelInBody,
 };
