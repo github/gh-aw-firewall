@@ -13,7 +13,7 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
-const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions, stripUnrecognizedToolTypes, stripEncryptedInclude, stripReasoningEffort } = require('./body-transform');
+const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
@@ -695,55 +695,6 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       }
     }
 
-    // Strip tools with unrecognized type values (e.g. "custom") for Responses API
-    if (req.method === 'POST') {
-      const stripped = stripUnrecognizedToolTypes(body, req.url);
-      if (stripped) {
-        body = stripped.body;
-        logRequest('warn', 'stripped_unrecognized_tool_types', {
-          request_id: requestId,
-          provider,
-          stripped_count: stripped.strippedCount,
-          stripped_types: stripped.strippedTypes,
-        });
-      }
-    }
-
-    // Strip encrypted content from `include` param for Responses API.
-    // Workaround for model/feature mismatch: some models reject
-    // "reasoning.encrypted_content" with 400 "Encrypted content is not
-    // supported with this model." This is likely a transient API issue or
-    // client bug (Codex should check model capabilities before requesting).
-    if (req.method === 'POST') {
-      const encStripped = stripEncryptedInclude(body, req.url);
-      if (encStripped) {
-        body = encStripped.body;
-        logRequest('warn', 'stripped_encrypted_include_model_incompatible', {
-          request_id: requestId,
-          provider,
-          model: encStripped.model || 'unknown',
-          stripped_values: encStripped.strippedValues,
-          reason: 'Model may not support encrypted reasoning content. ' +
-            'Client requested include values that the target model rejects. ' +
-            'Stripping to prevent 400 error.',
-        });
-      }
-
-      // Strip reasoning parameters (effort, summary) that may be rejected
-      // when the API key tier does not have reasoning feature access.
-      const reasonStripped = stripReasoningEffort(body, req.url);
-      if (reasonStripped) {
-        body = reasonStripped.body;
-        logRequest('warn', 'stripped_reasoning_params_tier_incompatible', {
-          request_id: requestId,
-          provider,
-          model: reasonStripped.model || 'unknown',
-          stripped_keys: reasonStripped.strippedKeys,
-          reason: 'API key tier may not support reasoning features. ' +
-            'Stripping reasoning parameters to prevent 400 error.',
-        });
-      }
-    }
 
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
