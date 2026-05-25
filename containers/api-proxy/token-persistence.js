@@ -15,7 +15,7 @@ const { logRequest } = require('./logging');
 // Token usage log file path (inside the mounted log volume)
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
-const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.log');
+const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.

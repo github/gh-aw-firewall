@@ -161,7 +161,7 @@ describe('makeModelBodyTransform', () => {
     }
   });
 
-  it('should write structured model alias diagnostics to token-diag.log', async () => {
+  it('should write structured model alias diagnostics to token-diag.jsonl', async () => {
     const fs = require('fs');
     const os = require('os');
     const path = require('path');
@@ -193,7 +193,7 @@ describe('makeModelBodyTransform', () => {
 
       await tokenPersistence.closeLogStream();
 
-      const diagPath = path.join(tmpDir, 'token-diag.log');
+      const diagPath = path.join(tmpDir, 'token-diag.jsonl');
       expect(fs.existsSync(diagPath)).toBe(true);
 
       const records = fs.readFileSync(diagPath, 'utf8')

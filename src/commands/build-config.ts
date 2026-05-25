@@ -108,6 +108,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     effectiveTokenModelMultipliers,
     maxRuns,
     enableTokenSteering: options.enableTokenSteering as boolean,
+    debugTokens: options.debugTokens as boolean | undefined,
+    tokenLogDir: options.tokenLogDir as string | undefined,
     openaiApiKey: process.env.OPENAI_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,

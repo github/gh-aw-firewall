@@ -31,6 +31,10 @@ interface AwfFileConfig {
       gemini?: { host?: string; basePath?: string };
     };
     models?: Record<string, string[]>;
+    logging?: {
+      debugTokens?: boolean;
+      tokenLogDir?: string;
+    };
   };
   security?: {
     sslBump?: boolean;
@@ -180,6 +184,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     geminiApiTarget: config.apiProxy?.targets?.gemini?.host,
     geminiApiBasePath: config.apiProxy?.targets?.gemini?.basePath,
     modelAliases: config.apiProxy?.models,
+    debugTokens: config.apiProxy?.logging?.debugTokens,
+    tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
 
     sslBump: config.security?.sslBump,
     enableDlp: config.security?.enableDlp,

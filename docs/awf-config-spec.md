@@ -103,6 +103,8 @@ the corresponding CLI flag.
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
+- `apiProxy.logging.debugTokens` → *(config-only; maps to `AWF_DEBUG_TOKENS`)*
+- `apiProxy.logging.tokenLogDir` → *(config-only; maps to `AWF_TOKEN_LOG_DIR`)*
 - `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
 - `apiProxy.auth.provider` → *(config-only; maps to `AWF_AUTH_PROVIDER`)*
 - `apiProxy.auth.oidcAudience` → *(config-only; maps to `AWF_AUTH_OIDC_AUDIENCE`)*
@@ -834,6 +836,118 @@ response:
 The `/reflect` endpoint does not include fallback state by design (it is static
 per run).
 
+## 13. Model Alias Logging
+
+The API proxy emits structured logging events during model alias resolution.
+These events are critical for debugging model routing decisions in production.
+
+### 13.1 Always-On Events (stdout)
+
+The following events are emitted as JSON lines to the API proxy's stdout
+(captured by Docker logging). They are **always active** when model aliases
+are configured (`apiProxy.models`):
+
+| Event | Trigger | Key fields |
+|-------|---------|------------|
+| `model_resolution` | Every request where a model alias resolves | `requested_model`, `resolved_model`, `provider`, `resolution_log[]` |
+| `model_rewrite` | Every request where the model field is rewritten | `original_model`, `rewritten_model`, `provider` |
+| `model_fallback_activated` | Fallback strategy selected a replacement | `reason`, `selected`, `candidates[]` |
+| `model_fallback_skipped` | Fallback was available but explicitly suppressed | `reason`, `requested_model` |
+| `model_fallback_candidates` | Informational: available fallback models | `candidates[]`, `strategy` |
+
+These events are written by `logRequest()` in `containers/api-proxy/logging.js`.
+
+### 13.2 Diagnostic Events (token-diag.jsonl)
+
+When `apiProxy.logging.debugTokens` is `true` (or `AWF_DEBUG_TOKENS=1`),
+additional diagnostic events are written to `token-diag.jsonl` in the directory
+specified by `apiProxy.logging.tokenLogDir` (default: `/var/log/api-proxy`):
+
+| Event | Description |
+|-------|-------------|
+| `MODEL_ALIAS_RESOLUTION_STEP` | Each step in the alias resolution chain (input → pattern match → candidate) |
+| `MODEL_ALIAS_REWRITE` | Final rewrite decision with before/after model names and matched pattern |
+
+Each diagnostic record follows the `token-diag/v<version>` schema:
+
+```json
+{
+  "_schema": "token-diag/v0.25.40",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "event": "MODEL_ALIAS_RESOLUTION_STEP",
+  "data": {
+    "alias": "sonnet",
+    "pattern": "anthropic/*sonnet*",
+    "candidate": "claude-sonnet-4-5",
+    "provider": "anthropic"
+  }
+}
+```
+
+### 13.3 Configuration
+
+```yaml
+apiProxy:
+  models:
+    sonnet: ["copilot/*sonnet*", "anthropic/*sonnet*"]
+  logging:
+    debugTokens: true
+    tokenLogDir: "/var/log/api-proxy"
+```
+
+| Property | Type | Default | Env var | Description |
+|----------|------|---------|---------|-------------|
+| `apiProxy.logging.debugTokens` | boolean | `false` | `AWF_DEBUG_TOKENS` | Enable diagnostic token/model-alias logging to file |
+| `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl` and `token-diag.jsonl` |
+
+### 13.4 Log File Inventory
+
+AWF produces the following structured and unstructured log files at runtime.
+All JSONL files use the `.jsonl` extension.
+
+#### Squid Proxy Logs
+
+Directory: configured by `logging.proxyLogsDir` (default: `<workDir>/squid-logs/`)
+
+| File | Format | Description | Always written |
+|------|--------|-------------|----------------|
+| `access.log` | Custom text (`firewall_detailed` logformat) | L7 HTTP/HTTPS traffic decisions with timestamps, client IP, domain, status, and decision codes | Yes |
+| `audit.jsonl` | JSONL (`audit/v<version>` schema) | Structured version of access log; preferred for programmatic consumption | Yes |
+| `cache.log` | Squid native text | Squid internal diagnostics (startup, shutdown, errors) | Yes |
+
+#### API Proxy Logs
+
+Directory: configured by `apiProxy.logging.tokenLogDir` / `AWF_TOKEN_LOG_DIR`
+(default: `/var/log/api-proxy/`)
+
+| File | Format | Description | Always written |
+|------|--------|-------------|----------------|
+| `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
+| `token-diag.jsonl` | JSONL (`token-diag/v<version>` schema) | Diagnostic events: model resolution steps, alias rewrites, token budget decisions | Only when `apiProxy.logging.debugTokens: true` |
+| `otel.jsonl` | JSONL (OpenTelemetry spans) | Distributed tracing spans; written as local fallback when no OTLP collector is configured | Only when OTEL is active and no collector endpoint set |
+
+#### CLI Proxy Logs
+
+Directory: `/var/log/cli-proxy/` (or `AWF_CLI_PROXY_LOG_DIR`)
+
+| File | Format | Description | Always written |
+|------|--------|-------------|----------------|
+| `access.jsonl` | JSONL | CLI proxy request audit records (gh CLI invocations routed through DIFC proxy) | Yes (when CLI proxy is active) |
+
+#### API Proxy stdout (Docker logs)
+
+The API proxy also emits JSON lines to stdout (captured by `docker logs`).
+These are always active and include model resolution events (`model_resolution`,
+`model_rewrite`, `model_fallback_*`). Use `docker logs awf-api-proxy` or
+the AWF diagnostic log collection to access them.
+
+### 13.5 Availability
+
+Model alias logging was introduced in **v0.25.40** (PR #2329). The diagnostic
+file mechanism (`token-persistence.js`) was refactored into a dedicated module
+in v0.25.50 but the logging events and their format have been stable since
+initial release.
+
 ## Normative References
 
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — Key words for use in
@@ -850,6 +964,9 @@ a corresponding JSON Schema in the `schemas/` directory:
 |--------|------------|-------------|
 | [`schemas/audit.schema.json`](../schemas/audit.schema.json) | `audit.jsonl` | L7 HTTP/HTTPS traffic decisions (allowed/denied) from the Squid proxy |
 | [`schemas/token-usage.schema.json`](../schemas/token-usage.schema.json) | `token-usage.jsonl` | Per-API-call token usage records from the api-proxy sidecar |
+| *(inline, see §13.2)* | `token-diag.jsonl` | Model alias resolution steps and diagnostic events (opt-in via `apiProxy.logging.debugTokens`) |
+| *(no schema)* | `otel.jsonl` | OpenTelemetry span records (local fallback when no collector configured) |
+| *(no schema)* | `access.jsonl` (cli-proxy) | CLI proxy request audit records |
 
 ### Versioning
 

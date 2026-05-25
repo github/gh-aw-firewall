@@ -183,6 +183,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       }),
       // Enable token steering when explicitly requested
       ...(config.enableTokenSteering && { AWF_ENABLE_TOKEN_STEERING: 'true' }),
+      // Token and model-alias diagnostic logging
+      ...(config.debugTokens && { AWF_DEBUG_TOKENS: '1' }),
+      ...(config.tokenLogDir && { AWF_TOKEN_LOG_DIR: config.tokenLogDir }),
       // OIDC authentication (Azure, AWS, GCP)
       ...pickEnvVars(
         'AWF_AUTH_TYPE',

@@ -49,7 +49,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md §9 for credential isolation semantics."
+          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md \u00a79 for credential isolation semantics."
         },
         "enableTokenSteering": {
           "type": "boolean",
@@ -70,11 +70,11 @@
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
+          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input \u00d71, cache-read \u00d70.1, output \u00d74, reasoning \u00d74. See spec \u00a710."
         },
         "modelMultipliers": {
           "type": "object",
-          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Defaults to 1 for unlisted models. See spec §10.2.",
+          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Defaults to 1 for unlisted models. See spec \u00a710.2.",
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0
@@ -83,7 +83,7 @@
         "maxRuns": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec \u00a711."
         },
         "modelFallback": {
           "type": "object",
@@ -138,17 +138,23 @@
         },
         "auth": {
           "type": "object",
-          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD, AWS STS, or GCP Workload Identity). See docs/awf-config-spec.md §9.5.",
+          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC \u2192 Azure AD, AWS STS, or GCP Workload Identity). See docs/awf-config-spec.md \u00a79.5.",
           "additionalProperties": false,
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["github-oidc"],
+              "enum": [
+                "github-oidc"
+              ],
               "description": "Authentication type. Currently only 'github-oidc' is supported. Maps to AWF_AUTH_TYPE."
             },
             "provider": {
               "type": "string",
-              "enum": ["azure", "aws", "gcp"],
+              "enum": [
+                "azure",
+                "aws",
+                "gcp"
+              ],
               "description": "Cloud provider for OIDC token exchange. Determines which token exchange protocol is used. Maps to AWF_AUTH_PROVIDER.",
               "default": "azure"
             },
@@ -171,7 +177,11 @@
             },
             "azureCloud": {
               "type": "string",
-              "enum": ["public", "usgovernment", "china"],
+              "enum": [
+                "public",
+                "usgovernment",
+                "china"
+              ],
               "description": "Azure cloud environment. Maps to AWF_AUTH_AZURE_CLOUD.",
               "default": "public"
             },
@@ -202,24 +212,63 @@
               "default": "https://www.googleapis.com/auth/cloud-platform"
             }
           },
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "if": {
-            "properties": { "provider": { "const": "aws" } },
-            "required": ["provider"]
+            "properties": {
+              "provider": {
+                "const": "aws"
+              }
+            },
+            "required": [
+              "provider"
+            ]
           },
           "then": {
-            "required": ["awsRoleArn", "awsRegion"]
+            "required": [
+              "awsRoleArn",
+              "awsRegion"
+            ]
           },
           "else": {
             "if": {
-              "properties": { "provider": { "const": "gcp" } },
-              "required": ["provider"]
+              "properties": {
+                "provider": {
+                  "const": "gcp"
+                }
+              },
+              "required": [
+                "provider"
+              ]
             },
             "then": {
-              "required": ["gcpWorkloadIdentityProvider"]
+              "required": [
+                "gcpWorkloadIdentityProvider"
+              ]
             },
             "else": {
-              "required": ["azureTenantId", "azureClientId"]
+              "required": [
+                "azureTenantId",
+                "azureClientId"
+              ]
+            }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "description": "API proxy diagnostic and model-alias logging configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "debugTokens": {
+              "type": "boolean",
+              "description": "Enable detailed token and model-alias diagnostics. Writes MODEL_ALIAS_RESOLUTION_STEP, MODEL_ALIAS_REWRITE, and other diagnostic events to token-diag.jsonl. Maps to AWF_DEBUG_TOKENS=1.",
+              "default": false
+            },
+            "tokenLogDir": {
+              "type": "string",
+              "description": "Directory for token-usage.jsonl and token-diag.jsonl files. Defaults to /var/log/api-proxy.",
+              "default": "/var/log/api-proxy"
             }
           }
         }
@@ -349,7 +398,7 @@
     },
     "environment": {
       "type": "object",
-      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for credential isolation rules.",
+      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md \u00a78\u20139 for credential isolation rules.",
       "additionalProperties": false,
       "properties": {
         "envFile": {
@@ -358,7 +407,7 @@
         },
         "envAll": {
           "type": "boolean",
-          "description": "Forward all host environment variables into the agent container. Use with caution — may expose secrets."
+          "description": "Forward all host environment variables into the agent container. Use with caution \u2014 may expose secrets."
         },
         "excludeEnv": {
           "type": "array",

@@ -40,10 +40,10 @@ const PROTECTED_ENV_KEYS = Object.freeze({
   [Symbol.iterator]() { return _PROTECTED_ENV_KEYS[Symbol.iterator](); },
 });
 
-// --- Structured logging to /var/log/cli-proxy/access.log ---
+// --- Structured logging to /var/log/cli-proxy/access.jsonl ---
 
 const LOG_DIR = process.env.AWF_CLI_PROXY_LOG_DIR || '/var/log/cli-proxy';
-const LOG_FILE = path.join(LOG_DIR, 'access.log');
+const LOG_FILE = path.join(LOG_DIR, 'access.jsonl');
 
 let logStream = null;
 try {
