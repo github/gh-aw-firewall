@@ -324,11 +324,12 @@ export interface ApiProxyOptions {
 
   /**
    * Directory path for API proxy log files (`token-usage.jsonl` and
-   * `token-diag.jsonl`).
+   * `token-diag.jsonl`). In the default AWF compose, this must be `/var/log/api-proxy`
+   * (or a subdirectory) so logs are written to the mounted volume.
    *
    * Set via:
-   * - Config file: `apiProxy.logging.tokenLogDir: "/path/to/logs"`
-   * - Environment variable: `AWF_TOKEN_LOG_DIR=/path/to/logs`
+   * - Config file: `apiProxy.logging.tokenLogDir: "/var/log/api-proxy/custom"`
+   * - Environment variable: `AWF_TOKEN_LOG_DIR=/var/log/api-proxy/custom`
    *
    * @default "/var/log/api-proxy"
    */
