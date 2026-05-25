@@ -918,8 +918,7 @@ Directory: configured by `logging.proxyLogsDir` (default: `<workDir>/squid-logs/
 #### API Proxy Logs
 
 Directory: configured by `apiProxy.logging.tokenLogDir` / `AWF_TOKEN_LOG_DIR`
-(default: `/var/log/api-proxy/`)
-
+(default: `/var/log/api-proxy/`; must be `/var/log/api-proxy` or a subdirectory to be preserved by AWF's default bind mount)
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
