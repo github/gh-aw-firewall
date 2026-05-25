@@ -153,6 +153,16 @@ function validateTokenUsageRecord(record) {
     return false;
   }
 
+  if (record.event !== 'token_usage') {
+    logRequest('warn', 'token_record_schema_violation', {
+      request_id: record.request_id,
+      field: 'event',
+      expected: 'token_usage',
+      actual: record.event,
+    });
+    return false;
+  }
+
   return true;
 }
 

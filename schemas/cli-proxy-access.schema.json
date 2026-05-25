@@ -4,9 +4,14 @@
   "title": "AWF CLI Proxy Access Log Record",
   "description": "A single CLI proxy access record emitted to access.jsonl by the AWF cli-proxy sidecar.",
   "type": "object",
-  "required": ["timestamp", "event"],
+  "required": ["_schema", "timestamp", "event"],
   "additionalProperties": true,
   "properties": {
+    "_schema": {
+      "type": "string",
+      "pattern": "^cli-proxy-access/v\\d+\\.\\d+\\.\\d+(-\\w+)?$",
+      "description": "Schema identifier and version for this record (e.g. \"cli-proxy-access/v0.26.0\"). Dev builds use \"cli-proxy-access/v0.0.0-dev\"."
+    },
     "timestamp": {
       "type": "string",
       "format": "date-time",

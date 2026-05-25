@@ -865,8 +865,8 @@ specified by `apiProxy.logging.tokenLogDir` (default: `/var/log/api-proxy`):
 
 | Event | Description |
 |-------|-------------|
-| `MODEL_ALIAS_RESOLUTION_STEP` | Each step in the alias resolution chain (input → pattern match → candidate) |
-| `MODEL_ALIAS_REWRITE` | Final rewrite decision with before/after model names and matched pattern |
+| `model_alias_resolution_step` | Each step in the alias resolution chain (input → pattern match → candidate) |
+| `model_alias_rewrite` | Final rewrite decision with before/after model names and matched pattern |
 
 Each diagnostic record follows the `token-diag/v<version>` schema:
 
@@ -874,7 +874,7 @@ Each diagnostic record follows the `token-diag/v<version>` schema:
 {
   "_schema": "token-diag/v0.25.40",
   "timestamp": "2025-01-15T10:30:00.000Z",
-  "event": "MODEL_ALIAS_RESOLUTION_STEP",
+  "event": "model_alias_resolution_step",
   "data": {
     "alias": "sonnet",
     "pattern": "anthropic/*sonnet*",

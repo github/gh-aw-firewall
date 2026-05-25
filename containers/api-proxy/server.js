@@ -172,7 +172,7 @@ function makeModelBodyTransform(provider) {
     }
     for (const line of result.log) {
       logRequest('info', 'model_resolution', { message: line, provider });
-      diag('MODEL_ALIAS_RESOLUTION_STEP', {
+      diag('model_alias_resolution_step', {
         provider,
         original_model: originalModel,
         resolved_model: resolvedModel,
@@ -184,7 +184,7 @@ function makeModelBodyTransform(provider) {
       original_model: originalModel,
       resolved_model: resolvedModel,
     });
-    diag('MODEL_ALIAS_REWRITE', {
+    diag('model_alias_rewrite', {
       provider,
       original_model: originalModel,
       resolved_model: resolvedModel,

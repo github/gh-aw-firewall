@@ -202,8 +202,8 @@ describe('makeModelBodyTransform', () => {
         .filter(Boolean)
         .map(line => JSON.parse(line));
 
-      expect(records.some(r => r.event === 'MODEL_ALIAS_RESOLUTION_STEP')).toBe(true);
-      const rewrite = records.find(r => r.event === 'MODEL_ALIAS_REWRITE');
+      expect(records.some(r => r.event === 'model_alias_resolution_step')).toBe(true);
+      const rewrite = records.find(r => r.event === 'model_alias_rewrite');
       expect(rewrite).toBeDefined();
       expect(rewrite._schema).toMatch(/^token-diag\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(rewrite.data.provider).toBe('copilot');

@@ -215,6 +215,9 @@ export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
       const parsed = Date.parse(obj.timestamp);
       if (!Number.isNaN(parsed)) {
         timestamp = parsed / 1000;
+      } else if (typeof obj.ts === 'number') {
+        // timestamp string present but invalid; fall back to legacy epoch field
+        timestamp = obj.ts;
       }
     } else if (typeof obj.ts === 'number') {
       timestamp = obj.ts;

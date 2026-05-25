@@ -248,6 +248,14 @@ describe('log-parser', () => {
       expect(entry!.timestamp).toBeCloseTo(1761074374.646);
     });
 
+    it('should fall back to legacy ts when timestamp string is present but invalid', () => {
+      const line = '{"timestamp":"not-a-date","ts":1761074374.646,"client":"172.30.0.20","host":"api.github.com:443","dest":"140.82.114.22:443","method":"CONNECT","status":200,"decision":"TCP_TUNNEL","url":"api.github.com:443"}';
+      const entry = parseAuditJsonlLine(line);
+
+      expect(entry).not.toBeNull();
+      expect(entry!.timestamp).toBeCloseTo(1761074374.646);
+    });
+
     it('should parse a denied JSONL entry', () => {
       const line = '{"timestamp":"2025-10-20T21:07:09.358Z","event":"http_access","client":"172.30.0.20","host":"evil.com:443","dest":"-:-","method":"CONNECT","status":403,"decision":"TCP_DENIED","url":"evil.com:443"}';
       const entry = parseAuditJsonlLine(line);

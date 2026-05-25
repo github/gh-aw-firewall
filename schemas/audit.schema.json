@@ -31,8 +31,8 @@
     },
     "event": {
       "type": "string",
-      "enum": ["http_access", "http_access_allowed", "http_access_denied"],
-      "description": "Stable event discriminator for audit records."
+      "const": "http_access",
+      "description": "Stable event discriminator for audit records. Always \"http_access\"."
     },
     "client": {
       "type": "string",
