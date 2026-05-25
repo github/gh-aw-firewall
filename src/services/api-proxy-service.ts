@@ -32,6 +32,37 @@ interface ApiProxyServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+/**
+ * Builds provider API target/basePath environment variables for the api-proxy container.
+ * Centralizes the repetitive per-provider target/basePath conditional env generation.
+ */
+function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
+  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
+  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderApiKey = getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
+
+  const env: Record<string, string> = {};
+
+  const providers: Array<{ target?: string; basePath?: string; envTarget: string; envBasePath: string; stripTarget?: boolean }> = [
+    { target: config.copilotApiTarget, basePath: config.copilotApiBasePath, envTarget: 'COPILOT_API_TARGET', envBasePath: 'COPILOT_API_BASE_PATH', stripTarget: true },
+    { target: config.openaiApiTarget, basePath: config.openaiApiBasePath, envTarget: 'OPENAI_API_TARGET', envBasePath: 'OPENAI_API_BASE_PATH', stripTarget: true },
+    { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: 'ANTHROPIC_API_TARGET', envBasePath: 'ANTHROPIC_API_BASE_PATH', stripTarget: true },
+    { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: 'GEMINI_API_TARGET', envBasePath: 'GEMINI_API_BASE_PATH', stripTarget: true },
+  ];
+
+  for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
+    if (target) env[envTarget] = stripTarget ? stripScheme(target) : target;
+    if (basePath) env[envBasePath] = basePath;
+  }
+
+  // Copilot-specific provider passthrough
+  if (copilotProviderType) env.COPILOT_PROVIDER_TYPE = copilotProviderType;
+  if (copilotProviderBaseUrl) env.COPILOT_PROVIDER_BASE_URL = copilotProviderBaseUrl;
+  if (copilotProviderApiKey) env.COPILOT_PROVIDER_API_KEY = copilotProviderApiKey;
+
+  return env;
+}
+
 // Match GPT-5 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
 // "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
 // are runtime-configurable and not limited to a fixed allowlist.
@@ -60,9 +91,6 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
-  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
-  const copilotProviderApiKey = getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
 
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
@@ -93,17 +121,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // Strip any scheme prefix — server.js also normalizes defensively, but
       // stripping here prevents a scheme-prefixed hostname from reaching the
       // container at all (belt-and-suspenders for gh-aw#25137).
-      ...(config.copilotApiTarget && { COPILOT_API_TARGET: stripScheme(config.copilotApiTarget) }),
-      ...(config.copilotApiBasePath && { COPILOT_API_BASE_PATH: config.copilotApiBasePath }),
-      ...(copilotProviderType && { COPILOT_PROVIDER_TYPE: copilotProviderType }),
-      ...(copilotProviderBaseUrl && { COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl }),
-      ...(copilotProviderApiKey && { COPILOT_PROVIDER_API_KEY: copilotProviderApiKey }),
-      ...(config.openaiApiTarget && { OPENAI_API_TARGET: stripScheme(config.openaiApiTarget) }),
-      ...(config.openaiApiBasePath && { OPENAI_API_BASE_PATH: config.openaiApiBasePath }),
-      ...(config.anthropicApiTarget && { ANTHROPIC_API_TARGET: stripScheme(config.anthropicApiTarget) }),
-      ...(config.anthropicApiBasePath && { ANTHROPIC_API_BASE_PATH: config.anthropicApiBasePath }),
-      ...(config.geminiApiTarget && { GEMINI_API_TARGET: stripScheme(config.geminiApiTarget) }),
-      ...(config.geminiApiBasePath && { GEMINI_API_BASE_PATH: config.geminiApiBasePath }),
+      ...buildProviderTargetEnv(config),
       // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
       ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
       // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
