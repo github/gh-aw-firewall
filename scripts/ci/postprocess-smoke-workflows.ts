@@ -828,7 +828,6 @@ for (const workflowPath of codexWorkflowPaths) {
       const indent = heredocMatch[1];
       const modelProvidersBlock =
         `${indent}model_provider = "openai-proxy"\n` +
-        `${indent}model_reasoning_effort = "none"\n` +
         `${indent}\n` +
         `${indent}[model_providers.openai-proxy]\n` +
         `${indent}name = "OpenAI AWF proxy"\n` +
@@ -849,25 +848,6 @@ for (const workflowPath of codexWorkflowPaths) {
     }
   } else {
     console.log(`  openai-proxy custom provider already present in Codex config.toml`);
-  }
-
-  // Inject model_reasoning_effort = "none" if missing.
-  // The CI API key tier does not support reasoning features; Codex sends
-  // reasoning.effort unconditionally, causing 400 errors from OpenAI.
-  const REASONING_EFFORT_SENTINEL = 'model_reasoning_effort';
-  if (!content.includes(REASONING_EFFORT_SENTINEL)) {
-    // Insert after model_provider = "openai-proxy" line
-    const modelProviderLineRegex = /^(\s+)(model_provider = "openai-proxy"\n)/m;
-    const mpMatch = content.match(modelProviderLineRegex);
-    if (mpMatch) {
-      const indent = mpMatch[1];
-      content = content.replace(
-        modelProviderLineRegex,
-        `$1$2${indent}model_reasoning_effort = "none"\n`
-      );
-      modified = true;
-      console.log(`  Injected model_reasoning_effort = "none" into Codex config.toml`);
-    }
   }
 
   // Remove legacy env_key for openai-proxy so Codex doesn't require OPENAI_API_KEY

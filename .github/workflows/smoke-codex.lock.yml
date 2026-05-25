@@ -927,7 +927,6 @@ jobs:
           cat > "/tmp/gh-aw/mcp-config/config.toml" << GH_AW_CODEX_SHELL_POLICY_8565aca3b228aa2e_EOF
 
           model_provider = "openai-proxy"
-          model_reasoning_effort = "none"
 
           [model_providers.openai-proxy]
           name = "OpenAI AWF proxy"
