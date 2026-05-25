@@ -10,7 +10,6 @@ describe('option parser facade re-exports', () => {
   it('re-exports parser module functions directly', () => {
     expect(optionParsers.buildRateLimitConfig).toBe(rateLimitParsers.buildRateLimitConfig);
     expect(optionParsers.validateRateLimitFlags).toBe(rateLimitParsers.validateRateLimitFlags);
-    expect(optionParsers.validateEnableOpenCodeFlag).toBe(rateLimitParsers.validateEnableOpenCodeFlag);
     expect(optionParsers.validateEnableTokenSteeringFlag).toBe(rateLimitParsers.validateEnableTokenSteeringFlag);
 
     expect(optionParsers.validateAllowHostPorts).toBe(hostPortParsers.validateAllowHostPorts);

@@ -26,7 +26,6 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
       enableDind: false,
       enableDlp: false,
       enableApiProxy: false,
-      enableOpencode: false,
       anthropicAutoCache: false,
       diagnosticLogs: false,
     },

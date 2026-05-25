@@ -95,7 +95,6 @@ the corresponding CLI flag.
 - `network.dnsServers[]` → `--dns-servers <csv>`
 - `network.upstreamProxy` → `--upstream-proxy`
 - `apiProxy.enabled` → `--enable-api-proxy`
-- `apiProxy.enableOpenCode` → `--enable-opencode`
 - `apiProxy.enableTokenSteering` → `--enable-token-steering`
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
@@ -312,7 +311,7 @@ When the API proxy sidecar is enabled, the following rules apply:
 
 5. The API proxy sidecar SHALL inject the real credentials into upstream
    requests. Sidecar port assignments: 10000 (OpenAI), 10001 (Anthropic),
-   10002 (Copilot), 10003 (Gemini), 10004 (OpenCode).
+   10002 (Copilot), 10003 (Gemini).
 
 6. A conforming implementation MUST forward the following OpenTelemetry
    variables from the host into the **api-proxy sidecar** container so that
@@ -602,7 +601,7 @@ subsequent requests (one per request).
 
 **Provider-specific injection rules:**
 
-- **OpenAI / Copilot / OpenCode** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
+- **OpenAI / Copilot** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
 - **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
 - **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
 
@@ -622,7 +621,7 @@ pending warning per subsequent request):
 ### 10.6 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port
-(10000–10004). Each port returns the same aggregate reflection payload, whose
+(10000–10003). Each port returns the same aggregate reflection payload, whose
 `endpoints` array lists all provider adapters. Only the management port
 (10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
 ports still serve provider-local `/health` responses.
@@ -692,7 +691,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 ### 11.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10004; see
+The `/reflect` endpoint (available on all provider ports 10000–10003; see
 §10.6) MUST include the current max-runs state:
 
 ```json

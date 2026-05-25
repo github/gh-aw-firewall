@@ -3,7 +3,6 @@ import { type FlagValidationResult, type WrapperConfig } from './types';
 export {
   buildRateLimitConfig,
   validateRateLimitFlags,
-  validateEnableOpenCodeFlag,
   validateEnableTokenSteeringFlag,
 } from './parsers/rate-limit-parsers';
 export {

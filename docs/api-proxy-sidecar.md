@@ -367,7 +367,7 @@ The sidecar container:
 - **Image**: `ghcr.io/github/gh-aw-firewall/api-proxy:latest`
 - **Base**: `node:22-alpine`
 - **Network**: `awf-net` at `172.30.0.30`
-- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (OpenCode, requires `--enable-opencode`)
+- **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
 ## Model Fallback
@@ -549,14 +549,6 @@ curl http://172.30.0.30:10000/reflect
       "models": null,
       "models_url": "http://api-proxy:10003/v1beta/models"
     },
-    {
-      "provider": "opencode",
-      "port": 10004,
-      "base_url": "http://api-proxy:10004",
-      "configured": true,
-      "models": null,
-      "models_url": null
-    }
   ],
   "models_fetch_complete": true
 }
@@ -566,7 +558,7 @@ Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
-- `models_url` — URL to query for the live model list; `null` for OpenCode (which routes to other providers)
+- `models_url` — URL to query for the live model list
 
 ## Troubleshooting
 
@@ -896,7 +888,7 @@ The injection is provider-aware:
 
 | Provider | Injection mechanism |
 |----------|---------------------|
-| OpenAI / Copilot / OpenCode | Inserts `{"role":"system","content":"..."}` after existing system messages |
+| OpenAI / Copilot | Inserts `{"role":"system","content":"..."}` after existing system messages |
 | Anthropic | Appends to the `system` field (string concat or block append) |
 | Gemini | Appends `{"text":"..."}` to `systemInstruction.parts` |
 

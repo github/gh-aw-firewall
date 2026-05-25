@@ -65,7 +65,6 @@ const STUB_CONFIG = {
   enableDlp: false,
   allowedUrls: undefined,
   enableApiProxy: false,
-  enableOpenCode: false,
   anthropicAutoCache: false,
   anthropicCacheTailTtl: undefined,
   modelAliases: undefined,
@@ -126,7 +125,6 @@ describe('validateOptions', () => {
       config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 },
     });
     mockedOptionParsers.validateRateLimitFlags.mockReturnValue({ valid: true });
-    mockedOptionParsers.validateEnableOpenCodeFlag.mockReturnValue({ valid: true });
     mockedOptionParsers.validateEnableTokenSteeringFlag.mockReturnValue({ valid: true });
     mockedOptionParsers.validateSkipPullWithBuildLocal.mockReturnValue({ valid: true });
     mockedOptionParsers.validateAllowHostPorts.mockReturnValue({ valid: true });
@@ -482,17 +480,6 @@ describe('validateOptions', () => {
   });
 
   describe('feature flag compatibility', () => {
-    it('exits when --enable-opencode is used without --enable-api-proxy', () => {
-      mockedOptionParsers.validateEnableOpenCodeFlag.mockReturnValue({
-        valid: false,
-        error: '--enable-opencode requires --enable-api-proxy',
-      });
-      expect(() => validateOptions(validOptions(), 'echo hi')).toThrow('process.exit called');
-      expect(mockedLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--enable-opencode requires --enable-api-proxy'),
-      );
-    });
-
     it('exits when --enable-token-steering is used without --enable-api-proxy', () => {
       mockedOptionParsers.validateEnableTokenSteeringFlag.mockReturnValue({
         valid: false,

@@ -39,12 +39,6 @@ export const API_PROXY_PORTS = {
    */
   GEMINI: 10003,
 
-  /**
-   * OpenCode API proxy port (defaults to Copilot/OpenAI routing; falls back to Anthropic)
-   * OpenCode is BYOK — credential priority: OPENAI_API_KEY > ANTHROPIC_API_KEY > COPILOT_GITHUB_TOKEN/COPILOT_API_KEY
-   * @see containers/api-proxy/server.js
-   */
-  OPENCODE: 10004,
 } as const;
 
 /**
@@ -58,7 +52,7 @@ export const API_PROXY_HEALTH_PORT = API_PROXY_PORTS.OPENAI;
  *
  * The CLI proxy sidecar listens on this port for gh CLI invocations forwarded
  * from the agent container. Port 11000 is chosen to avoid collision with the
- * api-proxy ports (10000-10004).
+ * api-proxy ports (10000-10003).
  *
  * All ports must be allowed in:
  * - containers/cli-proxy/Dockerfile (EXPOSE directive)

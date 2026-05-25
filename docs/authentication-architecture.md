@@ -14,7 +14,6 @@ All LLM providers use identical credential isolation architecture. API keys are 
 | 10001 | Anthropic (Claude) | `x-api-key`                     |
 | 10002 | GitHub Copilot     | `Authorization: Bearer`         |
 | 10003 | Google Gemini      | `x-goog-api-key`                |
-| 10004 | OpenCode           | Dynamic (routes to other ports) |
 :::
 
 ## Architecture components
@@ -54,7 +53,6 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ - 10001 (Anthropic proxy)       │       │     http://172.30.0.30:10002    │
 │ - 10002 (Copilot proxy)         │       │ ✓ GITHUB_TOKEN=ghp_...           │
 │ - 10003 (Gemini proxy)          │       │   (protected by one-shot-token)  │
-│ - 10004 (OpenCode proxy)        │       │                                  │
 │ Injects auth headers:            │       │ User command execution:          │
 │ - x-api-key: sk-ant-...         │       │   claude-code, copilot, etc.     │
 │ - Authorization: Bearer sk-...   │       └──────────────────────────────────┘
@@ -183,10 +181,6 @@ Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Co
 
 Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured.
 
-#### Port 10004: OpenCode proxy
-
-Dynamic provider routing — forwards to OpenAI (port 10000), Anthropic (port 10001), or Copilot (port 10002) based on whichever key is configured. Agent uses `OPENAI_BASE_URL` pointing to this port.
-
 The `proxyRequest` function copies incoming headers, strips sensitive/proxy headers, injects the authentication headers, and forwards the request to the target API through Squid using `HttpsProxyAgent`.
 
 :::caution
@@ -302,7 +296,7 @@ environment:
 Squid's domain whitelist ACLs control which API domains the sidecar can reach. For example, if only `api.anthropic.com` is whitelisted, the sidecar can only connect to that domain — even if a compromised sidecar tried to connect to a malicious domain, Squid would block it.
 
 :::note
-The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10004 are only used for internal agent-to-proxy communication within the Docker network.
+The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10003 are only used for internal agent-to-proxy communication within the Docker network.
 :::
 
 ## Additional token protection mechanisms

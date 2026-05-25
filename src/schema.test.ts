@@ -58,7 +58,6 @@ describe('awf-config.schema.json', () => {
       },
       apiProxy: {
         enabled: true,
-        enableOpenCode: false,
         anthropicAutoCache: true,
         anthropicCacheTailTtl: '5m',
         maxEffectiveTokens: 100000,

@@ -220,7 +220,7 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   }
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
-  // Allow all API proxy ports (OpenAI, Anthropic, GitHub Copilot, OpenCode).
+  // Allow all API proxy ports declared in API_PROXY_PORTS.
   // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   if (apiProxyIp) {
     const allPorts = Object.values(API_PROXY_PORTS);

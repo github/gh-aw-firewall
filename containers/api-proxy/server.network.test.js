@@ -376,15 +376,15 @@ describe('reflectEndpoints', () => {
     resetModelCacheState();
   });
 
-  it('should return an array of 5 endpoints', () => {
+  it('should return an array of 4 endpoints', () => {
     const result = reflectEndpoints();
-    expect(result.endpoints).toHaveLength(5);
+    expect(result.endpoints).toHaveLength(4);
   });
 
   it('should include all expected providers', () => {
     const result = reflectEndpoints();
     const providers = result.endpoints.map((e) => e.provider);
-    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']);
+    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini']);
   });
 
   it('should report models_fetch_complete false before fetch runs', () => {
@@ -422,7 +422,6 @@ describe('reflectEndpoints', () => {
       anthropic: 10001,
       copilot: 10002,
       gemini: 10003,
-      opencode: 10004,
     });
   });
 
@@ -433,34 +432,5 @@ describe('reflectEndpoints', () => {
     expect(urlMap.anthropic).toBe('http://api-proxy:10001/v1/models');
     expect(urlMap.copilot).toBe('http://api-proxy:10002/models');
     expect(urlMap.gemini).toBe('http://api-proxy:10003/v1beta/models');
-    expect(urlMap.opencode).toBeNull();
-  });
-
-  it('should report opencode as not configured when AWF_ENABLE_OPENCODE is not set', () => {
-    // ENABLE_OPENCODE is false at module load time (AWF_ENABLE_OPENCODE not set in test env),
-    // so opencode.configured must always be false regardless of other credentials.
-    const result = reflectEndpoints();
-    const opencode = result.endpoints.find((e) => e.provider === 'opencode');
-    expect(opencode.configured).toBe(false);
-    expect(opencode.models).toBeNull();
-    expect(opencode.models_url).toBeNull();
-  });
-
-  it('should report opencode as configured when AWF_ENABLE_OPENCODE=true and a credential is present', () => {
-    let isolatedReflect;
-    jest.isolateModules(() => {
-      process.env.AWF_ENABLE_OPENCODE = 'true';
-      process.env.OPENAI_API_KEY = 'sk-test-isolated';
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        ({ reflectEndpoints: isolatedReflect } = require('./server'));
-      } finally {
-        delete process.env.AWF_ENABLE_OPENCODE;
-        delete process.env.OPENAI_API_KEY;
-      }
-    });
-    const result = isolatedReflect();
-    const opencode = result.endpoints.find((e) => e.provider === 'opencode');
-    expect(opencode.configured).toBe(true);
   });
 });

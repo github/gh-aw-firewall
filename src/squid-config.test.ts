@@ -383,7 +383,7 @@ describe('generatePolicyManifest', () => {
 
   describe('Api-Proxy Sidecar Configuration', () => {
     const apiProxyIp = '172.30.0.30';
-    const apiProxyPorts = [10000, 10001, 10002, 10003, 10004];
+    const apiProxyPorts = [10000, 10001, 10002, 10003];
 
     it('should add api-proxy ports to Safe_ports when apiProxyPorts is set', () => {
       const config: SquidConfig = {

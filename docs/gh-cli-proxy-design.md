@@ -127,11 +127,11 @@ The pre-agent DIFC proxy runs on the host (`--network host`, `localhost:18443`).
 |---|---|---|---|
 | Squid | 172.30.0.10 | 3128 | Domain allowlist proxy |
 | Agent | 172.30.0.20 | — | User command |
-| API Proxy | 172.30.0.30 | 10000-10004 | LLM credential injection |
+| API Proxy | 172.30.0.30 | 10000-10003 | LLM credential injection |
 | DoH Proxy | 172.30.0.40 | 53 | DNS-over-HTTPS |
 | **CLI Proxy** | **172.30.0.50** | **11000** | **gh CLI forwarding** |
 
-Port 11000 chosen to avoid collision with API proxy ports (10000-10004).
+Port 11000 chosen to avoid collision with API proxy ports (10000-10003).
 
 ### 2. CLI Proxy Container (`containers/cli-proxy/`)
 

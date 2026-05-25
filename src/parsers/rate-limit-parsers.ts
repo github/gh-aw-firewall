@@ -67,16 +67,6 @@ export function validateRateLimitFlags(enableApiProxy: boolean, options: {
 }
 
 /**
- * Validates that --enable-opencode is not used without --enable-api-proxy.
- */
-export function validateEnableOpenCodeFlag(enableApiProxy: boolean, enableOpenCode: boolean): FlagValidationResult {
-  if (enableOpenCode && !enableApiProxy) {
-    return { valid: false, error: '--enable-opencode requires --enable-api-proxy' };
-  }
-  return { valid: true };
-}
-
-/**
  * Validates that --enable-token-steering is not used without --enable-api-proxy.
  */
 export function validateEnableTokenSteeringFlag(enableApiProxy: boolean, enableTokenSteering: boolean): FlagValidationResult {

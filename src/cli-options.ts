@@ -295,12 +295,6 @@ program
     'Base path prefix for Gemini API requests',
   )
   .option(
-    '--enable-opencode',
-    'Enable OpenCode API proxy listener on port 10004 (requires --enable-api-proxy).\n' +
-    '                                       Only start this when the workflow uses the OpenCode engine.',
-    false
-  )
-  .option(
     '--anthropic-auto-cache',
     'Enable Anthropic prompt-cache optimizations in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects cache breakpoints on tools/system/messages, upgrades TTL to 1h,\n' +

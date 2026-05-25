@@ -53,7 +53,7 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {http.IncomingMessage} proxyRes - Upstream response
  * @param {object} opts
  * @param {string} opts.requestId - Request ID for correlation
- * @param {string} opts.provider - Provider name (openai, anthropic, copilot, opencode)
+ * @param {string} opts.provider - Provider name (openai, anthropic, copilot, gemini)
  * @param {string} opts.path - Request path
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference

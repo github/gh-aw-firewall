@@ -97,9 +97,6 @@ Options:
   --gemini-api-target <host>   Target hostname for Gemini API requests
                                (default: generativelanguage.googleapis.com)
   --gemini-api-base-path <path> Base path prefix for Gemini API requests
-  --enable-opencode            Enable OpenCode API proxy listener on port 10004
-                               (requires --enable-api-proxy). Only start this when the
-                               workflow uses the OpenCode engine. (default: false)
   --anthropic-auto-cache       Enable Anthropic prompt-cache optimizations in the API proxy
                                (requires --enable-api-proxy). Injects cache breakpoints on
                                tools/system/messages, upgrades TTL to 1h, and strips ANSI codes

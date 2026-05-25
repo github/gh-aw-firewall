@@ -139,7 +139,7 @@ echo "=== cli.ts: option handling patterns ==="
 grep -n "\.option\|options\.\|program\." src/cli.ts | head -50
 
 echo "=== API proxy provider similarity (getConfig patterns) ==="
-for f in containers/api-proxy/providers/openai.js containers/api-proxy/providers/anthropic.js containers/api-proxy/providers/gemini.js containers/api-proxy/providers/copilot.js containers/api-proxy/providers/opencode.js; do
+for f in containers/api-proxy/providers/openai.js containers/api-proxy/providers/anthropic.js containers/api-proxy/providers/gemini.js containers/api-proxy/providers/copilot.js; do
   if [ -f "$f" ]; then
     echo "--- $f: exported functions ---"
     grep -n "^function\|^const.*=\s*function\|^module\.exports\|^exports\." "$f" | head -10

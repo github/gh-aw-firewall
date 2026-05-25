@@ -117,11 +117,7 @@ function createAllAdapters(env, deps = {}) {
   const gemini    = createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    });
   const myProvider = createMyProviderAdapter(env, { bodyTransform: deps.myProviderBodyTransform }); // ← add here
 
-  // OpenCode routes to the first enabled candidate in priority order.
-  // Add myProvider to this list if you want OpenCode to route through it.
-  const opencode  = createOpenCodeAdapter(env, { candidateAdapters: [openai, anthropic, copilot] });
-
-  return [openai, anthropic, copilot, gemini, opencode, myProvider]; // ← include in return
+  return [openai, anthropic, copilot, gemini, myProvider]; // ← include in return
 }
 
 // 3. Export it alongside the others
@@ -136,25 +132,6 @@ If your provider needs model-alias rewriting, also add a corresponding
 `myProviderBodyTransform` in server.js (mirroring how the existing transforms
 are built and passed into `createAllAdapters`).
 
-### Optional: add your provider to OpenCode's routing
-
-OpenCode (port 10004) automatically routes to the first enabled adapter in its
-`candidateAdapters` list.  If you want OpenCode to fall back to your provider,
-add it to that list in the desired priority position — **no changes to
-`opencode.js` are needed**:
-
-```js
-// In createAllAdapters(), update the opencode line:
-const opencode = createOpenCodeAdapter(env, {
-  candidateAdapters: [openai, anthropic, copilot, myProvider], // ← add at desired priority position
-});
-```
-
-All providers remain independently reachable on their own ports regardless of
-whether they appear in the OpenCode candidate list.
-
----
-
 ## Step 3 — Update the Dockerfile
 
 Add the new adapter file to the explicit `COPY` list in `containers/api-proxy/Dockerfile`:
@@ -168,7 +145,7 @@ COPY providers/ ./providers/
 Also update the `EXPOSE` directive to include the new port:
 
 ```dockerfile
-EXPOSE 10000 10001 10002 10003 10004 10005
+EXPOSE 10000 10001 10002 10003 <NEW_PORT>
 ```
 
 ---
@@ -178,10 +155,11 @@ EXPOSE 10000 10001 10002 10003 10004 10005
 - [ ] `providers/<name>.js` created and exports `create<Name>Adapter`
 - [ ] Adapter registered in `providers/index.js` (`createAllAdapters` + exports)
 - [ ] `Dockerfile` updated: `providers/` in COPY list, port in EXPOSE
+- [ ] `src/types/ports.ts` updated with the new provider port constant
+- [ ] `src/host-iptables-rules.ts` updated if port-allowlisting logic needs changes
 - [ ] Add provider env vars to `src/docker-manager.ts` if they need forwarding from the host
 - [ ] Add domain to `docs/allowed-domains.md` or equivalent if the upstream is new
 - [ ] Write adapter unit tests in `providers/<name>.test.js`
-- [ ] (Optional) Add adapter to OpenCode's `candidateAdapters` list in `providers/index.js` if OpenCode should route through it
 
 ---
 

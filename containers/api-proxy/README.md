@@ -28,12 +28,17 @@ api.openai.com or api.anthropic.com
 
 - **10000**: OpenAI API proxy (api.openai.com)
 - **10001**: Anthropic API proxy (api.anthropic.com)
+- **10002**: GitHub Copilot API proxy (api.githubcopilot.com)
+- **10003**: Google Gemini API proxy (generativelanguage.googleapis.com)
 
 ## Environment Variables
 
 Required (at least one):
 - `OPENAI_API_KEY` - OpenAI API key for authentication
 - `ANTHROPIC_API_KEY` - Anthropic API key for authentication
+- `COPILOT_GITHUB_TOKEN` - GitHub token for Copilot authentication
+- `COPILOT_API_KEY` - Direct Copilot API key for BYOK mode
+- `GOOGLE_API_KEY` / `GEMINI_API_KEY` - Google Gemini API key for authentication
 
 Optional:
 - `COPILOT_API_TARGET` - Target hostname for GitHub Copilot API requests (default: `api.githubcopilot.com`). Useful for GHES deployments.

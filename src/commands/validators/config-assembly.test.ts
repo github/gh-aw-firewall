@@ -10,7 +10,6 @@ import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
 import {
   validateRateLimitFlags,
-  validateEnableOpenCodeFlag,
   validateEnableTokenSteeringFlag,
   validateSkipPullWithBuildLocal,
   validateAllowHostPorts,
@@ -31,7 +30,6 @@ jest.mock('../../logger', () => ({
 // Mock the option-parsers module
 jest.mock('../../option-parsers', () => ({
   validateRateLimitFlags: jest.fn(),
-  validateEnableOpenCodeFlag: jest.fn(),
   validateEnableTokenSteeringFlag: jest.fn(),
   validateSkipPullWithBuildLocal: jest.fn(),
   validateAllowHostPorts: jest.fn(),
@@ -60,7 +58,6 @@ jest.mock('../build-config', () => ({
     allowedDomains: args.allowedDomains,
     blockedDomains: args.blockedDomains,
     enableApiProxy: false,
-    enableOpenCode: false,
     enableTokenSteering: false,
     envAll: false,
     envFile: undefined,
@@ -125,7 +122,6 @@ describe('config-assembly', () => {
     allowedDomains: ['example.com'],
     blockedDomains: [],
     enableApiProxy: false,
-    enableOpenCode: false,
     enableTokenSteering: false,
     envAll: false,
     envFile: undefined,
@@ -170,7 +166,6 @@ describe('config-assembly', () => {
 
     // Default mock return values
     (validateRateLimitFlags as jest.Mock).mockReturnValue({ valid: true });
-    (validateEnableOpenCodeFlag as jest.Mock).mockReturnValue({ valid: true });
     (validateEnableTokenSteeringFlag as jest.Mock).mockReturnValue({ valid: true });
     (validateSkipPullWithBuildLocal as jest.Mock).mockReturnValue({ valid: true });
     (validateAllowHostPorts as jest.Mock).mockReturnValue({ valid: true });
@@ -348,27 +343,6 @@ describe('config-assembly', () => {
   });
 
   describe('feature flag validation', () => {
-    it('should exit if --enable-opencode is used without --enable-api-proxy', () => {
-      (validateEnableOpenCodeFlag as jest.Mock).mockReturnValueOnce({
-        valid: false,
-        error: '--enable-opencode requires --enable-api-proxy',
-      });
-
-      expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
-      }).toThrow('process.exit(1)');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        '--enable-opencode requires --enable-api-proxy',
-      );
-    });
-
     it('should exit if --enable-token-steering is used without --enable-api-proxy', () => {
       (validateEnableTokenSteeringFlag as jest.Mock).mockReturnValueOnce({
         valid: false,

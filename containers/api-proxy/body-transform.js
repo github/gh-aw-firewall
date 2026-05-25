@@ -77,7 +77,7 @@ function sanitizeNullToolCallTypes(body) {
  * cannot be parsed or injection is not applicable.
  *
  * @param {Buffer} body       - Raw request body
- * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot' | 'opencode')
+ * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot')
  * @param {string} message    - Warning text to inject
  * @returns {Buffer|null}
  */
@@ -134,7 +134,7 @@ function injectSteeringMessage(body, provider, message) {
  * skipped.
  *
  * @param {Buffer} body
- * @param {string} provider - 'openai' | 'copilot' | 'opencode' | 'anthropic' | 'gemini'
+ * @param {string} provider - 'openai' | 'copilot' | 'anthropic' | 'gemini'
  * @returns {{ body: Buffer, injected: boolean }|null}
  */
 function injectStreamOptions(body, provider) {

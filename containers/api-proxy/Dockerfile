@@ -46,8 +46,7 @@ ENV AWF_VERSION=${AWF_VERSION}
 # 10001 - Anthropic API proxy
 # 10002 - GitHub Copilot API proxy
 # 10003 - Google Gemini API proxy
-# 10004 - OpenCode API proxy (routes to Anthropic)
-EXPOSE 10000 10001 10002 10003 10004
+EXPOSE 10000 10001 10002 10003
 
 # Use exec form so node is PID 1 and receives SIGTERM directly
 CMD ["node", "server.js"]

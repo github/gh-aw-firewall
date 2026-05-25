@@ -13,7 +13,6 @@ const { createOpenAIAdapter } = require('./openai');
 const { createAnthropicAdapter } = require('./anthropic');
 const { createCopilotAdapter } = require('./copilot');
 const { createGeminiAdapter } = require('./gemini');
-const { createOpenCodeAdapter } = require('./opencode');
 
 /**
  * @typedef {Object} ProbeConfig
@@ -92,12 +91,6 @@ const { createOpenCodeAdapter } = require('./opencode');
  * The returned array defines both the server start order and the order in
  * which providers appear in /reflect and models.json output.
  *
- * OpenCode's routing priority is controlled by the `candidateAdapters` array
- * passed here — the first enabled adapter in that list is used for each
- * request.  To change routing priority or add a new provider to OpenCode's
- * routing, update the candidateAdapters array below.  No changes to
- * opencode.js itself are needed.
- *
  * @param {Record<string, string|undefined>} env - Environment variables (typically process.env)
  * @param {{ openaiBodyTransform, anthropicBodyTransform, copilotBodyTransform, geminiBodyTransform }} deps
  *   Body-transform functions produced by server.js (to avoid circular dependencies).
@@ -109,14 +102,7 @@ function createAllAdapters(env, deps = {}) {
   const copilot   = createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   || null });
   const gemini    = createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    || null });
 
-  // OpenCode routes to the first enabled candidate adapter in the order listed.
-  // Priority: OpenAI → Anthropic → Copilot
-  // To add a new provider to OpenCode routing: add it to this array in the
-  // desired priority position.  All listed providers remain independently
-  // reachable on their own ports regardless of this setting.
-  const opencode  = createOpenCodeAdapter(env, { candidateAdapters: [openai, anthropic, copilot] });
-
-  return [openai, anthropic, copilot, gemini, opencode];
+  return [openai, anthropic, copilot, gemini];
 }
 
 module.exports = {

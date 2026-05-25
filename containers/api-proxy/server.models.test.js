@@ -316,17 +316,17 @@ describe('buildModelsJson', () => {
     expect(result).toHaveProperty('model_aliases');
   });
 
-  it('should include all five providers', () => {
+  it('should include all four providers', () => {
     const result = buildModelsJson();
     const providerKeys = Object.keys(result.providers);
-    expect(providerKeys).toHaveLength(5);
-    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']));
+    expect(providerKeys).toHaveLength(4);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini']));
   });
 
   it('should set models to null for uncached providers', () => {
     const result = buildModelsJson();
     // Without populating cachedModels, all models fields should be null
-    for (const provider of ['openai', 'anthropic', 'copilot', 'gemini', 'opencode']) {
+    for (const provider of ['openai', 'anthropic', 'copilot', 'gemini']) {
       expect(result.providers[provider].models).toBeNull();
     }
   });
@@ -363,14 +363,6 @@ describe('buildModelsJson', () => {
     expect(ts.toString()).not.toBe('Invalid Date');
   });
 
-  it('should include opencode provider with correct static fields', () => {
-    // opencode.configured mirrors whether any base provider is configured at
-    // module load time — just verify the expected shape is always present.
-    const result = buildModelsJson();
-    expect(typeof result.providers.opencode.configured).toBe('boolean');
-    expect(result.providers.opencode.models).toBeNull();
-    expect(result.providers.opencode.target).toBeNull();
-  });
 });
 
 // ── writeModelsJson ────────────────────────────────────────────────────────
@@ -411,8 +403,8 @@ describe('writeModelsJson', () => {
     expect(typeof data.timestamp).toBe('string');
     expect(typeof data.providers).toBe('object');
     const providerKeys = Object.keys(data.providers);
-    expect(providerKeys).toHaveLength(5);
-    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'opencode']));
+    expect(providerKeys).toHaveLength(4);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini']));
     expect(data).toHaveProperty('model_aliases');
   });
 

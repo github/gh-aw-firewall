@@ -26,12 +26,11 @@ export interface ApiProxyOptions {
    * - Routes all traffic through Squid to respect domain whitelisting
    * - Proxies requests to LLM providers
    *
-   * The sidecar exposes five endpoints accessible from the agent container:
+   * The sidecar exposes four endpoints accessible from the agent container:
    * - http://api-proxy:10000 - OpenAI API proxy (for Codex) {@link API_PROXY_PORTS.OPENAI}
    * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
    * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
    * - http://api-proxy:10003 - Google Gemini API proxy {@link API_PROXY_PORTS.GEMINI}
-   * - http://api-proxy:10004 - OpenCode API proxy (defaults to Copilot/OpenAI routing) {@link API_PROXY_PORTS.OPENCODE}
    *
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
@@ -125,19 +124,6 @@ export interface ApiProxyOptions {
    * @default undefined
    */
   geminiApiKey?: string;
-
-  /**
-   * Enable the OpenCode API proxy listener on port 10004
-   *
-   * When true, the api-proxy sidecar starts the OpenCode listener (port 10004) that
-   * dynamically routes requests to whichever LLM credential is available.
-   * When false (the default), the listener is not started even if other API keys
-   * are present, preventing unnecessary port exposure in workflows that do not use
-   * the OpenCode engine.
-   *
-   * @default false
-   */
-  enableOpenCode?: boolean;
 
   /**
    * Target hostname for GitHub Copilot API requests (used by API proxy sidecar)

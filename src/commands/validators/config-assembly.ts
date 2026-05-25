@@ -11,7 +11,6 @@ import {
 import {
   buildRateLimitConfig,
   validateRateLimitFlags,
-  validateEnableOpenCodeFlag,
   validateEnableTokenSteeringFlag,
   validateSkipPullWithBuildLocal,
   validateAllowHostPorts,
@@ -107,16 +106,6 @@ export function assembleAndValidateConfig(
   const rateLimitFlagValidation = validateRateLimitFlags(config.enableApiProxy ?? false, options);
   if (!rateLimitFlagValidation.valid) {
     logger.error(rateLimitFlagValidation.error!);
-    process.exit(1);
-  }
-
-  // Error if --enable-opencode is used without --enable-api-proxy
-  const enableOpenCodeValidation = validateEnableOpenCodeFlag(
-    config.enableApiProxy ?? false,
-    config.enableOpenCode ?? false,
-  );
-  if (!enableOpenCodeValidation.valid) {
-    logger.error(enableOpenCodeValidation.error!);
     process.exit(1);
   }
 

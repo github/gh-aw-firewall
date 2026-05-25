@@ -124,10 +124,6 @@ const schemaBody = {
           type: 'boolean',
           description: 'Enable the API proxy sidecar container.',
         },
-        enableOpenCode: {
-          type: 'boolean',
-          description: 'Enable the OpenCode API proxy endpoint (port 10004).',
-        },
         anthropicAutoCache: {
           type: 'boolean',
           description:
