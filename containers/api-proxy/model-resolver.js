@@ -183,6 +183,21 @@ function selectMiddlePowerFallback(requestedModel, availableModels, currentProvi
 }
 
 /**
+ * Attempts middle-power fallback and returns a resolution result if successful.
+ * Encapsulates the repeated call + log + return pattern used in two places.
+ */
+function tryMiddlePowerFallback(requestedModel, availableModels, currentProvider, reason, fallbackConfig, log) {
+  const middlePowerFallback = selectMiddlePowerFallback(
+    requestedModel, availableModels, currentProvider, reason, fallbackConfig
+  );
+  if (middlePowerFallback) {
+    log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);
+    return { resolvedModel: middlePowerFallback.resolvedModel, log, fallback: middlePowerFallback.fallback };
+  }
+  return null;
+}
+
+/**
  * Resolve a model name through the alias chain for a given provider.
  *
  * Resolution algorithm:
@@ -264,17 +279,11 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
         };
       }
     }
-    const middlePowerFallback = selectMiddlePowerFallback(
-      requestedModel,
-      availableModels,
-      currentProvider,
-      'no_alias_match_and_not_in_available_models',
-      fallbackConfig
+    const fallbackResult = tryMiddlePowerFallback(
+      requestedModel, availableModels, currentProvider,
+      'no_alias_match_and_not_in_available_models', fallbackConfig, log
     );
-    if (middlePowerFallback) {
-      log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);
-      return { resolvedModel: middlePowerFallback.resolvedModel, log, fallback: middlePowerFallback.fallback };
-    }
+    if (fallbackResult) return fallbackResult;
     // No match at all — cannot resolve.
     return null;
   }
@@ -317,17 +326,11 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
     const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
     if (aliasDefinition.fallback && hasProviderPattern) {
-      const middlePowerFallback = selectMiddlePowerFallback(
-        requestedModel,
-        availableModels,
-        currentProvider,
-        'no_alias_match_and_not_in_available_models',
-        fallbackConfig
+      const fallbackResult = tryMiddlePowerFallback(
+        requestedModel, availableModels, currentProvider,
+        'no_alias_match_and_not_in_available_models', fallbackConfig, log
       );
-      if (middlePowerFallback) {
-        log.push(`[model-resolver] middle-power fallback: "${requestedModel}" → "${middlePowerFallback.resolvedModel}"`);
-        return { resolvedModel: middlePowerFallback.resolvedModel, log, fallback: middlePowerFallback.fallback };
-      }
+      if (fallbackResult) return fallbackResult;
     }
     return null;
   }
