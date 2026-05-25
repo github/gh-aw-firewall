@@ -12,7 +12,7 @@ permissions:
 engine:
   id: claude
   model: claude-sonnet-4-5
-  max-turns: 3
+  max-turns: 10
 tools:
   github:
     mode: gh-proxy
