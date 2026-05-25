@@ -1,5 +1,7 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -84,20 +86,20 @@ describe('agent service', () => {
     });
 
     it('should apply tmpfs overlay to custom workDir paths', () => {
+      const customWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-workdir-'));
       const configWithCustomWorkDir = {
         ...mockConfig,
-        workDir: '/var/tmp/custom-awf-work',
+        workDir: customWorkDir,
       };
-      fs.mkdirSync(configWithCustomWorkDir.workDir, { recursive: true });
       try {
         const result = generateDockerCompose(configWithCustomWorkDir, mockNetworkConfig);
         const agent = result.services.agent;
         const tmpfs = agent.tmpfs as string[];
 
-        expect(tmpfs.some((t: string) => t.startsWith('/var/tmp/custom-awf-work:'))).toBe(true);
-        expect(tmpfs.some((t: string) => t.startsWith('/host/var/tmp/custom-awf-work:'))).toBe(true);
+        expect(tmpfs.some((t: string) => t.startsWith(`${customWorkDir}:`))).toBe(true);
+        expect(tmpfs.some((t: string) => t.startsWith(`/host${customWorkDir}:`))).toBe(true);
       } finally {
-        fs.rmSync(configWithCustomWorkDir.workDir, { recursive: true, force: true });
+        fs.rmSync(customWorkDir, { recursive: true, force: true });
       }
     });
 
