@@ -85,73 +85,99 @@ const limiter = rateLimiter.create();
 /** When false, token-budget warnings are never injected into request bodies. */
 const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
 
-const anthropicDeprecatedBetaValues = new Set();
-const ANTHROPIC_DEPRECATED_BETA_PATTERN = /Unexpected value\(s\)\s+`([^`]+)`\s+for the `anthropic-beta` header/;
+// ── Deprecated header value handling ──────────────────────────────────────────
+// General mechanism: when an upstream returns a 400 indicating that a specific
+// value in a specific header is not accepted, we learn that (header, value) pair,
+// strip it, retry once, and proactively remove it from all subsequent requests.
 
-function normalizeAnthropicBetaHeaderValue(value) {
+/** Map of headerName → Set of rejected values, learned from upstream 400 responses. */
+const deprecatedHeaderValues = new Map();
+const MAX_CACHED_VALUES_PER_HEADER = 200;
+
+/**
+ * Pattern to detect header-value rejection errors from Anthropic.
+ * Matches: Unexpected value(s) `<value>` for the `<header>` header
+ */
+const DEPRECATED_HEADER_PATTERN = /Unexpected value\(s\)\s+`([^`]+)`\s+for the `([^`]+)` header/;
+
+function normalizeHeaderValue(value) {
   if (!value) return '';
   return Array.isArray(value) ? value.join(',') : String(value);
 }
 
-function splitAnthropicBetaHeaderValue(value) {
-  return normalizeAnthropicBetaHeaderValue(value).split(',').map(s => s.trim()).filter(Boolean);
+function splitHeaderValue(value) {
+  return normalizeHeaderValue(value).split(',').map(s => s.trim()).filter(Boolean);
 }
 
-function updateAnthropicBetaHeader(headers, values) {
+function updateHeader(headers, headerName, values) {
   if (!values.length) {
-    delete headers['anthropic-beta'];
+    delete headers[headerName];
     return;
   }
-  headers['anthropic-beta'] = values.join(',');
+  headers[headerName] = values.join(',');
 }
 
-function stripAnthropicBetaValuesFromHeaders(headers, valuesToStrip) {
-  if (!headers['anthropic-beta'] || !valuesToStrip.size) return null;
-  const existingValues = splitAnthropicBetaHeaderValue(headers['anthropic-beta']);
+function stripValuesFromHeader(headers, headerName, valuesToStrip) {
+  if (!headers[headerName] || !valuesToStrip.size) return null;
+  const existingValues = splitHeaderValue(headers[headerName]);
   if (!existingValues.length) {
-    delete headers['anthropic-beta'];
+    delete headers[headerName];
     return { removed: [], remaining: [] };
   }
   const remaining = existingValues.filter(value => !valuesToStrip.has(value));
   const removed = existingValues.filter(value => valuesToStrip.has(value));
   if (!removed.length) return null;
-  updateAnthropicBetaHeader(headers, remaining);
+  updateHeader(headers, headerName, remaining);
   return { removed, remaining };
 }
 
-function maybeStripLearnedAnthropicBetaHeaders(headers, requestId) {
-  const stripped = stripAnthropicBetaValuesFromHeaders(headers, anthropicDeprecatedBetaValues);
-  if (!stripped) return;
-  logRequest('warn', 'anthropic_beta_stripped', {
-    request_id: requestId,
-    provider: 'anthropic',
-    mode: 'cached',
-    removed_values: stripped.removed,
-    remaining_values: stripped.remaining,
-    message: 'Removed deprecated anthropic-beta values learned from prior upstream 400 responses',
-  });
-}
-
-function getAnthropicDeprecatedBetaValueFromBody(body) {
-  const match = body.toString('utf8').match(ANTHROPIC_DEPRECATED_BETA_PATTERN);
-  return match ? match[1].trim() : null;
-}
-
-function learnAndStripAnthropicBetaHeader(headers, deprecatedValue, requestId) {
-  anthropicDeprecatedBetaValues.add(deprecatedValue);
-  if (anthropicDeprecatedBetaValues.size > 200) {
-    const oldest = anthropicDeprecatedBetaValues.values().next().value;
-    if (oldest !== undefined) anthropicDeprecatedBetaValues.delete(oldest);
+function getDeprecatedValuesForHeader(headerName) {
+  if (!deprecatedHeaderValues.has(headerName)) {
+    deprecatedHeaderValues.set(headerName, new Set());
   }
-  const stripped = stripAnthropicBetaValuesFromHeaders(headers, new Set([deprecatedValue]));
+  return deprecatedHeaderValues.get(headerName);
+}
+
+function maybeStripLearnedHeaderValues(headers, requestId, provider) {
+  for (const [headerName, rejectedValues] of deprecatedHeaderValues) {
+    if (!headers[headerName] || !rejectedValues.size) continue;
+    const stripped = stripValuesFromHeader(headers, headerName, rejectedValues);
+    if (!stripped) continue;
+    logRequest('warn', 'deprecated_header_stripped', {
+      request_id: requestId,
+      provider,
+      header: headerName,
+      mode: 'cached',
+      removed_values: stripped.removed,
+      remaining_values: stripped.remaining,
+      message: `Removed deprecated ${headerName} values learned from prior upstream 400 responses`,
+    });
+  }
+}
+
+function parseDeprecatedHeaderFromBody(body) {
+  const match = body.toString('utf8').match(DEPRECATED_HEADER_PATTERN);
+  if (!match) return null;
+  return { value: match[1].trim(), header: match[2].trim() };
+}
+
+function learnAndStripDeprecatedHeaderValue(headers, headerName, deprecatedValue, requestId, provider) {
+  const rejectedValues = getDeprecatedValuesForHeader(headerName);
+  rejectedValues.add(deprecatedValue);
+  if (rejectedValues.size > MAX_CACHED_VALUES_PER_HEADER) {
+    const oldest = rejectedValues.values().next().value;
+    if (oldest !== undefined) rejectedValues.delete(oldest);
+  }
+  const stripped = stripValuesFromHeader(headers, headerName, new Set([deprecatedValue]));
   if (!stripped) return null;
-  logRequest('warn', 'anthropic_beta_stripped', {
+  logRequest('warn', 'deprecated_header_stripped', {
     request_id: requestId,
-    provider: 'anthropic',
+    provider,
+    header: headerName,
     mode: 'retry',
     removed_values: stripped.removed,
     remaining_values: stripped.remaining,
-    message: `Removed deprecated anthropic-beta value rejected by Anthropic: ${deprecatedValue}`,
+    message: `Removed deprecated ${headerName} value rejected by upstream: ${deprecatedValue}`,
   });
   return stripped;
 }
@@ -435,8 +461,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     headers['x-request-id'] = requestId;
     Object.assign(headers, injectHeaders);
 
-    if (provider === 'anthropic') {
-      maybeStripLearnedAnthropicBetaHeaders(headers, requestId);
+    if (provider === 'anthropic' || provider === 'copilot') {
+      maybeStripLearnedHeaderValues(headers, requestId, provider);
     }
 
     const isCopilotHost =
@@ -543,11 +569,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         let responseBytes = 0;
         const billingInfo = extractBillingHeaders(proxyRes.headers);
         const initiatorSent = requestHeaders['x-initiator'] || null;
-        const shouldBufferAnthropic400 =
-          provider === 'anthropic' &&
+        const shouldBuffer400ForHeaderStrip =
+          (provider === 'anthropic' || provider === 'copilot') &&
           !hasRetried &&
-          proxyRes.statusCode === 400 &&
-          !!requestHeaders['anthropic-beta'];
+          proxyRes.statusCode === 400;
 
         proxyRes.on('error', (err) => {
           otel.endSpanError(span, err, 502);
@@ -566,7 +591,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
           });
         });
 
-        if (shouldBufferAnthropic400) {
+        if (shouldBuffer400ForHeaderStrip) {
           const bufferedChunks = [];
           proxyRes.on('data', (chunk) => {
             responseBytes += chunk.length;
@@ -574,10 +599,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
           });
           proxyRes.on('end', () => {
             const responseBody = Buffer.concat(bufferedChunks);
-            const deprecatedValue = getAnthropicDeprecatedBetaValueFromBody(responseBody);
-            if (deprecatedValue) {
+            const deprecated = parseDeprecatedHeaderFromBody(responseBody);
+            if (deprecated) {
               const retryHeaders = { ...requestHeaders };
-              const stripped = learnAndStripAnthropicBetaHeader(retryHeaders, deprecatedValue, requestId);
+              const stripped = learnAndStripDeprecatedHeaderValue(retryHeaders, deprecated.header, deprecated.value, requestId, provider);
               if (stripped) {
                 sendUpstreamRequest(retryHeaders, true);
                 return;
@@ -669,7 +694,7 @@ module.exports = {
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
   resetTimeoutSteeringForTests,
-  resetAnthropicDeprecatedBetaHeadersForTests: () => anthropicDeprecatedBetaValues.clear(),
+  resetAnthropicDeprecatedBetaHeadersForTests: () => deprecatedHeaderValues.clear(),
   getAndClearPendingSteeringMessage,
   getAndClearPendingTimeoutSteeringMessage,
   injectSteeringMessage,
