@@ -61,6 +61,7 @@ describe('writeConfigs', () => {
     // Clean up tempDir and the chroot-home sibling directory that writeConfigs creates.
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+    fs.rmSync('/tmp/gh-aw/mcp-logs', { recursive: true, force: true });
   });
 
   describe('SSL Bump preflight guard', () => {
@@ -118,6 +119,54 @@ describe('writeConfigs', () => {
       });
 
       expect(isOpenSslAvailable).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('directory setup', () => {
+    it('falls back to world-writable squid logs when squid chown fails', async () => {
+      const proxyLogsDir = path.join(tempDir, 'proxy-logs');
+      (fs.chownSync as unknown as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
+        if (String(targetPath) === proxyLogsDir) {
+          throw new Error('chown failed');
+        }
+      });
+
+      await writeConfigs({
+        workDir: tempDir,
+        sslBump: false,
+        allowedDomains: [],
+        agentCommand: 'echo test',
+        logLevel: 'info',
+        keepContainers: false,
+        buildLocal: false,
+        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+        imageTag: 'latest',
+        proxyLogsDir,
+      });
+
+      const squidLogsDirMode = fs.statSync(proxyLogsDir).mode & 0o777;
+      expect(squidLogsDirMode).toBe(0o777);
+    });
+
+    it('forces pre-existing mcp logs directory to mode 0o777', async () => {
+      const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+      fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
+      fs.chmodSync(mcpLogsDir, 0o700);
+
+      await writeConfigs({
+        workDir: tempDir,
+        sslBump: false,
+        allowedDomains: [],
+        agentCommand: 'echo test',
+        logLevel: 'info',
+        keepContainers: false,
+        buildLocal: false,
+        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+        imageTag: 'latest',
+      });
+
+      const mcpLogsDirMode = fs.statSync(mcpLogsDir).mode & 0o777;
+      expect(mcpLogsDirMode).toBe(0o777);
     });
   });
 });
