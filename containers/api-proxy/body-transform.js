@@ -167,8 +167,70 @@ function injectStreamOptions(body, provider, requestPath = '') {
   return { body: Buffer.from(JSON.stringify(parsed)), injected: true };
 }
 
+/**
+ * Strip tools with unrecognized `type` values from OpenAI Responses API requests.
+ *
+ * Codex CLI v0.133+ may register MCP tools with `type: "custom"` which the
+ * Responses API rejects (only "function", "code_interpreter", "web_search_preview",
+ * "file_search", "computer_use_preview", and "mcp" are accepted).
+ *
+ * This function removes any tool entry whose `type` is not in the known-good set,
+ * preventing 400 errors from OpenAI.
+ *
+ * @param {Buffer} body
+ * @param {string} [requestPath] - Incoming request path
+ * @returns {{ body: Buffer, strippedCount: number, strippedTypes: string[] }|null}
+ */
+function stripUnrecognizedToolTypes(body, requestPath = '') {
+  // Only apply to Responses API paths
+  const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
+  if (!/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.tools)) {
+    return null;
+  }
+
+  const KNOWN_TOOL_TYPES = new Set([
+    'function',
+    'code_interpreter',
+    'web_search_preview',
+    'web_search',
+    'file_search',
+    'computer_use_preview',
+    'mcp',
+  ]);
+
+  const strippedTypes = [];
+  const filtered = parsed.tools.filter((tool) => {
+    if (!tool || typeof tool !== 'object') return true;
+    const type = tool.type;
+    if (typeof type === 'string' && !KNOWN_TOOL_TYPES.has(type)) {
+      strippedTypes.push(type);
+      return false;
+    }
+    return true;
+  });
+
+  if (strippedTypes.length === 0) return null;
+
+  parsed.tools = filtered;
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    strippedCount: strippedTypes.length,
+    strippedTypes: [...new Set(strippedTypes)],
+  };
+}
+
 module.exports = {
   sanitizeNullToolCallTypes,
   injectSteeringMessage,
   injectStreamOptions,
+  stripUnrecognizedToolTypes,
 };

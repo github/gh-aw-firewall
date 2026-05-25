@@ -13,7 +13,7 @@ const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
-const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions, stripUnrecognizedToolTypes } = require('./body-transform');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
@@ -692,6 +692,20 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       const streamOpts = injectStreamOptions(body, provider, req.url);
       if (streamOpts) {
         body = streamOpts.body;
+      }
+    }
+
+    // Strip tools with unrecognized type values (e.g. "custom") for Responses API
+    if (req.method === 'POST') {
+      const stripped = stripUnrecognizedToolTypes(body, req.url);
+      if (stripped) {
+        body = stripped.body;
+        logRequest('warn', 'stripped_unrecognized_tool_types', {
+          request_id: requestId,
+          provider,
+          stripped_count: stripped.strippedCount,
+          stripped_types: stripped.strippedTypes,
+        });
       }
     }
 
