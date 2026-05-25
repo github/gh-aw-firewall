@@ -22,10 +22,21 @@ interface EnsureDirectoryOptions {
 
 function ensureDirectory(dirPath: string, options: EnsureDirectoryOptions = {}): boolean {
   const { mode, onCreate, onExists, onAfterEnsure } = options;
-  const created = !fs.existsSync(dirPath);
+  const created = Boolean(
+    fs.mkdirSync(dirPath, mode === undefined ? { recursive: true } : { recursive: true, mode })
+  );
+
+  const lstat = fs.lstatSync(dirPath);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Refusing to use symlink as directory: ${dirPath}`);
+  }
+
+  const stat = fs.statSync(dirPath);
+  if (!stat.isDirectory()) {
+    throw new Error(`Expected directory but found non-directory path: ${dirPath}`);
+  }
 
   if (created) {
-    fs.mkdirSync(dirPath, mode === undefined ? { recursive: true } : { recursive: true, mode });
     onCreate?.();
   } else {
     onExists?.();

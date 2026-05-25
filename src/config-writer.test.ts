@@ -52,6 +52,7 @@ describe('writeConfigs', () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-writer-test-'));
     jest.clearAllMocks();
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
     // getRealUserHome is used to locate host home subdirectories; point it at
     // tempDir so mkdirSync calls stay within the temp tree.
     (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
@@ -61,7 +62,6 @@ describe('writeConfigs', () => {
     // Clean up tempDir and the chroot-home sibling directory that writeConfigs creates.
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
-    fs.rmSync('/tmp/gh-aw/mcp-logs', { recursive: true, force: true });
   });
 
   describe('SSL Bump preflight guard', () => {
@@ -123,6 +123,27 @@ describe('writeConfigs', () => {
   });
 
   describe('directory setup', () => {
+    it('throws when workDir is a symlink', async () => {
+      const realWorkDir = path.join(tempDir, 'real-workdir');
+      const symlinkWorkDir = path.join(tempDir, 'symlink-workdir');
+      fs.mkdirSync(realWorkDir, { recursive: true });
+      fs.symlinkSync(realWorkDir, symlinkWorkDir);
+
+      await expect(
+        writeConfigs({
+          workDir: symlinkWorkDir,
+          sslBump: false,
+          allowedDomains: [],
+          agentCommand: 'echo test',
+          logLevel: 'info',
+          keepContainers: false,
+          buildLocal: false,
+          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+          imageTag: 'latest',
+        })
+      ).rejects.toThrow(`Refusing to use symlink as directory: ${symlinkWorkDir}`);
+    });
+
     it('falls back to world-writable squid logs when squid chown fails', async () => {
       const proxyLogsDir = path.join(tempDir, 'proxy-logs');
       (fs.chownSync as unknown as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
