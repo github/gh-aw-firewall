@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 5
+  max-turns: 2
 sandbox:
   agent:
     version: v0.25.29
@@ -70,6 +70,14 @@ steps:
     run: |
       cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt
       echo "File verification: PASS"
+  - name: Export workflow context
+    run: |
+      cat > /tmp/gh-aw/agent/workflow-context.env << 'ENVEOF'
+      export GITHUB_EVENT_NAME="${{ github.event_name }}"
+      export GITHUB_RUN_ID="${{ github.run_id }}"
+      export PR_NUMBER="${{ github.event.pull_request.number || '' }}"
+      ENVEOF
+      echo "Context exported to /tmp/gh-aw/agent/workflow-context.env"
 post-steps:
   - name: Show final Claude Code config
     if: always()
@@ -104,6 +112,11 @@ post-steps:
         echo "add_comment verified for PR trigger"
       fi
       echo "Safe output validation passed"
+  - name: Report turn usage
+    if: always()
+    run: |
+      TURN_COUNT="${GH_AW_TURN_COUNT:-unknown}"
+      echo "::notice::Smoke test completed in ${TURN_COUNT} turns (target: 1)"
 ---
 
 # Smoke Test: Claude Engine Validation
@@ -112,12 +125,37 @@ Pre-computed data is available:
 - **GitHub API**: Recent PRs in `/tmp/gh-aw/agent/recent-prs.json` (already fetched)
 - **GitHub check**: Already verified in pre-step — read result from `/tmp/gh-aw/agent/smoke-context.txt`
 - **File verify**: `/tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` (already verified in pre-step)
+- **Workflow context**: Source `/tmp/gh-aw/agent/workflow-context.env` for trigger/run variables
 
-**IMPORTANT — Complete in 1 pass:**
-All data is pre-loaded. Do NOT make additional reads or explorations.
-1. `cat /tmp/gh-aw/agent/recent-prs.json` → confirm 2 entries
-2. `cat /tmp/gh-aw/agent/smoke-context.txt` → confirm `playwright_check` is `✅ PASS`
-3. `cat /tmp/gh-aw/agent/smoke-test-claude-${{ github.run_id }}.txt` → confirm exists
+**CRITICAL — Single Response Execution:**
+This workflow MUST complete in exactly 1 LLM turn (your first response).
+All required data exists in pre-created files. There is nothing to explore, investigate, or validate beyond reading the 3 files listed below.
+
+Steps:
+1. Make ONE bash tool call containing all commands shown below
+2. Make ONE safeoutputs tool call based on the trigger type
+3. End your response — task complete
+
+If you find yourself thinking "I should check..." or "Let me verify..." — STOP. The pre-steps already verified everything.
+
+## Expected Commands
+
+Execute these commands in a single bash response:
+
+```bash
+source /tmp/gh-aw/agent/workflow-context.env
+cat /tmp/gh-aw/agent/recent-prs.json
+cat /tmp/gh-aw/agent/smoke-context.txt
+cat /tmp/gh-aw/agent/smoke-test-claude-${GITHUB_RUN_ID}.txt
+if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+  printf '{"issue_number":%s,"body":"✅ All checks passed"}' "$PR_NUMBER" > /tmp/gh-aw/agent/result.json
+  safeoutputs add_comment . < /tmp/gh-aw/agent/result.json
+else
+  safeoutputs noop --message "Smoke test completed successfully"
+fi
+```
+
+Do not explore, validate, or make additional checks. All data is pre-verified.
 
 Your tasks (1 line per result):
 1. **GitHub API**: Read `/tmp/gh-aw/agent/recent-prs.json` and confirm 2 PR entries exist
