@@ -95,35 +95,62 @@ describe('agent service', () => {
       expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     });
 
-    it('should stage binary and etc files under shared /tmp docker-host-path-prefix', () => {
+    it('should auto-stage the ARC/DinD manual bootstrap files under a shared /tmp docker-host-path-prefix', () => {
       const originalPath = process.env.PATH;
+      const sharedTmpPrefix = fs.mkdtempSync(path.join('/tmp', 'gh-aw-'));
       const fakeBinDir = path.join(mockConfig.workDir, 'fake-bin');
       fs.mkdirSync(fakeBinDir, { recursive: true });
       const fakeCopilotPath = path.join(fakeBinDir, 'copilot');
       fs.writeFileSync(fakeCopilotPath, '#!/bin/sh\necho copilot\n', { mode: 0o755 });
       process.env.PATH = `${fakeBinDir}${path.delimiter}${originalPath || ''}`;
+      mockExecaSync.mockImplementation((command: string, args?: string[]) => {
+        if (command === 'docker' && args?.[0] === 'network' && args[1] === 'inspect') {
+          return { stdout: '172.17.0.1', stderr: '', exitCode: 0 };
+        }
+        throw new Error('Not found');
+      });
 
       try {
         const configWithTmpPrefix = {
           ...mockConfig,
-          dockerHostPathPrefix: '/tmp/gh-aw',
+          dockerHostPathPrefix: sharedTmpPrefix,
           agentCommand: 'copilot --version',
+          enableHostAccess: true,
         };
         const result = generateDockerCompose(configWithTmpPrefix, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
+        const stageRoot = path.join(sharedTmpPrefix, 'awf-docker-host-stage');
+        const stagedPasswdPath = path.join(stageRoot, 'etc/passwd');
+        const stagedGroupPath = path.join(stageRoot, 'etc/group');
+        const stagedBinaryPath = path.join(stageRoot, 'bin/copilot');
+        const hostsVolume = volumes.find((v: string) => v.endsWith(':/host/etc/hosts:ro'));
 
-        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/etc/passwd:/host/etc/passwd:ro');
-        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/etc/group:/host/etc/group:ro');
-        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/bin/copilot:/tmp/awf-runner-bin/copilot:ro');
-        expect(
-          volumes.some((v: string) => v.startsWith('/tmp/gh-aw/awf-docker-host-stage/chroot-') && v.endsWith(':/host/etc/hosts:ro'))
-        ).toBe(true);
+        expect(volumes).toContain(`${stagedPasswdPath}:/host/etc/passwd:ro`);
+        expect(volumes).toContain(`${stagedGroupPath}:/host/etc/group:ro`);
+        expect(volumes).toContain(`${stagedBinaryPath}:/tmp/awf-runner-bin/copilot:ro`);
+        expect(hostsVolume).toBeDefined();
+        expect(hostsVolume?.startsWith(`${stageRoot}/chroot-`)).toBe(true);
+
+        expect(fs.readFileSync(stagedPasswdPath, 'utf8')).toBe(fs.readFileSync('/etc/passwd', 'utf8'));
+        expect(fs.readFileSync(stagedGroupPath, 'utf8')).toBe(fs.readFileSync('/etc/group', 'utf8'));
+        expect(fs.readFileSync(stagedBinaryPath, 'utf8')).toContain('echo copilot');
+        expect(fs.statSync(stagedBinaryPath).mode & 0o111).not.toBe(0);
+
+        const stagedHostsPath = hostsVolume?.split(':', 1)[0];
+        expect(stagedHostsPath).toBeDefined();
+        expect(fs.existsSync(stagedHostsPath || '')).toBe(true);
+        expect(fs.readFileSync(stagedHostsPath || '', 'utf8')).toContain('172.17.0.1\thost.docker.internal');
+
+        expect(volumes.some((v: string) => v.includes(`${sharedTmpPrefix}/arc-etc/`))).toBe(false);
+        expect(volumes.some((v: string) => v.includes(`${sharedTmpPrefix}/arc-tools/`))).toBe(false);
       } finally {
+        mockExecaSync.mockReset();
         if (originalPath !== undefined) {
           process.env.PATH = originalPath;
         } else {
           delete process.env.PATH;
         }
+        fs.rmSync(sharedTmpPrefix, { recursive: true, force: true });
       }
     });
 
