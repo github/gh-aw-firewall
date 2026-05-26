@@ -68,6 +68,23 @@ class BaseOidcTokenProvider {
     return !!(this._getCachedValue() && this._expiresAt > now);
   }
 
+  /**
+   * Get the current cached token synchronously.
+   * Returns null if no valid token is available.
+   * @returns {unknown|null}
+   */
+  getToken() {
+    const now = Math.floor(Date.now() / 1000);
+    const cached = this._getCachedValue();
+    if (cached && this._expiresAt > now) {
+      return cached;
+    }
+    if (!this._refreshInFlight) {
+      this._scheduleRefresh(0);
+    }
+    return null;
+  }
+
   shutdown() {
     this._isShutdown = true;
     if (this._refreshTimer) {

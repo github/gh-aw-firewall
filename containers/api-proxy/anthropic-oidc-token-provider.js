@@ -32,18 +32,6 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
     this._cachedToken = null;
   }
 
-  /** @returns {string|null} */
-  getToken() {
-    const now = Math.floor(Date.now() / 1000);
-    if (this._cachedToken && this._expiresAt > now) {
-      return this._cachedToken;
-    }
-    if (!this._refreshInFlight) {
-      this._scheduleRefresh(0);
-    }
-    return null;
-  }
-
   /**
    * Exchange GitHub OIDC JWT for an Anthropic workload identity token.
    * @param {string} oidcJwt

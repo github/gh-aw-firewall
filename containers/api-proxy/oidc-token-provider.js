@@ -66,23 +66,6 @@ class OidcTokenProvider extends BaseOidcTokenProvider {
   }
 
   /**
-   * Get the current cached token synchronously.
-   * Returns null if no valid token is available.
-   * @returns {string|null}
-   */
-  getToken() {
-    const now = Math.floor(Date.now() / 1000);
-    if (this._cachedToken && this._expiresAt > now) {
-      return this._cachedToken;
-    }
-    // Token expired and refresh hasn't replaced it — trigger emergency refresh
-    if (!this._refreshInFlight) {
-      this._scheduleRefresh(0);
-    }
-    return null;
-  }
-
-  /**
    * Mint a GitHub OIDC token with the specified audience.
    * @returns {Promise<string>} The GitHub-issued JWT
    */
