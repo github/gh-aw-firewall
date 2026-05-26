@@ -174,6 +174,10 @@ const schemaBody = {
               $ref: '#/$defs/providerTarget',
               description: 'Google Gemini API target override.',
             },
+            antigravity: {
+              $ref: '#/$defs/providerTarget',
+              description: 'Antigravity API target override (alias of Gemini runtime settings).',
+            },
           },
         },
         models: {

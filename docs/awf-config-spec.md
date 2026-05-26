@@ -122,6 +122,7 @@ the corresponding CLI flag.
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
+- `apiProxy.targets.antigravity.basePath` → `--gemini-api-base-path`
 - `security.sslBump` → `--ssl-bump`
 - `security.enableDlp` → `--enable-dlp`
 - `security.enableHostAccess` → `--enable-host-access`

@@ -164,6 +164,13 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toEqual([]);
   });
 
+  it('accepts antigravity target with host and basePath', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { antigravity: { host: 'generativelanguage.googleapis.com', basePath: '/v1' } } },
+    });
+    expect(errors).toEqual([]);
+  });
+
   it('rejects non-object security', () => {
     const errors = validateAwfFileConfig({ security: 'invalid' });
     expect(errors).toContain('config.security must be an object');

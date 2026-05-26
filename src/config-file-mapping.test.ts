@@ -50,6 +50,33 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.geminiApiBasePath).toBe('/v1beta');
   });
 
+  it('maps antigravity target fields to existing gemini runtime options', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        targets: {
+          antigravity: { host: 'gateway.google.com', basePath: '/v1alpha' },
+        },
+      },
+    });
+
+    expect(result.geminiApiTarget).toBe('gateway.google.com');
+    expect(result.geminiApiBasePath).toBe('/v1alpha');
+  });
+
+  it('prefers antigravity target fields when both antigravity and gemini are set', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        targets: {
+          gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
+          antigravity: { host: 'gateway.google.com', basePath: '/v1alpha' },
+        },
+      },
+    });
+
+    expect(result.geminiApiTarget).toBe('gateway.google.com');
+    expect(result.geminiApiBasePath).toBe('/v1alpha');
+  });
+
   it('maps anthropicAutoCache and anthropicCacheTailTtl fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

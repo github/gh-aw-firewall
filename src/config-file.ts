@@ -29,6 +29,7 @@ interface AwfFileConfig {
       anthropic?: { host?: string; basePath?: string };
       copilot?: { host?: string; basePath?: string };
       gemini?: { host?: string; basePath?: string };
+      antigravity?: { host?: string; basePath?: string };
     };
     models?: Record<string, string[]>;
     logging?: {
@@ -162,6 +163,8 @@ function toStringIfDefined(value: number | undefined): string | undefined {
 }
 
 export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<string, unknown> {
+  const geminiTargetConfig = config.apiProxy?.targets?.antigravity ?? config.apiProxy?.targets?.gemini;
+
   return {
     allowDomains: joinComma(config.network?.allowDomains),
     blockDomains: joinComma(config.network?.blockDomains),
@@ -181,8 +184,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,
     anthropicApiBasePath: config.apiProxy?.targets?.anthropic?.basePath,
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
-    geminiApiTarget: config.apiProxy?.targets?.gemini?.host,
-    geminiApiBasePath: config.apiProxy?.targets?.gemini?.basePath,
+    geminiApiTarget: geminiTargetConfig?.host,
+    geminiApiBasePath: geminiTargetConfig?.basePath,
     modelAliases: config.apiProxy?.models,
     debugTokens: config.apiProxy?.logging?.debugTokens,
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
