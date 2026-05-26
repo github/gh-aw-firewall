@@ -35,6 +35,11 @@ const cliProxyDefaults = {
   },
 };
 
+const approvedIntegrityToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+const approvedIntegrityLiveTest = process.env.AWF_RUN_APPROVED_DIFC_PROXY_TESTS === '1' && approvedIntegrityToken
+  ? test
+  : test.skip;
+
 describe('CLI Proxy Sidecar', () => {
   let runner: AwfRunner;
 
@@ -116,6 +121,25 @@ describe('CLI Proxy Sidecar', () => {
       // Should NOT get "command not found" — the wrapper must be installed
       expect(output + stderr).not.toContain('command not found');
     }, 180000);
+
+    approvedIntegrityLiveTest(
+      'should preserve array JSON responses for gh api issue comment endpoints under approved integrity',
+      async () => {
+        const result = await runner.runWithSudo(
+          'bash -c \'gh api "repos/github/gh-aw-firewall/issues/1/comments?per_page=1" | jq -r type\'',
+          {
+            ...cliProxyDefaults,
+            env: {
+              GITHUB_TOKEN: approvedIntegrityToken!,
+            },
+          },
+        );
+
+        expect(result).toSucceed();
+        expect(extractCommandOutput(result.stdout).trim()).toBe('array');
+      },
+      180000
+    );
   });
 
   describe('Meta-command Denial', () => {
