@@ -118,11 +118,13 @@ the corresponding CLI flag.
 - `apiProxy.auth.gcpWorkloadIdentityProvider` → *(config-only; maps to `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`)*
 - `apiProxy.auth.gcpServiceAccount` → *(config-only; maps to `AWF_AUTH_GCP_SERVICE_ACCOUNT`)*
 - `apiProxy.auth.gcpScope` → *(config-only; maps to `AWF_AUTH_GCP_SCOPE`)*
-- `apiProxy.targets.<provider>.host` → `--<provider>-api-target`
+- `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below)*
+- `apiProxy.targets.antigravity.host` → `--gemini-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
 - `apiProxy.targets.antigravity.basePath` → `--gemini-api-base-path`
+- When both `apiProxy.targets.antigravity` and `apiProxy.targets.gemini` are set, `antigravity` takes precedence per field.
 - `security.sslBump` → `--ssl-bump`
 - `security.enableDlp` → `--enable-dlp`
 - `security.enableHostAccess` → `--enable-host-access`

@@ -163,7 +163,8 @@ function toStringIfDefined(value: number | undefined): string | undefined {
 }
 
 export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<string, unknown> {
-  const geminiTargetConfig = config.apiProxy?.targets?.antigravity ?? config.apiProxy?.targets?.gemini;
+  const geminiTargetConfig = config.apiProxy?.targets?.gemini;
+  const antigravityTargetConfig = config.apiProxy?.targets?.antigravity;
 
   return {
     allowDomains: joinComma(config.network?.allowDomains),
@@ -184,8 +185,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,
     anthropicApiBasePath: config.apiProxy?.targets?.anthropic?.basePath,
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
-    geminiApiTarget: geminiTargetConfig?.host,
-    geminiApiBasePath: geminiTargetConfig?.basePath,
+    geminiApiTarget: antigravityTargetConfig?.host ?? geminiTargetConfig?.host,
+    geminiApiBasePath: antigravityTargetConfig?.basePath ?? geminiTargetConfig?.basePath,
     modelAliases: config.apiProxy?.models,
     debugTokens: config.apiProxy?.logging?.debugTokens,
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,

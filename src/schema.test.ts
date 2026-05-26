@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import Ajv2020 from 'ajv/dist/2020';
 
 const schemaPath = path.join(__dirname, '..', 'docs', 'awf-config.schema.json');
@@ -355,5 +356,11 @@ describe('awf-config.schema.json', () => {
     const srcRest = { ...srcSchema };
     delete srcRest.$id;
     expect(srcRest).toEqual(docsRest);
+  });
+
+  it('scripts/generate-schema.mjs --print matches docs/awf-config.schema.json', () => {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'generate-schema.mjs');
+    const printedSchema = execFileSync(process.execPath, [scriptPath, '--print'], { encoding: 'utf8' });
+    expect(JSON.parse(printedSchema)).toEqual(schema);
   });
 });

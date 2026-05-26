@@ -77,6 +77,20 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.geminiApiBasePath).toBe('/v1alpha');
   });
 
+  it('falls back to gemini fields when antigravity only overrides one field', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        targets: {
+          gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
+          antigravity: { host: 'gateway.google.com' },
+        },
+      },
+    });
+
+    expect(result.geminiApiTarget).toBe('gateway.google.com');
+    expect(result.geminiApiBasePath).toBe('/v1beta');
+  });
+
   it('maps anthropicAutoCache and anthropicCacheTailTtl fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
