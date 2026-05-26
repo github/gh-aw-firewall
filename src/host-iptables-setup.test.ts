@@ -376,6 +376,26 @@ describe('host-iptables (setup)', () => {
         '-j', 'ACCEPT',
       ]);
     });
+
+    it('should resolve Docker bridge gateway once when cliProxyConfig and hostAccess are both enabled', async () => {
+      setupDefaultIptablesMocks();
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: 18443 };
+      const hostAccess = { enabled: true };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess, cliProxyConfig);
+
+      const bridgeGatewayCalls = mockedExeca.mock.calls.filter(([cmd, args]) =>
+        cmd === 'docker' && Array.isArray(args) && args.includes('bridge')
+      );
+      expect(bridgeGatewayCalls).toHaveLength(1);
+    });
   });
 
   describe('setupHostIptables with IPv6 DNS servers', () => {

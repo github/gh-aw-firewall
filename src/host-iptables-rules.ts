@@ -234,16 +234,18 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     ]);
   }
 
+  const needsGatewayIps = !!cliProxyConfig || !!hostAccess?.enabled;
+  const dockerBridgeGateway = needsGatewayIps ? await getDockerBridgeGateway() : null;
+  const gatewayIps = [AWF_NETWORK_GATEWAY];
+  if (dockerBridgeGateway) {
+    gatewayIps.push(dockerBridgeGateway);
+  }
+
   // 5b2. Allow CLI proxy container to reach host DIFC proxy (when enabled)
   // The cli-proxy container needs to TCP-tunnel to the external DIFC proxy on the host.
   // Only the cli-proxy IP is allowed to reach the host gateway on the DIFC port.
   if (cliProxyConfig) {
     const { ip: cliProxyIp, difcProxyPort } = cliProxyConfig;
-    const gatewayIp = await getDockerBridgeGateway();
-    const gatewayIps = [AWF_NETWORK_GATEWAY];
-    if (gatewayIp) {
-      gatewayIps.push(gatewayIp);
-    }
     for (const gwIp of gatewayIps) {
       logger.debug(`Allowing CLI proxy (${cliProxyIp}) → host gateway (${gwIp}):${difcProxyPort}`);
       await execa('iptables', [
@@ -258,12 +260,6 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
   // 5c. Allow traffic to host gateway when host access is enabled
   // This is needed for Playwright localhost testing, MCP servers, etc.
   if (hostAccess?.enabled) {
-    const gatewayIp = await getDockerBridgeGateway();
-    const gatewayIps = [AWF_NETWORK_GATEWAY];
-    if (gatewayIp) {
-      gatewayIps.push(gatewayIp);
-    }
-
     // Default: allow HTTP (80) and HTTPS (443)
     const defaultPorts = ['80', '443'];
 
