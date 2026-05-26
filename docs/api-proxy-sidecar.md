@@ -641,7 +641,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AWF_AUTH_TYPE` | ✅ | Set to `github-oidc` to enable OIDC authentication |
-| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, or `gcp` |
+| `AWF_AUTH_PROVIDER` | No | Cloud provider: `azure` (default), `aws`, `gcp`, or `anthropic` |
 | `AWF_AUTH_OIDC_AUDIENCE` | No | Override the OIDC audience (provider-specific defaults apply) |
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
@@ -771,6 +771,36 @@ jobs:
 :::tip
 When `gcpServiceAccount` is omitted, the federated token is used directly without service account impersonation. This requires that the federated principal has direct access grants on the target resource.
 :::
+
+### Anthropic API
+
+Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation access token, then injects it as an `Authorization` header on upstream Anthropic API requests.
+
+#### Anthropic-specific environment variables
+
+Anthropic does not require any provider-specific variables beyond the common OIDC settings.
+
+Default OIDC audience: `https://api.anthropic.com`
+
+#### GitHub Actions example (Anthropic)
+
+```yaml
+jobs:
+  agent:
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Run agent with Anthropic WIF
+        env:
+          AWF_AUTH_TYPE: github-oidc
+          AWF_AUTH_PROVIDER: anthropic
+        run: |
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER \
+            awf --enable-api-proxy \
+                --allow-domains api.anthropic.com \
+                -- your-agent-command
+```
 
 ## Effective token budget
 

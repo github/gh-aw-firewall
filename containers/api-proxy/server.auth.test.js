@@ -15,6 +15,7 @@ const {
   },
   createCopilotAdapter,
 } = require('./providers/copilot');
+const { createAnthropicAdapter } = require('./providers/anthropic');
 const { sanitizeNullToolCallTypes } = require('./body-transform');
 
 describe('shouldStripHeader', () => {
@@ -346,5 +347,43 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   it('defaults to empty base path when COPILOT_API_BASE_PATH is not set', () => {
     const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
     expect(adapter.getBasePath()).toBe('');
+  });
+});
+
+describe('createAnthropicAdapter — OIDC getAuthHeaders', () => {
+  const fakeReq = { url: '/v1/messages', method: 'POST', headers: {} };
+
+  it('injects Authorization header instead of x-api-key in Anthropic OIDC mode', () => {
+    const adapter = createAnthropicAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+    });
+
+    const provider = adapter.getOidcProvider();
+    provider._cachedToken = 'sk-ant-oat01-token';
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers).toEqual({
+      Authorization: ['Bearer', 'sk-ant-oat01-token'].join(' '),
+      'anthropic-version': '2023-06-01',
+    });
+    expect(headers['x-api-key']).toBeUndefined();
+
+    provider.shutdown();
+  });
+
+  it('returns empty auth headers when Anthropic OIDC token is not yet available', () => {
+    const adapter = createAnthropicAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+    });
+
+    expect(adapter.getAuthHeaders(fakeReq)).toEqual({});
+    adapter.getOidcProvider().shutdown();
   });
 });

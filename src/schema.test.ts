@@ -297,6 +297,19 @@ describe('awf-config.schema.json', () => {
     ).toBe(false);
   });
 
+  it('accepts a valid apiProxy.auth anthropic config', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'anthropic',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
   it('rejects apiProxy.auth with unknown type', () => {
     expect(
       validate({

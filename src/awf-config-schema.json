@@ -142,7 +142,7 @@
         },
         "auth": {
           "type": "object",
-          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD, AWS STS, or GCP Workload Identity). See docs/awf-config-spec.md §9.5.",
+          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD, AWS STS, GCP Workload Identity, or Anthropic Workload Identity Federation). See docs/awf-config-spec.md §9.5.",
           "additionalProperties": false,
           "properties": {
             "type": {
@@ -157,14 +157,15 @@
               "enum": [
                 "azure",
                 "aws",
-                "gcp"
+                "gcp",
+                "anthropic"
               ],
               "description": "Cloud provider for OIDC token exchange. Determines which token exchange protocol is used. Maps to AWF_AUTH_PROVIDER.",
               "default": "azure"
             },
             "oidcAudience": {
               "type": "string",
-              "description": "Audience claim for the GitHub OIDC token. Provider-specific defaults apply when omitted: Azure='api://AzureADTokenExchange', AWS='sts.amazonaws.com', GCP=workloadIdentityProvider value. Maps to AWF_AUTH_OIDC_AUDIENCE."
+              "description": "Audience claim for the GitHub OIDC token. Provider-specific defaults apply when omitted: Azure='api://AzureADTokenExchange', AWS='sts.amazonaws.com', GCP=workloadIdentityProvider value, Anthropic='https://api.anthropic.com'. Maps to AWF_AUTH_OIDC_AUDIENCE."
             },
             "azureTenantId": {
               "type": "string",
@@ -252,10 +253,23 @@
               ]
             },
             "else": {
-              "required": [
-                "azureTenantId",
-                "azureClientId"
-              ]
+              "if": {
+                "properties": {
+                  "provider": {
+                    "const": "anthropic"
+                  }
+                },
+                "required": [
+                  "provider"
+                ]
+              },
+              "then": {},
+              "else": {
+                "required": [
+                  "azureTenantId",
+                  "azureClientId"
+                ]
+              }
             }
           }
         },

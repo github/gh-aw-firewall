@@ -4,8 +4,9 @@
  * Anthropic provider adapter.
  *
  * Port: 10001
- * Auth: x-api-key header, plus optional anthropic-version and anthropic-beta headers
- * Credentials: ANTHROPIC_API_KEY
+ * Auth: x-api-key or Authorization header, plus optional anthropic-version
+ *       and anthropic-beta headers
+ * Credentials: ANTHROPIC_API_KEY or AWF_AUTH_TYPE=github-oidc + AWF_AUTH_PROVIDER=anthropic
  * Target: ANTHROPIC_API_TARGET  (default: api.anthropic.com)
  * Base path: ANTHROPIC_API_BASE_PATH
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
@@ -17,6 +18,7 @@ const {
   createBaseAdapterConfig,
   createAdapterMethods,
 } = require('../proxy-utils');
+const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -45,6 +47,22 @@ function createAnthropicAdapter(env, deps = {}) {
     basePathEnvVar: 'ANTHROPIC_API_BASE_PATH',
     defaultTarget: 'api.anthropic.com',
   });
+  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
+  const oidcConfiguredForAnthropic = authType === 'github-oidc' && authProvider === 'anthropic';
+  let oidcProvider = null;
+  if (oidcConfiguredForAnthropic) {
+    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    if (requestUrl && requestToken) {
+      oidcProvider = new AnthropicOidcTokenProvider({
+        requestUrl,
+        requestToken,
+        oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'https://api.anthropic.com',
+      });
+    }
+  }
+  const oidcConfigured = !!oidcProvider;
 
   // ── Anthropic-specific optimisations ──────────────────────────────────────
   const autoCache = (env.AWF_ANTHROPIC_AUTO_CACHE === '1' || env.AWF_ANTHROPIC_AUTO_CACHE === 'true');
@@ -88,8 +106,16 @@ function createAnthropicAdapter(env, deps = {}) {
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     }),
+    validationSkip: () => (oidcConfigured
+      ? { skip: true, reason: 'OIDC auth; validation via token acquisition' }
+      : null),
+    skipModelsFetch: () => oidcConfigured,
     modelsPath: '/v1/models',
     modelsFetchHeaders: () => ({ 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }),
+    reflectionConfigured: !!apiKey || oidcConfigured,
+    reflectionExtra: () => ({
+      auth_type: oidcConfigured ? 'github-oidc/anthropic' : 'static-key',
+    }),
   });
 
   return {
@@ -107,7 +133,7 @@ function createAnthropicAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
      */
-    isEnabled() { return !!apiKey; },
+    isEnabled() { return !!apiKey || !!oidcProvider?.isReady(); },
 
     /**
      * Build Anthropic auth headers for this request.
@@ -118,7 +144,16 @@ function createAnthropicAdapter(env, deps = {}) {
      * @returns {Record<string, string>}
      */
     getAuthHeaders(req) {
-      const headers = { 'x-api-key': apiKey };
+      const headers = {};
+      if (oidcProvider) {
+        const token = oidcProvider.getToken();
+        if (!token) {
+          return {};
+        }
+        headers['Authorization'] = 'Bearer ' + token;
+      } else {
+        headers['x-api-key'] = apiKey;
+      }
 
       if (!req.headers['anthropic-version']) {
         headers['anthropic-version'] = '2023-06-01';
@@ -141,10 +176,17 @@ function createAnthropicAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return composedBodyTransform; },
+    getOidcProvider() { return oidcProvider; },
     ...adapterMethods,
 
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */
     getUnconfiguredResponse() {
+      if (oidcConfigured) {
+        return {
+          statusCode: 503,
+          body: { error: 'Anthropic OIDC token unavailable; retry shortly' },
+        };
+      }
       return makeProviderNotConfiguredResponse(
         'anthropic',
         10001,
@@ -154,6 +196,12 @@ function createAnthropicAdapter(env, deps = {}) {
 
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
+      if (oidcConfigured) {
+        return {
+          statusCode: 503,
+          body: { status: 'unavailable', service: 'awf-api-proxy-anthropic', error: 'Anthropic OIDC token unavailable; retry shortly' },
+        };
+      }
       return {
         statusCode: 503,
         body: { status: 'not_configured', service: 'awf-api-proxy-anthropic', error: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar' },

@@ -186,7 +186,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // Token and model-alias diagnostic logging
       ...(config.debugTokens && { AWF_DEBUG_TOKENS: '1' }),
       ...(config.tokenLogDir && { AWF_TOKEN_LOG_DIR: config.tokenLogDir }),
-      // OIDC authentication (Azure, AWS, GCP)
+      // OIDC authentication (Azure, AWS, GCP, Anthropic)
       ...pickEnvVars(
         'AWF_AUTH_TYPE',
         'AWF_AUTH_PROVIDER',

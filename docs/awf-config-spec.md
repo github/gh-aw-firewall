@@ -481,6 +481,17 @@ When `gcpServiceAccount` is omitted, only step 1 is performed and the
 federated token is used directly. This requires that the federated
 principal has direct access grants on the target resource.
 
+#### 9.5.4 Anthropic Provider (`provider: anthropic`)
+
+Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation
+token via `https://api.anthropic.com/v1/oauth/token`. The sidecar injects
+the resulting token as an `Authorization` header on upstream requests.
+
+Anthropic requires no provider-specific environment variables beyond the
+common OIDC settings.
+
+Default OIDC audience: `https://api.anthropic.com`
+
 ### 9.6 DIFC Proxy Credential Isolation
 
 When `security.difcProxy.host` is set, `GITHUB_TOKEN` and `GH_TOKEN` MUST
