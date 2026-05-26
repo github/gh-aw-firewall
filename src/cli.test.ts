@@ -21,7 +21,7 @@ import * as cliModule from './cli';
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
-  testHelpers as copilotApiResolverTestHelpers,
+  copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
 import { redactSecrets } from './redact-secrets';
 

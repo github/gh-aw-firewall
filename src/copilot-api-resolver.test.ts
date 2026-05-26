@@ -1,13 +1,13 @@
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
-  testHelpers,
+  copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
 
 const {
   deriveCopilotApiTargetFromProviderBaseUrl,
   deriveCopilotApiBasePathFromProviderBaseUrl,
-} = testHelpers;
+} = copilotApiResolverTestHelpers;
 
 describe('resolveCopilotApiKey', () => {
   it('should return COPILOT_API_KEY when set', () => {

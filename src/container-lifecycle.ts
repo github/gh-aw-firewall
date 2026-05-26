@@ -466,4 +466,4 @@ function resetAgentExternallyKilled(): void {
 
 /** @internal Exposed only for unit tests — not part of the public API. */
 // ts-prune-ignore-next
-export const testHelpers = { isAgentExternallyKilled, resetAgentExternallyKilled };
+export const containerLifecycleTestHelpers = { isAgentExternallyKilled, resetAgentExternallyKilled };

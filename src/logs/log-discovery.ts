@@ -165,7 +165,7 @@ async function isContainerRunning(containerName: string): Promise<boolean> {
 
 /** @internal Exposed only for unit tests — not part of the public API. */
 // ts-prune-ignore-next
-export const testHelpers = { isContainerRunning };
+export const logDiscoveryTestHelpers = { isContainerRunning };
 
 /**
  * Validates and creates a LogSource from a user-specified path or "running" keyword

@@ -64,4 +64,4 @@ async function cleanupFirewallNetwork(): Promise<void> {
 }
 
 /** @internal Exposed for testing only */
-export const testHelpers = { cleanupFirewallNetwork };
+export const iptablesNetworkTestHelpers = { cleanupFirewallNetwork };

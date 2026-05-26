@@ -49,7 +49,7 @@ function subnetsOverlap(subnet1: string, subnet2: string): boolean {
 
 /** @internal Exposed only for unit tests — not part of the public API. */
 // ts-prune-ignore-next
-export const testHelpers = { subnetsOverlap };
+export const hostEnvTestHelpers = { subnetsOverlap };
 
 /**
  * SSL configuration for Docker Compose (when SSL Bump is enabled)

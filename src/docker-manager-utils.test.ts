@@ -1,5 +1,5 @@
 import {
-  testHelpers,
+  hostEnvTestHelpers,
   getSafeHostUid,
   getSafeHostGid,
   getRealUserHome,
@@ -33,31 +33,31 @@ describe('docker-manager utilities', () => {
   describe('subnetsOverlap', () => {
 
     it('should detect overlapping subnets with same CIDR', () => {
-      expect(testHelpers.subnetsOverlap('172.30.0.0/24', '172.30.0.0/24')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.30.0.0/24', '172.30.0.0/24')).toBe(true);
     });
 
     it('should detect non-overlapping subnets', () => {
-      expect(testHelpers.subnetsOverlap('172.30.0.0/24', '172.31.0.0/24')).toBe(false);
-      expect(testHelpers.subnetsOverlap('192.168.1.0/24', '192.168.2.0/24')).toBe(false);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.30.0.0/24', '172.31.0.0/24')).toBe(false);
+      expect(hostEnvTestHelpers.subnetsOverlap('192.168.1.0/24', '192.168.2.0/24')).toBe(false);
     });
 
     it('should detect when smaller subnet is inside larger subnet', () => {
-      expect(testHelpers.subnetsOverlap('172.16.0.0/16', '172.16.5.0/24')).toBe(true);
-      expect(testHelpers.subnetsOverlap('172.16.5.0/24', '172.16.0.0/16')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.16.0.0/16', '172.16.5.0/24')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.16.5.0/24', '172.16.0.0/16')).toBe(true);
     });
 
     it('should detect partial overlap', () => {
-      expect(testHelpers.subnetsOverlap('172.30.0.0/23', '172.30.1.0/24')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.30.0.0/23', '172.30.1.0/24')).toBe(true);
     });
 
     it('should handle Docker default bridge network', () => {
-      expect(testHelpers.subnetsOverlap('172.17.0.0/16', '172.17.5.0/24')).toBe(true);
-      expect(testHelpers.subnetsOverlap('172.17.0.0/16', '172.18.0.0/16')).toBe(false);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.17.0.0/16', '172.17.5.0/24')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('172.17.0.0/16', '172.18.0.0/16')).toBe(false);
     });
 
     it('should handle /32 (single host) networks', () => {
-      expect(testHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.1/32')).toBe(true);
-      expect(testHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.2/32')).toBe(false);
+      expect(hostEnvTestHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.1/32')).toBe(true);
+      expect(hostEnvTestHelpers.subnetsOverlap('192.168.1.1/32', '192.168.1.2/32')).toBe(false);
     });
   });
 

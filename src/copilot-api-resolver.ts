@@ -85,7 +85,7 @@ export function resolveCopilotApiRouting(
 
 /** @internal Exposed only for unit tests — not part of the public API. */
 // ts-prune-ignore-next
-export const testHelpers = {
+export const copilotApiResolverTestHelpers = {
   deriveCopilotApiTargetFromProviderBaseUrl,
   deriveCopilotApiBasePathFromProviderBaseUrl,
 };

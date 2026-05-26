@@ -7,12 +7,12 @@ import {
   getDockerBridgeGateway,
   getNetworkBridgeName,
   isIp6tablesAvailable,
-  testHelpers,
+  iptablesSharedTestHelpers,
 } from './host-iptables-shared';
 import { logger } from './logger';
 
 describe('host-iptables-shared', () => {
-  setupHostIptablesTestSuite(testHelpers.resetIpv6State);
+  setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
 
   describe('cleanupChain', () => {
     it('removes matching DOCKER-USER references in reverse order before deleting the chain', async () => {
