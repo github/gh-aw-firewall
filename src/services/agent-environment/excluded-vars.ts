@@ -16,6 +16,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'ACTIONS_RESULTS_URL',
     ...PROXY_ENV_VARS,
     'AWF_PREFLIGHT_BINARY',
+    'AWF_STAGED_RUNNER_BINARY_NAME',
     'AWF_GEMINI_ENABLED',
     'MCP_GATEWAY_HOST_DOMAIN',
   ]);

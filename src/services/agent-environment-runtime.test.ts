@@ -100,6 +100,20 @@ describe('agent environment: runtime', () => {
     expect(environment.AWF_PREFLIGHT_BINARY).toBeUndefined();
   });
 
+  it('should set AWF_STAGED_RUNNER_BINARY_NAME in /tmp docker-host-path-prefix mode', () => {
+    const result = generateDockerCompose(
+      {
+        ...mockConfig,
+        dockerHostPathPrefix: '/tmp/gh-aw',
+        agentCommand: 'copilot --version',
+      },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_STAGED_RUNNER_BINARY_NAME).toBe('copilot');
+  });
+
   it('should pass GOROOT, CARGO_HOME, RUSTUP_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
     const originalGoroot = process.env.GOROOT;
     const originalCargoHome = process.env.CARGO_HOME;

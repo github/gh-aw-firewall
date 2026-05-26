@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../../constants/placeholders';
 import { logger } from '../../logger';
+import { extractCommandBinaryName, shouldUseDockerHostStaging } from '../agent-volumes/docker-host-staging';
 import { WrapperConfig } from '../../types';
 
 interface ToolEnvironmentParams {
@@ -14,6 +15,7 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
   const commandExecutableBase = path.posix.basename(commandExecutable.replace(/\\/g, '/'));
   const isCopilotCommand = commandExecutableBase.toLowerCase() === 'copilot';
   const isCodexCommand = commandExecutableBase.toLowerCase() === 'codex';
+  const stagedBinaryName = extractCommandBinaryName(config.agentCommand);
 
   if (config.copilotGithubToken || config.copilotApiKey || isCopilotCommand) {
     environment.AWF_REQUIRE_NODE = '1';
@@ -21,6 +23,10 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
 
   if (isCodexCommand) {
     environment.AWF_PREFLIGHT_BINARY = 'codex';
+  }
+
+  if (stagedBinaryName && shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {
+    environment.AWF_STAGED_RUNNER_BINARY_NAME = stagedBinaryName;
   }
 
   if (config.enableApiProxy && config.copilotGithubToken) {

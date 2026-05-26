@@ -561,6 +561,28 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     fi
   fi
 
+  # In split-filesystem DinD setups with --docker-host-path-prefix pointing at
+  # a shared /tmp root, docker-manager stages the invoking CLI binary under
+  # /tmp/awf-runner-bin/<name>. Copy it into /tmp/awf-lib so the chrooted PATH
+  # can resolve the expected command name (copilot, claude, etc.) without
+  # requiring manual bootstrap copies into the daemon's /usr/local/bin.
+  STAGED_RUNNER_BINARY_CHROOT=""
+  if [ -n "${AWF_STAGED_RUNNER_BINARY_NAME:-}" ] && [ -f "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null && \
+         chmod +x "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null; then
+        STAGED_RUNNER_BINARY_CHROOT="/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}"
+        case ":${AWF_HOST_PATH:-$PATH}:" in
+          *":/tmp/awf-lib:"*) ;;
+          *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+        esac
+        echo "[entrypoint] Runner binary staged for chroot at ${STAGED_RUNNER_BINARY_CHROOT}"
+      else
+        echo "[entrypoint][WARN] Could not stage runner binary ${AWF_STAGED_RUNNER_BINARY_NAME} into chroot"
+      fi
+    fi
+  fi
+
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
   # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
@@ -892,7 +914,7 @@ AWFEOF
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
   # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ]; then
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 

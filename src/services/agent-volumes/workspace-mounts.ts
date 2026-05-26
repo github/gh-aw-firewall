@@ -2,6 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import {
+  extractCommandBinaryName,
+  shouldUseDockerHostStaging,
+  stageHostFile,
+} from './docker-host-staging';
 
 interface WorkspaceMountsParams {
   config: WrapperConfig;
@@ -35,7 +40,37 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
     }
   }
 
+  if (shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {
+    const binaryName = extractCommandBinaryName(config.agentCommand);
+    const binarySourcePath = binaryName ? resolveBinaryPath(binaryName) : undefined;
+    if (binaryName && binarySourcePath) {
+      const stagedBinaryPath = stageHostFile(config, binarySourcePath, `bin/${binaryName}`, 0o755);
+      if (stagedBinaryPath) {
+        mounts.push(`${stagedBinaryPath}:/tmp/awf-runner-bin/${binaryName}:ro`);
+      }
+    }
+  }
+
   return mounts;
+}
+
+function resolveBinaryPath(binaryName: string): string | undefined {
+  if (!binaryName) {
+    return undefined;
+  }
+  const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const entry of pathEntries) {
+    const candidate = path.join(entry, binaryName);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Keep scanning PATH entries.
+    }
+  }
+  return undefined;
 }
 
 export function buildCustomVolumeMounts(volumeMounts?: string[]): string[] {

@@ -46,6 +46,10 @@ export function translateBindMountHostPath(mount: string, dockerHostPathPrefix: 
     return mount;
   }
 
+  if (hostPath === dockerHostPathPrefix || hostPath.startsWith(`${dockerHostPathPrefix}/`)) {
+    return mount;
+  }
+
   const translatedHostPath = hostPath === '/'
     ? dockerHostPathPrefix
     : `${dockerHostPathPrefix}${hostPath}`;

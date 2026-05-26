@@ -40,7 +40,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   agentVolumes.push(...buildSystemMounts(workspaceDir));
   agentVolumes.push(...buildHomeMounts({ config, effectiveHome, agentLogsPath, sessionStatePath }));
-  agentVolumes.push(...buildEtcMounts());
+  agentVolumes.push(...buildEtcMounts(config));
   agentVolumes.push(generateHostsFileMount(config));
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));

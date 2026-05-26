@@ -93,6 +93,38 @@ describe('agent service', () => {
       expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     });
 
+    it('should stage binary and etc files under shared /tmp docker-host-path-prefix', () => {
+      const originalPath = process.env.PATH;
+      const fakeBinDir = path.join(mockConfig.workDir, 'fake-bin');
+      fs.mkdirSync(fakeBinDir, { recursive: true });
+      const fakeCopilotPath = path.join(fakeBinDir, 'copilot');
+      fs.writeFileSync(fakeCopilotPath, '#!/bin/sh\necho copilot\n', { mode: 0o755 });
+      process.env.PATH = `${fakeBinDir}${path.delimiter}${originalPath || ''}`;
+
+      try {
+        const configWithTmpPrefix = {
+          ...mockConfig,
+          dockerHostPathPrefix: '/tmp/gh-aw',
+          agentCommand: 'copilot --version',
+        };
+        const result = generateDockerCompose(configWithTmpPrefix, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/etc/passwd:/host/etc/passwd:ro');
+        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/etc/group:/host/etc/group:ro');
+        expect(volumes).toContain('/tmp/gh-aw/awf-docker-host-stage/bin/copilot:/tmp/awf-runner-bin/copilot:ro');
+        expect(
+          volumes.some((v: string) => v.startsWith('/tmp/gh-aw/awf-docker-host-stage/chroot-') && v.endsWith(':/host/etc/hosts:ro'))
+        ).toBe(true);
+      } finally {
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        } else {
+          delete process.env.PATH;
+        }
+      }
+    });
+
     it('should mount api-proxy health-check script when api-proxy is enabled', () => {
       const configWithApiProxy = {
         ...mockConfig,

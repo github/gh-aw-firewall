@@ -3,6 +3,7 @@ import * as path from 'path';
 import execa from 'execa';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { getDockerHostStageRoot, shouldUseDockerHostStaging } from './docker-host-staging';
 
 export function generateHostsFileMount(config: WrapperConfig): string {
   let hostsContent = '127.0.0.1 localhost\n';
@@ -59,7 +60,10 @@ export function generateHostsFileMount(config: WrapperConfig): string {
     }
   }
 
-  const chrootHostsDir = fs.mkdtempSync(path.join(config.workDir, 'chroot-'));
+  const hostsRootDir = shouldUseDockerHostStaging(config.dockerHostPathPrefix)
+    ? getDockerHostStageRoot(config)
+    : config.workDir;
+  const chrootHostsDir = fs.mkdtempSync(path.join(hostsRootDir, 'chroot-'));
   const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
   fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
 
