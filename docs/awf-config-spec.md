@@ -413,6 +413,11 @@ exchange protocol. A conforming implementation MUST:
    automatically by the Actions runner when the workflow declares
    `permissions: id-token: write`.
 
+   If OIDC is requested for a provider but these runtime variables are not
+   present in the sidecar environment, the provider adapter MUST fail closed
+   and return an explicit configuration error (rather than falling back to
+   static-key mode).
+
 3. NOT expose the exchanged provider token in the agent container
    environment. The sidecar SHALL inject it into upstream request headers.
 

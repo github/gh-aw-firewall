@@ -646,6 +646,10 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
+When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
+
+- `503 Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).`
+
 ### Azure OpenAI (Entra-only)
 
 Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity federation, then injects it as a Bearer token on upstream requests.

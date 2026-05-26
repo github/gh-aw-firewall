@@ -11,7 +11,7 @@ All LLM providers use identical credential isolation architecture. API keys are 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
 | 10000 | OpenAI             | `Authorization: Bearer`         |
-| 10001 | Anthropic (Claude) | `x-api-key`                     |
+| 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC) |
 | 10002 | GitHub Copilot     | `Authorization: Bearer`         |
 | 10003 | Google Gemini      | `x-goog-api-key`                |
 :::
@@ -172,6 +172,8 @@ http.createServer((req, res) => {
   proxyRequest(req, res, 'api.anthropic.com', anthropicHeaders);
 });
 ```
+
+In OIDC mode (`AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=anthropic`), the sidecar injects the exchanged OAuth access token in the `Authorization` header instead of `x-api-key`.
 
 #### Port 10002: GitHub Copilot proxy
 
