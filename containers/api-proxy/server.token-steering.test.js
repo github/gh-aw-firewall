@@ -236,8 +236,8 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     // Disable token steering for this test
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
 
-    // Load a fresh proxyRequest that shares the same proxy-request module instance
-    // as the steering functions (assigned in the top-level beforeAll above).
+    // Re-require proxyRequest from the cached server module so it shares the same
+    // proxy-request module instance as the steering functions (set in top-level beforeAll).
     // This ensures the same module instance handles both the threshold crossing
     // and the body injection.
     const { proxyRequest: localProxyRequest } = require('./server');

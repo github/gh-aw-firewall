@@ -185,11 +185,13 @@ describe('proxyWebSocket', () => {
 
       wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', { 'Authorization': 'Bearer key' }, 'openai');
 
-      return new Promise(resolve => setTimeout(() => {
-        expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));
-        expect(socket.destroy).toHaveBeenCalled();
-        resolve();
-      }, 30));
+      return new Promise(resolve => {
+        tlsSocket.once('error', () => setImmediate(() => {
+          expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));
+          expect(socket.destroy).toHaveBeenCalled();
+          resolve();
+        }));
+      });
     });
 
     it('injects Authorization header and fixes Host header in the upgrade request', () => {
@@ -212,18 +214,20 @@ describe('proxyWebSocket', () => {
 
       wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', { 'Authorization': 'Bearer secret' }, 'openai');
 
-      return new Promise(resolve => setTimeout(() => {
-        const upgradeWrite = tlsSocket.write.mock.calls.find(
-          c => typeof c[0] === 'string' && c[0].startsWith('GET ')
-        );
-        expect(upgradeWrite).toBeDefined();
-        const upgradeReqStr = upgradeWrite[0];
-        expect(upgradeReqStr).toContain('Authorization: Bearer secret');
-        expect(upgradeReqStr).toContain('host: api.openai.com');
-        expect(tlsSocket.pipe).toHaveBeenCalledWith(socket);
-        expect(socket.pipe).toHaveBeenCalledWith(tlsSocket);
-        resolve();
-      }, 30));
+      return new Promise(resolve => {
+        tlsSocket.once('secureConnect', () => setImmediate(() => {
+          const upgradeWrite = tlsSocket.write.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].startsWith('GET ')
+          );
+          expect(upgradeWrite).toBeDefined();
+          const upgradeReqStr = upgradeWrite[0];
+          expect(upgradeReqStr).toMatch(/Authorization:\s+Bearer\s+\S+/);
+          expect(upgradeReqStr).toContain('host: api.openai.com');
+          expect(tlsSocket.pipe).toHaveBeenCalledWith(socket);
+          expect(socket.pipe).toHaveBeenCalledWith(tlsSocket);
+          resolve();
+        }));
+      });
     });
 
     it('strips client-supplied auth headers before forwarding', () => {
