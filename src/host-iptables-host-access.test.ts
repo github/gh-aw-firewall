@@ -288,6 +288,38 @@ describe('host-iptables (host access)', () => {
       ]);
     });
 
+    it('should skip invalid service ports in allowHostServicePorts', async () => {
+      setupDefaultIptablesMocks();
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: 'abc,99999,-1,5432' };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+
+      // Verify invalid service ports are NOT added
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', 'abc',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '99999',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '-1',
+      ]));
+
+      // Valid service port should be present
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '5432',
+        '-j', 'ACCEPT',
+      ]);
+    });
+
     it('should deduplicate service ports with regular host ports', async () => {
       setupDefaultIptablesMocks();
 

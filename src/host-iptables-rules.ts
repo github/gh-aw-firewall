@@ -52,6 +52,27 @@ export function isValidPortSpec(spec: string): boolean {
   return !isNaN(port) && String(port) === spec && port >= 1 && port <= 65535;
 }
 
+function parseValidPortSpecs(input: string | undefined, label: string): string[] {
+  if (!input) {
+    return [];
+  }
+
+  const validSpecs: string[] = [];
+  for (const entry of input.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (!isValidPortSpec(trimmed)) {
+      logger.warn(`Skipping invalid ${label}: ${trimmed}`);
+      continue;
+    }
+    validSpecs.push(trimmed);
+  }
+
+  return validSpecs;
+}
+
 /**
  * Sets up host-level iptables rules using DOCKER-USER chain
  * This ensures ALL containers on the firewall network are subject to egress filtering.
@@ -268,34 +289,12 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     const defaultPorts = ['80', '443'];
 
     // Parse additional custom ports
-    const customPorts: string[] = [];
-    if (hostAccess.allowHostPorts) {
-      for (const entry of hostAccess.allowHostPorts.split(',')) {
-        const trimmed = entry.trim();
-        if (trimmed) {
-          if (!isValidPortSpec(trimmed)) {
-            logger.warn(`Skipping invalid port spec: ${trimmed}`);
-            continue;
-          }
-          customPorts.push(trimmed);
-        }
-      }
-    }
-
-    // Also include host service ports (--allow-host-service-ports)
-    // These intentionally bypass dangerous port restrictions since traffic is host-gateway-only
-    if (hostAccess.allowHostServicePorts) {
-      for (const entry of hostAccess.allowHostServicePorts.split(',')) {
-        const trimmed = entry.trim();
-        if (trimmed) {
-          if (!isValidPortSpec(trimmed)) {
-            logger.warn(`Skipping invalid host service port spec: ${trimmed}`);
-            continue;
-          }
-          customPorts.push(trimmed);
-        }
-      }
-    }
+    const customPorts = [
+      ...parseValidPortSpecs(hostAccess.allowHostPorts, 'port spec'),
+      // Also include host service ports (--allow-host-service-ports)
+      // These intentionally bypass dangerous port restrictions since traffic is host-gateway-only
+      ...parseValidPortSpecs(hostAccess.allowHostServicePorts, 'host service port spec'),
+    ];
 
     const allPorts = [...new Set([...defaultPorts, ...customPorts])];
 
