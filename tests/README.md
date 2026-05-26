@@ -4,7 +4,7 @@ TypeScript-based integration tests for the awf (Agentic Workflow Firewall) CLI.
 
 ## Overview
 
-This directory contains comprehensive integration tests that verify firewall behavior across multiple scenarios. Currently includes **17 integration test files** covering:
+This directory contains comprehensive integration tests that verify firewall behavior across multiple scenarios, including:
 
 ### Core Functionality
 - **Basic Firewall Functionality** (`basic-firewall.test.ts`) - Domain whitelisting, subdomain matching, exit code propagation
@@ -33,6 +33,7 @@ This directory contains comprehensive integration tests that verify firewall beh
 - **Log Commands** (`log-commands.test.ts`) - Log parsing and analysis
 
 ### Integration Testing
+- **CLI Proxy** (`cli-proxy.test.ts`) - gh wrapper routing, token isolation, and opt-in approved-integrity live regression coverage
 - **Claude Code** (`claude-code.test.ts`) - Claude Code CLI integration
 - **No Docker** (`no-docker.test.ts`) - Docker-in-Docker removal verification
 - **Docker Warning** (`docker-warning.test.ts`) - Docker command warning messages
@@ -54,9 +55,10 @@ These smoke tests use the locally built firewall and validate:
 
 ```
 tests/
-├── integration/              # Integration test suites (17 files)
+├── integration/              # Integration test suites
 │   ├── basic-firewall.test.ts
 │   ├── blocked-domains.test.ts
+│   ├── cli-proxy.test.ts
 │   ├── claude-code.test.ts
 │   ├── container-workdir.test.ts
 │   ├── dns-servers.test.ts
@@ -123,6 +125,14 @@ npm test:unit
 
 ```bash
 npm run test:integration
+```
+
+### Run the CLI proxy approved-integrity live regression
+
+This opt-in regression requires a running external DIFC proxy plus a GitHub token supplied via `GITHUB_TOKEN` or `GH_TOKEN`.
+
+```bash
+AWF_RUN_APPROVED_DIFC_PROXY_TESTS=1 sudo -E npm run test:integration -- cli-proxy
 ```
 
 ### Run Specific Test Suite
@@ -267,7 +277,7 @@ Key considerations:
 
 The project uses TypeScript-based integration tests that run in CI via `.github/workflows/test-coverage.yml`:
 
-**Integration test files (17 total):**
+**Selected integration test files:**
 | Category | Test File | Description |
 |----------|-----------|-------------|
 | Core | `basic-firewall.test.ts` | Domain whitelisting, connectivity |
@@ -277,6 +287,7 @@ The project uses TypeScript-based integration tests that run in CI via `.github/
 | Domains | `wildcard-patterns.test.ts` | Wildcard matching |
 | Security | `network-security.test.ts` | Capability restrictions, SSRF |
 | Security | `robustness.test.ts` | Edge cases, bypass prevention |
+| Integration | `cli-proxy.test.ts` | CLI proxy sidecar coverage, including opt-in approved-integrity gh api array regression |
 | Config | `dns-servers.test.ts` | DNS configuration |
 | Config | `environment-variables.test.ts` | Environment variables |
 | Config | `volume-mounts.test.ts` | Volume mounts |

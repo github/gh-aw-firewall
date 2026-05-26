@@ -126,7 +126,7 @@ describe('CLI Proxy Sidecar', () => {
       'should preserve array JSON responses for gh api issue comment endpoints under approved integrity',
       async () => {
         const result = await runner.runWithSudo(
-          'bash -c \'gh api "repos/github/gh-aw-firewall/issues/1/comments?per_page=1" | jq -r type\'',
+          'bash -o pipefail -c \'gh api "repos/github/gh-aw-firewall/issues/1/comments?per_page=1" | jq -er type\'',
           {
             ...cliProxyDefaults,
             env: {
