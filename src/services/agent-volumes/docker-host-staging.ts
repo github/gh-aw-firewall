@@ -4,7 +4,7 @@ import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 
 const DOCKER_HOST_STAGE_DIR = 'awf-docker-host-stage';
-const SAFE_BINARY_NAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
+export const SAFE_BINARY_NAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
 
 function normalizeDockerHostPathPrefix(prefix: string): string {
   const trimmed = prefix.trim();
@@ -42,7 +42,14 @@ export function stageHostFile(config: WrapperConfig, sourcePath: string, relativ
 
   try {
     const stageRoot = getDockerHostStageRoot(config);
-    const targetPath = path.join(stageRoot, relativeTargetPath.replace(/^\/+/, ''));
+    const normalizedRelativeTargetPath = relativeTargetPath.replace(/^\/+/, '');
+    const resolvedStageRoot = path.resolve(stageRoot);
+    const targetPath = path.resolve(stageRoot, normalizedRelativeTargetPath);
+    const relativeToStageRoot = path.relative(resolvedStageRoot, targetPath);
+    if (!normalizedRelativeTargetPath || relativeToStageRoot.startsWith('..') || path.isAbsolute(relativeToStageRoot) || relativeToStageRoot === '') {
+      logger.debug(`Rejected staged target path outside docker-host staging root: ${relativeTargetPath}`);
+      return undefined;
+    }
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.copyFileSync(sourcePath, targetPath);
     fs.chmodSync(targetPath, mode);

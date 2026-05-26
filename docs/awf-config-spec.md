@@ -158,6 +158,8 @@ the corresponding CLI flag.
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 
+When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
+
 The following CLI flag has no config-file equivalent by design:
 
 - `-e, --env <KEY=VALUE>` — inject a single environment variable into

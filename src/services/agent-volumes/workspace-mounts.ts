@@ -41,8 +41,9 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   }
 
   if (shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {
+    const commandExecutable = config.agentCommand.trim().split(/\s+/, 1)[0] || '';
     const binaryName = extractCommandBinaryName(config.agentCommand);
-    const binarySourcePath = binaryName ? resolveBinaryPath(binaryName) : undefined;
+    const binarySourcePath = binaryName ? resolveBinaryPath(binaryName, commandExecutable) : undefined;
     if (binaryName && binarySourcePath) {
       const stagedBinaryPath = stageHostFile(config, binarySourcePath, `bin/${binaryName}`, 0o755);
       if (stagedBinaryPath) {
@@ -54,23 +55,37 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
   return mounts;
 }
 
-function resolveBinaryPath(binaryName: string): string | undefined {
+function resolveBinaryPath(binaryName: string, commandExecutable: string): string | undefined {
   if (!binaryName) {
     return undefined;
   }
+
+  if (commandExecutable.includes('/') || commandExecutable.includes('\\')) {
+    const candidate = path.resolve(commandExecutable);
+    return isExecutableFile(candidate) ? candidate : undefined;
+  }
+
   const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const entry of pathEntries) {
     const candidate = path.join(entry, binaryName);
-    try {
-      const stat = fs.statSync(candidate);
-      if (stat.isFile()) {
-        return candidate;
-      }
-    } catch {
-      // Keep scanning PATH entries.
+    if (isExecutableFile(candidate)) {
+      return candidate;
     }
   }
   return undefined;
+}
+
+function isExecutableFile(candidate: string): boolean {
+  try {
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile()) {
+      return false;
+    }
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function buildCustomVolumeMounts(volumeMounts?: string[]): string[] {

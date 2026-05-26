@@ -3,6 +3,8 @@ import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { stageHostFile } from './agent-volumes/docker-host-staging';
+import { translateBindMountHostPath } from './host-path-prefix';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -125,6 +127,100 @@ describe('agent service', () => {
       }
     });
 
+    it('should skip non-executable PATH candidates when staging the runner binary', () => {
+      const originalPath = process.env.PATH;
+      const nonExecutableDir = path.join(mockConfig.workDir, 'fake-bin-nonexec');
+      const executableDir = path.join(mockConfig.workDir, 'fake-bin-exec');
+      fs.mkdirSync(nonExecutableDir, { recursive: true });
+      fs.mkdirSync(executableDir, { recursive: true });
+      fs.writeFileSync(path.join(nonExecutableDir, 'copilot'), '#!/bin/sh\necho wrong\n', { mode: 0o644 });
+      fs.writeFileSync(path.join(executableDir, 'copilot'), '#!/bin/sh\necho correct\n', { mode: 0o755 });
+      process.env.PATH = `${nonExecutableDir}${path.delimiter}${executableDir}${path.delimiter}${originalPath || ''}`;
+
+      try {
+        generateDockerCompose(
+          {
+            ...mockConfig,
+            dockerHostPathPrefix: '/tmp/gh-aw',
+            agentCommand: 'copilot --version',
+          },
+          mockNetworkConfig,
+        );
+
+        const stagedBinaryPath = '/tmp/gh-aw/awf-docker-host-stage/bin/copilot';
+        expect(fs.readFileSync(stagedBinaryPath, 'utf8')).toContain('correct');
+      } finally {
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        } else {
+          delete process.env.PATH;
+        }
+      }
+    });
+
+    it('should prefer an explicit command path when staging the runner binary', () => {
+      const originalPath = process.env.PATH;
+      const fakeBinDir = path.join(mockConfig.workDir, 'fake-bin-path');
+      const explicitBinDir = path.join(mockConfig.workDir, 'explicit-bin');
+      fs.mkdirSync(fakeBinDir, { recursive: true });
+      fs.mkdirSync(explicitBinDir, { recursive: true });
+      fs.writeFileSync(path.join(fakeBinDir, 'copilot'), '#!/bin/sh\necho path\n', { mode: 0o755 });
+      const explicitBinaryPath = path.join(explicitBinDir, 'copilot');
+      fs.writeFileSync(explicitBinaryPath, '#!/bin/sh\necho explicit\n', { mode: 0o755 });
+      process.env.PATH = `${fakeBinDir}${path.delimiter}${originalPath || ''}`;
+
+      try {
+        generateDockerCompose(
+          {
+            ...mockConfig,
+            dockerHostPathPrefix: '/tmp/gh-aw',
+            agentCommand: `${explicitBinaryPath} --version`,
+          },
+          mockNetworkConfig,
+        );
+
+        const stagedBinaryPath = '/tmp/gh-aw/awf-docker-host-stage/bin/copilot';
+        expect(fs.readFileSync(stagedBinaryPath, 'utf8')).toContain('explicit');
+      } finally {
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        } else {
+          delete process.env.PATH;
+        }
+      }
+    });
+
+    it('should leave /etc/passwd and /etc/group unprefixed in shared /tmp staging fallback mode', () => {
+      expect(translateBindMountHostPath('/etc/passwd:/host/etc/passwd:ro', '/tmp/gh-aw'))
+        .toBe('/etc/passwd:/host/etc/passwd:ro');
+      expect(translateBindMountHostPath('/etc/group:/host/etc/group:ro', '/tmp/gh-aw'))
+        .toBe('/etc/group:/host/etc/group:ro');
+    });
+
+    it('should prune stale staged chroot hosts directories under shared /tmp docker-host-path-prefix', () => {
+      const stageRoot = '/tmp/gh-aw/awf-docker-host-stage';
+      const staleDir = path.join(stageRoot, 'chroot-stale');
+      fs.mkdirSync(staleDir, { recursive: true });
+      fs.writeFileSync(path.join(staleDir, 'hosts'), '127.0.0.1 localhost\n');
+      const staleTime = new Date(Date.now() - (25 * 60 * 60 * 1000));
+      fs.utimesSync(staleDir, staleTime, staleTime);
+      fs.utimesSync(path.join(staleDir, 'hosts'), staleTime, staleTime);
+
+      const result = generateDockerCompose(
+        {
+          ...mockConfig,
+          dockerHostPathPrefix: '/tmp/gh-aw',
+        },
+        mockNetworkConfig,
+      );
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(fs.existsSync(staleDir)).toBe(false);
+      expect(
+        volumes.some((v: string) => v.startsWith('/tmp/gh-aw/awf-docker-host-stage/chroot-') && v.endsWith(':/host/etc/hosts:ro'))
+      ).toBe(true);
+    });
+
     it('should mount api-proxy health-check script when api-proxy is enabled', () => {
       const configWithApiProxy = {
         ...mockConfig,
@@ -158,6 +254,20 @@ describe('agent service', () => {
       const volumes = agent.volumes as string[];
       // Malformed mount should be added as-is (fallback)
       expect(volumes).toContain('no-colon-here');
+    });
+
+    it('should reject staged target paths that escape the docker-host staging root', () => {
+      const sourceFile = path.join(mockConfig.workDir, 'stage-source.txt');
+      fs.writeFileSync(sourceFile, 'stage me');
+
+      const stagedPath = stageHostFile(
+        { ...mockConfig, dockerHostPathPrefix: '/tmp/gh-aw' },
+        sourceFile,
+        '../escaped.txt',
+      );
+
+      expect(stagedPath).toBeUndefined();
+      expect(fs.existsSync('/tmp/gh-aw/escaped.txt')).toBe(false);
     });
 
     it('should use selective mounts by default', () => {

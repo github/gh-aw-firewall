@@ -397,7 +397,7 @@
         },
         "dockerHostPathPrefix": {
           "type": "string",
-          "description": "Prefix bind-mount source paths so the Docker daemon can resolve runner filesystem paths. Required for ARC DinD sidecar runners where the runner and daemon have separate filesystems. Example: \"/host\". Kernel virtual filesystems (/dev, /sys, /proc) are automatically excluded from prefixing."
+          "description": "Prefix bind-mount source paths so the Docker daemon can resolve runner filesystem paths. Required for ARC DinD sidecar runners where the runner and daemon have separate filesystems. Example: \"/host\". Kernel virtual filesystems (/dev, /sys, /proc) are automatically excluded from prefixing. When this points at a daemon-visible shared /tmp path, AWF also stages the invoking CLI binary plus /etc/passwd, /etc/group, and the generated chroot /etc/hosts there."
         }
       }
     },

@@ -5,6 +5,8 @@ import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { getDockerHostStageRoot, shouldUseDockerHostStaging } from './docker-host-staging';
 
+const STALE_CHROOT_STAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export function generateHostsFileMount(config: WrapperConfig): string {
   let hostsContent = '127.0.0.1 localhost\n';
   try {
@@ -60,12 +62,36 @@ export function generateHostsFileMount(config: WrapperConfig): string {
     }
   }
 
-  const hostsRootDir = shouldUseDockerHostStaging(config.dockerHostPathPrefix)
-    ? getDockerHostStageRoot(config)
-    : config.workDir;
+  const useDockerHostStaging = shouldUseDockerHostStaging(config.dockerHostPathPrefix);
+  const hostsRootDir = useDockerHostStaging ? getDockerHostStageRoot(config) : config.workDir;
+  if (useDockerHostStaging) {
+    pruneStaleChrootStageDirs(hostsRootDir);
+  }
   const chrootHostsDir = fs.mkdtempSync(path.join(hostsRootDir, 'chroot-'));
   const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
   fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
 
   return `${chrootHostsPath}:/host/etc/hosts:ro`;
+}
+
+function pruneStaleChrootStageDirs(hostsRootDir: string): void {
+  const staleBefore = Date.now() - STALE_CHROOT_STAGE_MAX_AGE_MS;
+  try {
+    for (const entry of fs.readdirSync(hostsRootDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith('chroot-')) {
+        continue;
+      }
+
+      const entryPath = path.join(hostsRootDir, entry.name);
+      try {
+        if (fs.statSync(entryPath).mtimeMs < staleBefore) {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+        }
+      } catch (err) {
+        logger.debug(`Could not prune stale chroot hosts staging dir ${entryPath}: ${err}`);
+      }
+    }
+  } catch (err) {
+    logger.debug(`Could not scan chroot hosts staging root ${hostsRootDir}: ${err}`);
+  }
 }

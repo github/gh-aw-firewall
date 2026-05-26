@@ -567,18 +567,22 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   # can resolve the expected command name (copilot, claude, etc.) without
   # requiring manual bootstrap copies into the daemon's /usr/local/bin.
   STAGED_RUNNER_BINARY_CHROOT=""
-  if [ -n "${AWF_STAGED_RUNNER_BINARY_NAME:-}" ] && [ -f "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" ]; then
-    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      if cp "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null && \
-         chmod +x "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null; then
-        STAGED_RUNNER_BINARY_CHROOT="/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}"
-        case ":${AWF_HOST_PATH:-$PATH}:" in
-          *":/tmp/awf-lib:"*) ;;
-          *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
-        esac
-        echo "[entrypoint] Runner binary staged for chroot at ${STAGED_RUNNER_BINARY_CHROOT}"
-      else
-        echo "[entrypoint][WARN] Could not stage runner binary ${AWF_STAGED_RUNNER_BINARY_NAME} into chroot"
+  if [ -n "${AWF_STAGED_RUNNER_BINARY_NAME:-}" ]; then
+    if [[ ! "${AWF_STAGED_RUNNER_BINARY_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
+      echo "[entrypoint][WARN] Ignoring invalid AWF_STAGED_RUNNER_BINARY_NAME=${AWF_STAGED_RUNNER_BINARY_NAME}"
+    elif [ -f "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" ]; then
+      if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+        if cp "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null && \
+           chmod +x "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null; then
+          STAGED_RUNNER_BINARY_CHROOT="/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}"
+          case ":${AWF_HOST_PATH:-$PATH}:" in
+            *":/tmp/awf-lib:"*) ;;
+            *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+          esac
+          echo "[entrypoint] Runner binary staged for chroot at ${STAGED_RUNNER_BINARY_CHROOT}"
+        else
+          echo "[entrypoint][WARN] Could not stage runner binary ${AWF_STAGED_RUNNER_BINARY_NAME} into chroot"
+        fi
       fi
     fi
   fi

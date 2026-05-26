@@ -327,6 +327,8 @@ This prefixes all AWF-managed bind-mount source paths so the daemon can resolve 
 
 **Kernel virtual filesystems are excluded from prefixing.** Paths under `/dev`, `/sys`, and `/proc` are provided by the Docker daemon's own kernel and must not be prefixed. AWF handles this automatically.
 
+**Shared `/tmp` staging for ARC + DinD.** When `--docker-host-path-prefix` points at a daemon-visible shared `/tmp` path, AWF automatically stages the invoking CLI binary plus `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` there. Stale per-run chroot-host staging directories are pruned automatically.
+
 **Config file equivalent:**
 
 ```yaml
