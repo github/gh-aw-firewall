@@ -105,7 +105,7 @@ export function parseLogLine(line: string): ParsedLogEntry | null {
  * @param method - HTTP method
  * @returns Extracted domain name without port
  */
-export function extractDomain(url: string, host: string, method: string): string {
+function extractDomain(url: string, host: string, method: string): string {
   if (method === 'CONNECT') {
     // For CONNECT, URL is domain:port
     const colonIndex = url.lastIndexOf(':');

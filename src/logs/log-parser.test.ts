@@ -2,7 +2,7 @@
  * Unit tests for log-parser.ts
  */
 
-import { parseLogLine, extractDomain, parseAuditJsonlLine } from './log-parser';
+import { parseLogLine, parseAuditJsonlLine } from './log-parser';
 
 describe('log-parser', () => {
   describe('parseLogLine', () => {
@@ -190,37 +190,49 @@ describe('log-parser', () => {
     });
   });
 
-  describe('extractDomain', () => {
-    it('should extract domain from CONNECT URL with port', () => {
-      expect(extractDomain('api.github.com:443', 'host', 'CONNECT')).toBe('api.github.com');
-      expect(extractDomain('example.com:8443', 'host', 'CONNECT')).toBe('example.com');
-    });
+  describe('domain extraction via parseLogLine', () => {
+    it('should extract domain from CONNECT URL with and without ports', () => {
+      const withPort = parseLogLine(
+        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
+      );
+      const withoutPort = parseLogLine(
+        '1761074374.646 172.30.0.20:39748 api.github.com 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com "-"',
+      );
 
-    it('should return URL as-is for CONNECT without port', () => {
-      expect(extractDomain('api.github.com', 'host', 'CONNECT')).toBe('api.github.com');
+      expect(withPort!.domain).toBe('api.github.com');
+      expect(withoutPort!.domain).toBe('api.github.com');
     });
 
     it('should extract domain from host header for non-CONNECT', () => {
-      expect(extractDomain('http://example.com/', 'example.com:80', 'GET')).toBe('example.com');
-      expect(extractDomain('http://test.com/path', 'test.com', 'GET')).toBe('test.com');
+      const withPort = parseLogLine(
+        '1760994429.358 172.30.0.20:36274 example.com:80 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/ "Mozilla/5.0"',
+      );
+      const withoutPort = parseLogLine(
+        '1760994429.358 172.30.0.20:36274 test.com 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://test.com/path "Mozilla/5.0"',
+      );
+
+      expect(withPort!.domain).toBe('example.com');
+      expect(withoutPort!.domain).toBe('test.com');
     });
 
-    it('should handle host header without port for non-CONNECT', () => {
-      expect(extractDomain('http://example.com/', 'example.com', 'GET')).toBe('example.com');
+    it('should fall back to URL parsing when host is dash', () => {
+      const withProtocol = parseLogLine(
+        '1760994429.358 172.30.0.20:36274 - 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT http://example.com/path "Mozilla/5.0"',
+      );
+      const withoutProtocol = parseLogLine(
+        '1760994429.358 172.30.0.20:36274 - 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT example.com/path "Mozilla/5.0"',
+      );
+
+      expect(withProtocol!.domain).toBe('example.com');
+      expect(withoutProtocol!.domain).toBe('example.com');
     });
 
-    it('should fallback to URL parsing when host is empty or dash', () => {
-      expect(extractDomain('http://example.com/', '-', 'GET')).toBe('example.com');
-      expect(extractDomain('http://example.com/path', '', 'GET')).toBe('example.com');
-    });
+    it('should return original URL if fallback URL parsing fails', () => {
+      const result = parseLogLine(
+        '1760994429.358 172.30.0.20:36274 - 93.184.216.34:80 1.1 GET 200 TCP_MISS:HIER_DIRECT :::invalid "Mozilla/5.0"',
+      );
 
-    it('should handle URL without protocol in fallback', () => {
-      expect(extractDomain('example.com/path', '-', 'GET')).toBe('example.com');
-    });
-
-    it('should return original URL if parsing fails', () => {
-      // Invalid URL that can't be parsed
-      expect(extractDomain(':::invalid', '-', 'GET')).toBe(':::invalid');
+      expect(result!.domain).toBe(':::invalid');
     });
   });
 
