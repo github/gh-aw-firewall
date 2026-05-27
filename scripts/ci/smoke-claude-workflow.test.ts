@@ -40,9 +40,9 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).toContain('Export workflow context');
     expect(lock).toContain('Report turn usage');
     expect(lock).toContain(
-      'github/gh-aw-actions/setup@9f050961da586148d135e113d8bb025185cdf2b8 # v0.75.4'
+      'github/gh-aw-actions/setup@46d564922b082d0db93244972e8005ea6904ee5f # v0.76.1'
     );
-    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.75.4');
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.76.1');
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');
