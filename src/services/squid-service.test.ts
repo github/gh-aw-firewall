@@ -26,6 +26,13 @@ describe('squid service', () => {
       expect(squid.volumes).not.toContainEqual(expect.stringContaining('squid.conf'));
       expect(squid.volumes).toContain(`${mockConfig.workDir}/squid-logs:/var/log/squid:rw`);
       expect(squid.healthcheck).toBeDefined();
+      expect(squid.healthcheck).toEqual({
+        test: ['CMD', 'nc', '-z', 'localhost', '3128'],
+        interval: '2s',
+        timeout: '2s',
+        retries: 10,
+        start_period: '5s',
+      });
       expect(squid.ports).toContain('3128:3128');
     });
 
