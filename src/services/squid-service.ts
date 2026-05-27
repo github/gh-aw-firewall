@@ -73,10 +73,10 @@ export function buildSquidService(params: SquidServiceParams): any {
     volumes: translatedSquidVolumes,
     healthcheck: {
       test: ['CMD', 'nc', '-z', 'localhost', '3128'],
-      interval: '1s',
-      timeout: '1s',
-      retries: 5,
-      start_period: '2s',
+      interval: '2s',
+      timeout: '2s',
+      retries: 10,
+      start_period: '5s',
     },
     ports: [`${SQUID_PORT}:${SQUID_PORT}`],
     // Security hardening: Drop unnecessary capabilities
