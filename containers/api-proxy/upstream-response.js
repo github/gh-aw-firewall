@@ -1,5 +1,26 @@
 'use strict';
 
+/** Maximum number of times to retry a Copilot 400 "model not supported" response. */
+const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
+
+/**
+ * Pattern matching the Copilot error for a model that is not yet visible in
+ * the caller's entitlement catalogue.  The error is transient — the catalogue
+ * is non-deterministic and often stabilises within seconds.
+ */
+const MODEL_NOT_SUPPORTED_PATTERN = /the requested model is not supported/i;
+
+/**
+ * Return true when the response body contains a Copilot "model not supported"
+ * error message.
+ *
+ * @param {Buffer} body
+ * @returns {boolean}
+ */
+function parseModelNotSupportedFromBody(body) {
+  return MODEL_NOT_SUPPORTED_PATTERN.test(body.toString('utf8'));
+}
+
 function createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -47,15 +68,23 @@ function createUpstreamResponseHandlers({
   }
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
-    res, provider, requestId, req, targetHost, startTime, span, requestBytes, hasRetried, onRetry,
+    res, provider, requestId, req, targetHost, startTime, span, requestBytes,
+    hasRetried, onRetry,
+    modelNotSupportedRetryCount = 0, onModelNotSupportedRetry,
   }) {
     let responseBytes = 0;
     const billingInfo = extractBillingHeaders(proxyRes.headers);
     const initiatorSent = requestHeaders['x-initiator'] || null;
-    const shouldBuffer400ForHeaderStrip =
-      (provider === 'anthropic' || provider === 'copilot') &&
-      !hasRetried &&
-      proxyRes.statusCode === 400;
+
+    // Buffer the 400 response body when we may need to inspect it for either:
+    //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only), or
+    //   (b) a transient Copilot "model not supported" catalogue error (up to MAX retries).
+    const shouldBuffer400 =
+      proxyRes.statusCode === 400 &&
+      (
+        ((provider === 'anthropic' || provider === 'copilot') && !hasRetried) ||
+        (provider === 'copilot' && modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES)
+      );
 
     const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
     const authErrCtx = { requestId, provider, targetHost, req };
@@ -71,7 +100,7 @@ function createUpstreamResponseHandlers({
       });
     });
 
-    if (shouldBuffer400ForHeaderStrip) {
+    if (shouldBuffer400) {
       const bufferedChunks = [];
       proxyRes.on('data', (chunk) => {
         responseBytes += chunk.length;
@@ -79,16 +108,38 @@ function createUpstreamResponseHandlers({
       });
       proxyRes.on('end', () => {
         const responseBody = Buffer.concat(bufferedChunks);
-        const deprecated = parseDeprecatedHeaderFromBody(responseBody);
-        if (deprecated) {
-          const retryHeaders = { ...requestHeaders };
-          const stripped = learnAndStripDeprecatedHeaderValue(
-            retryHeaders, deprecated.header, deprecated.value, requestId, provider,
-          );
-          if (stripped) {
-            onRetry(retryHeaders);
-            return;
+
+        // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
+        if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
+          const deprecated = parseDeprecatedHeaderFromBody(responseBody);
+          if (deprecated) {
+            const retryHeaders = { ...requestHeaders };
+            const stripped = learnAndStripDeprecatedHeaderValue(
+              retryHeaders, deprecated.header, deprecated.value, requestId, provider,
+            );
+            if (stripped) {
+              onRetry(retryHeaders);
+              return;
+            }
           }
+        }
+
+        // ── (b) Transient model-not-supported retry (copilot only, up to MAX) ──────
+        if (
+          provider === 'copilot' &&
+          modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES &&
+          onModelNotSupportedRetry &&
+          parseModelNotSupportedFromBody(responseBody)
+        ) {
+          logRequest('warn', 'model_not_supported_retry', {
+            request_id: requestId,
+            provider,
+            retry_attempt: modelNotSupportedRetryCount + 1,
+            max_retries: MAX_MODEL_NOT_SUPPORTED_RETRIES,
+            message: `Copilot returned 400 model not supported (transient); retrying (attempt ${modelNotSupportedRetryCount + 1}/${MAX_MODEL_NOT_SUPPORTED_RETRIES})`,
+          });
+          onModelNotSupportedRetry();
+          return;
         }
 
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
@@ -139,4 +190,6 @@ function createUpstreamResponseHandlers({
 
 module.exports = {
   createUpstreamResponseHandlers,
+  parseModelNotSupportedFromBody,
+  MAX_MODEL_NOT_SUPPORTED_RETRIES,
 };

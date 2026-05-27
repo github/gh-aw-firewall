@@ -21,7 +21,7 @@ const {
   learnAndStripDeprecatedHeaderValue,
 } = require('./deprecated-header-tracker');
 const { extractBillingHeaders } = require('./billing-headers');
-const { createUpstreamResponseHandlers } = require('./upstream-response');
+const { createUpstreamResponseHandlers, MAX_MODEL_NOT_SUPPORTED_RETRIES } = require('./upstream-response');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
@@ -92,6 +92,20 @@ const limiter = rateLimiter.create();
 
 /** When false, token-budget warnings are never injected into request bodies. */
 const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
+
+/**
+ * Backoff delays (ms) between successive model-not-supported retries.
+ * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
+ */
+const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
+
+/** Resolves after `ms` milliseconds (overridable in tests via module-level setter). */
+let _sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** @internal Test-only: replace the sleep implementation so retries are instant. */
+function _setSleepForTests(fn) { _sleep = fn; }
+/** @internal Test-only: restore the real sleep implementation. */
+function _resetSleepForTests() { _sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms)); }
 
 function getUrlPathForSpan(requestUrl) {
   if (typeof requestUrl !== 'string' || !requestUrl) return '/';
@@ -246,11 +260,13 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
  * @param {object} requestHeaders - Headers for the upstream request
  * @param {{ body: Buffer, targetHost: string, upstreamPath: string, req: object,
  *           res: object, provider: string, requestId: string, startTime: number,
- *           span: object, requestBytes: number, hasRetried?: boolean }} ctx
+ *           span: object, requestBytes: number, hasRetried?: boolean,
+ *           modelNotSupportedRetryCount?: number }} ctx
  */
 function sendUpstreamRequest(requestHeaders, {
   body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
   hasRetried = false,
+  modelNotSupportedRetryCount = 0,
 }) {
   const options = {
     hostname: targetHost, port: 443, path: upstreamPath,
@@ -262,10 +278,22 @@ function sendUpstreamRequest(requestHeaders, {
     handleUpstreamResponse(proxyRes, requestHeaders, {
       body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
       hasRetried,
+      modelNotSupportedRetryCount,
       onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
         body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
         hasRetried: true,
+        modelNotSupportedRetryCount,
       }),
+      onModelNotSupportedRetry: () => {
+        const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
+        _sleep(delayMs).then(() => {
+          sendUpstreamRequest(requestHeaders, {
+            body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+            hasRetried,
+            modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
+          });
+        });
+      },
     });
   });
 
@@ -500,4 +528,6 @@ module.exports = {
   getAndClearPendingSteeringMessage,
   getAndClearPendingTimeoutSteeringMessage,
   injectSteeringMessage,
+  _setSleepForTests,
+  _resetSleepForTests,
 };
