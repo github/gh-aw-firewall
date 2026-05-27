@@ -22,8 +22,6 @@
 const { mintGitHubOidcToken, httpGet } = require('./github-oidc');
 const {
   BaseOidcTokenProvider,
-  REFRESH_FACTOR,
-  MIN_REFRESH_MARGIN_SECS,
 } = require('./oidc-token-provider-base');
 
 /**
@@ -164,18 +162,7 @@ class AwsOidcTokenProvider extends BaseOidcTokenProvider {
 
     const { credentials, expires_in } = await this._assumeRoleWithWebIdentity(oidcJwt);
 
-    const now = Math.floor(Date.now() / 1000);
-    this._cachedCredentials = credentials;
-    this._expiresAt = now + expires_in;
-
-    const refreshInSecs = Math.max(
-      0,
-      Math.min(
-        expires_in * REFRESH_FACTOR,
-        expires_in - MIN_REFRESH_MARGIN_SECS
-      )
-    );
-    this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
+    this._storeAndScheduleRefresh(credentials, expires_in);
   }
 
   async _doRefresh() {
@@ -184,6 +171,10 @@ class AwsOidcTokenProvider extends BaseOidcTokenProvider {
 
   _getCachedValue() {
     return this._cachedCredentials;
+  }
+
+  _setCachedValue(value) {
+    this._cachedCredentials = value;
   }
 
   _getInitSuccessLogContext() {

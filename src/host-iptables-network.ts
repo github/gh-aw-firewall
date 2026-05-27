@@ -49,9 +49,11 @@ export async function ensureFirewallNetwork(): Promise<{
 }
 
 /**
- * Removes the firewall network
+ * Removes the firewall network.
+ *
+ * @internal Test-only helper for cleaning up the dedicated firewall network.
  */
-async function cleanupFirewallNetwork(): Promise<void> {
+export async function cleanupFirewallNetwork(): Promise<void> {
   logger.debug(`Removing firewall network '${NETWORK_NAME}'...`);
 
   try {
@@ -62,6 +64,3 @@ async function cleanupFirewallNetwork(): Promise<void> {
     // Don't throw - cleanup should be best-effort
   }
 }
-
-/** @internal Exposed for testing only */
-export const iptablesNetworkTestHelpers = { cleanupFirewallNetwork };

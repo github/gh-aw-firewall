@@ -17,8 +17,6 @@
 const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const {
   BaseOidcTokenProvider,
-  REFRESH_FACTOR,
-  MIN_REFRESH_MARGIN_SECS,
 } = require('./oidc-token-provider-base');
 
 /**
@@ -63,23 +61,6 @@ class OidcTokenProvider extends BaseOidcTokenProvider {
       case 'china': return 'login.chinacloudapi.cn';
       default: return 'login.microsoftonline.com';
     }
-  }
-
-  /**
-   * Get the current cached token synchronously.
-   * Returns null if no valid token is available.
-   * @returns {string|null}
-   */
-  getToken() {
-    const now = Math.floor(Date.now() / 1000);
-    if (this._cachedToken && this._expiresAt > now) {
-      return this._cachedToken;
-    }
-    // Token expired and refresh hasn't replaced it — trigger emergency refresh
-    if (!this._refreshInFlight) {
-      this._scheduleRefresh(0);
-    }
-    return null;
   }
 
   /**
@@ -140,19 +121,7 @@ class OidcTokenProvider extends BaseOidcTokenProvider {
     const oidcJwt = await this._mintGitHubOidcToken();
     const { access_token, expires_in } = await this._exchangeForAzureToken(oidcJwt);
 
-    const now = Math.floor(Date.now() / 1000);
-    this._cachedToken = access_token;
-    this._expiresAt = now + expires_in;
-
-    // Schedule proactive refresh
-    const refreshInSecs = Math.max(
-      0,
-      Math.min(
-      expires_in * REFRESH_FACTOR,
-      expires_in - MIN_REFRESH_MARGIN_SECS
-      )
-    );
-    this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
+    this._storeAndScheduleRefresh(access_token, expires_in);
   }
 
   /**
@@ -172,6 +141,10 @@ class OidcTokenProvider extends BaseOidcTokenProvider {
 
   _getCachedValue() {
     return this._cachedToken;
+  }
+
+  _setCachedValue(value) {
+    this._cachedToken = value;
   }
 
   _getInitSuccessLogContext() {

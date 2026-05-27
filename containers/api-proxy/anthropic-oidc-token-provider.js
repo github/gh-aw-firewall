@@ -3,8 +3,6 @@
 const { mintGitHubOidcToken, httpPost } = require('./github-oidc');
 const {
   BaseOidcTokenProvider,
-  REFRESH_FACTOR,
-  MIN_REFRESH_MARGIN_SECS,
 } = require('./oidc-token-provider-base');
 
 /**
@@ -30,18 +28,6 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
 
     /** @type {string|null} */
     this._cachedToken = null;
-  }
-
-  /** @returns {string|null} */
-  getToken() {
-    const now = Math.floor(Date.now() / 1000);
-    if (this._cachedToken && this._expiresAt > now) {
-      return this._cachedToken;
-    }
-    if (!this._refreshInFlight) {
-      this._scheduleRefresh(0);
-    }
-    return null;
   }
 
   /**
@@ -87,18 +73,7 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
 
     const { access_token, expires_in } = await this._exchangeForAnthropicToken(oidcJwt);
 
-    const now = Math.floor(Date.now() / 1000);
-    this._cachedToken = access_token;
-    this._expiresAt = now + expires_in;
-
-    const refreshInSecs = Math.max(
-      0,
-      Math.min(
-        expires_in * REFRESH_FACTOR,
-        expires_in - MIN_REFRESH_MARGIN_SECS
-      )
-    );
-    this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
+    this._storeAndScheduleRefresh(access_token, expires_in);
   }
 
   async _doRefresh() {
@@ -107,6 +82,10 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
 
   _getCachedValue() {
     return this._cachedToken;
+  }
+
+  _setCachedValue(value) {
+    this._cachedToken = value;
   }
 
   _getInitSuccessLogContext() {

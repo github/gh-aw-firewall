@@ -68,6 +68,23 @@ class BaseOidcTokenProvider {
     return !!(this._getCachedValue() && this._expiresAt > now);
   }
 
+  /**
+   * Get the current cached token synchronously.
+   * Returns null if no valid token is available.
+   * @returns {unknown|null}
+   */
+  getToken() {
+    const now = Math.floor(Date.now() / 1000);
+    const cached = this._getCachedValue();
+    if (cached && this._expiresAt > now) {
+      return cached;
+    }
+    if (!this._refreshInFlight) {
+      this._scheduleRefresh(0);
+    }
+    return null;
+  }
+
   shutdown() {
     this._isShutdown = true;
     if (this._refreshTimer) {
@@ -80,6 +97,26 @@ class BaseOidcTokenProvider {
   _scheduleRefresh(delayMs) {
     if (this._isShutdown) return;
     scheduleRefresh(this, delayMs, () => this._doRefresh(), this._providerPrefix);
+  }
+
+  /**
+   * Store the new cached value, record expiry, and schedule the next refresh.
+   * @param {unknown} value - token string or credentials object to cache
+   * @param {number} expiresIn - token lifetime in seconds
+   */
+  _storeAndScheduleRefresh(value, expiresIn) {
+    const now = Math.floor(Date.now() / 1000);
+    this._setCachedValue(value);
+    this._expiresAt = now + expiresIn;
+
+    const refreshInSecs = Math.max(
+      0,
+      Math.min(
+        expiresIn * REFRESH_FACTOR,
+        expiresIn - MIN_REFRESH_MARGIN_SECS
+      )
+    );
+    this._scheduleRefresh(Math.floor(refreshInSecs * 1000));
   }
 
   /** @param {number} ms */
@@ -101,6 +138,14 @@ class BaseOidcTokenProvider {
    */
   _getCachedValue() {
     throw new Error('_getCachedValue() must be implemented by subclasses');
+  }
+
+  /**
+   * @abstract
+   * @param {unknown} value
+   */
+  _setCachedValue(value) {
+    throw new Error('_setCachedValue() must be implemented by subclasses');
   }
 
   /**

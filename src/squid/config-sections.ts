@@ -7,7 +7,7 @@ import { validateAndSanitizeHostAccessPort, validateApiProxyPort } from './valid
 type DomainsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['domainsByProto'];
 type PatternsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['patternsByProto'];
 
-export function generateDlpSections(enableDlp?: boolean): {
+function generateDlpSections(enableDlp?: boolean): {
   aclSection: string;
   accessSection: string;
 } {
@@ -22,7 +22,7 @@ export function generateDlpSections(enableDlp?: boolean): {
   };
 }
 
-export function generateSslSections(options: {
+function generateSslSections(options: {
   port: number;
   sslBump?: boolean;
   caFiles?: SquidConfig['caFiles'];
@@ -81,7 +81,7 @@ ${denyNonMatching}
   };
 }
 
-export function generatePortAclsAndRules(
+function generatePortAclsAndRules(
   enableHostAccess?: boolean,
   allowHostPorts?: string,
   apiProxyPorts?: number[]
@@ -120,7 +120,7 @@ http_access deny !Safe_ports
 http_access deny CONNECT !Safe_ports`;
 }
 
-export function generateApiProxySection(apiProxyIp?: string): string {
+function generateApiProxySection(apiProxyIp?: string): string {
   return apiProxyIp ? `
 # Allow connections to the AWF api-proxy sidecar before raw-IP deny rules.
 # Some HTTP clients (e.g., Node.js fetch / undici ProxyAgent) route requests to
@@ -132,6 +132,72 @@ http_access allow allow_api_proxy_ip
 ` : '';
 }
 
-export function generateDnsSection(dnsServers?: string[]): string {
+function generateDnsSection(dnsServers?: string[]): string {
   return `dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : DEFAULT_DNS_SERVERS.join(' ')}`;
+}
+
+export function generateConfigSections(options: {
+  enableDlp?: boolean;
+  port: number;
+  sslBump?: boolean;
+  caFiles?: SquidConfig['caFiles'];
+  sslDbPath?: string;
+  urlPatterns?: string[];
+  domainsByProto: DomainsByProto;
+  patternsByProto: PatternsByProto;
+  enableHostAccess?: boolean;
+  allowHostPorts?: string;
+  apiProxyPorts?: number[];
+  apiProxyIp?: string;
+  dnsServers?: string[];
+}): {
+  dlpAclSection: string;
+  dlpAccessSection: string;
+  portConfig: string;
+  sslBumpSection: string;
+  sslBumpUrlAccessSection: string;
+  portAclsAndRules: string;
+  apiProxySection: string;
+  dnsSection: string;
+} {
+  const {
+    enableDlp,
+    port,
+    sslBump,
+    caFiles,
+    sslDbPath,
+    urlPatterns,
+    domainsByProto,
+    patternsByProto,
+    enableHostAccess,
+    allowHostPorts,
+    apiProxyPorts,
+    apiProxyIp,
+    dnsServers,
+  } = options;
+
+  const { aclSection: dlpAclSection, accessSection: dlpAccessSection } = generateDlpSections(enableDlp);
+  const { portConfig, sslBumpSection, sslBumpUrlAccessSection } = generateSslSections({
+    port,
+    sslBump,
+    caFiles,
+    sslDbPath,
+    urlPatterns,
+    domainsByProto,
+    patternsByProto,
+  });
+  const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);
+  const apiProxySection = generateApiProxySection(apiProxyIp);
+  const dnsSection = generateDnsSection(dnsServers);
+
+  return {
+    dlpAclSection,
+    dlpAccessSection,
+    portConfig,
+    sslBumpSection,
+    sslBumpUrlAccessSection,
+    portAclsAndRules,
+    apiProxySection,
+    dnsSection,
+  };
 }

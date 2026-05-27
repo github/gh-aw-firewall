@@ -4,7 +4,7 @@ import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 
 const DOCKER_HOST_STAGE_DIR = 'awf-docker-host-stage';
-export const SAFE_BINARY_NAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
+const SAFE_BINARY_NAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
 
 function normalizeDockerHostPathPrefix(prefix: string): string {
   const trimmed = prefix.trim();
