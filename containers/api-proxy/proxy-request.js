@@ -21,7 +21,7 @@ const {
   learnAndStripDeprecatedHeaderValue,
 } = require('./deprecated-header-tracker');
 const { extractBillingHeaders } = require('./billing-headers');
-const { createUpstreamResponseHandlers, MAX_MODEL_NOT_SUPPORTED_RETRIES } = require('./upstream-response');
+const { createUpstreamResponseHandlers } = require('./upstream-response');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
