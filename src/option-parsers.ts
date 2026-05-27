@@ -140,21 +140,58 @@ export function checkDockerHost(
 }
 
 /**
+ * Standard Docker socket paths that indicate a local daemon on the same
+ * filesystem as the runner.  Any other unix:// path is treated as a potential
+ * sibling-daemon (ARC/DinD) socket that may use a split filesystem.
+ */
+const DEFAULT_DOCKER_SOCKET_URIS = [
+  'unix:///var/run/docker.sock',
+  'unix:///run/docker.sock',
+];
+
+/**
+ * Returns `true` when `DOCKER_HOST` is a unix socket on a non-default path,
+ * which typically indicates a sibling daemon pod in ARC/DinD deployments.
+ * These setups bind-mount the daemon's socket into the runner pod, meaning
+ * the runner and daemon may have separate root filesystems.
+ */
+function isSiblingDaemonSocket(env: Record<string, string | undefined>): boolean {
+  const dockerHost = env['DOCKER_HOST'];
+  if (!dockerHost || !dockerHost.startsWith('unix://')) return false;
+  return !DEFAULT_DOCKER_SOCKET_URIS.includes(dockerHost);
+}
+
+/**
  * Resolves the effective Docker host path prefix for bind mount translation.
  *
- * If an explicit prefix is provided, it wins. Otherwise, no prefix is applied.
+ * If an explicit prefix is provided, it wins.  Otherwise the function inspects
+ * the environment for DinD indicators:
+ *  - `DOCKER_HOST` pointing at a non-standard unix socket (sibling daemon pod)
+ *  - `AWF_DIND=1` set explicitly by the operator
+ *
+ * When a DinD indicator is found, `dindHint` is set to `true` so callers can
+ * emit actionable warnings.  The actual prefix is NOT auto-applied here — the
+ * `probeSplitFilesystem` probe in `main-action.ts` discovers it at runtime.
+ *
+ * @param _dockerHostCheck - Result of {@link checkDockerHost} (unused; kept for
+ *   interface symmetry with the caller in {@link validateNetworkOptions}).
+ * @param explicitPrefix - Value from the `--docker-host-path-prefix` flag.
+ * @param env - Environment variables to inspect (defaults to `process.env`).
  */
 export function resolveDockerHostPathPrefix(
   _dockerHostCheck: { valid: true } | { valid: false; error: string },
-  explicitPrefix: string | undefined
-): { dockerHostPathPrefix?: string; autoApplied: boolean } {
+  explicitPrefix: string | undefined,
+  env: Record<string, string | undefined> = process.env
+): { dockerHostPathPrefix?: string; autoApplied: boolean; dindHint: boolean } {
   const trimmedExplicitPrefix = explicitPrefix?.trim();
 
   if (trimmedExplicitPrefix) {
-    return { dockerHostPathPrefix: trimmedExplicitPrefix, autoApplied: false };
+    return { dockerHostPathPrefix: trimmedExplicitPrefix, autoApplied: false, dindHint: false };
   }
 
-  return { dockerHostPathPrefix: undefined, autoApplied: false };
+  const dindHint = env['AWF_DIND'] === '1' || isSiblingDaemonSocket(env);
+
+  return { dockerHostPathPrefix: undefined, autoApplied: false, dindHint };
 }
 
 /**

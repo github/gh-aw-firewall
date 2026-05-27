@@ -84,6 +84,29 @@ describe('probeSplitFilesystem', () => {
     expect(mockedExeca).toHaveBeenCalledTimes(4);
   });
 
+  it('returns /tmp/gh-aw when /host and /runner fail but /tmp/gh-aw prefix works', async () => {
+    mockDockerReachable();
+    // Direct mount: file not found
+    mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+    // /host prefix: file not found
+    mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+    // /runner prefix: file not found
+    mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+    // /tmp/gh-aw prefix succeeds
+    mockedExeca.mockResolvedValueOnce({ exitCode: 0 } as any);
+
+    const result = await probeSplitFilesystem(probeDir);
+
+    expect(result.prefix).toBe('/tmp/gh-aw');
+    expect(result.splitDetected).toBe(true);
+    expect(result.inconclusive).toBe(false);
+    // 1 docker info + 4 probes
+    expect(mockedExeca).toHaveBeenCalledTimes(5);
+    // Verify /tmp/gh-aw call uses prefixed path
+    const ghAwCallArgs = mockedExeca.mock.calls[4][1] as string[];
+    expect(ghAwCallArgs).toContain(`/tmp/gh-aw${probeDir}:/probe:ro`);
+  });
+
   it('returns splitDetected=true when no candidate prefix works', async () => {
     mockDockerReachable();
     // Direct mount: file not found
@@ -92,12 +115,16 @@ describe('probeSplitFilesystem', () => {
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
     // /runner prefix: file not found
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+    // /tmp/gh-aw prefix: file not found
+    mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
 
     const result = await probeSplitFilesystem(probeDir);
 
     expect(result.prefix).toBeUndefined();
     expect(result.splitDetected).toBe(true);
     expect(result.inconclusive).toBe(false);
+    // 1 docker info + 4 probes
+    expect(mockedExeca).toHaveBeenCalledTimes(5);
   });
 
   it('returns inconclusive when Docker daemon is unreachable (fail-fast)', async () => {
@@ -178,6 +205,7 @@ describe('probeSplitFilesystem', () => {
 
   it('cleans up sentinel file after failed probe', async () => {
     mockDockerReachable();
+    mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);

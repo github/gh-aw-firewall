@@ -105,7 +105,7 @@ describe('config-assembly', () => {
     dnsOverHttps: undefined,
     resolvedCopilotApiTarget: undefined,
     resolvedCopilotApiBasePath: undefined,
-    dockerHostPathPrefixResolution: { dockerHostPathPrefix: undefined, autoApplied: false },
+    dockerHostPathPrefixResolution: { dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false },
   });
 
   const createMinimalAgentOptions = (): AgentOptionsResult => ({

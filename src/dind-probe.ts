@@ -23,7 +23,7 @@ import { getLocalDockerEnv } from './docker-host';
 import { logger } from './logger';
 
 /** Candidate prefixes to try when split filesystem is detected */
-const CANDIDATE_PREFIXES = ['/host', '/runner'];
+const CANDIDATE_PREFIXES = ['/host', '/runner', '/tmp/gh-aw'];
 
 /** Timeout for each docker run probe (ms) */
 const PROBE_TIMEOUT_MS = 10000;

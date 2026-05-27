@@ -61,6 +61,20 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
       '⚠️  If your Docker daemon uses a split runner/daemon filesystem, set --docker-host-path-prefix (for example: /host).',
     );
   }
+  if (dockerHostPathPrefixResolution.dindHint && !dockerHostPathPrefixResolution.dockerHostPathPrefix) {
+    logger.warn(
+      '⚠️  Non-standard DOCKER_HOST unix socket or AWF_DIND=1 detected — this typically indicates an ARC/DinD',
+    );
+    logger.warn(
+      '   setup where the runner and Docker daemon have separate root filesystems.',
+    );
+    logger.warn(
+      '   If bind mounts fail, set --docker-host-path-prefix to the path prefix where the runner filesystem',
+    );
+    logger.warn(
+      '   is visible inside the daemon (e.g. --docker-host-path-prefix /tmp/gh-aw).',
+    );
+  }
 
   // --- Domain resolution --------------------------------------------------
 

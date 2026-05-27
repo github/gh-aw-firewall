@@ -332,17 +332,89 @@ describe('checkDockerHost', () => {
 describe('resolveDockerHostPathPrefix', () => {
   it('returns explicit prefix when provided', () => {
     const result = resolveDockerHostPathPrefix({ valid: false, error: 'external DOCKER_HOST' }, '/daemon-root');
-    expect(result).toEqual({ dockerHostPathPrefix: '/daemon-root', autoApplied: false });
+    expect(result).toEqual({ dockerHostPathPrefix: '/daemon-root', autoApplied: false, dindHint: false });
   });
 
   it('does not auto-apply a prefix for external DOCKER_HOST when none is provided', () => {
     const result = resolveDockerHostPathPrefix({ valid: false, error: 'external DOCKER_HOST' }, undefined);
-    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false });
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
   });
 
   it('returns undefined when DOCKER_HOST is local and no prefix is provided', () => {
     const result = resolveDockerHostPathPrefix({ valid: true }, undefined);
-    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false });
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
+  });
+
+  it('sets dindHint when DOCKER_HOST is a non-standard unix socket', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { DOCKER_HOST: 'unix:///tmp/docker-sibling.sock' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: true });
+  });
+
+  it('does not set dindHint for the default /var/run/docker.sock socket', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { DOCKER_HOST: 'unix:///var/run/docker.sock' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
+  });
+
+  it('does not set dindHint for the /run/docker.sock socket', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { DOCKER_HOST: 'unix:///run/docker.sock' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
+  });
+
+  it('sets dindHint when AWF_DIND=1 is set', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { AWF_DIND: '1' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: true });
+  });
+
+  it('does not set dindHint when AWF_DIND is not 1', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { AWF_DIND: '0' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
+  });
+
+  it('does not set dindHint for TCP DOCKER_HOST (checked by checkDockerHost separately)', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: false, error: 'external' },
+      undefined,
+      { DOCKER_HOST: 'tcp://localhost:2375' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
+  });
+
+  it('explicit prefix wins and suppresses dindHint even when non-standard socket is set', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      '/tmp/gh-aw',
+      { DOCKER_HOST: 'unix:///tmp/docker-sibling.sock' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: '/tmp/gh-aw', autoApplied: false, dindHint: false });
+  });
+
+  it('explicit prefix wins and suppresses dindHint when AWF_DIND=1', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      '/host',
+      { AWF_DIND: '1' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: '/host', autoApplied: false, dindHint: false });
   });
 });
 

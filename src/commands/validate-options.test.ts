@@ -116,6 +116,7 @@ describe('validateOptions', () => {
     mockedOptionParsers.resolveDockerHostPathPrefix.mockReturnValue({
       dockerHostPathPrefix: undefined,
       autoApplied: false,
+      dindHint: false,
     });
     mockedOptionParsers.parseEnvironmentVariables.mockReturnValue({ success: true, env: {} });
     mockedOptionParsers.parseVolumeMounts.mockReturnValue({ success: true, mounts: [] });
