@@ -47,20 +47,3 @@ export async function ensureFirewallNetwork(): Promise<{
     proxyIp: '172.30.0.30',
   };
 }
-
-/**
- * Removes the firewall network.
- *
- * @internal Test-only helper for cleaning up the dedicated firewall network.
- */
-export async function cleanupFirewallNetwork(): Promise<void> {
-  logger.debug(`Removing firewall network '${NETWORK_NAME}'...`);
-
-  try {
-    await execa('docker', ['network', 'rm', NETWORK_NAME], { reject: false, env: getLocalDockerEnv() });
-    logger.debug('Firewall network removed');
-  } catch (error) {
-    logger.debug('Error removing firewall network:', error);
-    // Don't throw - cleanup should be best-effort
-  }
-}

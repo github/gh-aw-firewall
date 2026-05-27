@@ -1,5 +1,4 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { cleanupFirewallNetwork } from './host-iptables-network';
 import { ensureFirewallNetwork } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared';
 
@@ -59,27 +58,6 @@ describe('host-iptables (network)', () => {
         '--opt',
         'com.docker.network.bridge.name=fw-bridge',
       ], { env: expect.any(Object) });
-    });
-  });
-
-  describe('cleanupFirewallNetwork', () => {
-    it('should remove the firewall network', async () => {
-      mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      }));
-
-      await cleanupFirewallNetwork();
-
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'rm', 'awf-net'], { reject: false, env: expect.any(Object) });
-    });
-
-    it('should not throw on errors (best-effort cleanup)', async () => {
-      mockedExeca.mockRejectedValue(new Error('network removal error'));
-
-      // Should not throw
-      await expect(cleanupFirewallNetwork()).resolves.not.toThrow();
     });
   });
 });
