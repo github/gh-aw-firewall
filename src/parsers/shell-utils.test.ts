@@ -80,11 +80,9 @@ describe('escapeShellArg', () => {
 
   describe('empty and edge cases', () => {
     it('should wrap empty string in single quotes', () => {
-      // Empty string has no safe chars, should be wrapped
+      // Empty string does not match the safe-character regex because it requires at least one character,
+      // so it should be quoted.
       const result = escapeShellArg('');
-      // Empty string has no special chars but also no safe chars - it passes the regex test
-      // because the regex requires at least one char to match [a-zA-Z0-9...]+
-      // The test fails on empty string, so it should be quoted
       expect(result).toBe("''");
     });
 
