@@ -3,9 +3,9 @@ import {
   parseDnsOverHttps,
   processLocalhostKeyword,
   validateAllowHostPorts,
-  validateAllowHostServicePorts,
   applyHostServicePortsConfig,
 } from './option-parsers';
+import { validateAllowHostServicePorts } from './parsers/host-port-parsers';
 
 describe('DNS servers parsing', () => {
   it('should parse valid IPv4 DNS servers', () => {

@@ -1,8 +1,8 @@
 import {
   parseEnvironmentVariables,
-  escapeShellArg,
   joinShellArgs,
 } from './option-parsers';
+import { escapeShellArg } from './parsers/shell-utils';
 
 describe('environment variable parsing', () => {
   it('should parse KEY=VALUE format correctly', () => {
