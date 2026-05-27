@@ -24,7 +24,7 @@ COPY server.js logging.js metrics.js rate-limiter.js \
      github-oidc.js aws-oidc-token-provider.js gcp-oidc-token-provider.js \
      anthropic-oidc-token-provider.js \
      oidc-refresh-utils.js body-transform.js rate-limit.js websocket-proxy.js \
-     otel.js ./
+     deprecated-header-tracker.js otel.js ./
 COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/
