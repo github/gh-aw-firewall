@@ -7,6 +7,7 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
+const { makeReq: makeReqFactory, makeRes } = require('./test-helpers/server-mock-factories');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -34,20 +35,7 @@ afterAll(() => {
 
 describe('proxyRequest effective token guard', () => {
   function makeReq(headers = {}) {
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', ...headers };
-    return req;
-  }
-
-  function makeRes() {
-    return {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(),
-      end: jest.fn(),
-    };
+    return makeReqFactory('/v1/chat/completions', headers);
   }
 
   beforeEach(() => {
@@ -113,20 +101,7 @@ describe('proxyRequest effective token guard', () => {
 
 describe('proxyRequest max-runs guard', () => {
   function makeReq(headers = {}) {
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', ...headers };
-    return req;
-  }
-
-  function makeRes() {
-    return {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(),
-      end: jest.fn(),
-    };
+    return makeReqFactory('/v1/chat/completions', headers);
   }
 
   beforeEach(() => {

@@ -7,6 +7,11 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
+const {
+  makeReq: makeReqFactory,
+  makeRes,
+  getStructuredLogs,
+} = require('./test-helpers/server-mock-factories');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -29,36 +34,11 @@ afterAll(() => {
 
 describe('proxyRequest error handling', () => {
   function makeReq(headers = {}) {
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', ...headers };
-    return req;
-  }
-
-  function makeRes() {
-    const res = {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(() => {
-        res.headersSent = true;
-      }),
-      end: jest.fn(),
-      destroy: jest.fn(),
-    };
-    return res;
+    return makeReqFactory('/v1/chat/completions', headers);
   }
 
   function getRequestErrorLog(writeSpy) {
-    for (const [line] of writeSpy.mock.calls) {
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed.event === 'request_error') return parsed;
-      } catch {
-        // ignore non-JSON writes
-      }
-    }
-    return null;
+    return getStructuredLogs(writeSpy, 'request_error')[0] || null;
   }
 
   let stdoutWriteSpy;
