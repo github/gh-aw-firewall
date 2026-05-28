@@ -125,6 +125,32 @@ logRequest('info', 'startup', {
   model_fallback: MODEL_FALLBACK,
 });
 
+function isGithubCopilotCatalogTarget(rawTarget) {
+  const target = normalizeApiTarget(rawTarget);
+  if (!target) return true;
+  return target === 'api.githubcopilot.com'
+    || target === 'api.enterprise.githubcopilot.com'
+    || target.endsWith('.githubcopilot.com')
+    || target.endsWith('.ghe.com');
+}
+
+function getModelFallbackForProvider(provider) {
+  if (provider !== 'copilot') return MODEL_FALLBACK;
+  if (!MODEL_FALLBACK.enabled) return MODEL_FALLBACK;
+
+  const hasByokHints = Boolean(
+    (process.env.COPILOT_PROVIDER_TYPE || '').trim()
+    || (process.env.COPILOT_PROVIDER_BASE_URL || '').trim()
+    || (process.env.COPILOT_PROVIDER_API_KEY || '').trim()
+    || (process.env.COPILOT_API_KEY || '').trim()
+  );
+  if (!hasByokHints) return MODEL_FALLBACK;
+
+  if (isGithubCopilotCatalogTarget(process.env.COPILOT_API_TARGET)) return MODEL_FALLBACK;
+
+  return { ...MODEL_FALLBACK, enabled: false };
+}
+
 /**
  * Build a body-transform function for a given provider that rewrites the
  * "model" field in JSON request bodies using the configured alias map.
@@ -136,16 +162,17 @@ logRequest('info', 'startup', {
  */
 function makeModelBodyTransform(provider) {
   if (!MODEL_ALIASES) return null;
+  const providerModelFallback = getModelFallbackForProvider(provider);
   return async (body) => {
-    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
     if (!result || (result.fallback && result.fallback.activated)) {
       await refreshProviderModelsForResolution(provider);
-      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
     }
     if (!result) return null;
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
     const resolvedModel = sanitizeForLog(result.resolvedModel);
-    if (MODEL_FALLBACK.enabled && result.fallback) {
+    if (providerModelFallback.enabled && result.fallback) {
       if (result.fallback.activated) {
         logRequest('warn', 'model_fallback_activated', {
           provider,

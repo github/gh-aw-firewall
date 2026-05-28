@@ -300,6 +300,49 @@ describe('makeModelBodyTransform', () => {
       else process.env.AWF_MODEL_FALLBACK = prevFallback;
     }
   });
+
+  it('does not apply middle fallback on copilot BYOK non-githubcopilot targets', async () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    const prevCopilotTarget = process.env.COPILOT_API_TARGET;
+    const prevCopilotProviderType = process.env.COPILOT_PROVIDER_TYPE;
+    const prevCopilotProviderBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
+    const prevCopilotApiKey = process.env.COPILOT_API_KEY;
+
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+    process.env.COPILOT_API_TARGET = 'example-resource.openai.azure.com';
+    process.env.COPILOT_PROVIDER_TYPE = 'azure';
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://example-resource.openai.azure.com/openai/deployments/test';
+    delete process.env.COPILOT_API_KEY;
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'];
+
+      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
+      expect(transformed).toBeNull();
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
+      if (prevCopilotTarget === undefined) delete process.env.COPILOT_API_TARGET;
+      else process.env.COPILOT_API_TARGET = prevCopilotTarget;
+      if (prevCopilotProviderType === undefined) delete process.env.COPILOT_PROVIDER_TYPE;
+      else process.env.COPILOT_PROVIDER_TYPE = prevCopilotProviderType;
+      if (prevCopilotProviderBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
+      else process.env.COPILOT_PROVIDER_BASE_URL = prevCopilotProviderBaseUrl;
+      if (prevCopilotApiKey === undefined) delete process.env.COPILOT_API_KEY;
+      else process.env.COPILOT_API_KEY = prevCopilotApiKey;
+    }
+  });
 });
 
 // ── buildModelsJson ────────────────────────────────────────────────────────
