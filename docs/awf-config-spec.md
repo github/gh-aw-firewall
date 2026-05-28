@@ -494,8 +494,16 @@ Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation
 token via `https://api.anthropic.com/v1/oauth/token`. The sidecar injects
 the resulting token as an `Authorization` header on upstream requests.
 
-Anthropic requires no provider-specific environment variables beyond the
-common OIDC settings.
+| Config path | Environment variable | Required | Default |
+|-------------|----------------------|----------|---------|
+| `apiProxy.auth.anthropicFederationRuleId` | `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID` | ✅ | — |
+| `apiProxy.auth.anthropicOrganizationId` | `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID` | ✅ | — |
+| `apiProxy.auth.anthropicServiceAccountId` | `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID` | ✅ | — |
+| `apiProxy.auth.anthropicWorkspaceId` | `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` | Conditional¹ | — |
+
+¹ `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` is required when the federation rule covers
+multiple workspaces. When the rule is scoped to a single workspace, it may be
+omitted.
 
 Default OIDC audience: `https://api.anthropic.com`
 

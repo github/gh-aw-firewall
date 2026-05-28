@@ -55,9 +55,17 @@ function createAnthropicAdapter(env, deps = {}) {
     const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
     const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
     if (requestUrl && requestToken) {
+      const federationRuleId = env.AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID;
+      const organizationId = env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID;
+      const serviceAccountId = env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID;
+      const workspaceId = env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID;
       oidcProvider = new AnthropicOidcTokenProvider({
         requestUrl,
         requestToken,
+        federationRuleId,
+        organizationId,
+        serviceAccountId,
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
         oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'https://api.anthropic.com',
       });
     }

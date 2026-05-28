@@ -782,7 +782,14 @@ Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation acce
 
 #### Anthropic-specific environment variables
 
-Anthropic does not require any provider-specific variables beyond the common OIDC settings.
+| Environment variable | Required | Description |
+|---|---|---|
+| `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID` | ✅ | Anthropic federation rule ID (e.g. `fdrl_...`) |
+| `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID` | ✅ | Anthropic organization UUID |
+| `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID` | ✅ | Anthropic service account ID (e.g. `svac_...`) |
+| `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` | Conditional¹ | Anthropic workspace ID (e.g. `wrkspc_...`) |
+
+¹ Required when the federation rule covers multiple workspaces. May be omitted when the rule is scoped to a single workspace.
 
 Default OIDC audience: `https://api.anthropic.com`
 
@@ -799,8 +806,12 @@ jobs:
         env:
           AWF_AUTH_TYPE: github-oidc
           AWF_AUTH_PROVIDER: anthropic
+          AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+          AWF_AUTH_ANTHROPIC_ORGANIZATION_ID: <your-org-uuid>
+          AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
+          # AWF_AUTH_ANTHROPIC_WORKSPACE_ID: wrkspc_...  # required for multi-workspace rules
         run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER \
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID \
             awf --enable-api-proxy \
                 --allow-domains api.anthropic.com \
                 -- your-agent-command
