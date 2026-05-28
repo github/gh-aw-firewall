@@ -3,7 +3,7 @@ import { WrapperConfig } from '../../types';
 
 const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 
-export function resolveDockerSocketPath(config: WrapperConfig): string {
+function resolveDockerSocketPath(config: WrapperConfig): string {
   const dockerHost = config.awfDockerHost ?? process.env.DOCKER_HOST;
   if (!dockerHost) {
     return DEFAULT_DOCKER_SOCKET_PATH;
