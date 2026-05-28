@@ -16,6 +16,7 @@ sandbox:
 engine:
   id: claude
   model: claude-haiku-4-5
+  max-turns: 15
 tools:
   edit:
   bash: true
@@ -57,7 +58,7 @@ steps:
     run: |
       CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
       if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
-        git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=3 -- src/ containers/ scripts/ docs/ '*.md' | head -500 > "$CONTEXT_DIR/recent-diffs.txt"
+        git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=2 -- src/ containers/ scripts/ docs/ '*.md' | head -200 > "$CONTEXT_DIR/recent-diffs.txt"
       else
         echo "No relevant source changes detected in the past 7 days." > "$CONTEXT_DIR/recent-diffs.txt"
       fi
@@ -97,7 +98,7 @@ steps:
         git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
           while read -r sha; do
             git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
-          done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -30 > "$AFFECTED" || true
+          done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -10 > "$AFFECTED" || true
       fi
 
       if [ ! -s "$AFFECTED" ] && [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
@@ -105,12 +106,12 @@ steps:
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true
         if [ -s "$TOKENS" ]; then
-          grep -i -F -f "$TOKENS" "$DOC_POOL" | head -30 > "$AFFECTED" || true
+          grep -i -F -f "$TOKENS" "$DOC_POOL" | head -10 > "$AFFECTED" || true
         fi
       fi
 
       if [ ! -s "$AFFECTED" ]; then
-        head -30 "$DOC_POOL" > "$AFFECTED"
+        head -10 "$DOC_POOL" > "$AFFECTED"
       fi
 
       cp "$AFFECTED" "$CONTEXT_DIR/affected-docs.txt"
@@ -141,17 +142,22 @@ This repository is a security-critical firewall for GitHub Copilot CLI. Accurate
 
 ## Task Steps
 
+### 0. Check For Changes First (Do This Before Anything Else)
+
+Read `/tmp/gh-aw/doc-maintainer-context/has-changes.txt`.
+
+- If `false`: call `safeoutputs noop` immediately and stop. Do not read any other files.
+- If `true`: proceed to Step 1.
+
 ### 1. Analyze Pre-computed Changes
 
-Read `/tmp/gh-aw/doc-maintainer-context/has-changes.txt` and `/tmp/gh-aw/doc-maintainer-context/changed-count.txt` first.
+Read `/tmp/gh-aw/doc-maintainer-context/changed-count.txt`.
 
-If `has-changes.txt` is `false`, exit immediately using a no-op result without editing files or creating a PR.
-
-Use `/tmp/gh-aw/doc-maintainer-context/recent-diffs.txt` as your source of truth for recent source changes. Do not run `git show <sha>` per commit unless absolutely necessary.
+Use `/tmp/gh-aw/doc-maintainer-context/recent-diffs.txt` as your **sole source** for recent source changes. **Do not run any `git` commands** — all required git data is already pre-computed. Running `git show`, `git log`, or `git diff` wastes turns.
 
 ### 2. Identify Documentation Gaps
 
-Compare code changes with current documentation and identify what needs to be updated.
+Review only the files listed in `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt` (max 10 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
 
 ### 3. Review Current Documentation
 
