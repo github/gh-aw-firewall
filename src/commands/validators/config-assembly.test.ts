@@ -114,6 +114,15 @@ describe('config-assembly', () => {
     allowedUrls: [],
   });
 
+  const callAssembleWith = (options: Record<string, unknown> = {}) =>
+    assembleAndValidateConfig(
+      options,
+      'echo test',
+      createMinimalLogAndLimits(),
+      createMinimalNetworkOptions(),
+      createMinimalAgentOptions(),
+    );
+
   const createBuildConfigResult = (
     overrides: Record<string, unknown> = {},
   ): Record<string, unknown> => ({
@@ -193,13 +202,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -213,13 +216,7 @@ describe('config-assembly', () => {
         dockerHostPathPrefix: undefined,
       });
 
-      const result = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      const result = callAssembleWith();
 
       expect(result).toBeDefined();
       expect(mockExit).not.toHaveBeenCalled();
@@ -232,13 +229,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -252,13 +243,7 @@ describe('config-assembly', () => {
         dockerHostPathPrefix: '/host',
       });
 
-      const result = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      const result = callAssembleWith();
 
       expect(result).toBeDefined();
       expect(mockExit).not.toHaveBeenCalled();
@@ -276,13 +261,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -297,13 +276,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -327,13 +300,7 @@ describe('config-assembly', () => {
         config: mockRateLimitConfig,
       });
 
-      const result = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      const result = callAssembleWith();
 
       expect(result.rateLimitConfig).toEqual(mockRateLimitConfig);
       expect(logger.debug).toHaveBeenCalledWith(
@@ -350,13 +317,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -371,13 +332,7 @@ describe('config-assembly', () => {
         envAll: true,
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Using --env-all'),
@@ -392,13 +347,7 @@ describe('config-assembly', () => {
         envFile: '/tmp/test.env',
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(logger.debug).toHaveBeenCalledWith(
         expect.stringContaining('Loading environment variables from file'),
@@ -414,13 +363,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -434,13 +377,7 @@ describe('config-assembly', () => {
         enableHostAccess: true,
       });
 
-      const result = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      const result = callAssembleWith();
 
       expect(result.enableHostAccess).toBe(true);
     });
@@ -454,13 +391,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -477,13 +408,7 @@ describe('config-assembly', () => {
       });
 
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
@@ -587,13 +512,7 @@ describe('config-assembly', () => {
         config: { enabled: false },
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining('API proxy enabled: OpenAI=true, Anthropic=true'),
@@ -611,13 +530,7 @@ describe('config-assembly', () => {
         copilotGithubToken: 'ghp_testtoken',
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
         true, // classic PAT detected
@@ -635,13 +548,7 @@ describe('config-assembly', () => {
         copilotGithubToken: 'ghp_testtoken',
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
         true,
@@ -659,13 +566,7 @@ describe('config-assembly', () => {
         copilotGithubToken: 'ghp_testtoken',
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
         true,
@@ -682,13 +583,7 @@ describe('config-assembly', () => {
 
       // Should not throw
       expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
       }).not.toThrow();
     });
 
@@ -725,13 +620,7 @@ describe('config-assembly', () => {
           copilotGithubToken: 'ghp_testtoken',
         });
 
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
+        callAssembleWith();
 
         expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
           true,
@@ -758,13 +647,7 @@ describe('config-assembly', () => {
         copilotGithubToken: 'ghp_testtoken',
       });
 
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      callAssembleWith();
 
       expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
         true,
@@ -776,13 +659,7 @@ describe('config-assembly', () => {
 
   describe('successful config assembly', () => {
     it('should return assembled config when all validations pass', () => {
-      const config = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
+      const config = callAssembleWith();
 
       expect(config).toBeDefined();
       expect(config.agentCommand).toBe('echo test');
