@@ -15,6 +15,7 @@ describe('doc maintainer workflow optimization config', () => {
     expect(source).toContain("If `false`: call `safeoutputs noop` immediately and stop.");
     expect(source).toContain('Use `/tmp/gh-aw/doc-maintainer-context/recent-diffs.txt` as your **sole source**');
     expect(source).toContain('**Do not run any `git` commands**');
+    expect(source).toContain('Do not expand review scope to `/tmp/gh-aw/doc-maintainer-context/doc-files.txt`.');
     expect(source).toContain("git log --since=\"7 days ago\" --format=\"=== Commit %H: %s ===\" --patch --stat --unified=2 -- src/ containers/ scripts/ docs/ '*.md' | head -200");
     expect(source).toContain("grep -i -F -f \"$TOKENS\" \"$DOC_POOL\" | head -10 > \"$AFFECTED\" || true");
     expect(source).toContain(
@@ -26,6 +27,7 @@ describe('doc maintainer workflow optimization config', () => {
     );
     expect(source).not.toContain('## Edge Cases');
     expect(source).not.toContain('A successful run means:');
+    expect(source).not.toContain('Review the broader list in `/tmp/gh-aw/doc-maintainer-context/doc-files.txt` only when there is a clear link to the recent source changes.');
   });
 
   it('compiles tool disabling into the lock workflow', () => {

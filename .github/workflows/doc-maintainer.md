@@ -161,7 +161,7 @@ Review only the files listed in `/tmp/gh-aw/doc-maintainer-context/affected-docs
 
 ### 3. Review Current Documentation
 
-Start with `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt`. Review the broader list in `/tmp/gh-aw/doc-maintainer-context/doc-files.txt` only when there is a clear link to the recent source changes.
+Review only `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt`. Do not expand review scope to `/tmp/gh-aw/doc-maintainer-context/doc-files.txt`.
 
 ### 4. Verify Code Examples
 
