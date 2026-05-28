@@ -32,18 +32,8 @@ tools:
     - "npm run test"
     - "npm run lint"
     - "cat:src/*.test.ts"
-    - "cat:src/docker-manager.ts"
-    - "cat:src/cli.ts"
-    - "cat:src/host-iptables.ts"
-    - "cat:src/squid-config.ts"
-    - "cat:src/domain-patterns.ts"
-    - "cat:tests/integration/*docker*.test.ts"
-    - "cat:tests/integration/blocked-domains.test.ts"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"
-    - "ls:src"
-    - "ls:tests"
-    - "ls:coverage"
 
 safe-outputs:
   threat-detection:
@@ -73,6 +63,28 @@ steps:
       {
         echo "COVERAGE_MD<<EOF"
         cat COVERAGE_SUMMARY.md 2>/dev/null || echo "(COVERAGE_SUMMARY.md not found)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Select target file and inject content
+    id: target
+    run: |
+      TARGET=$(node -e "
+        const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json','utf8'));
+        const priority = ['src/docker-manager.ts','src/cli.ts','src/host-iptables.ts','src/squid-config.ts','src/domain-patterns.ts'];
+        const low = priority.find(f => d['/github/workspace/'+f]?.statements?.pct < 80);
+        console.log(low || priority[0]);
+      " 2>/dev/null || echo "src/docker-manager.ts")
+      echo "TARGET_FILE=$TARGET" >> "$GITHUB_OUTPUT"
+      {
+        echo "SOURCE_CONTENT<<EOF"
+        cat "$TARGET" 2>/dev/null || echo "(not found)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+      TEST_FILE="src/$(basename ${TARGET%.ts}).test.ts"
+      {
+        echo "TEST_CONTENT<<EOF"
+        cat "$TEST_FILE" 2>/dev/null || echo "(test file does not exist yet)"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 
@@ -107,148 +119,42 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI that provi
 - **Container security** - Capability dropping, seccomp profiles
 - **Domain validation** - Pattern matching and injection prevention
 
-## Guidelines
+## Turn Budget
 
-- **ONE focused PR** - Pick one file or area to improve, don't try to cover everything
-- **Quality over quantity** - Well-designed tests for critical paths are better than many shallow tests
-- **Security focus** - Prioritize tests for security-critical code
-- **Maintain CI** - All existing tests must continue to pass
-- **Document findings** - If you find bugs while testing, note them in the PR description
-- **Target improvement** - Aim for +2-5% coverage improvement per PR
+**Complete this task in ≤ 10 tool calls.** The target file and its current tests are already injected below — do not re-read them. The coverage summary is already provided. Jump directly to writing tests.
 
-## Test Quality Criteria
-
-Good tests should:
-- ✅ Test one specific behavior
-- ✅ Have descriptive names
-- ✅ Include edge cases
-- ✅ Cover error handling
-- ✅ Be deterministic (no flaky tests)
-- ✅ Run quickly (mock external dependencies)
-
-## Do Not
-
-- ❌ Create tests that require Docker to run (use mocks)
-- ❌ Create tests that modify real iptables rules
-- ❌ Submit failing tests
-- ❌ Reduce coverage in any file
-- ❌ Remove or modify existing passing tests
-- ❌ Use `sudo` or the `awf` CLI — you are already running inside the sandbox; run `npm test` directly
+Expected sequence:
+1. Write the new/updated test file (1 call)
+2. `npm run test` (1 call) — fix any failures in ≤ 2 more calls
+3. `npm run lint` (1 call) — fix any issues in ≤ 1 more call
+4. Create PR (1 call)
 
 ## Your Task
 
-### Phase 0: Check for Existing Work
+The target file is pre-selected below. Write Jest unit tests that:
+- Cover uncovered functions and branches identified in the coverage data
+- Use `jest.mock()` for Docker/iptables/fs dependencies — no real Docker or iptables calls
+- Follow the style of existing `src/*.test.ts` files
+- Focus on error-handling paths and edge cases (empty input, malformed domains, failures)
+- Do NOT modify or remove existing passing tests
 
-Before starting, check if there's already an open PR with test coverage improvements:
+Run `npm run test` then `npm run lint`, fix any issues, then open a draft PR titled `[Test Coverage] <target-file>`.
 
-1. Search for open PRs with "[Test Coverage]" in the title
-2. If one exists, **exit early** - do not create duplicate work
-3. Only proceed if no matching open PR exists
+## Target File (pre-selected)
 
-### Phase 1: Review Pre-Computed Coverage
+**File to improve:** `${{ steps.target.outputs.TARGET_FILE }}`
 
-The build, test run, and coverage report have already been executed as pre-steps. Use the pre-computed results below instead of running them again.
+The source file content and existing test file content are injected below. Do not use `cat` tools to re-read them.
 
-> **Context budget:** The pre-steps have provided the coverage artifacts you need.
-> Read at most **1 source file and 1 existing test file** to confirm patterns, then write tests immediately.
-> Do **not** run `npm run test:coverage` or re-read coverage files — the pre-computed data below is authoritative.
-
-**Examine the coverage data** and identify:
-- Files with statement coverage below 80%
-- Functions with 0% coverage
-- Uncovered branch conditions (especially error handling)
-
-**Read existing tests** to understand testing patterns:
-- `src/*.test.ts` - Unit tests
-- `tests/integration/` - Integration tests
-- Check `jest.config.js` for test configuration
-
-### Phase 2: Identify Security-Critical Gaps
-
-Focus on these priority areas:
-
-1. **iptables Management** (`src/host-iptables.ts`)
-   - Rule validation edge cases
-   - Error handling for failed iptables commands
-   - Cleanup on failure scenarios
-   - IPv6 handling
-
-2. **Squid Configuration** (`src/squid-config.ts`)
-   - Domain pattern edge cases (empty, malformed, injection attempts)
-   - Wildcard pattern handling (`*.example.com`, `.example.com`)
-   - Special characters in domain names
-   - Maximum domain length handling
-
-3. **Docker Manager** (`src/docker-manager.ts`)
-   - Container lifecycle (start, stop, cleanup)
-   - Error handling for Docker failures
-   - Log parsing edge cases
-   - Network cleanup scenarios
-
-4. **Domain Patterns** (`src/domain-patterns.ts`)
-   - Pattern matching correctness
-   - Edge cases (empty input, very long domains)
-   - Security-relevant patterns (localhost, internal IPs)
-
-### Phase 3: Write Tests
-
-Create tests that:
-
-1. **Follow existing patterns** - Match the style in `src/*.test.ts`
-2. **Use Jest** - The project uses Jest for testing
-3. **Mock external dependencies** - Use `jest.mock()` for Docker, iptables, etc.
-4. **Test error paths** - Verify error handling works correctly
-5. **Include security tests**:
-    - Injection prevention
-    - Input validation
-    - Privilege handling
-
-> Do **not** run `npm run test` or `npm run lint` until after you have written new tests.
-
-Example test structure:
+### Source: `${{ steps.target.outputs.TARGET_FILE }}`
 ```typescript
-describe('functionName', () => {
-  describe('when given valid input', () => {
-    it('should return expected output', () => {
-      // Test normal case
-    });
-  });
-
-  describe('when given edge case input', () => {
-    it('should handle empty input', () => {
-      // Test edge case
-    });
-  });
-
-  describe('when error occurs', () => {
-    it('should throw appropriate error', () => {
-      // Test error handling
-    });
-  });
-});
+${{ steps.target.outputs.SOURCE_CONTENT }}
 ```
 
-### Phase 4: Validate and Submit
-
-1. **Run all tests** to ensure they pass:
-   ```bash
-   npm run test
-   ```
-
-2. **Run linting** to ensure code quality:
-   ```bash
-   npm run lint
-   ```
-
-3. **Use the pre-computed coverage artifacts** to confirm you targeted the right gap:
-    - Review the `COVERAGE_SUMMARY.md` and low-coverage list below
-    - If you need more detail, use the pre-computed `LOW_COVERAGE` output below (do not rerun coverage analysis)
-
-4. **Create a PR** with:
-    - Clear description of what coverage was improved
-    - Before/after coverage numbers
-    - List of security-critical paths now covered
-    - Any edge cases or error handling added
+### Existing tests (if any)
+```typescript
+${{ steps.target.outputs.TEST_CONTENT }}
+```
 
 ## Current Coverage Status
 
