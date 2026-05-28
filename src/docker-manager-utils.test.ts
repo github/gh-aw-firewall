@@ -4,6 +4,7 @@ import {
   getSafeHostGid,
   getRealUserHome,
   stripScheme,
+  parseDifcProxyHost,
 } from './host-env';
 import {
   validateIdNotInSystemRange,
@@ -18,7 +19,6 @@ import {
   parseGitHubEnvFile,
   readEnvFile,
 } from './github-env';
-import { parseDifcProxyHost } from './host-env';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

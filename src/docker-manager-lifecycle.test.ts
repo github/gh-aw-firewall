@@ -1,7 +1,11 @@
-import { startContainers, runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
+import {
+  startContainers,
+  runAgentCommand,
+  fastKillAgentContainer,
+  containerLifecycleTestHelpers,
+} from './container-lifecycle';
 import { setAwfDockerHost, getLocalDockerEnv } from './docker-host';
 import { stopContainers } from './container-cleanup';
-import { containerLifecycleTestHelpers } from './container-lifecycle';
 import { AGENT_CONTAINER_NAME } from './constants';
 import { logger } from './logger';
 import * as fs from 'fs';
