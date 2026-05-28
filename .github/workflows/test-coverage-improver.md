@@ -72,7 +72,10 @@ steps:
       TARGET=$(node -e "
         const d = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json','utf8'));
         const priority = ['src/docker-manager.ts','src/cli.ts','src/host-iptables.ts','src/squid-config.ts','src/domain-patterns.ts'];
-        const low = priority.find(f => d['/github/workspace/'+f]?.statements?.pct < 80);
+        const low = priority.find(f => {
+          const key = Object.keys(d).find(k => k !== 'total' && k.endsWith('/' + f));
+          return key && d[key]?.statements?.pct < 80;
+        });
         console.log(low || priority[0]);
       " 2>/dev/null || echo "src/docker-manager.ts")
       echo "TARGET_FILE=$TARGET" >> "$GITHUB_OUTPUT"
