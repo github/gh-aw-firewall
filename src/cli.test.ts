@@ -21,8 +21,8 @@ import * as cliModule from './cli';
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
-  copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
+import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
 import { redactSecrets } from './redact-secrets';
 
 const { deriveCopilotApiTargetFromProviderBaseUrl, deriveCopilotApiBasePathFromProviderBaseUrl } =

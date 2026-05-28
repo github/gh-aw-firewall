@@ -1,6 +1,6 @@
 import { mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { HostAccessConfig, setupHostIptables } from './host-iptables';
-import { iptablesSharedTestHelpers } from './host-iptables-shared';
+import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
 describe('host-iptables (host access)', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);

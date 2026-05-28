@@ -1,11 +1,11 @@
 import {
-  hostEnvTestHelpers,
   getSafeHostUid,
   getSafeHostGid,
   getRealUserHome,
   stripScheme,
   parseDifcProxyHost,
 } from './host-env';
+import { hostEnvTestHelpers } from './host-env.test-utils';
 import {
   validateIdNotInSystemRange,
   MIN_REGULAR_UID,
