@@ -84,7 +84,7 @@ steps:
         cat "$TARGET" 2>/dev/null || echo "(not found)"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
-      TEST_FILE="src/$(basename ${TARGET%.ts}).test.ts"
+      TEST_FILE="${TARGET%.ts}.test.ts"
       {
         echo "TEST_CONTENT<<EOF"
         cat "$TEST_FILE" 2>/dev/null || echo "(test file does not exist yet)"
