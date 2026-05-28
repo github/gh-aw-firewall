@@ -352,6 +352,167 @@ describe('runMainWorkflow', () => {
     expect(collectDiagnosticLogs).not.toHaveBeenCalled();
   });
 
+  it('warns but continues when collectDiagnosticLogs throws during startContainers failure', async () => {
+    const startError = new Error('docker compose failed');
+    const diagError = new Error('disk full');
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockRejectedValue(startError),
+      runAgentCommand: jest.fn(),
+      collectDiagnosticLogs: jest.fn().mockRejectedValue(diagError),
+    };
+    const logger = createLogger();
+
+    await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup: jest.fn() })).rejects.toBe(startError);
+
+    expect(logger.warn).toHaveBeenCalledWith('Failed to collect diagnostic logs; continuing with cleanup.', diagError);
+  });
+
+  it('warns but continues when collectDiagnosticLogs throws during post-run collection', async () => {
+    const diagError = new Error('disk full');
+    const configWithDiagnostics: WrapperConfig = {
+      ...baseConfig,
+      diagnosticLogs: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 1 }),
+      collectDiagnosticLogs: jest.fn().mockRejectedValue(diagError),
+    };
+    const logger = createLogger();
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+
+    const exitCode = await runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup });
+
+    expect(exitCode).toBe(1);
+    expect(logger.warn).toHaveBeenCalledWith('Failed to collect diagnostic logs; continuing with cleanup.', diagError);
+    expect(performCleanup).toHaveBeenCalled();
+  });
+
+  it('passes apiProxyIp when enableApiProxy is true', async () => {
+    const configWithApiProxy: WrapperConfig = {
+      ...baseConfig,
+      enableApiProxy: true,
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithApiProxy, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), '172.30.0.30', undefined, undefined, undefined
+    );
+  });
+
+  it('passes undefined apiProxyIp when enableApiProxy is false', async () => {
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+    );
+  });
+
+  it('passes dohProxyIp when dnsOverHttps is enabled', async () => {
+    const configWithDoH: WrapperConfig = {
+      ...baseConfig,
+      dnsOverHttps: 'https://dns.google/dns-query',
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithDoH, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), undefined, '172.30.0.40', undefined, undefined
+    );
+  });
+
+  it('passes undefined dohProxyIp when dnsOverHttps is not set', async () => {
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+    );
+  });
+
+  it('passes cliProxyConfig when difcProxyHost is set', async () => {
+    const configWithDifc: WrapperConfig = {
+      ...baseConfig,
+      difcProxyHost: 'proxy.corp.com:18443',
+    };
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(configWithDifc, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined,
+      { ip: '172.30.0.50', difcProxyPort: 18443 }
+    );
+  });
+
+  it('passes undefined cliProxyConfig when difcProxyHost is not set', async () => {
+    const dependencies: WorkflowDependencies = {
+      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+      setupHostIptables: jest.fn().mockResolvedValue(undefined),
+      writeConfigs: jest.fn().mockResolvedValue(undefined),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+    };
+    const logger = createLogger();
+
+    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+
+    expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+    );
+  });
+
   it('rethrows startContainers error after collecting diagnostics', async () => {
     const startError = new Error('docker compose failed');
     const configWithDiagnostics: WrapperConfig = {
