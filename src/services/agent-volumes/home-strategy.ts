@@ -22,7 +22,7 @@ export function buildHomeMounts(params: HomeMountsParams): string[] {
   return mounts;
 }
 
-export function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
+function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   const { config, effectiveHome, agentLogsPath, sessionStatePath } = params;
   const mounts: string[] = [];
 
