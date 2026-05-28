@@ -135,6 +135,7 @@ The following environment variables are set internally by the firewall and used 
 | `AWF_CHROOT_ENABLED` | Whether chroot mode is enabled | `true` |
 | `AWF_HOST_PATH` | Host PATH passed to chroot environment | `/usr/local/bin:/usr/bin` |
 | `AWF_SESSION_STATE_DIR` | Directory for Copilot CLI session state output (equivalent to `--session-state-dir`) | *(unset)* |
+| `AWF_DIND` | Operator hint that AWF is running in a split runner/daemon (ARC/DinD) filesystem. Set to `1` to trigger the DinD warning when `--docker-host-path-prefix` is missing. See [arc-dind.md](arc-dind.md). | `1` |
 | `NO_PROXY` | Domains bypassing Squid (host access mode) | `localhost,host.docker.internal` |
 
 **Note:** Most of these are set automatically based on CLI options and should not be overridden manually. `AWF_SESSION_STATE_DIR` is an exception — it is the environment-variable equivalent of `--session-state-dir` and can be set by users to configure a predictable session-state output path.
