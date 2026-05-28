@@ -3,7 +3,7 @@ import { parseDomainConfig } from './domain-acl';
 type DomainsByProto = ReturnType<typeof parseDomainConfig>['domainsByProto'];
 type PatternsByProto = ReturnType<typeof parseDomainConfig>['patternsByProto'];
 
-export function generateProtocolRules(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string[] {
+function generateProtocolRules(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string[] {
   const accessRules: string[] = [];
   const hasHttpOnly = domainsByProto.http.length > 0 || patternsByProto.http.length > 0;
   if (hasHttpOnly) {
@@ -32,7 +32,7 @@ export function generateProtocolRules(domainsByProto: DomainsByProto, patternsBy
   return accessRules;
 }
 
-export function generateDenyRule(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string {
+function generateDenyRule(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string {
   const hasBothDomains = domainsByProto.both.length > 0;
   const hasBothPatterns = patternsByProto.both.length > 0;
   const hasHttpOnly = domainsByProto.http.length > 0 || patternsByProto.http.length > 0;
@@ -53,7 +53,7 @@ export function generateDenyRule(domainsByProto: DomainsByProto, patternsByProto
   return 'http_access deny all';
 }
 
-export function generateAccessRulesSection(blockedAccessRules: string[], protocolRules: string[]): string {
+function generateAccessRulesSection(blockedAccessRules: string[], protocolRules: string[]): string {
   const allAccessRules: string[] = [];
 
   if (blockedAccessRules.length > 0) {
@@ -71,4 +71,19 @@ export function generateAccessRulesSection(blockedAccessRules: string[], protoco
   return allAccessRules.length > 0
     ? allAccessRules.join('\n') + '\n'
     : '';
+}
+
+export function generateAccessRules(
+  domainsByProto: DomainsByProto,
+  patternsByProto: PatternsByProto,
+  blockedAccessRules: string[]
+): {
+  accessRulesSection: string;
+  denyRule: string;
+} {
+  const protocolRules = generateProtocolRules(domainsByProto, patternsByProto);
+  return {
+    accessRulesSection: generateAccessRulesSection(blockedAccessRules, protocolRules),
+    denyRule: generateDenyRule(domainsByProto, patternsByProto),
+  };
 }

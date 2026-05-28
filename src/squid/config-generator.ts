@@ -1,9 +1,9 @@
 import type { SquidConfig } from '../types';
 import { parseDomainConfig } from './domain-acl';
 import { generateUpstreamProxySection } from './upstream-proxy';
-import { generateDomainAcls, generateBlockedDomainAcls } from './acl-generator';
-import { generateAccessRulesSection, generateDenyRule, generateProtocolRules } from './access-rules';
-import { generateConfigSections } from './config-sections';
+import { generateAclSections } from './acl-generator';
+import { generateAccessRules } from './access-rules';
+import { buildConfigSections } from './config-sections';
 import { validateApiProxyIp } from './validation';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -37,10 +37,12 @@ export function generateSquidConfig(config: SquidConfig): string {
   validateApiProxyIp(apiProxyIp);
 
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
-  const aclLines = generateDomainAcls(domainsByProto, patternsByProto);
-  const blockedDomainConfig = generateBlockedDomainAcls(blockedDomains);
-  const protocolRules = generateProtocolRules(domainsByProto, patternsByProto);
-  const denyRule = generateDenyRule(domainsByProto, patternsByProto);
+  const { aclLines, blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, blockedDomains);
+  const { accessRulesSection, denyRule } = generateAccessRules(
+    domainsByProto,
+    patternsByProto,
+    blockedDomainConfig.accessRules
+  );
 
   const allAclLines = [...blockedDomainConfig.aclLines];
   if (blockedDomainConfig.aclLines.length > 0 && aclLines.length > 0) {
@@ -49,7 +51,6 @@ export function generateSquidConfig(config: SquidConfig): string {
   allAclLines.push(...aclLines);
 
   const aclSection = allAclLines.length > 0 ? allAclLines.join('\n') : '# No domains configured';
-  const accessRulesSection = generateAccessRulesSection(blockedDomainConfig.accessRules, protocolRules);
   const {
     dlpAclSection,
     dlpAccessSection,
@@ -59,7 +60,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     portAclsAndRules,
     apiProxySection,
     dnsSection,
-  } = generateConfigSections({
+  } = buildConfigSections({
     enableDlp,
     port,
     sslBump,

@@ -4,7 +4,7 @@ import { formatDomainForSquid, parseDomainConfig } from './domain-acl';
 type DomainsByProto = ReturnType<typeof parseDomainConfig>['domainsByProto'];
 type PatternsByProto = ReturnType<typeof parseDomainConfig>['patternsByProto'];
 
-export function generateDomainAcls(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string[] {
+function generateDomainAcls(domainsByProto: DomainsByProto, patternsByProto: PatternsByProto): string[] {
   const aclLines: string[] = [];
 
   if (domainsByProto.both.length > 0) {
@@ -57,7 +57,7 @@ export function generateDomainAcls(domainsByProto: DomainsByProto, patternsByPro
   return aclLines;
 }
 
-export function generateBlockedDomainAcls(blockedDomains?: string[]): {
+function generateBlockedDomainAcls(blockedDomains?: string[]): {
   aclLines: string[];
   accessRules: string[];
 } {
@@ -92,5 +92,22 @@ export function generateBlockedDomainAcls(blockedDomains?: string[]): {
   return {
     aclLines: blockedAclLines,
     accessRules: blockedAccessRules,
+  };
+}
+
+export function generateAclSections(
+  domainsByProto: DomainsByProto,
+  patternsByProto: PatternsByProto,
+  blockedDomains?: string[]
+): {
+  aclLines: string[];
+  blockedDomainConfig: {
+    aclLines: string[];
+    accessRules: string[];
+  };
+} {
+  return {
+    aclLines: generateDomainAcls(domainsByProto, patternsByProto),
+    blockedDomainConfig: generateBlockedDomainAcls(blockedDomains),
   };
 }

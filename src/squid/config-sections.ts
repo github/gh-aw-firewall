@@ -136,7 +136,7 @@ function generateDnsSection(dnsServers?: string[]): string {
   return `dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : DEFAULT_DNS_SERVERS.join(' ')}`;
 }
 
-export function generateConfigSections(options: {
+function generateConfigSections(options: {
   enableDlp?: boolean;
   port: number;
   sslBump?: boolean;
@@ -201,3 +201,5 @@ export function generateConfigSections(options: {
     dnsSection,
   };
 }
+
+export { generateConfigSections as buildConfigSections };
