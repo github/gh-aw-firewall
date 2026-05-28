@@ -6,7 +6,13 @@
  */
 
 const https = require('https');
-const { EventEmitter } = require('events');
+const {
+  makeReq: makeReqFactory,
+  makeRes,
+  makeProxyReq,
+  makeProxyRes,
+  getStructuredLogs,
+} = require('./test-helpers/server-mock-factories');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -34,52 +40,7 @@ afterAll(() => {
 
 describe('proxyRequest anthropic deprecated beta handling', () => {
   function makeReq(headers = {}) {
-    const req = new EventEmitter();
-    req.url = '/v1/messages';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', ...headers };
-    return req;
-  }
-
-  function makeRes() {
-    const res = {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(() => {
-        res.headersSent = true;
-      }),
-      end: jest.fn(),
-      destroy: jest.fn(),
-    };
-    return res;
-  }
-
-  function makeProxyReq() {
-    const proxyReq = new EventEmitter();
-    proxyReq.end = jest.fn();
-    proxyReq.write = jest.fn();
-    proxyReq.destroy = jest.fn();
-    return proxyReq;
-  }
-
-  function makeProxyRes(statusCode, headers = { 'content-type': 'application/json' }) {
-    const proxyRes = new EventEmitter();
-    proxyRes.statusCode = statusCode;
-    proxyRes.headers = headers;
-    proxyRes.pipe = jest.fn();
-    return proxyRes;
-  }
-
-  function getStructuredLogs(writeSpy, eventName) {
-    return writeSpy.mock.calls
-      .map(([line]) => {
-        try {
-          return JSON.parse(line);
-        } catch {
-          return null;
-        }
-      })
-      .filter(entry => entry && entry.event === eventName);
+    return makeReqFactory('/v1/messages', headers);
   }
 
   afterEach(() => {

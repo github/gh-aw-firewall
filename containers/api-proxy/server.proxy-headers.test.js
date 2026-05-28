@@ -5,7 +5,11 @@
  */
 
 const https = require('https');
-const { EventEmitter } = require('events');
+const {
+  makeReq: makeReqFactory,
+  makeRes,
+  makeProxyReq,
+} = require('./test-helpers/server-mock-factories');
 
 const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
@@ -28,21 +32,7 @@ afterAll(() => {
 describe('proxyRequest X-Initiator injection', () => {
   /** Minimal mock for http.IncomingMessage backed by EventEmitter. */
   function makeReq(headers = {}) {
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = { 'content-type': 'application/json', ...headers };
-    return req;
-  }
-
-  /** Minimal mock for http.ServerResponse. */
-  function makeRes() {
-    return {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(),
-      end: jest.fn(),
-    };
+    return makeReqFactory('/v1/chat/completions', headers);
   }
 
   afterEach(() => {
@@ -58,10 +48,7 @@ describe('proxyRequest X-Initiator injection', () => {
     let capturedProxyReq;
     jest.spyOn(https, 'request').mockImplementation((options) => {
       capturedOptions = options;
-      const proxyReq = new EventEmitter();
-      proxyReq.end = jest.fn();
-      proxyReq.write = jest.fn();
-      proxyReq.destroy = jest.fn();
+      const proxyReq = makeProxyReq();
       capturedProxyReq = proxyReq;
       return proxyReq;
     });
