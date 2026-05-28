@@ -1,4 +1,5 @@
-import { writeConfigs, cleanup, collectDiagnosticLogs, preserveIptablesAudit } from './docker-manager';
+import { writeConfigs } from './config-writer';
+import { cleanup, collectDiagnosticLogs, preserveIptablesAudit } from './container-cleanup';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';

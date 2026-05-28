@@ -1,4 +1,6 @@
-import { startContainers, runAgentCommand, fastKillAgentContainer, setAwfDockerHost, stopContainers, getLocalDockerEnv } from './docker-manager';
+import { startContainers, runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
+import { setAwfDockerHost, getLocalDockerEnv } from './docker-host';
+import { stopContainers } from './container-cleanup';
 import { containerLifecycleTestHelpers } from './container-lifecycle';
 import { AGENT_CONTAINER_NAME } from './constants';
 import { logger } from './logger';

@@ -18,7 +18,7 @@ import {
   parseGitHubEnvFile,
   readEnvFile,
 } from './github-env';
-import { parseDifcProxyHost } from './docker-manager';
+import { parseDifcProxyHost } from './host-env';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
