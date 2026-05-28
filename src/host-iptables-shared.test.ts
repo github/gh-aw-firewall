@@ -7,8 +7,8 @@ import {
   getDockerBridgeGateway,
   getNetworkBridgeName,
   isIp6tablesAvailable,
-  iptablesSharedTestHelpers,
 } from './host-iptables-shared';
+import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 import { logger } from './logger';
 
 describe('host-iptables-shared', () => {

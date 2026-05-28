@@ -2,7 +2,7 @@ import { API_PROXY_PORTS } from './types';
 import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { isValidPortSpec } from './host-iptables-rules';
 import { setupHostIptables } from './host-iptables';
-import { iptablesSharedTestHelpers } from './host-iptables-shared';
+import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
 // setupHostIptables intentionally allows the inclusive min:max API proxy port window.
 const apiProxyPortRange = `${Math.min(...Object.values(API_PROXY_PORTS))}:${Math.max(...Object.values(API_PROXY_PORTS))}`;

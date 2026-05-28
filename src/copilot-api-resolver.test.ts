@@ -1,8 +1,8 @@
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
-  copilotApiResolverTestHelpers,
 } from './copilot-api-resolver';
+import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
 
 const {
   deriveCopilotApiTargetFromProviderBaseUrl,

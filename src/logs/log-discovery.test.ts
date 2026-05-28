@@ -8,10 +8,10 @@ import * as os from 'os';
 import {
   discoverLogSources,
   selectMostRecent,
-  logDiscoveryTestHelpers,
   validateSource,
   listLogSources,
 } from './log-discovery';
+import { logDiscoveryTestHelpers } from './log-discovery.test-utils';
 import execa from 'execa';
 import { glob } from 'glob';
 import { LogSource } from '../types';
