@@ -769,6 +769,7 @@ Model fallback is controlled via `apiProxy.modelFallback`:
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable the fallback mechanism |
 | `strategy` | string | `middle_power` | Selection strategy (`middle_power` is currently the only strategy) |
+| `excludeEngines` | string[] | `[]` | Engines for which middle-power fallback is suppressed (e.g. `["openai"]`). Excluded engines receive native model-unavailable errors instead of silent rewrites. |
 
 ### 12.2 Middle-Power Strategy
 
@@ -812,6 +813,11 @@ The fallback is **NOT** activated when:
 - A family version fallback is available (for `gpt-5.*` only)
 - The fallback is disabled (`enabled: false`)
 - An alias has `fallback: false` (see §12.4)
+- The provider is in the `excludeEngines` list
+- Copilot engine in standard mode (no BYOK env vars): the Copilot CLI is
+  authoritative for its own model catalogue, so retired/restricted model names
+  should fail fast with a clear upstream error rather than being silently
+  rewritten to a middle-power fallback
 - Copilot is configured for a BYOK non-`githubcopilot` target (for example Azure
   OpenAI deployment endpoints), where deployment names are provider-local and
   must not be rewritten to catalog model IDs

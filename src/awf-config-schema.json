@@ -100,6 +100,13 @@
                 "middle_power"
               ],
               "description": "Fallback selection strategy. Currently only 'middle_power' is supported."
+            },
+            "excludeEngines": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of engine/provider names for which middle-power fallback is suppressed. Use this to let specific providers handle model-unavailable errors natively instead of rewriting to a fallback model."
             }
           }
         },

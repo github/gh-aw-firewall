@@ -196,14 +196,29 @@ function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
     || (env.COPILOT_PROVIDER_API_KEY || '').trim()
     || (env.COPILOT_API_KEY || '').trim()
   );
+
+  // Standard Copilot (no BYOK hints): suppress fallback because Copilot is
+  // authoritative for its own model catalogue. Rewriting a retired/restricted
+  // model to a middle-power fallback obscures the real error.
   if (!hasByokHints) {
-    return { effective: modelFallback, suppressed: false };
+    return {
+      effective: { ...modelFallback, enabled: false },
+      suppressed: true,
+      suppression_reason: 'copilot_standard_authoritative',
+    };
   }
 
+  // BYOK pointing at a GitHub Copilot catalog target — still suppress because
+  // the catalog is authoritative.
   if (isGithubCopilotCatalogTarget(env.COPILOT_API_TARGET)) {
-    return { effective: modelFallback, suppressed: false };
+    return {
+      effective: { ...modelFallback, enabled: false },
+      suppressed: true,
+      suppression_reason: 'copilot_catalog_target_authoritative',
+    };
   }
 
+  // BYOK pointing at a non-GitHub target (Azure, custom OpenAI, etc.)
   return {
     effective: { ...modelFallback, enabled: false },
     suppressed: true,

@@ -57,8 +57,17 @@ function createUpstreamResponseHandlers({
     logRequest('info', 'request_complete', logFields);
   }
 
-  function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req }) {
-    if (statusCode === 400 || statusCode === 401 || statusCode === 403) {
+  function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req, responseBody }) {
+    if (statusCode === 401 || statusCode === 403) {
+      logRequest('warn', 'upstream_auth_error', {
+        request_id: requestId, provider, status: statusCode,
+        upstream_host: targetHost, path: sanitizeForLog(req.url),
+        message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
+      });
+    } else if (statusCode === 400) {
+      // Suppress generic auth-error message when the 400 is a model-not-supported
+      // error — that case is handled by the model_unavailable diagnostic.
+      if (responseBody && parseModelNotSupportedFromBody(responseBody)) return;
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,
         upstream_host: targetHost, path: sanitizeForLog(req.url),
@@ -142,8 +151,22 @@ function createUpstreamResponseHandlers({
           return;
         }
 
+        // ── (c) Model-unavailable diagnostic (retries exhausted or non-retryable) ───
+        if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
+          logRequest('error', 'model_unavailable', {
+            request_id: requestId,
+            provider,
+            status: proxyRes.statusCode,
+            path: sanitizeForLog(req.url),
+            retries_attempted: modelNotSupportedRetryCount,
+            message: `Model is unavailable or retired — the requested model is not supported by ${provider}. ` +
+              'Check that the model name is correct and not deprecated. ' +
+              'If using model aliases, verify the alias resolves to an available model.',
+          });
+        }
+
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
+        logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
 
         const resHeaders = {
           ...proxyRes.headers,

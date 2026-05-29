@@ -101,7 +101,10 @@ function parseModelFallbackConfig(rawConfig) {
     const strategy = typeof parsed.strategy === 'string' && parsed.strategy.trim()
       ? parsed.strategy.trim()
       : DEFAULT_MODEL_FALLBACK.strategy;
-    return { enabled, strategy };
+    const excludeEngines = Array.isArray(parsed.excludeEngines)
+      ? parsed.excludeEngines.filter(e => typeof e === 'string').map(e => e.toLowerCase())
+      : [];
+    return { enabled, strategy, excludeEngines };
   } catch {
     return { ...DEFAULT_MODEL_FALLBACK };
   }
@@ -126,6 +129,14 @@ logRequest('info', 'startup', {
 });
 
 function getModelFallbackPolicyForProvider(provider) {
+  // Check excludeEngines first — applies to all providers
+  if (MODEL_FALLBACK.excludeEngines && MODEL_FALLBACK.excludeEngines.includes(provider.toLowerCase())) {
+    return {
+      effective: { ...MODEL_FALLBACK, enabled: false },
+      suppressed: true,
+      suppression_reason: 'excluded_by_config',
+    };
+  }
   if (provider !== 'copilot') {
     return { effective: MODEL_FALLBACK, suppressed: false };
   }

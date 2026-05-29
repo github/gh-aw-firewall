@@ -242,9 +242,9 @@ describe('makeModelBodyTransform', () => {
 
       stdoutSpy.mockClear();
       isolatedServer.resetModelCacheState();
-      isolatedServer.cachedModels.copilot = ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'];
+      isolatedServer.cachedModels.openai = ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'];
 
-      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transform = isolatedServer.makeModelBodyTransform('openai');
       const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
       expect(transformed).toBeInstanceOf(Buffer);
 
@@ -267,7 +267,7 @@ describe('makeModelBodyTransform', () => {
   it('emits model_fallback_skipped log when normal resolution succeeds', async () => {
     const prevAliases = process.env.AWF_MODEL_ALIASES;
     const prevFallback = process.env.AWF_MODEL_FALLBACK;
-    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
 
     const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -280,9 +280,9 @@ describe('makeModelBodyTransform', () => {
 
       stdoutSpy.mockClear();
       isolatedServer.resetModelCacheState();
-      isolatedServer.cachedModels.copilot = ['claude-sonnet-4.6', 'claude-haiku-4.5'];
+      isolatedServer.cachedModels.openai = ['claude-sonnet-4.6', 'claude-haiku-4.5'];
 
-      const transform = isolatedServer.makeModelBodyTransform('copilot');
+      const transform = isolatedServer.makeModelBodyTransform('openai');
       const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
       expect(transformed).toBeInstanceOf(Buffer);
 
