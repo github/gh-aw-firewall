@@ -50,7 +50,16 @@ function createOpenAIAdapter(env, deps = {}) {
     basePathEnvVar: 'OPENAI_API_BASE_PATH',
     defaultTarget: 'api.openai.com',
   });
-  const customAuthHeader = (env.AWF_OPENAI_AUTH_HEADER || '').trim() || '';
+  const customAuthHeader = (() => {
+    const header = (env.AWF_OPENAI_AUTH_HEADER || '').trim();
+    if (!header) return '';
+    try {
+      require('http').validateHeaderName(header);
+    } catch {
+      throw new Error('Invalid AWF_OPENAI_AUTH_HEADER value: expected a valid HTTP header name');
+    }
+    return header;
+  })();
   const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
