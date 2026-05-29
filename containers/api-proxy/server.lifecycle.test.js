@@ -565,7 +565,7 @@ describe('provider adapter alwaysBind', () => {
 
     expect(adapter.isEnabled()).toBe(false);
     expect(adapter.getOidcProvider()).not.toBeNull();
-    expect(adapter.getValidationProbe()).toEqual({ skip: true, reason: 'OIDC auth; validation via token acquisition' });
+    expect(adapter.getValidationProbe()).toEqual({ skip: true, reason: 'OIDC auth; token not yet available' });
     expect(adapter.getModelsFetchConfig()).toBeNull();
     expect(adapter.getReflectionInfo().configured).toBe(true);
     expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/anthropic');

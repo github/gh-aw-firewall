@@ -215,6 +215,22 @@
               "type": "string",
               "description": "OAuth2 scope for GCP token. Maps to AWF_AUTH_GCP_SCOPE.",
               "default": "https://www.googleapis.com/auth/cloud-platform"
+            },
+            "anthropicFederationRuleId": {
+              "type": "string",
+              "description": "Anthropic federation rule ID (e.g. fdrl_...). Required when provider is 'anthropic'. Maps to AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID."
+            },
+            "anthropicOrganizationId": {
+              "type": "string",
+              "description": "Anthropic organization UUID. Required when provider is 'anthropic'. Maps to AWF_AUTH_ANTHROPIC_ORGANIZATION_ID."
+            },
+            "anthropicServiceAccountId": {
+              "type": "string",
+              "description": "Anthropic service account ID (e.g. svac_...). Required when provider is 'anthropic'. Maps to AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID."
+            },
+            "anthropicWorkspaceId": {
+              "type": "string",
+              "description": "Anthropic workspace ID. Required when the federation rule covers multiple workspaces. Maps to AWF_AUTH_ANTHROPIC_WORKSPACE_ID."
             }
           },
           "required": [
@@ -263,7 +279,13 @@
                   "provider"
                 ]
               },
-              "then": {},
+              "then": {
+                "required": [
+                  "anthropicFederationRuleId",
+                  "anthropicOrganizationId",
+                  "anthropicServiceAccountId"
+                ]
+              },
               "else": {
                 "required": [
                   "azureTenantId",

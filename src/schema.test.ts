@@ -304,6 +304,39 @@ describe('awf-config.schema.json', () => {
           auth: {
             type: 'github-oidc',
             provider: 'anthropic',
+            anthropicFederationRuleId: 'fdrl_abc123',
+            anthropicOrganizationId: 'org-uuid-abc',
+            anthropicServiceAccountId: 'svac_abc123',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects apiProxy.auth anthropic without required fields', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'anthropic',
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('accepts apiProxy.auth anthropic with optional workspaceId', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'anthropic',
+            anthropicFederationRuleId: 'fdrl_abc123',
+            anthropicOrganizationId: 'org-uuid-abc',
+            anthropicServiceAccountId: 'svac_abc123',
+            anthropicWorkspaceId: 'ws_abc123',
           },
         },
       })

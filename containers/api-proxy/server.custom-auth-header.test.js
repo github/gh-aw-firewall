@@ -65,6 +65,9 @@ describe('createAnthropicAdapter — custom auth header', () => {
       AWF_AUTH_PROVIDER: 'anthropic',
       ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID: 'fdrl_test',
+      AWF_AUTH_ANTHROPIC_ORGANIZATION_ID: 'org-uuid-test',
+      AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: 'svac_test',
     });
 
     const provider = adapter.getOidcProvider();
