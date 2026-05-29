@@ -171,6 +171,23 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toEqual([]);
   });
 
+  it('accepts authHeader on openai and anthropic targets', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: {
+        openai: { host: 'azure-openai.internal', authHeader: 'api-key' },
+        anthropic: { host: 'anthropic-gw.internal', authHeader: 'api-key' },
+      } },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects non-string authHeader', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { openai: { authHeader: 123 } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.openai.authHeader must be a string');
+  });
+
   it('rejects non-object security', () => {
     const errors = validateAwfFileConfig({ security: 'invalid' });
     expect(errors).toContain('config.security must be an object');

@@ -510,6 +510,10 @@
         "basePath": {
           "type": "string",
           "description": "Override the provider API base path."
+        },
+        "authHeader": {
+          "type": "string",
+          "description": "Override the auth header name used for API requests. For OpenAI, replaces 'Authorization: Bearer <key>' with '<authHeader>: <key>' (raw key, no Bearer prefix). For Anthropic, replaces 'x-api-key'. Not applicable to Copilot or Gemini."
         }
       }
     },

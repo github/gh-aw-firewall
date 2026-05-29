@@ -25,8 +25,8 @@ interface AwfFileConfig {
       strategy?: 'middle_power';
     };
     targets?: {
-      openai?: { host?: string; basePath?: string };
-      anthropic?: { host?: string; basePath?: string };
+      openai?: { host?: string; basePath?: string; authHeader?: string };
+      anthropic?: { host?: string; basePath?: string; authHeader?: string };
       copilot?: { host?: string; basePath?: string };
       gemini?: { host?: string; basePath?: string };
       antigravity?: { host?: string; basePath?: string };
@@ -182,8 +182,10 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     modelFallback: config.apiProxy?.modelFallback,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
+    openaiApiAuthHeader: config.apiProxy?.targets?.openai?.authHeader,
     anthropicApiTarget: config.apiProxy?.targets?.anthropic?.host,
     anthropicApiBasePath: config.apiProxy?.targets?.anthropic?.basePath,
+    anthropicApiAuthHeader: config.apiProxy?.targets?.anthropic?.authHeader,
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
     geminiApiTarget: antigravityTargetConfig?.host ?? geminiTargetConfig?.host,
     geminiApiBasePath: antigravityTargetConfig?.basePath ?? geminiTargetConfig?.basePath,

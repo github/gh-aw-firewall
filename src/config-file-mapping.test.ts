@@ -50,6 +50,34 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.geminiApiBasePath).toBe('/v1beta');
   });
 
+  it('maps authHeader fields for openai and anthropic targets', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        targets: {
+          openai: { host: 'azure-openai.internal', authHeader: 'api-key' },
+          anthropic: { host: 'anthropic-gw.internal', authHeader: 'api-key' },
+        },
+      },
+    });
+
+    expect(result.openaiApiAuthHeader).toBe('api-key');
+    expect(result.anthropicApiAuthHeader).toBe('api-key');
+  });
+
+  it('leaves authHeader undefined when not set', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        targets: {
+          openai: { host: 'api.openai.com' },
+          anthropic: { host: 'api.anthropic.com' },
+        },
+      },
+    });
+
+    expect(result.openaiApiAuthHeader).toBeUndefined();
+    expect(result.anthropicApiAuthHeader).toBeUndefined();
+  });
+
   it('maps antigravity target fields to existing gemini runtime options', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
