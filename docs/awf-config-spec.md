@@ -101,6 +101,7 @@ the corresponding CLI flag.
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
+- `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.logging.debugTokens` → *(config-only; maps to `AWF_DEBUG_TOKENS`)*
@@ -882,6 +883,38 @@ response:
 
 The `/reflect` endpoint does not include fallback state by design (it is static
 per run).
+
+### 12.6 Pre-Startup Model Validation
+
+When `apiProxy.requestedModel` is configured, the API proxy validates at startup
+that the specified model is available in at least one provider's model catalogue.
+
+**Configuration:**
+
+```json
+{
+  "apiProxy": {
+    "requestedModel": "gpt-4o"
+  }
+}
+```
+
+**Mapping:** `apiProxy.requestedModel` → `AWF_REQUESTED_MODEL` *(config-only; set by AWF CLI)*
+
+**Behavior:**
+
+1. After `fetchStartupModels()` completes, the proxy checks `AWF_REQUESTED_MODEL`
+   against all cached provider model lists.
+2. If the model is found directly or resolves via model aliases, a confirmation
+   `model_validation` log is emitted.
+3. If the model is NOT found, a `model_unavailable_at_startup` error log is
+   emitted listing available models as a diagnostic aid.
+4. Validation is **non-blocking** — the proxy continues serving requests regardless
+   of the outcome, so agents that ignore the model hint are not affected.
+
+This enables workflow authors to get clear, early feedback when a retired or
+misspelled model is specified, rather than waiting for the first API request to
+fail with an opaque error.
 
 ## 13. Model Alias Logging
 

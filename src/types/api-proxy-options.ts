@@ -338,6 +338,21 @@ export interface ApiProxyOptions {
   modelAliases?: Record<string, string[]>;
 
   /**
+   * Expected model name for pre-startup validation.
+   *
+   * When set, the API proxy validates at startup that this model is available
+   * in at least one configured provider's model catalogue. If the model is not
+   * found (retired, restricted, or misspelled), a clear `model_unavailable_at_startup`
+   * diagnostic is emitted. This does not block proxy startup.
+   *
+   * - Config: `apiProxy.requestedModel`
+   * - Environment variable: `AWF_REQUESTED_MODEL` (internal; set by AWF CLI)
+   *
+   * @example 'gpt-4o'
+   */
+  requestedModel?: string;
+
+  /**
    * Enable detailed token and model-alias diagnostic logging.
    *
    * When true, the API proxy writes diagnostic events to `token-diag.jsonl`

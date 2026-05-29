@@ -484,6 +484,66 @@ async function fetchStartupModels(adapters = []) {
   modelFetchComplete = true;
 }
 
+/**
+ * After model fetch, validate that the requested model (if specified via
+ * AWF_REQUESTED_MODEL) is available in the cached model list.
+ * Emits a clear diagnostic log if the model is not found.
+ */
+function validateRequestedModel() {
+  const requestedModel = (process.env.AWF_REQUESTED_MODEL || '').trim();
+  if (!requestedModel) return;
+
+  // Collect all known models across providers
+  const allModels = [];
+  for (const models of Object.values(cachedModels)) {
+    if (Array.isArray(models)) allModels.push(...models);
+  }
+
+  if (allModels.length === 0) {
+    // No models fetched — cannot validate
+    logRequest('warn', 'model_validation_skipped', {
+      requested_model: requestedModel,
+      message: 'Cannot validate requested model — no model lists available from providers',
+    });
+    return;
+  }
+
+  // Check if the model or any alias of it resolves to an available model
+  const normalizedRequested = requestedModel.toLowerCase();
+  const found = allModels.some(m => m.toLowerCase() === normalizedRequested);
+
+  // Also check through model aliases — try resolution across all providers
+  let aliasResolved = false;
+  if (!found && MODEL_ALIASES) {
+    const { resolveModel } = require('./model-resolver');
+    for (const provider of Object.keys(cachedModels)) {
+      const result = resolveModel(requestedModel, MODEL_ALIASES.models, cachedModels, provider);
+      if (result) {
+        aliasResolved = true;
+        break;
+      }
+    }
+  }
+
+  if (!found && !aliasResolved) {
+    const availableModels = allModels.slice(0, 20).join(', ');
+    const truncated = allModels.length > 20 ? ` (and ${allModels.length - 20} more)` : '';
+    logRequest('error', 'model_unavailable_at_startup', {
+      requested_model: requestedModel,
+      available_count: allModels.length,
+      message: `Requested model '${requestedModel}' is not available in any configured provider's model list. ` +
+        `This typically means the model is retired, restricted, or misspelled. ` +
+        `Available models: ${availableModels}${truncated}`,
+    });
+  } else {
+    logRequest('info', 'model_validation', {
+      requested_model: requestedModel,
+      resolved_via: aliasResolved ? 'alias' : 'direct',
+      message: `Requested model '${requestedModel}' is available`,
+    });
+  }
+}
+
 // ── Generic provider server factory ──────────────────────────────────────────
 /**
  * Create a health-check request handler for a provider adapter.
@@ -689,6 +749,7 @@ if (require.main === module) {
         });
         fetchStartupModels(adaptersToStart).then(() => {
           writeModelsJson();
+          validateRequestedModel();
         }).catch((err) => {
           logRequest('error', 'model_fetch_error', { message: 'Unexpected error fetching startup models', error: String(err) });
           modelFetchComplete = true;
@@ -744,6 +805,7 @@ module.exports = {
   probeProvider,
   httpProbe,
   fetchStartupModels,
+  validateRequestedModel,
   // State
   keyValidationResults,
   resetKeyValidationState,
