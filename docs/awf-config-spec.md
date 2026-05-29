@@ -802,6 +802,9 @@ The fallback is **NOT** activated when:
 - A family version fallback is available (for `gpt-5.*` only)
 - The fallback is disabled (`enabled: false`)
 - An alias has `fallback: false` (see §12.4)
+- Copilot is configured for a BYOK non-`githubcopilot` target (for example Azure
+  OpenAI deployment endpoints), where deployment names are provider-local and
+  must not be rewritten to catalog model IDs
 
 ### 12.4 Extended Alias Syntax
 

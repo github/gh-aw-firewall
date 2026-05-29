@@ -54,8 +54,8 @@ const {
   buildUpstreamPath,
   shouldStripHeader,
   composeBodyTransforms,
-  normalizeApiTarget,
 } = require('./proxy-utils');
+const { getCopilotModelFallbackPolicy } = require('./providers/copilot');
 
 // ── Optional modules (graceful degradation when not bundled) ─────────────────
 let closeLogStream;
@@ -125,6 +125,30 @@ logRequest('info', 'startup', {
   model_fallback: MODEL_FALLBACK,
 });
 
+function getModelFallbackPolicyForProvider(provider) {
+  if (provider !== 'copilot') {
+    return { effective: MODEL_FALLBACK, suppressed: false };
+  }
+  return getCopilotModelFallbackPolicy(MODEL_FALLBACK, process.env);
+}
+
+function getModelFallbackForProvider(provider) {
+  return getModelFallbackPolicyForProvider(provider).effective;
+}
+
+function getEffectiveModelFallbackForReflect() {
+  const effectiveByProvider = {};
+  for (const adapter of registeredAdapters) {
+    const policy = getModelFallbackPolicyForProvider(adapter.name);
+    effectiveByProvider[adapter.name] = {
+      ...policy.effective,
+      suppressed: policy.suppressed,
+      ...(policy.suppression_reason ? { suppression_reason: policy.suppression_reason } : {}),
+    };
+  }
+  return effectiveByProvider;
+}
+
 /**
  * Build a body-transform function for a given provider that rewrites the
  * "model" field in JSON request bodies using the configured alias map.
@@ -136,16 +160,17 @@ logRequest('info', 'startup', {
  */
 function makeModelBodyTransform(provider) {
   if (!MODEL_ALIASES) return null;
+  const providerModelFallback = getModelFallbackForProvider(provider);
   return async (body) => {
-    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
     if (!result || (result.fallback && result.fallback.activated)) {
       await refreshProviderModelsForResolution(provider);
-      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, MODEL_FALLBACK);
+      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
     }
     if (!result) return null;
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
     const resolvedModel = sanitizeForLog(result.resolvedModel);
-    if (MODEL_FALLBACK.enabled && result.fallback) {
+    if (providerModelFallback.enabled && result.fallback) {
       if (result.fallback.activated) {
         logRequest('warn', 'model_fallback_activated', {
           provider,
@@ -281,6 +306,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
     return { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) };
   },
   getModelFallback:      () => MODEL_FALLBACK,
+  getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getMaxRunsUsage:       () => getMaxRunsReflectState(),
 });

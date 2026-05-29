@@ -401,6 +401,10 @@ When a model request is not found:
    - Selects the middle model from this sorted list
    - Logs the fallback reason and full candidate list
 
+For Copilot BYOK configurations that target non-`githubcopilot` endpoints (for
+example Azure OpenAI deployment URLs), middle-power fallback is automatically
+suppressed to avoid rewriting provider-specific deployment names.
+
 **Example:**
 ```
 Agent requests: "unknown-model" on Anthropic

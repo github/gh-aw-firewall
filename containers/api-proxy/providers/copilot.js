@@ -176,6 +176,41 @@ function deriveGitHubApiBasePath(env = process.env) {
   }
 }
 
+function isGithubCopilotCatalogTarget(rawTarget) {
+  const target = normalizeApiTarget(rawTarget);
+  if (!target) return true;
+  return target === 'api.githubcopilot.com'
+    || target === 'api.enterprise.githubcopilot.com'
+    || target.endsWith('.githubcopilot.com')
+    || target.endsWith('.ghe.com');
+}
+
+function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
+  if (!modelFallback.enabled) {
+    return { effective: modelFallback, suppressed: false };
+  }
+
+  const hasByokHints = Boolean(
+    (env.COPILOT_PROVIDER_TYPE || '').trim()
+    || (env.COPILOT_PROVIDER_BASE_URL || '').trim()
+    || (env.COPILOT_PROVIDER_API_KEY || '').trim()
+    || (env.COPILOT_API_KEY || '').trim()
+  );
+  if (!hasByokHints) {
+    return { effective: modelFallback, suppressed: false };
+  }
+
+  if (isGithubCopilotCatalogTarget(env.COPILOT_API_TARGET)) {
+    return { effective: modelFallback, suppressed: false };
+  }
+
+  return {
+    effective: { ...modelFallback, enabled: false },
+    suppressed: true,
+    suppression_reason: 'copilot_byok_non_githubcopilot_target',
+  };
+}
+
 /**
  * Create the GitHub Copilot provider adapter.
  *
@@ -360,6 +395,7 @@ function createCopilotAdapter(env, deps = {}) {
 
 module.exports = {
   createCopilotAdapter,
+  getCopilotModelFallbackPolicy,
   // Exported for unit-test access only; not part of the public API.
   _testing: {
     resolveCopilotAuthToken,
@@ -368,6 +404,7 @@ module.exports = {
     deriveCopilotApiTarget,
     deriveGitHubApiTarget,
     deriveGitHubApiBasePath,
+    isGithubCopilotCatalogTarget,
     COPILOT_PLACEHOLDER_TOKEN,
     COPILOT_DUMMY_BYOK_KEY,
   },
