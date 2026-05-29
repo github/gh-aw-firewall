@@ -818,6 +818,9 @@ The fallback is **NOT** activated when:
   authoritative for its own model catalogue, so retired/restricted model names
   should fail fast with a clear upstream error rather than being silently
   rewritten to a middle-power fallback
+- Copilot BYOK that still targets a GitHub Copilot catalog host (for example
+  `api.githubcopilot.com`): the catalog remains authoritative, so fallback is
+  still suppressed
 - Copilot is configured for a BYOK non-`githubcopilot` target (for example Azure
   OpenAI deployment endpoints), where deployment names are provider-local and
   must not be rewritten to catalog model IDs

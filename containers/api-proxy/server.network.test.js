@@ -397,12 +397,13 @@ describe('reflectEndpoints', () => {
     expect(result.model_fallback).toEqual({
       enabled: true,
       strategy: 'middle_power',
+      excludeEngines: [],
     });
     expect(result.model_fallback_effective).toEqual({
-      openai: { enabled: true, strategy: 'middle_power', suppressed: false },
-      anthropic: { enabled: true, strategy: 'middle_power', suppressed: false },
-      copilot: { enabled: false, strategy: 'middle_power', suppressed: true, suppression_reason: 'copilot_standard_authoritative' },
-      gemini: { enabled: true, strategy: 'middle_power', suppressed: false },
+      openai: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
+      anthropic: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
+      copilot: { enabled: false, strategy: 'middle_power', excludeEngines: [], suppressed: true, suppression_reason: 'copilot_standard_authoritative' },
+      gemini: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
     });
   });
 
@@ -424,10 +425,11 @@ describe('reflectEndpoints', () => {
       });
 
       const reflect = isolatedServer.reflectEndpoints();
-      expect(reflect.model_fallback).toEqual({ enabled: true, strategy: 'middle_power' });
+      expect(reflect.model_fallback).toEqual({ enabled: true, strategy: 'middle_power', excludeEngines: [] });
       expect(reflect.model_fallback_effective.copilot).toEqual({
         enabled: false,
         strategy: 'middle_power',
+        excludeEngines: [],
         suppressed: true,
         suppression_reason: 'copilot_byok_non_githubcopilot_target',
       });
@@ -444,14 +446,36 @@ describe('reflectEndpoints', () => {
   });
 
   it('should suppress fallback for standard Copilot (no BYOK hints)', () => {
-    // Default test environment has no BYOK env vars set — standard Copilot
-    const result = reflectEndpoints();
-    expect(result.model_fallback_effective.copilot).toEqual({
-      enabled: false,
-      strategy: 'middle_power',
-      suppressed: true,
-      suppression_reason: 'copilot_standard_authoritative',
-    });
+    const hintVars = [
+      'COPILOT_PROVIDER_TYPE',
+      'COPILOT_PROVIDER_BASE_URL',
+      'COPILOT_PROVIDER_API_KEY',
+      'COPILOT_API_KEY',
+      'COPILOT_API_TARGET',
+    ];
+    const prevValues = Object.fromEntries(hintVars.map(name => [name, process.env[name]]));
+    for (const name of hintVars) delete process.env[name];
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      const result = isolatedServer.reflectEndpoints();
+      expect(result.model_fallback_effective.copilot).toEqual({
+        enabled: false,
+        strategy: 'middle_power',
+        excludeEngines: [],
+        suppressed: true,
+        suppression_reason: 'copilot_standard_authoritative',
+      });
+    } finally {
+      for (const [name, value] of Object.entries(prevValues)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 
   it('should suppress fallback for engines in excludeEngines config', () => {
@@ -459,7 +483,7 @@ describe('reflectEndpoints', () => {
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({
       enabled: true,
       strategy: 'middle_power',
-      excludeEngines: ['openai', 'anthropic'],
+      excludeEngines: [' OpenAI ', 'anthropic', 'OPENAI', '   '],
     });
 
     try {
