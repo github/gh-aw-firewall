@@ -24,16 +24,32 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
    */
   constructor(config) {
     super('anthropic_oidc', config);
+
+    if (!config.federationRuleId) {
+      throw new Error('AnthropicOidcTokenProvider requires federationRuleId');
+    }
+    if (!config.organizationId) {
+      throw new Error('AnthropicOidcTokenProvider requires organizationId');
+    }
+    if (!config.serviceAccountId) {
+      throw new Error('AnthropicOidcTokenProvider requires serviceAccountId');
+    }
+
     this._requestUrl = config.requestUrl;
     this._requestToken = config.requestToken;
     this._federationRuleId = config.federationRuleId;
     this._organizationId = config.organizationId;
     this._serviceAccountId = config.serviceAccountId;
-    this._workspaceId = config.workspaceId;
+    // Normalize empty strings to undefined so workspace_id is never sent as ""
+    const ws = config.workspaceId != null ? config.workspaceId.trim() : undefined;
+    this._workspaceId = ws || undefined;
     this._oidcAudience = config.oidcAudience || 'https://api.anthropic.com';
 
     /** @type {string|null} */
     this._cachedToken = null;
+
+    // Stored as instance method so tests can spy/stub without module-level mocking
+    this._httpPost = httpPost;
   }
 
   /**
@@ -53,7 +69,7 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
       body.workspace_id = this._workspaceId;
     }
 
-    const response = await httpPost(
+    const response = await this._httpPost(
       'https://api.anthropic.com/v1/oauth/token',
       JSON.stringify(body),
       {

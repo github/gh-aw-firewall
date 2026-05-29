@@ -204,6 +204,11 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
         'AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER',
         'AWF_AUTH_GCP_SERVICE_ACCOUNT',
         'AWF_AUTH_GCP_SCOPE',
+        // Anthropic
+        'AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID',
+        'AWF_AUTH_ANTHROPIC_ORGANIZATION_ID',
+        'AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID',
+        'AWF_AUTH_ANTHROPIC_WORKSPACE_ID',
       ),
       // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
       ...(normalizedAuthType === 'github-oidc' && pickEnvVars(

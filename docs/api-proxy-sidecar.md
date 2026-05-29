@@ -811,7 +811,7 @@ jobs:
           AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
           # AWF_AUTH_ANTHROPIC_WORKSPACE_ID: wrkspc_...  # required for multi-workspace rules
         run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID \
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID,AWF_AUTH_ANTHROPIC_WORKSPACE_ID \
             awf --enable-api-proxy \
                 --allow-domains api.anthropic.com \
                 -- your-agent-command
