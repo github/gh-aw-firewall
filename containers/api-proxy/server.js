@@ -512,12 +512,14 @@ function validateRequestedModel() {
   const normalizedRequested = requestedModel.toLowerCase();
   const found = allModels.some(m => m.toLowerCase() === normalizedRequested);
 
-  // Also check through model aliases — try resolution across all providers
+  // Also check through model aliases — try resolution across all providers.
+  // Disable fallback so that middle-power fallback does not produce a non-null
+  // result for a model that does not actually exist in any provider catalogue.
   let aliasResolved = false;
   if (!found && MODEL_ALIASES) {
     const { resolveModel } = require('./model-resolver');
     for (const provider of Object.keys(cachedModels)) {
-      const result = resolveModel(requestedModel, MODEL_ALIASES.models, cachedModels, provider);
+      const result = resolveModel(requestedModel, MODEL_ALIASES.models, cachedModels, provider, [], { enabled: false });
       if (result) {
         aliasResolved = true;
         break;

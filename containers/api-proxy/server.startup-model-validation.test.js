@@ -96,4 +96,63 @@ describe('validateRequestedModel', () => {
     expect(message).toContain('gpt-4o');
     expect(message).toContain('retired, restricted, or misspelled');
   });
+
+  it('resolves AWF_REQUESTED_MODEL via model alias and logs resolved_via alias', () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+
+    let isolatedServer;
+    jest.isolateModules(() => {
+      jest.mock('./logging', () => ({ logRequest: jest.fn() }));
+      isolatedServer = require('./server');
+    });
+
+    const { logRequest: isolatedLog } = require('./logging');
+
+    try {
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.copilot = ['claude-sonnet-4-5', 'gpt-4o'];
+      process.env.AWF_REQUESTED_MODEL = 'sonnet';
+      isolatedServer.validateRequestedModel();
+      expect(isolatedLog).toHaveBeenCalledWith('info', 'model_validation', expect.objectContaining({
+        requested_model: 'sonnet',
+        resolved_via: 'alias',
+      }));
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+    }
+  });
+
+  it('does not emit model_validation via alias when fallback would fire but model is absent', () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+    process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+
+    let isolatedServer;
+    jest.isolateModules(() => {
+      jest.mock('./logging', () => ({ logRequest: jest.fn() }));
+      isolatedServer = require('./server');
+    });
+
+    const { logRequest: isolatedLog } = require('./logging');
+
+    try {
+      isolatedServer.resetModelCacheState();
+      // No models matching the alias pattern — only a non-matching model is present
+      isolatedServer.cachedModels.copilot = ['gpt-4o'];
+      process.env.AWF_REQUESTED_MODEL = 'sonnet';
+      isolatedServer.validateRequestedModel();
+      // middle-power fallback is disabled during validation, so model_unavailable_at_startup is expected
+      expect(isolatedLog).toHaveBeenCalledWith('error', 'model_unavailable_at_startup', expect.objectContaining({
+        requested_model: 'sonnet',
+      }));
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
+      else process.env.AWF_MODEL_FALLBACK = prevFallback;
+    }
+  });
 });
