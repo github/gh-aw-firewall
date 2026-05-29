@@ -47,7 +47,15 @@ function createAnthropicAdapter(env, deps = {}) {
     basePathEnvVar: 'ANTHROPIC_API_BASE_PATH',
     defaultTarget: 'api.anthropic.com',
   });
-  const authHeaderName = (env.AWF_ANTHROPIC_AUTH_HEADER || '').trim() || 'x-api-key';
+  const authHeaderName = (() => {
+    const header = (env.AWF_ANTHROPIC_AUTH_HEADER || '').trim() || 'x-api-key';
+    try {
+      require('http').validateHeaderName(header);
+    } catch {
+      throw new Error('Invalid AWF_ANTHROPIC_AUTH_HEADER value: expected a valid HTTP header name');
+    }
+    return header;
+  })();
   const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
   const oidcRequested = authType === 'github-oidc' && authProvider === 'anthropic';
