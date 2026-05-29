@@ -121,17 +121,34 @@ function createAnthropicAdapter(env, deps = {}) {
     validationPath: '/v1/messages',
     validationMethod: 'POST',
     validationBody: '{}',
-    validationHeaders: () => ({
-      [authHeaderName]: apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    }),
-    validationSkip: () => (oidcConfigured
-      ? { skip: true, reason: 'OIDC auth; validation via token acquisition' }
-      : null),
-    skipModelsFetch: () => oidcConfigured,
+    validationHeaders: () => {
+      if (oidcProvider && oidcProvider.isReady()) {
+        return {
+          'Authorization': `Bearer ${oidcProvider.getToken()}`,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        };
+      }
+      return {
+        [authHeaderName]: apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      };
+    },
+    validationSkip: () => {
+      if (!oidcConfigured) return null;
+      // After OIDC init, validate using the acquired token
+      if (oidcProvider.isReady()) return null;
+      return { skip: true, reason: 'OIDC auth; token not yet available' };
+    },
+    skipModelsFetch: () => oidcConfigured && !oidcProvider?.isReady(),
     modelsPath: '/v1/models',
-    modelsFetchHeaders: () => ({ [authHeaderName]: apiKey, 'anthropic-version': '2023-06-01' }),
+    modelsFetchHeaders: () => {
+      if (oidcProvider && oidcProvider.isReady()) {
+        return { 'Authorization': `Bearer ${oidcProvider.getToken()}`, 'anthropic-version': '2023-06-01' };
+      }
+      return { [authHeaderName]: apiKey, 'anthropic-version': '2023-06-01' };
+    },
     reflectionConfigured: !!apiKey || oidcRequested,
     reflectionExtra: () => ({
       auth_type: oidcRequested ? 'github-oidc/anthropic' : 'static-key',

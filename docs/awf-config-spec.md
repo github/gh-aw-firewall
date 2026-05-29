@@ -118,6 +118,10 @@ the corresponding CLI flag.
 - `apiProxy.auth.gcpWorkloadIdentityProvider` → *(config-only; maps to `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`)*
 - `apiProxy.auth.gcpServiceAccount` → *(config-only; maps to `AWF_AUTH_GCP_SERVICE_ACCOUNT`)*
 - `apiProxy.auth.gcpScope` → *(config-only; maps to `AWF_AUTH_GCP_SCOPE`)*
+- `apiProxy.auth.anthropicFederationRuleId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`)*
+- `apiProxy.auth.anthropicOrganizationId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`)*
+- `apiProxy.auth.anthropicServiceAccountId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`)*
+- `apiProxy.auth.anthropicWorkspaceId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_WORKSPACE_ID`)*
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below)*
 - `apiProxy.targets.antigravity.host` → `--gemini-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
