@@ -112,7 +112,6 @@ describe('AnthropicOidcTokenProvider', () => {
     });
 
     // Override _exchangeForAnthropicToken to point at the local mock
-    const origExchange = provider._exchangeForAnthropicToken.bind(provider);
     provider._exchangeForAnthropicToken = async (jwt) => {
       const response = await httpPost(
         `http://127.0.0.1:${wifPort}/v1/oauth/token`,
