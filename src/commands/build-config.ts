@@ -125,6 +125,10 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.anthropicApiTarget as string | undefined) || process.env.ANTHROPIC_API_TARGET,
     anthropicApiBasePath:
       (options.anthropicApiBasePath as string | undefined) || process.env.ANTHROPIC_API_BASE_PATH,
+    openaiApiAuthHeader:
+      (options.openaiApiAuthHeader as string | undefined) || process.env.AWF_OPENAI_AUTH_HEADER,
+    anthropicApiAuthHeader:
+      (options.anthropicApiAuthHeader as string | undefined) || process.env.AWF_ANTHROPIC_AUTH_HEADER,
     geminiApiTarget:
       (options.geminiApiTarget as string | undefined) || process.env.GEMINI_API_TARGET,
     geminiApiBasePath:

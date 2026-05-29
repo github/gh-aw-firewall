@@ -683,4 +683,38 @@ describe('API proxy sidecar: env var forwarding', () => {
         const env = proxy.environment as Record<string, string>;
         expect(env.GEMINI_API_BASE_PATH).toBeUndefined();
       });
+
+      // ─── Custom auth headers ───
+
+      it('should set AWF_OPENAI_AUTH_HEADER when openaiApiAuthHeader is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiAuthHeader: 'api-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_OPENAI_AUTH_HEADER).toBe('api-key');
+      });
+
+      it('should not set AWF_OPENAI_AUTH_HEADER when openaiApiAuthHeader is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_OPENAI_AUTH_HEADER).toBeUndefined();
+      });
+
+      it('should set AWF_ANTHROPIC_AUTH_HEADER when anthropicApiAuthHeader is provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test', anthropicApiAuthHeader: 'api-key' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_ANTHROPIC_AUTH_HEADER).toBe('api-key');
+      });
+
+      it('should not set AWF_ANTHROPIC_AUTH_HEADER when anthropicApiAuthHeader is not provided', () => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test' };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_ANTHROPIC_AUTH_HEADER).toBeUndefined();
+      });
 });

@@ -217,6 +217,9 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
         'AWF_ANTHROPIC_DROP_TOOLS',
         'AWF_ANTHROPIC_STRIP_ANSI',
       ),
+      // Custom auth header names for internal AI gateways
+      ...(config.openaiApiAuthHeader && { AWF_OPENAI_AUTH_HEADER: config.openaiApiAuthHeader }),
+      ...(config.anthropicApiAuthHeader && { AWF_ANTHROPIC_AUTH_HEADER: config.anthropicApiAuthHeader }),
       // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
       // The api-proxy container holds live API credentials; loading arbitrary host-side JS
       // files into it would create an arbitrary-code-execution risk.  If you need a custom

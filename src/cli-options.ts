@@ -287,6 +287,14 @@ program
     'Base path prefix for Anthropic API requests (e.g. /anthropic)',
   )
   .option(
+    '--openai-api-auth-header <name>',
+    'Custom auth header name for OpenAI requests (default: Authorization with Bearer prefix)',
+  )
+  .option(
+    '--anthropic-api-auth-header <name>',
+    'Custom auth header name for Anthropic requests (default: x-api-key)',
+  )
+  .option(
     '--gemini-api-target <host>',
     'Target hostname for Gemini API requests (default: generativelanguage.googleapis.com)',
   )

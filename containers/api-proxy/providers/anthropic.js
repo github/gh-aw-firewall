@@ -47,6 +47,7 @@ function createAnthropicAdapter(env, deps = {}) {
     basePathEnvVar: 'ANTHROPIC_API_BASE_PATH',
     defaultTarget: 'api.anthropic.com',
   });
+  const authHeaderName = (env.AWF_ANTHROPIC_AUTH_HEADER || '').trim() || 'x-api-key';
   const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
   const oidcRequested = authType === 'github-oidc' && authProvider === 'anthropic';
@@ -105,7 +106,7 @@ function createAnthropicAdapter(env, deps = {}) {
     validationMethod: 'POST',
     validationBody: '{}',
     validationHeaders: () => ({
-      'x-api-key': apiKey,
+      [authHeaderName]: apiKey,
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     }),
@@ -114,7 +115,7 @@ function createAnthropicAdapter(env, deps = {}) {
       : null),
     skipModelsFetch: () => oidcConfigured,
     modelsPath: '/v1/models',
-    modelsFetchHeaders: () => ({ 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }),
+    modelsFetchHeaders: () => ({ [authHeaderName]: apiKey, 'anthropic-version': '2023-06-01' }),
     reflectionConfigured: !!apiKey || oidcRequested,
     reflectionExtra: () => ({
       auth_type: oidcRequested ? 'github-oidc/anthropic' : 'static-key',
@@ -155,7 +156,7 @@ function createAnthropicAdapter(env, deps = {}) {
         }
         headers['Authorization'] = 'Bearer ' + token;
       } else {
-        headers['x-api-key'] = apiKey;
+        headers[authHeaderName] = apiKey;
       }
 
       if (!req.headers['anthropic-version']) {

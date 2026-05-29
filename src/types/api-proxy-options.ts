@@ -240,6 +240,41 @@ export interface ApiProxyOptions {
   anthropicApiBasePath?: string;
 
   /**
+   * Custom auth header name for OpenAI API requests (used by API proxy sidecar)
+   *
+   * When set, the proxy uses this header name instead of the default
+   * `Authorization: Bearer <key>` format. The key is sent as the raw header
+   * value without a "Bearer" prefix.
+   *
+   * Useful for internal AI gateways (e.g. Azure OpenAI) that require a
+   * different header name such as `api-key`.
+   *
+   * Can be set via:
+   * - CLI flag: `--openai-api-auth-header <name>`
+   * - Environment variable: `AWF_OPENAI_AUTH_HEADER`
+   *
+   * @default undefined (uses `Authorization: Bearer <key>`)
+   * @example 'api-key'
+   */
+  openaiApiAuthHeader?: string;
+
+  /**
+   * Custom auth header name for Anthropic API requests (used by API proxy sidecar)
+   *
+   * When set, the proxy uses this header name instead of the default `x-api-key`.
+   *
+   * Useful for internal AI gateways that require a different header name.
+   *
+   * Can be set via:
+   * - CLI flag: `--anthropic-api-auth-header <name>`
+   * - Environment variable: `AWF_ANTHROPIC_AUTH_HEADER`
+   *
+   * @default 'x-api-key'
+   * @example 'api-key'
+   */
+  anthropicApiAuthHeader?: string;
+
+  /**
    * Target hostname for Google Gemini API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar
