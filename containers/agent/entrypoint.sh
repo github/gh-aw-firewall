@@ -709,6 +709,8 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   HOST_USER_UID="${AWF_USER_UID:-1000}"
   HOST_USER_GID="${AWF_USER_GID:-${HOST_USER_UID}}"
   HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
+  CAPSH_IDENTITY_ARGS=""
+  CHROOT_HOME_OVERRIDE=""
   if [ -z "${HOST_USER}" ]; then
     # User not found in chroot's /etc/passwd (common on ARC-DinD Alpine daemons).
     # Synthesize minimal identity files so the agent can resolve its own UID/GID.
@@ -765,7 +767,18 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
         echo "[entrypoint] Created minimal /host/etc/hosts"
       fi
     fi
+
+    HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
+    if [ -n "${HOST_USER}" ]; then
+      CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
+      echo "[entrypoint] Running as synthesized host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
+    else
+      CAPSH_IDENTITY_ARGS="--gid=${HOST_USER_GID} --uid=${HOST_USER_UID} --groups=${HOST_USER_GID}"
+      CHROOT_HOME_OVERRIDE="${SYNTH_HOME}"
+      echo "[entrypoint][WARN] Proceeding with numeric UID/GID fallback (${HOST_USER_UID}:${HOST_USER_GID})"
+    fi
   else
+    CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
     echo "[entrypoint] Running as host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
   fi
 
@@ -1027,7 +1040,8 @@ AWFEOF
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
-    exec capsh --drop=${CAPS_TO_DROP} --user=${HOST_USER} -- -c 'exec ${SCRIPT_FILE}'
+    if [ -n '${CHROOT_HOME_OVERRIDE}' ]; then export HOME='${CHROOT_HOME_OVERRIDE}'; fi
+    exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 else
   # Original behavior - run in container filesystem

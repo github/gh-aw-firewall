@@ -11,13 +11,33 @@ import { getSafeHostUid, getSafeHostGid } from '../../host-identity';
 function synthesizeIdentityFile(config: WrapperConfig, relPath: string, content: string): string | undefined {
   try {
     const stageRoot = getDockerHostStageRoot(config);
-    const targetPath = path.resolve(stageRoot, relPath);
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, content, { mode: 0o644 });
+    const tempDir = fs.mkdtempSync(path.join(stageRoot, 'identity-'));
+    const targetPath = path.join(tempDir, path.basename(relPath));
+    fs.writeFileSync(targetPath, content, { mode: 0o644, flag: 'wx' });
     return targetPath;
   } catch {
     return undefined;
   }
+}
+
+function readFileContent(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function fileHasPasswdUid(content: string, uid: string): boolean {
+  return new RegExp(`^[^:]*:[^:]*:${uid}:`, 'm').test(content);
+}
+
+function fileHasGroupGid(content: string, gid: string): boolean {
+  return new RegExp(`^[^:]*:[^:]*:${gid}:`, 'm').test(content);
+}
+
+function withTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content : `${content}\n`;
 }
 
 export function buildEtcMounts(config: WrapperConfig): string[] {
@@ -41,23 +61,35 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
   const gid = getSafeHostGid();
 
   let passwdPath = stageHostFile(config, '/etc/passwd', 'etc/passwd');
+  const passwdEntry = `runner:x:${uid}:${gid}:GitHub Actions Runner:/home/runner:/bin/bash`;
   if (!passwdPath) {
     const minimalPasswd = [
       'root:x:0:0:root:/root:/bin/bash',
       'nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin',
-      `runner:x:${uid}:${gid}:GitHub Actions Runner:/home/runner:/bin/bash`,
+      passwdEntry,
     ].join('\n') + '\n';
     passwdPath = synthesizeIdentityFile(config, 'etc/passwd', minimalPasswd);
+  } else {
+    const stagedPasswdContent = readFileContent(passwdPath);
+    if (stagedPasswdContent && !fileHasPasswdUid(stagedPasswdContent, uid)) {
+      passwdPath = synthesizeIdentityFile(config, 'etc/passwd', `${withTrailingNewline(stagedPasswdContent)}${passwdEntry}\n`) || passwdPath;
+    }
   }
 
   let groupPath = stageHostFile(config, '/etc/group', 'etc/group');
+  const groupEntry = `runner:x:${gid}:`;
   if (!groupPath) {
     const minimalGroup = [
       'root:x:0:',
       'nobody:x:65534:',
-      `runner:x:${gid}:`,
+      groupEntry,
     ].join('\n') + '\n';
     groupPath = synthesizeIdentityFile(config, 'etc/group', minimalGroup);
+  } else {
+    const stagedGroupContent = readFileContent(groupPath);
+    if (stagedGroupContent && !fileHasGroupGid(stagedGroupContent, gid)) {
+      groupPath = synthesizeIdentityFile(config, 'etc/group', `${withTrailingNewline(stagedGroupContent)}${groupEntry}\n`) || groupPath;
+    }
   }
 
   mounts.push(`${passwdPath || '/etc/passwd'}:/host/etc/passwd:ro`);
