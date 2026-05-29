@@ -16,7 +16,7 @@ sandbox:
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 15
+  max-turns: 8
 tools:
   edit:
   bash: true
@@ -58,7 +58,7 @@ steps:
     run: |
       CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
       if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
-        git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=2 -- src/ containers/ scripts/ docs/ '*.md' | head -200 > "$CONTEXT_DIR/recent-diffs.txt"
+        git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$CONTEXT_DIR/recent-diffs.txt"
       else
         echo "No relevant source changes detected in the past 7 days." > "$CONTEXT_DIR/recent-diffs.txt"
       fi
@@ -165,11 +165,7 @@ Review only `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt`. Do not expand
 
 ### 4. Verify Code Examples
 
-For any code examples in documentation:
-- Check that CLI commands use the correct flags
-- Verify environment variable names match the code
-- Ensure Docker configuration examples are current
-- Validate that file paths referenced in examples exist
+Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths.
 
 ### 5. Make Documentation Updates
 
@@ -198,15 +194,3 @@ After making updates, the safe-outputs system will automatically create a PR. In
 - Reference the commits that triggered your updates.
 
 **Success**: Review 7-day commits, update out-of-sync docs, verify examples, and create a clear PR summary.
-
----
-
-## Context for This Run
-
-Pre-agent steps generate the following context files:
-
-- `/tmp/gh-aw/doc-maintainer-context/has-changes.txt`
-- `/tmp/gh-aw/doc-maintainer-context/changed-count.txt`
-- `/tmp/gh-aw/doc-maintainer-context/recent-diffs.txt`
-- `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt`
-- `/tmp/gh-aw/doc-maintainer-context/doc-files.txt`
