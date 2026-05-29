@@ -54,8 +54,8 @@ const {
   buildUpstreamPath,
   shouldStripHeader,
   composeBodyTransforms,
-  normalizeApiTarget,
 } = require('./proxy-utils');
+const { getCopilotModelFallbackPolicy } = require('./providers/copilot');
 
 // ── Optional modules (graceful degradation when not bundled) ─────────────────
 let closeLogStream;
@@ -125,30 +125,28 @@ logRequest('info', 'startup', {
   model_fallback: MODEL_FALLBACK,
 });
 
-function isGithubCopilotCatalogTarget(rawTarget) {
-  const target = normalizeApiTarget(rawTarget);
-  if (!target) return true;
-  return target === 'api.githubcopilot.com'
-    || target === 'api.enterprise.githubcopilot.com'
-    || target.endsWith('.githubcopilot.com')
-    || target.endsWith('.ghe.com');
+function getModelFallbackPolicyForProvider(provider) {
+  if (provider !== 'copilot') {
+    return { effective: MODEL_FALLBACK, suppressed: false };
+  }
+  return getCopilotModelFallbackPolicy(MODEL_FALLBACK, process.env);
 }
 
 function getModelFallbackForProvider(provider) {
-  if (provider !== 'copilot') return MODEL_FALLBACK;
-  if (!MODEL_FALLBACK.enabled) return MODEL_FALLBACK;
+  return getModelFallbackPolicyForProvider(provider).effective;
+}
 
-  const hasByokHints = Boolean(
-    (process.env.COPILOT_PROVIDER_TYPE || '').trim()
-    || (process.env.COPILOT_PROVIDER_BASE_URL || '').trim()
-    || (process.env.COPILOT_PROVIDER_API_KEY || '').trim()
-    || (process.env.COPILOT_API_KEY || '').trim()
-  );
-  if (!hasByokHints) return MODEL_FALLBACK;
-
-  if (isGithubCopilotCatalogTarget(process.env.COPILOT_API_TARGET)) return MODEL_FALLBACK;
-
-  return { ...MODEL_FALLBACK, enabled: false };
+function getEffectiveModelFallbackForReflect() {
+  const effectiveByProvider = {};
+  for (const adapter of registeredAdapters) {
+    const policy = getModelFallbackPolicyForProvider(adapter.name);
+    effectiveByProvider[adapter.name] = {
+      ...policy.effective,
+      suppressed: policy.suppressed,
+      ...(policy.suppression_reason ? { suppression_reason: policy.suppression_reason } : {}),
+    };
+  }
+  return effectiveByProvider;
 }
 
 /**
@@ -308,6 +306,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
     return { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) };
   },
   getModelFallback:      () => MODEL_FALLBACK,
+  getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getMaxRunsUsage:       () => getMaxRunsReflectState(),
 });

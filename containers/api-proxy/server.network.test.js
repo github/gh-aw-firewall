@@ -398,6 +398,49 @@ describe('reflectEndpoints', () => {
       enabled: true,
       strategy: 'middle_power',
     });
+    expect(result.model_fallback_effective).toEqual({
+      openai: { enabled: true, strategy: 'middle_power', suppressed: false },
+      anthropic: { enabled: true, strategy: 'middle_power', suppressed: false },
+      copilot: { enabled: true, strategy: 'middle_power', suppressed: false },
+      gemini: { enabled: true, strategy: 'middle_power', suppressed: false },
+    });
+  });
+
+  it('should expose Copilot fallback suppression in reflect output for BYOK non-githubcopilot targets', () => {
+    const prevTarget = process.env.COPILOT_API_TARGET;
+    const prevProviderType = process.env.COPILOT_PROVIDER_TYPE;
+    const prevProviderBase = process.env.COPILOT_PROVIDER_BASE_URL;
+    const prevApiKey = process.env.COPILOT_API_KEY;
+
+    process.env.COPILOT_API_TARGET = 'example-resource.openai.azure.com';
+    process.env.COPILOT_PROVIDER_TYPE = 'azure';
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://example-resource.openai.azure.com/openai/deployments/test';
+    process.env.COPILOT_API_KEY = 'sk-test-byok';
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => {
+        isolatedServer = require('./server');
+      });
+
+      const reflect = isolatedServer.reflectEndpoints();
+      expect(reflect.model_fallback).toEqual({ enabled: true, strategy: 'middle_power' });
+      expect(reflect.model_fallback_effective.copilot).toEqual({
+        enabled: false,
+        strategy: 'middle_power',
+        suppressed: true,
+        suppression_reason: 'copilot_byok_non_githubcopilot_target',
+      });
+    } finally {
+      if (prevTarget === undefined) delete process.env.COPILOT_API_TARGET;
+      else process.env.COPILOT_API_TARGET = prevTarget;
+      if (prevProviderType === undefined) delete process.env.COPILOT_PROVIDER_TYPE;
+      else process.env.COPILOT_PROVIDER_TYPE = prevProviderType;
+      if (prevProviderBase === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
+      else process.env.COPILOT_PROVIDER_BASE_URL = prevProviderBase;
+      if (prevApiKey === undefined) delete process.env.COPILOT_API_KEY;
+      else process.env.COPILOT_API_KEY = prevApiKey;
+    }
   });
 
   it('should report models_fetch_complete true after fetch completes', async () => {
