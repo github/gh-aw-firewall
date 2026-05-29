@@ -22,7 +22,9 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
   }
 
   if (config.enableApiProxy && networkConfig.proxyIp) {
-    environment.NO_PROXY += `,${networkConfig.proxyIp}`;
+    // Include both IP and Docker service hostname — Node.js undici matches
+    // NO_PROXY against the request hostname string, not the resolved IP.
+    environment.NO_PROXY += `,${networkConfig.proxyIp},api-proxy`;
     environment.no_proxy = environment.NO_PROXY;
   }
 }

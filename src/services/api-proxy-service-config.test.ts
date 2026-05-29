@@ -210,13 +210,15 @@ describe('API proxy sidecar: service configuration', () => {
         expect(env.AWF_API_PROXY_IP).toBe('172.30.0.30');
       });
 
-      it('should set NO_PROXY to include api-proxy IP', () => {
+      it('should set NO_PROXY to include api-proxy IP and hostname', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const agent = result.services.agent;
         const env = agent.environment as Record<string, string>;
         expect(env.NO_PROXY).toContain('172.30.0.30');
+        expect(env.NO_PROXY).toContain('api-proxy');
         expect(env.no_proxy).toContain('172.30.0.30');
+        expect(env.no_proxy).toContain('api-proxy');
       });
 
       it('should set CLAUDE_CODE_API_KEY_HELPER when Anthropic key is provided', () => {
