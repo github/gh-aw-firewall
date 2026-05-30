@@ -111,13 +111,11 @@ function resolveModelMultiplier(model, config) {
 
   if (prefixMatch) return prefixMatch;
 
-  if (Object.keys(config.multipliers).length > 0) {
-    logRequest('warn', 'unknown_model_multiplier', {
-      model: sanitizeForLog(model),
-      applied_multiplier: config.defaultMultiplier,
-      default_model_multiplier: config.defaultMultiplier,
-    });
-  }
+  logRequest('warn', 'unknown_model_multiplier', {
+    model: sanitizeForLog(model),
+    applied_multiplier: config.defaultMultiplier,
+    default_model_multiplier: config.defaultMultiplier,
+  });
 
   return { multiplier: config.defaultMultiplier, source: 'default' };
 }

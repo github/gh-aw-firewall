@@ -27,7 +27,9 @@ export interface RateLimitOptions {
    * Model-specific multipliers used by effective token accounting.
    *
    * Keys are model names and values are positive numeric multipliers.
-   * Models not present in this map default to `effectiveTokenDefaultModelMultiplier`
+   * Resolution uses exact match first, then a hyphen-suffix prefix match
+   * (for example `claude-opus-4.7` matches `claude-opus-4.7-20260501`).
+   * Models that still do not match use `effectiveTokenDefaultModelMultiplier`
    * when set, otherwise the highest configured multiplier.
    */
   effectiveTokenModelMultipliers?: Record<string, number>;

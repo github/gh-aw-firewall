@@ -116,6 +116,23 @@ describe('effective-token-guard reflect state', () => {
     }));
   });
 
+  it('warns when explicit default multiplier is used with no configured model map', () => {
+    const { lines } = collectLogOutput();
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
+    process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '27';
+
+    const usage = applyEffectiveTokenUsage({ output_tokens: 1 }, 'unknown-model');
+
+    expect(usage.modelMultiplier).toBe(27);
+    expect(lines).toContainEqual(expect.objectContaining({
+      event: 'unknown_model_multiplier',
+      level: 'warn',
+      model: 'unknown-model',
+      applied_multiplier: 27,
+      default_model_multiplier: 27,
+    }));
+  });
+
   it('matches configured multipliers by concrete model prefix', () => {
     const { lines } = collectLogOutput();
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
