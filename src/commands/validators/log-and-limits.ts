@@ -17,6 +17,7 @@ export interface LogAndLimitsResult {
   modelAliases: Record<string, string[]> | undefined;
   maxEffectiveTokens: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
+  effectiveTokenDefaultModelMultiplier: number | undefined;
   maxRuns: number | undefined;
   memoryLimit: string | undefined;
   agentImage: string | undefined;
@@ -57,6 +58,8 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     | string
     | number
     | undefined;
+  const effectiveTokenDefaultModelMultiplierOption = (options as Record<string, unknown>)
+    .effectiveTokenDefaultModelMultiplier as string | number | undefined;
   // Config-file multipliers (already a Record<string, number>)
   const configFileMultipliers = (options as Record<string, unknown>)
     .effectiveTokenModelMultipliers as Record<string, number> | undefined;
@@ -80,12 +83,24 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
       : undefined;
   const maxEffectiveTokens =
     maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
+  const effectiveTokenDefaultModelMultiplier =
+    effectiveTokenDefaultModelMultiplierOption !== undefined
+      ? Number(effectiveTokenDefaultModelMultiplierOption)
+      : undefined;
 
   if (
     maxEffectiveTokens !== undefined &&
     (!Number.isInteger(maxEffectiveTokens) || maxEffectiveTokens <= 0)
   ) {
     console.error('Error: Invalid maxEffectiveTokens value (must be a positive integer)');
+    process.exit(1);
+  }
+
+  if (
+    effectiveTokenDefaultModelMultiplier !== undefined &&
+    (!Number.isFinite(effectiveTokenDefaultModelMultiplier) || effectiveTokenDefaultModelMultiplier <= 0)
+  ) {
+    console.error('Error: Invalid effectiveTokenDefaultModelMultiplier value (must be > 0)');
     process.exit(1);
   }
 
@@ -129,6 +144,7 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     modelAliases,
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
+    effectiveTokenDefaultModelMultiplier,
     maxRuns,
     memoryLimit: memoryLimit.value,
     agentImage: agentImageResult.agentImage,

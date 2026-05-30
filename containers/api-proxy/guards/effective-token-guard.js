@@ -1,6 +1,7 @@
 'use strict';
 
 const { parsePositiveInteger } = require('./guard-utils');
+const { logRequest, sanitizeForLog } = require('../logging');
 
 const ET_WARNING_THRESHOLDS = [80, 90, 95, 99];
 
@@ -32,7 +33,8 @@ let etGuardState = createEffectiveTokenState();
 const effectiveTokenConfigCache = {
   rawMax: undefined,
   rawMultipliers: undefined,
-  parsed: { max: null, multipliers: {} },
+  rawDefaultMultiplier: undefined,
+  parsed: { max: null, multipliers: {}, defaultMultiplier: 1 },
 };
 
 function parseModelMultipliers(raw) {
@@ -53,34 +55,76 @@ function parseModelMultipliers(raw) {
   }
 }
 
+function parsePositiveNumber(raw) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function getEffectiveTokenConfig() {
   const rawMax = process.env.AWF_MAX_EFFECTIVE_TOKENS;
   const rawMultipliers = process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-  if (effectiveTokenConfigCache.rawMax === rawMax && effectiveTokenConfigCache.rawMultipliers === rawMultipliers) {
+  const rawDefaultMultiplier = process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
+  if (
+    effectiveTokenConfigCache.rawMax === rawMax &&
+    effectiveTokenConfigCache.rawMultipliers === rawMultipliers &&
+    effectiveTokenConfigCache.rawDefaultMultiplier === rawDefaultMultiplier
+  ) {
     return effectiveTokenConfigCache.parsed;
   }
 
   effectiveTokenConfigCache.rawMax = rawMax;
   effectiveTokenConfigCache.rawMultipliers = rawMultipliers;
+  effectiveTokenConfigCache.rawDefaultMultiplier = rawDefaultMultiplier;
   const parsedMultipliers = Object.freeze(parseModelMultipliers(rawMultipliers));
+  const configuredDefaultMultiplier = parsePositiveNumber(rawDefaultMultiplier);
+  const maxConfiguredMultiplier = Math.max(1, ...Object.values(parsedMultipliers));
   effectiveTokenConfigCache.parsed = {
     max: parsePositiveInteger(rawMax),
     multipliers: parsedMultipliers,
+    defaultMultiplier: configuredDefaultMultiplier ?? maxConfiguredMultiplier,
   };
   return effectiveTokenConfigCache.parsed;
 }
 
 function getEffectiveTokenState(config) {
   if (!config.max) return null;
-  const configKey = `${config.max}|${JSON.stringify(config.multipliers)}`;
+  const configKey = `${config.max}|${JSON.stringify(config.multipliers)}|${config.defaultMultiplier}`;
   if (etGuardState.configKey !== configKey) {
     etGuardState = createEffectiveTokenState(configKey);
   }
   return etGuardState;
 }
 
+function resolveModelMultiplier(model, config) {
+  if (Object.hasOwn(config.multipliers, model)) {
+    return { multiplier: config.multipliers[model], source: 'exact' };
+  }
+
+  let prefixMatch = null;
+  for (const [configuredModel, multiplier] of Object.entries(config.multipliers)) {
+    if (model.startsWith(`${configuredModel}-`)) {
+      if (!prefixMatch || configuredModel.length > prefixMatch.matchedModel.length) {
+        prefixMatch = { multiplier, source: 'prefix', matchedModel: configuredModel };
+      }
+    }
+  }
+
+  if (prefixMatch) return prefixMatch;
+
+  if (Object.keys(config.multipliers).length > 0) {
+    logRequest('warn', 'unknown_model_multiplier', {
+      model: sanitizeForLog(model),
+      applied_multiplier: config.defaultMultiplier,
+      default_model_multiplier: config.defaultMultiplier,
+    });
+  }
+
+  return { multiplier: config.defaultMultiplier, source: 'default' };
+}
+
 function calculateEffectiveTokens(normalizedUsage, model, config) {
-  const multiplier = config.multipliers[model] ?? 1;
+  const multiplierResolution = resolveModelMultiplier(model, config);
+  const multiplier = multiplierResolution.multiplier;
   const baseWeightedTokens =
     (ET_DEFAULT_WEIGHTS.input * (normalizedUsage.input_tokens || 0)) +
     (ET_DEFAULT_WEIGHTS.cacheRead * (normalizedUsage.cache_read_tokens || 0)) +
@@ -162,7 +206,8 @@ function resetEffectiveTokenGuardForTests() {
   etGuardState = createEffectiveTokenState();
   effectiveTokenConfigCache.rawMax = undefined;
   effectiveTokenConfigCache.rawMultipliers = undefined;
-  effectiveTokenConfigCache.parsed = { max: null, multipliers: {} };
+  effectiveTokenConfigCache.rawDefaultMultiplier = undefined;
+  effectiveTokenConfigCache.parsed = { max: null, multipliers: {}, defaultMultiplier: 1 };
 }
 
 function buildEffectiveTokenLimitError(etState) {

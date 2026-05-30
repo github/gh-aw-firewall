@@ -64,6 +64,8 @@ describe('schema-validator', () => {
         .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
       expect(validateWithSchema({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))
         .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
+      expect(validateWithSchema({ apiProxy: { defaultModelMultiplier: 0 } }))
+        .toContain('config.apiProxy.defaultModelMultiplier must be > 0');
     });
 
     it('formats logLevel enum correctly', () => {

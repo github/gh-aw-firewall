@@ -19,6 +19,7 @@ interface AwfFileConfig {
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
     modelMultipliers?: Record<string, number>;
+    defaultModelMultiplier?: number;
     maxRuns?: number;
     requestedModel?: string;
     modelFallback?: {
@@ -179,6 +180,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
+    effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxRuns: config.apiProxy?.maxRuns,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,

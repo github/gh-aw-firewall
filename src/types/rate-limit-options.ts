@@ -27,9 +27,16 @@ export interface RateLimitOptions {
    * Model-specific multipliers used by effective token accounting.
    *
    * Keys are model names and values are positive numeric multipliers.
-   * Models not present in this map default to multiplier 1.0.
+   * Models not present in this map default to `effectiveTokenDefaultModelMultiplier`
+   * when set, otherwise the highest configured multiplier.
    */
   effectiveTokenModelMultipliers?: Record<string, number>;
+
+  /**
+   * Default multiplier used for models not present in
+   * `effectiveTokenModelMultipliers`.
+   */
+  effectiveTokenDefaultModelMultiplier?: number;
 
   /**
    * Maximum number of LLM invocations allowed for the current AWF run.

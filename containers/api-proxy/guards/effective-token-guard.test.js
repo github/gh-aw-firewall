@@ -5,15 +5,31 @@ const {
   resetEffectiveTokenGuardForTests,
 } = require('./effective-token-guard');
 
+function collectLogOutput() {
+  const lines = [];
+  const spy = jest.spyOn(process.stdout, 'write').mockImplementation((data) => {
+    try {
+      lines.push(JSON.parse(data.toString()));
+    } catch {
+      // ignore non-JSON writes
+    }
+    return true;
+  });
+  return { lines, spy };
+}
+
 describe('effective-token-guard reflect state', () => {
   beforeEach(() => {
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
     resetEffectiveTokenGuardForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
+    jest.restoreAllMocks();
     resetEffectiveTokenGuardForTests();
   });
 
@@ -58,5 +74,58 @@ describe('effective-token-guard reflect state', () => {
       remaining_effective_tokens: 0,
       percent_used: 100,
     });
+  });
+
+  it('uses the highest configured multiplier for unknown models by default and warns', () => {
+    const { lines } = collectLogOutput();
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
+    process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      'claude-opus-4.7': 27,
+      'gpt-5-pro': 54,
+    });
+
+    const usage = applyEffectiveTokenUsage({ output_tokens: 1 }, 'unmapped-expensive-model');
+
+    expect(usage.modelMultiplier).toBe(54);
+    expect(usage.effectiveTokensThisResponse).toBe(216);
+    expect(lines).toContainEqual(expect.objectContaining({
+      event: 'unknown_model_multiplier',
+      level: 'warn',
+      model: 'unmapped-expensive-model',
+      applied_multiplier: 54,
+    }));
+  });
+
+  it('supports explicit default multipliers for unknown models', () => {
+    const { lines } = collectLogOutput();
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
+    process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      'gpt-4o': 2,
+    });
+    process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '27';
+
+    const usage = applyEffectiveTokenUsage({ output_tokens: 1 }, 'unknown-model');
+
+    expect(usage.modelMultiplier).toBe(27);
+    expect(usage.effectiveTokensThisResponse).toBe(108);
+    expect(lines).toContainEqual(expect.objectContaining({
+      event: 'unknown_model_multiplier',
+      level: 'warn',
+      model: 'unknown-model',
+      applied_multiplier: 27,
+    }));
+  });
+
+  it('matches configured multipliers by concrete model prefix', () => {
+    const { lines } = collectLogOutput();
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
+    process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      'claude-opus-4.7': 27,
+    });
+
+    const usage = applyEffectiveTokenUsage({ output_tokens: 1 }, 'claude-opus-4.7-20260501');
+
+    expect(usage.modelMultiplier).toBe(27);
+    expect(lines.find((line) => line.event === 'unknown_model_multiplier')).toBeUndefined();
   });
 });

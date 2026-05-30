@@ -100,6 +100,7 @@ the corresponding CLI flag.
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
+- `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
@@ -556,8 +557,20 @@ an associated positive multiplier. The effective tokens for a response are:
 effective_tokens = model_multiplier × base_weighted_tokens
 ```
 
-If no multiplier is configured for a given model, the multiplier defaults
-to `1`.
+If `apiProxy.defaultModelMultiplier` is configured and no exact multiplier is
+configured for a given model, that default multiplier MUST be used.
+
+Otherwise, if no exact multiplier is configured, AWF MUST attempt to match
+`apiProxy.modelMultipliers` keys against the request model using a hyphen-suffix
+prefix match so family keys like `claude-opus-4.7` apply to concrete model IDs
+like `claude-opus-4.7-20260501`.
+
+If no exact or prefix match is found, the multiplier MUST default to the highest
+configured model multiplier. If no model multipliers are configured at all, the
+multiplier defaults to `1`.
+
+When AWF falls back to the default multiplier because no configured model key
+matched, it MUST emit a warning log entry.
 
 ### 10.3 Enforcement Behavior
 

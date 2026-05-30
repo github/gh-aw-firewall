@@ -88,6 +88,7 @@ describe('config-assembly', () => {
     modelAliases: {},
     maxEffectiveTokens: undefined,
     effectiveTokenModelMultipliers: {},
+    effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,
   });
 

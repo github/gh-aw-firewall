@@ -70,6 +70,7 @@ const STUB_CONFIG = {
   modelAliases: undefined,
   maxEffectiveTokens: undefined,
   effectiveTokenModelMultipliers: undefined,
+  effectiveTokenDefaultModelMultiplier: undefined,
   maxRuns: undefined,
   enableTokenSteering: false,
   openaiApiKey: undefined,

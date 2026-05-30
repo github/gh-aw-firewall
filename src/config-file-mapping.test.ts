@@ -138,6 +138,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
         },
+        defaultModelMultiplier: 27,
         enableTokenSteering: true,
       },
     });
@@ -146,6 +147,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
       'gpt-4o': 2,
       'claude-sonnet-4': 1.5,
     });
+    expect(result.effectiveTokenDefaultModelMultiplier).toBe(27);
     expect(result.enableTokenSteering).toBe(true);
   });
 
