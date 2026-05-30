@@ -17,6 +17,9 @@ export { type FlagValidationResult } from './validation';
 
 export {
   type SquidConfig,
+} from './squid';
+
+export {
   type DockerComposeConfig,
 } from './docker';
 
