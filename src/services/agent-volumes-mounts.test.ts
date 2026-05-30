@@ -145,19 +145,27 @@ describe('agent service', () => {
         const result = generateDockerCompose(configWithTmpPrefix, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
         const stageRoot = path.join(sharedTmpPrefix, 'awf-docker-host-stage');
-        const stagedPasswdPath = path.join(stageRoot, 'etc/passwd');
-        const stagedGroupPath = path.join(stageRoot, 'etc/group');
         const stagedBinaryPath = path.join(stageRoot, 'bin/copilot');
         const hostsVolume = volumes.find((v: string) => v.endsWith(':/host/etc/hosts:ro'));
+        const passwdVolume = volumes.find((v: string) => v.endsWith(':/host/etc/passwd:ro'));
+        const groupVolume = volumes.find((v: string) => v.endsWith(':/host/etc/group:ro'));
 
-        expect(volumes).toContain(`${stagedPasswdPath}:/host/etc/passwd:ro`);
-        expect(volumes).toContain(`${stagedGroupPath}:/host/etc/group:ro`);
+        // passwd and group are staged under stageRoot — either at etc/passwd (direct copy)
+        // or identity-XXXXX/passwd (synthesized when host UID not found in staged file)
+        expect(passwdVolume).toBeDefined();
+        expect(passwdVolume?.startsWith(stageRoot)).toBe(true);
+        expect(groupVolume).toBeDefined();
+        expect(groupVolume?.startsWith(stageRoot)).toBe(true);
         expect(volumes).toContain(`${stagedBinaryPath}:/tmp/awf-runner-bin/copilot:ro`);
         expect(hostsVolume).toBeDefined();
         expect(hostsVolume?.startsWith(`${stageRoot}/chroot-`)).toBe(true);
 
-        expect(fs.readFileSync(stagedPasswdPath, 'utf8')).toBe(fs.readFileSync('/etc/passwd', 'utf8'));
-        expect(fs.readFileSync(stagedGroupPath, 'utf8')).toBe(fs.readFileSync('/etc/group', 'utf8'));
+        const stagedPasswdPath = passwdVolume!.split(':')[0];
+        const stagedGroupPath = groupVolume!.split(':')[0];
+        // Staged passwd must contain the host UID (either copied or synthesized)
+        const uid = String(process.getuid?.() ?? 1000);
+        expect(fs.readFileSync(stagedPasswdPath, 'utf8')).toMatch(new RegExp(`^[^:]*:[^:]*:${uid}:`, 'm'));
+        expect(fs.existsSync(stagedGroupPath)).toBe(true);
         expect(fs.readFileSync(stagedBinaryPath, 'utf8')).toContain('echo copilot');
         expect(fs.statSync(stagedBinaryPath).mode & 0o111).not.toBe(0);
 
