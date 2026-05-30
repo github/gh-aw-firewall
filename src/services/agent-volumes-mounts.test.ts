@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { stageHostFile } from './agent-volumes/docker-host-staging';
-import { translateBindMountHostPath } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -218,10 +218,10 @@ describe('agent service', () => {
     });
 
     it('should leave /etc/passwd and /etc/group unprefixed in shared /tmp staging fallback mode', () => {
-      expect(translateBindMountHostPath('/etc/passwd:/host/etc/passwd:ro', '/tmp/gh-aw'))
-        .toBe('/etc/passwd:/host/etc/passwd:ro');
-      expect(translateBindMountHostPath('/etc/group:/host/etc/group:ro', '/tmp/gh-aw'))
-        .toBe('/etc/group:/host/etc/group:ro');
+      expect(applyHostPathPrefixToVolumes(['/etc/passwd:/host/etc/passwd:ro'], '/tmp/gh-aw'))
+        .toEqual(['/etc/passwd:/host/etc/passwd:ro']);
+      expect(applyHostPathPrefixToVolumes(['/etc/group:/host/etc/group:ro'], '/tmp/gh-aw'))
+        .toEqual(['/etc/group:/host/etc/group:ro']);
     });
 
     it('should prune stale staged chroot hosts directories under shared /tmp docker-host-path-prefix', () => {
