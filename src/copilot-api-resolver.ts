@@ -1,3 +1,8 @@
+import {
+  deriveCopilotApiBasePathFromProviderBaseUrl,
+  deriveCopilotApiTargetFromProviderBaseUrl,
+} from './copilot-api-resolver.internal';
+
 /**
  * Resolve the Copilot BYOK key from supported environment variables.
  * COPILOT_API_KEY takes precedence over COPILOT_PROVIDER_API_KEY.
@@ -7,11 +12,6 @@ export function resolveCopilotApiKey(
 ): string | undefined {
   return env.COPILOT_API_KEY || env.COPILOT_PROVIDER_API_KEY;
 }
-
-import {
-  deriveCopilotApiBasePathFromProviderBaseUrl,
-  deriveCopilotApiTargetFromProviderBaseUrl,
-} from './copilot-api-resolver.internal';
 
 /**
  * Resolve Copilot target/base-path routing for BYOK provider-style env vars.
