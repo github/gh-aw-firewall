@@ -25,6 +25,7 @@ function createEffectiveTokenState(configKey = null) {
     totalEffectiveTokens: 0,
     emittedThresholds: new Set(),
     uninjectedThresholds: new Set(),
+    warnedUnknownModels: new Set(),
   };
 }
 
@@ -77,11 +78,10 @@ function getEffectiveTokenConfig() {
   effectiveTokenConfigCache.rawDefaultMultiplier = rawDefaultMultiplier;
   const parsedMultipliers = Object.freeze(parseModelMultipliers(rawMultipliers));
   const configuredDefaultMultiplier = parsePositiveNumber(rawDefaultMultiplier);
-  const maxConfiguredMultiplier = Math.max(1, ...Object.values(parsedMultipliers));
   effectiveTokenConfigCache.parsed = {
     max: parsePositiveInteger(rawMax),
     multipliers: parsedMultipliers,
-    defaultMultiplier: configuredDefaultMultiplier ?? maxConfiguredMultiplier,
+    defaultMultiplier: configuredDefaultMultiplier ?? 1,
   };
   return effectiveTokenConfigCache.parsed;
 }
@@ -95,7 +95,7 @@ function getEffectiveTokenState(config) {
   return etGuardState;
 }
 
-function resolveModelMultiplier(model, config) {
+function resolveModelMultiplier(model, config, state = null) {
   if (Object.hasOwn(config.multipliers, model)) {
     return { multiplier: config.multipliers[model], source: 'exact' };
   }
@@ -111,17 +111,21 @@ function resolveModelMultiplier(model, config) {
 
   if (prefixMatch) return prefixMatch;
 
-  logRequest('warn', 'unknown_model_multiplier', {
-    model: sanitizeForLog(model),
-    applied_multiplier: config.defaultMultiplier,
-    default_model_multiplier: config.defaultMultiplier,
-  });
+  const shouldLog = !state || !state.warnedUnknownModels.has(model);
+  if (shouldLog) {
+    logRequest('warn', 'unknown_model_multiplier', {
+      model: sanitizeForLog(model),
+      applied_multiplier: config.defaultMultiplier,
+      default_model_multiplier: config.defaultMultiplier,
+    });
+    state?.warnedUnknownModels.add(model);
+  }
 
   return { multiplier: config.defaultMultiplier, source: 'default' };
 }
 
-function calculateEffectiveTokens(normalizedUsage, model, config) {
-  const multiplierResolution = resolveModelMultiplier(model, config);
+function calculateEffectiveTokens(normalizedUsage, model, config, state = null) {
+  const multiplierResolution = resolveModelMultiplier(model, config, state);
   const multiplier = multiplierResolution.multiplier;
   const baseWeightedTokens =
     (ET_DEFAULT_WEIGHTS.input * (normalizedUsage.input_tokens || 0)) +
@@ -141,7 +145,7 @@ function applyEffectiveTokenUsage(normalizedUsage, model) {
   if (!state || !normalizedUsage) return null;
 
   const previousTotal = state.totalEffectiveTokens;
-  const calc = calculateEffectiveTokens(normalizedUsage, model || 'unknown', config);
+  const calc = calculateEffectiveTokens(normalizedUsage, model || 'unknown', config, state);
   state.totalEffectiveTokens += calc.effectiveTokens;
   const percentUsed = (state.totalEffectiveTokens / config.max) * 100;
 

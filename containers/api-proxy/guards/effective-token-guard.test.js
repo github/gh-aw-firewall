@@ -76,7 +76,7 @@ describe('effective-token-guard reflect state', () => {
     });
   });
 
-  it('uses the highest configured multiplier for unknown models by default and warns', () => {
+  it('uses multiplier 1 for unknown models when explicit default is unset and warns', () => {
     const { lines } = collectLogOutput();
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
     process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
@@ -86,13 +86,13 @@ describe('effective-token-guard reflect state', () => {
 
     const usage = applyEffectiveTokenUsage({ output_tokens: 1 }, 'unmapped-expensive-model');
 
-    expect(usage.modelMultiplier).toBe(54);
-    expect(usage.effectiveTokensThisResponse).toBe(216);
+    expect(usage.modelMultiplier).toBe(1);
+    expect(usage.effectiveTokensThisResponse).toBe(4);
     expect(lines).toContainEqual(expect.objectContaining({
       event: 'unknown_model_multiplier',
       level: 'warn',
       model: 'unmapped-expensive-model',
-      applied_multiplier: 54,
+      applied_multiplier: 1,
     }));
   });
 
@@ -144,5 +144,22 @@ describe('effective-token-guard reflect state', () => {
 
     expect(usage.modelMultiplier).toBe(27);
     expect(lines.find((line) => line.event === 'unknown_model_multiplier')).toBeUndefined();
+  });
+
+  it('logs unknown model multiplier once per model per config state', () => {
+    const { lines } = collectLogOutput();
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
+    process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '27';
+
+    applyEffectiveTokenUsage({ output_tokens: 1 }, 'unknown-model');
+    applyEffectiveTokenUsage({ output_tokens: 2 }, 'unknown-model');
+    applyEffectiveTokenUsage({ output_tokens: 1 }, 'other-unknown-model');
+
+    const unknownLogs = lines.filter((line) => line.event === 'unknown_model_multiplier');
+    expect(unknownLogs).toHaveLength(2);
+    expect(unknownLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'unknown-model' }),
+      expect.objectContaining({ model: 'other-unknown-model' }),
+    ]));
   });
 });

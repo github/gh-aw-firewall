@@ -4,6 +4,7 @@ import * as path from 'path';
 import { buildEtcMounts } from './etc-mounts';
 import { WrapperConfig } from '../../types';
 import * as hostIdentity from '../../host-identity';
+import * as dockerHostStaging from './docker-host-staging';
 
 function createMinimalConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -97,6 +98,57 @@ describe('buildEtcMounts', () => {
 
       expect(fs.readFileSync(passwdPath, 'utf8')).toContain(`runner:x:${uid}:${gid}:`);
       expect(fs.readFileSync(groupPath, 'utf8')).toContain(`runner:x:${gid}:`);
+    });
+
+    it('avoids runner name collisions and reuses deterministic identity staging paths', () => {
+      const uid = '424242';
+      const gid = '434343';
+      const stageRoot = path.join(tmpDir, 'staged-identities');
+      const stagedPasswd = path.join(stageRoot, 'etc', 'passwd');
+      const stagedGroup = path.join(stageRoot, 'etc', 'group');
+
+      fs.mkdirSync(path.dirname(stagedPasswd), { recursive: true });
+      fs.writeFileSync(
+        stagedPasswd,
+        [
+          'root:x:0:0:root:/root:/bin/bash',
+          'runner:x:1000:1000:Runner:/home/runner:/bin/bash',
+        ].join('\n') + '\n'
+      );
+      fs.writeFileSync(
+        stagedGroup,
+        [
+          'root:x:0:',
+          'runner:x:1000:',
+        ].join('\n') + '\n'
+      );
+
+      jest.spyOn(hostIdentity, 'getSafeHostUid').mockReturnValue(uid);
+      jest.spyOn(hostIdentity, 'getSafeHostGid').mockReturnValue(gid);
+      jest.spyOn(dockerHostStaging, 'shouldUseDockerHostStaging').mockReturnValue(true);
+      jest.spyOn(dockerHostStaging, 'getDockerHostStageRoot').mockReturnValue(stageRoot);
+      jest.spyOn(dockerHostStaging, 'stageHostFile').mockImplementation((_config, sourcePath) => {
+        if (sourcePath === '/etc/passwd') return stagedPasswd;
+        if (sourcePath === '/etc/group') return stagedGroup;
+        return undefined;
+      });
+
+      const config = createMinimalConfig({
+        dockerHostPathPrefix: '/tmp/awf-dind-prefix',
+        workDir: tmpDir,
+      });
+      const mounts = buildEtcMounts(config);
+      const passwdPath = mounts.find(m => m.includes('/host/etc/passwd'))!.split(':')[0];
+      const groupPath = mounts.find(m => m.includes('/host/etc/group'))!.split(':')[0];
+      const passwdContent = fs.readFileSync(passwdPath, 'utf8');
+      const groupContent = fs.readFileSync(groupPath, 'utf8');
+
+      expect((passwdContent.match(/^runner:/gm) || []).length).toBe(1);
+      expect(passwdContent).toContain(`runner-${uid}:x:${uid}:${gid}:`);
+      expect((groupContent.match(/^runner:/gm) || []).length).toBe(1);
+      expect(groupContent).toContain(`runner-${gid}:x:${gid}:`);
+      expect(path.dirname(passwdPath)).toBe(path.join(stageRoot, 'identity'));
+      expect(path.dirname(groupPath)).toBe(path.join(stageRoot, 'identity'));
     });
   });
 });

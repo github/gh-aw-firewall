@@ -715,10 +715,27 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
     # User not found in chroot's /etc/passwd (common on ARC-DinD Alpine daemons).
     # Synthesize minimal identity files so the agent can resolve its own UID/GID.
     HOST_USER="runner"
+    if [ -f /host/etc/passwd ] && grep -q "^${HOST_USER}:" /host/etc/passwd 2>/dev/null; then
+      HOST_USER="runner-${HOST_USER_UID}"
+      local_user_suffix=1
+      while grep -q "^${HOST_USER}:" /host/etc/passwd 2>/dev/null; do
+        HOST_USER="runner-${HOST_USER_UID}-${local_user_suffix}"
+        local_user_suffix=$((local_user_suffix + 1))
+      done
+    fi
     echo "[entrypoint] User with UID ${HOST_USER_UID} not found in chroot — synthesizing identity files"
 
     # Determine the user's home directory (default to /home/runner)
     SYNTH_HOME="${AWF_HOST_HOME:-/home/${HOST_USER}}"
+    SYNTH_GROUP_NAME="${HOST_USER}"
+    if [ -f /host/etc/group ] && grep -q "^${SYNTH_GROUP_NAME}:" /host/etc/group 2>/dev/null; then
+      SYNTH_GROUP_NAME="runner-${HOST_USER_GID}"
+      local_group_suffix=1
+      while grep -q "^${SYNTH_GROUP_NAME}:" /host/etc/group 2>/dev/null; do
+        SYNTH_GROUP_NAME="runner-${HOST_USER_GID}-${local_group_suffix}"
+        local_group_suffix=$((local_group_suffix + 1))
+      done
+    fi
 
     # Synthesize /etc/passwd entry if missing
     if ! grep -q "^[^:]*:[^:]*:${HOST_USER_UID}:" /host/etc/passwd 2>/dev/null; then
@@ -743,17 +760,17 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
 
     # Synthesize /etc/group entry if missing
     if ! grep -q "^[^:]*:[^:]*:${HOST_USER_GID}:" /host/etc/group 2>/dev/null; then
-      GROUP_ENTRY="${HOST_USER}:x:${HOST_USER_GID}:"
+      GROUP_ENTRY="${SYNTH_GROUP_NAME}:x:${HOST_USER_GID}:"
       if [ -f /host/etc/group ]; then
         if echo "${GROUP_ENTRY}" >> /host/etc/group 2>/dev/null; then
-          echo "[entrypoint] Appended group ${HOST_USER} (GID ${HOST_USER_GID}) to /host/etc/group"
+          echo "[entrypoint] Appended group ${SYNTH_GROUP_NAME} (GID ${HOST_USER_GID}) to /host/etc/group"
         else
           echo "[entrypoint][WARN] Could not write to /host/etc/group"
         fi
       else
         if printf '%s\n' "root:x:0:" "nobody:x:65534:" "${GROUP_ENTRY}" > /host/etc/group 2>/dev/null; then
           chmod 644 /host/etc/group 2>/dev/null
-          echo "[entrypoint] Created /host/etc/group with group ${HOST_USER} (GID ${HOST_USER_GID})"
+          echo "[entrypoint] Created /host/etc/group with group ${SYNTH_GROUP_NAME} (GID ${HOST_USER_GID})"
         else
           echo "[entrypoint][WARN] Could not create /host/etc/group"
         fi

@@ -11,9 +11,10 @@ import { getSafeHostUid, getSafeHostGid } from '../../host-identity';
 function synthesizeIdentityFile(config: WrapperConfig, relPath: string, content: string): string | undefined {
   try {
     const stageRoot = getDockerHostStageRoot(config);
-    const tempDir = fs.mkdtempSync(path.join(stageRoot, 'identity-'));
+    const tempDir = path.join(stageRoot, 'identity');
+    fs.mkdirSync(tempDir, { recursive: true });
     const targetPath = path.join(tempDir, path.basename(relPath));
-    fs.writeFileSync(targetPath, content, { mode: 0o644, flag: 'wx' });
+    fs.writeFileSync(targetPath, content, { mode: 0o644 });
     return targetPath;
   } catch {
     return undefined;
@@ -38,6 +39,23 @@ function fileHasGroupGid(content: string, gid: string): boolean {
 
 function withTrailingNewline(content: string): string {
   return content.endsWith('\n') ? content : `${content}\n`;
+}
+
+function hasEntryWithName(content: string, name: string): boolean {
+  return new RegExp(`^${name}:`, 'm').test(content);
+}
+
+function resolveUniqueName(content: string, preferredName: string, id: string): string {
+  const baseName = hasEntryWithName(content, preferredName) ? `${preferredName}-${id}` : preferredName;
+  if (!hasEntryWithName(content, baseName)) {
+    return baseName;
+  }
+
+  let counter = 1;
+  while (hasEntryWithName(content, `${baseName}-${counter}`)) {
+    counter += 1;
+  }
+  return `${baseName}-${counter}`;
 }
 
 export function buildEtcMounts(config: WrapperConfig): string[] {
@@ -72,7 +90,13 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
   } else {
     const stagedPasswdContent = readFileContent(passwdPath);
     if (stagedPasswdContent && !fileHasPasswdUid(stagedPasswdContent, uid)) {
-      passwdPath = synthesizeIdentityFile(config, 'etc/passwd', `${withTrailingNewline(stagedPasswdContent)}${passwdEntry}\n`) || passwdPath;
+      const passwdUser = resolveUniqueName(stagedPasswdContent, 'runner', uid);
+      const userPasswdEntry = `${passwdUser}:x:${uid}:${gid}:GitHub Actions Runner:/home/${passwdUser}:/bin/bash`;
+      passwdPath = synthesizeIdentityFile(
+        config,
+        'etc/passwd',
+        `${withTrailingNewline(stagedPasswdContent)}${userPasswdEntry}\n`
+      ) || passwdPath;
     }
   }
 
@@ -88,7 +112,9 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
   } else {
     const stagedGroupContent = readFileContent(groupPath);
     if (stagedGroupContent && !fileHasGroupGid(stagedGroupContent, gid)) {
-      groupPath = synthesizeIdentityFile(config, 'etc/group', `${withTrailingNewline(stagedGroupContent)}${groupEntry}\n`) || groupPath;
+      const groupName = resolveUniqueName(stagedGroupContent, 'runner', gid);
+      const userGroupEntry = `${groupName}:x:${gid}:`;
+      groupPath = synthesizeIdentityFile(config, 'etc/group', `${withTrailingNewline(stagedGroupContent)}${userGroupEntry}\n`) || groupPath;
     }
   }
 
