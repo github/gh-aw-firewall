@@ -55,6 +55,20 @@ import { getRealUserHome } from './host-identity';
 
 describe('writeConfigs', () => {
   let tempDir: string;
+  const buildWriteConfig = (
+    overrides: Partial<Parameters<typeof writeConfigs>[0]> = {}
+  ): Parameters<typeof writeConfigs>[0] => ({
+    workDir: tempDir,
+    sslBump: false,
+    allowedDomains: [],
+    agentCommand: 'echo test',
+    logLevel: 'info',
+    keepContainers: false,
+    buildLocal: false,
+    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+    imageTag: 'latest',
+    ...overrides,
+  });
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-writer-test-'));
@@ -76,17 +90,11 @@ describe('writeConfigs', () => {
       (isOpenSslAvailable as jest.Mock).mockResolvedValue(false);
 
       await expect(
-        writeConfigs({
-          workDir: tempDir,
-          sslBump: true,
-          allowedDomains: [],
-          agentCommand: 'echo test',
-          logLevel: 'info',
-          keepContainers: false,
-          buildLocal: false,
-          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-          imageTag: 'latest',
-        })
+        writeConfigs(
+          buildWriteConfig({
+            sslBump: true,
+          })
+        )
       ).rejects.toThrow('SSL Bump initialization failed: openssl is not available on this system');
     });
 
@@ -95,17 +103,11 @@ describe('writeConfigs', () => {
       const { generateSessionCa } = jest.requireMock('./ssl-bump');
 
       await expect(
-        writeConfigs({
-          workDir: tempDir,
-          sslBump: true,
-          allowedDomains: [],
-          agentCommand: 'echo test',
-          logLevel: 'info',
-          keepContainers: false,
-          buildLocal: false,
-          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-          imageTag: 'latest',
-        })
+        writeConfigs(
+          buildWriteConfig({
+            sslBump: true,
+          })
+        )
       ).rejects.toThrow();
 
       expect(isOpenSslAvailable).toHaveBeenCalledTimes(1);
@@ -113,17 +115,7 @@ describe('writeConfigs', () => {
     });
 
     it('should not check OpenSSL availability when sslBump is not enabled', async () => {
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       expect(isOpenSslAvailable).not.toHaveBeenCalled();
     });
@@ -137,17 +129,11 @@ describe('writeConfigs', () => {
       fs.symlinkSync(realWorkDir, symlinkWorkDir);
 
       await expect(
-        writeConfigs({
-          workDir: symlinkWorkDir,
-          sslBump: false,
-          allowedDomains: [],
-          agentCommand: 'echo test',
-          logLevel: 'info',
-          keepContainers: false,
-          buildLocal: false,
-          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-          imageTag: 'latest',
-        })
+        writeConfigs(
+          buildWriteConfig({
+            workDir: symlinkWorkDir,
+          })
+        )
       ).rejects.toThrow(`Refusing to use symlink as directory: ${symlinkWorkDir}`);
     });
 
@@ -159,18 +145,11 @@ describe('writeConfigs', () => {
         }
       });
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-        proxyLogsDir,
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          proxyLogsDir,
+        })
+      );
 
       const squidLogsDirMode = fs.statSync(proxyLogsDir).mode & 0o777;
       expect(squidLogsDirMode).toBe(0o777);
@@ -181,17 +160,7 @@ describe('writeConfigs', () => {
       fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
       fs.chmodSync(mcpLogsDir, 0o700);
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       const mcpLogsDirMode = fs.statSync(mcpLogsDir).mode & 0o777;
       expect(mcpLogsDirMode).toBe(0o777);
@@ -202,17 +171,11 @@ describe('writeConfigs', () => {
       fs.writeFileSync(filePath, 'content');
 
       await expect(
-        writeConfigs({
-          workDir: filePath,
-          sslBump: false,
-          allowedDomains: [],
-          agentCommand: 'echo test',
-          logLevel: 'info',
-          keepContainers: false,
-          buildLocal: false,
-          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-          imageTag: 'latest',
-        })
+        writeConfigs(
+          buildWriteConfig({
+            workDir: filePath,
+          })
+        )
       ).rejects.toThrow(/EEXIST|ENOTDIR/);
     });
 
@@ -220,17 +183,7 @@ describe('writeConfigs', () => {
       const emptyHomeDir = `${tempDir}-chroot-home`;
       expect(fs.existsSync(emptyHomeDir)).toBe(false);
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       expect(fs.existsSync(emptyHomeDir)).toBe(true);
       expect(fs.statSync(emptyHomeDir).isDirectory()).toBe(true);
@@ -241,17 +194,7 @@ describe('writeConfigs', () => {
       fs.mkdirSync(emptyHomeDir, { recursive: true });
       const statBefore = fs.statSync(emptyHomeDir);
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       const statAfter = fs.statSync(emptyHomeDir);
       expect(statAfter.ino).toBe(statBefore.ino); // Same directory
@@ -267,17 +210,7 @@ describe('writeConfigs', () => {
         fs.rmSync(copilotDir, { recursive: true, force: true });
       }
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       expect(fs.existsSync(copilotDir)).toBe(true);
       expect(fs.chownSync).toHaveBeenCalledWith(copilotDir, 1000, 1000);
@@ -292,18 +225,11 @@ describe('writeConfigs', () => {
         fs.rmSync(geminiDir, { recursive: true, force: true });
       }
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-        geminiApiKey: 'test-key',
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          geminiApiKey: 'test-key',
+        })
+      );
 
       expect(fs.existsSync(geminiDir)).toBe(true);
     });
@@ -317,17 +243,7 @@ describe('writeConfigs', () => {
         fs.rmSync(geminiDir, { recursive: true, force: true });
       }
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(buildWriteConfig());
 
       expect(fs.existsSync(geminiDir)).toBe(false);
     });
@@ -335,18 +251,11 @@ describe('writeConfigs', () => {
     it('creates audit directory when it does not exist', async () => {
       const auditDir = path.join(tempDir, 'custom-audit');
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-        auditDir,
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          auditDir,
+        })
+      );
 
       expect(fs.existsSync(auditDir)).toBe(true);
       expect(fs.existsSync(path.join(auditDir, 'squid.conf'))).toBe(true);
@@ -375,17 +284,7 @@ describe('writeConfigs', () => {
 
       try {
         await expect(
-          writeConfigs({
-            workDir: tempDir,
-            sslBump: false,
-            allowedDomains: [],
-            agentCommand: 'echo test',
-            logLevel: 'info',
-            keepContainers: false,
-            buildLocal: false,
-            imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-            imageTag: 'latest',
-          })
+          writeConfigs(buildWriteConfig())
         ).rejects.toThrow(/Seccomp profile not found/);
       } finally {
         existsSyncMock.mockImplementation(originalImpl);
@@ -403,18 +302,12 @@ describe('writeConfigs', () => {
       const { parseUrlPatterns } = jest.requireMock('./ssl-bump');
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: ['example.com'],
-        allowedUrls: ['https://example.com/api/*'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          allowedDomains: ['example.com'],
+          allowedUrls: ['https://example.com/api/*'],
+        })
+      );
 
       expect(parseUrlPatterns).toHaveBeenCalledWith(['https://example.com/api/*']);
       expect(generateSquidConfig).toHaveBeenCalledWith(
@@ -428,18 +321,12 @@ describe('writeConfigs', () => {
       const { parseUrlPatterns } = jest.requireMock('./ssl-bump');
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: ['example.com'],
-        allowedUrls: [],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          allowedDomains: ['example.com'],
+          allowedUrls: [],
+        })
+      );
 
       expect(parseUrlPatterns).not.toHaveBeenCalled();
       expect(generateSquidConfig).toHaveBeenCalledWith(
@@ -453,18 +340,12 @@ describe('writeConfigs', () => {
       const { generateSquidConfig } = jest.requireMock('./squid-config');
       const { generatePolicyManifest } = jest.requireMock('./squid-config');
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: ['example.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-        enableApiProxy: true,
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          allowedDomains: ['example.com'],
+          enableApiProxy: true,
+        })
+      );
 
       expect(generateSquidConfig).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -482,18 +363,12 @@ describe('writeConfigs', () => {
     it('does not include API proxy configuration when enableApiProxy is false', async () => {
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
-      await writeConfigs({
-        workDir: tempDir,
-        sslBump: false,
-        allowedDomains: ['example.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        buildLocal: false,
-        imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-        imageTag: 'latest',
-        enableApiProxy: false,
-      });
+      await writeConfigs(
+        buildWriteConfig({
+          allowedDomains: ['example.com'],
+          enableApiProxy: false,
+        })
+      );
 
       expect(generateSquidConfig).toHaveBeenCalledWith(
         expect.not.objectContaining({
