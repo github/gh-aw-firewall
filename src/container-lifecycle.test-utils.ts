@@ -1,5 +1,10 @@
 /**
- * Test-only re-export of internal state helpers from container-lifecycle.
- * Tests should import from this file, not directly from the production module.
+ * Test-only access to container lifecycle state helpers.
+ * Tests should import from this file, not from production modules.
  */
-export { containerLifecycleTestHelpers } from './container-lifecycle';
+import { isAgentExternallyKilled, resetAgentExternallyKilled } from './container-lifecycle-state';
+
+export const containerLifecycleTestHelpers = {
+  isAgentExternallyKilled,
+  resetAgentExternallyKilled,
+};
