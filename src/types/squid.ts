@@ -25,7 +25,7 @@ export interface SquidConfig {
    * List of blocked domains for proxy access
    * 
    * These domains are explicitly denied. Blocked domains take precedence over
-   * allowed domains. This allows for fine-grained control like allowing 
+   * allowed domains. This allows for fine-grained control like allowing
    * '*.example.com' but blocking 'internal.example.com'.
    * 
    * Supports the same wildcard patterns as domains.
