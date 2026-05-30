@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { stageHostFile } from './agent-volumes/docker-host-staging';
-import { translateBindMountHostPath } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -14,6 +14,31 @@ import { mockExecaSync } from '../test-helpers/mock-execa.test-utils';
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
 let mockConfig: WrapperConfig;
+
+function withEnv(envPatch: Record<string, string | undefined>, fn: () => void): void {
+  const saved: Record<string, string | undefined> = {};
+
+  for (const [key, value] of Object.entries(envPatch)) {
+    saved[key] = process.env[key];
+    if (value !== undefined) {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value !== undefined) {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    }
+  }
+}
 
 describe('agent service', () => {
   useTempWorkDir(
@@ -218,10 +243,10 @@ describe('agent service', () => {
     });
 
     it('should leave /etc/passwd and /etc/group unprefixed in shared /tmp staging fallback mode', () => {
-      expect(translateBindMountHostPath('/etc/passwd:/host/etc/passwd:ro', '/tmp/gh-aw'))
-        .toBe('/etc/passwd:/host/etc/passwd:ro');
-      expect(translateBindMountHostPath('/etc/group:/host/etc/group:ro', '/tmp/gh-aw'))
-        .toBe('/etc/group:/host/etc/group:ro');
+      expect(applyHostPathPrefixToVolumes(['/etc/passwd:/host/etc/passwd:ro'], '/tmp/gh-aw'))
+        .toEqual(['/etc/passwd:/host/etc/passwd:ro']);
+      expect(applyHostPathPrefixToVolumes(['/etc/group:/host/etc/group:ro'], '/tmp/gh-aw'))
+        .toEqual(['/etc/group:/host/etc/group:ro']);
     });
 
     it('should prune stale staged chroot hosts directories under shared /tmp docker-host-path-prefix', () => {
@@ -352,10 +377,7 @@ describe('agent service', () => {
     });
 
     it('should expose the Unix DOCKER_HOST socket path when enableDind is true', () => {
-      const originalDockerHost = process.env.DOCKER_HOST;
-      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
-
-      try {
+      withEnv({ DOCKER_HOST: 'unix:///tmp/arc/docker.sock' }, () => {
         const dindConfig = { ...mockConfig, enableDind: true };
         const result = generateDockerCompose(dindConfig, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
@@ -363,20 +385,11 @@ describe('agent service', () => {
         expect(volumes).toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
         expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
         expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
-      } finally {
-        if (originalDockerHost !== undefined) {
-          process.env.DOCKER_HOST = originalDockerHost;
-        } else {
-          delete process.env.DOCKER_HOST;
-        }
-      }
+      });
     });
 
     it('should prefer awfDockerHost over DOCKER_HOST when enableDind is true', () => {
-      const originalDockerHost = process.env.DOCKER_HOST;
-      process.env.DOCKER_HOST = 'unix:///tmp/arc/docker.sock';
-
-      try {
+      withEnv({ DOCKER_HOST: 'unix:///tmp/arc/docker.sock' }, () => {
         const dindConfig = {
           ...mockConfig,
           enableDind: true,
@@ -389,20 +402,11 @@ describe('agent service', () => {
         expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
         expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
         expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
-      } finally {
-        if (originalDockerHost !== undefined) {
-          process.env.DOCKER_HOST = originalDockerHost;
-        } else {
-          delete process.env.DOCKER_HOST;
-        }
-      }
+      });
     });
 
     it('should set agent DOCKER_HOST from awfDockerHost when enableDind is true and host DOCKER_HOST is unset', () => {
-      const originalDockerHost = process.env.DOCKER_HOST;
-      delete process.env.DOCKER_HOST;
-
-      try {
+      withEnv({ DOCKER_HOST: undefined }, () => {
         const dindConfig = {
           ...mockConfig,
           enableDind: true,
@@ -416,36 +420,25 @@ describe('agent service', () => {
         expect(volumes).not.toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
         expect(volumes).not.toContain('/run/docker.sock:/host/run/docker.sock:rw');
         expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
-      } finally {
-        if (originalDockerHost !== undefined) {
-          process.env.DOCKER_HOST = originalDockerHost;
-        } else {
-          delete process.env.DOCKER_HOST;
-        }
-      }
+      });
     });
 
     it('should warn and fall back to the default socket for an invalid Unix DOCKER_HOST path', () => {
-      const originalDockerHost = process.env.DOCKER_HOST;
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
-      process.env.DOCKER_HOST = 'unix://relative/path';
 
       try {
-        const dindConfig = { ...mockConfig, enableDind: true };
-        const result = generateDockerCompose(dindConfig, mockNetworkConfig);
-        const volumes = result.services.agent.volumes as string[];
+        withEnv({ DOCKER_HOST: 'unix://relative/path' }, () => {
+          const dindConfig = { ...mockConfig, enableDind: true };
+          const result = generateDockerCompose(dindConfig, mockNetworkConfig);
+          const volumes = result.services.agent.volumes as string[];
 
-        expect(volumes).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
-        expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
-        expect(volumes).not.toContain('relative/path:/hostrelative/path:rw');
-        expect(warnSpy).toHaveBeenCalledWith('Ignoring invalid unix Docker host path: unix://relative/path');
+          expect(volumes).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');
+          expect(volumes).toContain('/run/docker.sock:/host/run/docker.sock:rw');
+          expect(volumes).not.toContain('relative/path:/hostrelative/path:rw');
+          expect(warnSpy).toHaveBeenCalledWith('Ignoring invalid unix Docker host path: unix://relative/path');
+        });
       } finally {
         warnSpy.mockRestore();
-        if (originalDockerHost !== undefined) {
-          process.env.DOCKER_HOST = originalDockerHost;
-        } else {
-          delete process.env.DOCKER_HOST;
-        }
       }
     });
 
@@ -487,30 +480,18 @@ describe('agent service', () => {
 
     it('should mount self-hosted runner toolcache when present under HOME/work/_tool', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
-      const originalHome = process.env.HOME;
-      const originalSudoUser = process.env.SUDO_USER;
-      delete process.env.SUDO_USER;
-      process.env.HOME = fakeHome;
 
       try {
-        const toolcacheDir = path.join(fakeHome, 'work', '_tool');
-        fs.mkdirSync(toolcacheDir, { recursive: true });
+        withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
+          const toolcacheDir = path.join(fakeHome, 'work', '_tool');
+          fs.mkdirSync(toolcacheDir, { recursive: true });
 
-        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-        const volumes = result.services.agent.volumes as string[];
+          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const volumes = result.services.agent.volumes as string[];
 
-        expect(volumes).toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+          expect(volumes).toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+        });
       } finally {
-        if (originalHome !== undefined) {
-          process.env.HOME = originalHome;
-        } else {
-          delete process.env.HOME;
-        }
-        if (originalSudoUser !== undefined) {
-          process.env.SUDO_USER = originalSudoUser;
-        } else {
-          delete process.env.SUDO_USER;
-        }
         fs.rmSync(fakeHome, { recursive: true, force: true });
       }
     });
@@ -518,32 +499,20 @@ describe('agent service', () => {
     it('should not mount HOME/work/_tool when it is a symlink', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
       const symlinkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-target-'));
-      const originalHome = process.env.HOME;
-      const originalSudoUser = process.env.SUDO_USER;
-      delete process.env.SUDO_USER;
-      process.env.HOME = fakeHome;
 
       try {
-        const workDir = path.join(fakeHome, 'work');
-        fs.mkdirSync(workDir, { recursive: true });
-        const toolcacheDir = path.join(workDir, '_tool');
-        fs.symlinkSync(symlinkTarget, toolcacheDir);
+        withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
+          const workDir = path.join(fakeHome, 'work');
+          fs.mkdirSync(workDir, { recursive: true });
+          const toolcacheDir = path.join(workDir, '_tool');
+          fs.symlinkSync(symlinkTarget, toolcacheDir);
 
-        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-        const volumes = result.services.agent.volumes as string[];
+          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const volumes = result.services.agent.volumes as string[];
 
-        expect(volumes).not.toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+          expect(volumes).not.toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+        });
       } finally {
-        if (originalHome !== undefined) {
-          process.env.HOME = originalHome;
-        } else {
-          delete process.env.HOME;
-        }
-        if (originalSudoUser !== undefined) {
-          process.env.SUDO_USER = originalSudoUser;
-        } else {
-          delete process.env.SUDO_USER;
-        }
         fs.rmSync(fakeHome, { recursive: true, force: true });
         fs.rmSync(symlinkTarget, { recursive: true, force: true });
       }
@@ -551,38 +520,26 @@ describe('agent service', () => {
 
     it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
-      const originalHome = process.env.HOME;
-      const originalSudoUser = process.env.SUDO_USER;
-      delete process.env.SUDO_USER;
-      process.env.HOME = fakeHome;
 
       try {
-        const copilotDir = path.join(fakeHome, '.copilot');
-        expect(fs.existsSync(copilotDir)).toBe(false);
+        withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
+          const copilotDir = path.join(fakeHome, '.copilot');
+          expect(fs.existsSync(copilotDir)).toBe(false);
 
-        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-        const volumes = result.services.agent.volumes as string[];
+          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const volumes = result.services.agent.volumes as string[];
 
-        // Directory should NOT be auto-created (changed in #2114)
-        expect(fs.existsSync(copilotDir)).toBe(false);
-        // The blanket .copilot mount should be absent
-        expect(volumes).not.toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
-        // Optional self-hosted runner toolcache mount should also be absent
-        expect(volumes).not.toContain(`${fakeHome}/work/_tool:/host${fakeHome}/work/_tool:ro`);
-        // But session-state and logs overlays are always present
-        expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/session-state:rw`));
-        expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/logs:rw`));
+          // Directory should NOT be auto-created (changed in #2114)
+          expect(fs.existsSync(copilotDir)).toBe(false);
+          // The blanket .copilot mount should be absent
+          expect(volumes).not.toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+          // Optional self-hosted runner toolcache mount should also be absent
+          expect(volumes).not.toContain(`${fakeHome}/work/_tool:/host${fakeHome}/work/_tool:ro`);
+          // But session-state and logs overlays are always present
+          expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/session-state:rw`));
+          expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/logs:rw`));
+        });
       } finally {
-        if (originalHome !== undefined) {
-          process.env.HOME = originalHome;
-        } else {
-          delete process.env.HOME;
-        }
-        if (originalSudoUser !== undefined) {
-          process.env.SUDO_USER = originalSudoUser;
-        } else {
-          delete process.env.SUDO_USER;
-        }
         fs.rmSync(fakeHome, { recursive: true, force: true });
       }
     });

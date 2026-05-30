@@ -138,6 +138,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
         },
+        defaultModelMultiplier: 27,
         enableTokenSteering: true,
       },
     });
@@ -146,6 +147,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
       'gpt-4o': 2,
       'claude-sonnet-4': 1.5,
     });
+    expect(result.effectiveTokenDefaultModelMultiplier).toBe(27);
     expect(result.enableTokenSteering).toBe(true);
   });
 
@@ -154,11 +156,29 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.maxRuns).toBe(42);
   });
 
+  it('maps requestedModel field', () => {
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: { requestedModel: 'gpt-4o' } });
+    expect(result.requestedModel).toBe('gpt-4o');
+  });
+
   it('maps modelFallback field', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: { modelFallback: { enabled: false, strategy: 'middle_power' } },
     });
     expect(result.modelFallback).toEqual({ enabled: false, strategy: 'middle_power' });
+  });
+
+  it('maps modelFallback.excludeEngines field', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        modelFallback: { enabled: true, strategy: 'middle_power', excludeEngines: ['openai', 'copilot'] },
+      },
+    });
+    expect(result.modelFallback).toEqual({
+      enabled: true,
+      strategy: 'middle_power',
+      excludeEngines: ['openai', 'copilot'],
+    });
   });
 
   it('leaves maxRuns undefined when not set', () => {

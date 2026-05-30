@@ -12,52 +12,47 @@ const {
   makeProxyReq,
   makeProxyRes,
   getStructuredLogs,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let resetAnthropicDeprecatedBetaHeadersForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({ resetAnthropicDeprecatedBetaHeadersForTests } = require('./proxy-request'));
+  return { proxyRequest, resetAnthropicDeprecatedBetaHeadersForTests };
 });
 
 beforeEach(() => {
   resetAnthropicDeprecatedBetaHeadersForTests();
 });
 
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
-});
-
 describe('proxyRequest anthropic deprecated beta handling', () => {
+  let stdoutWriteSpy;
+  let responseHandlers;
+  let capturedOptions;
   function makeReq(headers = {}) {
     return makeReqFactory('/v1/messages', headers);
   }
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('retries once after Anthropic rejects a deprecated anthropic-beta value', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
+  beforeEach(() => {
+    stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    responseHandlers = [];
+    capturedOptions = [];
 
     jest.spyOn(https, 'request').mockImplementation((options, cb) => {
       capturedOptions.push(options);
       responseHandlers.push(cb);
       return makeProxyReq();
     });
+  });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('retries once after Anthropic rejects a deprecated anthropic-beta value', () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07,other-beta' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -96,16 +91,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('proactively strips learned deprecated anthropic-beta values on later requests', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const learnReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const learnRes = makeRes();
     proxyRequest(learnReq, learnRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -149,16 +134,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('retries after deprecated anthropic-beta rejection via copilot provider', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07,prompt-caching-2024-07-31' });
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { authorization: 'Bearer ghu_test' }, 'copilot');
@@ -199,16 +174,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('proactively strips learned deprecated values for copilot provider requests', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     // First: learn via anthropic provider
     const learnReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const learnRes = makeRes();
@@ -247,16 +212,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('handles deprecated values in arbitrary headers (not just anthropic-beta)', () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'x-custom-feature': 'old-feature-2024,new-feature-2025' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -305,16 +260,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('does not retry when 400 body does not match the deprecated header pattern', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -335,16 +280,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('does not retry more than once (retry itself returns 400)', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'anthropic-beta': 'bad-value-1,bad-value-2' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -379,16 +314,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('removes header entirely when all values are deprecated', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
@@ -414,16 +339,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('does not buffer 400 responses for non-anthropic/non-copilot providers', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     req.url = '/v1/chat/completions';
     const res = makeRes();
@@ -443,16 +358,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('learns multiple deprecated values across separate requests', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     // First request: learn that value-a is deprecated
     const req1 = makeReq({ 'anthropic-beta': 'value-a,value-b,value-c' });
     const res1 = makeRes();
@@ -502,16 +407,6 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
   });
 
   it('handles whitespace in comma-separated header values', () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     // Header with spaces around commas
     const req = makeReq({ 'anthropic-beta': ' context-1m-2025-08-07 , prompt-caching-2024-07-31 ' });
     const res = makeRes();

@@ -27,7 +27,7 @@ function shouldPreserveUnprefixedEtcIdentityFile(hostPath: string, dockerHostPat
   );
 }
 
-export function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string): string {
+function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string): string {
   const parts = mount.split(':');
   if (parts.length < 2 || parts.length > 3) {
     return mount;

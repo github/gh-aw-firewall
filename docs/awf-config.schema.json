@@ -74,16 +74,25 @@
         },
         "modelMultipliers": {
           "type": "object",
-          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Defaults to 1 for unlisted models. See spec §10.2.",
+          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0
           }
         },
+        "defaultModelMultiplier": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Default multiplier applied when a model is not present in modelMultipliers. When omitted, AWF uses the highest configured model multiplier as a conservative fallback."
+        },
         "maxRuns": {
           "type": "integer",
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+        },
+        "requestedModel": {
+          "type": "string",
+          "description": "Expected model name for pre-startup validation. When set, the API proxy validates at startup that this model is available in at least one provider's model catalogue. Emits a clear diagnostic if the model is retired, restricted, or misspelled. Does not block startup."
         },
         "modelFallback": {
           "type": "object",

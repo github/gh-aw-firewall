@@ -11,25 +11,15 @@ const {
   makeReq: makeReqFactory,
   makeRes,
   getStructuredLogs,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let healthResponse;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest, healthResponse } = require('./server'));
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
+  return { proxyRequest, healthResponse };
 });
 
 describe('proxyRequest error handling', () => {

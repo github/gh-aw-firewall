@@ -13,30 +13,23 @@ const {
   makeProxyReq,
   makeProxyRes,
   getStructuredLogs,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let _setSleepForTests;
 let _resetSleepForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({ _setSleepForTests, _resetSleepForTests } = require('./proxy-request'));
   // Make retries instant — no real setTimeout delays in unit tests.
   _setSleepForTests(() => Promise.resolve());
+  return { proxyRequest, _setSleepForTests, _resetSleepForTests };
 });
 
 afterAll(() => {
   _resetSleepForTests();
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -53,21 +46,27 @@ function flushPromises() {
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 describe('proxyRequest copilot model-not-supported retry', () => {
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
+  let stdoutWriteSpy;
+  let responseHandlers;
+  let capturedOptions;
 
-  it('retries once after Copilot returns 400 model not supported, then succeeds', async () => {
-    const stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
+  beforeEach(() => {
+    stdoutWriteSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    responseHandlers = [];
+    capturedOptions = [];
 
     jest.spyOn(https, 'request').mockImplementation((options, cb) => {
       capturedOptions.push(options);
       responseHandlers.push(cb);
       return makeProxyReq();
     });
+  });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('retries once after Copilot returns 400 model not supported, then succeeds', async () => {
     const req = makeReq();
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
@@ -105,16 +104,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('retries a second time when the first retry also returns 400 model not supported', async () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq();
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
@@ -145,16 +134,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('surfaces the 400 to the client after exhausting all retries', async () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq();
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
@@ -180,16 +159,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('does not retry a 400 that is not model-not-supported', async () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq();
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
@@ -207,16 +176,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('does not retry model-not-supported for non-copilot providers', async () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
-
-    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
-      capturedOptions.push(options);
-      responseHandlers.push(cb);
-      return makeProxyReq();
-    });
-
     const req = makeReq();
     const res = makeRes();
     // Use openai provider — model-not-supported retry only applies to copilot
@@ -234,9 +193,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('sends an identical request body on retry', async () => {
-    jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const responseHandlers = [];
-    const capturedOptions = [];
     const capturedBodies = [];
 
     jest.spyOn(https, 'request').mockImplementation((options, cb) => {

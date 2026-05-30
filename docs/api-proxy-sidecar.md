@@ -838,7 +838,8 @@ Set in the AWF config file or via the `--max-model-multiplier` CLI flag:
       "o3": 4,
       "claude-sonnet-4-20250514": 1,
       "gpt-4.1-mini": 0.5
-    }
+    },
+    "defaultModelMultiplier": 15
   }
 }
 ```

@@ -19,10 +19,13 @@ interface AwfFileConfig {
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
     modelMultipliers?: Record<string, number>;
+    defaultModelMultiplier?: number;
     maxRuns?: number;
+    requestedModel?: string;
     modelFallback?: {
       enabled?: boolean;
       strategy?: 'middle_power';
+      excludeEngines?: string[];
     };
     targets?: {
       openai?: { host?: string; basePath?: string; authHeader?: string };
@@ -178,7 +181,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
+    effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxRuns: config.apiProxy?.maxRuns,
+    requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,

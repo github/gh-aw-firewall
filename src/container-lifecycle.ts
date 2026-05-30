@@ -13,13 +13,7 @@ import {
   CLI_PROXY_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
-
-/**
- * Flag set by fastKillAgentContainer() to signal runAgentCommand() that
- * the container was externally stopped. When true, runAgentCommand() skips
- * its own docker wait / log collection to avoid racing with the signal handler.
- */
-let agentExternallyKilled = false;
+import { isAgentExternallyKilled, markAgentExternallyKilled } from './container-lifecycle-state';
 
 /**
  * Checks Squid logs for access denials to provide better error context
@@ -401,7 +395,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
     // If the container was killed externally (e.g. by fastKillAgentContainer in a
     // signal handler), skip the remaining log analysis — the container state is
     // unreliable and the signal handler will drive the rest of the shutdown.
-    if (agentExternallyKilled) {
+    if (isAgentExternallyKilled()) {
       logger.debug('Agent was externally killed, skipping post-run analysis');
       return { exitCode: exitCode || 143, blockedDomains: [] };
     }
@@ -437,7 +431,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
  * @param stopTimeoutSeconds - Grace period before SIGKILL (default: 3)
  */
 export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<void> {
-  agentExternallyKilled = true;
+  markAgentExternallyKilled();
   try {
     await execa('docker', ['stop', '-t', String(stopTimeoutSeconds), AGENT_CONTAINER_NAME], {
       reject: false,
@@ -449,21 +443,3 @@ export async function fastKillAgentContainer(stopTimeoutSeconds = 3): Promise<vo
     // to performCleanup which will attempt docker compose down.
   }
 }
-
-/**
- * Returns whether the agent was externally killed via fastKillAgentContainer().
- */
-function isAgentExternallyKilled(): boolean {
-  return agentExternallyKilled;
-}
-
-/**
- * Resets the externally-killed flag. Only used in tests.
- */
-function resetAgentExternallyKilled(): void {
-  agentExternallyKilled = false;
-}
-
-/** @internal Exposed only for unit tests — not part of the public API. */
-// ts-prune-ignore-next
-export const containerLifecycleTestHelpers = { isAgentExternallyKilled, resetAgentExternallyKilled };

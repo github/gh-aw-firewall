@@ -66,6 +66,7 @@ describe('awf-config.schema.json', () => {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
         },
+        defaultModelMultiplier: 2,
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
           anthropic: { host: 'api.anthropic.com', basePath: '/v1' },
@@ -150,6 +151,13 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { maxEffectiveTokens: 0 } })).toBe(false);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
+    expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);
+    expect(validate({ apiProxy: { defaultModelMultiplier: 0 } })).toBe(false);
+  });
+
+  it('accepts apiProxy.requestedModel as a string', () => {
+    expect(validate({ apiProxy: { requestedModel: 'gpt-4o' } })).toBe(true);
+    expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
   });
 
   it('rejects invalid logging.logLevel values', () => {

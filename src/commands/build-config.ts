@@ -24,6 +24,7 @@ interface BuildConfigInputs {
   modelAliases: Record<string, string[]> | undefined;
   maxEffectiveTokens: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
+  effectiveTokenDefaultModelMultiplier: number | undefined;
   maxRuns: number | undefined;
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
@@ -56,6 +57,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     modelAliases,
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
+    effectiveTokenDefaultModelMultiplier,
     maxRuns,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -101,11 +103,13 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean,
     modelFallback: options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
+    requestedModel: options.requestedModel as string | undefined,
     anthropicAutoCache: options.anthropicAutoCache as boolean,
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     modelAliases,
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
+    effectiveTokenDefaultModelMultiplier,
     maxRuns,
     enableTokenSteering: options.enableTokenSteering as boolean,
     debugTokens: (options.debugTokens as boolean | undefined) ?? (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),

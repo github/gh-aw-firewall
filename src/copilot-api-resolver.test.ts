@@ -1,3 +1,4 @@
+import * as copilotApiResolverModule from './copilot-api-resolver';
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
@@ -10,6 +11,10 @@ const {
 } = copilotApiResolverTestHelpers;
 
 describe('resolveCopilotApiKey', () => {
+  it('should not expose test helpers from the production module API', () => {
+    expect(copilotApiResolverModule).not.toHaveProperty('copilotApiResolverTestHelpers');
+  });
+
   it('should return COPILOT_API_KEY when set', () => {
     const env = { COPILOT_API_KEY: 'key123' };
     expect(resolveCopilotApiKey(env)).toBe('key123');

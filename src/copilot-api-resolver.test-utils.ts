@@ -1,5 +1,13 @@
+import {
+  deriveCopilotApiBasePathFromProviderBaseUrl,
+  deriveCopilotApiTargetFromProviderBaseUrl,
+} from './copilot-api-resolver.internal';
+
 /**
- * Test-only re-export of internal helpers from copilot-api-resolver.
+ * Test-only helpers for copilot-api-resolver.
  * Tests should import from this file, not directly from the production module.
  */
-export { copilotApiResolverTestHelpers } from './copilot-api-resolver';
+export const copilotApiResolverTestHelpers = {
+  deriveCopilotApiTargetFromProviderBaseUrl,
+  deriveCopilotApiBasePathFromProviderBaseUrl,
+};
