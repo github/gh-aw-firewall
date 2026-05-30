@@ -96,10 +96,9 @@ describe('buildEtcMounts', () => {
       const passwdPath = mounts.find(m => m.includes('/host/etc/passwd'))!.split(':')[0];
       const groupPath = mounts.find(m => m.includes('/host/etc/group'))!.split(':')[0];
 
-      expect(fs.readFileSync(passwdPath, 'utf8')).toContain(`runner:x:${uid}:${gid}:`);
-      expect(fs.readFileSync(groupPath, 'utf8')).toContain(`runner:x:${gid}:`);
+      expect(fs.readFileSync(passwdPath, 'utf8')).toMatch(new RegExp(`^[^:]+:x:${uid}:${gid}:`, 'm'));
+      expect(fs.readFileSync(groupPath, 'utf8')).toMatch(new RegExp(`^[^:]+:x:${gid}:`, 'm'));
     });
-
     it('avoids runner name collisions and reuses deterministic identity staging paths', () => {
       const uid = '424242';
       const gid = '434343';

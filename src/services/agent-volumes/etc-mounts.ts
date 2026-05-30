@@ -40,7 +40,6 @@ function fileHasGroupGid(content: string, gid: string): boolean {
 function withTrailingNewline(content: string): string {
   return content.endsWith('\n') ? content : `${content}\n`;
 }
-
 function hasEntryWithName(content: string, name: string): boolean {
   return new RegExp(`^${name}:`, 'm').test(content);
 }

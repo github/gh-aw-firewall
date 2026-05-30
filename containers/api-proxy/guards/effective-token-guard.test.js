@@ -145,7 +145,6 @@ describe('effective-token-guard reflect state', () => {
     expect(usage.modelMultiplier).toBe(27);
     expect(lines.find((line) => line.event === 'unknown_model_multiplier')).toBeUndefined();
   });
-
   it('logs unknown model multiplier once per model per config state', () => {
     const { lines } = collectLogOutput();
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
