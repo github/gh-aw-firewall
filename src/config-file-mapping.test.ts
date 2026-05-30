@@ -154,6 +154,11 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.maxRuns).toBe(42);
   });
 
+  it('maps requestedModel field', () => {
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: { requestedModel: 'gpt-4o' } });
+    expect(result.requestedModel).toBe('gpt-4o');
+  });
+
   it('maps modelFallback field', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: { modelFallback: { enabled: false, strategy: 'middle_power' } },
