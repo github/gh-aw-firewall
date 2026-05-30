@@ -8,6 +8,10 @@ export function isAgentExternallyKilled(): boolean {
   return agentExternallyKilled;
 }
 
+/**
+ * Internal test-only reset helper.
+ * Do not use in production flows.
+ */
 export function resetAgentExternallyKilled(): void {
   agentExternallyKilled = false;
 }
