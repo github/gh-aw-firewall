@@ -1,5 +1,44 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { WrapperConfig } from '../../types';
-import { shouldUseDockerHostStaging, stageHostFile } from './docker-host-staging';
+import { shouldUseDockerHostStaging, stageHostFile, getDockerHostStageRoot } from './docker-host-staging';
+import { getSafeHostUid, getSafeHostGid } from '../../host-identity';
+
+/**
+ * Synthesize a minimal /etc/passwd or /etc/group file in the staging directory.
+ * Used when the runner doesn't have these files (e.g., minimal ARC-DinD containers).
+ */
+function synthesizeIdentityFile(config: WrapperConfig, relPath: string, content: string): string | undefined {
+  try {
+    const stageRoot = getDockerHostStageRoot(config);
+    const tempDir = fs.mkdtempSync(path.join(stageRoot, 'identity-'));
+    const targetPath = path.join(tempDir, path.basename(relPath));
+    fs.writeFileSync(targetPath, content, { mode: 0o644, flag: 'wx' });
+    return targetPath;
+  } catch {
+    return undefined;
+  }
+}
+
+function readFileContent(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function fileHasPasswdUid(content: string, uid: string): boolean {
+  return new RegExp(`^[^:]*:[^:]*:${uid}:`, 'm').test(content);
+}
+
+function fileHasGroupGid(content: string, gid: string): boolean {
+  return new RegExp(`^[^:]*:[^:]*:${gid}:`, 'm').test(content);
+}
+
+function withTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content : `${content}\n`;
+}
 
 export function buildEtcMounts(config: WrapperConfig): string[] {
   const mounts: string[] = [
@@ -16,10 +55,45 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
     return mounts;
   }
 
-  const stagedPasswdPath = stageHostFile(config, '/etc/passwd', 'etc/passwd');
-  const stagedGroupPath = stageHostFile(config, '/etc/group', 'etc/group');
-  mounts.push(`${stagedPasswdPath || '/etc/passwd'}:/host/etc/passwd:ro`);
-  mounts.push(`${stagedGroupPath || '/etc/group'}:/host/etc/group:ro`);
+  // In DinD mode, stage /etc/passwd and /etc/group from the runner.
+  // If the runner doesn't have these files (minimal ARC containers), synthesize minimal ones.
+  const uid = getSafeHostUid();
+  const gid = getSafeHostGid();
+
+  let passwdPath = stageHostFile(config, '/etc/passwd', 'etc/passwd');
+  const passwdEntry = `runner:x:${uid}:${gid}:GitHub Actions Runner:/home/runner:/bin/bash`;
+  if (!passwdPath) {
+    const minimalPasswd = [
+      'root:x:0:0:root:/root:/bin/bash',
+      'nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin',
+      passwdEntry,
+    ].join('\n') + '\n';
+    passwdPath = synthesizeIdentityFile(config, 'etc/passwd', minimalPasswd);
+  } else {
+    const stagedPasswdContent = readFileContent(passwdPath);
+    if (stagedPasswdContent && !fileHasPasswdUid(stagedPasswdContent, uid)) {
+      passwdPath = synthesizeIdentityFile(config, 'etc/passwd', `${withTrailingNewline(stagedPasswdContent)}${passwdEntry}\n`) || passwdPath;
+    }
+  }
+
+  let groupPath = stageHostFile(config, '/etc/group', 'etc/group');
+  const groupEntry = `runner:x:${gid}:`;
+  if (!groupPath) {
+    const minimalGroup = [
+      'root:x:0:',
+      'nobody:x:65534:',
+      groupEntry,
+    ].join('\n') + '\n';
+    groupPath = synthesizeIdentityFile(config, 'etc/group', minimalGroup);
+  } else {
+    const stagedGroupContent = readFileContent(groupPath);
+    if (stagedGroupContent && !fileHasGroupGid(stagedGroupContent, gid)) {
+      groupPath = synthesizeIdentityFile(config, 'etc/group', `${withTrailingNewline(stagedGroupContent)}${groupEntry}\n`) || groupPath;
+    }
+  }
+
+  mounts.push(`${passwdPath || '/etc/passwd'}:/host/etc/passwd:ro`);
+  mounts.push(`${groupPath || '/etc/group'}:/host/etc/group:ro`);
 
   return mounts;
 }

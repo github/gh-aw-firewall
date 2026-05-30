@@ -152,6 +152,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
   });
 
+  it('accepts apiProxy.requestedModel as a string', () => {
+    expect(validate({ apiProxy: { requestedModel: 'gpt-4o' } })).toBe(true);
+    expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
+  });
+
   it('rejects invalid logging.logLevel values', () => {
     expect(validate({ logging: { logLevel: 'verbose' } })).toBe(false);
     expect(validate({ logging: { logLevel: 'debug' } })).toBe(true);

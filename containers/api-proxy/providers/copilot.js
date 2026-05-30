@@ -144,6 +144,14 @@ function isAzureOpenAITarget(target) {
   );
 }
 
+function isAzureOpenAIV1Path(pathname) {
+  return pathname === '/openai/v1' || pathname.startsWith('/openai/v1/');
+}
+
+function shouldInjectAzureApiVersion(basePath, requestPathname) {
+  return !isAzureOpenAIV1Path(basePath) && !isAzureOpenAIV1Path(requestPathname);
+}
+
 /** Default Azure OpenAI API version used when none is specified */
 const AZURE_DEFAULT_API_VERSION = '2024-10-21';
 
@@ -419,6 +427,9 @@ function createCopilotAdapter(env, deps = {}) {
       if (!isAzure) return url;
       try {
         const parsed = new URL(url, 'http://localhost');
+        if (!shouldInjectAzureApiVersion(basePath || '', parsed.pathname)) {
+          return url;
+        }
         if (!parsed.searchParams.has('api-version')) {
           parsed.searchParams.set('api-version', azureApiVersion);
         }
@@ -469,6 +480,7 @@ module.exports = {
     deriveGitHubApiBasePath,
     isGithubCopilotCatalogTarget,
     isAzureOpenAITarget,
+    shouldInjectAzureApiVersion,
     COPILOT_PLACEHOLDER_TOKEN,
     COPILOT_DUMMY_BYOK_KEY,
     AZURE_DEFAULT_API_VERSION,

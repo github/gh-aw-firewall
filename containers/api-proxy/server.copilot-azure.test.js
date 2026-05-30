@@ -9,6 +9,7 @@ const {
   createCopilotAdapter,
   _testing: {
     isAzureOpenAITarget,
+    shouldInjectAzureApiVersion,
     AZURE_DEFAULT_API_VERSION,
   },
 } = require('./providers/copilot');
@@ -33,6 +34,20 @@ describe('isAzureOpenAITarget', () => {
 
   it('does not match GitHub catalog targets', () => {
     expect(isAzureOpenAITarget('models.inference.ai.azure.com')).toBe(false);
+  });
+});
+
+describe('shouldInjectAzureApiVersion', () => {
+  it('returns true for Azure deployment-style base paths', () => {
+    expect(shouldInjectAzureApiVersion('/openai/deployments/gpt-4o', '/chat/completions')).toBe(true);
+  });
+
+  it('returns false for Azure v1 base path', () => {
+    expect(shouldInjectAzureApiVersion('/openai/v1', '/chat/completions')).toBe(false);
+  });
+
+  it('returns false when request path is Azure v1 formatted', () => {
+    expect(shouldInjectAzureApiVersion('', '/openai/v1/chat/completions')).toBe(false);
   });
 });
 
@@ -97,6 +112,24 @@ describe('Azure OpenAI BYOK adapter', () => {
       });
       const result = adapter.transformRequestUrl('/chat/completions');
       expect(result).toBe('/chat/completions?api-version=2025-03-01');
+    });
+
+    it('does not append api-version for Azure OpenAI v1 base path', () => {
+      const adapter = createCopilotAdapter({
+        ...azureEnv,
+        COPILOT_API_BASE_PATH: '/openai/v1',
+      });
+      const result = adapter.transformRequestUrl('/chat/completions?stream=true');
+      expect(result).toBe('/chat/completions?stream=true');
+    });
+
+    it('does not append api-version for Azure OpenAI v1 request path', () => {
+      const adapter = createCopilotAdapter({
+        ...azureEnv,
+        COPILOT_API_BASE_PATH: '',
+      });
+      const result = adapter.transformRequestUrl('/openai/v1/chat/completions?stream=true');
+      expect(result).toBe('/openai/v1/chat/completions?stream=true');
     });
 
     it('is a no-op for non-Azure targets', () => {

@@ -62,6 +62,8 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
 
   // Azure OpenAI API version (non-sensitive config)
   if (config.copilotAzureApiVersion) env.COPILOT_AZURE_API_VERSION = config.copilotAzureApiVersion;
+  // Pre-startup model validation (non-sensitive config value)
+  if (config.requestedModel) env.AWF_REQUESTED_MODEL = config.requestedModel;
 
   return env;
 }

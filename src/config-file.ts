@@ -20,6 +20,7 @@ interface AwfFileConfig {
     maxEffectiveTokens?: number;
     modelMultipliers?: Record<string, number>;
     maxRuns?: number;
+    requestedModel?: string;
     modelFallback?: {
       enabled?: boolean;
       strategy?: 'middle_power';
@@ -179,6 +180,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     maxRuns: config.apiProxy?.maxRuns,
+    requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,

@@ -707,12 +707,78 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   # Find the user name on the host system by UID
   # This allows us to run as the same user inside the chroot
   HOST_USER_UID="${AWF_USER_UID:-1000}"
+  HOST_USER_GID="${AWF_USER_GID:-${HOST_USER_UID}}"
   HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
+  CAPSH_IDENTITY_ARGS=""
+  CHROOT_HOME_OVERRIDE=""
   if [ -z "${HOST_USER}" ]; then
-    # Fall back to 'nobody' if user not found by UID
-    HOST_USER="nobody"
-    echo "[entrypoint][WARN] Could not find user with UID ${HOST_USER_UID} on host, using ${HOST_USER}"
+    # User not found in chroot's /etc/passwd (common on ARC-DinD Alpine daemons).
+    # Synthesize minimal identity files so the agent can resolve its own UID/GID.
+    HOST_USER="runner"
+    echo "[entrypoint] User with UID ${HOST_USER_UID} not found in chroot — synthesizing identity files"
+
+    # Determine the user's home directory (default to /home/runner)
+    SYNTH_HOME="${AWF_HOST_HOME:-/home/${HOST_USER}}"
+
+    # Synthesize /etc/passwd entry if missing
+    if ! grep -q "^[^:]*:[^:]*:${HOST_USER_UID}:" /host/etc/passwd 2>/dev/null; then
+      PASSWD_ENTRY="${HOST_USER}:x:${HOST_USER_UID}:${HOST_USER_GID}:GitHub Actions Runner:${SYNTH_HOME}:/bin/bash"
+      # Append to existing file or create new one
+      if [ -f /host/etc/passwd ]; then
+        if echo "${PASSWD_ENTRY}" >> /host/etc/passwd 2>/dev/null; then
+          echo "[entrypoint] Appended ${HOST_USER} (UID ${HOST_USER_UID}) to /host/etc/passwd"
+        else
+          echo "[entrypoint][WARN] Could not write to /host/etc/passwd — identity resolution may fail"
+        fi
+      else
+        # Create minimal passwd with root and the runner user
+        if printf '%s\n' "root:x:0:0:root:/root:/bin/bash" "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin" "${PASSWD_ENTRY}" > /host/etc/passwd 2>/dev/null; then
+          chmod 644 /host/etc/passwd 2>/dev/null
+          echo "[entrypoint] Created /host/etc/passwd with ${HOST_USER} (UID ${HOST_USER_UID})"
+        else
+          echo "[entrypoint][WARN] Could not create /host/etc/passwd — identity resolution may fail"
+        fi
+      fi
+    fi
+
+    # Synthesize /etc/group entry if missing
+    if ! grep -q "^[^:]*:[^:]*:${HOST_USER_GID}:" /host/etc/group 2>/dev/null; then
+      GROUP_ENTRY="${HOST_USER}:x:${HOST_USER_GID}:"
+      if [ -f /host/etc/group ]; then
+        if echo "${GROUP_ENTRY}" >> /host/etc/group 2>/dev/null; then
+          echo "[entrypoint] Appended group ${HOST_USER} (GID ${HOST_USER_GID}) to /host/etc/group"
+        else
+          echo "[entrypoint][WARN] Could not write to /host/etc/group"
+        fi
+      else
+        if printf '%s\n' "root:x:0:" "nobody:x:65534:" "${GROUP_ENTRY}" > /host/etc/group 2>/dev/null; then
+          chmod 644 /host/etc/group 2>/dev/null
+          echo "[entrypoint] Created /host/etc/group with group ${HOST_USER} (GID ${HOST_USER_GID})"
+        else
+          echo "[entrypoint][WARN] Could not create /host/etc/group"
+        fi
+      fi
+    fi
+
+    # Synthesize /etc/hosts if it doesn't exist (DinD Alpine daemon may not have one)
+    if [ ! -f /host/etc/hosts ]; then
+      if printf '%s\n' "127.0.0.1 localhost" "::1 localhost ip6-localhost ip6-loopback" > /host/etc/hosts 2>/dev/null; then
+        chmod 644 /host/etc/hosts 2>/dev/null
+        echo "[entrypoint] Created minimal /host/etc/hosts"
+      fi
+    fi
+
+    HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
+    if [ -n "${HOST_USER}" ]; then
+      CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
+      echo "[entrypoint] Running as synthesized host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
+    else
+      CAPSH_IDENTITY_ARGS="--gid=${HOST_USER_GID} --uid=${HOST_USER_UID} --groups=${HOST_USER_GID}"
+      CHROOT_HOME_OVERRIDE="${SYNTH_HOME}"
+      echo "[entrypoint][WARN] Proceeding with numeric UID/GID fallback (${HOST_USER_UID}:${HOST_USER_GID})"
+    fi
   else
+    CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
     echo "[entrypoint] Running as host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
   fi
 
@@ -974,7 +1040,8 @@ AWFEOF
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
-    exec capsh --drop=${CAPS_TO_DROP} --user=${HOST_USER} -- -c 'exec ${SCRIPT_FILE}'
+    if [ -n '${CHROOT_HOME_OVERRIDE}' ]; then export HOME='${CHROOT_HOME_OVERRIDE}'; fi
+    exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 else
   # Original behavior - run in container filesystem

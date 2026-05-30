@@ -85,6 +85,10 @@
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
         },
+        "requestedModel": {
+          "type": "string",
+          "description": "Expected model name for pre-startup validation. When set, the API proxy validates at startup that this model is available in at least one provider's model catalogue. Emits a clear diagnostic if the model is retired, restricted, or misspelled. Does not block startup."
+        },
         "modelFallback": {
           "type": "object",
           "description": "Model fallback policy for unresolved model selections. Enabled by default as a safety net.",

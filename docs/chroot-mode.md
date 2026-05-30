@@ -302,7 +302,7 @@ sudo mv /etc/resolv.conf.awf-backup-* /etc/resolv.conf
 | glibc-based host userspace | Required for chroot execution chain (`capsh` + `bash`) |
 | `capsh` | Must be installed on host (usually in `libcap2-bin` package) |
 | `/bin/bash` | Must exist and be executable on host |
-| User by UID | Host user must exist in `/etc/passwd` |
+| User by UID | Host user should exist in `/etc/passwd` (auto-synthesized in DinD mode if missing) |
 | Docker | Standard Docker requirement |
 | sudo | Required for iptables manipulation |
 
@@ -338,6 +338,18 @@ sudo dnf install libcap
 **Cause**: The Docker daemon host filesystem mounted at `/host` is Alpine/musl-based. Chroot mode currently expects glibc-compatible host binaries for `capsh` and `/bin/bash`.
 
 **Fix**: Run AWF on a glibc-based daemon host (for example Ubuntu/Debian/RHEL-family).
+
+### DinD Identity Synthesis
+
+In ARC (Actions Runner Controller) environments using the DinD (Docker-in-Docker) sidecar pattern, the Docker daemon's filesystem is separate from the runner's. This means `/etc/passwd` and `/etc/group` may not exist or may not contain the runner's UID/GID.
+
+AWF handles this automatically at two layers:
+
+1. **Mount staging** (`etc-mounts.ts`): When `--docker-host-path-prefix` uses a `/tmp/...` prefix (the DinD staging path) and `/etc/passwd` or `/etc/group` cannot be staged from the runner, AWF synthesizes minimal identity files containing `root` and a `runner` entry matching the host UID/GID. If staging succeeds but the staged files are missing the runner UID/GID, AWF supplements them before mounting.
+
+2. **Runtime fallback** (`entrypoint.sh`): If `getent passwd $UID` fails inside the chroot (user not found), the entrypoint attempts to synthesize `/etc/passwd` and `/etc/group` entries. If those mounts are read-only, it falls back to running with numeric `UID:GID` directly.
+
+No configuration is required — synthesis is triggered automatically when user lookup fails.
 
 ### Error: Working directory does not exist
 
