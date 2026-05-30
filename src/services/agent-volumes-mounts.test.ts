@@ -163,7 +163,8 @@ describe('agent service', () => {
         const stagedPasswdPath = passwdVolume!.split(':')[0];
         const stagedGroupPath = groupVolume!.split(':')[0];
         // Staged passwd must contain the host UID (either copied or synthesized)
-        const uid = String(process.getuid?.() ?? 1000);
+        const { getSafeHostUid } = jest.requireActual('../host-identity') as typeof import('../host-identity');
+        const uid = getSafeHostUid();
         expect(fs.readFileSync(stagedPasswdPath, 'utf8')).toMatch(new RegExp(`^[^:]*:[^:]*:${uid}:`, 'm'));
         expect(fs.existsSync(stagedGroupPath)).toBe(true);
         expect(fs.readFileSync(stagedBinaryPath, 'utf8')).toContain('echo copilot');
