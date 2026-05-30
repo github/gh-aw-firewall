@@ -8,23 +8,13 @@
 const http = require('http');
 const tls = require('tls');
 const { EventEmitter } = require('events');
+const { setupServerTestEnv } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyWebSocket;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyWebSocket } = require('./server'));
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
+  return { proxyWebSocket };
 });
 
 

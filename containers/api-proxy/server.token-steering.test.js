@@ -7,8 +7,8 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
+const { setupServerTestEnv } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let getAndClearPendingSteeringMessage;
 let getAndClearPendingTimeoutSteeringMessage;
@@ -16,9 +16,7 @@ let injectSteeringMessage;
 let resetEffectiveTokenGuardForTests;
 let resetTimeoutSteeringForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({
     getAndClearPendingSteeringMessage,
@@ -27,15 +25,14 @@ beforeAll(() => {
     resetEffectiveTokenGuardForTests,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
+  return {
+    proxyRequest,
+    getAndClearPendingSteeringMessage,
+    getAndClearPendingTimeoutSteeringMessage,
+    injectSteeringMessage,
+    resetEffectiveTokenGuardForTests,
+    resetTimeoutSteeringForTests,
+  };
 });
 
 describe('token steering — getAndClearPendingSteeringMessage and injectSteeringMessage', () => {

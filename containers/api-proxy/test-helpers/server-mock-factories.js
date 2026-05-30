@@ -51,4 +51,33 @@ function getStructuredLogs(writeSpy, eventName) {
     .filter(entry => entry && entry.event === eventName);
 }
 
-module.exports = { makeReq, makeRes, makeProxyReq, makeProxyRes, getStructuredLogs };
+function setupServerTestEnv(importFn) {
+  const originalHttpsProxy = process.env.HTTPS_PROXY;
+  let imported = {};
+
+  beforeAll(() => {
+    delete process.env.HTTPS_PROXY;
+    jest.resetModules();
+    imported = importFn() || {};
+  });
+
+  afterAll(() => {
+    if (originalHttpsProxy === undefined) {
+      delete process.env.HTTPS_PROXY;
+    } else {
+      process.env.HTTPS_PROXY = originalHttpsProxy;
+    }
+    jest.resetModules();
+  });
+
+  return { get: () => imported };
+}
+
+module.exports = {
+  makeReq,
+  makeRes,
+  makeProxyReq,
+  makeProxyRes,
+  getStructuredLogs,
+  setupServerTestEnv,
+};
