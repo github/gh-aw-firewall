@@ -200,8 +200,6 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   it('sends an identical request body on retry', async () => {
-    responseHandlers = [];
-    capturedOptions = [];
     const capturedBodies = [];
 
     jest.spyOn(https, 'request').mockImplementation((options, cb) => {
