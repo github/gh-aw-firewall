@@ -9,24 +9,14 @@ const {
   makeReq: makeReqFactory,
   makeRes,
   makeProxyReq,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
+  return { proxyRequest };
 });
 
 describe('proxyRequest X-Initiator injection', () => {

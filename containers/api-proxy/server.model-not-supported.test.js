@@ -13,30 +13,23 @@ const {
   makeProxyReq,
   makeProxyRes,
   getStructuredLogs,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let _setSleepForTests;
 let _resetSleepForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({ _setSleepForTests, _resetSleepForTests } = require('./proxy-request'));
   // Make retries instant — no real setTimeout delays in unit tests.
   _setSleepForTests(() => Promise.resolve());
+  return { proxyRequest, _setSleepForTests, _resetSleepForTests };
 });
 
 afterAll(() => {
   _resetSleepForTests();
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -12,30 +12,20 @@ const {
   makeProxyReq,
   makeProxyRes,
   getStructuredLogs,
+  setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let resetAnthropicDeprecatedBetaHeadersForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({ resetAnthropicDeprecatedBetaHeadersForTests } = require('./proxy-request'));
+  return { proxyRequest, resetAnthropicDeprecatedBetaHeadersForTests };
 });
 
 beforeEach(() => {
   resetAnthropicDeprecatedBetaHeadersForTests();
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
 });
 
 describe('proxyRequest anthropic deprecated beta handling', () => {

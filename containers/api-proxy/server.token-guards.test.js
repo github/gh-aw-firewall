@@ -7,30 +7,23 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
-const { makeReq: makeReqFactory, makeRes } = require('./test-helpers/server-mock-factories');
+const {
+  makeReq: makeReqFactory,
+  makeRes,
+  setupServerTestEnv,
+} = require('./test-helpers/server-mock-factories');
 
-const originalHttpsProxy = process.env.HTTPS_PROXY;
 let proxyRequest;
 let resetEffectiveTokenGuardForTests;
 let resetMaxRunsGuardForTests;
 
-beforeAll(() => {
-  delete process.env.HTTPS_PROXY;
-  jest.resetModules();
+setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({
     resetEffectiveTokenGuardForTests,
     resetMaxRunsGuardForTests,
   } = require('./proxy-request'));
-});
-
-afterAll(() => {
-  if (originalHttpsProxy === undefined) {
-    delete process.env.HTTPS_PROXY;
-  } else {
-    process.env.HTTPS_PROXY = originalHttpsProxy;
-  }
-  jest.resetModules();
+  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests };
 });
 
 describe('proxyRequest effective token guard', () => {
