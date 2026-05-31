@@ -9,7 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-step GitHub check and stricter turn budget in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 2');
+    expect(source).toContain('max-turns: 3');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -20,7 +20,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('<< ENVEOF');
     expect(source).not.toContain("<< 'ENVEOF'");
     expect(source).toContain('**CRITICAL — Single Response Execution:**');
-    expect(source).toContain('`max-turns: 2` is a hard cap for safety.');
+    expect(source).toContain('`max-turns: 3` is a hard cap for safety.');
     expect(source).toContain('## Expected Commands');
     expect(source).toContain('source /tmp/gh-aw/agent/workflow-context.env');
     expect(source).toContain('safeoutputs add_comment . < /tmp/gh-aw/agent/result.json');
@@ -35,10 +35,10 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('Ensure playwright log directory is writable');
   });
 
-  it('compiles the workflow without playwright tools and with max-turns 2', () => {
+  it('compiles the workflow without playwright tools and with max-turns 3', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 2');
+    expect(lock).toContain('--max-turns 3');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');
