@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 3
+  max-turns: 5
 sandbox:
   mcp:
     version: v0.3.1
@@ -118,7 +118,7 @@ Pre-computed data is available:
 - **Workflow context**: Source `/tmp/gh-aw/agent/workflow-context.env` for trigger/run variables
 
 **CRITICAL — Single Response Execution:**
-This workflow should complete in exactly 1 LLM turn (your first response); `max-turns: 3` is a hard cap for safety.
+This workflow should complete in exactly 1 LLM turn (your first response); `max-turns: 5` is a hard cap for safety.
 All required data exists in pre-created files. There is nothing to explore, investigate, or validate beyond reading the 3 files listed below.
 
 Steps:
