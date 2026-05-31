@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 10
+  max-turns: 2
 sandbox:
   mcp:
     version: v0.3.1
@@ -86,23 +86,6 @@ steps:
       ENVEOF
       echo "Context exported to /tmp/gh-aw/agent/workflow-context.env"
 post-steps:
-  - name: Show final Claude Code config
-    if: always()
-    run: |
-      echo "=== Final Claude Code Config ==="
-      if [ -f ~/.claude.json ]; then
-        echo "File: ~/.claude.json"
-        cat ~/.claude.json
-      else
-        echo "~/.claude.json not found"
-      fi
-      if [ -f ~/.claude/config.json ]; then
-        echo ""
-        echo "File: ~/.claude/config.json (legacy)"
-        cat ~/.claude/config.json
-      else
-        echo "~/.claude/config.json not found"
-      fi
   - name: Validate safe outputs were invoked
     run: |
       OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
