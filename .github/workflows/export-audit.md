@@ -99,11 +99,28 @@ steps:
         echo "VERIFIED_UNUSED<<EOF"
         if [ -n "${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}" ]; then
           echo "${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}" | \
-            grep -oP '^\S+\.ts:\d+ - \K\S+' | head -10 | \
-            while read -r sym; do
+            while IFS= read -r line; do
+              file=""
+              sym=""
+              if echo "$line" | grep -qE '^[^[:space:]]+\.ts:[0-9]+ - [^[:space:]]+'; then
+                file=$(echo "$line" | sed -E 's/^([^[:space:]]+\.ts):[0-9]+ - .*/\1/')
+                sym=$(echo "$line" | sed -E 's/^[^[:space:]]+\.ts:[0-9]+ - ([^[:space:]]+).*/\1/')
+              elif echo "$line" | grep -qE '^UNUSED: [^[:space:]]+ \([^)]*\)$'; then
+                sym=$(echo "$line" | sed -E 's/^UNUSED: ([^[:space:]]+) \([^)]*\)$/\1/')
+                file=$(echo "$line" | sed -E 's/^UNUSED: [^[:space:]]+ \(([^:]+):[0-9]+\)$/\1/')
+              fi
+              if [ -n "$file" ] && [ -n "$sym" ]; then
+                echo "${file}"$'\t'"${sym}"
+              fi
+            done | \
+            awk -F'\t' 'NF == 2 && !seen[$0]++' | \
+            head -10 | \
+            while IFS=$'\t' read -r file sym; do
               count=$(grep -rwl "$sym" src/ --include="*.ts" 2>/dev/null | \
-                grep -v "\.test\.ts" | wc -l)
-              echo "${sym}: used_in=${count}_files"
+                grep -v "\.test\.ts" | \
+                awk -v file="$file" '$0 != file' | \
+                wc -l)
+              echo "${sym}: used_outside_defining_file=${count}_files"
             done
         fi
         echo "EOF"
@@ -191,7 +208,7 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. The TypeS
 
 ## Phase 1: Review Unused Exports
 
-The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS` and `VERIFIED_UNUSED`). Use `VERIFIED_UNUSED` directly as pre-confirmed evidence and do **not** run additional bash to re-verify those symbols. Only run bash if you need information not present in the pre-computed data.
+The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS` and `VERIFIED_UNUSED`). Use `VERIFIED_UNUSED` directly as pre-confirmed evidence and do **not** run additional bash to re-verify those symbols. `VERIFIED_UNUSED` reports `used_outside_defining_file=N_files`; `used_outside_defining_file=0_files` means no external usage beyond the defining file. If `VERIFIED_UNUSED` is empty, fall back to the normal verification flow within the strict command budget.
 
 ## Phase 2: Review Naming Conventions
 
@@ -243,7 +260,7 @@ File issues only for findings with score ≥ 3. Cap at 5 issues per run.
 ## Verification Budget
 
 **STRICT token budget**: Verify at most **3 candidates total** (not 5). For each candidate:
-- Run **exactly 1 bash command** — a single `grep -rw <symbol> src/ --include="*.ts" | grep -v "test\|index"` across relevant source directories only
+- Run **exactly 1 bash command** — a single `grep -rw <symbol> src/ --include="*.ts" | grep -vE "test|index"` across relevant source directories only
 - If not confirmed in that 1 check, immediately mark as "unconfirmed" and move on — **do NOT run a second command**
 - After verifying 3 candidates, file issues for confirmed ones and stop — **do not verify more candidates**
 - **Total bash commands for verification: maximum 3** across all phases combined
