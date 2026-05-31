@@ -118,12 +118,14 @@ post-steps:
 
 ## Output
 
-**REQUIRED**: Call `add_comment` to post a brief comment (max 5-10 lines) on the current pull request (this is validated by the post-step check) containing:
+**If triggered by a pull request**, call `add_comment` to post a brief comment (max 5-10 lines) on the current pull request (this is validated by the post-step check) containing:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
 
 If step 7 produced a valid discussion number (>0), use the `add_comment` tool to add a **mystical oracle-themed comment** to that discussion - be creative and use mystical language like "🔮 The ancient spirits stir..."
 
-If all tests pass:
+If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
+
+**If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
