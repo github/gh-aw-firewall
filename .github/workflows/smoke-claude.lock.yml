@@ -153,7 +153,7 @@ jobs:
         run: bash "${RUNNER_TEMP}/gh-aw/actions/validate_multi_secret.sh" ANTHROPIC_API_KEY 'Claude Code' https://github.github.com/gh-aw/reference/engines/#anthropic-claude-code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      - name: Checkout .github and .agents folders
+      - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -1046,7 +1046,7 @@ jobs:
         run: "OUTPUTS_FILE=\"${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}\"\nif [ ! -s \"$OUTPUTS_FILE\" ]; then\n  echo \"::error::No safe outputs were invoked. Smoke tests require the agent to call safe output tools.\"\n  exit 1\nfi\necho \"Safe output entries found: $(wc -l < \"$OUTPUTS_FILE\")\"\nif [ \"$GITHUB_EVENT_NAME\" = \"pull_request\" ]; then\n  if ! grep -q '\"add_comment\"' \"$OUTPUTS_FILE\"; then\n    echo \"::error::Agent did not call add_comment on a pull_request trigger.\"\n    exit 1\n  fi\n  echo \"add_comment verified for PR trigger\"\nfi\necho \"Safe output validation passed\"\n"
       - if: always()
         name: Report turn usage
-        run: "TURN_COUNT=\"${GH_AW_TURN_COUNT:-unknown}\"\necho \"::notice::Smoke test completed in ${TURN_COUNT} turns (target: 1)\"\n"
+        run: "TURN_COUNT=\"${GH_AW_TURN_COUNT:-unknown}\"\necho \"::notice::Smoke test completed in ${TURN_COUNT} turns (target: 1, hard cap: 2)\"\n"
 
       - name: Upload agent artifacts
         if: always()
@@ -1299,4 +1299,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

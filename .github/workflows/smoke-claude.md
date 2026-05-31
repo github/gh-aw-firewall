@@ -106,7 +106,7 @@ post-steps:
     if: always()
     run: |
       TURN_COUNT="${GH_AW_TURN_COUNT:-unknown}"
-      echo "::notice::Smoke test completed in ${TURN_COUNT} turns (target: 1)"
+      echo "::notice::Smoke test completed in ${TURN_COUNT} turns (target: 1, hard cap: 2)"
 ---
 
 # Smoke Test: Claude Engine Validation
@@ -118,7 +118,7 @@ Pre-computed data is available:
 - **Workflow context**: Source `/tmp/gh-aw/agent/workflow-context.env` for trigger/run variables
 
 **CRITICAL — Single Response Execution:**
-This workflow MUST complete in exactly 1 LLM turn (your first response).
+This workflow should complete in exactly 1 LLM turn (your first response); `max-turns: 2` is a hard cap for safety.
 All required data exists in pre-created files. There is nothing to explore, investigate, or validate beyond reading the 3 files listed below.
 
 Steps:

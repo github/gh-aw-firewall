@@ -18,6 +18,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('Export workflow context');
     expect(source).toContain('/tmp/gh-aw/agent/workflow-context.env');
     expect(source).toContain('**CRITICAL — Single Response Execution:**');
+    expect(source).toContain('`max-turns: 2` is a hard cap for safety.');
     expect(source).toContain('## Expected Commands');
     expect(source).toContain('source /tmp/gh-aw/agent/workflow-context.env');
     expect(source).toContain('safeoutputs add_comment . < /tmp/gh-aw/agent/result.json');
@@ -40,6 +41,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');
     expect(lock).toContain('Report turn usage');
+    expect(lock).toContain('target: 1, hard cap: 2');
     expect(lock).toContain(
       'github/gh-aw-actions/setup@46d564922b082d0db93244972e8005ea6904ee5f # v0.76.1'
     );
@@ -47,5 +49,6 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');
+    expect(lock).not.toContain('Show final Claude Code config');
   });
 });
