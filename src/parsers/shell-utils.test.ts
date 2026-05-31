@@ -76,7 +76,7 @@ describe('single-argument shell escaping via joinShellArgs', () => {
       const escaped = escapeSingleArg(injection);
       // Should be safely quoted so no shell injection can occur
       // The two surrounding ' chars and the embedded '\'' escapes neutralize all metacharacters
-      expect(escaped).toBe("''\\''; rm -rf /; echo '\\'''"  );
+      expect(escaped).toBe("''\\''; rm -rf /; echo '\\'''");
     });
   });
 
