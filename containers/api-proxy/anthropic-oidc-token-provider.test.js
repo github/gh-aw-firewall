@@ -4,6 +4,7 @@ const http = require('http');
 const { httpPost } = require('./github-oidc');
 const { AnthropicOidcTokenProvider } = require('./anthropic-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
+const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers, body) => {
@@ -36,24 +37,11 @@ const BASE_CONFIG = {
 };
 
 describe('AnthropicOidcTokenProvider', () => {
-  let mockServer;
-  let serverPort;
-
-  beforeAll((done) => {
-    mockServer = createMockServer();
-    mockServer.listen(0, '127.0.0.1', () => {
-      serverPort = mockServer.address().port;
-      done();
-    });
-  });
-
-  afterAll((done) => {
-    mockServer.close(done);
-  });
+  const { getServerPort } = withMockServer(createMockServer);
 
   it('should exchange GitHub OIDC for an Anthropic workload identity token', async () => {
     const provider = new AnthropicOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${serverPort}/token`,
+      requestUrl: `http://127.0.0.1:${getServerPort()}/token`,
       requestToken: 'mock-request-token',
       federationRuleId: 'fdrl_abc123',
       organizationId: 'org-uuid-abc',
@@ -62,7 +50,7 @@ describe('AnthropicOidcTokenProvider', () => {
 
     provider._exchangeForAnthropicToken = async (jwt) => {
       const response = await httpPost(
-        `http://127.0.0.1:${serverPort}/v1/oauth/token`,
+        `http://127.0.0.1:${getServerPort()}/v1/oauth/token`,
         JSON.stringify({
           grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
           assertion: jwt,

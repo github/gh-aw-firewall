@@ -3,6 +3,7 @@
 const http = require('http');
 const { GcpOidcTokenProvider } = require('./gcp-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
+const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers, body) => {
@@ -40,24 +41,11 @@ function createMockServer(handlers = {}) {
 }
 
 describe('GcpOidcTokenProvider', () => {
-  let mockServer;
-  let serverPort;
-
-  beforeAll((done) => {
-    mockServer = createMockServer();
-    mockServer.listen(0, '127.0.0.1', () => {
-      serverPort = mockServer.address().port;
-      done();
-    });
-  });
-
-  afterAll((done) => {
-    mockServer.close(done);
-  });
+  const { getServerPort } = withMockServer(createMockServer);
 
   it('should exchange GitHub OIDC for GCP federated token (direct access)', async () => {
     const provider = new GcpOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${serverPort}/token`,
+      requestUrl: `http://127.0.0.1:${getServerPort()}/token`,
       requestToken: 'mock-request-token',
       workloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
     });
@@ -71,7 +59,7 @@ describe('GcpOidcTokenProvider', () => {
         subject_token: jwt,
       });
       const response = await httpPost(
-        `http://127.0.0.1:${serverPort}/v1/token`,
+        `http://127.0.0.1:${getServerPort()}/v1/token`,
         body,
         { 'Content-Type': 'application/json' }
       );
@@ -89,7 +77,7 @@ describe('GcpOidcTokenProvider', () => {
 
   it('should exchange GitHub OIDC for GCP token with SA impersonation', async () => {
     const provider = new GcpOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${serverPort}/token`,
+      requestUrl: `http://127.0.0.1:${getServerPort()}/token`,
       requestToken: 'mock-request-token',
       workloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
       serviceAccount: 'my-sa@project.iam.gserviceaccount.com',
