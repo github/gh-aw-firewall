@@ -1,6 +1,7 @@
 import { mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { HostAccessConfig, setupHostIptables } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
+import { expectGatewayHttpAcceptRules } from './host-iptables-test-helpers.test-utils';
 
 describe('host-iptables (host access)', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
@@ -36,16 +37,7 @@ describe('host-iptables (host access)', () => {
       ]);
 
       // Verify ACCEPT rules for AWF network gateway (172.30.0.1) on default ports
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
-        '-j', 'ACCEPT',
-      ]);
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
-        '-j', 'ACCEPT',
-      ]);
+      expectGatewayHttpAcceptRules(mockedExeca, '172.30.0.1');
     });
 
     it('should not add gateway rules when hostAccess is undefined', async () => {
@@ -143,16 +135,7 @@ describe('host-iptables (host access)', () => {
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
 
       // Verify default port 80 rules exist
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
-        '-j', 'ACCEPT',
-      ]);
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
-        '-j', 'ACCEPT',
-      ]);
+      expectGatewayHttpAcceptRules(mockedExeca, '172.30.0.1');
     });
 
     it('should support port ranges in allowHostPorts', async () => {
@@ -238,16 +221,7 @@ describe('host-iptables (host access)', () => {
       ]));
 
       // Default ports should still be present
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
-        '-j', 'ACCEPT',
-      ]);
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '443',
-        '-j', 'ACCEPT',
-      ]);
+      expectGatewayHttpAcceptRules(mockedExeca, '172.30.0.1');
     });
 
     it('should deduplicate ports when custom ports overlap with defaults', async () => {
