@@ -79,7 +79,7 @@ steps:
       EXPR_GITHUB_RUN_ID: ${{ github.run_id }}
       EXPR_b14517fc: ${{ github.event.pull_request.number || '' }}
     run: |
-      cat > /tmp/gh-aw/agent/workflow-context.env << 'ENVEOF'
+      cat > /tmp/gh-aw/agent/workflow-context.env << ENVEOF
       export GITHUB_EVENT_NAME="$EXPR_GITHUB_EVENT_NAME"
       export GITHUB_RUN_ID="$EXPR_GITHUB_RUN_ID"
       export PR_NUMBER="$EXPR_b14517fc"

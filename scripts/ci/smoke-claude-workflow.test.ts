@@ -17,6 +17,8 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('> "$CONTEXT_FILE"');
     expect(source).toContain('Export workflow context');
     expect(source).toContain('/tmp/gh-aw/agent/workflow-context.env');
+    expect(source).toContain('<< ENVEOF');
+    expect(source).not.toContain("<< 'ENVEOF'");
     expect(source).toContain('**CRITICAL — Single Response Execution:**');
     expect(source).toContain('`max-turns: 2` is a hard cap for safety.');
     expect(source).toContain('## Expected Commands');
@@ -40,6 +42,8 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');
+    expect(lock).toContain('<< ENVEOF');
+    expect(lock).not.toContain("<< 'ENVEOF'");
     expect(lock).toContain('Report turn usage');
     expect(lock).toContain('target: 1, hard cap: 2');
     expect(lock).toContain(
