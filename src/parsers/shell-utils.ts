@@ -1,7 +1,7 @@
 /**
  * Escapes a shell argument by wrapping it in single quotes and escaping any single quotes within it
  */
-export function escapeShellArg(arg: string): string {
+function escapeShellArg(arg: string): string {
   // If the argument doesn't contain special characters, return as-is
   // Character class includes: letters, digits, underscore, dash, dot (literal), slash, equals, colon
   if (/^[a-zA-Z0-9_\-./=:]+$/.test(arg)) {

@@ -2,7 +2,6 @@ import {
   parseEnvironmentVariables,
   joinShellArgs,
 } from './option-parsers';
-import { escapeShellArg } from './parsers/shell-utils';
 
 describe('environment variable parsing', () => {
   it('should parse KEY=VALUE format correctly', () => {
@@ -73,28 +72,28 @@ describe('environment variable parsing', () => {
   });
 });
 
-describe('shell argument escaping', () => {
+describe('shell argument joining', () => {
   it('should not escape simple arguments', () => {
-    expect(escapeShellArg('curl')).toBe('curl');
-    expect(escapeShellArg('https://api.github.com')).toBe('https://api.github.com');
-    expect(escapeShellArg('/usr/bin/node')).toBe('/usr/bin/node');
-    expect(escapeShellArg('--log-level=debug')).toBe('--log-level=debug');
+    expect(joinShellArgs(['curl'])).toBe('curl');
+    expect(joinShellArgs(['https://api.github.com'])).toBe('https://api.github.com');
+    expect(joinShellArgs(['/usr/bin/node'])).toBe('/usr/bin/node');
+    expect(joinShellArgs(['--log-level=debug'])).toBe('--log-level=debug');
   });
 
   it('should escape arguments with spaces', () => {
-    expect(escapeShellArg('hello world')).toBe("'hello world'");
-    expect(escapeShellArg('Authorization: Bearer token')).toBe("'Authorization: Bearer token'");
+    expect(joinShellArgs(['hello world'])).toBe("'hello world'");
+    expect(joinShellArgs(['Authorization: Bearer token'])).toBe("'Authorization: Bearer token'");
   });
 
   it('should escape arguments with special characters', () => {
-    expect(escapeShellArg('test$var')).toBe("'test$var'");
-    expect(escapeShellArg('test`cmd`')).toBe("'test`cmd`'");
-    expect(escapeShellArg('test;echo')).toBe("'test;echo'");
+    expect(joinShellArgs(['test$var'])).toBe("'test$var'");
+    expect(joinShellArgs(['test`cmd`'])).toBe("'test`cmd`'");
+    expect(joinShellArgs(['test;echo'])).toBe("'test;echo'");
   });
 
   it('should escape single quotes in arguments', () => {
-    expect(escapeShellArg("it's")).toBe("'it'\\''s'");
-    expect(escapeShellArg("don't")).toBe("'don'\\''t'");
+    expect(joinShellArgs(["it's"])).toBe("'it'\\''s'");
+    expect(joinShellArgs(["don't"])).toBe("'don'\\''t'");
   });
 
   it('should join multiple arguments with proper escaping', () => {
