@@ -14,6 +14,10 @@ permissions:
   contents: read
   issues: read
 
+engine:
+  id: claude
+  max-turns: 12
+
 sandbox:
   agent:
     id: awf
@@ -84,6 +88,40 @@ steps:
               count=$(grep -rwn "${name}" src/ --include="*.ts" 2>/dev/null | grep -v "^${file}:" | wc -l)
               [ "$count" -eq 0 ] && echo "UNUSED: $name ($file:$line)"
             done | head -30
+        fi
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Pre-verify unused exports (top 10)
+    id: verified_unused
+    run: |
+      {
+        echo "VERIFIED_UNUSED<<EOF"
+        if [ -n "${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}" ]; then
+          echo "${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}" | \
+            while IFS= read -r line; do
+              file=""
+              sym=""
+              if echo "$line" | grep -qE '^[^[:space:]]+\.ts:[0-9]+ - [^[:space:]]+'; then
+                file=$(echo "$line" | sed -E 's/^([^[:space:]]+\.ts):[0-9]+ - .*/\1/')
+                sym=$(echo "$line" | sed -E 's/^[^[:space:]]+\.ts:[0-9]+ - ([^[:space:]]+).*/\1/')
+              elif echo "$line" | grep -qE '^UNUSED: [^[:space:]]+ \([^)]*\)$'; then
+                sym=$(echo "$line" | sed -E 's/^UNUSED: ([^[:space:]]+) \([^)]*\)$/\1/')
+                file=$(echo "$line" | sed -E 's/^UNUSED: [^[:space:]]+ \(([^:]+):[0-9]+\)$/\1/')
+              fi
+              if [ -n "$file" ] && [ -n "$sym" ]; then
+                echo "${file}"$'\t'"${sym}"
+              fi
+            done | \
+            awk -F'\t' 'NF == 2 && !seen[$0]++' | \
+            head -10 | \
+            while IFS=$'\t' read -r file sym; do
+              count=$(grep -rwl "$sym" src/ --include="*.ts" 2>/dev/null | \
+                grep -v "\.test\.ts" | \
+                awk -v file="$file" '$0 != file' | \
+                wc -l)
+              echo "${sym}: used_outside_defining_file=${count}_files"
+            done
         fi
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
@@ -170,7 +208,7 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. The TypeS
 
 ## Phase 1: Review Unused Exports
 
-The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS`). Review the results and verify each finding by checking all import sites, including test files and barrel exports (`index.ts`). Pay special attention to multi-line import blocks — TypeScript imports often list each symbol on its own line, which a single-line grep will miss. Use `grep -w` (whole-word matching) for verification.
+The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS` and `VERIFIED_UNUSED`). Use `VERIFIED_UNUSED` directly as pre-confirmed evidence and do **not** run additional bash to re-verify those symbols. `VERIFIED_UNUSED` reports `used_outside_defining_file=N_files`; `used_outside_defining_file=0_files` means no external usage beyond the defining file. If `VERIFIED_UNUSED` is empty, fall back to the normal verification flow within the strict command budget.
 
 ## Phase 2: Review Naming Conventions
 
@@ -221,10 +259,11 @@ File issues only for findings with score ≥ 3. Cap at 5 issues per run.
 
 ## Verification Budget
 
-To control token usage, limit verification to the **top 5 candidates** by score. For each candidate:
-- Run at most 2 bash commands to confirm (one bounded recursive `grep -rw` over relevant source paths, one targeted check)
-- If not confirmed in 2 checks, mark as "unconfirmed" and skip filing
-- Do NOT loop over all files for each candidate — use one whole-word grep across relevant source directories only (for example `src/`, `lib/`, `app/`, `test/`) or explicitly exclude generated/dependency directories such as `node_modules/`, `dist/`, `build/`, and `coverage/`
+**STRICT token budget**: Verify at most **3 candidates total** (not 5). For each candidate:
+- Run **exactly 1 bash command** — a single `grep -rw <symbol> src/ --include="*.ts" | grep -vE "test|index"` across relevant source directories only
+- If not confirmed in that 1 check, immediately mark as "unconfirmed" and move on — **do NOT run a second command**
+- After verifying 3 candidates, file issues for confirmed ones and stop — **do not verify more candidates**
+- **Total bash commands for verification: maximum 3** across all phases combined
 
 ### Issue Format
 
@@ -246,13 +285,6 @@ Unused export / Naming inconsistency / Circular dependency / Import path issue
 
 <Specific grep output or analysis showing the problem>
 
-### Recommended Fix
-
-1. For **unused exports**: Remove the `export` keyword or delete the symbol if it's dead code
-2. For **naming inconsistencies**: Rename to follow convention (types: PascalCase, functions: camelCase)
-3. For **circular dependencies**: Extract the shared dependency into a new module
-4. For **test imports**: Update the import path to reference the correct module
-
 ### Impact
 - Dead code risk: <High/Medium/Low>
 - Maintenance burden: <High/Medium/Low>
@@ -271,10 +303,7 @@ Unused export / Naming inconsistency / Circular dependency / Import path issue
 
 ## Edge Cases
 
-- **Build fails (TypeScript errors)**: Report the build errors in the log; skip the audit since analysis would be unreliable. Do NOT create issues for TypeScript errors — those are tracked separately.
-- **ts-prune / madge unavailable**: Fall back to grep-based analysis with a note that results may be incomplete
-- **All findings already tracked**: Skip creation and log that existing issues cover the findings
-- **No issues found**: Log a summary and exit without creating issues
+If the build fails, report TypeScript errors and skip audit issue creation. If `ts-prune` or `madge` is unavailable, use the existing fallback output and note reduced confidence. If findings are already tracked or no actionable findings remain, log a concise summary and exit without creating issues.
 
 ---
 
@@ -293,6 +322,11 @@ ${{ steps.exports.outputs.EXPORTS }}
 Unused exports:
 ```
 ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
+```
+
+Verified unused exports:
+```
+${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
 ```
 
 Circular dependencies:

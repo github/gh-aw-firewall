@@ -1,80 +1,82 @@
-import { escapeShellArg, joinShellArgs } from './shell-utils';
+import { joinShellArgs } from './shell-utils';
 
-describe('escapeShellArg', () => {
+const escapeSingleArg = (arg: string): string => joinShellArgs([arg]);
+
+describe('single-argument shell escaping via joinShellArgs', () => {
   describe('safe characters (no quoting needed)', () => {
     it('should return simple alphanumeric strings as-is', () => {
-      expect(escapeShellArg('hello')).toBe('hello');
-      expect(escapeShellArg('abc123')).toBe('abc123');
+      expect(escapeSingleArg('hello')).toBe('hello');
+      expect(escapeSingleArg('abc123')).toBe('abc123');
     });
 
     it('should return strings with allowed safe chars as-is', () => {
-      expect(escapeShellArg('file.txt')).toBe('file.txt');
-      expect(escapeShellArg('/usr/bin/node')).toBe('/usr/bin/node');
-      expect(escapeShellArg('key=value')).toBe('key=value');
-      expect(escapeShellArg('host:port')).toBe('host:port');
-      expect(escapeShellArg('my-file')).toBe('my-file');
-      expect(escapeShellArg('my_var')).toBe('my_var');
+      expect(escapeSingleArg('file.txt')).toBe('file.txt');
+      expect(escapeSingleArg('/usr/bin/node')).toBe('/usr/bin/node');
+      expect(escapeSingleArg('key=value')).toBe('key=value');
+      expect(escapeSingleArg('host:port')).toBe('host:port');
+      expect(escapeSingleArg('my-file')).toBe('my-file');
+      expect(escapeSingleArg('my_var')).toBe('my_var');
     });
   });
 
   describe('strings requiring quoting', () => {
     it('should wrap strings with spaces in single quotes', () => {
-      expect(escapeShellArg('hello world')).toBe("'hello world'");
+      expect(escapeSingleArg('hello world')).toBe("'hello world'");
     });
 
     it('should wrap strings with dollar signs in single quotes', () => {
-      expect(escapeShellArg('$HOME')).toBe("'$HOME'");
+      expect(escapeSingleArg('$HOME')).toBe("'$HOME'");
     });
 
     it('should wrap strings with backticks in single quotes', () => {
-      expect(escapeShellArg('`cmd`')).toBe("'`cmd`'");
+      expect(escapeSingleArg('`cmd`')).toBe("'`cmd`'");
     });
 
     it('should wrap strings with semicolons in single quotes (command injection prevention)', () => {
-      expect(escapeShellArg('; rm -rf /')).toBe("'; rm -rf /'");
+      expect(escapeSingleArg('; rm -rf /')).toBe("'; rm -rf /'");
     });
 
     it('should wrap strings with ampersands in single quotes', () => {
-      expect(escapeShellArg('a && b')).toBe("'a && b'");
+      expect(escapeSingleArg('a && b')).toBe("'a && b'");
     });
 
     it('should wrap strings with pipes in single quotes', () => {
-      expect(escapeShellArg('a | b')).toBe("'a | b'");
+      expect(escapeSingleArg('a | b')).toBe("'a | b'");
     });
 
     it('should wrap strings with redirect operators in single quotes', () => {
-      expect(escapeShellArg('a > b')).toBe("'a > b'");
-      expect(escapeShellArg('a < b')).toBe("'a < b'");
+      expect(escapeSingleArg('a > b')).toBe("'a > b'");
+      expect(escapeSingleArg('a < b')).toBe("'a < b'");
     });
 
     it('should wrap strings with exclamation marks in single quotes', () => {
-      expect(escapeShellArg('hello!')).toBe("'hello!'");
+      expect(escapeSingleArg('hello!')).toBe("'hello!'");
     });
 
     it('should wrap strings with newlines in single quotes', () => {
-      expect(escapeShellArg('line1\nline2')).toBe("'line1\nline2'");
+      expect(escapeSingleArg('line1\nline2')).toBe("'line1\nline2'");
     });
   });
 
   describe('strings with single quotes (injection prevention)', () => {
     it('should escape single quotes using the standard shell pattern', () => {
-      expect(escapeShellArg("it's")).toBe("'it'\\''s'");
+      expect(escapeSingleArg("it's")).toBe("'it'\\''s'");
     });
 
     it('should handle strings that are only a single quote', () => {
-      expect(escapeShellArg("'")).toBe("''\\'''");
+      expect(escapeSingleArg("'")).toBe("''\\'''");
     });
 
     it('should handle strings with multiple single quotes', () => {
-      expect(escapeShellArg("a'b'c")).toBe("'a'\\''b'\\''c'");
+      expect(escapeSingleArg("a'b'c")).toBe("'a'\\''b'\\''c'");
     });
 
     it('should handle injection attempt with single quote and shell metacharacters', () => {
       const injection = "'; rm -rf /; echo '";
-      const escaped = escapeShellArg(injection);
+      const escaped = escapeSingleArg(injection);
       // Should be safely quoted so no shell injection can occur
       // The two surrounding ' chars and the embedded '\'' escapes neutralize all metacharacters
-      expect(escaped).toBe("''\\''; rm -rf /; echo '\\'''"  );
+      expect(escaped).toBe("''\\''; rm -rf /; echo '\\'''");
     });
   });
 
@@ -82,12 +84,12 @@ describe('escapeShellArg', () => {
     it('should wrap empty string in single quotes', () => {
       // Empty string does not match the safe-character regex because it requires at least one character,
       // so it should be quoted.
-      const result = escapeShellArg('');
+      const result = escapeSingleArg('');
       expect(result).toBe("''");
     });
 
     it('should handle strings with only special characters', () => {
-      expect(escapeShellArg('***')).toBe("'***'");
+      expect(escapeSingleArg('***')).toBe("'***'");
     });
   });
 });

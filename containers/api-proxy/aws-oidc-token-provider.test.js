@@ -3,6 +3,7 @@
 const http = require('http');
 const { AwsOidcTokenProvider } = require('./aws-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
+const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers) => {
@@ -37,31 +38,18 @@ function createMockServer(handlers = {}) {
 }
 
 describe('AwsOidcTokenProvider', () => {
-  let mockServer;
-  let serverPort;
-
-  beforeAll((done) => {
-    mockServer = createMockServer();
-    mockServer.listen(0, '127.0.0.1', () => {
-      serverPort = mockServer.address().port;
-      done();
-    });
-  });
-
-  afterAll((done) => {
-    mockServer.close(done);
-  });
+  const { getServerPort } = withMockServer(createMockServer);
 
   it('should exchange GitHub OIDC for AWS temporary credentials', async () => {
     const provider = new AwsOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${serverPort}/token`,
+      requestUrl: `http://127.0.0.1:${getServerPort()}/token`,
       requestToken: 'mock-request-token',
       roleArn: 'arn:aws:iam::123456789012:role/my-role',
       region: 'us-east-1',
     });
 
     // Override STS host to use mock server
-    provider._resolveStsHost = () => `127.0.0.1:${serverPort}`;
+    provider._resolveStsHost = () => `127.0.0.1:${getServerPort()}`;
     // Override to use http instead of https
     const { httpGet } = require('./github-oidc');
     provider._assumeRoleWithWebIdentity = async (oidcJwt) => {
@@ -72,7 +60,7 @@ describe('AwsOidcTokenProvider', () => {
         RoleSessionName: provider._roleSessionName,
         WebIdentityToken: oidcJwt,
       });
-      const url = `http://127.0.0.1:${serverPort}/?${params.toString()}`;
+      const url = `http://127.0.0.1:${getServerPort()}/?${params.toString()}`;
       const response = await httpGet(url, { 'Accept': 'application/json' });
       const data = JSON.parse(response.body);
       const result = data.AssumeRoleWithWebIdentityResponse?.AssumeRoleWithWebIdentityResult;
