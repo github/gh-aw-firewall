@@ -61,12 +61,10 @@ describe('red-team benchmark workflow config', () => {
     expect(source).toContain('awf-exfiltration-defense');
     expect(source).toContain('AWF_CANARY_SECRET_12345');
 
-    // AWF agentshim wraps victim with firewall
-    expect(source).toContain('Create AWF agentshim for victim');
+    // AWF-protected run wraps benchmark with firewall
     expect(source).toContain('sudo awf');
-    expect(source).toContain('--allow-domains api.anthropic.com');
+    expect(source).toContain('--allow-domains api.anthropic.com,api.openai.com');
     expect(source).toContain('--proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs');
-    expect(source).toContain('-- claude --max-turns 10');
 
     // Both benchmark runs
     expect(source).toContain('Run baseline benchmark (victim without AWF)');
@@ -131,9 +129,9 @@ describe('red-team benchmark workflow config', () => {
     // Weekly schedule compiled
     expect(lock).toContain('cron:');
 
-    // AWF agentshim content compiled into lock
-    expect(lock).toContain('awf-agentshim.sh');
+    // AWF benchmark run content compiled into lock
     expect(lock).toContain('api.anthropic.com');
+    expect(lock).toContain('api.openai.com');
     expect(lock).toContain('proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs');
     expect(lock).toContain('Install Claude CLI');
     expect(lock).toContain('ADVERSARIAL_DOJO_REF');
