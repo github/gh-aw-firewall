@@ -20,12 +20,6 @@ import {
  */
 const COPILOT_BYOK_DUMMY_API_KEY = 'dummy-byok-key-for-offline-mode';
 
-function cleanApiKey(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  if (value === COPILOT_BYOK_DUMMY_API_KEY) return undefined;
-  return value;
-}
-
 /**
  * Resolve the Copilot BYOK key from supported environment variables.
  *
@@ -35,7 +29,10 @@ function cleanApiKey(value: string | undefined): string | undefined {
  *   2. `COPILOT_API_KEY` (real Copilot token in non-BYOK mode)
  *
  * The BYOK dummy sentinel injected into `COPILOT_API_KEY` by gh-aw is treated
- * as unset, so it never shadows a real `COPILOT_PROVIDER_API_KEY`.
+ * as unset, so it never shadows a real `COPILOT_PROVIDER_API_KEY`. The
+ * sentinel check is only applied to `COPILOT_API_KEY` since that is the only
+ * variable gh-aw writes it into; `COPILOT_PROVIDER_API_KEY` is forwarded
+ * verbatim.
  *
  * Empty string is preserved (not coerced to undefined) for callers that
  * distinguish "explicitly set to empty" from "not set".
@@ -43,11 +40,10 @@ function cleanApiKey(value: string | undefined): string | undefined {
 export function resolveCopilotApiKey(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  const providerKey = cleanApiKey(env.COPILOT_PROVIDER_API_KEY);
-  if (providerKey !== undefined) return providerKey;
+  if (env.COPILOT_PROVIDER_API_KEY !== undefined) return env.COPILOT_PROVIDER_API_KEY;
 
-  const apiKey = cleanApiKey(env.COPILOT_API_KEY);
-  if (apiKey !== undefined) return apiKey;
+  const apiKey = env.COPILOT_API_KEY;
+  if (apiKey !== undefined && apiKey !== COPILOT_BYOK_DUMMY_API_KEY) return apiKey;
 
   return undefined;
 }
