@@ -24,7 +24,7 @@ describe('export audit workflow optimization config', () => {
     expect(source).toContain('grep -vE "test|index"');
     expect(source).toContain('Total bash commands for verification: maximum 3');
     expect(source).toContain('Read `/tmp/gh-aw/agent/export-audit-context.md` first.');
-    expect(source).not.toContain('${{ steps.ts-errors.outputs.TS_ERRORS }}');
+    expect(source).not.toContain('TypeScript build output:\n```\n${{ steps.ts-errors.outputs.TS_ERRORS }}');
     expect(source).not.toContain('To control token usage, limit verification to the **top 5 candidates** by score.');
     expect(source).not.toContain('Run at most 2 bash commands to confirm');
     expect(source).not.toContain('### Recommended Fix');
@@ -40,6 +40,6 @@ describe('export audit workflow optimization config', () => {
     expect(lock).toContain('Pre-verify unused exports (top 10)');
     expect(lock).toContain('used_outside_defining_file=${count}_files');
     expect(lock).toContain("^UNUSED: [^[:space:]]+ \\([^)]*\\)$");
-    expect(lock).not.toContain('${{ steps.ts-errors.outputs.TS_ERRORS }}');
+    expect(lock).not.toContain('TypeScript build output:\n```');
   });
 });

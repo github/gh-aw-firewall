@@ -176,19 +176,11 @@ jobs:
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_A04AFDAF: ${{ steps.ts-errors.outputs.TS_ERRORS }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
-          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
-          GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
-          GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
-          GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
-          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
-          GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
-          GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: ${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
         # poutine:ignore untrusted_checkout_exec
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
@@ -248,14 +240,6 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_ENGINE_ID: "claude"
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
-          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
-          GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
-          GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
-          GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
-          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
-          GH_AW_EXPR_A04AFDAF: ${{ steps.ts-errors.outputs.TS_ERRORS }}
-          GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
-          GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: ${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -269,7 +253,6 @@ jobs:
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_A04AFDAF: ${{ steps.ts-errors.outputs.TS_ERRORS }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
@@ -277,13 +260,6 @@ jobs:
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
           GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'
           GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: ${{ needs.pre_activation.outputs.activated }}
-          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
-          GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
-          GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
-          GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
-          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
-          GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
-          GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: ${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -298,21 +274,13 @@ jobs:
                 GH_AW_EXPR_1A3A194A: process.env.GH_AW_EXPR_1A3A194A,
                 GH_AW_EXPR_463A214A: process.env.GH_AW_EXPR_463A214A,
                 GH_AW_EXPR_802A9F6A: process.env.GH_AW_EXPR_802A9F6A,
-                GH_AW_EXPR_A04AFDAF: process.env.GH_AW_EXPR_A04AFDAF,
                 GH_AW_EXPR_FF1D34CE: process.env.GH_AW_EXPR_FF1D34CE,
                 GH_AW_GITHUB_ACTOR: process.env.GH_AW_GITHUB_ACTOR,
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
                 GH_AW_GITHUB_RUN_ID: process.env.GH_AW_GITHUB_RUN_ID,
                 GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
                 GH_AW_MCP_CLI_SERVERS_LIST: process.env.GH_AW_MCP_CLI_SERVERS_LIST,
-                GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: process.env.GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED,
-                GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: process.env.GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS,
-                GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: process.env.GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS,
-                GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: process.env.GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS,
-                GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: process.env.GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES,
-                GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: process.env.GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS,
-                GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: process.env.GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS,
-                GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: process.env.GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED
+                GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: process.env.GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED
               }
             });
       - name: Validate prompt placeholders
@@ -552,6 +520,63 @@ jobs:
             grep -n "require.*providers\|from.*providers" containers/api-proxy/server.js 2>/dev/null | head -10
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+      - env:
+          GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
+          GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
+          GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
+          GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+          GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
+          GH_AW_STEPS_TS_ERRORS_OUTPUTS_TS_ERRORS: ${{ steps.ts-errors.outputs.TS_ERRORS }}
+          GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
+          GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: ${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
+        name: Build export audit context
+        run: |
+          mkdir -p /tmp/gh-aw/agent
+          CONTEXT_FILE=/tmp/gh-aw/agent/export-audit-context.md
+          {
+            echo "## Pre-computed Data"
+            echo
+            echo "TypeScript build output:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_TS_ERRORS_OUTPUTS_TS_ERRORS"
+            echo '```'
+            echo
+            echo "Exported symbols sample:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS"
+            echo '```'
+            echo
+            echo "Unused exports:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS"
+            echo '```'
+            echo
+            echo "Verified unused exports:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED"
+            echo '```'
+            echo
+            echo "Circular dependencies:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS"
+            echo '```'
+            echo
+            echo "Naming issues:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES"
+            echo '```'
+            echo
+            echo "Test imports:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS"
+            echo '```'
+            echo
+            echo "API proxy exports:"
+            echo '```'
+            printf '%s\n' "$GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS"
+            echo '```'
+          } > "$CONTEXT_FILE"
+          echo "Export audit context written to $CONTEXT_FILE"
 
       - name: Configure Git credentials
         env:
@@ -1418,4 +1443,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-
