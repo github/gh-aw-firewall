@@ -124,6 +124,7 @@ the corresponding CLI flag.
 - `apiProxy.auth.anthropicOrganizationId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`)*
 - `apiProxy.auth.anthropicServiceAccountId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`)*
 - `apiProxy.auth.anthropicWorkspaceId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_WORKSPACE_ID`)*
+- `apiProxy.auth.anthropicTokenUrl` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_TOKEN_URL`)*
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below)*
 - `apiProxy.targets.antigravity.host` → `--gemini-api-target`
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
@@ -514,6 +515,8 @@ the resulting token as an `Authorization` header on upstream requests.
 ¹ `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` is required when the federation rule covers
 multiple workspaces. When the rule is scoped to a single workspace, it may be
 omitted.
+
+`anthropicTokenUrl` is non-sensitive and SHOULD be supplied via AWF config (including stdin config via `--config -`); env var support exists for compatibility.
 
 Default OIDC audience: `https://api.anthropic.com`
 

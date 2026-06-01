@@ -5,6 +5,13 @@ const {
   BaseOidcTokenProvider,
 } = require('./oidc-token-provider-base');
 
+function stringifyError(error) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error);
+}
+
 /**
  * @typedef {Object} AnthropicOidcTokenProviderConfig
  * @property {string} requestUrl - ACTIONS_ID_TOKEN_REQUEST_URL
@@ -45,7 +52,8 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
     const ws = config.workspaceId != null ? config.workspaceId.trim() : undefined;
     this._workspaceId = ws || undefined;
     this._oidcAudience = config.oidcAudience || 'https://api.anthropic.com';
-    this._tokenEndpoint = (config.tokenEndpoint || 'https://api.anthropic.com/v1/oauth/token').trim();
+    const tokenEndpoint = config.tokenEndpoint != null ? config.tokenEndpoint.trim() : '';
+    this._tokenEndpoint = tokenEndpoint || 'https://api.anthropic.com/v1/oauth/token';
 
     /** @type {string|null} */
     this._cachedToken = null;
@@ -104,14 +112,18 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
         audience: this._oidcAudience,
       });
     } catch (error) {
-      throw new Error(`Anthropic upstream OIDC JWT mint failed: ${error.message}`);
+      throw new Error(`Anthropic upstream OIDC JWT mint failed: ${stringifyError(error)}`, {
+        cause: error,
+      });
     }
 
     let exchangeResponse;
     try {
       exchangeResponse = await this._exchangeForAnthropicToken(oidcJwt);
     } catch (error) {
-      throw new Error(`Anthropic OAuth exchange failed after JWT mint: ${error.message}`);
+      throw new Error(`Anthropic OAuth exchange failed after JWT mint: ${stringifyError(error)}`, {
+        cause: error,
+      });
     }
 
     const { access_token, expires_in } = exchangeResponse;

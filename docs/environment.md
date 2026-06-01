@@ -135,7 +135,7 @@ When using Anthropic Workload Identity Federation (OIDC exchange in the API prox
 Anthropic SDK credential precedence favors `ANTHROPIC_API_KEY` ahead of federation configuration.
 If both are set in the same runtime, the API key can silently shadow WIF/OIDC auth.
 
-In AWF API-proxy mode this is mitigated by placeholder values (`sk-ant-placeholder`) in the
+In AWF API-proxy mode this is mitigated by placeholder values (`sk-ant-placeholder-key-for-credential-isolation`) in the
 agent container, but avoid setting a real `ANTHROPIC_API_KEY` alongside WIF variables in the
 same process.
 

@@ -351,6 +351,23 @@ describe('awf-config.schema.json', () => {
     ).toBe(true);
   });
 
+  it('accepts apiProxy.auth anthropic with optional token URL override', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'anthropic',
+            anthropicFederationRuleId: 'fdrl_abc123',
+            anthropicOrganizationId: 'org-uuid-abc',
+            anthropicServiceAccountId: 'svac_abc123',
+            anthropicTokenUrl: 'https://anthropic.internal.example/v1/oauth/token',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
   it('rejects apiProxy.auth with unknown type', () => {
     expect(
       validate({

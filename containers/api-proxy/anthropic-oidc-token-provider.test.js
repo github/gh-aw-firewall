@@ -128,6 +128,25 @@ describe('AnthropicOidcTokenProvider', () => {
     provider.shutdown();
   });
 
+  it('should fall back to default token endpoint when configured endpoint is whitespace', async () => {
+    const provider = new AnthropicOidcTokenProvider({
+      ...BASE_CONFIG,
+      tokenEndpoint: '   ',
+    });
+
+    const mockHttpPost = jest.spyOn(provider, '_httpPost').mockResolvedValue({
+      statusCode: 200,
+      body: JSON.stringify({ access_token: 'sk-ant-oat01-default', expires_in: 3600 }),
+    });
+
+    await provider._exchangeForAnthropicToken('fake-jwt');
+
+    const [url] = mockHttpPost.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/oauth/token');
+
+    provider.shutdown();
+  });
+
   it('should omit workspace_id from the exchange request when not provided', async () => {
     const provider = new AnthropicOidcTokenProvider({
       requestUrl: 'http://127.0.0.1/token',

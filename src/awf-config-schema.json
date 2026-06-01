@@ -247,6 +247,11 @@
             "anthropicWorkspaceId": {
               "type": "string",
               "description": "Anthropic workspace ID. Required when the federation rule covers multiple workspaces. Maps to AWF_AUTH_ANTHROPIC_WORKSPACE_ID."
+            },
+            "anthropicTokenUrl": {
+              "type": "string",
+              "description": "Anthropic OAuth token exchange endpoint override. Non-sensitive config and maps to AWF_AUTH_ANTHROPIC_TOKEN_URL.",
+              "default": "https://api.anthropic.com/v1/oauth/token"
             }
           },
           "required": [

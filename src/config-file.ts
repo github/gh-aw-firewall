@@ -39,6 +39,9 @@ interface AwfFileConfig {
       debugTokens?: boolean;
       tokenLogDir?: string;
     };
+    auth?: {
+      anthropicTokenUrl?: string;
+    };
   };
   security?: {
     sslBump?: boolean;
@@ -197,6 +200,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     modelAliases: config.apiProxy?.models,
     debugTokens: config.apiProxy?.logging?.debugTokens,
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
+    anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
     enableDlp: config.security?.enableDlp,

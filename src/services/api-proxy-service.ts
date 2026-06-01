@@ -217,6 +217,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
         'AWF_AUTH_ANTHROPIC_ORGANIZATION_ID',
         'AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID',
         'AWF_AUTH_ANTHROPIC_WORKSPACE_ID',
+        'AWF_AUTH_ANTHROPIC_TOKEN_URL',
       ),
       // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
       ...(normalizedAuthType === 'github-oidc' && pickEnvVars(
@@ -233,6 +234,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       // Custom auth header names for internal AI gateways
       ...(config.openaiApiAuthHeader && { AWF_OPENAI_AUTH_HEADER: config.openaiApiAuthHeader }),
       ...(config.anthropicApiAuthHeader && { AWF_ANTHROPIC_AUTH_HEADER: config.anthropicApiAuthHeader }),
+      ...(config.anthropicTokenUrl && { AWF_AUTH_ANTHROPIC_TOKEN_URL: config.anthropicTokenUrl }),
       // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
       // The api-proxy container holds live API credentials; loading arbitrary host-side JS
       // files into it would create an arbitrary-code-execution risk.  If you need a custom

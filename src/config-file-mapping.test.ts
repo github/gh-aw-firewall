@@ -275,6 +275,18 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.sessionStateDir).toBe('/tmp/state');
   });
 
+  it('maps apiProxy.auth.anthropicTokenUrl', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          anthropicTokenUrl: 'https://anthropic.internal.example/v1/oauth/token',
+        },
+      },
+    });
+
+    expect(result.anthropicTokenUrl).toBe('https://anthropic.internal.example/v1/oauth/token');
+  });
+
   it('maps rateLimiting fields including rph and bytesPm', () => {
     const result = mapAwfFileConfigToCliOptions({
       rateLimiting: { enabled: true, requestsPerHour: 3600, bytesPerMinute: 1048576 },

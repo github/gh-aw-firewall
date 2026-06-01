@@ -133,6 +133,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.openaiApiAuthHeader as string | undefined) || process.env.AWF_OPENAI_AUTH_HEADER,
     anthropicApiAuthHeader:
       (options.anthropicApiAuthHeader as string | undefined) || process.env.AWF_ANTHROPIC_AUTH_HEADER,
+    anthropicTokenUrl:
+      (options.anthropicTokenUrl as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     geminiApiTarget:
       (options.geminiApiTarget as string | undefined) || process.env.GEMINI_API_TARGET,
     geminiApiBasePath:
