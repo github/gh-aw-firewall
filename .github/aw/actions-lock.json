@@ -15,6 +15,11 @@
       "version": "v5.0.5",
       "sha": "27d5ce7f107fe9357f9df03efb73ab90386fccae"
     },
+    "actions/checkout@v4": {
+      "repo": "actions/checkout",
+      "version": "v4",
+      "sha": "34e114876b0b11c390a56381ad16ebd13914f8d5"
+    },
     "actions/checkout@v6.0.2": {
       "repo": "actions/checkout",
       "version": "v6.0.2",
@@ -74,6 +79,11 @@
       "repo": "docker/setup-buildx-action",
       "version": "v4.1.0",
       "sha": "d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5"
+    },
+    "github/gh-aw-actions/setup-cli@v0.76.1": {
+      "repo": "github/gh-aw-actions/setup-cli",
+      "version": "v0.76.1",
+      "sha": "46d564922b082d0db93244972e8005ea6904ee5f"
     },
     "github/gh-aw-actions/setup@v0.76.1": {
       "repo": "github/gh-aw-actions/setup",
