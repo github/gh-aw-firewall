@@ -71,7 +71,7 @@ steps:
 
   - name: Install Codex CLI
     run: |
-      npm install -g @openai/codex
+      npm install --ignore-scripts -g @openai/codex@0.135.0
       command -v codex
 
   - name: Write AWF benchmark config
