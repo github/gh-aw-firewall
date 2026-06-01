@@ -1,5 +1,5 @@
 /**
- * Verifies that host-iptables.ts correctly re-exports all public symbols
+ * Verifies that host-iptables.ts correctly re-exports runtime functions
  * from the source modules it wraps.
  */
 
