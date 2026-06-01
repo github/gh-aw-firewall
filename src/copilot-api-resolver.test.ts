@@ -25,12 +25,32 @@ describe('resolveCopilotApiKey', () => {
     expect(resolveCopilotApiKey(env)).toBe('provider_key456');
   });
 
-  it('should prefer COPILOT_API_KEY over COPILOT_PROVIDER_API_KEY', () => {
+  it('should prefer COPILOT_PROVIDER_API_KEY over COPILOT_API_KEY', () => {
+    // COPILOT_PROVIDER_API_KEY is an explicit BYOK opt-in signal, so it
+    // takes precedence over an inherited COPILOT_API_KEY. This also covers
+    // the common case where gh-aw injects the BYOK dummy sentinel into
+    // COPILOT_API_KEY alongside a real COPILOT_PROVIDER_API_KEY.
     const env = {
       COPILOT_API_KEY: 'key123',
       COPILOT_PROVIDER_API_KEY: 'provider_key456',
     };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
+    expect(resolveCopilotApiKey(env)).toBe('provider_key456');
+  });
+
+  it('should treat the BYOK dummy sentinel in COPILOT_API_KEY as unset', () => {
+    // gh-aw's compiled lock injects this sentinel into COPILOT_API_KEY to
+    // satisfy the Copilot CLI's "must be set" check, but it must not be
+    // forwarded upstream. See github/gh-aw#33116 / github/gh-aw#35575.
+    const env = {
+      COPILOT_API_KEY: 'dummy-byok-key-for-offline-mode',
+      COPILOT_PROVIDER_API_KEY: 'real_provider_key',
+    };
+    expect(resolveCopilotApiKey(env)).toBe('real_provider_key');
+  });
+
+  it('should return undefined when only the BYOK dummy sentinel is set', () => {
+    const env = { COPILOT_API_KEY: 'dummy-byok-key-for-offline-mode' };
+    expect(resolveCopilotApiKey(env)).toBeUndefined();
   });
 
   it('should return undefined when neither key is set', () => {
@@ -39,6 +59,8 @@ describe('resolveCopilotApiKey', () => {
   });
 
   it('should return empty string when keys are empty strings', () => {
+    // Empty string is preserved (distinct from "not set") so callers can
+    // distinguish an explicit clear from an absent variable.
     const env = {
       COPILOT_API_KEY: '',
       COPILOT_PROVIDER_API_KEY: '',

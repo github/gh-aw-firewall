@@ -349,10 +349,14 @@ describe('cli', () => {
   });
 
   describe('Copilot BYOK env resolution', () => {
-    it('prefers COPILOT_API_KEY and falls back to COPILOT_PROVIDER_API_KEY', () => {
+    it('prefers COPILOT_PROVIDER_API_KEY and falls back to COPILOT_API_KEY', () => {
       expect(resolveCopilotApiKey({
         COPILOT_API_KEY: 'primary-key',
         COPILOT_PROVIDER_API_KEY: 'fallback-key',
+      })).toBe('fallback-key');
+
+      expect(resolveCopilotApiKey({
+        COPILOT_API_KEY: 'primary-key',
       })).toBe('primary-key');
 
       expect(resolveCopilotApiKey({
