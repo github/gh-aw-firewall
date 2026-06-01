@@ -171,6 +171,33 @@ describe('API proxy sidecar: service configuration', () => {
         expect(env.CLAUDE_CODE_API_KEY_HELPER).toBe('/usr/local/bin/get-claude-key.sh');
       });
 
+      it('should set ANTHROPIC_BASE_URL in agent for Anthropic github-oidc auth without static key', () => {
+        const originalAuthType = process.env.AWF_AUTH_TYPE;
+        const originalAuthProvider = process.env.AWF_AUTH_PROVIDER;
+        process.env.AWF_AUTH_TYPE = 'github-oidc';
+        process.env.AWF_AUTH_PROVIDER = 'anthropic';
+        try {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const agent = result.services.agent;
+          const env = agent.environment as Record<string, string>;
+          expect(env.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+          expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
+          expect(env.CLAUDE_CODE_API_KEY_HELPER).toBe('/usr/local/bin/get-claude-key.sh');
+        } finally {
+          if (originalAuthType !== undefined) {
+            process.env.AWF_AUTH_TYPE = originalAuthType;
+          } else {
+            delete process.env.AWF_AUTH_TYPE;
+          }
+          if (originalAuthProvider !== undefined) {
+            process.env.AWF_AUTH_PROVIDER = originalAuthProvider;
+          } else {
+            delete process.env.AWF_AUTH_PROVIDER;
+          }
+        }
+      });
+
       it('should set both ANTHROPIC_BASE_URL and OPENAI_BASE_URL when both keys are provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-openai-key', anthropicApiKey: 'sk-ant-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

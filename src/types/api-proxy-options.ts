@@ -36,9 +36,9 @@ export interface ApiProxyOptions {
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
    * - OPENAI_BASE_URL=http://api-proxy:10000 (set when OPENAI_API_KEY is provided)
-   * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided)
+   * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
    * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN or COPILOT_API_KEY is provided)
-   * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided)
+   * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
    *
    * API keys are passed via environment variables:
    * - OPENAI_API_KEY - Optional OpenAI API key for Codex

@@ -94,6 +94,8 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const normalizedAuthProvider = (process.env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
+  const shouldProxyAnthropic = Boolean(config.anthropicApiKey || (normalizedAuthType === 'github-oidc' && normalizedAuthProvider === 'anthropic'));
 
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
@@ -290,7 +292,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     agentEnvAdditions.CODEX_API_KEY = 'sk-placeholder-for-api-proxy';
     logger.debug('OPENAI_API_KEY and CODEX_API_KEY set to placeholder values for credential isolation');
   }
-  if (config.anthropicApiKey) {
+  if (shouldProxyAnthropic) {
     agentEnvAdditions.ANTHROPIC_BASE_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`;
     logger.debug(`Anthropic API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.ANTHROPIC}`);
     if (config.anthropicApiTarget) {
