@@ -392,4 +392,20 @@ describe('createAnthropicAdapter — OIDC getAuthHeaders', () => {
     expect(adapter.getAuthHeaders(fakeReq)).toEqual({});
     adapter.getOidcProvider().shutdown();
   });
+
+  it('passes AWF_AUTH_ANTHROPIC_TOKEN_URL to Anthropic OIDC provider', () => {
+    const adapter = createAnthropicAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID: 'fdrl_test',
+      AWF_AUTH_ANTHROPIC_ORGANIZATION_ID: 'org-uuid-test',
+      AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: 'svac_test',
+      AWF_AUTH_ANTHROPIC_TOKEN_URL: 'https://anthropic.internal.example/v1/oauth/token',
+    });
+
+    expect(adapter.getOidcProvider()._tokenEndpoint).toBe('https://anthropic.internal.example/v1/oauth/token');
+    adapter.getOidcProvider().shutdown();
+  });
 });

@@ -68,6 +68,7 @@ function createAnthropicAdapter(env, deps = {}) {
       const organizationId = env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID;
       const serviceAccountId = env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID;
       const workspaceId = env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID;
+      const tokenEndpoint = (env.AWF_AUTH_ANTHROPIC_TOKEN_URL || '').trim();
       oidcProvider = new AnthropicOidcTokenProvider({
         requestUrl,
         requestToken,
@@ -75,6 +76,7 @@ function createAnthropicAdapter(env, deps = {}) {
         organizationId,
         serviceAccountId,
         ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(tokenEndpoint ? { tokenEndpoint } : {}),
         oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'https://api.anthropic.com',
       });
     }

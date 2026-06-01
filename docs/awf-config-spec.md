@@ -499,7 +499,8 @@ principal has direct access grants on the target resource.
 #### 9.5.4 Anthropic Provider (`provider: anthropic`)
 
 Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation
-token via `https://api.anthropic.com/v1/oauth/token`. The sidecar injects
+token via Anthropic OAuth token endpoint (default:
+`https://api.anthropic.com/v1/oauth/token`). The sidecar injects
 the resulting token as an `Authorization` header on upstream requests.
 
 | Config path | Environment variable | Required | Default |
@@ -508,6 +509,7 @@ the resulting token as an `Authorization` header on upstream requests.
 | `apiProxy.auth.anthropicOrganizationId` | `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID` | ✅ | — |
 | `apiProxy.auth.anthropicServiceAccountId` | `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID` | ✅ | — |
 | `apiProxy.auth.anthropicWorkspaceId` | `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` | Conditional¹ | — |
+| `apiProxy.auth.anthropicTokenUrl` | `AWF_AUTH_ANTHROPIC_TOKEN_URL` | ❌ | `https://api.anthropic.com/v1/oauth/token` |
 
 ¹ `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` is required when the federation rule covers
 multiple workspaces. When the rule is scoped to a single workspace, it may be
