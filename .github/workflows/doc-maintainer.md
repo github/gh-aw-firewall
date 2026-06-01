@@ -13,13 +13,39 @@ permissions:
 sandbox:
   agent:
     id: awf
+if: needs.check_relevant_changes.outputs.has_changes == 'true'
+jobs:
+  check_relevant_changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      changed_count: ${{ steps.check.outputs.changed_count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for relevant changes
+        id: check
+        run: |
+          COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l | tr -d ' ')
+          HAS_CHANGES=false
+          if [ "$COUNT" -gt 0 ]; then
+            HAS_CHANGES=true
+          fi
+          {
+            echo "changed_count=$COUNT"
+            echo "has_changes=$HAS_CHANGES"
+          } >> "$GITHUB_OUTPUT"
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 8
+  max-turns: 4
 tools:
   edit:
-  bash: true
+  bash: false
   github: false
 safe-outputs:
   threat-detection:
@@ -36,72 +62,31 @@ steps:
       if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
         git fetch --prune --unshallow
       fi
-  - name: Check for relevant changes
-    id: has-changes
-    run: |
-      mkdir -p /tmp/gh-aw/doc-maintainer-context
-      COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l | tr -d ' ')
-      HAS_CHANGES=false
-      if [ "$COUNT" -gt 0 ]; then
-        HAS_CHANGES=true
-      fi
-      {
-        echo "changed_count=$COUNT"
-        echo "has_changes=$HAS_CHANGES"
-      } >> "$GITHUB_OUTPUT"
-      printf '%s\n' "$COUNT" > /tmp/gh-aw/doc-maintainer-context/changed-count.txt
-      printf '%s\n' "$HAS_CHANGES" > /tmp/gh-aw/doc-maintainer-context/has-changes.txt
-  - name: Gather recent git diffs
-    id: git-changes
+  - name: Build documentation maintainer context
+    id: context
     env:
-      EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES: ${{ steps.has-changes.outputs.has_changes }}
+      EXPR_NEEDS_CHECK_RELEVANT_CHANGES_OUTPUTS_CHANGED_COUNT: ${{ needs.check_relevant_changes.outputs.changed_count }}
     run: |
       CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
-      if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
-        git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$CONTEXT_DIR/recent-diffs.txt"
-      else
-        echo "No relevant source changes detected in the past 7 days." > "$CONTEXT_DIR/recent-diffs.txt"
-      fi
-      DELIM="GH_AW_RECENT_DIFFS_$(date +%s%N)_$RANDOM"
-      {
-        echo "RECENT_DIFFS<<$DELIM"
-        cat "$CONTEXT_DIR/recent-diffs.txt"
-        echo "$DELIM"
-      } >> "$GITHUB_OUTPUT"
-  - name: List documentation files
-    id: doc-files
-    run: |
-      CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
-      {
-        find docs/ -name "*.md" 2>/dev/null
-        find . -maxdepth 1 -name "*.md"
-      } | sort > "$CONTEXT_DIR/doc-files.txt"
-      DELIM="GH_AW_DOC_FILES_$(date +%s%N)_$RANDOM"
-      {
-        echo "DOC_FILES<<$DELIM"
-        cat "$CONTEXT_DIR/doc-files.txt"
-        echo "$DELIM"
-      } >> "$GITHUB_OUTPUT"
-  - name: Identify affected docs
-    id: affected-docs
-    env:
-      EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES: ${{ steps.has-changes.outputs.has_changes }}
-    run: |
-      CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
+      mkdir -p "$CONTEXT_DIR"
       DOC_POOL=$(mktemp)
       TOKENS=$(mktemp)
       AFFECTED=$(mktemp)
+      COUNT="$EXPR_NEEDS_CHECK_RELEVANT_CHANGES_OUTPUTS_CHANGED_COUNT"
 
-      cat "$CONTEXT_DIR/doc-files.txt" > "$DOC_POOL"
+      {
+        find docs/ -name "*.md" 2>/dev/null
+        find . -maxdepth 1 -name "*.md"
+      } | sort > "$DOC_POOL"
 
-      if [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
-        git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
-          while read -r sha; do
-            git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
-          done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -10 > "$AFFECTED" || true
-      fi
+      git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$CONTEXT_DIR/recent-diffs.txt"
 
-      if [ ! -s "$AFFECTED" ] && [ "$EXPR_STEPS_HAS_CHANGES_OUTPUTS_HAS_CHANGES" = "true" ]; then
+      git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
+        while read -r sha; do
+          git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
+        done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -10 > "$AFFECTED" || true
+
+      if [ ! -s "$AFFECTED" ]; then
         git log --since="7 days ago" --name-only --format="" -- src/ containers/ scripts/ | \
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true
@@ -115,13 +100,17 @@ steps:
       fi
 
       cp "$AFFECTED" "$CONTEXT_DIR/affected-docs.txt"
-
-      DELIM="GH_AW_AFFECTED_DOCS_$(date +%s%N)_$RANDOM"
       {
-        echo "AFFECTED_DOCS<<$DELIM"
+        echo "## Changes"
+        echo "- changed_count: $COUNT"
+        echo "- has_changes: true"
+        echo ""
+        echo "## Affected Documentation"
         cat "$CONTEXT_DIR/affected-docs.txt"
-        echo "$DELIM"
-      } >> "$GITHUB_OUTPUT"
+        echo ""
+        echo "## Recent Git Diffs"
+        cat "$CONTEXT_DIR/recent-diffs.txt"
+      } > "$CONTEXT_DIR/context.md"
 ---
 
 # Documentation Maintainer
@@ -142,32 +131,21 @@ This repository is a security-critical firewall for GitHub Copilot CLI. Accurate
 
 ## Task Steps
 
-### 0. Check For Changes First (Do This Before Anything Else)
-
-Read `/tmp/gh-aw/doc-maintainer-context/has-changes.txt`.
-
-- If `false`: call `safeoutputs noop` immediately and stop. Do not read any other files.
-- If `true`: proceed to Step 1.
-
 ### 1. Analyze Pre-computed Changes
 
-Read `/tmp/gh-aw/doc-maintainer-context/changed-count.txt`.
+Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.
 
-Use `/tmp/gh-aw/doc-maintainer-context/recent-diffs.txt` as your **sole source** for recent source changes. **Do not run any `git` commands** — all required git data is already pre-computed. Running `git show`, `git log`, or `git diff` wastes turns.
+Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **Do not run any `git` commands** — all required git data is already pre-computed. Running `git show`, `git log`, or `git diff` wastes turns.
 
 ### 2. Identify Documentation Gaps
 
-Review only the files listed in `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt` (max 10 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
+Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md` (max 10 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
 
-### 3. Review Current Documentation
-
-Review only `/tmp/gh-aw/doc-maintainer-context/affected-docs.txt`. Do not expand review scope to `/tmp/gh-aw/doc-maintainer-context/doc-files.txt`.
-
-### 4. Verify Code Examples
+### 3. Verify Code Examples
 
 Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths.
 
-### 5. Make Documentation Updates
+### 4. Make Documentation Updates
 
 Use the edit tool to update documentation files:
 
@@ -182,7 +160,7 @@ Keep updates:
 - Consistent with existing style
 - Clear and accurate
 
-### 6. Create Pull Request
+### 5. Create Pull Request
 
 After making updates, the safe-outputs system will automatically create a PR. Include in your changes:
 
