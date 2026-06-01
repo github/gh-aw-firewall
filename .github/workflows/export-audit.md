@@ -196,6 +196,64 @@ steps:
         grep -n "require.*providers\|from.*providers" containers/api-proxy/server.js 2>/dev/null | head -10
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
+
+  - name: Build export audit context
+    env:
+      GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS: ${{ steps.apip_exports.outputs.APIP_EXPORTS }}
+      GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS: ${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
+      GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS: ${{ steps.exports.outputs.EXPORTS }}
+      GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES: ${{ steps.naming_audit.outputs.NAMING_ISSUES }}
+      GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS: ${{ steps.test_imports.outputs.TEST_IMPORTS }}
+      GH_AW_STEPS_TS_ERRORS_OUTPUTS_TS_ERRORS: ${{ steps.ts-errors.outputs.TS_ERRORS }}
+      GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS: ${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
+      GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED: ${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
+    run: |
+      mkdir -p /tmp/gh-aw/agent
+      CONTEXT_FILE=/tmp/gh-aw/agent/export-audit-context.md
+      {
+        echo "## Pre-computed Data"
+        echo
+        echo "TypeScript build output:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_TS_ERRORS_OUTPUTS_TS_ERRORS"
+        echo '```'
+        echo
+        echo "Exported symbols sample:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_EXPORTS_OUTPUTS_EXPORTS"
+        echo '```'
+        echo
+        echo "Unused exports:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_UNUSED_EXPORTS_OUTPUTS_UNUSED_EXPORTS"
+        echo '```'
+        echo
+        echo "Verified unused exports:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_VERIFIED_UNUSED_OUTPUTS_VERIFIED_UNUSED"
+        echo '```'
+        echo
+        echo "Circular dependencies:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_CIRCULAR_DEPS_OUTPUTS_CIRCULAR_DEPS"
+        echo '```'
+        echo
+        echo "Naming issues:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_NAMING_AUDIT_OUTPUTS_NAMING_ISSUES"
+        echo '```'
+        echo
+        echo "Test imports:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_TEST_IMPORTS_OUTPUTS_TEST_IMPORTS"
+        echo '```'
+        echo
+        echo "API proxy exports:"
+        echo '```'
+        printf '%s\n' "$GH_AW_STEPS_APIP_EXPORTS_OUTPUTS_APIP_EXPORTS"
+        echo '```'
+      } > "$CONTEXT_FILE"
+      echo "Export audit context written to $CONTEXT_FILE"
 ---
 
 # API Surface & Export Audit
@@ -205,6 +263,8 @@ You are a code quality engineer auditing the `${{ github.repository }}` codebase
 ## Repository Context
 
 This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. The TypeScript source lives in `src/` and is compiled to `dist/`. Container JavaScript lives in `containers/api-proxy/`.
+
+Pre-computed audit data is available in `/tmp/gh-aw/agent/export-audit-context.md`. Read that file first and use it as the source of truth for the pre-step results instead of re-running those analyses.
 
 ## Phase 1: Review Unused Exports
 
@@ -309,42 +369,4 @@ If the build fails, report TypeScript errors and skip audit issue creation. If `
 
 ## Pre-computed Data
 
-TypeScript build output:
-```
-${{ steps.ts-errors.outputs.TS_ERRORS }}
-```
-
-Exported symbols sample:
-```
-${{ steps.exports.outputs.EXPORTS }}
-```
-
-Unused exports:
-```
-${{ steps.unused_exports.outputs.UNUSED_EXPORTS }}
-```
-
-Verified unused exports:
-```
-${{ steps.verified_unused.outputs.VERIFIED_UNUSED }}
-```
-
-Circular dependencies:
-```
-${{ steps.circular_deps.outputs.CIRCULAR_DEPS }}
-```
-
-Naming issues:
-```
-${{ steps.naming_audit.outputs.NAMING_ISSUES }}
-```
-
-Test imports:
-```
-${{ steps.test_imports.outputs.TEST_IMPORTS }}
-```
-
-API proxy exports:
-```
-${{ steps.apip_exports.outputs.APIP_EXPORTS }}
-```
+Read `/tmp/gh-aw/agent/export-audit-context.md` first. It contains the TypeScript build output plus the pre-computed sections for exported symbols, unused exports, verified unused exports, circular dependencies, naming issues, test imports, and api-proxy exports.
