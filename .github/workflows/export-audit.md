@@ -268,11 +268,11 @@ Pre-computed audit data is available in `/tmp/gh-aw/agent/export-audit-context.m
 
 ## Phase 1: Review Unused Exports
 
-The pre-computed unused exports analysis is provided in the **Pre-computed Data** section below (`UNUSED_EXPORTS` and `VERIFIED_UNUSED`). Use `VERIFIED_UNUSED` directly as pre-confirmed evidence and do **not** run additional bash to re-verify those symbols. `VERIFIED_UNUSED` reports `used_outside_defining_file=N_files`; `used_outside_defining_file=0_files` means no external usage beyond the defining file. If `VERIFIED_UNUSED` is empty, fall back to the normal verification flow within the strict command budget.
+The pre-computed unused exports analysis is provided in `/tmp/gh-aw/agent/export-audit-context.md` (`UNUSED_EXPORTS` and `VERIFIED_UNUSED`). Use `VERIFIED_UNUSED` directly as pre-confirmed evidence and do **not** run additional bash to re-verify those symbols. `VERIFIED_UNUSED` reports `used_outside_defining_file=N_files`; `used_outside_defining_file=0_files` means no external usage beyond the defining file. If `VERIFIED_UNUSED` is empty, fall back to the normal verification flow within the strict command budget.
 
 ## Phase 2: Review Naming Conventions
 
-The pre-computed naming audit is provided in the **Pre-computed Data** section below (`NAMING_ISSUES`). Review the results for:
+The pre-computed naming audit is provided in `/tmp/gh-aw/agent/export-audit-context.md` (`NAMING_ISSUES`). Review the results for:
 - Types/interfaces not following PascalCase
 - api-proxy provider export inconsistencies
 
@@ -284,15 +284,15 @@ Also verify function and constant naming conventions using the exported symbols 
 
 ## Phase 3: Review Circular Dependencies
 
-The pre-computed circular dependency analysis is provided in the **Pre-computed Data** section below (`CIRCULAR_DEPS`). Review the results for any detected cycles between modules.
+The pre-computed circular dependency analysis is provided in `/tmp/gh-aw/agent/export-audit-context.md` (`CIRCULAR_DEPS`). Review the results for any detected cycles between modules.
 
 ## Phase 4: Audit Test File Import Paths
 
-Review the pre-computed test import audit (`TEST_IMPORTS`) to confirm test files import from correct modules and do not reach into private implementation details.
+Review the pre-computed test import audit (`TEST_IMPORTS`) from `/tmp/gh-aw/agent/export-audit-context.md` to confirm test files import from correct modules and do not reach into private implementation details.
 
 ## Phase 5: Audit api-proxy Module Exports
 
-Review the pre-computed api-proxy export audit (`APIP_EXPORTS`) and verify provider modules follow the adapter pattern and are consistently registered.
+Review the pre-computed api-proxy export audit (`APIP_EXPORTS`) from `/tmp/gh-aw/agent/export-audit-context.md` and verify provider modules follow the adapter pattern and are consistently registered.
 
 ## Phase 6: Check for Existing Issues
 
