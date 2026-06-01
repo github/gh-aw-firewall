@@ -2,15 +2,32 @@ import {
   deriveCopilotApiBasePathFromProviderBaseUrl,
   deriveCopilotApiTargetFromProviderBaseUrl,
 } from './copilot-api-resolver.internal';
+import { logger } from './logger';
+
+let copilotApiKeyDeprecationWarned = false;
 
 /**
- * Resolve the Copilot BYOK key from supported environment variables.
- * COPILOT_API_KEY takes precedence over COPILOT_PROVIDER_API_KEY.
+ * Resolve the upstream Copilot BYOK key from supported environment variables.
+ * Only COPILOT_PROVIDER_API_KEY is supported for BYOK provider credentials.
  */
 export function resolveCopilotApiKey(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  return env.COPILOT_API_KEY || env.COPILOT_PROVIDER_API_KEY;
+  if (env.COPILOT_PROVIDER_API_KEY !== undefined) {
+    return env.COPILOT_PROVIDER_API_KEY;
+  }
+
+  if (env.COPILOT_API_KEY !== undefined && !copilotApiKeyDeprecationWarned) {
+    copilotApiKeyDeprecationWarned = true;
+    logger.warn(
+      'COPILOT_API_KEY is set but COPILOT_PROVIDER_API_KEY is not. ' +
+        'Agentic Workflow Firewall (AWF) no longer treats COPILOT_API_KEY as a BYOK upstream credential ' +
+        '(it is owned by the Copilot CLI). Set COPILOT_PROVIDER_API_KEY (and COPILOT_PROVIDER_BASE_URL) ' +
+        'for BYOK, or COPILOT_GITHUB_TOKEN for standard Copilot auth.',
+    );
+  }
+
+  return undefined;
 }
 
 /**

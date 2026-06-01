@@ -23,6 +23,7 @@ import {
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
+import { logger } from './logger';
 import { redactSecrets } from './redact-secrets';
 
 const { deriveCopilotApiTargetFromProviderBaseUrl, deriveCopilotApiBasePathFromProviderBaseUrl } =
@@ -349,15 +350,23 @@ describe('cli', () => {
   });
 
   describe('Copilot BYOK env resolution', () => {
-    it('prefers COPILOT_API_KEY and falls back to COPILOT_PROVIDER_API_KEY', () => {
-      expect(resolveCopilotApiKey({
-        COPILOT_API_KEY: 'primary-key',
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('primary-key');
+    it('resolves only COPILOT_PROVIDER_API_KEY and warns once for legacy-only COPILOT_API_KEY', () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
       expect(resolveCopilotApiKey({
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('fallback-key');
+        COPILOT_API_KEY: 'legacy-key',
+        COPILOT_PROVIDER_API_KEY: 'provider-key',
+      })).toBe('provider-key');
+
+      expect(resolveCopilotApiKey({
+        COPILOT_PROVIDER_API_KEY: 'provider-key',
+      })).toBe('provider-key');
+
+      expect(resolveCopilotApiKey({
+        COPILOT_API_KEY: 'legacy-key',
+      })).toBeUndefined();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
     });
 
     it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {
