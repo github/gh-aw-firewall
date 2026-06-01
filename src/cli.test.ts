@@ -349,15 +349,20 @@ describe('cli', () => {
   });
 
   describe('Copilot BYOK env resolution', () => {
-    it('prefers COPILOT_API_KEY and falls back to COPILOT_PROVIDER_API_KEY', () => {
+    it('resolves only COPILOT_PROVIDER_API_KEY; ignores legacy COPILOT_API_KEY', () => {
       expect(resolveCopilotApiKey({
-        COPILOT_API_KEY: 'primary-key',
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('primary-key');
+        COPILOT_API_KEY: 'legacy-key',
+        COPILOT_PROVIDER_API_KEY: 'provider-key',
+      })).toBe('provider-key');
 
       expect(resolveCopilotApiKey({
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('fallback-key');
+        COPILOT_PROVIDER_API_KEY: 'provider-key',
+      })).toBe('provider-key');
+
+      // Legacy COPILOT_API_KEY alone is no longer a BYOK credential.
+      expect(resolveCopilotApiKey({
+        COPILOT_API_KEY: 'legacy-key',
+      })).toBeUndefined();
     });
 
     it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {

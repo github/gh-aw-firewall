@@ -2,8 +2,10 @@ import * as copilotApiResolverModule from './copilot-api-resolver';
 import {
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
+  __resetCopilotApiKeyDeprecationLatchForTesting,
 } from './copilot-api-resolver';
 import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
+import { logger } from './logger';
 
 const {
   deriveCopilotApiTargetFromProviderBaseUrl,
@@ -11,38 +13,59 @@ const {
 } = copilotApiResolverTestHelpers;
 
 describe('resolveCopilotApiKey', () => {
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    __resetCopilotApiKeyDeprecationLatchForTesting();
+    warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
   it('should not expose test helpers from the production module API', () => {
     expect(copilotApiResolverModule).not.toHaveProperty('copilotApiResolverTestHelpers');
   });
 
-  it('should return COPILOT_API_KEY when set', () => {
-    const env = { COPILOT_API_KEY: 'key123' };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
-  });
-
-  it('should return COPILOT_PROVIDER_API_KEY when COPILOT_API_KEY is not set', () => {
+  it('should return COPILOT_PROVIDER_API_KEY when set', () => {
     const env = { COPILOT_PROVIDER_API_KEY: 'provider_key456' };
     expect(resolveCopilotApiKey(env)).toBe('provider_key456');
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('should prefer COPILOT_API_KEY over COPILOT_PROVIDER_API_KEY', () => {
+  it('should prefer COPILOT_PROVIDER_API_KEY when both are set and not warn', () => {
     const env = {
-      COPILOT_API_KEY: 'key123',
+      COPILOT_API_KEY: 'legacy_key123',
       COPILOT_PROVIDER_API_KEY: 'provider_key456',
     };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
+    expect(resolveCopilotApiKey(env)).toBe('provider_key456');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('should ignore COPILOT_API_KEY (legacy) and log a one-time deprecation warning', () => {
+    // COPILOT_API_KEY is the Copilot CLI's session-token slot and in BYOK mode
+    // contains gh-aw's placeholder sentinel; it must not be forwarded upstream.
+    const env = { COPILOT_API_KEY: 'legacy_key123' };
+    expect(resolveCopilotApiKey(env)).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toMatch(/COPILOT_API_KEY is set/);
+
+    // Latched: a second invocation does not re-warn.
+    resolveCopilotApiKey(env);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('should return undefined when neither key is set', () => {
     const env = {};
     expect(resolveCopilotApiKey(env)).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('should return empty string when keys are empty strings', () => {
-    const env = {
-      COPILOT_API_KEY: '',
-      COPILOT_PROVIDER_API_KEY: '',
-    };
+  it('should return empty string when COPILOT_PROVIDER_API_KEY is empty', () => {
+    // Empty string is preserved (distinct from "not set") so callers can
+    // distinguish an explicit clear from an absent variable.
+    const env = { COPILOT_PROVIDER_API_KEY: '' };
     expect(resolveCopilotApiKey(env)).toBe('');
   });
 
@@ -56,7 +79,7 @@ describe('resolveCopilotApiKey', () => {
       delete process.env.COPILOT_PROVIDER_API_KEY;
       expect(resolveCopilotApiKey()).toBeUndefined();
 
-      process.env.COPILOT_API_KEY = 'test_key';
+      process.env.COPILOT_PROVIDER_API_KEY = 'test_key';
       expect(resolveCopilotApiKey()).toBe('test_key');
     } finally {
       // Restore original env
