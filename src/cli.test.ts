@@ -353,20 +353,24 @@ describe('cli', () => {
     it('resolves only COPILOT_PROVIDER_API_KEY and warns once for legacy-only COPILOT_API_KEY', () => {
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
-      expect(resolveCopilotApiKey({
-        COPILOT_API_KEY: 'legacy-key',
-        COPILOT_PROVIDER_API_KEY: 'provider-key',
-      })).toBe('provider-key');
+      try {
+        expect(resolveCopilotApiKey({
+          COPILOT_API_KEY: 'legacy-key',
+          COPILOT_PROVIDER_API_KEY: 'provider-key',
+        })).toBe('provider-key');
 
-      expect(resolveCopilotApiKey({
-        COPILOT_PROVIDER_API_KEY: 'provider-key',
-      })).toBe('provider-key');
+        expect(resolveCopilotApiKey({
+          COPILOT_PROVIDER_API_KEY: 'provider-key',
+        })).toBe('provider-key');
 
-      expect(resolveCopilotApiKey({
-        COPILOT_API_KEY: 'legacy-key',
-      })).toBeUndefined();
+        expect(resolveCopilotApiKey({
+          COPILOT_API_KEY: 'legacy-key',
+        })).toBeUndefined();
 
-      expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {
