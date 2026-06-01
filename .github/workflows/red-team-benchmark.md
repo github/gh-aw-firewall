@@ -42,9 +42,9 @@ steps:
     run: |
       npm ci 2>&1 | tail -5
       npm run build 2>&1 | tail -5
-      sudo tee /usr/local/bin/awf > /dev/null <<'WRAPPER'
+      sudo tee /usr/local/bin/awf > /dev/null <<WRAPPER
       #!/bin/bash
-      exec node "$GITHUB_WORKSPACE/dist/cli.js" "$@"
+      exec node "${GITHUB_WORKSPACE}/dist/cli.js" "\$@"
       WRAPPER
       sudo chmod +x /usr/local/bin/awf
       awf --version
@@ -68,6 +68,11 @@ steps:
     run: |
       npm install -g @anthropic-ai/claude-code
       command -v claude
+
+  - name: Install Codex CLI
+    run: |
+      npm install -g @openai/codex
+      command -v codex
 
   - name: Write AWF benchmark config
     run: |
