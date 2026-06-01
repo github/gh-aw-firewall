@@ -31,9 +31,9 @@ tools:
   bash:
     - "npm run test"
     - "npm run lint"
-    - "node *"
-    - "./node_modules/.bin/jest *"
-    - "./node_modules/.bin/eslint *"
+    - "node:*"
+    - "./node_modules/.bin/jest:*"
+    - "./node_modules/.bin/eslint:*"
     - "cat:src/*.test.ts"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"

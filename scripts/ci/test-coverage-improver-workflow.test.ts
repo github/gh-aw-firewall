@@ -10,9 +10,9 @@ describe('test coverage improver workflow token optimization config', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain('cat:src/*.test.ts');
-    expect(source).toContain('node *');
-    expect(source).toContain('./node_modules/.bin/jest *');
-    expect(source).toContain('./node_modules/.bin/eslint *');
+    expect(source).toContain('node:*');
+    expect(source).toContain('./node_modules/.bin/jest:*');
+    expect(source).toContain('./node_modules/.bin/eslint:*');
     expect(source).toContain('Select target file and inject content');
     expect(source).toContain('TARGET_FILE=$TARGET');
     expect(source).toContain('SOURCE_CONTENT<<EOF');
