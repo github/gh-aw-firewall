@@ -44,6 +44,13 @@ describe('red-team benchmark workflow config', () => {
     // Tool installation
     expect(source).toContain('astral.sh/uv/install.sh');
     expect(source).toContain('adversarial_dojo');
+    expect(source).toContain('ADVERSARIAL_DOJO_REF="f51227612e43d98658679710d5505989e7f53ec7"');
+    expect(source).toContain('search-attacks --help');
+    expect(source).toContain("-- '--config'");
+    expect(source).toContain("-- '--agentshim'");
+    expect(source).toContain("-- '--output-dir'");
+    expect(source).toContain('Install Claude CLI');
+    expect(source).toContain('npm install -g @anthropic-ai/claude-code');
 
     // Build and install AWF from source
     expect(source).toContain('Build and install AWF from source');
@@ -59,6 +66,7 @@ describe('red-team benchmark workflow config', () => {
     expect(source).toContain('Create AWF agentshim for victim');
     expect(source).toContain('sudo awf');
     expect(source).toContain('--allow-domains api.anthropic.com');
+    expect(source).toContain('--proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs');
     expect(source).toContain('-- claude --max-turns 10');
 
     // Both benchmark runs
@@ -78,6 +86,7 @@ describe('red-team benchmark workflow config', () => {
     // Squid log collection
     expect(source).toContain('squid-access.log');
     expect(source).toContain('DENIED');
+    expect(source).toContain('missing claude binary');
 
     // Summary step captures key outputs
     expect(source).toContain('Write benchmark summary');
@@ -126,6 +135,9 @@ describe('red-team benchmark workflow config', () => {
     // AWF agentshim content compiled into lock
     expect(lock).toContain('awf-agentshim.sh');
     expect(lock).toContain('api.anthropic.com');
+    expect(lock).toContain('proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs');
+    expect(lock).toContain('Install Claude CLI');
+    expect(lock).toContain('ADVERSARIAL_DOJO_REF="f51227612e43d98658679710d5505989e7f53ec7"');
 
     // Benchmark steps present
     expect(lock).toContain('baseline');

@@ -378,10 +378,21 @@ jobs:
         run: "npm ci 2>&1 | tail -5\nnpm run build 2>&1 | tail -5\nsudo tee /usr/local/bin/awf > /dev/null <<'WRAPPER'\n#!/bin/bash\nexec node \"$GITHUB_WORKSPACE/dist/cli.js\" \"$@\"\nWRAPPER\nsudo chmod +x /usr/local/bin/awf\nawf --version\n"
       - name: Clone and install adversarial_dojo
         run: |
-          git clone --depth=1 https://github.com/vic-lsh/adversarial_dojo.git /tmp/adversarial_dojo
+          ADVERSARIAL_DOJO_REF="f51227612e43d98658679710d5505989e7f53ec7"
+          git clone https://github.com/vic-lsh/adversarial_dojo.git /tmp/adversarial_dojo
           cd /tmp/adversarial_dojo
+          git checkout "$ADVERSARIAL_DOJO_REF"
           "$HOME/.local/bin/uv" sync
+          mkdir -p /tmp/gh-aw/agent
+          "$HOME/.local/bin/uv" run adversarial-dojo search-attacks --help >/tmp/gh-aw/agent/search-attacks-help.txt
+          grep -q -- '--config' /tmp/gh-aw/agent/search-attacks-help.txt
+          grep -q -- '--agentshim' /tmp/gh-aw/agent/search-attacks-help.txt
+          grep -q -- '--output-dir' /tmp/gh-aw/agent/search-attacks-help.txt
           echo "adversarial_dojo installed"
+      - name: Install Claude CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          command -v claude
       - name: Write AWF benchmark config
         run: |
           mkdir -p /tmp/gh-aw/agent
@@ -409,7 +420,7 @@ jobs:
           } > /tmp/awf-benchmark.toml
           echo "AWF benchmark config written"
       - name: Create AWF agentshim for victim
-        run: "{\n  echo '#!/bin/bash'\n  echo '# AWF-wrapped victim agentshim for adversarial_dojo.'\n  echo '# Runs the Claude victim agent inside an AWF sandbox that only allows'\n  echo '# api.anthropic.com egress. Any exfiltration attempt to other domains'\n  echo '# will be blocked by the firewall iptables/Squid rules.'\n  printf 'exec sudo awf \\\\\\n'\n  printf '  --allow-domains api.anthropic.com \\\\\\n'\n  printf '  --log-level info \\\\\\n'\n  echo '  -- claude --max-turns 10 \"$@\"'\n} > /tmp/awf-agentshim.sh\nchmod +x /tmp/awf-agentshim.sh\necho \"AWF agentshim created at /tmp/awf-agentshim.sh\"\n"
+        run: "{\n  echo '#!/bin/bash'\n  echo '# AWF-wrapped victim agentshim for adversarial_dojo.'\n  echo '# Runs the Claude victim agent inside an AWF sandbox that only allows'\n  echo '# api.anthropic.com egress. Any exfiltration attempt to other domains'\n  echo '# will be blocked by the firewall iptables/Squid rules.'\n  printf 'exec sudo awf \\\\\\n'\n  printf '  --allow-domains api.anthropic.com \\\\\\n'\n  printf '  --proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs \\\\\\n'\n  printf '  --log-level info \\\\\\n'\n  echo '  -- claude --max-turns 10 \"$@\"'\n} > /tmp/awf-agentshim.sh\nchmod +x /tmp/awf-agentshim.sh\necho \"AWF agentshim created at /tmp/awf-agentshim.sh\"\n"
       - env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -421,7 +432,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         id: awf_run
         name: Run AWF-protected benchmark (victim inside AWF sandbox)
-        run: "mkdir -p /tmp/gh-aw/agent/awf\nAWF_LEAKS=\"n/a\"\nAWF_BLOCKED=\"n/a\"\nif [ -z \"$ANTHROPIC_API_KEY\" ] || [ -z \"$OPENAI_API_KEY\" ]; then\n  echo \"::warning::Missing API keys — AWF-protected run skipped\"\n  echo '{\"skipped\":true,\"reason\":\"missing API keys\"}' > /tmp/gh-aw/agent/awf/summary.json\nelse\n  cd /tmp/adversarial_dojo\n  \"$HOME/.local/bin/uv\" run adversarial-dojo search-attacks \\\n    --config /tmp/awf-benchmark.toml \\\n    --agentshim /tmp/awf-agentshim.sh \\\n    --output-dir /tmp/gh-aw/agent/awf \\\n    2>/tmp/gh-aw/agent/awf/stderr.log || true\n  if [ -f /tmp/gh-aw/agent/awf/summary.json ]; then\n    AWF_LEAKS=$(jq -r '.leak_events | length' /tmp/gh-aw/agent/awf/summary.json 2>/dev/null || echo \"unknown\")\n  fi\n  # Count DENIED entries in Squid access log produced by AWF\n  SQUID_LOG=$(find /tmp -name 'access.log' -path '*/squid/*' 2>/dev/null | head -1)\n  if [ -n \"$SQUID_LOG\" ]; then\n    AWF_BLOCKED=$(grep -c \"DENIED\" \"$SQUID_LOG\" 2>/dev/null || echo \"0\")\n    cp \"$SQUID_LOG\" /tmp/gh-aw/agent/squid-access.log\n  else\n    echo \"No Squid access log found\" > /tmp/gh-aw/agent/squid-access.log\n    AWF_BLOCKED=\"0\"\n  fi\n  echo \"AWF-protected — leaks: $AWF_LEAKS, blocked requests: $AWF_BLOCKED\"\nfi\necho \"AWF_LEAKS=$AWF_LEAKS\" >> \"$GITHUB_OUTPUT\"\necho \"AWF_BLOCKED=$AWF_BLOCKED\" >> \"$GITHUB_OUTPUT\"\n"
+        run: "mkdir -p /tmp/gh-aw/agent/awf\nmkdir -p /tmp/gh-aw/agent/awf/firewall-logs\nAWF_LEAKS=\"n/a\"\nAWF_BLOCKED=\"n/a\"\nif [ -z \"$ANTHROPIC_API_KEY\" ] || [ -z \"$OPENAI_API_KEY\" ]; then\n  echo \"::warning::Missing API keys — AWF-protected run skipped\"\n  echo '{\"skipped\":true,\"reason\":\"missing API keys\"}' > /tmp/gh-aw/agent/awf/summary.json\nelif ! command -v claude >/dev/null 2>&1; then\n  echo \"::error::Claude CLI is missing on runner\"\n  echo '{\"skipped\":false,\"reason\":\"missing claude binary\"}' > /tmp/gh-aw/agent/awf/summary.json\n  exit 1\nelse\n  cd /tmp/adversarial_dojo\n  \"$HOME/.local/bin/uv\" run adversarial-dojo search-attacks \\\n    --config /tmp/awf-benchmark.toml \\\n    --agentshim /tmp/awf-agentshim.sh \\\n    --output-dir /tmp/gh-aw/agent/awf \\\n    2>/tmp/gh-aw/agent/awf/stderr.log || true\n  if [ -f /tmp/gh-aw/agent/awf/summary.json ]; then\n    AWF_LEAKS=$(jq -r '.leak_events | length' /tmp/gh-aw/agent/awf/summary.json 2>/dev/null || echo \"unknown\")\n  fi\n  # Count DENIED entries in Squid access log produced by AWF\n  SQUID_LOG=/tmp/gh-aw/agent/awf/firewall-logs/access.log\n  if [ ! -f \"$SQUID_LOG\" ]; then\n    SQUID_LOG=$(find /tmp -name 'access.log' -path '*awf*' 2>/dev/null | head -1)\n  fi\n  if [ -n \"$SQUID_LOG\" ]; then\n    AWF_BLOCKED=$(grep -c \"DENIED\" \"$SQUID_LOG\" 2>/dev/null || echo \"0\")\n    cp \"$SQUID_LOG\" /tmp/gh-aw/agent/squid-access.log\n  else\n    echo \"No Squid access log found\" > /tmp/gh-aw/agent/squid-access.log\n    AWF_BLOCKED=\"0\"\n  fi\n  echo \"AWF-protected — leaks: $AWF_LEAKS, blocked requests: $AWF_BLOCKED\"\nfi\necho \"AWF_LEAKS=$AWF_LEAKS\" >> \"$GITHUB_OUTPUT\"\necho \"AWF_BLOCKED=$AWF_BLOCKED\" >> \"$GITHUB_OUTPUT\"\n"
       - env:
           EXPR_AWF_BLOCKED: ${{ steps.awf_run.outputs.AWF_BLOCKED }}
           EXPR_AWF_LEAKS: ${{ steps.awf_run.outputs.AWF_LEAKS }}
@@ -1296,4 +1307,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

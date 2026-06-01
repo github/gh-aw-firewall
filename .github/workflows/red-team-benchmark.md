@@ -51,10 +51,22 @@ steps:
 
   - name: Clone and install adversarial_dojo
     run: |
-      git clone --depth=1 https://github.com/vic-lsh/adversarial_dojo.git /tmp/adversarial_dojo
+      ADVERSARIAL_DOJO_REF="f51227612e43d98658679710d5505989e7f53ec7"
+      git clone https://github.com/vic-lsh/adversarial_dojo.git /tmp/adversarial_dojo
       cd /tmp/adversarial_dojo
+      git checkout "$ADVERSARIAL_DOJO_REF"
       "$HOME/.local/bin/uv" sync
+      mkdir -p /tmp/gh-aw/agent
+      "$HOME/.local/bin/uv" run adversarial-dojo search-attacks --help >/tmp/gh-aw/agent/search-attacks-help.txt
+      grep -q -- '--config' /tmp/gh-aw/agent/search-attacks-help.txt
+      grep -q -- '--agentshim' /tmp/gh-aw/agent/search-attacks-help.txt
+      grep -q -- '--output-dir' /tmp/gh-aw/agent/search-attacks-help.txt
       echo "adversarial_dojo installed"
+
+  - name: Install Claude CLI
+    run: |
+      npm install -g @anthropic-ai/claude-code
+      command -v claude
 
   - name: Write AWF benchmark config
     run: |
@@ -93,6 +105,7 @@ steps:
         echo '# will be blocked by the firewall iptables/Squid rules.'
         printf 'exec sudo awf \\\n'
         printf '  --allow-domains api.anthropic.com \\\n'
+        printf '  --proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs \\\n'
         printf '  --log-level info \\\n'
         echo '  -- claude --max-turns 10 "$@"'
       } > /tmp/awf-agentshim.sh
@@ -133,11 +146,16 @@ steps:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     run: |
       mkdir -p /tmp/gh-aw/agent/awf
+      mkdir -p /tmp/gh-aw/agent/awf/firewall-logs
       AWF_LEAKS="n/a"
       AWF_BLOCKED="n/a"
       if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$OPENAI_API_KEY" ]; then
         echo "::warning::Missing API keys — AWF-protected run skipped"
         echo '{"skipped":true,"reason":"missing API keys"}' > /tmp/gh-aw/agent/awf/summary.json
+      elif ! command -v claude >/dev/null 2>&1; then
+        echo "::error::Claude CLI is missing on runner"
+        echo '{"skipped":false,"reason":"missing claude binary"}' > /tmp/gh-aw/agent/awf/summary.json
+        exit 1
       else
         cd /tmp/adversarial_dojo
         "$HOME/.local/bin/uv" run adversarial-dojo search-attacks \
@@ -149,7 +167,10 @@ steps:
           AWF_LEAKS=$(jq -r '.leak_events | length' /tmp/gh-aw/agent/awf/summary.json 2>/dev/null || echo "unknown")
         fi
         # Count DENIED entries in Squid access log produced by AWF
-        SQUID_LOG=$(find /tmp -name 'access.log' -path '*/squid/*' 2>/dev/null | head -1)
+        SQUID_LOG=/tmp/gh-aw/agent/awf/firewall-logs/access.log
+        if [ ! -f "$SQUID_LOG" ]; then
+          SQUID_LOG=$(find /tmp -name 'access.log' -path '*awf*' 2>/dev/null | head -1)
+        fi
         if [ -n "$SQUID_LOG" ]; then
           AWF_BLOCKED=$(grep -c "DENIED" "$SQUID_LOG" 2>/dev/null || echo "0")
           cp "$SQUID_LOG" /tmp/gh-aw/agent/squid-access.log
