@@ -5,12 +5,25 @@ import {
 
 /**
  * Resolve the Copilot BYOK key from supported environment variables.
- * COPILOT_API_KEY takes precedence over COPILOT_PROVIDER_API_KEY.
+ *
+ * `COPILOT_PROVIDER_API_KEY` takes precedence over `COPILOT_API_KEY`.
+ *
+ * Rationale: `COPILOT_API_KEY` is the Copilot CLI's *session token* env var,
+ * not a BYOK upstream credential. In integrations such as gh-aw's
+ * `byok-copilot: true` flow, `COPILOT_API_KEY` is intentionally set to a
+ * placeholder sentinel (e.g. `dummy-byok-key-for-offline-mode`) to satisfy
+ * the CLI's startup check, while the real upstream BYOK credential is passed
+ * via `COPILOT_PROVIDER_API_KEY` (paired with `COPILOT_PROVIDER_BASE_URL`).
+ * Preferring `COPILOT_PROVIDER_API_KEY` here prevents AWF from forwarding the
+ * sentinel to the sidecar (github/gh-aw#35575, github/gh-aw-firewall#4040).
+ *
+ * `COPILOT_API_KEY` is still honored as a fallback for callers that have
+ * only ever set that variable.
  */
 export function resolveCopilotApiKey(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
-  return env.COPILOT_API_KEY || env.COPILOT_PROVIDER_API_KEY;
+  return env.COPILOT_PROVIDER_API_KEY || env.COPILOT_API_KEY;
 }
 
 /**

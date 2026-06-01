@@ -15,22 +15,22 @@ describe('resolveCopilotApiKey', () => {
     expect(copilotApiResolverModule).not.toHaveProperty('copilotApiResolverTestHelpers');
   });
 
-  it('should return COPILOT_API_KEY when set', () => {
+  it('should return COPILOT_API_KEY when only it is set', () => {
     const env = { COPILOT_API_KEY: 'key123' };
     expect(resolveCopilotApiKey(env)).toBe('key123');
   });
 
-  it('should return COPILOT_PROVIDER_API_KEY when COPILOT_API_KEY is not set', () => {
+  it('should return COPILOT_PROVIDER_API_KEY when only it is set', () => {
     const env = { COPILOT_PROVIDER_API_KEY: 'provider_key456' };
     expect(resolveCopilotApiKey(env)).toBe('provider_key456');
   });
 
-  it('should prefer COPILOT_API_KEY over COPILOT_PROVIDER_API_KEY', () => {
+  it('should prefer COPILOT_PROVIDER_API_KEY over COPILOT_API_KEY', () => {
     const env = {
       COPILOT_API_KEY: 'key123',
       COPILOT_PROVIDER_API_KEY: 'provider_key456',
     };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
+    expect(resolveCopilotApiKey(env)).toBe('provider_key456');
   });
 
   it('should return undefined when neither key is set', () => {
