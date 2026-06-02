@@ -18,6 +18,7 @@ exclude = [
   "^https://mcp\\.tavily\\.com",
   "^https://docs\\.sigstore\\.dev/cosign/installation",
   "^https://docs\\.github\\.com/en/github/site-policy/github-bug-bounty",
+  "^https://www\\.sei\\.cmu\\.edu/",
   # LOGGING.md is referenced but doesn't exist yet (planned doc)
   "LOGGING\\.md",
 ]
