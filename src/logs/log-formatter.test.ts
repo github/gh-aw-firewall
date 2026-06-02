@@ -4,6 +4,7 @@
 
 import { LogFormatter } from './log-formatter';
 import { ParsedLogEntry } from '../types';
+import { createLogEntry } from './log-test-fixtures.test-utils';
 
 // Mock chalk to avoid terminal output issues in tests
 jest.mock('chalk', () => ({
@@ -13,41 +14,21 @@ jest.mock('chalk', () => ({
 
 describe('LogFormatter', () => {
   // Sample parsed log entries for testing
-  const allowedEntry: ParsedLogEntry = {
-    timestamp: 1761074374.646,
-    clientIp: '172.30.0.20',
-    clientPort: '39748',
-    host: 'api.github.com:443',
-    destIp: '140.82.114.22',
-    destPort: '443',
-    protocol: '1.1',
-    method: 'CONNECT',
-    statusCode: 200,
-    decision: 'TCP_TUNNEL:HIER_DIRECT',
-    url: 'api.github.com:443',
-    userAgent: '-',
-    domain: 'api.github.com',
-    isAllowed: true,
-    isHttps: true,
-  };
+  const allowedEntry: ParsedLogEntry = createLogEntry();
 
-  const deniedEntry: ParsedLogEntry = {
+  const deniedEntry: ParsedLogEntry = createLogEntry({
     timestamp: 1760994429.358,
-    clientIp: '172.30.0.20',
     clientPort: '36274',
     host: 'github.com:8443',
     destIp: '-',
     destPort: '-',
-    protocol: '1.1',
-    method: 'CONNECT',
     statusCode: 403,
     decision: 'TCP_DENIED:HIER_NONE',
     url: 'github.com:8443',
     userAgent: 'curl/7.81.0',
     domain: 'github.com',
     isAllowed: false,
-    isHttps: true,
-  };
+  });
 
   describe('formatEntry - pretty format', () => {
     it('should format allowed entry without color', () => {
