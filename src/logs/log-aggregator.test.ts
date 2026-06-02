@@ -4,6 +4,7 @@
 
 import { aggregateLogs, loadAllLogs, loadAndAggregate } from './log-aggregator';
 import { ParsedLogEntry, LogSource } from '../types';
+import { createLogEntry, createRawLogLine } from './log-test-fixtures.test-utils';
 import execa from 'execa';
 import * as fs from 'fs';
 
@@ -234,7 +235,7 @@ describe('log-aggregator', () => {
 
     it('should load logs from a file', async () => {
       const mockLogContent = [
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
+        createRawLogLine(),
       ].join('\n');
 
       mockedFs.existsSync.mockReturnValue(true);
@@ -283,7 +284,7 @@ describe('log-aggregator', () => {
 
     it('should skip unparseable lines', async () => {
       const mockLogContent = [
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
+        createRawLogLine(),
         'invalid line that cannot be parsed',
         '',
         '1761074375.123 172.30.0.20:39749 npmjs.org:443 104.16.0.0:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT npmjs.org:443 "-"',
@@ -436,9 +437,22 @@ describe('log-aggregator', () => {
 
     it('should load and aggregate logs in one call', async () => {
       const mockLogContent = [
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
-        '1761074375.123 172.30.0.20:39749 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"',
-        '1761074376.456 172.30.0.20:39750 evil.com:443 -:- 1.1 CONNECT 403 TCP_DENIED:HIER_NONE evil.com:443 "curl/7.81.0"',
+        createRawLogLine(),
+        createRawLogLine({
+          timestamp: 1761074375.123,
+          clientPort: '39749',
+        }),
+        createRawLogLine({
+          timestamp: 1761074376.456,
+          clientPort: '39750',
+          host: 'evil.com:443',
+          destIp: '-',
+          destPort: '-',
+          statusCode: 403,
+          decision: 'TCP_DENIED:HIER_NONE',
+          url: 'evil.com:443',
+          userAgent: 'curl/7.81.0',
+        }),
       ].join('\n');
 
       mockedFs.existsSync.mockReturnValue(true);
@@ -458,27 +472,3 @@ describe('log-aggregator', () => {
     });
   });
 });
-
-/**
- * Helper function to create a mock ParsedLogEntry with default values
- */
-function createLogEntry(overrides: Partial<ParsedLogEntry> = {}): ParsedLogEntry {
-  return {
-    timestamp: 1761074374.646,
-    clientIp: '172.30.0.20',
-    clientPort: '39748',
-    host: 'api.github.com:443',
-    destIp: '140.82.114.22',
-    destPort: '443',
-    protocol: '1.1',
-    method: 'CONNECT',
-    statusCode: 200,
-    decision: 'TCP_TUNNEL:HIER_DIRECT',
-    url: 'api.github.com:443',
-    userAgent: '-',
-    domain: 'api.github.com',
-    isAllowed: true,
-    isHttps: true,
-    ...overrides,
-  };
-}

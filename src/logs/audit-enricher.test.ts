@@ -1,25 +1,16 @@
 import { enrichWithPolicyRules, computeRuleStats, EnrichedLogEntry } from './audit-enricher';
 import { ParsedLogEntry, PolicyManifest, PolicyRule } from '../types';
+import { createLogEntry } from './log-test-fixtures.test-utils';
 
 function makeEntry(overrides: Partial<ParsedLogEntry> = {}): ParsedLogEntry {
-  return {
+  return createLogEntry({
     timestamp: 1700000000.000,
-    clientIp: '172.30.0.20',
-    clientPort: '39748',
     host: 'github.com:443',
-    destIp: '140.82.114.22',
-    destPort: '443',
-    protocol: '1.1',
-    method: 'CONNECT',
-    statusCode: 200,
-    decision: 'TCP_TUNNEL:HIER_DIRECT',
     url: 'github.com:443',
     userAgent: 'curl/7.81.0',
     domain: 'github.com',
-    isAllowed: true,
-    isHttps: true,
     ...overrides,
-  };
+  });
 }
 
 function makeManifest(rules: PolicyRule[]): PolicyManifest {
