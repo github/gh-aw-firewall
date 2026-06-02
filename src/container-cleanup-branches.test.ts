@@ -7,7 +7,8 @@
  *  - cleanup() branches for cli-proxy logs, audit dir, session state, and SSL
  */
 
-import { cleanup, collectDiagnosticLogs } from './container-cleanup';
+import { cleanup } from './container-cleanup';
+import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

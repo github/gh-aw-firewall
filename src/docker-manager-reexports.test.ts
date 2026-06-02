@@ -24,7 +24,10 @@ import * as dockerManager from './docker-manager';
 import * as hostEnv from './host-env';
 import * as configWriter from './config-writer';
 import * as containerLifecycle from './container-lifecycle';
+import * as artifactPreservation from './artifact-preservation';
 import * as containerCleanup from './container-cleanup';
+import * as containerStop from './container-stop';
+import * as diagnosticCollector from './diagnostic-collector';
 
 describe('docker-manager re-exports', () => {
   describe('host-env re-exports', () => {
@@ -63,15 +66,15 @@ describe('docker-manager re-exports', () => {
 
   describe('container-cleanup re-exports', () => {
     it('re-exports collectDiagnosticLogs', () => {
-      expect(dockerManager.collectDiagnosticLogs).toBe(containerCleanup.collectDiagnosticLogs);
+      expect(dockerManager.collectDiagnosticLogs).toBe(diagnosticCollector.collectDiagnosticLogs);
     });
 
     it('re-exports stopContainers', () => {
-      expect(dockerManager.stopContainers).toBe(containerCleanup.stopContainers);
+      expect(dockerManager.stopContainers).toBe(containerStop.stopContainers);
     });
 
     it('re-exports preserveIptablesAudit', () => {
-      expect(dockerManager.preserveIptablesAudit).toBe(containerCleanup.preserveIptablesAudit);
+      expect(dockerManager.preserveIptablesAudit).toBe(artifactPreservation.preserveIptablesAudit);
     });
 
     it('re-exports cleanup', () => {

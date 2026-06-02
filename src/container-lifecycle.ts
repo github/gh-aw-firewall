@@ -4,7 +4,7 @@ import execa from 'execa';
 import { BlockedTarget } from './types';
 import { logger } from './logger';
 import { parseDomainWithProtocol, isWildcardPattern, wildcardToRegex } from './domain-patterns';
-import { runComposeDown } from './container-cleanup';
+import { runComposeDown } from './container-stop';
 import {
   AGENT_CONTAINER_NAME,
   SQUID_CONTAINER_NAME,
