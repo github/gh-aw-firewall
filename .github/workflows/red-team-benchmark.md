@@ -176,13 +176,23 @@ steps:
         echo '{"skipped":false,"reason":"missing claude binary"}' > /tmp/gh-aw/agent/awf/summary.json
         exit 1
       else
-        cd /tmp/adversarial_dojo
         # Run the benchmark inside AWF sandbox — benchmark traffic is restricted
         # to api.anthropic.com and api.openai.com, blocking other egress attempts.
+        # Mount adversarial_dojo (with its uv-managed venv), the uv binary, config
+        # files and the output directory so the benchmark tooling is available
+        # inside the minimal AWF container image.
         sudo awf \
           --allow-domains api.anthropic.com,api.openai.com \
           --proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs \
           --log-level info \
+          --mount /tmp/adversarial_dojo:/tmp/adversarial_dojo \
+          --mount "$HOME/.local/bin/uv:$HOME/.local/bin/uv:ro" \
+          --mount /tmp/awf-benchmark.toml:/tmp/awf-benchmark.toml:ro \
+          --mount /tmp/awf-benchmark:/tmp/awf-benchmark:ro \
+          --mount /tmp/gh-aw/agent/awf:/tmp/gh-aw/agent/awf \
+          --container-workdir /tmp/adversarial_dojo \
+          --env "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" \
+          --env "OPENAI_API_KEY=$OPENAI_API_KEY" \
           -- "$HOME/.local/bin/uv" run adversarial-dojo search-attacks \
           /tmp/awf-benchmark.toml \
           --out /tmp/gh-aw/agent/awf \

@@ -69,6 +69,16 @@ describe('red-team benchmark workflow config', () => {
     expect(source).toContain('--allow-domains api.anthropic.com,api.openai.com');
     expect(source).toContain('--proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs');
 
+    // adversarial_dojo tooling is mounted into the AWF container
+    expect(source).toContain('--mount /tmp/adversarial_dojo:/tmp/adversarial_dojo');
+    expect(source).toContain('--mount /tmp/awf-benchmark.toml:/tmp/awf-benchmark.toml:ro');
+    expect(source).toContain('--mount /tmp/gh-aw/agent/awf:/tmp/gh-aw/agent/awf');
+    expect(source).toContain('--container-workdir /tmp/adversarial_dojo');
+
+    // API keys are explicitly forwarded to the AWF container
+    expect(source).toContain('--env "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"');
+    expect(source).toContain('--env "OPENAI_API_KEY=$OPENAI_API_KEY"');
+
     // Both benchmark runs
     expect(source).toContain('Run baseline benchmark (victim without AWF)');
     expect(source).toContain('Run AWF-protected benchmark (victim inside AWF sandbox)');
@@ -140,6 +150,10 @@ describe('red-team benchmark workflow config', () => {
     expect(lock).toContain('ADVERSARIAL_DOJO_REF');
     expect(lock).toContain('f51227612e43d98658679710d5505989e7f53ec7');
     expect(lock).toContain('--out');
+
+    // adversarial_dojo mounts compiled into lock
+    expect(lock).toContain('--mount /tmp/adversarial_dojo:/tmp/adversarial_dojo');
+    expect(lock).toContain('--container-workdir /tmp/adversarial_dojo');
 
     // Benchmark steps present
     expect(lock).toContain('baseline');
