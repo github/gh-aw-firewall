@@ -65,4 +65,34 @@ describe('API proxy split builders', () => {
     expect(agentEnvAdditions.COPILOT_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
     expect(agentEnvAdditions.COPILOT_PROVIDER_WIRE_API).toBe('responses');
   });
+
+  it('buildApiProxyServiceConfig throws when proxyIp is missing', () => {
+    const networkConfigWithoutProxyIp = { ...networkConfig, proxyIp: undefined };
+
+    expect(() => buildApiProxyServiceConfig({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+      },
+      networkConfig: networkConfigWithoutProxyIp,
+      apiProxyLogsPath: '/tmp/awf-test/logs/api-proxy',
+      imageConfig,
+    })).toThrow('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
+  });
+
+  it('buildAgentCredentialEnv throws when proxyIp is missing', () => {
+    const networkConfigWithoutProxyIp = { ...networkConfig, proxyIp: undefined };
+
+    expect(() => buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+      },
+      networkConfig: networkConfigWithoutProxyIp,
+    })).toThrow('buildAgentCredentialEnv: networkConfig.proxyIp is required');
+  });
 });

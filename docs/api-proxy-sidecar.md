@@ -1053,6 +1053,61 @@ if (response.status === 429) {
 }
 ```
 
+## Model multiplier cap
+
+The api-proxy can hard-cap the model cost multiplier on every request. When a request targets a model whose resolved multiplier exceeds the configured cap, the proxy rejects the request immediately before contacting the upstream provider.
+
+This guards against unexpected pricing spikes caused by model routing changes — for example, an alias or fallback resolving to a much more expensive model than intended.
+
+### Configuration
+
+Set `apiProxy.maxModelMultiplierCap` in the AWF config file, or use the `--max-model-multiplier-cap` CLI flag:
+
+```yaml
+apiProxy:
+  maxModelMultiplierCap: 5       # reject requests for models with multiplier > 5
+  modelMultipliers:
+    claude-opus-4.7: 27
+    gpt-4o: 2
+    gpt-4.1-mini: 0.5
+```
+
+Or from the command line:
+
+```bash
+awf --max-model-multiplier-cap 5 --max-model-multiplier claude-opus-4.7:27,gpt-4o:2 ...
+```
+
+### Enforcement
+
+Before forwarding each POST/PUT/PATCH request, the proxy resolves the model's effective multiplier using the same lookup used by the effective-token guard (exact match → longest-prefix match → default). If the resolved multiplier exceeds the cap:
+
+- **HTTP `400 Bad Request`**
+- **Error body**:
+
+  ```json
+  {
+    "error": {
+      "type": "model_multiplier_cap_exceeded",
+      "message": "Model multiplier cap exceeded: model \"claude-opus-4.7\" has multiplier 27 which exceeds the configured maximum of 5.",
+      "model": "claude-opus-4.7",
+      "model_multiplier": 27,
+      "max_model_multiplier": 5
+    }
+  }
+  ```
+
+### Detecting the rejection
+
+```javascript
+if (response.status === 400) {
+  const body = await response.json();
+  if (body.error?.type === 'model_multiplier_cap_exceeded') {
+    console.log(`Model blocked: ${body.error.model} (multiplier ${body.error.model_multiplier} > cap ${body.error.max_model_multiplier})`);
+  }
+}
+```
+
 ## OpenTelemetry distributed tracing
 
 The api-proxy sidecar emits one [OpenTelemetry](https://opentelemetry.io/) CLIENT span per

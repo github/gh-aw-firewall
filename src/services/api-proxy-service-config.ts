@@ -67,6 +67,9 @@ function getConfigEnvValue(config: WrapperConfig, key: string): string | undefin
 
 export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams): any {
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
+  if (!networkConfig.proxyIp) {
+    throw new Error('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
+  }
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
 
@@ -139,6 +142,9 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       }),
       ...(config.effectiveTokenDefaultModelMultiplier !== undefined && {
         AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER: String(config.effectiveTokenDefaultModelMultiplier),
+      }),
+      ...(config.maxModelMultiplierCap !== undefined && {
+        AWF_MAX_MODEL_MULTIPLIER: String(config.maxModelMultiplierCap),
       }),
       ...(config.maxRuns !== undefined && {
         AWF_MAX_RUNS: String(config.maxRuns),

@@ -32,6 +32,9 @@ function requiresResponsesWireApi(copilotModel: string): boolean {
 
 export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Record<string, string> {
   const { config, networkConfig } = params;
+  if (!networkConfig.proxyIp) {
+    throw new Error('buildAgentCredentialEnv: networkConfig.proxyIp is required');
+  }
   const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const normalizedAuthProvider = (process.env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
   const shouldProxyAnthropic = Boolean(config.anthropicApiKey || (normalizedAuthType === 'github-oidc' && normalizedAuthProvider === 'anthropic'));
@@ -40,7 +43,7 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
     // AWF_API_PROXY_IP is used by setup-iptables.sh to allow agent→api-proxy traffic
     // Use IP address instead of hostname for BASE_URLs since Docker DNS may not resolve
     // container names in chroot mode
-    AWF_API_PROXY_IP: networkConfig.proxyIp as string,
+    AWF_API_PROXY_IP: networkConfig.proxyIp,
   };
 
   if (config.openaiApiKey) {
