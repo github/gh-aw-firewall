@@ -80,6 +80,6 @@ If `VERIFIED_UNUSED` is empty, fall back to the normal verification flow within 
 
 **Issue format:** Title `[Export Audit] <description>`. Body: File, Symbol, Evidence grep, Dead code risk. Max 5 issues. Score ≥ 3: unused public API = 3, circular dep = 4, naming = 2, bad test import = 2, security-critical module = +2.
 
-If TS_ERRORS is non-empty, report errors and exit without filing.
+If the "TypeScript build output" section contains compiler errors, report them and exit without filing.
 
 Read `/tmp/gh-aw/agent/export-audit-context.md` first. It contains the pre-computed sections for exported symbols, unused exports, verified unused exports, circular dependencies, naming issues, test imports, and api-proxy exports.
