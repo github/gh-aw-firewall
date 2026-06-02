@@ -65,7 +65,8 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('name: Verify injected context');
     expect(lock).toContain('steps.target.outputs.TARGET_FILE');
     expect(lock).toContain('steps.target.outputs.TARGET_TEST_FILE');
-    expect(lock).toContain('./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60');
+    expect(lock).toContain('TARGET_TEST_FILE: ${{ steps.target.outputs.TARGET_TEST_FILE }}');
+    expect(lock).toContain('TARGET_TEST_FILE empty');
     expect(lock).not.toContain('pull_requests');
 
     expect(lock).not.toContain("shell(cat:src/docker-manager.ts)");
