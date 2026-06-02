@@ -339,6 +339,13 @@ program
     '                                       a multiplier default to 1×.',
   )
   .option(
+    '--max-model-multiplier-cap <number>',
+    'Maximum allowed model cost multiplier (requires --enable-api-proxy).\n' +
+    '                                       Requests for models whose resolved multiplier exceeds this cap\n' +
+    '                                       are rejected with HTTP 400 and error type model_multiplier_cap_exceeded.\n' +
+    '                                       Must be a positive number.',
+  )
+  .option(
     '--enable-token-steering',
     'Enable effective token budget steering in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects budget-warning system messages at 80%, 90%, 95%, and 99%\n' +

@@ -55,9 +55,9 @@ export interface RateLimitOptions {
    * @example
    * // Allow models with multiplier ≤ 4 (e.g. claude-sonnet) but block
    * // models with multiplier > 4 (e.g. claude-opus at 27×).
-   * maxModelMultiplier: 4
+   * maxModelMultiplierCap: 4
    */
-  maxModelMultiplier?: number;
+  maxModelMultiplierCap?: number;
 
   /**
    * Maximum number of LLM invocations allowed for the current AWF run.

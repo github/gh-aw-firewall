@@ -533,7 +533,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
       const bodyModel = extractModelFromBody(body);
       const mmBlock = getModelMultiplierCapBlockState(bodyModel);
-      if (mmBlock && mmBlock.maxExceeded) {
+      if (mmBlock) {
         const duration = Date.now() - startTime;
         metrics.gaugeDec('active_requests', { provider });
         metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });

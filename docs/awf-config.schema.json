@@ -85,7 +85,7 @@
                     "exclusiveMinimum": 0,
                     "description": "Default multiplier applied when a model is not present in modelMultipliers. When omitted, AWF uses the highest configured model multiplier as a conservative fallback."
                 },
-                "maxModelMultiplier": {
+                "maxModelMultiplierCap": {
                     "type": "number",
                     "exclusiveMinimum": 0,
                     "description": "Maximum allowed model multiplier. When set, the proxy resolves each incoming request's model against the configured modelMultipliers (and defaultModelMultiplier) and rejects any request whose resolved multiplier exceeds this cap with HTTP 400 and error type model_multiplier_cap_exceeded. This guards against unexpected pricing spikes from model routing changes."

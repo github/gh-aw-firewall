@@ -82,22 +82,22 @@ function resolveMultiplierForModel(model, config) {
 /**
  * Returns a block state object when the given model's resolved multiplier
  * exceeds the configured cap (AWF_MAX_MODEL_MULTIPLIER), or null when no cap
- * is configured or the model is below the cap.
+ * is configured, the model is absent, or the multiplier is within the cap.
  *
  * @param {string|null} model - The model name from the request body (may be null)
- * @returns {{ model: string, multiplier: number, maxModelMultiplier: number,
- *             maxExceeded: boolean } | null}
+ * @returns {{ model: string, multiplier: number, maxModelMultiplier: number } | null}
  */
 function getModelMultiplierCapBlockState(model) {
   const config = getMaxModelMultiplierConfig();
   if (!config.cap || !model) return null;
 
   const multiplier = resolveMultiplierForModel(model, config);
+  if (multiplier <= config.cap) return null;
+
   return {
     model: sanitizeForLog(model),
     multiplier,
     maxModelMultiplier: config.cap,
-    maxExceeded: multiplier > config.cap,
   };
 }
 

@@ -171,8 +171,8 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
       ...(config.effectiveTokenDefaultModelMultiplier !== undefined && {
         AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER: String(config.effectiveTokenDefaultModelMultiplier),
       }),
-      ...(config.maxModelMultiplier !== undefined && {
-        AWF_MAX_MODEL_MULTIPLIER: String(config.maxModelMultiplier),
+      ...(config.maxModelMultiplierCap !== undefined && {
+        AWF_MAX_MODEL_MULTIPLIER: String(config.maxModelMultiplierCap),
       }),
       ...(config.maxRuns !== undefined && {
         AWF_MAX_RUNS: String(config.maxRuns),
