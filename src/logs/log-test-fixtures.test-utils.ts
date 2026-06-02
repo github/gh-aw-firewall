@@ -21,7 +21,9 @@ export function createLogEntry(overrides: Partial<ParsedLogEntry> = {}): ParsedL
   };
 }
 
-export function createRawLogLine(overrides: Partial<ParsedLogEntry> = {}): string {
+type RawLogLineFields = Omit<ParsedLogEntry, 'domain' | 'isAllowed' | 'isHttps'>;
+
+export function createRawLogLine(overrides: Partial<RawLogLineFields> = {}): string {
   const entry = createLogEntry(overrides);
 
   return `${entry.timestamp} ${entry.clientIp}:${entry.clientPort} ${entry.host} ${entry.destIp}:${entry.destPort} ${entry.protocol} ${entry.method} ${entry.statusCode} ${entry.decision} ${entry.url} "${entry.userAgent}"`;
