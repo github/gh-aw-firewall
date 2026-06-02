@@ -82,7 +82,7 @@ export function validateAnthropicCacheTailTtl(value: string | undefined): void {
  * @param flagName - The CLI flag name for use in the warning message (e.g. "--openai-api-target")
  * @param allowedDomains - The list of domains allowed through the firewall
  */
-export function validateApiTargetInAllowedDomains(
+function validateApiTargetInAllowedDomains(
   targetHost: string,
   defaultHost: string,
   flagName: string,
@@ -213,7 +213,7 @@ export function warnClassicPATWithCopilotModel(
  * @returns Array of GHEC-related domains (tenant, api.*, copilot-api.*, copilot-telemetry-service.*)
  *          to auto-add to the allowlist, or an empty array if not GHEC
  */
-export function extractGhecDomainsFromServerUrl(
+function extractGhecDomainsFromServerUrl(
   env: Record<string, string | undefined> = process.env
 ): string[] {
   const domains: string[] = [];
@@ -264,7 +264,7 @@ export function extractGhecDomainsFromServerUrl(
  * @param env - Environment variables (defaults to process.env)
  * @returns Array of domains to auto-add to allowlist, or empty array if not GHES
  */
-export function extractGhesDomainsFromEngineApiTarget(
+function extractGhesDomainsFromEngineApiTarget(
   env: Record<string, string | undefined> = process.env
 ): string[] {
   const engineApiTarget = env['ENGINE_API_TARGET'];

@@ -5,7 +5,6 @@ import {
   extractGhHostFromServerUrl,
   readGitHubPathEntries,
   readGitHubEnvEntries,
-  parseGitHubEnvFile,
   mergeGitHubPathEntries,
   readEnvFile,
   TOOLCHAIN_ENV_VARS,
@@ -135,45 +134,71 @@ describe('readGitHubPathEntries', () => {
   });
 });
 
-describe('parseGitHubEnvFile', () => {
+describe('parseGitHubEnvFile (via readGitHubEnvEntries)', () => {
+  let testDir: string;
+  let originalGithubEnv: string | undefined;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-parse-env-test-'));
+    originalGithubEnv = process.env.GITHUB_ENV;
+  });
+
+  afterEach(() => {
+    if (originalGithubEnv !== undefined) {
+      process.env.GITHUB_ENV = originalGithubEnv;
+    } else {
+      delete process.env.GITHUB_ENV;
+    }
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  function parseViaPublicApi(content: string): Record<string, string> {
+    const envFile = path.join(testDir, 'env');
+    fs.writeFileSync(envFile, content);
+    process.env.GITHUB_ENV = envFile;
+    return readGitHubEnvEntries();
+  }
+
   describe('simple format', () => {
     it('should parse single KEY=VALUE line', () => {
-      expect(parseGitHubEnvFile('FOO=bar\n')).toEqual({ FOO: 'bar' });
+      expect(parseViaPublicApi('FOO=bar\n')).toEqual({ FOO: 'bar' });
     });
 
     it('should parse multiple KEY=VALUE lines', () => {
-      expect(parseGitHubEnvFile('FOO=bar\nBAZ=qux\n')).toEqual({
+      expect(parseViaPublicApi('FOO=bar\nBAZ=qux\n')).toEqual({
         FOO: 'bar',
         BAZ: 'qux',
       });
     });
 
     it('should handle values with equals signs', () => {
-      expect(parseGitHubEnvFile('URL=https://example.com?key=value\n')).toEqual({
+      expect(parseViaPublicApi('URL=https://example.com?key=value\n')).toEqual({
         URL: 'https://example.com?key=value',
       });
     });
 
     it('should handle empty values', () => {
-      expect(parseGitHubEnvFile('EMPTY=\n')).toEqual({ EMPTY: '' });
+      expect(parseViaPublicApi('EMPTY=\n')).toEqual({ EMPTY: '' });
     });
 
     it('should ignore empty lines', () => {
-      expect(parseGitHubEnvFile('FOO=bar\n\nBAZ=qux\n')).toEqual({
+      expect(parseViaPublicApi('FOO=bar\n\nBAZ=qux\n')).toEqual({
         FOO: 'bar',
         BAZ: 'qux',
       });
     });
 
     it('should ignore whitespace-only lines', () => {
-      expect(parseGitHubEnvFile('FOO=bar\n  \t\nBAZ=qux\n')).toEqual({
+      expect(parseViaPublicApi('FOO=bar\n  \t\nBAZ=qux\n')).toEqual({
         FOO: 'bar',
         BAZ: 'qux',
       });
     });
 
     it('should handle values with spaces', () => {
-      expect(parseGitHubEnvFile('MESSAGE=hello world\n')).toEqual({
+      expect(parseViaPublicApi('MESSAGE=hello world\n')).toEqual({
         MESSAGE: 'hello world',
       });
     });
@@ -182,24 +207,24 @@ describe('parseGitHubEnvFile', () => {
   describe('heredoc format', () => {
     it('should parse single-line heredoc', () => {
       const input = 'FOO<<EOF\nbar\nEOF\n';
-      expect(parseGitHubEnvFile(input)).toEqual({ FOO: 'bar' });
+      expect(parseViaPublicApi(input)).toEqual({ FOO: 'bar' });
     });
 
     it('should parse multi-line heredoc', () => {
       const input = 'FOO<<EOF\nline1\nline2\nline3\nEOF\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         FOO: 'line1\nline2\nline3',
       });
     });
 
     it('should parse heredoc with custom delimiter', () => {
       const input = 'FOO<<DELIMITER\nvalue\nDELIMITER\n';
-      expect(parseGitHubEnvFile(input)).toEqual({ FOO: 'value' });
+      expect(parseViaPublicApi(input)).toEqual({ FOO: 'value' });
     });
 
     it('should handle multiple heredocs', () => {
       const input = 'FOO<<EOF\nfoo value\nEOF\nBAR<<END\nbar value\nEND\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         FOO: 'foo value',
         BAR: 'bar value',
       });
@@ -207,7 +232,7 @@ describe('parseGitHubEnvFile', () => {
 
     it('should handle mixed simple and heredoc format', () => {
       const input = 'SIMPLE=value\nHEREDOC<<EOF\nmulti\nline\nEOF\nANOTHER=simple\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         SIMPLE: 'value',
         HEREDOC: 'multi\nline',
         ANOTHER: 'simple',
@@ -216,12 +241,12 @@ describe('parseGitHubEnvFile', () => {
 
     it('should handle heredoc with empty content', () => {
       const input = 'FOO<<EOF\nEOF\n';
-      expect(parseGitHubEnvFile(input)).toEqual({ FOO: '' });
+      expect(parseViaPublicApi(input)).toEqual({ FOO: '' });
     });
 
     it('should handle heredoc with equals signs in content', () => {
       const input = 'URL<<EOF\nhttps://example.com?key=value&foo=bar\nEOF\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         URL: 'https://example.com?key=value&foo=bar',
       });
     });
@@ -229,12 +254,12 @@ describe('parseGitHubEnvFile', () => {
 
   describe('CRLF handling', () => {
     it('should normalize CRLF to LF in simple format', () => {
-      expect(parseGitHubEnvFile('FOO=bar\r\n')).toEqual({ FOO: 'bar' });
+      expect(parseViaPublicApi('FOO=bar\r\n')).toEqual({ FOO: 'bar' });
     });
 
     it('should normalize CRLF to LF in heredoc', () => {
       const input = 'FOO<<EOF\r\nline1\r\nline2\r\nEOF\r\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         FOO: 'line1\nline2',
       });
     });
@@ -242,11 +267,11 @@ describe('parseGitHubEnvFile', () => {
 
   describe('edge cases', () => {
     it('should handle empty input', () => {
-      expect(parseGitHubEnvFile('')).toEqual({});
+      expect(parseViaPublicApi('')).toEqual({});
     });
 
     it('should ignore lines without equals sign (simple format)', () => {
-      expect(parseGitHubEnvFile('FOO=bar\nINVALID\nBAZ=qux\n')).toEqual({
+      expect(parseViaPublicApi('FOO=bar\nINVALID\nBAZ=qux\n')).toEqual({
         FOO: 'bar',
         BAZ: 'qux',
       });
@@ -255,7 +280,7 @@ describe('parseGitHubEnvFile', () => {
     it('should handle unclosed heredoc gracefully', () => {
       // Missing closing delimiter - all remaining lines become the value
       const input = 'FOO<<EOF\nline1\nline2\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         FOO: 'line1\nline2\n',
       });
     });
@@ -263,7 +288,7 @@ describe('parseGitHubEnvFile', () => {
     it('should handle heredoc with delimiter appearing in content', () => {
       // Only exact match on its own line closes heredoc
       const input = 'FOO<<EOF\nEOF is in this line\nEOF\n';
-      expect(parseGitHubEnvFile(input)).toEqual({
+      expect(parseViaPublicApi(input)).toEqual({
         FOO: 'EOF is in this line',
       });
     });

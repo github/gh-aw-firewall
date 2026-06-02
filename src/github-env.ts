@@ -97,9 +97,8 @@ export function readGitHubEnvEntries(): Record<string, string> {
 
 /**
  * Parses the content of a $GITHUB_ENV file into key-value pairs.
- * @internal Exported for testing
  */
-export function parseGitHubEnvFile(content: string): Record<string, string> {
+function parseGitHubEnvFile(content: string): Record<string, string> {
   const result: Record<string, string> = {};
   // Normalize CRLF to LF
   const lines = content.replace(/\r\n/g, '\n').split('\n');

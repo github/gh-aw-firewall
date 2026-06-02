@@ -10,14 +10,13 @@ export const ACT_PRESET_BASE_IMAGE = 'ghcr.io/catthehacker/ubuntu:act-24.04';
  * Minimum UID/GID value for regular users.
  * UIDs 0-999 are reserved for system users on most Linux distributions.
  */
-export const MIN_REGULAR_UID = 1000;
+const MIN_REGULAR_UID = 1000;
 
 /**
  * Validates that a UID/GID value is safe for use (not in system range).
  * Returns the value if valid, or the default (1000) if in system range.
- * @internal Exported for testing
  */
-export function validateIdNotInSystemRange(id: number): string {
+function validateIdNotInSystemRange(id: number): string {
   // Reject system UIDs/GIDs (0-999) - use default unprivileged user instead
   if (id < MIN_REGULAR_UID) {
     return MIN_REGULAR_UID.toString();

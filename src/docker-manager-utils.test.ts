@@ -7,8 +7,6 @@ import {
 } from './host-env';
 import { hostEnvTestHelpers } from './host-env.test-utils';
 import {
-  validateIdNotInSystemRange,
-  MIN_REGULAR_UID,
   ACT_PRESET_BASE_IMAGE,
 } from './host-identity';
 import {
@@ -16,7 +14,6 @@ import {
   readGitHubPathEntries,
   mergeGitHubPathEntries,
   readGitHubEnvEntries,
-  parseGitHubEnvFile,
   readEnvFile,
 } from './github-env';
 import * as fs from 'fs';
@@ -71,18 +68,40 @@ describe('docker-manager utilities', () => {
     });
   });
 
-  describe('validateIdNotInSystemRange', () => {
+  describe('validateIdNotInSystemRange (via getSafeHostUid)', () => {
+    const originalGetuid = process.getuid;
+    const originalSudoUid = process.env.SUDO_UID;
+
+    afterEach(() => {
+      process.getuid = originalGetuid;
+      if (originalSudoUid !== undefined) {
+        process.env.SUDO_UID = originalSudoUid;
+      } else {
+        delete process.env.SUDO_UID;
+      }
+    });
+
     it('should return 1000 for system UIDs (0-999)', () => {
-      expect(validateIdNotInSystemRange(0)).toBe('1000');
-      expect(validateIdNotInSystemRange(1)).toBe('1000');
-      expect(validateIdNotInSystemRange(13)).toBe('1000'); // proxy user
-      expect(validateIdNotInSystemRange(999)).toBe('1000');
+      // Test via SUDO_UID path which calls validateIdNotInSystemRange
+      process.getuid = () => 0;
+      process.env.SUDO_UID = '0';
+      expect(getSafeHostUid()).toBe('1000');
+      process.env.SUDO_UID = '1';
+      expect(getSafeHostUid()).toBe('1000');
+      process.env.SUDO_UID = '13'; // proxy user
+      expect(getSafeHostUid()).toBe('1000');
+      process.env.SUDO_UID = '999';
+      expect(getSafeHostUid()).toBe('1000');
     });
 
     it('should return the UID as-is for regular users (>= 1000)', () => {
-      expect(validateIdNotInSystemRange(1000)).toBe('1000');
-      expect(validateIdNotInSystemRange(1001)).toBe('1001');
-      expect(validateIdNotInSystemRange(65534)).toBe('65534'); // nobody user on some systems
+      process.getuid = () => 0;
+      process.env.SUDO_UID = '1000';
+      expect(getSafeHostUid()).toBe('1000');
+      process.env.SUDO_UID = '1001';
+      expect(getSafeHostUid()).toBe('1001');
+      process.env.SUDO_UID = '65534'; // nobody user on some systems
+      expect(getSafeHostUid()).toBe('65534');
     });
   });
 
@@ -311,9 +330,27 @@ describe('docker-manager utilities', () => {
     });
   });
 
-  describe('MIN_REGULAR_UID constant', () => {
-    it('should be 1000 (standard Linux regular user UID threshold)', () => {
-      expect(MIN_REGULAR_UID).toBe(1000);
+  describe('MIN_REGULAR_UID threshold (via getSafeHostUid)', () => {
+    const originalGetuid = process.getuid;
+    const originalSudoUid = process.env.SUDO_UID;
+
+    afterEach(() => {
+      process.getuid = originalGetuid;
+      if (originalSudoUid !== undefined) {
+        process.env.SUDO_UID = originalSudoUid;
+      } else {
+        delete process.env.SUDO_UID;
+      }
+    });
+
+    it('should treat 1000 as the minimum regular UID threshold', () => {
+      process.getuid = () => 0;
+      // UID 999 is in system range → returns 1000
+      process.env.SUDO_UID = '999';
+      expect(getSafeHostUid()).toBe('1000');
+      // UID 1000 is the first regular UID → returns 1000
+      process.env.SUDO_UID = '1000';
+      expect(getSafeHostUid()).toBe('1000');
     });
   });
 
@@ -444,9 +481,33 @@ describe('docker-manager utilities', () => {
     });
   });
 
-  describe('parseGitHubEnvFile', () => {
+  describe('parseGitHubEnvFile (via readGitHubEnvEntries)', () => {
+    let tmpDir: string;
+    let originalGithubEnv: string | undefined;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-parse-env-'));
+      originalGithubEnv = process.env.GITHUB_ENV;
+    });
+
+    afterEach(() => {
+      if (originalGithubEnv !== undefined) {
+        process.env.GITHUB_ENV = originalGithubEnv;
+      } else {
+        delete process.env.GITHUB_ENV;
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function parseViaPublicApi(content: string): Record<string, string> {
+      const envFile = path.join(tmpDir, 'env');
+      fs.writeFileSync(envFile, content);
+      process.env.GITHUB_ENV = envFile;
+      return readGitHubEnvEntries();
+    }
+
     it('should parse simple KEY=VALUE entries', () => {
-      const result = parseGitHubEnvFile('GOROOT=/usr/local/go\nJAVA_HOME=/usr/lib/jvm/java-17\n');
+      const result = parseViaPublicApi('GOROOT=/usr/local/go\nJAVA_HOME=/usr/lib/jvm/java-17\n');
       expect(result).toEqual({
         GOROOT: '/usr/local/go',
         JAVA_HOME: '/usr/lib/jvm/java-17',
@@ -454,18 +515,18 @@ describe('docker-manager utilities', () => {
     });
 
     it('should handle values containing = characters', () => {
-      const result = parseGitHubEnvFile('MY_VAR=key=value=extra\n');
+      const result = parseViaPublicApi('MY_VAR=key=value=extra\n');
       expect(result).toEqual({ MY_VAR: 'key=value=extra' });
     });
 
     it('should handle heredoc multiline values', () => {
       const content = 'MULTI_LINE<<EOF\nline1\nline2\nline3\nEOF\n';
-      const result = parseGitHubEnvFile(content);
+      const result = parseViaPublicApi(content);
       expect(result).toEqual({ MULTI_LINE: 'line1\nline2\nline3' });
     });
 
     it('should handle CRLF line endings', () => {
-      const result = parseGitHubEnvFile('GOROOT=/usr/local/go\r\nJAVA_HOME=/usr/lib/jvm\r\n');
+      const result = parseViaPublicApi('GOROOT=/usr/local/go\r\nJAVA_HOME=/usr/lib/jvm\r\n');
       expect(result).toEqual({
         GOROOT: '/usr/local/go',
         JAVA_HOME: '/usr/lib/jvm',
@@ -474,7 +535,7 @@ describe('docker-manager utilities', () => {
 
     it('should handle mixed simple and heredoc entries', () => {
       const content = 'SIMPLE=value\nHEREDOC<<END\nmulti\nline\nEND\nANOTHER=val2\n';
-      const result = parseGitHubEnvFile(content);
+      const result = parseViaPublicApi(content);
       expect(result).toEqual({
         SIMPLE: 'value',
         HEREDOC: 'multi\nline',
@@ -483,17 +544,17 @@ describe('docker-manager utilities', () => {
     });
 
     it('should skip empty lines', () => {
-      const result = parseGitHubEnvFile('\n\nGOROOT=/go\n\n');
+      const result = parseViaPublicApi('\n\nGOROOT=/go\n\n');
       expect(result).toEqual({ GOROOT: '/go' });
     });
 
     it('should return empty object for empty content', () => {
-      expect(parseGitHubEnvFile('')).toEqual({});
+      expect(parseViaPublicApi('')).toEqual({});
     });
 
     it('should handle unterminated heredoc gracefully', () => {
       const content = 'BROKEN<<EOF\nline1\nline2';
-      const result = parseGitHubEnvFile(content);
+      const result = parseViaPublicApi(content);
       expect(result).toEqual({ BROKEN: 'line1\nline2' });
     });
   });
