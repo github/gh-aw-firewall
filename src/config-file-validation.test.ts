@@ -21,12 +21,13 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.network.allowDomains must be an array of strings');
   });
 
-  it('accepts copilot basePath and azureApiVersion for Azure BYOK', () => {
+  it('rejects copilot basePath and azureApiVersion for Azure BYOK', () => {
     const errors = validateAwfFileConfig({
       apiProxy: { targets: { copilot: { host: 'my-resource.openai.azure.com', basePath: '/openai/deployments/gpt-4o', azureApiVersion: '2025-03-01' } } },
     });
 
-    expect(errors).toHaveLength(0);
+    expect(errors).toContain('config.apiProxy.targets.copilot.basePath is not supported');
+    expect(errors).toContain('config.apiProxy.targets.copilot.azureApiVersion is not supported');
   });
 
   it('rejects non-object config root', () => {
@@ -112,6 +113,7 @@ describe('validateAwfFileConfig', () => {
         maxEffectiveTokens: 5000,
         modelMultipliers: { 'gpt-4o': 2, 'claude-sonnet-4': 1.5 },
         defaultModelMultiplier: 27,
+        maxModelMultiplierCap: 5,
       },
     })).toEqual([]);
 
@@ -121,6 +123,15 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
     expect(validateAwfFileConfig({ apiProxy: { defaultModelMultiplier: 0 } }))
       .toContain('config.apiProxy.defaultModelMultiplier must be > 0');
+  });
+
+  it('validates maxModelMultiplierCap in apiProxy', () => {
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 4 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 0.5 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 0 } }))
+      .toContain('config.apiProxy.maxModelMultiplierCap must be > 0');
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: -1 } }))
+      .toContain('config.apiProxy.maxModelMultiplierCap must be > 0');
   });
 
   it('validates maxRuns in apiProxy', () => {

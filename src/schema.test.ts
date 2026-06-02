@@ -180,9 +180,9 @@ describe('awf-config.schema.json', () => {
     expect(validate({ rateLimiting: { bytesPerMinute: -5 } })).toBe(false);
   });
 
-  it('accepts copilot basePath and azureApiVersion', () => {
-    expect(validate({ apiProxy: { targets: { copilot: { host: 'my-resource.openai.azure.com', basePath: '/openai/deployments/gpt-4o' } } } })).toBe(true);
-    expect(validate({ apiProxy: { targets: { copilot: { host: 'my-resource.openai.azure.com', basePath: '/openai/deployments/gpt-4o', azureApiVersion: '2025-03-01' } } } })).toBe(true);
+  it('rejects copilot basePath and azureApiVersion', () => {
+    expect(validate({ apiProxy: { targets: { copilot: { host: 'my-resource.openai.azure.com', basePath: '/openai/deployments/gpt-4o' } } } })).toBe(false);
+    expect(validate({ apiProxy: { targets: { copilot: { host: 'my-resource.openai.azure.com', basePath: '/openai/deployments/gpt-4o', azureApiVersion: '2025-03-01' } } } })).toBe(false);
   });
 
   it('rejects copilot unknown properties', () => {
@@ -350,6 +350,23 @@ describe('awf-config.schema.json', () => {
             anthropicOrganizationId: 'org-uuid-abc',
             anthropicServiceAccountId: 'svac_abc123',
             anthropicWorkspaceId: 'ws_abc123',
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('accepts apiProxy.auth anthropic with optional token URL override', () => {
+    expect(
+      validate({
+        apiProxy: {
+          auth: {
+            type: 'github-oidc',
+            provider: 'anthropic',
+            anthropicFederationRuleId: 'fdrl_abc123',
+            anthropicOrganizationId: 'org-uuid-abc',
+            anthropicServiceAccountId: 'svac_abc123',
+            anthropicTokenUrl: 'https://anthropic.internal.example/v1/oauth/token',
           },
         },
       })

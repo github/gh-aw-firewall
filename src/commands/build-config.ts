@@ -25,6 +25,7 @@ interface BuildConfigInputs {
   maxEffectiveTokens: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
   effectiveTokenDefaultModelMultiplier: number | undefined;
+  maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
@@ -58,6 +59,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
     maxRuns,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -110,6 +112,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
     maxRuns,
     enableTokenSteering: options.enableTokenSteering as boolean,
     debugTokens: (options.debugTokens as boolean | undefined) ?? (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
@@ -133,6 +136,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.openaiApiAuthHeader as string | undefined) || process.env.AWF_OPENAI_AUTH_HEADER,
     anthropicApiAuthHeader:
       (options.anthropicApiAuthHeader as string | undefined) || process.env.AWF_ANTHROPIC_AUTH_HEADER,
+    anthropicTokenUrl:
+      (options.anthropicTokenUrl as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     geminiApiTarget:
       (options.geminiApiTarget as string | undefined) || process.env.GEMINI_API_TARGET,
     geminiApiBasePath:

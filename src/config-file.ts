@@ -20,6 +20,7 @@ interface AwfFileConfig {
     maxEffectiveTokens?: number;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
+    maxModelMultiplierCap?: number;
     maxRuns?: number;
     requestedModel?: string;
     modelFallback?: {
@@ -38,6 +39,9 @@ interface AwfFileConfig {
     logging?: {
       debugTokens?: boolean;
       tokenLogDir?: string;
+    };
+    auth?: {
+      anthropicTokenUrl?: string;
     };
   };
   security?: {
@@ -182,6 +186,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
+    maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
     maxRuns: config.apiProxy?.maxRuns,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
@@ -199,6 +204,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     modelAliases: config.apiProxy?.models,
     debugTokens: config.apiProxy?.logging?.debugTokens,
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
+    anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
     enableDlp: config.security?.enableDlp,

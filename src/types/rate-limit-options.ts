@@ -41,6 +41,25 @@ export interface RateLimitOptions {
   effectiveTokenDefaultModelMultiplier?: number;
 
   /**
+   * Maximum allowed model multiplier for the current AWF run.
+   *
+   * When set, the API proxy resolves each incoming request's model against the
+   * configured `effectiveTokenModelMultipliers` (and `effectiveTokenDefaultModelMultiplier`)
+   * and rejects any request whose resolved multiplier exceeds this cap with
+   * HTTP 400 and error type `model_multiplier_cap_exceeded`.
+   *
+   * This is a guardrail against unexpected pricing spikes from model routing
+   * changes — for example, if an alias or fallback resolves to a much more
+   * expensive model than intended.
+   *
+   * @example
+   * // Allow models with multiplier ≤ 4 (e.g. claude-sonnet) but block
+   * // models with multiplier > 4 (e.g. claude-opus at 27×).
+   * maxModelMultiplierCap: 4
+   */
+  maxModelMultiplierCap?: number;
+
+  /**
    * Maximum number of LLM invocations allowed for the current AWF run.
    *
    * When set, the API proxy counts each successful upstream LLM response and

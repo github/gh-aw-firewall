@@ -42,9 +42,9 @@ steps:
     run: |
       npm ci 2>&1 | tail -5
       npm run build 2>&1 | tail -5
-      sudo tee /usr/local/bin/awf > /dev/null <<'WRAPPER'
+      sudo tee /usr/local/bin/awf > /dev/null <<WRAPPER
       #!/bin/bash
-      exec node "$GITHUB_WORKSPACE/dist/cli.js" "$@"
+      exec node "${GITHUB_WORKSPACE}/dist/cli.js" "\$@"
       WRAPPER
       sudo chmod +x /usr/local/bin/awf
       awf --version
@@ -68,6 +68,11 @@ steps:
     run: |
       npm install -g @anthropic-ai/claude-code
       command -v claude
+
+  - name: Install Codex CLI
+    run: |
+      npm install --ignore-scripts -g @openai/codex@0.135.0
+      command -v codex
 
   - name: Write AWF benchmark config
     run: |
@@ -171,13 +176,23 @@ steps:
         echo '{"skipped":false,"reason":"missing claude binary"}' > /tmp/gh-aw/agent/awf/summary.json
         exit 1
       else
-        cd /tmp/adversarial_dojo
         # Run the benchmark inside AWF sandbox — benchmark traffic is restricted
         # to api.anthropic.com and api.openai.com, blocking other egress attempts.
+        # Mount adversarial_dojo (with its uv-managed venv), the uv binary, config
+        # files and the output directory so the benchmark tooling is available
+        # inside the minimal AWF container image.
         sudo awf \
           --allow-domains api.anthropic.com,api.openai.com \
           --proxy-logs-dir /tmp/gh-aw/agent/awf/firewall-logs \
           --log-level info \
+          --mount /tmp/adversarial_dojo:/tmp/adversarial_dojo \
+          --mount "$HOME/.local/bin/uv:$HOME/.local/bin/uv:ro" \
+          --mount /tmp/awf-benchmark.toml:/tmp/awf-benchmark.toml:ro \
+          --mount /tmp/awf-benchmark:/tmp/awf-benchmark:ro \
+          --mount /tmp/gh-aw/agent/awf:/tmp/gh-aw/agent/awf \
+          --container-workdir /tmp/adversarial_dojo \
+          --env "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" \
+          --env "OPENAI_API_KEY=$OPENAI_API_KEY" \
           -- "$HOME/.local/bin/uv" run adversarial-dojo search-attacks \
           /tmp/awf-benchmark.toml \
           --out /tmp/gh-aw/agent/awf \
@@ -191,7 +206,7 @@ steps:
           SQUID_LOG=$(find /tmp -name 'access.log' -path '*awf*' 2>/dev/null | head -1)
         fi
         if [ -n "$SQUID_LOG" ]; then
-          AWF_BLOCKED=$(grep -c "DENIED" "$SQUID_LOG" 2>/dev/null || echo "0")
+          AWF_BLOCKED=$(grep -c "DENIED" "$SQUID_LOG" 2>/dev/null || true)
           cp "$SQUID_LOG" /tmp/gh-aw/agent/squid-access.log
         else
           echo "No Squid access log found" > /tmp/gh-aw/agent/squid-access.log

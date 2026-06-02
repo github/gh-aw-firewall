@@ -5,6 +5,13 @@ const {
   BaseOidcTokenProvider,
 } = require('./oidc-token-provider-base');
 
+function stringifyError(error) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error);
+}
+
 /**
  * @typedef {Object} AnthropicOidcTokenProviderConfig
  * @property {string} requestUrl - ACTIONS_ID_TOKEN_REQUEST_URL
@@ -14,6 +21,7 @@ const {
  * @property {string} serviceAccountId - Anthropic service account ID (e.g. svac_...)
  * @property {string} [workspaceId] - Anthropic workspace ID (required when the federation rule covers multiple workspaces)
  * @property {string} [oidcAudience] - Audience for GitHub OIDC token (default: https://api.anthropic.com)
+ * @property {string} [tokenEndpoint] - Anthropic OAuth token exchange endpoint (default: https://api.anthropic.com/v1/oauth/token)
  * @property {number} [retryDelayMs] - Retry delay after failed refresh (default: 30000)
  * @property {number} [maxInitRetries] - Maximum retries for initial token acquisition (default: 3)
  */
@@ -44,6 +52,8 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
     const ws = config.workspaceId != null ? config.workspaceId.trim() : undefined;
     this._workspaceId = ws || undefined;
     this._oidcAudience = config.oidcAudience || 'https://api.anthropic.com';
+    const tokenEndpoint = config.tokenEndpoint != null ? config.tokenEndpoint.trim() : '';
+    this._tokenEndpoint = tokenEndpoint || 'https://api.anthropic.com/v1/oauth/token';
 
     /** @type {string|null} */
     this._cachedToken = null;
@@ -70,7 +80,7 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
     }
 
     const response = await this._httpPost(
-      'https://api.anthropic.com/v1/oauth/token',
+      this._tokenEndpoint,
       JSON.stringify(body),
       {
         'Content-Type': 'application/json',
@@ -94,13 +104,29 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
   }
 
   async _refreshToken() {
-    const oidcJwt = await mintGitHubOidcToken({
-      requestUrl: this._requestUrl,
-      requestToken: this._requestToken,
-      audience: this._oidcAudience,
-    });
+    let oidcJwt;
+    try {
+      oidcJwt = await mintGitHubOidcToken({
+        requestUrl: this._requestUrl,
+        requestToken: this._requestToken,
+        audience: this._oidcAudience,
+      });
+    } catch (error) {
+      throw new Error(`Anthropic upstream OIDC JWT mint failed: ${stringifyError(error)}`, {
+        cause: error,
+      });
+    }
 
-    const { access_token, expires_in } = await this._exchangeForAnthropicToken(oidcJwt);
+    let exchangeResponse;
+    try {
+      exchangeResponse = await this._exchangeForAnthropicToken(oidcJwt);
+    } catch (error) {
+      throw new Error(`Anthropic OAuth exchange failed after JWT mint: ${stringifyError(error)}`, {
+        cause: error,
+      });
+    }
+
+    const { access_token, expires_in } = exchangeResponse;
 
     this._storeAndScheduleRefresh(access_token, expires_in);
   }

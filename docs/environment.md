@@ -120,6 +120,25 @@ Copilot CLI 1.0.21 introduced a startup model validation step: when `COPILOT_MOD
 1. Replace the classic PAT with a **fine-grained PAT** or **OAuth token** (these are accepted by the `/models` endpoint).
 2. Remove `COPILOT_MODEL` from the agent environment to skip model validation entirely.
 
+## Anthropic WIF environment notes
+
+When using Anthropic Workload Identity Federation (OIDC exchange in the API proxy), AWF supports:
+
+- `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`
+- `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`
+- `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`
+- `AWF_AUTH_ANTHROPIC_WORKSPACE_ID` (optional)
+- `AWF_AUTH_ANTHROPIC_TOKEN_URL` (optional override; defaults to `https://api.anthropic.com/v1/oauth/token`)
+
+### Credential precedence warning
+
+Anthropic SDK credential precedence favors `ANTHROPIC_API_KEY` ahead of federation configuration.
+If both are set in the same runtime, the API key can silently shadow WIF/OIDC auth.
+
+In AWF API-proxy mode this is mitigated by placeholder values (`sk-ant-placeholder-key-for-credential-isolation`) in the
+agent container, but avoid setting a real `ANTHROPIC_API_KEY` alongside WIF variables in the
+same process.
+
 ## Internal Environment Variables
 
 The following environment variables are set internally by the firewall and used by container scripts:

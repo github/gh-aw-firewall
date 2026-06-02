@@ -289,6 +289,19 @@ export interface ApiProxyOptions {
   anthropicApiAuthHeader?: string;
 
   /**
+   * Anthropic OIDC token exchange endpoint override.
+   *
+   * When set, AWF passes this value to the API proxy as
+   * `AWF_AUTH_ANTHROPIC_TOKEN_URL` for Anthropic WIF/OIDC exchange.
+   *
+   * Intended for non-sensitive endpoint customization and typically set via
+   * config file (`apiProxy.auth.anthropicTokenUrl`).
+   *
+   * @default 'https://api.anthropic.com/v1/oauth/token'
+   */
+  anthropicTokenUrl?: string;
+
+  /**
    * Target hostname for Google Gemini API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar

@@ -152,6 +152,7 @@ describe('API proxy sidecar: env var forwarding', () => {
           'AWF_AUTH_ANTHROPIC_ORGANIZATION_ID',
           'AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID',
           'AWF_AUTH_ANTHROPIC_WORKSPACE_ID',
+          'AWF_AUTH_ANTHROPIC_TOKEN_URL',
         ];
 
         beforeEach(() => {
@@ -177,6 +178,7 @@ describe('API proxy sidecar: env var forwarding', () => {
           process.env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID = 'org-uuid-test';
           process.env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID = 'svac_test';
           process.env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID = 'wrkspc_test';
+          process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL = 'https://anthropic.internal.example/v1/oauth/token';
           const config = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-openai-test' };
           const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
           const env = result.services['api-proxy'].environment as Record<string, string>;
@@ -184,6 +186,7 @@ describe('API proxy sidecar: env var forwarding', () => {
           expect(env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID).toBe('org-uuid-test');
           expect(env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID).toBe('svac_test');
           expect(env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID).toBe('wrkspc_test');
+          expect(env.AWF_AUTH_ANTHROPIC_TOKEN_URL).toBe('https://anthropic.internal.example/v1/oauth/token');
         });
 
         it('should forward AWF_AUTH_ANTHROPIC_WORKSPACE_ID independently when only it is set', () => {
