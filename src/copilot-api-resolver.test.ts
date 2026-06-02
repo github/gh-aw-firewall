@@ -1,10 +1,10 @@
 import * as copilotApiResolverModule from './copilot-api-resolver';
 import {
-  __resetCopilotApiKeyDeprecationLatchForTesting,
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
+import { COPILOT_PLACEHOLDER_TOKEN } from './constants/placeholders';
 import { logger } from './logger';
 
 const {
@@ -14,7 +14,6 @@ const {
 
 describe('resolveCopilotApiKey', () => {
   beforeEach(() => {
-    __resetCopilotApiKeyDeprecationLatchForTesting();
     jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
   });
 
@@ -41,11 +40,30 @@ describe('resolveCopilotApiKey', () => {
   });
 
   it('should ignore COPILOT_API_KEY alone, resolve undefined, and warn only once', () => {
-    const env = { COPILOT_API_KEY: 'legacy_key123' };
+    jest.isolateModules(() => {
+      const isolatedLogger = jest.requireActual<typeof import('./logger')>('./logger').logger;
+      jest.spyOn(isolatedLogger, 'warn').mockImplementation(() => undefined);
 
-    expect(resolveCopilotApiKey(env)).toBeUndefined();
-    expect(resolveCopilotApiKey(env)).toBeUndefined();
-    expect(logger.warn).toHaveBeenCalledTimes(1);
+      const { resolveCopilotApiKey: isolatedResolveCopilotApiKey } =
+        jest.requireActual<typeof import('./copilot-api-resolver')>('./copilot-api-resolver');
+      const env = { COPILOT_API_KEY: 'legacy_key123' };
+
+      expect(isolatedResolveCopilotApiKey(env)).toBeUndefined();
+      expect(isolatedResolveCopilotApiKey(env)).toBeUndefined();
+      expect(isolatedLogger.warn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('should not warn when COPILOT_API_KEY is empty or whitespace', () => {
+    expect(resolveCopilotApiKey({ COPILOT_API_KEY: '' })).toBeUndefined();
+    expect(resolveCopilotApiKey({ COPILOT_API_KEY: '   ' })).toBeUndefined();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('should not warn for known placeholder COPILOT_API_KEY values', () => {
+    expect(resolveCopilotApiKey({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+    expect(resolveCopilotApiKey({ COPILOT_API_KEY: 'dummy-byok-key-for-offline-mode' })).toBeUndefined();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('should return undefined when neither key is set', () => {

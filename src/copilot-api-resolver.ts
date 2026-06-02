@@ -2,12 +2,23 @@ import {
   deriveCopilotApiBasePathFromProviderBaseUrl,
   deriveCopilotApiTargetFromProviderBaseUrl,
 } from './copilot-api-resolver.internal';
+import { COPILOT_PLACEHOLDER_TOKEN } from './constants/placeholders';
 import { logger } from './logger';
 
 let copilotApiKeyDeprecationWarned = false;
+const COPILOT_DUMMY_BYOK_KEY = 'dummy-byok-key-for-offline-mode';
 
-export function __resetCopilotApiKeyDeprecationLatchForTesting(): void {
-  copilotApiKeyDeprecationWarned = false;
+function shouldWarnForDeprecatedLegacyCopilotApiKey(legacyKey: string | undefined): boolean {
+  if (legacyKey === undefined) {
+    return false;
+  }
+
+  const normalizedLegacyKey = legacyKey.trim();
+  if (normalizedLegacyKey.length === 0) {
+    return false;
+  }
+
+  return normalizedLegacyKey !== COPILOT_PLACEHOLDER_TOKEN && normalizedLegacyKey !== COPILOT_DUMMY_BYOK_KEY;
 }
 
 /**
@@ -21,7 +32,7 @@ export function resolveCopilotApiKey(
     return env.COPILOT_PROVIDER_API_KEY;
   }
 
-  if (env.COPILOT_API_KEY !== undefined && !copilotApiKeyDeprecationWarned) {
+  if (shouldWarnForDeprecatedLegacyCopilotApiKey(env.COPILOT_API_KEY) && !copilotApiKeyDeprecationWarned) {
     logger.warn(
       'COPILOT_API_KEY is deprecated for BYOK and will be ignored; use COPILOT_PROVIDER_API_KEY and COPILOT_PROVIDER_BASE_URL instead.'
     );

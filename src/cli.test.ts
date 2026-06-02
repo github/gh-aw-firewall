@@ -19,7 +19,6 @@ jest.mock('commander', () => {
 import { Command } from 'commander';
 import * as cliModule from './cli';
 import {
-  __resetCopilotApiKeyDeprecationLatchForTesting,
   resolveCopilotApiKey,
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
@@ -352,7 +351,6 @@ describe('cli', () => {
 
   describe('Copilot BYOK env resolution', () => {
     beforeEach(() => {
-      __resetCopilotApiKeyDeprecationLatchForTesting();
       jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
     });
 
