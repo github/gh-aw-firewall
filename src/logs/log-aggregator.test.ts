@@ -452,8 +452,6 @@ describe('log-aggregator', () => {
           decision: 'TCP_DENIED:HIER_NONE',
           url: 'evil.com:443',
           userAgent: 'curl/7.81.0',
-          domain: 'evil.com',
-          isAllowed: false,
         }),
       ].join('\n');
 
