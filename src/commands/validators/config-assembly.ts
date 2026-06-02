@@ -64,6 +64,7 @@ export function assembleAndValidateConfig(
     maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
     effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplier: logAndLimits.maxModelMultiplier,
     maxRuns: logAndLimits.maxRuns,
     resolvedCopilotApiTarget: networkOptions.resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath: networkOptions.resolvedCopilotApiBasePath,
