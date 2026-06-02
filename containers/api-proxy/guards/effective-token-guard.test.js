@@ -4,19 +4,7 @@ const {
   getEffectiveTokenReflectState,
   resetEffectiveTokenGuardForTests,
 } = require('./effective-token-guard');
-
-function collectLogOutput() {
-  const lines = [];
-  const spy = jest.spyOn(process.stdout, 'write').mockImplementation((data) => {
-    try {
-      lines.push(JSON.parse(data.toString()));
-    } catch {
-      // ignore non-JSON writes
-    }
-    return true;
-  });
-  return { lines, spy };
-}
+const { collectLogOutput } = require('../test-helpers/log-test-helpers');
 
 describe('effective-token-guard reflect state', () => {
   beforeEach(() => {
