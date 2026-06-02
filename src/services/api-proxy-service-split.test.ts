@@ -1,0 +1,98 @@
+import * as path from 'path';
+import { parseImageTag } from '../image-tag';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
+import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
+import { buildApiProxyServiceConfig } from './api-proxy-service-config';
+import { buildAgentCredentialEnv } from './api-proxy-credential-env';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
+
+describe('API proxy split builders', () => {
+  const networkConfig = {
+    subnet: '172.30.0.0/24',
+    squidIp: '172.30.0.10',
+    agentIp: '172.30.0.20',
+    proxyIp: '172.30.0.30',
+  };
+
+  const imageConfig = {
+    useGHCR: true,
+    registry: 'ghcr.io/github/gh-aw-firewall',
+    parsedTag: parseImageTag('latest'),
+    projectRoot: path.join(__dirname, '..', '..'),
+  };
+
+  it('buildApiProxyServiceConfig builds sidecar service spec', () => {
+    const service = buildApiProxyServiceConfig({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+      },
+      networkConfig,
+      apiProxyLogsPath: '/tmp/awf-test/logs/api-proxy',
+      imageConfig,
+    });
+
+    expect(service.container_name).toBe('awf-api-proxy');
+    expect(service.environment.OPENAI_API_KEY).toBe('sk-test-openai-key');
+    expect(service.environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
+    expect(service.image).toBe('ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+  });
+
+  it('buildAgentCredentialEnv builds isolated agent credentials', () => {
+    const agentEnvAdditions = buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+        copilotGithubToken: 'ghu_test_token',
+        additionalEnv: {
+          COPILOT_MODEL: 'gpt-5',
+        },
+      },
+      networkConfig,
+    });
+
+    expect(agentEnvAdditions.AWF_API_PROXY_IP).toBe('172.30.0.30');
+    expect(agentEnvAdditions.OPENAI_BASE_URL).toBe('http://172.30.0.30:10000');
+    expect(agentEnvAdditions.OPENAI_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(agentEnvAdditions.CODEX_API_KEY).toBe('sk-placeholder-for-api-proxy');
+    expect(agentEnvAdditions.COPILOT_API_URL).toBe('http://172.30.0.30:10002');
+    expect(agentEnvAdditions.COPILOT_TOKEN).toBe(COPILOT_PLACEHOLDER_TOKEN);
+    expect(agentEnvAdditions.COPILOT_PROVIDER_WIRE_API).toBe('responses');
+  });
+
+  it('buildApiProxyServiceConfig throws when proxyIp is missing', () => {
+    const networkConfigWithoutProxyIp = { ...networkConfig, proxyIp: undefined };
+
+    expect(() => buildApiProxyServiceConfig({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+      },
+      networkConfig: networkConfigWithoutProxyIp,
+      apiProxyLogsPath: '/tmp/awf-test/logs/api-proxy',
+      imageConfig,
+    })).toThrow('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
+  });
+
+  it('buildAgentCredentialEnv throws when proxyIp is missing', () => {
+    const networkConfigWithoutProxyIp = { ...networkConfig, proxyIp: undefined };
+
+    expect(() => buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-openai-key',
+      },
+      networkConfig: networkConfigWithoutProxyIp,
+    })).toThrow('buildAgentCredentialEnv: networkConfig.proxyIp is required');
+  });
+});
