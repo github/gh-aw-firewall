@@ -196,7 +196,7 @@ steps:
           SQUID_LOG=$(find /tmp -name 'access.log' -path '*awf*' 2>/dev/null | head -1)
         fi
         if [ -n "$SQUID_LOG" ]; then
-          AWF_BLOCKED=$(grep -c "DENIED" "$SQUID_LOG" 2>/dev/null || echo "0")
+          AWF_BLOCKED=$(grep -c "DENIED" "$SQUID_LOG" 2>/dev/null || true)
           cp "$SQUID_LOG" /tmp/gh-aw/agent/squid-access.log
         else
           echo "No Squid access log found" > /tmp/gh-aw/agent/squid-access.log
