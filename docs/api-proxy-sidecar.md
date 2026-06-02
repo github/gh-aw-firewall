@@ -1053,6 +1053,77 @@ if (response.status === 429) {
 }
 ```
 
+## Max-permission-denied limit
+
+The API proxy can enforce a **maximum number of upstream permission-denied (401/403) responses** per run. When enabled, each upstream 401 or 403 response increments a counter, and all further requests are rejected once the threshold is reached. This stops the run early when API credentials are misconfigured or missing, preventing the agent from burning tokens retrying a broken setup.
+
+### Configuration
+
+Set in the AWF config file (not available as a CLI flag):
+
+```json
+{
+  "apiProxy": {
+    "maxPermissionDenied": 3
+  }
+}
+```
+
+When `maxPermissionDenied` is not set, the guard is disabled and permission errors are not counted.
+
+### Enforcement
+
+Before forwarding each request to the upstream provider, the proxy checks the permission-denied counter:
+
+- **Under limit**: Request is forwarded normally.
+- **Limit reached or exceeded**: Request is rejected immediately with:
+  - **HTTP `403 Forbidden`**
+  - **Error body**:
+
+    ```json
+    {
+      "error": {
+        "type": "permission_denied_limit_exceeded",
+        "message": "Permission denied limit exceeded (3 / 3). The run has been stopped due to repeated permission errors — check that all API keys and tokens are correctly configured.",
+        "denied_count": 3,
+        "max_permission_denied": 3
+      }
+    }
+    ```
+
+WebSocket upgrade requests are also rejected with `403` when the limit is reached.
+
+:::caution
+Once the limit is reached, **all subsequent requests in the run are rejected**. Check that all provider API keys and tokens are correctly configured before increasing this limit.
+:::
+
+### Introspection
+
+The `/reflect` endpoint exposes the current permission-denied guard state under the `permission_denied` key:
+
+```json
+{
+  "permission_denied": {
+    "enabled": true,
+    "max_permission_denied": 3,
+    "denied_count": 1
+  }
+}
+```
+
+When `maxPermissionDenied` is not configured, `enabled` is `false` and `max_permission_denied` is `null`.
+
+### Detecting the limit
+
+```javascript
+if (response.status === 403) {
+  const body = await response.json();
+  if (body.error?.type === 'permission_denied_limit_exceeded') {
+    console.log(`Permission denied limit exceeded: ${body.error.denied_count} / ${body.error.max_permission_denied}`);
+  }
+}
+```
+
 ## OpenTelemetry distributed tracing
 
 The api-proxy sidecar emits one [OpenTelemetry](https://opentelemetry.io/) CLIENT span per

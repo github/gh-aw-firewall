@@ -90,6 +90,11 @@
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
         },
+        "maxPermissionDenied": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of upstream permission-denied (401/403) responses allowed per run. When reached, the API proxy rejects all subsequent requests with HTTP 403 and error type 'permission_denied_limit_exceeded', stopping the run to avoid wasting tokens on misconfigured or missing API credentials. When unset, the guard is disabled."
+        },
         "requestedModel": {
           "type": "string",
           "description": "Expected model name for pre-startup validation. When set, the API proxy validates at startup that this model is available in at least one provider's model catalogue. Emits a clear diagnostic if the model is retired, restricted, or misspelled. Does not block startup."

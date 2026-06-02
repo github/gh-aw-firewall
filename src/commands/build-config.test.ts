@@ -47,6 +47,7 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
     effectiveTokenModelMultipliers: undefined,
     effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,
+    maxPermissionDenied: undefined,
     resolvedCopilotApiTarget: undefined,
     resolvedCopilotApiBasePath: undefined,
     dockerHostPathPrefix: undefined,

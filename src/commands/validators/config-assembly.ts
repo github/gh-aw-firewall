@@ -65,6 +65,7 @@ export function assembleAndValidateConfig(
     effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
     maxRuns: logAndLimits.maxRuns,
+    maxPermissionDenied: logAndLimits.maxPermissionDenied,
     resolvedCopilotApiTarget: networkOptions.resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath: networkOptions.resolvedCopilotApiBasePath,
     dockerHostPathPrefix: networkOptions.dockerHostPathPrefixResolution.dockerHostPathPrefix,

@@ -98,6 +98,26 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         expect(env.AWF_MAX_RUNS).toBeUndefined();
       });
 
+      it('should set AWF_MAX_PERMISSION_DENIED in api-proxy when maxPermissionDenied is configured', () => {
+        const configWithMaxPermDenied = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          maxPermissionDenied: 3,
+        };
+        const result = generateDockerCompose(configWithMaxPermDenied, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_PERMISSION_DENIED).toBe('3');
+      });
+
+      it('should not set AWF_MAX_PERMISSION_DENIED in api-proxy when maxPermissionDenied is not configured', () => {
+        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_PERMISSION_DENIED).toBeUndefined();
+      });
+
       it('should set AWF_AGENT_TIMEOUT_MINUTES in api-proxy when agentTimeout is configured', () => {
         const configWithAgentTimeout = {
           ...mockConfig,

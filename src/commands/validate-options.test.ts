@@ -72,6 +72,7 @@ const STUB_CONFIG = {
   effectiveTokenModelMultipliers: undefined,
   effectiveTokenDefaultModelMultiplier: undefined,
   maxRuns: undefined,
+  maxPermissionDenied: undefined,
   enableTokenSteering: false,
   openaiApiKey: undefined,
   anthropicApiKey: undefined,
@@ -229,6 +230,17 @@ describe('validateOptions', () => {
         validateOptions({ logLevel: 'info', maxRuns: 'not-a-number' }, 'echo hi'),
       ).toThrow('process.exit called');
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxRuns'));
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('maxPermissionDenied validation', () => {
+    it('exits when maxPermissionDenied is not a positive integer', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      expect(() =>
+        validateOptions({ logLevel: 'info', maxPermissionDenied: 'not-a-number' }, 'echo hi'),
+      ).toThrow('process.exit called');
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxPermissionDenied'));
       consoleSpy.mockRestore();
     });
   });
