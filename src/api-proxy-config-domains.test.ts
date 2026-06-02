@@ -156,8 +156,7 @@ describe('extractGhesDomainsFromEngineApiTarget (via resolveApiTargetsToAllowedD
   it('should return no GHES domains when ENGINE_API_TARGET is not set', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, {});
-    // No GHES-specific domains should be present
-    expect(domains.some(d => d.includes('githubcopilot.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should extract GHES domains from api.github.* format', () => {
@@ -185,8 +184,7 @@ describe('extractGhesDomainsFromEngineApiTarget (via resolveApiTargetsToAllowedD
     const domains: string[] = [];
     const env = { ENGINE_API_TARGET: 'not-a-valid-url' };
     resolveApiTargetsToAllowedDomains({}, domains, env);
-    // No GHES-specific domains should be present for invalid URL
-    expect(domains.some(d => d.includes('githubcopilot.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should always include Copilot API domains for GHES', () => {
@@ -203,19 +201,19 @@ describe('extractGhecDomainsFromServerUrl (via resolveApiTargetsToAllowedDomains
   it('should return no GHEC domains when no env vars are set', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, {});
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should return no GHEC domains when GITHUB_SERVER_URL is github.com', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_SERVER_URL: 'https://github.com' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should return no GHEC domains for GHES (non-ghe.com) server URL', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_SERVER_URL: 'https://github.mycompany.com' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should extract GHEC tenant, API, Copilot API, and telemetry subdomains from GITHUB_SERVER_URL', () => {
@@ -266,25 +264,25 @@ describe('extractGhecDomainsFromServerUrl (via resolveApiTargetsToAllowedDomains
   it('should return no GHEC domains when GITHUB_API_URL is api.github.com', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_API_URL: 'https://api.github.com' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should ignore non-ghe.com GITHUB_API_URL', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_API_URL: 'https://api.github.mycompany.com' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should handle invalid GITHUB_SERVER_URL gracefully', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_SERVER_URL: 'not-a-valid-url' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 
   it('should handle invalid GITHUB_API_URL gracefully', () => {
     const domains: string[] = [];
     resolveApiTargetsToAllowedDomains({}, domains, { GITHUB_API_URL: 'not-a-valid-url' });
-    expect(domains.some(d => d.includes('.ghe.com'))).toBe(false);
+    expect(domains).toHaveLength(0);
   });
 });
 
