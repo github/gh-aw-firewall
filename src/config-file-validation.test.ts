@@ -112,6 +112,7 @@ describe('validateAwfFileConfig', () => {
         maxEffectiveTokens: 5000,
         modelMultipliers: { 'gpt-4o': 2, 'claude-sonnet-4': 1.5 },
         defaultModelMultiplier: 27,
+        maxModelMultiplierCap: 5,
       },
     })).toEqual([]);
 
@@ -121,6 +122,15 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
     expect(validateAwfFileConfig({ apiProxy: { defaultModelMultiplier: 0 } }))
       .toContain('config.apiProxy.defaultModelMultiplier must be > 0');
+  });
+
+  it('validates maxModelMultiplierCap in apiProxy', () => {
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 4 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 0.5 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: 0 } }))
+      .toContain('config.apiProxy.maxModelMultiplierCap must be > 0');
+    expect(validateAwfFileConfig({ apiProxy: { maxModelMultiplierCap: -1 } }))
+      .toContain('config.apiProxy.maxModelMultiplierCap must be > 0');
   });
 
   it('validates maxRuns in apiProxy', () => {
