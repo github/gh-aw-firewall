@@ -8,6 +8,7 @@ const https = require('https');
 const { EventEmitter } = require('events');
 
 const { validateApiKeys, keyValidationResults, resetKeyValidationState, extractBillingHeaders } = require('./server');
+const { collectLogOutput } = require('./test-helpers/log-test-helpers');
 
 // ── Helpers for validateApiKeys tests ──────────────────────────────────────────
 
@@ -30,22 +31,6 @@ function mockHttpsRequestWithStatus(statusCode) {
     req.destroy = jest.fn();
     return req;
   });
-}
-
-/**
- * Collect structured log lines emitted by logRequest() (written to process.stdout).
- */
-function collectLogOutput() {
-  const lines = [];
-  const spy = jest.spyOn(process.stdout, 'write').mockImplementation((data) => {
-    try {
-      lines.push(JSON.parse(data.toString()));
-    } catch {
-      // ignore non-JSON writes
-    }
-    return true;
-  });
-  return { lines, spy };
 }
 
 function createValidationAdapter(name, probe) {

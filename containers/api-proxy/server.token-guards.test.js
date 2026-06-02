@@ -17,6 +17,7 @@ let proxyRequest;
 let resetEffectiveTokenGuardForTests;
 let resetMaxRunsGuardForTests;
 let resetPermissionDeniedGuardForTests;
+let resetMaxModelMultiplierGuardForTests;
 
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
@@ -24,8 +25,9 @@ setupServerTestEnv(() => {
     resetEffectiveTokenGuardForTests,
     resetMaxRunsGuardForTests,
     resetPermissionDeniedGuardForTests,
+    resetMaxModelMultiplierGuardForTests,
   } = require('./proxy-request'));
-  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetPermissionDeniedGuardForTests };
+  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests };
 });
 
 describe('proxyRequest effective token guard', () => {
@@ -284,5 +286,98 @@ describe('proxyRequest permission-denied guard', () => {
 
     expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
     expect(res.writeHead).not.toHaveBeenCalledWith(403, expect.anything());
+  });
+});
+
+describe('proxyRequest max-model-multiplier guard', () => {
+  function makeModelReq(body, headers = {}) {
+    const req = makeReqFactory('/v1/messages', headers);
+    const bodyBuf = Buffer.from(body);
+    const originalEmit = req.emit.bind(req);
+    req.emit = function(event, ...args) {
+      if (event === 'end') {
+        originalEmit('data', bodyBuf);
+      }
+      return originalEmit(event, ...args);
+    };
+    return req;
+  }
+
+  beforeEach(() => {
+    process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
+    process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      'claude-opus-4.7': 27,
+      'gpt-4o': 2,
+    });
+    resetMaxModelMultiplierGuardForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_MODEL_MULTIPLIER;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    resetMaxModelMultiplierGuardForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('returns 400 when the requested model multiplier exceeds the cap', () => {
+    jest.spyOn(https, 'request').mockImplementation(() => {
+      const r = new EventEmitter();
+      r.end = jest.fn();
+      r.write = jest.fn();
+      return r;
+    });
+
+    const body = JSON.stringify({ model: 'claude-opus-4.7', messages: [{ role: 'user', content: 'hi' }] });
+    const req = makeModelReq(body);
+    const res = makeRes();
+    proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+
+    expect(https.request).not.toHaveBeenCalled();
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    const payload = JSON.parse(res.end.mock.calls[0][0]);
+    expect(payload.error.type).toBe('model_multiplier_cap_exceeded');
+    expect(payload.error.model).toBe('claude-opus-4.7');
+    expect(payload.error.model_multiplier).toBe(27);
+    expect(payload.error.max_model_multiplier).toBe(5);
+  });
+
+  it('allows requests when the model multiplier is within the cap', () => {
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const body = JSON.stringify({ model: 'gpt-4o', messages: [] });
+    const req = makeModelReq(body);
+    const res = makeRes();
+    proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
+  });
+
+  it('allows requests when AWF_MAX_MODEL_MULTIPLIER is not configured', () => {
+    delete process.env.AWF_MAX_MODEL_MULTIPLIER;
+    resetMaxModelMultiplierGuardForTests();
+
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const body = JSON.stringify({ model: 'claude-opus-4.7', messages: [] });
+    const req = makeModelReq(body);
+    const res = makeRes();
+    proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
   });
 });

@@ -5,7 +5,7 @@ import {
 } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { setAwfDockerHost, getLocalDockerEnv } from './docker-host';
-import { stopContainers } from './container-cleanup';
+import { stopContainers } from './container-stop';
 import { AGENT_CONTAINER_NAME } from './constants';
 import { logger } from './logger';
 import * as fs from 'fs';

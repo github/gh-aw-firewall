@@ -25,6 +25,7 @@ interface BuildConfigInputs {
   maxEffectiveTokens: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
   effectiveTokenDefaultModelMultiplier: number | undefined;
+  maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
   resolvedCopilotApiTarget: string | undefined;
@@ -59,6 +60,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
     resolvedCopilotApiTarget,
@@ -112,6 +114,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
     enableTokenSteering: options.enableTokenSteering as boolean,

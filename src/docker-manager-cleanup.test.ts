@@ -1,5 +1,7 @@
 import { writeConfigs } from './config-writer';
-import { cleanup, collectDiagnosticLogs, preserveIptablesAudit } from './container-cleanup';
+import { preserveIptablesAudit } from './artifact-preservation';
+import { cleanup } from './container-cleanup';
+import { collectDiagnosticLogs } from './diagnostic-collector';
 import { WrapperConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';

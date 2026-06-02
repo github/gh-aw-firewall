@@ -10,19 +10,7 @@ const { EventEmitter } = require('events');
 
 const { fetchStartupModels, healthResponse, createProviderServer, resetModelCacheState } = require('./server');
 const { createCopilotAdapter } = require('./providers/copilot');
-
-function collectLogOutput() {
-  const lines = [];
-  const spy = jest.spyOn(process.stdout, 'write').mockImplementation((data) => {
-    try {
-      lines.push(JSON.parse(data.toString()));
-    } catch {
-      // ignore non-JSON writes
-    }
-    return true;
-  });
-  return { lines, spy };
-}
+const { collectLogOutput } = require('./test-helpers/log-test-helpers');
 
 describe('healthResponse', () => {
   afterEach(() => {

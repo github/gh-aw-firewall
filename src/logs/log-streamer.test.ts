@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import { streamLogs } from './log-streamer';
 import { LogFormatter } from './log-formatter';
 import { LogSource } from '../types';
+import { createRawLogLine } from './log-test-fixtures.test-utils';
 import execa from 'execa';
 import { Readable } from 'stream';
 import { trackPidForPortSync, isPidTrackingAvailable } from '../pid-tracker';
@@ -234,8 +235,7 @@ describe('log-streamer', () => {
       };
       const formatter = new LogFormatter({ format: 'json' });
 
-      const logLine =
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+      const logLine = createRawLogLine();
 
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue(logLine);
@@ -304,8 +304,7 @@ describe('log-streamer', () => {
       };
       const formatter = new LogFormatter({ format: 'json' });
 
-      const logLine =
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+      const logLine = createRawLogLine();
 
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue(logLine);
@@ -339,8 +338,7 @@ describe('log-streamer', () => {
       };
       const formatter = new LogFormatter({ format: 'json' });
 
-      const logLine =
-        '1761074374.646 172.30.0.20:39748 api.github.com:443 140.82.114.22:443 1.1 CONNECT 200 TCP_TUNNEL:HIER_DIRECT api.github.com:443 "-"';
+      const logLine = createRawLogLine();
 
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue(logLine);

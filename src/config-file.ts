@@ -20,6 +20,7 @@ interface AwfFileConfig {
     maxEffectiveTokens?: number;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
+    maxModelMultiplierCap?: number;
     maxRuns?: number;
     maxPermissionDenied?: number;
     requestedModel?: string;
@@ -186,6 +187,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
+    maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
     maxRuns: config.apiProxy?.maxRuns,
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,

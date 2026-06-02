@@ -18,6 +18,7 @@ export interface LogAndLimitsResult {
   maxEffectiveTokens: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
   effectiveTokenDefaultModelMultiplier: number | undefined;
+  maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
   memoryLimit: string | undefined;
@@ -105,6 +106,21 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     process.exit(1);
   }
 
+  const maxModelMultiplierCapOption = (options as Record<string, unknown>).maxModelMultiplierCap as
+    | string
+    | number
+    | undefined;
+  const maxModelMultiplierCap =
+    maxModelMultiplierCapOption !== undefined ? Number(maxModelMultiplierCapOption) : undefined;
+
+  if (
+    maxModelMultiplierCap !== undefined &&
+    (!Number.isFinite(maxModelMultiplierCap) || maxModelMultiplierCap <= 0)
+  ) {
+    console.error('Error: Invalid maxModelMultiplierCap value (must be > 0)');
+    process.exit(1);
+  }
+
   const maxRunsOption = (options as Record<string, unknown>).maxRuns as
     | string
     | number
@@ -158,6 +174,7 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     maxEffectiveTokens,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
     memoryLimit: memoryLimit.value,

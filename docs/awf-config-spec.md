@@ -102,6 +102,7 @@ the corresponding CLI flag.
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
+- `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
@@ -764,7 +765,71 @@ The `/reflect` endpoint (available on all provider ports 10000–10003; see
 When `maxRuns` is not configured, the `enabled` field MUST be `false` and
 `max_runs` and `remaining_runs` MUST be `null`.
 
-## 12. Model Fallback
+## 12. Model Multiplier Cap
+
+*This section is normative.*
+
+When `apiProxy.maxModelMultiplierCap` is configured, the API proxy MUST
+reject any request whose resolved model multiplier exceeds the cap before
+forwarding the request to the upstream provider.
+
+### 12.1 Multiplier Resolution
+
+The proxy resolves the effective multiplier for the requested model using the
+same algorithm as the effective-token guard:
+
+1. **Exact match**: if `apiProxy.modelMultipliers` contains the exact model
+   name, use its multiplier.
+2. **Longest-prefix match**: if any configured model name is a prefix of the
+   requested model name (followed by `-`), use the multiplier of the
+   longest-matching prefix.
+3. **Default**: use `apiProxy.defaultModelMultiplier` if configured, otherwise
+   default to `1`.
+
+### 12.2 Enforcement Behavior
+
+Before forwarding each POST/PUT/PATCH request to an upstream LLM provider,
+the proxy MUST:
+
+1. Extract the `model` field from the request body.
+2. Resolve the model's effective multiplier (§12.1).
+3. If the multiplier exceeds `maxModelMultiplierCap`, reject the request with:
+   - **HTTP status**: `400 Bad Request`
+   - **Content-Type**: `application/json`
+   - **Response body**:
+     ```json
+     {
+       "error": {
+         "type": "model_multiplier_cap_exceeded",
+         "message": "Model multiplier cap exceeded: model \"claude-opus-4.7\" has multiplier 27 which exceeds the configured maximum of 5.",
+         "model": "claude-opus-4.7",
+         "model_multiplier": 27,
+         "max_model_multiplier": 5
+       }
+     }
+     ```
+
+4. If the model field is absent or the multiplier is within the cap, the
+   request MUST be forwarded normally.
+
+### 12.3 Configuration
+
+`maxModelMultiplierCap` is a positive number. It is supplied via the AWF
+config file (stdin config) and maps to the `AWF_MAX_MODEL_MULTIPLIER`
+environment variable injected into the api-proxy container. The CLI flag
+`--max-model-multiplier-cap <number>` may also be used.
+
+**Example**:
+
+```yaml
+apiProxy:
+  maxModelMultiplierCap: 5       # reject any model with multiplier > 5
+  modelMultipliers:
+    claude-opus-4.7: 27
+    gpt-4o: 2
+```
+
+## 13. Model Fallback
 
 *This section is normative.*
 

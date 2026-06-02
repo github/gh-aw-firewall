@@ -50,6 +50,11 @@ const {
   getAndClearPendingTimeoutSteeringMessage,
   resetTimeoutSteeringForTests,
 } = require('./guards/timeout-steering');
+const {
+  getModelMultiplierCapBlockState,
+  buildModelMultiplierCapError,
+  resetMaxModelMultiplierGuardForTests,
+} = require('./guards/max-model-multiplier-guard');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -133,6 +138,27 @@ function getUrlPathForSpan(requestUrl) {
  */
 function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
+}
+
+/**
+ * Attempt to extract the `model` field from a JSON request body.
+ * Returns null for non-JSON bodies, bodies without a string `model` field,
+ * or any parse failures.
+ *
+ * @param {Buffer} body
+ * @returns {string|null}
+ */
+function extractModelFromBody(body) {
+  if (!body || body.length === 0) return null;
+  try {
+    const parsed = JSON.parse(body.toString('utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return typeof parsed.model === 'string' ? parsed.model : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function handleRequestError(err, {
@@ -532,6 +558,28 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const bodyModel = extractModelFromBody(body);
+      const mmBlock = getModelMultiplierCapBlockState(bodyModel);
+      if (mmBlock) {
+        const duration = Date.now() - startTime;
+        metrics.gaugeDec('active_requests', { provider });
+        metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+        metrics.observe('request_duration_ms', duration, { provider });
+        logRequest('warn', 'model_multiplier_cap_exceeded', {
+          request_id: requestId,
+          provider,
+          model: mmBlock.model,
+          model_multiplier: mmBlock.multiplier,
+          max_model_multiplier: mmBlock.maxModelMultiplier,
+        });
+        otel.endSpan(span, 400);
+        res.writeHead(400, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+        res.end(JSON.stringify(buildModelMultiplierCapError(mmBlock)));
+        return;
+      }
+    }
+
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
     });
@@ -553,6 +601,7 @@ module.exports = {
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
   resetPermissionDeniedGuardForTests,
+  resetMaxModelMultiplierGuardForTests,
   resetTimeoutSteeringForTests,
   resetAnthropicDeprecatedBetaHeadersForTests: resetDeprecatedHeaderValuesForTests,
   getAndClearPendingSteeringMessage,
