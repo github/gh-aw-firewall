@@ -1,7 +1,7 @@
 import {
   validateApiProxyConfig,
   validateAnthropicCacheTailTtl,
-  validateApiTargetInAllowedDomains,
+  emitApiProxyTargetWarnings,
 } from './api-proxy-config';
 
 describe('validateApiProxyConfig', () => {
@@ -91,78 +91,81 @@ describe('validateApiProxyConfig', () => {
   });
 });
 
-describe('validateApiTargetInAllowedDomains', () => {
-  it('should return null when using the default host', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'api.openai.com',
-      'api.openai.com',
-      '--openai-api-target',
-      ['example.com']
+describe('validateApiTargetInAllowedDomains (via emitApiProxyTargetWarnings)', () => {
+  it('should not warn when using the default host', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'api.openai.com' },
+      ['example.com'],
+      (msg) => warnings.push(msg)
     );
-    expect(result).toBeNull();
+    // No warning for openai since it's the default target
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
-  it('should return null when custom host is in allowed domains', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'custom.example.com',
-      'api.openai.com',
-      '--openai-api-target',
-      ['custom.example.com', 'other.com']
+  it('should not warn when custom host is in allowed domains', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'custom.example.com' },
+      ['custom.example.com', 'other.com'],
+      (msg) => warnings.push(msg)
     );
-    expect(result).toBeNull();
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
-  it('should return null when custom host matches a parent domain in allowed list', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'llm-router.internal.example.com',
-      'api.openai.com',
-      '--openai-api-target',
-      ['example.com']
+  it('should not warn when custom host matches a parent domain in allowed list', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'llm-router.internal.example.com' },
+      ['example.com'],
+      (msg) => warnings.push(msg)
     );
-    expect(result).toBeNull();
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
-  it('should return null when custom host matches a dotted parent domain in allowed list', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'api.example.com',
-      'api.openai.com',
-      '--openai-api-target',
-      ['.example.com']
+  it('should not warn when custom host matches a dotted parent domain in allowed list', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'api.example.com' },
+      ['.example.com'],
+      (msg) => warnings.push(msg)
     );
-    expect(result).toBeNull();
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
-  it('should return a warning when custom host is not in allowed domains', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'custom.llm-router.internal',
-      'api.openai.com',
-      '--openai-api-target',
-      ['github.com', 'api.openai.com']
+  it('should warn when custom host is not in allowed domains', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'custom.llm-router.internal' },
+      ['github.com', 'api.openai.com'],
+      (msg) => warnings.push(msg)
     );
-    expect(result).not.toBeNull();
-    expect(result).toContain('--openai-api-target=custom.llm-router.internal');
-    expect(result).toContain('--allow-domains');
+    const openaiWarnings = warnings.filter(w => w.includes('openai-api-target'));
+    expect(openaiWarnings).toHaveLength(1);
+    expect(openaiWarnings[0]).toContain('custom.llm-router.internal');
+    expect(openaiWarnings[0]).toContain('--allow-domains');
   });
 
-  it('should return a warning with the correct flag name and host', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'custom.anthropic-router.com',
-      'api.anthropic.com',
-      '--anthropic-api-target',
-      []
+  it('should warn with the correct flag name and host for anthropic', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, anthropicApiTarget: 'custom.anthropic-router.com' },
+      [],
+      (msg) => warnings.push(msg)
     );
-    expect(result).not.toBeNull();
-    expect(result).toContain('--anthropic-api-target=custom.anthropic-router.com');
+    const anthropicWarnings = warnings.filter(w => w.includes('anthropic-api-target'));
+    expect(anthropicWarnings).toHaveLength(1);
+    expect(anthropicWarnings[0]).toContain('custom.anthropic-router.com');
   });
 
-  it('should return null when allowed domains list is empty and using default host', () => {
-    const result = validateApiTargetInAllowedDomains(
-      'api.anthropic.com',
-      'api.anthropic.com',
-      '--anthropic-api-target',
-      []
+  it('should not warn when allowed domains list is empty and using default host', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, anthropicApiTarget: 'api.anthropic.com' },
+      [],
+      (msg) => warnings.push(msg)
     );
-    expect(result).toBeNull();
+    expect(warnings.filter(w => w.includes('anthropic-api-target'))).toEqual([]);
   });
 });
 

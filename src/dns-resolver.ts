@@ -30,7 +30,7 @@ function isLoopback(ip: string): boolean {
  * Parse nameserver entries from resolv.conf content.
  * Pure function — no I/O.
  */
-export function parseResolvConf(content: string): string[] {
+function parseResolvConf(content: string): string[] {
   const servers: string[] = [];
   for (const line of content.split('\n')) {
     const match = line.match(/^\s*nameserver\s+(\S+)/);

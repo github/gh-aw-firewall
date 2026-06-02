@@ -1,4 +1,4 @@
-import { runMainWorkflow, WorkflowDependencies } from './cli-workflow';
+import { runMainWorkflow } from './cli-workflow';
 import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
 
@@ -22,7 +22,7 @@ const createLogger = () => ({
 describe('runMainWorkflow', () => {
   it('executes workflow steps in order and logs success for zero exit code', async () => {
     const callOrder: string[] = [];
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
         callOrder.push('ensureFirewallNetwork');
         return { squidIp: '172.30.0.10' };
@@ -69,7 +69,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       agentTimeout: 30,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -90,7 +90,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined agentTimeout when not set', async () => {
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -116,7 +116,7 @@ describe('runMainWorkflow', () => {
       enableHostAccess: true,
       allowHostPorts: '3000,8080',
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -141,7 +141,7 @@ describe('runMainWorkflow', () => {
       allowHostPorts: '3000',
       allowHostServicePorts: '5432,6379',
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -164,7 +164,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined hostAccess when enableHostAccess is not set', async () => {
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -183,7 +183,7 @@ describe('runMainWorkflow', () => {
 
   it('logs warning with exit code when command fails', async () => {
     const callOrder: string[] = [];
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
         callOrder.push('ensureFirewallNetwork');
         return { squidIp: '172.30.0.10' };
@@ -231,7 +231,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -257,7 +257,7 @@ describe('runMainWorkflow', () => {
 
   it('does not call collectDiagnosticLogs when diagnosticLogs is disabled', async () => {
     const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -278,7 +278,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -298,7 +298,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -318,7 +318,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -337,7 +337,7 @@ describe('runMainWorkflow', () => {
   it('does not call collectDiagnosticLogs on startContainers failure when diagnosticLogs is disabled', async () => {
     const startError = new Error('Squid container is unhealthy');
     const collectDiagnosticLogs = jest.fn().mockResolvedValue(undefined);
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -359,7 +359,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -380,7 +380,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       diagnosticLogs: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -403,7 +403,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       enableApiProxy: true,
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -420,7 +420,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined apiProxyIp when enableApiProxy is false', async () => {
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -441,7 +441,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       dnsOverHttps: 'https://dns.google/dns-query',
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -458,7 +458,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined dohProxyIp when dnsOverHttps is not set', async () => {
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -479,7 +479,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       difcProxyHost: 'proxy.corp.com:18443',
     };
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -497,7 +497,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined cliProxyConfig when difcProxyHost is not set', async () => {
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
@@ -520,7 +520,7 @@ describe('runMainWorkflow', () => {
       diagnosticLogs: true,
     };
     const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const dependencies: WorkflowDependencies = {
+    const dependencies = {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
       setupHostIptables: jest.fn().mockResolvedValue(undefined),
       writeConfigs: jest.fn().mockResolvedValue(undefined),
