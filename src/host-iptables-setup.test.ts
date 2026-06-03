@@ -1,6 +1,6 @@
 import { API_PROXY_PORTS } from './types';
 import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { isValidPortSpec } from './host-iptables-rules';
+import { iptablesRulesTestHelpers } from './host-iptables-rules';
 import { setupHostIptables } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
@@ -294,29 +294,29 @@ describe('host-iptables (setup)', () => {
 
   describe('isValidPortSpec', () => {
     it('should accept valid single ports', () => {
-      expect(isValidPortSpec('1')).toBe(true);
-      expect(isValidPortSpec('80')).toBe(true);
-      expect(isValidPortSpec('443')).toBe(true);
-      expect(isValidPortSpec('65535')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('1')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('80')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('443')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('65535')).toBe(true);
     });
 
     it('should accept valid port ranges', () => {
-      expect(isValidPortSpec('3000-3010')).toBe(true);
-      expect(isValidPortSpec('1-65535')).toBe(true);
-      expect(isValidPortSpec('80-80')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('3000-3010')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('1-65535')).toBe(true);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('80-80')).toBe(true);
     });
 
     it('should reject invalid port specs', () => {
-      expect(isValidPortSpec('abc')).toBe(false);
-      expect(isValidPortSpec('0')).toBe(false);
-      expect(isValidPortSpec('65536')).toBe(false);
-      expect(isValidPortSpec('-1')).toBe(false);
-      expect(isValidPortSpec('99999')).toBe(false);
-      expect(isValidPortSpec('3010-3000')).toBe(false); // reversed range
-      expect(isValidPortSpec('')).toBe(false);
-      expect(isValidPortSpec('080-090')).toBe(false); // leading zeros in range
-      expect(isValidPortSpec('01-100')).toBe(false); // leading zero in start
-      expect(isValidPortSpec('1-0100')).toBe(false); // leading zero in end
+      expect(iptablesRulesTestHelpers.isValidPortSpec('abc')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('0')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('65536')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('-1')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('99999')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('3010-3000')).toBe(false); // reversed range
+      expect(iptablesRulesTestHelpers.isValidPortSpec('')).toBe(false);
+      expect(iptablesRulesTestHelpers.isValidPortSpec('080-090')).toBe(false); // leading zeros in range
+      expect(iptablesRulesTestHelpers.isValidPortSpec('01-100')).toBe(false); // leading zero in start
+      expect(iptablesRulesTestHelpers.isValidPortSpec('1-0100')).toBe(false); // leading zero in end
     });
   });
 

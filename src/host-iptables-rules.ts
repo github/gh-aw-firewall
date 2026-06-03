@@ -40,7 +40,7 @@ export interface CliProxyHostConfig {
  * Validates a port specification string.
  * Accepts a single port (1-65535) or a port range ("N-M" where both are valid ports and N <= M).
  */
-export function isValidPortSpec(spec: string): boolean {
+function isValidPortSpec(spec: string): boolean {
   const rangeMatch = spec.match(/^(\d+)-(\d+)$/);
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10);
@@ -51,6 +51,10 @@ export function isValidPortSpec(spec: string): boolean {
   const port = parseInt(spec, 10);
   return !isNaN(port) && String(port) === spec && port >= 1 && port <= 65535;
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const iptablesRulesTestHelpers = { isValidPortSpec };
 
 function parseValidPortSpecs(input: string | undefined, label: string): string[] {
   if (!input) {
