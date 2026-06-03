@@ -809,7 +809,7 @@ The API proxy MUST enforce the permission-denied limit as follows:
      ```
 
 4. **Finality**: Once the limit is reached, all subsequent requests in the
-   same run MUST be rejected. The counter is not recoverable.
+   same run MUST be rejected until the configured limit changes (changing `AWF_MAX_PERMISSION_DENIED` resets the counter).
 
 ### 11a.3 Introspection
 
