@@ -827,7 +827,7 @@ The `/reflect` endpoint (available on all provider ports 10000–10003; see
 ```
 
 When `maxPermissionDenied` is not configured, the `enabled` field MUST be
-`false` and `max_permission_denied` MUST be `null`.
+`false`, `max_permission_denied` MUST be `null`, and `denied_count` MUST be `0`.
 
 ### 11a.4 Configuration
 
