@@ -330,6 +330,27 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getAuthHeaders()).toEqual({ 'X-Custom-Auth': 'azure-byok-key' });
   });
 
+  it('should not default to api-key header in OIDC mode when COPILOT_PROVIDER_TYPE=azure', () => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      AWF_AUTH_TYPE: 'github-oidc',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'test-tenant',
+      AWF_AUTH_AZURE_CLIENT_ID: 'test-client',
+    });
+
+    const provider = adapter.getOidcProvider();
+    provider._cachedToken = 'azure-ad-token';
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+
+    const headers = adapter.getAuthHeaders({});
+    expect(headers).toEqual({ Authorization: 'Bearer azure-ad-token' });
+    expect(headers['api-key']).toBeUndefined();
+
+    provider.shutdown();
+  });
+
   it('should not create OIDC provider when required vars are missing', () => {
     const adapter = createOpenAIAdapter({
       AWF_AUTH_TYPE: 'github-oidc',
