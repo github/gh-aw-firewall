@@ -30,6 +30,7 @@ function createUpstreamResponseHandlers({
   trackTokenUsage,
   applyEffectiveTokenUsage,
   applyMaxRunsInvocation,
+  applyPermissionDenied,
   extractBillingHeaders,
   parseDeprecatedHeaderFromBody,
   learnAndStripDeprecatedHeaderValue,
@@ -59,6 +60,7 @@ function createUpstreamResponseHandlers({
 
   function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req, responseBody }) {
     if (statusCode === 401 || statusCode === 403) {
+      applyPermissionDenied();
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,
         upstream_host: targetHost, path: sanitizeForLog(req.url),

@@ -18,6 +18,8 @@ function createProxyWebSocket({
   buildEffectiveTokenLimitError,
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
+  getPermissionDeniedBlockState,
+  buildPermissionDeniedLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
 }) {
@@ -85,6 +87,20 @@ function createProxyWebSocket({
       });
       socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
       socket.write(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
+      socket.destroy();
+      return;
+    }
+
+    const pdBlock = getPermissionDeniedBlockState();
+    if (pdBlock && pdBlock.maxExceeded) {
+      logRequest('warn', 'permission_denied_limit_exceeded', {
+        request_id: requestId,
+        provider,
+        denied_count: pdBlock.deniedCount,
+        max_permission_denied: pdBlock.maxPermissionDenied,
+      });
+      socket.write('HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
+      socket.write(JSON.stringify(buildPermissionDeniedLimitError(pdBlock)));
       socket.destroy();
       return;
     }

@@ -49,6 +49,7 @@ const {
   extractBillingHeaders,
   getEffectiveTokenReflectState,
   getMaxRunsReflectState,
+  getPermissionDeniedReflectState,
 } = require('./proxy-request');
 
 const {
@@ -125,6 +126,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getMaxRunsUsage: () => getMaxRunsReflectState(),
+  getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
 });
 
 function buildModelsJson() {

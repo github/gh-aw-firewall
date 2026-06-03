@@ -149,6 +149,9 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...(config.maxRuns !== undefined && {
         AWF_MAX_RUNS: String(config.maxRuns),
       }),
+      ...(config.maxPermissionDenied !== undefined && {
+        AWF_MAX_PERMISSION_DENIED: String(config.maxPermissionDenied),
+      }),
       ...(config.agentTimeout !== undefined && {
         AWF_AGENT_TIMEOUT_MINUTES: String(config.agentTimeout),
       }),

@@ -90,6 +90,7 @@ describe('config-assembly', () => {
     effectiveTokenModelMultipliers: {},
     effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,
+    maxPermissionDenied: undefined,
   });
 
   const createMinimalNetworkOptions = (): NetworkOptionsResult => ({

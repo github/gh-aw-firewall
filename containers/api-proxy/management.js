@@ -29,6 +29,7 @@ const metrics = require('./metrics');
  * @property {() => Record<string, { enabled: boolean, strategy: string, suppressed: boolean, suppression_reason?: string }>} getEffectiveModelFallback - Returns provider-effective fallback summary
  * @property {() => object}         getEffectiveTokenUsage - Returns effective token usage summary
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
+ * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
  */
 
 /**
@@ -52,6 +53,7 @@ function createManagementHandlers(deps) {
     getEffectiveModelFallback,
     getEffectiveTokenUsage,
     getMaxRunsUsage,
+    getPermissionDeniedUsage,
   } = deps;
 
   /**
@@ -103,6 +105,7 @@ function createManagementHandlers(deps) {
       model_fallback_effective: getEffectiveModelFallback(),
       effective_tokens: getEffectiveTokenUsage(),
       runs: getMaxRunsUsage(),
+      permission_denied: getPermissionDeniedUsage(),
     };
   }
 

@@ -40,6 +40,13 @@ const {
   buildMaxRunsExceededError,
 } = require('./guards/max-runs-guard');
 const {
+  applyPermissionDenied,
+  getPermissionDeniedBlockState,
+  getPermissionDeniedReflectState,
+  resetPermissionDeniedGuardForTests,
+  buildPermissionDeniedLimitError,
+} = require('./guards/max-permission-denied-guard');
+const {
   getAndClearPendingTimeoutSteeringMessage,
   resetTimeoutSteeringForTests,
 } = require('./guards/timeout-steering');
@@ -205,6 +212,8 @@ const proxyWebSocket = createProxyWebSocket({
   buildEffectiveTokenLimitError,
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
+  getPermissionDeniedBlockState,
+  buildPermissionDeniedLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
 });
@@ -273,6 +282,7 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   trackTokenUsage,
   applyEffectiveTokenUsage,
   applyMaxRunsInvocation,
+  applyPermissionDenied,
   extractBillingHeaders,
   parseDeprecatedHeaderFromBody,
   learnAndStripDeprecatedHeaderValue,
@@ -530,6 +540,24 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
+    const pdBlock = getPermissionDeniedBlockState();
+    if (pdBlock && pdBlock.maxExceeded) {
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('warn', 'permission_denied_limit_exceeded', {
+        request_id: requestId,
+        provider,
+        denied_count: pdBlock.deniedCount,
+        max_permission_denied: pdBlock.maxPermissionDenied,
+      });
+      otel.endSpan(span, 403);
+      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify(buildPermissionDeniedLimitError(pdBlock)));
+      return;
+    }
+
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
       const bodyModel = extractModelFromBody(body);
       const mmBlock = getModelMultiplierCapBlockState(bodyModel);
@@ -569,8 +597,10 @@ module.exports = {
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
   getMaxRunsReflectState,
+  getPermissionDeniedReflectState,
   resetEffectiveTokenGuardForTests,
   resetMaxRunsGuardForTests,
+  resetPermissionDeniedGuardForTests,
   resetMaxModelMultiplierGuardForTests,
   resetTimeoutSteeringForTests,
   resetAnthropicDeprecatedBetaHeadersForTests: resetDeprecatedHeaderValuesForTests,

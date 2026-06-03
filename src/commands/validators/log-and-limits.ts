@@ -20,6 +20,7 @@ export interface LogAndLimitsResult {
   effectiveTokenDefaultModelMultiplier: number | undefined;
   maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
+  maxPermissionDenied: number | undefined;
   memoryLimit: string | undefined;
   agentImage: string | undefined;
 }
@@ -131,6 +132,18 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     process.exit(1);
   }
 
+  const maxPermissionDeniedOption = (options as Record<string, unknown>).maxPermissionDenied as
+    | string
+    | number
+    | undefined;
+  const maxPermissionDenied =
+    maxPermissionDeniedOption !== undefined ? Number(maxPermissionDeniedOption) : undefined;
+
+  if (maxPermissionDenied !== undefined && (!Number.isInteger(maxPermissionDenied) || maxPermissionDenied <= 0)) {
+    console.error('Error: Invalid maxPermissionDenied value (must be a positive integer)');
+    process.exit(1);
+  }
+
   logger.setLevel(logLevel);
 
   // --- Resource limits -----------------------------------------------------
@@ -163,6 +176,7 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap,
     maxRuns,
+    maxPermissionDenied,
     memoryLimit: memoryLimit.value,
     agentImage: agentImageResult.agentImage,
   };

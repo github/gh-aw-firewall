@@ -22,6 +22,7 @@ interface AwfFileConfig {
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
     maxRuns?: number;
+    maxPermissionDenied?: number;
     requestedModel?: string;
     modelFallback?: {
       enabled?: boolean;
@@ -188,6 +189,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
     maxRuns: config.apiProxy?.maxRuns,
+    maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,

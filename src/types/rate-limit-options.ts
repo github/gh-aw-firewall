@@ -68,6 +68,17 @@ export interface RateLimitOptions {
   maxRuns?: number;
 
   /**
+   * Maximum number of upstream permission-denied (401/403) responses allowed
+   * for the current AWF run.
+   *
+   * When set, the API proxy counts upstream 401/403 responses and rejects
+   * further requests once this threshold is reached, stopping the run early
+   * to avoid wasting tokens on misconfigured or missing API credentials.
+   * When unset, the guard is disabled and permission errors are not counted.
+   */
+  maxPermissionDenied?: number;
+
+  /**
    * Enable effective token budget steering warnings in the API proxy
    *
    * When true, the api-proxy injects budget-warning system messages into outgoing
