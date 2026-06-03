@@ -350,7 +350,8 @@ program
     'Maximum number of upstream 401/403 responses allowed per run (requires --enable-api-proxy).\n' +
     '                                       When reached, the API proxy rejects all subsequent requests with HTTP 403\n' +
     '                                       and error type permission_denied_limit_exceeded, stopping the run to avoid\n' +
-    '                                       wasting tokens on misconfigured credentials. Must be a positive integer.',
+    '                                       wasting tokens on misconfigured credentials.\n' +
+    '                                       Must be a positive integer.',
   )
   .option(
     '--enable-token-steering',
