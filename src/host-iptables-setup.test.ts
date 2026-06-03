@@ -540,7 +540,7 @@ describe('host-iptables (setup)', () => {
       await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8'])).resolves.toBeUndefined();
     });
 
-    it('should continue setup when IPv6 chain cleanup throws (line 213 catch)', async () => {
+    it('should continue setup when IPv6 chain cleanup throws', async () => {
       setupDefaultIptablesMocks();
 
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
