@@ -103,7 +103,7 @@ steps:
 
 ## ⚡ Fast Path
 
-Read the pre-fetched diff below first. If it contains **no** security-weakening changes (no ACCEPT/DROP edits, no capability additions, no ACL regressions, no seccomp relaxations), call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
+Read the pre-fetched diff below first. If you see `[DIFF TRUNCATED ...]`, fetch full context once with `mcp__github__get_pull_request_diff` before deciding to noop. Only use the fast path when the full diff contains **no** security-weakening changes: no weakened DROP/REJECT or expanded ACCEPT, no egress/domain allowlist expansion, no firewall chain changes, no capability additions, no ACL regressions, no seccomp relaxations, no DNS/wildcard bypass, no input validation weakening, and no secrets. Then call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
 
 ## Repository Context
 
@@ -128,7 +128,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 ## Security Checks
 
-Focus: weakened DROP/REJECT, added capabilities (SYS_ADMIN/NET_RAW), expanded ACCEPT, firewall chain changes, Squid ACL regressions, seccomp relaxations, DNS/wildcard bypass, input validation weakening, secrets.
+Focus: weakened DROP/REJECT, added capabilities (SYS_ADMIN/NET_RAW), expanded ACCEPT, egress expansion, firewall chain changes, Squid ACL regressions, seccomp relaxations, DNS/wildcard bypass, input validation weakening, secrets.
 
 ## Output Format
 
