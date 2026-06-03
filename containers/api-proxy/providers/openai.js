@@ -62,8 +62,9 @@ function createOpenAIAdapter(env, deps = {}) {
       }
       return header;
     }
-    // Azure OpenAI uses `api-key` header instead of `Authorization: Bearer`
-    if (copilotAzureByokEnabled) return 'api-key';
+    // Azure OpenAI BYOK uses `api-key` header instead of `Authorization: Bearer`
+    // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden)
+    if (copilotAzureByokEnabled && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() !== 'github-oidc') return 'api-key';
     return '';
   })();
   const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
