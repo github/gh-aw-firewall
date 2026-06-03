@@ -289,5 +289,12 @@ describe('buildConfig', () => {
       const config = buildConfig(makeInputs({ resolvedCopilotApiTarget: 'https://copilot.example.com' }));
       expect(config.copilotApiTarget).toBe('https://copilot.example.com');
     });
+
+    it('should pass through copilotByokExtraHeaders', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, copilotByokExtraHeaders: { 'x-session-id': 'run-42' } },
+      }));
+      expect(config.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
+    });
   });
 });

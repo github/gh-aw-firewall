@@ -49,6 +49,9 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
 
   // Pre-startup model validation (non-sensitive config value)
   if (config.requestedModel) env.AWF_REQUESTED_MODEL = config.requestedModel;
+  if (config.copilotByokExtraHeaders !== undefined) {
+    env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
+  }
 
   return env;
 }

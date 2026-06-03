@@ -143,8 +143,8 @@
                             "description": "Anthropic API target override."
                         },
                         "copilot": {
-                            "$ref": "#/$defs/providerHostOnlyTarget",
-                            "description": "GitHub Copilot API target override (basePath not supported)."
+                            "$ref": "#/$defs/copilotTarget",
+                            "description": "GitHub Copilot API target override and BYOK supplemental headers (basePath not supported)."
                         },
                         "gemini": {
                             "$ref": "#/$defs/providerTarget",
@@ -578,6 +578,24 @@
                 "host": {
                     "type": "string",
                     "description": "Override the provider API host."
+                }
+            }
+        },
+        "copilotTarget": {
+            "type": "object",
+            "description": "Copilot target override (host only) plus non-sensitive BYOK supplemental headers.",
+            "additionalProperties": false,
+            "properties": {
+                "host": {
+                    "type": "string",
+                    "description": "Override the Copilot API host."
+                },
+                "extraHeaders": {
+                    "type": "object",
+                    "description": "Additional non-sensitive headers to include on Copilot BYOK upstream requests. Values must be strings. Maps to AWF_BYOK_EXTRA_HEADERS in the sidecar.",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 }
             }
         }

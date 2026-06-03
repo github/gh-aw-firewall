@@ -556,6 +556,20 @@ describe('API proxy sidecar: env var forwarding', () => {
           expect(env.AWF_REQUESTED_MODEL).toBe('gpt-4o-2024-08-06');
         });
 
+        it('should forward copilotByokExtraHeaders as AWF_BYOK_EXTRA_HEADERS', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderApiKey: 'sk-test-key',
+            copilotByokExtraHeaders: { 'x-session-id': 'run-42', 'HTTP-Referer': 'https://example.com' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_BYOK_EXTRA_HEADERS).toBe(
+            JSON.stringify({ 'x-session-id': 'run-42', 'HTTP-Referer': 'https://example.com' }),
+          );
+        });
+
         it('should forward modelAliases as AWF_MODEL_ALIASES (JSON-wrapped)', () => {
           const aliases: Record<string, string[]> = { 'gpt-4o': ['azure/gpt-4o-prod'] };
           const configWithProxy = {

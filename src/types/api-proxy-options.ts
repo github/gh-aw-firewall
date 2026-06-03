@@ -168,6 +168,19 @@ export interface ApiProxyOptions {
   copilotApiBasePath?: string;
 
   /**
+   * Supplemental headers for Copilot BYOK upstream requests (non-sensitive).
+   *
+   * When set, these headers are JSON-encoded and passed to the API proxy as
+   * `AWF_BYOK_EXTRA_HEADERS`. They are only applied by the sidecar when
+   * `COPILOT_PROVIDER_API_KEY` is in use.
+   *
+   * Set via config file path `apiProxy.targets.copilot.extraHeaders`.
+   *
+   * @default undefined
+   */
+  copilotByokExtraHeaders?: Record<string, string>;
+
+  /**
    * Target hostname for OpenAI API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar

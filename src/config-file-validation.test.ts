@@ -170,6 +170,27 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.targets.anthropic.basePath must be a string');
   });
 
+  it('accepts copilot extraHeaders as object of string values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraHeaders: { 'x-session-id': 'run-42' } } } },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects non-object copilot extraHeaders', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraHeaders: 'invalid' } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraHeaders must be an object');
+  });
+
+  it('rejects non-string copilot extraHeaders values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraHeaders: { 'x-session-id': 42 } } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraHeaders.x-session-id must be a string');
+  });
+
   it('accepts gemini target with host and basePath', () => {
     const errors = validateAwfFileConfig({
       apiProxy: { targets: { gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1' } } },

@@ -70,7 +70,7 @@ describe('awf-config.schema.json', () => {
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
           anthropic: { host: 'api.anthropic.com', basePath: '/v1' },
-          copilot: { host: 'api.githubcopilot.com' },
+          copilot: { host: 'api.githubcopilot.com', extraHeaders: { 'x-session-id': 'run-42' } },
           gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
         },
         models: {
@@ -182,6 +182,31 @@ describe('awf-config.schema.json', () => {
 
   it('rejects copilot basePath (not supported)', () => {
     expect(validate({ apiProxy: { targets: { copilot: { host: 'api.githubcopilot.com', basePath: '/v1' } } } })).toBe(false);
+  });
+
+  it('accepts copilot extraHeaders as string map', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            host: 'api.githubcopilot.com',
+            extraHeaders: { 'x-session-id': 'run-42' },
+          },
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects non-string copilot extraHeaders values', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraHeaders: { 'x-session-id': 42 },
+          },
+        },
+      },
+    })).toBe(false);
   });
 
   it('accepts allowHostPorts as string or array of strings', () => {
