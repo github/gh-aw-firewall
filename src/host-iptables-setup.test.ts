@@ -520,7 +520,7 @@ describe('host-iptables (setup)', () => {
   });
 
   describe('setupHostIptables chain cleanup error handling', () => {
-    it('should continue setup when existing FW_WRAPPER chain cleanup throws (line 139 catch)', async () => {
+    it('should continue setup when existing FW_WRAPPER chain cleanup throws', async () => {
       // chain exists (exitCode 0) but cleanupChain throws — should be swallowed and setup continues
       mockedExeca
         // getNetworkBridgeName
