@@ -386,6 +386,8 @@ unset_sensitive_tokens() {
     "CLAUDE_CODE_OAUTH_TOKEN"
     # Codex tokens
     "CODEX_API_KEY"
+    # Copilot BYOK provider tokens
+    "COPILOT_PROVIDER_API_KEY"
   )
 
   echo "[entrypoint] Unsetting sensitive tokens from parent shell environment..." >&2

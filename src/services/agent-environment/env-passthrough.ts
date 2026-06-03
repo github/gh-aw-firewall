@@ -67,7 +67,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
       'CODEX_API_KEY',
       'ANTHROPIC_API_KEY',
       'COPILOT_GITHUB_TOKEN',
-      'COPILOT_API_KEY',
+      'COPILOT_PROVIDER_API_KEY',
     ] as const) {
       if (process.env[v]) {
         environment[v] = process.env[v]!;

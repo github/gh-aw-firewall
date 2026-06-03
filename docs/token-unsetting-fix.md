@@ -42,6 +42,7 @@ The following tokens are unset from the entrypoint's environment:
 - **OpenAI tokens**: OPENAI_API_KEY, OPENAI_KEY
 - **Anthropic/Claude tokens**: ANTHROPIC_API_KEY, CLAUDE_API_KEY, CLAUDE_CODE_OAUTH_TOKEN
 - **Codex tokens**: CODEX_API_KEY
+- **Copilot BYOK provider tokens**: COPILOT_PROVIDER_API_KEY
 
 ### Timeline
 

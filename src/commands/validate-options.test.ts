@@ -77,7 +77,7 @@ const STUB_CONFIG = {
   openaiApiKey: undefined,
   anthropicApiKey: undefined,
   copilotGithubToken: undefined,
-  copilotApiKey: undefined,
+  copilotProviderApiKey: undefined,
   geminiApiKey: undefined,
   copilotApiTarget: undefined,
   copilotApiBasePath: undefined,

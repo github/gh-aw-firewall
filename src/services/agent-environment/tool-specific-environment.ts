@@ -16,8 +16,14 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
   const isCopilotCommand = commandExecutableBase.toLowerCase() === 'copilot';
   const isCodexCommand = commandExecutableBase.toLowerCase() === 'codex';
   const stagedBinaryName = extractCommandBinaryName(config.agentCommand);
+  const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
 
-  if (config.copilotGithubToken || config.copilotApiKey || isCopilotCommand) {
+  // Any Copilot signal (named command, GitHub token, or direct-BYOK key) means
+  // the user is going to invoke Copilot CLI, which requires Node.js. Set
+  // AWF_REQUIRE_NODE so the entrypoint emits a friendly preflight error when
+  // node is missing — including the wrapped-script case where the basename
+  // isn't literally "copilot".
+  if (config.copilotGithubToken || hasCopilotProviderApiKey || isCopilotCommand) {
     environment.AWF_REQUIRE_NODE = '1';
   }
 
@@ -29,14 +35,22 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
     environment.AWF_STAGED_RUNNER_BINARY_NAME = stagedBinaryName;
   }
 
+  // GitHub-token path: user supplied COPILOT_GITHUB_TOKEN. Mask it in the agent
+  // so the real token (held by the sidecar) cannot leak via --env-all.
   if (config.enableApiProxy && config.copilotGithubToken) {
     environment.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
 
-  if (config.enableApiProxy && config.copilotApiKey) {
-    environment.COPILOT_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
-    logger.debug('COPILOT_API_KEY set to placeholder value (early) to prevent --env-all override');
+  // Direct-BYOK path: user supplied COPILOT_PROVIDER_API_KEY (pointing Copilot CLI
+  // at an arbitrary upstream via COPILOT_PROVIDER_BASE_URL). The real key is
+  // forwarded to the sidecar; the agent only sees a placeholder so the real value
+  // cannot leak via --env-all.
+  //
+  // Set the placeholder whenever Copilot routes through the sidecar (either path),
+  // and also whenever the user supplied a real COPILOT_PROVIDER_API_KEY (so it
+  // never reaches the agent regardless of which other Copilot signals are present).
+  if (config.enableApiProxy && (config.copilotGithubToken || hasCopilotProviderApiKey)) {
     environment.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value (early) to prevent --env-all override');
   }

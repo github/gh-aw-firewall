@@ -37,14 +37,14 @@ export interface ApiProxyOptions {
    * variables are set in the agent container:
    * - OPENAI_BASE_URL=http://api-proxy:10000 (set when OPENAI_API_KEY is provided)
    * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
-   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN or COPILOT_API_KEY is provided)
+   * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN is provided)
    * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
    *
    * API keys are passed via environment variables:
    * - OPENAI_API_KEY - Optional OpenAI API key for Codex
    * - ANTHROPIC_API_KEY - Optional Anthropic API key for Claude
    * - COPILOT_GITHUB_TOKEN - Optional GitHub token for Copilot
-   * - COPILOT_API_KEY - Optional direct Copilot API key (BYOK)
+   * - COPILOT_PROVIDER_API_KEY - Optional upstream BYOK API key for Copilot-compatible providers
    * - GEMINI_API_KEY - Optional Google Gemini API key
    *
    * @default false
@@ -54,7 +54,6 @@ export interface ApiProxyOptions {
    * export OPENAI_API_KEY="sk-..."
    * export ANTHROPIC_API_KEY="sk-ant-..."
    * export COPILOT_GITHUB_TOKEN="ghp_..."
-   * export COPILOT_API_KEY="your-copilot-api-key..."
    * awf --enable-api-proxy --allow-domains api.openai.com,api.anthropic.com,api.githubcopilot.com -- command
    * ```
    * @see API_PROXY_PORTS for port configuration
@@ -99,19 +98,23 @@ export interface ApiProxyOptions {
   copilotGithubToken?: string;
 
   /**
-   * Direct Copilot API key for BYOK (Bring Your Own Key) authentication
+   * Upstream BYOK API key for Copilot-compatible providers (used by API proxy sidecar)
    *
-   * When enableApiProxy is true, this key is injected into the Node.js sidecar
-   * container and used to authenticate requests to api.githubcopilot.com.
-   *
-   * This is an alternative to copilotGithubToken for direct API key authentication
-   * (BYOK mode) without requiring GitHub OAuth token exchange.
+   * When enableApiProxy is true and this key is provided, AWF routes Copilot CLI
+   * through the sidecar in direct-BYOK mode (Azure Foundry, OpenRouter, etc.).
+   * The real key is injected into the Node.js sidecar container and used to
+   * authenticate requests to the user-supplied COPILOT_PROVIDER_BASE_URL.
    *
    * The key is NOT exposed to the agent container - only the proxy URL is provided.
+   * The agent receives a placeholder value so Copilot CLI's startup auth check passes.
+   *
+   * Sourced from `process.env.COPILOT_PROVIDER_API_KEY` in build-config; matches the
+   * pattern used by OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, and
+   * GEMINI_API_KEY.
    *
    * @default undefined
    */
-  copilotApiKey?: string;
+  copilotProviderApiKey?: string;
 
   /**
    * Google Gemini API key (used by API proxy sidecar)

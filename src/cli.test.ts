@@ -19,7 +19,6 @@ jest.mock('commander', () => {
 import { Command } from 'commander';
 import * as cliModule from './cli';
 import {
-  resolveCopilotApiKey,
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
@@ -349,17 +348,6 @@ describe('cli', () => {
   });
 
   describe('Copilot BYOK env resolution', () => {
-    it('prefers COPILOT_API_KEY and falls back to COPILOT_PROVIDER_API_KEY', () => {
-      expect(resolveCopilotApiKey({
-        COPILOT_API_KEY: 'primary-key',
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('primary-key');
-
-      expect(resolveCopilotApiKey({
-        COPILOT_PROVIDER_API_KEY: 'fallback-key',
-      })).toBe('fallback-key');
-    });
-
     it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {
       expect(deriveCopilotApiTargetFromProviderBaseUrl('https://openrouter.ai/api/v1')).toBe('openrouter.ai');
       expect(deriveCopilotApiTargetFromProviderBaseUrl('openrouter.ai/api/v1')).toBe('openrouter.ai');

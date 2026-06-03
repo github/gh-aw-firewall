@@ -743,7 +743,7 @@ sudo -E awf --enable-api-proxy \
 | `OPENAI_API_KEY` | OpenAI / Codex |
 | `ANTHROPIC_API_KEY` | Anthropic / Claude |
 | `COPILOT_GITHUB_TOKEN` | GitHub Copilot |
-| `COPILOT_API_KEY` | GitHub Copilot (BYOK) |
+| `COPILOT_PROVIDER_API_KEY` | GitHub Copilot BYOK provider (Azure / OpenRouter / etc.) |
 | `GEMINI_API_KEY` | Google Gemini |
 
 **Sidecar ports:**
@@ -1042,6 +1042,7 @@ These variables supply API credentials to the API proxy sidecar when `--enable-a
 | `OPENAI_API_KEY` | OpenAI API key — held securely in the api-proxy sidecar |
 | `ANTHROPIC_API_KEY` | Anthropic API key — held securely in the api-proxy sidecar |
 | `COPILOT_GITHUB_TOKEN` | GitHub Copilot token — held securely in the api-proxy sidecar |
+| `COPILOT_PROVIDER_API_KEY` | GitHub Copilot BYOK provider API key — held securely in the api-proxy sidecar |
 
 :::danger[Credential Isolation]
 When `--enable-api-proxy` is active, these credentials are **never exposed to the agent container**. They are held exclusively in the api-proxy sidecar, which injects them into outbound requests on the agent's behalf.

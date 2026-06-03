@@ -20,7 +20,7 @@ describe('validateApiProxyConfig', () => {
     expect(result.warnings[1]).toContain('OPENAI_API_KEY');
     expect(result.warnings[1]).toContain('ANTHROPIC_API_KEY');
     expect(result.warnings[1]).toContain('COPILOT_GITHUB_TOKEN');
-    expect(result.warnings[1]).toContain('COPILOT_API_KEY');
+    expect(result.warnings[1]).toContain('COPILOT_PROVIDER_API_KEY');
     expect(result.warnings[1]).toContain('GEMINI_API_KEY');
     expect(result.debugMessages).toEqual([]);
   });

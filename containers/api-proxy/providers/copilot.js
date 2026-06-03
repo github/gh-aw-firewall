@@ -4,8 +4,8 @@
  * GitHub Copilot provider adapter.
  *
  * Port: 10002
- * Auth: Bearer token (COPILOT_GITHUB_TOKEN or COPILOT_API_KEY)
- * Credentials: COPILOT_GITHUB_TOKEN (GitHub OAuth, higher trust) or COPILOT_API_KEY (BYOK)
+ * Auth: Bearer token (COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY)
+ * Credentials: COPILOT_GITHUB_TOKEN (GitHub OAuth, higher trust) or COPILOT_PROVIDER_API_KEY (BYOK)
  * Target: COPILOT_API_TARGET  (auto-derived from GITHUB_SERVER_URL if not set)
  * Base path: optional `COPILOT_API_BASE_PATH` for prefixed BYOK routers
  *
@@ -24,15 +24,12 @@ const {
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const { URL } = require('url');
 
-// AWF injects this sentinel value into the agent environment for credential isolation.
+// AWF injects this sentinel value into the *agent* environment for credential isolation.
 // The ghu_ prefix is intentional: it matches the GitHub token shape that Copilot CLI
 // auth pre-checks expect, but the 36 repeated 'a' characters make it unambiguous as
 // a non-real placeholder.  It is defined in src/constants/placeholders.ts and must
-// stay in sync.  When this value appears as COPILOT_API_KEY in the sidecar environment
-// it means the sidecar received a dummy key (not a real BYOK credential) and should
-// fall back to COPILOT_GITHUB_TOKEN as the sole auth source.
+// stay in sync.
 const COPILOT_PLACEHOLDER_TOKEN = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const COPILOT_DUMMY_BYOK_KEY = 'dummy-byok-key-for-offline-mode';
 
 /**
  * Strip any accidental "Bearer " or "token " prefix from a raw credential
@@ -51,26 +48,34 @@ function stripBearerPrefix(value) {
 }
 
 /**
- * Returns the COPILOT_API_KEY value from env if it is a real BYOK credential,
+ * Returns the COPILOT_PROVIDER_API_KEY value from env if it is a real BYOK credential,
  * or undefined in two cases:
- *   1. COPILOT_API_KEY is not set (or is empty/whitespace-only).
- *   2. COPILOT_API_KEY equals the known AWF placeholder sentinel — it was injected
+ *   1. COPILOT_PROVIDER_API_KEY is not set (or is empty/whitespace-only).
+ *   2. COPILOT_PROVIDER_API_KEY equals the known AWF placeholder sentinel — it was injected
  *      by AWF for credential isolation and is not a usable BYOK credential.
+ *
+ * The case-(2) placeholder check is defense-in-depth: in AWF's normal flow the placeholder
+ * is never written into the sidecar's own COPILOT_PROVIDER_API_KEY (src/services/api-proxy-
+ * service-config.ts only forwards a real user-supplied BYOK key). If a future refactor,
+ * misconfiguration, or standalone use of the sidecar image ever caused the agent's env
+ * (which does contain the placeholder) to be passed through to the sidecar, we must treat
+ * it as absent so that the placeholder is not used as a real Authorization credential
+ * against an upstream provider.
  *
  * @param {Record<string, string|undefined>} env - Environment variables to inspect
  * @returns {string|undefined} The real BYOK key, or undefined when absent or placeholder.
  */
 function resolveApiKey(env) {
-  const key = stripBearerPrefix(env.COPILOT_API_KEY);
-  return key === COPILOT_PLACEHOLDER_TOKEN || key === COPILOT_DUMMY_BYOK_KEY ? undefined : key;
+  const key = stripBearerPrefix(env.COPILOT_PROVIDER_API_KEY);
+  return key === COPILOT_PLACEHOLDER_TOKEN ? undefined : key;
 }
 
 /**
  * Resolves the Copilot auth token from environment variables.
- * COPILOT_API_KEY (direct BYOK key) takes precedence over COPILOT_GITHUB_TOKEN (GitHub OAuth).
+ * COPILOT_PROVIDER_API_KEY (direct BYOK key) takes precedence over COPILOT_GITHUB_TOKEN (GitHub OAuth).
  *
  * The AWF placeholder token is treated as absent (via resolveApiKey) so that when AWF
- * injects it as a dummy COPILOT_API_KEY the sidecar falls back to COPILOT_GITHUB_TOKEN.
+ * injects it as a dummy COPILOT_PROVIDER_API_KEY the sidecar falls back to COPILOT_GITHUB_TOKEN.
  * This ensures that when a real BYOK key is configured alongside a GitHub token, the BYOK
  * key is used for inference rather than inadvertently sending a GitHub OAuth token to a
  * third-party provider.
@@ -194,7 +199,6 @@ function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
     (env.COPILOT_PROVIDER_TYPE || '').trim()
     || (env.COPILOT_PROVIDER_BASE_URL || '').trim()
     || (env.COPILOT_PROVIDER_API_KEY || '').trim()
-    || (env.COPILOT_API_KEY || '').trim()
   );
 
   // Standard Copilot (no BYOK hints): suppress fallback because Copilot is
@@ -269,11 +273,11 @@ function createCopilotAdapter(env, deps = {}) {
       if (!authToken) return null;
 
       // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
-      // COPILOT_API_KEY alone cannot be validated at startup.
+      // COPILOT_PROVIDER_API_KEY alone cannot be validated at startup.
       if (!githubToken) {
         return {
           skip: true,
-          reason: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode',
+          reason: 'COPILOT_PROVIDER_API_KEY configured but startup validation is not supported for this auth mode',
         };
       }
 
@@ -314,7 +318,7 @@ function createCopilotAdapter(env, deps = {}) {
       }
 
       // BYOK / custom provider (e.g. OpenRouter):
-      // Use the explicit BYOK API key (COPILOT_API_KEY) rather than authToken
+      // Use the explicit BYOK API key (COPILOT_PROVIDER_API_KEY) rather than authToken
       // to ensure we never send a GitHub OAuth token to third-party providers.
       // Skip the fetch when no BYOK key is configured.
       if (!apiKey) return null;
@@ -352,7 +356,7 @@ function createCopilotAdapter(env, deps = {}) {
      * Build Copilot auth headers for this request.
      *
      * The Copilot /models endpoint only accepts COPILOT_GITHUB_TOKEN (GitHub OAuth).
-     * All other requests use the resolved auth token (COPILOT_API_KEY when real, otherwise COPILOT_GITHUB_TOKEN).
+     * All other requests use the resolved auth token (COPILOT_PROVIDER_API_KEY when real, otherwise COPILOT_GITHUB_TOKEN).
      *
      * @param {import('http').IncomingMessage} req
      * @returns {Record<string, string>}
@@ -387,7 +391,7 @@ function createCopilotAdapter(env, deps = {}) {
       return makeProviderNotConfiguredResponse(
         'copilot',
         10002,
-        'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_API_KEY to enable this provider.'
+        'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY to enable this provider.'
       );
     },
 
@@ -395,7 +399,7 @@ function createCopilotAdapter(env, deps = {}) {
     getUnconfiguredHealthResponse() {
       return {
         statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_API_KEY not configured in api-proxy sidecar' },
+        body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar' },
       };
     },
 
@@ -421,6 +425,5 @@ module.exports = {
     deriveGitHubApiBasePath,
     isGithubCopilotCatalogTarget,
     COPILOT_PLACEHOLDER_TOKEN,
-    COPILOT_DUMMY_BYOK_KEY,
   },
 };

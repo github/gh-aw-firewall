@@ -1,5 +1,4 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
-import { resolveCopilotApiKey } from '../copilot-api-resolver';
 
 /**
  * Inputs required to assemble a {@link WrapperConfig}.
@@ -123,7 +122,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     openaiApiKey: process.env.OPENAI_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
-    copilotApiKey: resolveCopilotApiKey(process.env),
+    copilotProviderApiKey: process.env.COPILOT_PROVIDER_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
     copilotApiTarget: resolvedCopilotApiTarget,
     copilotApiBasePath: resolvedCopilotApiBasePath,

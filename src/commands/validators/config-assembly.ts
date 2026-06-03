@@ -175,19 +175,28 @@ export function assembleAndValidateConfig(
   }
 
   // Validate and warn about API proxy configuration
-  // Pass booleans (not actual keys) to prevent sensitive data flow to logger
+  // Pass booleans (not actual keys) to prevent sensitive data flow to logger.
+  // `copilotByokDirect` means the user supplied COPILOT_PROVIDER_API_KEY for direct-BYOK
+  // mode (Azure Foundry, OpenRouter, etc.) without a GitHub token; the sidecar still
+  // routes through it, so for "is there a Copilot path?" purposes either signal counts.
+  const copilotByokDirect = !!config.copilotProviderApiKey;
   const apiProxyValidation = validateApiProxyConfig(
     config.enableApiProxy || false,
     !!config.openaiApiKey,
     !!config.anthropicApiKey,
-    !!(config.copilotGithubToken || config.copilotApiKey),
+    !!config.copilotGithubToken || copilotByokDirect,
     !!config.geminiApiKey,
   );
 
   // Log API proxy status at info level for visibility
   if (config.enableApiProxy) {
+    const copilotStatus = config.copilotGithubToken
+      ? 'true (github-token)'
+      : copilotByokDirect
+        ? 'true (byok-direct)'
+        : 'false';
     logger.info(
-      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${!!(config.copilotGithubToken || config.copilotApiKey)}, Gemini=${!!config.geminiApiKey}`,
+      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${copilotStatus}, Gemini=${!!config.geminiApiKey}`,
     );
   }
 

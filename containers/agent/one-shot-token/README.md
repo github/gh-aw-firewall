@@ -51,6 +51,9 @@ By default, the library protects these token variables:
 **Codex:**
 - `CODEX_API_KEY`
 
+**Copilot BYOK provider:**
+- `COPILOT_PROVIDER_API_KEY`
+
 ### Custom Token List
 
 You can configure a custom list of tokens to protect using the `AWF_ONE_SHOT_TOKENS` environment variable:

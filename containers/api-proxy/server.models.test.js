@@ -307,14 +307,14 @@ describe('makeModelBodyTransform', () => {
     const prevCopilotTarget = process.env.COPILOT_API_TARGET;
     const prevCopilotProviderType = process.env.COPILOT_PROVIDER_TYPE;
     const prevCopilotProviderBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
-    const prevCopilotApiKey = process.env.COPILOT_API_KEY;
+    const prevCopilotApiKey = process.env.COPILOT_PROVIDER_API_KEY;
 
     process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
     process.env.COPILOT_API_TARGET = 'example-resource.openai.azure.com';
     process.env.COPILOT_PROVIDER_TYPE = 'azure';
     process.env.COPILOT_PROVIDER_BASE_URL = 'https://example-resource.openai.azure.com/openai/deployments/test';
-    delete process.env.COPILOT_API_KEY;
+    delete process.env.COPILOT_PROVIDER_API_KEY;
 
     try {
       let isolatedServer;
@@ -339,8 +339,8 @@ describe('makeModelBodyTransform', () => {
       else process.env.COPILOT_PROVIDER_TYPE = prevCopilotProviderType;
       if (prevCopilotProviderBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
       else process.env.COPILOT_PROVIDER_BASE_URL = prevCopilotProviderBaseUrl;
-      if (prevCopilotApiKey === undefined) delete process.env.COPILOT_API_KEY;
-      else process.env.COPILOT_API_KEY = prevCopilotApiKey;
+      if (prevCopilotApiKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
+      else process.env.COPILOT_PROVIDER_API_KEY = prevCopilotApiKey;
     }
   });
 });

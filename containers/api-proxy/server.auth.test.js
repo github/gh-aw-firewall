@@ -11,7 +11,6 @@ const {
     resolveApiKey,
     stripBearerPrefix,
     COPILOT_PLACEHOLDER_TOKEN,
-    COPILOT_DUMMY_BYOK_KEY,
   },
   createCopilotAdapter,
 } = require('./providers/copilot');
@@ -101,14 +100,14 @@ describe('resolveCopilotAuthToken', () => {
     expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: 'gho_abc123' })).toBe('gho_abc123');
   });
 
-  it('should return COPILOT_API_KEY when only it is set', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'sk-byok-key' })).toBe('sk-byok-key');
+  it('should return COPILOT_PROVIDER_API_KEY when only it is set', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_PROVIDER_API_KEY: 'sk-byok-key' })).toBe('sk-byok-key');
   });
 
-  it('should prefer COPILOT_API_KEY over COPILOT_GITHUB_TOKEN when both are set', () => {
+  it('should prefer COPILOT_PROVIDER_API_KEY over COPILOT_GITHUB_TOKEN when both are set', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: 'gho_abc123',
-      COPILOT_API_KEY: 'sk-byok-key',
+      COPILOT_PROVIDER_API_KEY: 'sk-byok-key',
     })).toBe('sk-byok-key');
   });
 
@@ -117,79 +116,68 @@ describe('resolveCopilotAuthToken', () => {
   });
 
   it('should return undefined for empty strings', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '', COPILOT_API_KEY: '' })).toBeUndefined();
+    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '', COPILOT_PROVIDER_API_KEY: '' })).toBeUndefined();
   });
 
   it('should return undefined for whitespace-only values', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '  ', COPILOT_API_KEY: '  \n' })).toBeUndefined();
+    expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: '  ', COPILOT_PROVIDER_API_KEY: '  \n' })).toBeUndefined();
   });
 
   it('should trim whitespace from token values', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: '  sk-byok-key  ' })).toBe('sk-byok-key');
+    expect(resolveCopilotAuthToken({ COPILOT_PROVIDER_API_KEY: '  sk-byok-key  ' })).toBe('sk-byok-key');
   });
 
-  it('should use COPILOT_API_KEY when COPILOT_GITHUB_TOKEN is whitespace-only', () => {
+  it('should use COPILOT_PROVIDER_API_KEY when COPILOT_GITHUB_TOKEN is whitespace-only', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: '  ',
-      COPILOT_API_KEY: 'sk-byok-key',
+      COPILOT_PROVIDER_API_KEY: 'sk-byok-key',
     })).toBe('sk-byok-key');
   });
 
-  it('should fall back to COPILOT_GITHUB_TOKEN when COPILOT_API_KEY is whitespace-only', () => {
+  it('should fall back to COPILOT_GITHUB_TOKEN when COPILOT_PROVIDER_API_KEY is whitespace-only', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: 'gho_abc123',
-      COPILOT_API_KEY: '  ',
+      COPILOT_PROVIDER_API_KEY: '  ',
     })).toBe('gho_abc123');
   });
 
-  it('strips "Bearer " prefix from COPILOT_API_KEY when resolving', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: 'Bearer sk-or-v1-abc' })).toBe('sk-or-v1-abc');
+  it('strips "Bearer " prefix from COPILOT_PROVIDER_API_KEY when resolving', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_PROVIDER_API_KEY: 'Bearer sk-or-v1-abc' })).toBe('sk-or-v1-abc');
   });
 
   it('strips "Bearer " prefix from COPILOT_GITHUB_TOKEN when resolving', () => {
     expect(resolveCopilotAuthToken({ COPILOT_GITHUB_TOKEN: 'Bearer gho_abc123' })).toBe('gho_abc123');
   });
 
-  it('prefers stripped COPILOT_API_KEY over stripped COPILOT_GITHUB_TOKEN', () => {
+  it('prefers stripped COPILOT_PROVIDER_API_KEY over stripped COPILOT_GITHUB_TOKEN', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: 'Bearer gho_abc123',
-      COPILOT_API_KEY: 'Bearer sk-byok-key',
+      COPILOT_PROVIDER_API_KEY: 'Bearer sk-byok-key',
     })).toBe('sk-byok-key');
   });
 
-  it('treats AWF placeholder COPILOT_API_KEY as absent when no COPILOT_GITHUB_TOKEN is set', () => {
-    expect(resolveCopilotAuthToken({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+  it('treats AWF placeholder COPILOT_PROVIDER_API_KEY as absent when no COPILOT_GITHUB_TOKEN is set', () => {
+    expect(resolveCopilotAuthToken({ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
   });
 
-  it('uses COPILOT_GITHUB_TOKEN when COPILOT_API_KEY is the AWF placeholder', () => {
+  it('uses COPILOT_GITHUB_TOKEN when COPILOT_PROVIDER_API_KEY is the AWF placeholder', () => {
     expect(resolveCopilotAuthToken({
       COPILOT_GITHUB_TOKEN: 'gho_real_token',
-      COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
-    })).toBe('gho_real_token');
-  });
-
-  it('uses COPILOT_GITHUB_TOKEN when COPILOT_API_KEY is the offline BYOK dummy key', () => {
-    expect(resolveCopilotAuthToken({
-      COPILOT_GITHUB_TOKEN: 'gho_real_token',
-      COPILOT_API_KEY: COPILOT_DUMMY_BYOK_KEY,
+      COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     })).toBe('gho_real_token');
   });
 });
 
 describe('resolveApiKey', () => {
   it('returns the API key when it is a real credential', () => {
-    expect(resolveApiKey({ COPILOT_API_KEY: 'sk-byok-key' })).toBe('sk-byok-key');
+    expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: 'sk-byok-key' })).toBe('sk-byok-key');
   });
 
-  it('returns undefined when COPILOT_API_KEY is the AWF placeholder', () => {
-    expect(resolveApiKey({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+  it('returns undefined when COPILOT_PROVIDER_API_KEY is the AWF placeholder', () => {
+    expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
   });
 
-  it('returns undefined when COPILOT_API_KEY is the offline BYOK dummy key', () => {
-    expect(resolveApiKey({ COPILOT_API_KEY: COPILOT_DUMMY_BYOK_KEY })).toBeUndefined();
-  });
-
-  it('returns undefined when COPILOT_API_KEY is not set', () => {
+  it('returns undefined when COPILOT_PROVIDER_API_KEY is not set', () => {
     expect(resolveApiKey({})).toBeUndefined();
   });
 });
@@ -241,9 +229,9 @@ describe('sanitizeNullToolCallTypes (via copilot body transform)', () => {
 // ── createCopilotAdapter — BYOK auth header format ───────────────────────────
 //
 // These tests guard against the "badly formatted Authorization header" bug in
-// BYOK mode where the sidecar is configured with COPILOT_API_KEY (the real key
+// BYOK mode where the sidecar is configured with COPILOT_PROVIDER_API_KEY (the real key
 // held by the sidecar) and could produce "Authorization: Bearer Bearer <key>"
-// if the COPILOT_API_KEY value already contained the "Bearer " prefix.
+// if the COPILOT_PROVIDER_API_KEY value already contained the "Bearer " prefix.
 // They also verify that the header injected for inference requests is exactly
 // "Bearer <key>" and that the Copilot-Integration-Id header is present.
 
@@ -252,76 +240,76 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   const fakeModelsReq = { url: '/models', method: 'GET', headers: {} };
 
   it('injects Authorization: Bearer <key> for BYOK inference request', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
   });
 
   it('injects Copilot-Integration-Id header for BYOK inference request', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
   });
 
   it('prevents double "Bearer " prefix when API key already contains "Bearer " prefix (BYOK bug fix)', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'Bearer sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'Bearer sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
     expect(headers['Authorization']).not.toContain('Bearer Bearer');
   });
 
   it('strips "Bearer " prefix case-insensitively from API key', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'BEARER sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'BEARER sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
   });
 
-  it('uses COPILOT_GITHUB_TOKEN (not COPILOT_API_KEY) for /models GET in BYOK+token mode', () => {
+  it('uses COPILOT_GITHUB_TOKEN (not COPILOT_PROVIDER_API_KEY) for /models GET in BYOK+token mode', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'gho_oauth_token',
-      COPILOT_API_KEY: 'sk-or-v1-abc123',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
     });
     const headers = adapter.getAuthHeaders(fakeModelsReq);
     expect(headers['Authorization']).toBe('Bearer gho_oauth_token');
   });
 
-  it('uses COPILOT_API_KEY (not COPILOT_GITHUB_TOKEN) for inference in BYOK+token mode', () => {
+  it('uses COPILOT_PROVIDER_API_KEY (not COPILOT_GITHUB_TOKEN) for inference in BYOK+token mode', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'gho_oauth_token',
-      COPILOT_API_KEY: 'sk-or-v1-abc123',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
     });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
   });
 
   it('uses API key for /models GET when no COPILOT_GITHUB_TOKEN is set (BYOK-only mode)', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeModelsReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
   });
 
-  it('is enabled when only COPILOT_API_KEY is set', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+  it('is enabled when only COPILOT_PROVIDER_API_KEY is set', () => {
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     expect(adapter.isEnabled()).toBe(true);
   });
 
-  it('is disabled when COPILOT_API_KEY is the AWF placeholder and no COPILOT_GITHUB_TOKEN is set', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN });
+  it('is disabled when COPILOT_PROVIDER_API_KEY is the AWF placeholder and no COPILOT_GITHUB_TOKEN is set', () => {
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN });
     expect(adapter.isEnabled()).toBe(false);
   });
 
-  it('is enabled when COPILOT_API_KEY is the AWF placeholder but COPILOT_GITHUB_TOKEN is set', () => {
+  it('is enabled when COPILOT_PROVIDER_API_KEY is the AWF placeholder but COPILOT_GITHUB_TOKEN is set', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'gho_real_token',
-      COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
+      COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     });
     expect(adapter.isEnabled()).toBe(true);
   });
 
-  it('uses COPILOT_GITHUB_TOKEN for inference when COPILOT_API_KEY is the AWF placeholder', () => {
+  it('uses COPILOT_GITHUB_TOKEN for inference when COPILOT_PROVIDER_API_KEY is the AWF placeholder', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'gho_real_token',
-      COPILOT_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
+      COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer gho_real_token');
@@ -329,7 +317,7 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
 
   it('uses custom COPILOT_INTEGRATION_ID when set', () => {
     const adapter = createCopilotAdapter({
-      COPILOT_API_KEY: 'sk-or-v1-abc123',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
       COPILOT_INTEGRATION_ID: 'my-custom-integration',
     });
     const headers = adapter.getAuthHeaders(fakeReq);
@@ -338,14 +326,14 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
 
   it('uses COPILOT_API_BASE_PATH when configured', () => {
     const adapter = createCopilotAdapter({
-      COPILOT_API_KEY: 'sk-or-v1-abc123',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
       COPILOT_API_BASE_PATH: '/api/v1/',
     });
     expect(adapter.getBasePath()).toBe('/api/v1');
   });
 
   it('defaults to empty base path when COPILOT_API_BASE_PATH is not set', () => {
-    const adapter = createCopilotAdapter({ COPILOT_API_KEY: 'sk-or-v1-abc123' });
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     expect(adapter.getBasePath()).toBe('');
   });
 });

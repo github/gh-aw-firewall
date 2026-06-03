@@ -82,10 +82,6 @@ describe('buildExclusionSet', () => {
       expect(buildExclusionSet(config).has('COPILOT_GITHUB_TOKEN')).toBe(true);
     });
 
-    it('should exclude COPILOT_API_KEY', () => {
-      expect(buildExclusionSet(config).has('COPILOT_API_KEY')).toBe(true);
-    });
-
     it('should exclude COPILOT_PROVIDER_API_KEY', () => {
       expect(buildExclusionSet(config).has('COPILOT_PROVIDER_API_KEY')).toBe(true);
     });

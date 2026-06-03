@@ -194,15 +194,15 @@ describe('validateApiKeys', () => {
     expect(log).toBeDefined();
   });
 
-  it('skips Copilot when only COPILOT_API_KEY is set (BYOK mode)', async () => {
+  it('skips Copilot when only COPILOT_PROVIDER_API_KEY is set (BYOK mode)', async () => {
     collectLogOutput();
     const spy = jest.spyOn(https, 'request');
     await validateApiKeys([createValidationAdapter('copilot', {
       skip: true,
-      reason: 'COPILOT_API_KEY configured but startup validation is not supported for this auth mode',
+      reason: 'COPILOT_PROVIDER_API_KEY configured but startup validation is not supported for this auth mode',
     })]);
     expect(keyValidationResults.copilot.status).toBe('skipped');
-    expect(keyValidationResults.copilot.message).toContain('COPILOT_API_KEY');
+    expect(keyValidationResults.copilot.message).toContain('COPILOT_PROVIDER_API_KEY');
     expect(spy).not.toHaveBeenCalled();
   });
 

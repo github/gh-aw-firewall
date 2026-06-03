@@ -4,16 +4,6 @@ import {
 } from './copilot-api-resolver.internal';
 
 /**
- * Resolve the Copilot BYOK key from supported environment variables.
- * COPILOT_API_KEY takes precedence over COPILOT_PROVIDER_API_KEY.
- */
-export function resolveCopilotApiKey(
-  env: Record<string, string | undefined> = process.env
-): string | undefined {
-  return env.COPILOT_API_KEY || env.COPILOT_PROVIDER_API_KEY;
-}
-
-/**
  * Resolve Copilot target/base-path routing for BYOK provider-style env vars.
  *
  * Target precedence:
