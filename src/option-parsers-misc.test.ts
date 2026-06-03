@@ -171,6 +171,23 @@ describe('parseMemoryLimit', () => {
 });
 
 describe('applyAgentTimeout', () => {
+  it.each(['abc', '0', '-5', '', '1.5', '030', '30m'])('should call process.exit for invalid value: %s', (value) => {
+    const config: any = {};
+    const logger = { error: jest.fn(), info: jest.fn() };
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code}`);
+    }) as any);
+
+    try {
+      expect(() => applyAgentTimeout(value, config, logger)).toThrow('process.exit:1');
+      expect(logger.error).toHaveBeenCalledWith('--agent-timeout must be a positive integer (minutes)');
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(config.agentTimeout).toBeUndefined();
+    } finally {
+      mockExit.mockRestore();
+    }
+  });
+
   it('should do nothing when agentTimeout is undefined', () => {
     const config: any = {};
     const logger = { error: jest.fn(), info: jest.fn() };
