@@ -10,12 +10,14 @@ describe('security guard workflow optimization config', () => {
     const source = fs.readFileSync(securityGuardSourcePath, 'utf-8');
 
     expect(source).toContain('model: claude-sonnet-4-5');
-    expect(source).toContain('max-turns: 10');
+    expect(source).toContain('max-turns: 6');
+    expect(source).toContain('## ⚡ Fast Path');
+    expect(source).toContain('safeoutputs noop');
     expect(source).toContain('## Security Checks');
-    expect(source).toContain('ACCEPT and DROP/REJECT weakening');
+    expect(source).toContain('DROP/REJECT');
     expect(source).toContain('firewall chain changes');
     expect(source).toContain('Squid ACL regressions');
-    expect(source).toContain('capability additions (SYS_ADMIN/NET_RAW)');
+    expect(source).toContain('SYS_ADMIN/NET_RAW');
     expect(source).toContain('seccomp relaxations');
     expect(source).toContain('input validation weakening');
     expect(source).toContain('secrets');
@@ -25,8 +27,8 @@ describe('security guard workflow optimization config', () => {
     const lock = fs.readFileSync(securityGuardLockPath, 'utf-8');
 
     expect(lock).toContain('"agent_model":"claude-sonnet-4-5"');
-    expect(lock).toContain('--max-turns 10');
+    expect(lock).toContain('--max-turns 6');
     expect(lock).toContain('ANTHROPIC_MODEL: claude-sonnet-4-5');
-    expect(lock).toContain('GH_AW_MAX_TURNS: 10');
+    expect(lock).toContain('GH_AW_MAX_TURNS: 6');
   });
 });

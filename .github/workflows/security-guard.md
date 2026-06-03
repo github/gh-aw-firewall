@@ -12,7 +12,7 @@ permissions:
 engine:
   id: claude
   model: claude-sonnet-4-5
-  max-turns: 10
+  max-turns: 6
 tools:
   github:
     mode: gh-proxy
@@ -101,6 +101,10 @@ steps:
 
 > If this value is `0`, the workflow skips the agent job.
 
+## ⚡ Fast Path
+
+Read the pre-fetched diff below first. If it contains **no** security-weakening changes (no ACCEPT/DROP edits, no capability additions, no ACL regressions, no seccomp relaxations), call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
+
 ## Repository Context
 
 You are a security-focused AI agent that carefully reviews pull requests in this repository to identify changes that could weaken the security posture or extend the security boundaries of the Agentic Workflow Firewall (AWF).
@@ -124,12 +128,12 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 ## Security Checks
 
-Check: ACCEPT and DROP/REJECT weakening, firewall chain changes, Squid ACL regressions, capability additions (SYS_ADMIN/NET_RAW), seccomp relaxations, egress expansion, DNS/wildcard bypass, input validation weakening, secrets.
+Focus: weakened DROP/REJECT, added capabilities (SYS_ADMIN/NET_RAW), expanded ACCEPT, firewall chain changes, Squid ACL regressions, seccomp relaxations, DNS/wildcard bypass, input validation weakening, secrets.
 
 ## Output Format
 
 **IMPORTANT: Be concise.** Report each security finding in ≤ 150 words. Maximum 5 findings total.
-**STOP EARLY:** If the pre-fetched diff shows no security-weakening changes, call `safeoutputs noop` immediately. If `[DIFF TRUNCATED ...]` is present, fetch full context once with `mcp__github__get_pull_request_diff` before deciding to noop.
+If `[DIFF TRUNCATED ...]` is present, fetch full context once with `mcp__github__get_pull_request_diff` before deciding to noop.
 
 If you find security concerns:
 1. Add a comment to the PR explaining each concern
