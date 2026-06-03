@@ -1,6 +1,6 @@
 import { API_PROXY_PORTS } from './types';
 import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
-import { iptablesRulesTestHelpers } from './host-iptables-rules';
+import { iptablesRulesTestHelpers } from './host-iptables-rules.test-utils';
 import { setupHostIptables } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
