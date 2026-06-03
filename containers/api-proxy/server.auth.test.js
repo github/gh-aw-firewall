@@ -11,6 +11,7 @@ const {
     resolveApiKey,
     stripBearerPrefix,
     COPILOT_PLACEHOLDER_TOKEN,
+    parseByokExtraHeaders,
   },
   createCopilotAdapter,
 } = require('./providers/copilot');
@@ -335,6 +336,173 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   it('defaults to empty base path when COPILOT_API_BASE_PATH is not set', () => {
     const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     expect(adapter.getBasePath()).toBe('');
+  });
+});
+
+// ── parseByokExtraHeaders ─────────────────────────────────────────────────────
+
+describe('parseByokExtraHeaders', () => {
+  it('returns empty object for undefined input', () => {
+    expect(parseByokExtraHeaders(undefined)).toEqual({});
+  });
+
+  it('returns empty object for empty string', () => {
+    expect(parseByokExtraHeaders('')).toEqual({});
+  });
+
+  it('returns empty object for whitespace-only string', () => {
+    expect(parseByokExtraHeaders('   ')).toEqual({});
+  });
+
+  it('parses a valid JSON object of string headers', () => {
+    const result = parseByokExtraHeaders('{"x-session-id":"sess-123","HTTP-Referer":"https://example.com"}');
+    expect(result).toEqual({
+      'x-session-id': 'sess-123',
+      'HTTP-Referer': 'https://example.com',
+    });
+  });
+
+  it('returns empty object and warns for invalid JSON', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{not-valid-json}');
+    expect(result).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
+    warnSpy.mockRestore();
+  });
+
+  it('returns empty object and warns when value is a JSON array (not object)', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('["x-session-id","value"]');
+    expect(result).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('expected a JSON object'));
+    warnSpy.mockRestore();
+  });
+
+  it('returns empty object and warns when value is a JSON string (not object)', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('"just-a-string"');
+    expect(result).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('expected a JSON object'));
+    warnSpy.mockRestore();
+  });
+
+  it('skips auth-critical header "authorization" with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{"authorization":"******","x-session-id":"sess-1"}');
+    expect(result).not.toHaveProperty('authorization');
+    expect(result['x-session-id']).toBe('sess-1');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('auth-critical'));
+    warnSpy.mockRestore();
+  });
+
+  it('skips auth-critical header "Authorization" (case-insensitive) with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{"Authorization":"******"}');
+    expect(result).not.toHaveProperty('Authorization');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('auth-critical'));
+    warnSpy.mockRestore();
+  });
+
+  it('skips auth-critical header "x-api-key" with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{"x-api-key":"leaked-key"}');
+    expect(result).not.toHaveProperty('x-api-key');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('auth-critical'));
+    warnSpy.mockRestore();
+  });
+
+  it('skips invalid HTTP header names with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{"invalid header name":"value","x-valid":"ok"}');
+    expect(result).not.toHaveProperty('invalid header name');
+    expect(result['x-valid']).toBe('ok');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not a valid HTTP header name'));
+    warnSpy.mockRestore();
+  });
+
+  it('skips entries with non-string values with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraHeaders('{"x-count":42,"x-session-id":"sess-1"}');
+    expect(result).not.toHaveProperty('x-count');
+    expect(result['x-session-id']).toBe('sess-1');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a string'));
+    warnSpy.mockRestore();
+  });
+});
+
+// ── createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection ──────────────────
+
+describe('createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection', () => {
+  const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+  const fakeModelsReq = { url: '/models', method: 'GET', headers: {} };
+
+  it('injects extra BYOK headers on inference request when BYOK API key is set', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-42","HTTP-Referer":"https://example.com"}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['x-session-id']).toBe('sess-42');
+    expect(headers['HTTP-Referer']).toBe('https://example.com');
+  });
+
+  it('does not override Authorization or Copilot-Integration-Id with extra headers', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-1"}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
+    expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
+  });
+
+  it('does NOT inject extra headers when only GitHub OAuth token is set (no BYOK key)', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'gho_oauth_token',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-42"}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['x-session-id']).toBeUndefined();
+  });
+
+  it('does NOT inject extra headers on /models GET when GitHub OAuth token is available', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'gho_oauth_token',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-42"}',
+    });
+    // /models GET with GitHub token goes to GitHub Copilot — extra headers must not be sent there
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('Bearer gho_oauth_token');
+    expect(headers['x-session-id']).toBeUndefined();
+  });
+
+  it('injects extra BYOK headers on /models GET when only BYOK API key is set (no GitHub token)', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-42"}',
+    });
+    // Without a GitHub token, /models GET uses the BYOK key and goes to the BYOK provider
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['x-session-id']).toBe('sess-42');
+  });
+
+  it('does not inject extra headers when AWF_BYOK_EXTRA_HEADERS is not set', () => {
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(Object.keys(headers)).toEqual(['Authorization', 'Copilot-Integration-Id']);
+  });
+
+  it('ignores invalid AWF_BYOK_EXTRA_HEADERS JSON and still authenticates normally', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_HEADERS: '{bad-json}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
+    warnSpy.mockRestore();
   });
 });
 

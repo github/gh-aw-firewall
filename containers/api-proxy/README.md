@@ -42,6 +42,11 @@ Required (at least one):
 
 Optional:
 - `COPILOT_API_TARGET` - Target hostname for GitHub Copilot API requests (default: `api.githubcopilot.com`). Useful for GHES deployments.
+- `AWF_BYOK_EXTRA_HEADERS` - JSON object of additional headers to inject into upstream requests when the Copilot BYOK API key (`COPILOT_PROVIDER_API_KEY`) is in use. Useful for provider-native observability (e.g. OpenRouter session grouping, Helicone user tracking):
+  ```
+  AWF_BYOK_EXTRA_HEADERS='{"x-session-id":"my-session","HTTP-Referer":"https://example.com"}'
+  ```
+  Auth-critical header names (`authorization`, `x-api-key`, etc.) are rejected. Headers are only sent when the BYOK API key is used; standard GitHub OAuth (`COPILOT_GITHUB_TOKEN`) requests are unaffected.
 
 Set by AWF:
 - `HTTP_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
