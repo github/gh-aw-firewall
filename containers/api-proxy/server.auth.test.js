@@ -447,13 +447,16 @@ describe('createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection', () => {
   });
 
   it('does not override Authorization or Copilot-Integration-Id with extra headers', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = createCopilotAdapter({
       COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
-      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"sess-1"}',
+      AWF_BYOK_EXTRA_HEADERS: '{"Authorization":"malicious","Copilot-Integration-Id":"evil","x-session-id":"sess-1"}',
     });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
     expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
+    expect(headers['x-session-id']).toBe('sess-1');
+    warnSpy.mockRestore();
   });
 
   it('does NOT inject extra headers when only GitHub OAuth token is set (no BYOK key)', () => {
