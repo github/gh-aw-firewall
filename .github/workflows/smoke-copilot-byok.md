@@ -1,5 +1,5 @@
 ---
-description: Smoke test for Copilot CLI in offline BYOK mode — validates COPILOT_OFFLINE path through the api-proxy sidecar
+description: Smoke test for Copilot CLI in direct BYOK mode — validates COPILOT_PROVIDER_API_KEY path through the api-proxy sidecar
 on:
   roles: all
   schedule: every 12h
@@ -13,7 +13,22 @@ permissions:
   issues: read
   actions: read
 name: Smoke Copilot BYOK
-engine: copilot
+engine:
+  id: copilot
+  env:
+    # Direct-BYOK trigger. The sibling smoke-copilot workflow already exercises
+    # the COPILOT_GITHUB_TOKEN path (auto-injected by gh-aw under the MCP
+    # sandbox); this workflow instead drives the COPILOT_PROVIDER_API_KEY code
+    # path (via the AWF sandbox + api-proxy sidecar) so both BYOK auth surfaces
+    # have CI coverage. We reuse the COPILOT_GITHUB_TOKEN secret value because
+    # the target upstream is still api.githubcopilot.com (CAPI), which accepts
+    # the same Bearer token regardless of variable name. The value is wired in
+    # under engine.env (rather than the workflow-level env) because gh-aw's
+    # strict mode allowlists this exact variable here to keep the secret out of
+    # the agent container — AWF then forwards it to the api-proxy sidecar and
+    # injects a placeholder into the agent env (see
+    # src/services/api-proxy-credential-env.ts).
+    COPILOT_PROVIDER_API_KEY: ${{ secrets.COPILOT_GITHUB_TOKEN }}
 network:
   allowed:
     - defaults
@@ -32,12 +47,11 @@ safe-outputs:
     allowed: [smoke-copilot-byok]
   messages:
     footer: "> 🔑 *BYOK report filed by [{workflow_name}]({run_url})*"
-    run-started: "🔑 [{workflow_name}]({run_url}) is testing offline BYOK mode on this {event_type}..."
+    run-started: "🔑 [{workflow_name}]({run_url}) is testing direct BYOK mode on this {event_type}..."
     run-success: "✅ [{workflow_name}]({run_url}) completed. Copilot BYOK mode operational. 🔓"
     run-failure: "❌ [{workflow_name}]({run_url}) reports {status}. BYOK mode investigation needed..."
 timeout-minutes: 15
 env:
-  COPILOT_API_KEY: dummy-byok-key-for-offline-mode
   COPILOT_MODEL: claude-opus-4.6
 sandbox:
   agent:
@@ -48,7 +62,6 @@ steps:
     id: smoke-data
     run: |
       echo "::group::Verify BYOK configuration"
-      echo "COPILOT_API_KEY=${COPILOT_API_KEY:+set (${#COPILOT_API_KEY} chars)}"
       echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-api.githubcopilot.com (default)}"
       echo "::endgroup::"
 
@@ -106,9 +119,9 @@ post-steps:
     run: |
       LOGS_DIR="/tmp/gh-aw/sandbox/firewall/logs"
       if [ -d "$LOGS_DIR" ]; then
-        echo "::group::Checking firewall logs for offline BYOK traffic"
+        echo "::group::Checking firewall logs for direct BYOK traffic"
         if find "$LOGS_DIR" -name '*.log' -exec grep -l "api.githubcopilot.com" {} + 2>/dev/null; then
-          echo "✅ Detected traffic to api.githubcopilot.com via api-proxy (BYOK offline mode)"
+          echo "✅ Detected traffic to api.githubcopilot.com via api-proxy (BYOK direct mode)"
         else
           echo "::warning::No traffic to api.githubcopilot.com found in firewall logs"
         fi
@@ -116,13 +129,13 @@ post-steps:
       fi
 ---
 
-# Smoke Test: Copilot BYOK (Offline) Mode
+# Smoke Test: Copilot BYOK (Direct) Mode
 
 **IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
 ## Purpose
 
-This smoke test validates that Copilot CLI runs in **offline BYOK mode** — with `COPILOT_OFFLINE=true` set by AWF because `COPILOT_API_KEY` is present. Inference requests are routed through the api-proxy sidecar to `api.githubcopilot.com`, authenticated with `COPILOT_GITHUB_TOKEN` (the real credential held by the sidecar). The agent only sees a dummy `COPILOT_API_KEY` placeholder.
+This smoke test validates that Copilot CLI runs in **direct BYOK mode** — triggered by `COPILOT_PROVIDER_API_KEY` being set on the workflow side. AWF forwards that key to the api-proxy sidecar and injects a placeholder into the agent. Inference requests are routed through the api-proxy sidecar to `api.githubcopilot.com`, authenticated with the real key held by the sidecar. The agent only sees a dummy placeholder credential. The sibling `smoke-copilot` workflow covers the parallel `COPILOT_GITHUB_TOKEN` BYOK path.
 
 ## Pre-Computed Test Results
 
@@ -141,7 +154,7 @@ File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
 Verify by running `cat` on the file path using bash to confirm it exists.
 
 ### 4. BYOK Inference Test
-You are running in offline BYOK mode right now. The fact that you can read this prompt and respond means the BYOK inference path (agent → api-proxy sidecar → api.githubcopilot.com) is working. Confirm ✅.
+You are running in direct BYOK mode right now. The fact that you can read this prompt and respond means the BYOK inference path (agent → api-proxy sidecar → api.githubcopilot.com) is working. Confirm ✅.
 
 ## Pre-Fetched PR Data
 
@@ -154,7 +167,7 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 Add a **very brief** comment (max 5-10 lines) to the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
-- Note: "Running in BYOK offline mode (COPILOT_OFFLINE=true) via api-proxy → api.githubcopilot.com"
+- Note: "Running in direct BYOK mode (COPILOT_PROVIDER_API_KEY) via api-proxy → api.githubcopilot.com"
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 

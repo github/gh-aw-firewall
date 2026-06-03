@@ -295,13 +295,12 @@ variables as *source credentials* — real API keys read from the host:
 |----------|----------|
 | `OPENAI_API_KEY` | OpenAI |
 | `ANTHROPIC_API_KEY` | Anthropic (Claude) |
-| `COPILOT_GITHUB_TOKEN` | GitHub Copilot |
-| `COPILOT_API_KEY` | GitHub Copilot (BYOK) |
+| `COPILOT_GITHUB_TOKEN` | GitHub Copilot — enables sidecar routing to `api.githubcopilot.com` (CAPI BYOK / offline mode) |
+| `COPILOT_PROVIDER_API_KEY` | GitHub Copilot BYOK provider key (e.g., Azure OpenAI / OpenRouter API key); independently enables sidecar routing — typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream |
 | `GEMINI_API_KEY` | Google Gemini |
 
 The following secondary aliases SHOULD also be recognized:
-`OPENAI_KEY`, `CODEX_API_KEY`, `CLAUDE_API_KEY`,
-`COPILOT_PROVIDER_API_KEY`.
+`OPENAI_KEY`, `CODEX_API_KEY`, `CLAUDE_API_KEY`.
 
 ### 9.2 API Proxy Enabled (`apiProxy.enabled = true`)
 
@@ -396,7 +395,7 @@ The default protected token list is:
 ```
 COPILOT_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, GITHUB_API_TOKEN,
 GITHUB_PAT, GH_ACCESS_TOKEN, OPENAI_API_KEY, OPENAI_KEY,
-ANTHROPIC_API_KEY, CLAUDE_API_KEY, CODEX_API_KEY, COPILOT_API_KEY,
+ANTHROPIC_API_KEY, CLAUDE_API_KEY, CODEX_API_KEY,
 COPILOT_PROVIDER_API_KEY
 ```
 

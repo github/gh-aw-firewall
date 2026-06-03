@@ -1,6 +1,5 @@
 import * as copilotApiResolverModule from './copilot-api-resolver';
 import {
-  resolveCopilotApiKey,
   resolveCopilotApiRouting,
 } from './copilot-api-resolver';
 import { copilotApiResolverTestHelpers } from './copilot-api-resolver.test-utils';
@@ -10,67 +9,9 @@ const {
   deriveCopilotApiBasePathFromProviderBaseUrl,
 } = copilotApiResolverTestHelpers;
 
-describe('resolveCopilotApiKey', () => {
+describe('copilot-api-resolver module', () => {
   it('should not expose test helpers from the production module API', () => {
     expect(copilotApiResolverModule).not.toHaveProperty('copilotApiResolverTestHelpers');
-  });
-
-  it('should return COPILOT_API_KEY when set', () => {
-    const env = { COPILOT_API_KEY: 'key123' };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
-  });
-
-  it('should return COPILOT_PROVIDER_API_KEY when COPILOT_API_KEY is not set', () => {
-    const env = { COPILOT_PROVIDER_API_KEY: 'provider_key456' };
-    expect(resolveCopilotApiKey(env)).toBe('provider_key456');
-  });
-
-  it('should prefer COPILOT_API_KEY over COPILOT_PROVIDER_API_KEY', () => {
-    const env = {
-      COPILOT_API_KEY: 'key123',
-      COPILOT_PROVIDER_API_KEY: 'provider_key456',
-    };
-    expect(resolveCopilotApiKey(env)).toBe('key123');
-  });
-
-  it('should return undefined when neither key is set', () => {
-    const env = {};
-    expect(resolveCopilotApiKey(env)).toBeUndefined();
-  });
-
-  it('should return empty string when keys are empty strings', () => {
-    const env = {
-      COPILOT_API_KEY: '',
-      COPILOT_PROVIDER_API_KEY: '',
-    };
-    expect(resolveCopilotApiKey(env)).toBe('');
-  });
-
-  it('should use process.env by default', () => {
-    // Save original env
-    const originalCopilotKey = process.env.COPILOT_API_KEY;
-    const originalProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
-
-    try {
-      delete process.env.COPILOT_API_KEY;
-      delete process.env.COPILOT_PROVIDER_API_KEY;
-      expect(resolveCopilotApiKey()).toBeUndefined();
-
-      process.env.COPILOT_API_KEY = 'test_key';
-      expect(resolveCopilotApiKey()).toBe('test_key');
-    } finally {
-      // Restore original env
-      if (originalCopilotKey !== undefined) {
-        process.env.COPILOT_API_KEY = originalCopilotKey;
-      } else {
-        delete process.env.COPILOT_API_KEY;
-      }
-      if (originalProviderKey !== undefined) {
-        process.env.COPILOT_PROVIDER_API_KEY = originalProviderKey;
-      } else {
-        delete process.env.COPILOT_PROVIDER_API_KEY;
-      }
-    }
   });
 });
 

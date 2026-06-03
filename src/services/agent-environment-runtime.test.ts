@@ -57,12 +57,23 @@ describe('agent environment: runtime', () => {
     expect(environment.AWF_REQUIRE_NODE).toBe('1');
   });
 
-  it.each([
-    { copilotGithubToken: 'ghu_test_token' },
-    { copilotApiKey: 'cpat_test_key' },
-  ])('should set AWF_REQUIRE_NODE when Copilot auth config is present: %o', (copilotConfig) => {
+  it('should set AWF_REQUIRE_NODE when copilotGithubToken is present', () => {
     const result = generateDockerCompose(
-      { ...mockConfig, agentCommand: 'echo test', ...copilotConfig },
+      { ...mockConfig, agentCommand: 'echo test', copilotGithubToken: 'ghu_test_token' },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_REQUIRE_NODE).toBe('1');
+  });
+
+  it('should set AWF_REQUIRE_NODE when COPILOT_PROVIDER_API_KEY is present (direct-BYOK)', () => {
+    const result = generateDockerCompose(
+      {
+        ...mockConfig,
+        agentCommand: './my-copilot-wrapper.sh',
+        copilotProviderApiKey: 'azure-byok-key',
+      },
       mockNetworkConfig,
     );
     const environment = result.services.agent.environment as Record<string, string>;

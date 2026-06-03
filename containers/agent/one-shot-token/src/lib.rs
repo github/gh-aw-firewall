@@ -48,6 +48,8 @@ const DEFAULT_SENSITIVE_TOKENS: &[&str] = &[
     "CLAUDE_API_KEY",
     // Codex tokens
     "CODEX_API_KEY",
+    // Copilot BYOK provider tokens
+    "COPILOT_PROVIDER_API_KEY",
 ];
 
 /// State for tracking tokens and their cached values

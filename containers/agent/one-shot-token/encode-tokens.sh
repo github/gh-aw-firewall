@@ -24,6 +24,7 @@ TOKENS=(
     "ANTHROPIC_API_KEY"
     "CLAUDE_API_KEY"
     "CODEX_API_KEY"
+    "COPILOT_PROVIDER_API_KEY"
 )
 
 echo "/* --- BEGIN GENERATED OBFUSCATED DEFAULTS (key=0x$(printf '%02X' $KEY)) --- */"

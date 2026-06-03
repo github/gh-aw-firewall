@@ -342,7 +342,6 @@ describe('createMainAction', () => {
         openaiApiKey: 'sk-secret',
         anthropicApiKey: 'ant-secret',
         copilotGithubToken: 'ghp-secret',
-        copilotApiKey: 'cop-secret',
         geminiApiKey: 'gem-secret',
       };
       mockedValidateOptions.validateOptions.mockReturnValue(

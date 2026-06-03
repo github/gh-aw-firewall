@@ -37,7 +37,7 @@ Required (at least one):
 - `OPENAI_API_KEY` - OpenAI API key for authentication
 - `ANTHROPIC_API_KEY` - Anthropic API key for authentication
 - `COPILOT_GITHUB_TOKEN` - GitHub token for Copilot authentication
-- `COPILOT_API_KEY` - Direct Copilot API key for BYOK mode
+- `COPILOT_PROVIDER_API_KEY` - Direct upstream provider key for Copilot BYOK mode
 - `GEMINI_API_KEY` - Google Gemini API key for authentication
 
 Optional:

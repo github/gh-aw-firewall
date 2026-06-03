@@ -26,7 +26,7 @@ interface ApiProxyServiceConfigParams {
 function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
   const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
-  const copilotProviderApiKey = getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
+  const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};
 
@@ -92,7 +92,6 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
       ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
       ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
-      ...(config.copilotApiKey && { COPILOT_API_KEY: config.copilotApiKey }),
       ...(config.geminiApiKey && { GEMINI_API_KEY: config.geminiApiKey }),
       // Configurable API targets (for GHES/GHEC / custom endpoints)
       // Strip any scheme prefix — server.js also normalizes defensively, but

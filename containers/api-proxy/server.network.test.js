@@ -350,7 +350,7 @@ describe('fetchStartupModels', () => {
   it('should populate cachedModels.copilot when BYOK key + custom provider target (adapter-based path)', async () => {
     mockHttpsRequestWithBody(200, '{"data":[{"id":"minimax/minimax-m2.5:free"},{"id":"openai/gpt-4o"}]}');
     const adapter = createCopilotAdapter({
-      COPILOT_API_KEY: 'sk-or-byok-key',
+      COPILOT_PROVIDER_API_KEY: 'sk-or-byok-key',
       COPILOT_API_TARGET: 'openrouter.ai',
       COPILOT_API_BASE_PATH: '/api/v1',
     });
@@ -411,12 +411,12 @@ describe('reflectEndpoints', () => {
     const prevTarget = process.env.COPILOT_API_TARGET;
     const prevProviderType = process.env.COPILOT_PROVIDER_TYPE;
     const prevProviderBase = process.env.COPILOT_PROVIDER_BASE_URL;
-    const prevApiKey = process.env.COPILOT_API_KEY;
+    const prevApiKey = process.env.COPILOT_PROVIDER_API_KEY;
 
     process.env.COPILOT_API_TARGET = 'example-resource.openai.azure.com';
     process.env.COPILOT_PROVIDER_TYPE = 'azure';
     process.env.COPILOT_PROVIDER_BASE_URL = 'https://example-resource.openai.azure.com/openai/deployments/test';
-    process.env.COPILOT_API_KEY = 'sk-test-byok';
+    process.env.COPILOT_PROVIDER_API_KEY = 'sk-test-byok';
 
     try {
       let isolatedServer;
@@ -440,8 +440,8 @@ describe('reflectEndpoints', () => {
       else process.env.COPILOT_PROVIDER_TYPE = prevProviderType;
       if (prevProviderBase === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
       else process.env.COPILOT_PROVIDER_BASE_URL = prevProviderBase;
-      if (prevApiKey === undefined) delete process.env.COPILOT_API_KEY;
-      else process.env.COPILOT_API_KEY = prevApiKey;
+      if (prevApiKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
+      else process.env.COPILOT_PROVIDER_API_KEY = prevApiKey;
     }
   });
 
@@ -450,7 +450,6 @@ describe('reflectEndpoints', () => {
       'COPILOT_PROVIDER_TYPE',
       'COPILOT_PROVIDER_BASE_URL',
       'COPILOT_PROVIDER_API_KEY',
-      'COPILOT_API_KEY',
       'COPILOT_API_TARGET',
     ];
     const prevValues = Object.fromEntries(hintVars.map(name => [name, process.env[name]]));

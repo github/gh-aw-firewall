@@ -102,7 +102,13 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
   const redactedConfig: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    if (key === 'openaiApiKey' || key === 'anthropicApiKey' || key === 'copilotGithubToken' || key === 'copilotApiKey' || key === 'geminiApiKey') continue;
+    if (
+      key === 'openaiApiKey' ||
+      key === 'anthropicApiKey' ||
+      key === 'copilotGithubToken' ||
+      key === 'copilotProviderApiKey' ||
+      key === 'geminiApiKey'
+    ) continue;
     redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
   }
   logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));

@@ -1,14 +1,5 @@
 import { buildConfig } from './build-config';
 
-// Mock copilot-api-resolver to avoid env-dependent behavior
-jest.mock('../copilot-api-resolver', () => ({
-  resolveCopilotApiKey: jest.fn().mockReturnValue(undefined),
-}));
-
-import { resolveCopilotApiKey } from '../copilot-api-resolver';
-
-const mockResolveCopilotApiKey = resolveCopilotApiKey as jest.Mock;
-
 /** Minimal valid inputs for buildConfig */
 function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}): Parameters<typeof buildConfig>[0] {
   return {
@@ -59,6 +50,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'COPILOT_GITHUB_TOKEN',
+  'COPILOT_PROVIDER_API_KEY',
   'GEMINI_API_KEY',
   'GITHUB_TOKEN',
   'GH_TOKEN',
@@ -77,7 +69,6 @@ describe('buildConfig', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockResolveCopilotApiKey.mockReturnValue(undefined);
     // Snapshot and clear env vars that affect the output
     savedEnv = {};
     for (const key of ENV_KEYS) {
@@ -193,11 +184,10 @@ describe('buildConfig', () => {
       expect(config.geminiApiKey).toBe('gemini-key');
     });
 
-    it('should call resolveCopilotApiKey with process.env', () => {
-      mockResolveCopilotApiKey.mockReturnValue('copilot-key');
+    it('should read COPILOT_PROVIDER_API_KEY from process.env', () => {
+      process.env.COPILOT_PROVIDER_API_KEY = 'sk-byok-provider';
       const config = buildConfig(makeInputs());
-      expect(config.copilotApiKey).toBe('copilot-key');
-      expect(mockResolveCopilotApiKey).toHaveBeenCalledWith(process.env);
+      expect(config.copilotProviderApiKey).toBe('sk-byok-provider');
     });
 
     it('should prefer GITHUB_TOKEN over GH_TOKEN', () => {

@@ -31,80 +31,20 @@ describe('agent environment: credentials', () => {
     }
   });
 
-  it('should forward COPILOT_API_KEY when api-proxy is disabled', () => {
-    const original = process.env.COPILOT_API_KEY;
-    process.env.COPILOT_API_KEY = 'cpat_test_byok_key';
-    try {
-      const configNoProxy = { ...mockConfig, enableApiProxy: false };
-      const result = generateDockerCompose(configNoProxy, mockNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_API_KEY).toBe('cpat_test_byok_key');
-    } finally {
-      if (original !== undefined) process.env.COPILOT_API_KEY = original;
-      else delete process.env.COPILOT_API_KEY;
-    }
-  });
-
-  it('should not forward COPILOT_API_KEY to agent when api-proxy is enabled', () => {
-    const original = process.env.COPILOT_API_KEY;
-    process.env.COPILOT_API_KEY = 'cpat_test_byok_key';
-    try {
-      const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotApiKey: 'cpat_test_byok_key' };
-      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      // Placeholder is set to prevent --env-all from leaking the real key
-      expect(env.COPILOT_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    } finally {
-      if (original !== undefined) process.env.COPILOT_API_KEY = original;
-      else delete process.env.COPILOT_API_KEY;
-    }
-  });
-
-  it('should not forward COPILOT_PROVIDER_API_KEY to agent from --env-all when api-proxy is enabled', () => {
-    const original = process.env.COPILOT_PROVIDER_API_KEY;
-    process.env.COPILOT_PROVIDER_API_KEY = 'sk-real-provider-key';
-    try {
-      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true };
-      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_PROVIDER_API_KEY).toBeUndefined();
-    } finally {
-      if (original !== undefined) process.env.COPILOT_PROVIDER_API_KEY = original;
-      else delete process.env.COPILOT_PROVIDER_API_KEY;
-    }
-  });
-
-  it('should keep COPILOT_PROVIDER_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
-    const original = process.env.COPILOT_PROVIDER_API_KEY;
-    const copilotApiKey = 'cpat-config-byok-key';
-    process.env.COPILOT_PROVIDER_API_KEY = 'sk-real-provider-key';
-    try {
-      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey };
-      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    } finally {
-      if (original !== undefined) process.env.COPILOT_PROVIDER_API_KEY = original;
-      else delete process.env.COPILOT_PROVIDER_API_KEY;
-    }
-  });
-
-  it('should keep COPILOT_API_KEY placeholder when api-proxy is enabled with copilotApiKey and --env-all', () => {
-    const original = process.env.COPILOT_API_KEY;
-    process.env.COPILOT_API_KEY = 'cpat-host-value';
-    try {
-      const configWithProxy = { ...mockConfig, enableApiProxy: true, envAll: true, copilotApiKey: 'cpat-config-byok-key' };
-      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
-      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.COPILOT_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    } finally {
-      if (original !== undefined) process.env.COPILOT_API_KEY = original;
-      else delete process.env.COPILOT_API_KEY;
-    }
+  it('should not forward COPILOT_PROVIDER_API_KEY to agent when api-proxy is enabled and key is configured', () => {
+    const configWithProxy = {
+      ...mockConfig,
+      enableApiProxy: true,
+      copilotProviderApiKey: 'sk-real-provider-key',
+    };
+    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    // Direct-BYOK mode auto-enables Copilot sidecar routing whenever a real
+    // COPILOT_PROVIDER_API_KEY is configured. The agent env must contain the
+    // placeholder, not the real key.
+    expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(env.COPILOT_PROVIDER_API_KEY).not.toBe('sk-real-provider-key');
   });
 
   it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {

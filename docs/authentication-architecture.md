@@ -177,7 +177,7 @@ In OIDC mode (`AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=anthropic`), the s
 
 #### Port 10002: GitHub Copilot proxy
 
-Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Copilot auth token (`COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY`), forwarding to `api.githubcopilot.com`.
+Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Copilot auth token (`COPILOT_GITHUB_TOKEN`), forwarding to `api.githubcopilot.com`. The optional `COPILOT_PROVIDER_API_KEY` provides BYOK upstream auth (e.g. Azure OpenAI, OpenRouter).
 
 #### Port 10003: Google Gemini proxy
 
@@ -334,6 +334,7 @@ char* getenv(const char* name) {
 - `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN`
 - `GITHUB_API_TOKEN`, `GITHUB_PAT`, `GH_ACCESS_TOKEN`
 - `CODEX_API_KEY`
+- `COPILOT_PROVIDER_API_KEY` (Copilot BYOK upstream provider key)
 
 ### Entrypoint token cleanup
 
@@ -350,6 +351,7 @@ unset_sensitive_tokens() {
     "OPENAI_API_KEY" "OPENAI_KEY"
     "ANTHROPIC_API_KEY" "CLAUDE_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN"
     "CODEX_API_KEY"
+    "COPILOT_PROVIDER_API_KEY"
   )
 
   for token in "${SENSITIVE_TOKENS[@]}"; do

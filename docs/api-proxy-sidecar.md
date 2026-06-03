@@ -122,8 +122,9 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 |----------|-------|----------|-------------|
 | `OPENAI_API_KEY` | Real API key | `--enable-api-proxy` and env set | OpenAI API key (injected into requests) |
 | `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
-| `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token (injected into requests) |
-| `COPILOT_API_KEY` | Real API key | `--enable-api-proxy` and env set | GitHub Copilot BYOK key (injected into requests) |
+| `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token — sidecar uses it to talk to `api.githubcopilot.com` (CAPI BYOK / offline mode). Triggers Copilot sidecar routing. |
+| `COPILOT_PROVIDER_API_KEY` | Real API key | `--enable-api-proxy` and env set | BYOK provider API key (e.g. Azure / OpenRouter) injected into upstream requests. **Independently** triggers Copilot sidecar routing (no `COPILOT_GITHUB_TOKEN` required); typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream. |
+| `COPILOT_PROVIDER_BASE_URL` | Real upstream URL | `--enable-api-proxy` and env set | User-supplied upstream URL for direct-BYOK mode; sidecar forwards Copilot CLI requests there instead of `api.githubcopilot.com`. |
 | `GEMINI_API_KEY` | Real API key | `--enable-api-proxy` and env set | Google Gemini API key (injected into requests) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
@@ -142,13 +143,12 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` provided to host | Redirects Anthropic SDK to proxy |
 | `ANTHROPIC_AUTH_TOKEN` | `placeholder-token-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host | Placeholder token (real auth via BASE_URL) |
 | `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
-| `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Redirects Copilot CLI to proxy |
-| `COPILOT_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
-| `COPILOT_GITHUB_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token |
-| `COPILOT_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_API_KEY` provided to host | BYOK placeholder token protected by one-shot-token |
-| `COPILOT_OFFLINE` | `true` | `COPILOT_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
-| `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar |
-| `COPILOT_PROVIDER_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
+| `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Redirects Copilot CLI to sidecar |
+| `COPILOT_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
+| `COPILOT_GITHUB_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` provided to host | Placeholder token protected by one-shot-token (real token in sidecar) |
+| `COPILOT_OFFLINE` | `true` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
+| `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar (real upstream URL, if any, held in sidecar) |
+| `COPILOT_PROVIDER_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
 | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
 | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini SDK to proxy (kept for backward compatibility) |
 | `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` provided to host | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
@@ -288,8 +288,8 @@ sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
 - `OPENAI_API_KEY` — OpenAI API key
 - `ANTHROPIC_API_KEY` — Anthropic API key
 - `GEMINI_API_KEY` — Google Gemini API key
-- `COPILOT_GITHUB_TOKEN` — GitHub Copilot access token
-- `COPILOT_API_KEY` — GitHub Copilot API key (BYOK)
+- `COPILOT_GITHUB_TOKEN` — GitHub Copilot access token. Sidecar routes Copilot CLI to `api.githubcopilot.com` (CAPI BYOK / offline mode).
+- `COPILOT_PROVIDER_API_KEY` — BYOK provider API key (Azure Foundry / OpenRouter / custom OpenAI-compatible upstream). **Independently** enables Copilot sidecar routing without `COPILOT_GITHUB_TOKEN`; typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream.
 
 :::caution[GitHub Actions: expose keys as runner env vars]
 When running AWF in a GitHub Actions workflow, API keys must be available as **runner-level environment variables** — not just as GitHub Actions secrets. AWF reads the key from the environment at startup to pass it to the api-proxy sidecar container. Use `env:` in the workflow step and `sudo --preserve-env` to ensure keys pass through:
@@ -595,7 +595,7 @@ Some versions of the Gemini CLI use the Node.js `undici` HTTP client, which rout
 
 ```
 ⚠️  API proxy enabled but no API keys found in environment
-   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, COPILOT_GITHUB_TOKEN, or COPILOT_API_KEY to use the proxy
+   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, or GEMINI_API_KEY to use the proxy
 ```
 
 **Solution**: Export API keys before running awf (use `sudo --preserve-env` in CI):

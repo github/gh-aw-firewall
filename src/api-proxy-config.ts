@@ -44,7 +44,7 @@ export function validateApiProxyConfig(
 
   if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey) {
     warnings.push('⚠️  API proxy enabled but no API keys found in environment');
-    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_API_KEY, or GEMINI_API_KEY to use the proxy');
+    warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, or GEMINI_API_KEY to use the proxy');
   }
   if (hasOpenaiKey) {
     debugMessages.push('OpenAI API key detected - will be held securely in sidecar');
