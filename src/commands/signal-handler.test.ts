@@ -1,4 +1,6 @@
-import { registerSignalHandlers, SignalHandlerDependencies } from './signal-handler';
+import { registerSignalHandlers } from './signal-handler';
+
+type SignalHandlerDependencies = Parameters<typeof registerSignalHandlers>[0];
 
 const flushPromises = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 
@@ -158,4 +160,3 @@ describe('registerSignalHandlers', () => {
     expect(processExitSpy).toHaveBeenCalledWith(143);
   });
 });
-

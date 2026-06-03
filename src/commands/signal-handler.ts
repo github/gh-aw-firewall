@@ -1,7 +1,7 @@
 /**
  * Dependencies injected into {@link registerSignalHandlers}.
  */
-export interface SignalHandlerDependencies {
+interface SignalHandlerDependencies {
   /** Returns whether containers have been started; read at signal time. */
   getContainersStarted: () => boolean;
   /** Whether to preserve containers on exit (--keep-containers flag). */
