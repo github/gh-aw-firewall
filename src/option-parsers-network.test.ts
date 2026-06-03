@@ -271,7 +271,11 @@ describe('validateAllowHostPorts', () => {
 });
 
 describe('allow host service ports validation (via public parser entrypoint)', () => {
-  const mockLog = { warn: jest.fn(), info: jest.fn() };
+  let mockLog: { warn: jest.Mock; info: jest.Mock };
+
+  beforeEach(() => {
+    mockLog = { warn: jest.fn(), info: jest.fn() };
+  });
 
   it('should pass when no service ports are provided', () => {
     const result = applyHostServicePortsConfig(undefined, undefined, mockLog);
@@ -313,6 +317,9 @@ describe('allow host service ports validation (via public parser entrypoint)', (
     if (result.valid) {
       expect(result.enableHostAccess).toBe(true);
     }
+    expect(mockLog.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('automatically enabling host access')
+    );
   });
 
   it('should fail for non-numeric port', () => {
