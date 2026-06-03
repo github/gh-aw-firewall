@@ -449,9 +449,9 @@ function createCopilotAdapter(env, deps = {}) {
       }
 
       return {
+        ...(apiKey ? byokExtraHeaders : {}),
         'Authorization': `Bearer ${authToken}`,
         'Copilot-Integration-Id': integrationId,
-        ...(apiKey ? byokExtraHeaders : {}),
       };
     },
 
