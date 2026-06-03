@@ -33,13 +33,20 @@ import { baseConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures
  * ```
  */
 export function useAgentVolumesTestConfig(): { getConfig: () => WrapperConfig } {
-  let mockConfig: WrapperConfig;
+  let mockConfig: WrapperConfig | undefined;
+  const getConfig = (): WrapperConfig => {
+    if (!mockConfig) {
+      throw new Error('Agent volumes test config is not initialized');
+    }
+    return mockConfig;
+  };
+
   useTempWorkDir(
     baseConfig,
     (c) => {
       mockConfig = c;
     },
-    () => mockConfig,
+    getConfig,
   );
-  return { getConfig: () => mockConfig };
+  return { getConfig };
 }
