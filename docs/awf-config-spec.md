@@ -102,6 +102,7 @@ the corresponding CLI flag.
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
+- `apiProxy.maxPermissionDenied` → *(config-only; maps to `AWF_MAX_PERMISSION_DENIED`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
@@ -764,6 +765,83 @@ The `/reflect` endpoint (available on all provider ports 10000–10003; see
 
 When `maxRuns` is not configured, the `enabled` field MUST be `false` and
 `max_runs` and `remaining_runs` MUST be `null`.
+
+## 11a. Permission-Denied Guard
+
+*This section is normative.*
+
+When `apiProxy.maxPermissionDenied` is configured, the API proxy MUST halt
+further LLM requests after the upstream returns a configurable number of
+`401` or `403` responses, preventing token waste when API credentials are
+misconfigured or expired.
+
+### 11a.1 Counting Permission Errors
+
+A permission error is counted each time the proxy receives an HTTP `401` or
+`403` response from an upstream LLM provider. Each such response increments
+a per-run counter by one.
+
+### 11a.2 Enforcement Behavior
+
+The API proxy MUST enforce the permission-denied limit as follows:
+
+1. **Post-response counting**: After receiving a `401` or `403` from upstream,
+   the proxy increments the denied count.
+
+2. **Pre-request check**: Before forwarding each subsequent request to the
+   upstream provider, the proxy checks whether the denied count has reached or
+   exceeded `maxPermissionDenied`.
+
+3. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
+   the request with:
+   - **HTTP status**: `403 Forbidden`
+   - **Content-Type**: `application/json`
+   - **Response body**:
+     ```json
+     {
+       "error": {
+         "type": "permission_denied_limit_exceeded",
+         "message": "Permission denied limit exceeded (3 / 3). The run has been stopped due to repeated permission errors — check that all API keys and tokens are correctly configured.",
+         "denied_count": 3,
+         "max_permission_denied": 3
+       }
+     }
+     ```
+
+4. **Finality**: Once the limit is reached, all subsequent requests in the
+   same run MUST be rejected. The counter is not recoverable.
+
+### 11a.3 Introspection
+
+The `/reflect` endpoint (available on all provider ports 10000–10003; see
+§10.6) MUST include the current permission-denied guard state:
+
+```json
+{
+  "permission_denied": {
+    "enabled": true,
+    "max_permission_denied": 3,
+    "denied_count": 1
+  }
+}
+```
+
+When `maxPermissionDenied` is not configured, the `enabled` field MUST be
+`false` and `max_permission_denied` MUST be `null`.
+
+### 11a.4 Configuration
+
+`maxPermissionDenied` is a positive integer. It is supplied via the AWF
+config file (stdin config) and maps to the `AWF_MAX_PERMISSION_DENIED`
+environment variable injected into the api-proxy container. There is no
+corresponding CLI flag.
+
+**Example**:
+
+```yaml
+apiProxy:
+  maxPermissionDenied: 3   # stop run after 3 upstream 401/403 responses
+```
 
 ## 12. Model Multiplier Cap
 
