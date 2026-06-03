@@ -346,6 +346,14 @@ program
     '                                       Must be a positive number.',
   )
   .option(
+    '--max-permission-denied <number>',
+    'Maximum number of upstream 401/403 responses allowed per run (requires --enable-api-proxy).\n' +
+    '                                       When reached, the API proxy rejects all subsequent requests with HTTP 403\n' +
+    '                                       and error type permission_denied_limit_exceeded, stopping the run to avoid\n' +
+    '                                       wasting tokens on misconfigured credentials.\n' +
+    '                                       Must be a positive integer.',
+  )
+  .option(
     '--enable-token-steering',
     'Enable effective token budget steering in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects budget-warning system messages at 80%, 90%, 95%, and 99%\n' +
