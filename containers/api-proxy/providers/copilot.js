@@ -71,7 +71,15 @@ function parseByokExtraHeaders(raw) {
   const result = {};
   const http = require('http');
   for (const [name, value] of Object.entries(parsed)) {
-    if (PROTECTED_HEADER_NAMES.has(name.toLowerCase())) {
+    const lowerName = name.toLowerCase();
+
+    // Prevent prototype pollution / special keys in header maps.
+    if (lowerName === '__proto__' || lowerName === 'constructor' || lowerName === 'prototype') {
+      console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is not an allowed header name; skipping`);
+      continue;
+    }
+
+    if (PROTECTED_HEADER_NAMES.has(lowerName)) {
       console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is an auth-critical header and cannot be overridden; skipping`);
       continue;
     }
