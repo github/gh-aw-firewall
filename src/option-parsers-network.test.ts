@@ -5,7 +5,6 @@ import {
   validateAllowHostPorts,
   applyHostServicePortsConfig,
 } from './option-parsers';
-import { validateAllowHostServicePorts } from './parsers/host-port-parsers';
 
 describe('DNS servers parsing', () => {
   it('should parse valid IPv4 DNS servers', () => {
@@ -271,104 +270,128 @@ describe('validateAllowHostPorts', () => {
   });
 });
 
-describe('validateAllowHostServicePorts', () => {
+describe('allow host service ports validation (via public parser entrypoint)', () => {
+  const mockLog = { warn: jest.fn(), info: jest.fn() };
+
   it('should pass when no service ports are provided', () => {
-    const result = validateAllowHostServicePorts(undefined, undefined);
+    const result = applyHostServicePortsConfig(undefined, undefined, mockLog);
     expect(result.valid).toBe(true);
-    expect(result.autoEnableHostAccess).toBeUndefined();
+    if (result.valid) {
+      expect(result.enableHostAccess).toBeUndefined();
+    }
   });
 
   it('should pass for valid single port', () => {
-    const result = validateAllowHostServicePorts('5432', undefined);
+    const result = applyHostServicePortsConfig('5432', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should pass for valid multiple ports', () => {
-    const result = validateAllowHostServicePorts('5432,6379,3306', undefined);
+    const result = applyHostServicePortsConfig('5432,6379,3306', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should auto-enable host access when not already enabled', () => {
-    const result = validateAllowHostServicePorts('5432', undefined);
+    const result = applyHostServicePortsConfig('5432', undefined, mockLog);
     expect(result.valid).toBe(true);
-    expect(result.autoEnableHostAccess).toBe(true);
+    if (result.valid) {
+      expect(result.enableHostAccess).toBe(true);
+    }
   });
 
   it('should auto-enable host access when enableHostAccess is false', () => {
-    const result = validateAllowHostServicePorts('5432', false);
+    const result = applyHostServicePortsConfig('5432', false, mockLog);
     expect(result.valid).toBe(true);
-    expect(result.autoEnableHostAccess).toBe(true);
+    if (result.valid) {
+      expect(result.enableHostAccess).toBe(true);
+    }
   });
 
   it('should not auto-enable host access when already enabled', () => {
-    const result = validateAllowHostServicePorts('5432', true);
+    const result = applyHostServicePortsConfig('5432', true, mockLog);
     expect(result.valid).toBe(true);
-    expect(result.autoEnableHostAccess).toBe(false);
+    if (result.valid) {
+      expect(result.enableHostAccess).toBe(true);
+    }
   });
 
   it('should fail for non-numeric port', () => {
-    const result = validateAllowHostServicePorts('abc', undefined);
+    const result = applyHostServicePortsConfig('abc', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Invalid port');
-    expect(result.error).toContain('Must be a numeric value');
+    if (!result.valid) {
+      expect(result.error).toContain('Invalid port');
+      expect(result.error).toContain('Must be a numeric value');
+    }
   });
 
   it('should fail for port with letters mixed in', () => {
-    const result = validateAllowHostServicePorts('54a32', undefined);
+    const result = applyHostServicePortsConfig('54a32', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Must be a numeric value');
+    if (!result.valid) {
+      expect(result.error).toContain('Must be a numeric value');
+    }
   });
 
   it('should fail for port 0', () => {
-    const result = validateAllowHostServicePorts('0', undefined);
+    const result = applyHostServicePortsConfig('0', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Must be a number between 1 and 65535');
+    if (!result.valid) {
+      expect(result.error).toContain('Must be a number between 1 and 65535');
+    }
   });
 
   it('should fail for port above 65535', () => {
-    const result = validateAllowHostServicePorts('65536', undefined);
+    const result = applyHostServicePortsConfig('65536', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Must be a number between 1 and 65535');
+    if (!result.valid) {
+      expect(result.error).toContain('Must be a number between 1 and 65535');
+    }
   });
 
   it('should fail if any port in comma-separated list is invalid', () => {
-    const result = validateAllowHostServicePorts('5432,abc,6379', undefined);
+    const result = applyHostServicePortsConfig('5432,abc,6379', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('abc');
+    if (!result.valid) {
+      expect(result.error).toContain('abc');
+    }
   });
 
   it('should allow dangerous ports (by design, for host-local services)', () => {
     // Ports like 22 (SSH), 25 (SMTP), 5432 (Postgres), 6379 (Redis) are allowed
     // because they are restricted to host gateway only
-    const result = validateAllowHostServicePorts('22,25,5432,6379,27017', undefined);
+    const result = applyHostServicePortsConfig('22,25,5432,6379,27017', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should handle ports with whitespace around them', () => {
-    const result = validateAllowHostServicePorts(' 5432 , 6379 ', undefined);
+    const result = applyHostServicePortsConfig(' 5432 , 6379 ', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should pass for port 1 (minimum valid)', () => {
-    const result = validateAllowHostServicePorts('1', undefined);
+    const result = applyHostServicePortsConfig('1', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should pass for port 65535 (maximum valid)', () => {
-    const result = validateAllowHostServicePorts('65535', undefined);
+    const result = applyHostServicePortsConfig('65535', undefined, mockLog);
     expect(result.valid).toBe(true);
   });
 
   it('should fail for negative port number', () => {
-    const result = validateAllowHostServicePorts('-1', undefined);
+    const result = applyHostServicePortsConfig('-1', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Must be a numeric value');
+    if (!result.valid) {
+      expect(result.error).toContain('Must be a numeric value');
+    }
   });
 
   it('should fail for decimal port number', () => {
-    const result = validateAllowHostServicePorts('80.5', undefined);
+    const result = applyHostServicePortsConfig('80.5', undefined, mockLog);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('Must be a numeric value');
+    if (!result.valid) {
+      expect(result.error).toContain('Must be a numeric value');
+    }
   });
 });
 

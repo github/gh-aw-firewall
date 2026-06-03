@@ -23,7 +23,7 @@ export function validateAllowHostPorts(
  * these ports are restricted to the host gateway IP only (not the internet).
  * Returns an object indicating whether host access should be auto-enabled.
  */
-export function validateAllowHostServicePorts(
+function validateAllowHostServicePorts(
   allowHostServicePorts: string | undefined,
   enableHostAccess: boolean | undefined
 ): FlagValidationResult & { autoEnableHostAccess?: boolean } {
