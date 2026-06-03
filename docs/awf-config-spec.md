@@ -103,6 +103,7 @@ the corresponding CLI flag.
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
+- `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
