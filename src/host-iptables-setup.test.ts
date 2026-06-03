@@ -505,19 +505,16 @@ describe('host-iptables (setup)', () => {
         return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
       }) as any);
 
-      // "80,,443" contains an empty entry between the two commas
+      // "80,,443,8080" contains an empty entry between the two commas; 8080 is a non-default port
       await setupHostIptables(
         '172.30.0.10', 3128, ['8.8.8.8'],
         undefined, undefined,
-        { enabled: true, allowHostPorts: '80,,443' },
+        { enabled: true, allowHostPorts: '80,,443,8080' },
       );
 
-      // Both valid ports should be added; empty entry should be silently skipped
+      // Non-default port should be added; empty entry should be silently skipped
       expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '80',
-      ]));
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '443',
+        '--dport', '8080',
       ]));
     });
   });
