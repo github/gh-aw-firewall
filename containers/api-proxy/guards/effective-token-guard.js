@@ -1,6 +1,6 @@
 'use strict';
 
-const { parsePositiveInteger } = require('./guard-utils');
+const { parsePositiveInteger, parseModelMultipliers, parsePositiveNumber } = require('./guard-utils');
 const { logRequest, sanitizeForLog } = require('../logging');
 
 const ET_WARNING_THRESHOLDS = [80, 90, 95, 99];
@@ -37,29 +37,6 @@ const effectiveTokenConfigCache = {
   rawDefaultMultiplier: undefined,
   parsed: { max: null, multipliers: {}, defaultMultiplier: 1 },
 };
-
-function parseModelMultipliers(raw) {
-  if (!raw || String(raw).trim() === '') return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const result = {};
-    for (const [model, value] of Object.entries(parsed)) {
-      const num = Number(value);
-      if (Number.isFinite(num) && num > 0) {
-        result[model] = num;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function parsePositiveNumber(raw) {
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
 
 function getEffectiveTokenConfig() {
   const rawMax = process.env.AWF_MAX_EFFECTIVE_TOKENS;

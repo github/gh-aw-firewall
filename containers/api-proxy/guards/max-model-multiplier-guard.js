@@ -1,6 +1,7 @@
 'use strict';
 
 const { sanitizeForLog } = require('../logging');
+const { parseModelMultipliers, parsePositiveNumber } = require('./guard-utils');
 
 const maxModelMultiplierConfigCache = {
   rawCap: undefined,
@@ -8,29 +9,6 @@ const maxModelMultiplierConfigCache = {
   rawDefaultMultiplier: undefined,
   parsed: { cap: null, multipliers: {}, defaultMultiplier: 1 },
 };
-
-function parseModelMultipliers(raw) {
-  if (!raw || String(raw).trim() === '') return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const result = {};
-    for (const [model, value] of Object.entries(parsed)) {
-      const num = Number(value);
-      if (Number.isFinite(num) && num > 0) {
-        result[model] = num;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function parsePositiveNumber(raw) {
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
 
 function getMaxModelMultiplierConfig() {
   const rawCap = process.env.AWF_MAX_MODEL_MULTIPLIER;
