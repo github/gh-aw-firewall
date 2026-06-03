@@ -493,4 +493,79 @@ describe('host-iptables (setup)', () => {
       );
     });
   });
+
+  describe('setupHostIptables with empty entries in allowHostPorts', () => {
+    it('should skip empty entries in allowHostPorts (covers parseValidPortSpecs empty-entry branch)', async () => {
+      setupDefaultIptablesMocks();
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        if (cmd === 'docker' && args.includes('bridge')) {
+          return Promise.resolve({ stdout: '', stderr: '', exitCode: 1 });
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      // "80,,443" contains an empty entry between the two commas
+      await setupHostIptables(
+        '172.30.0.10', 3128, ['8.8.8.8'],
+        undefined, undefined,
+        { enabled: true, allowHostPorts: '80,,443' },
+      );
+
+      // Both valid ports should be added; empty entry should be silently skipped
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '80',
+      ]));
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--dport', '443',
+      ]));
+    });
+  });
+
+  describe('setupHostIptables chain cleanup error handling', () => {
+    it('should continue setup when existing FW_WRAPPER chain cleanup throws (line 139 catch)', async () => {
+      // chain exists (exitCode 0) but cleanupChain throws — should be swallowed and setup continues
+      mockedExeca
+        // getNetworkBridgeName
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', exitCode: 0 }))
+        // iptables -L DOCKER-USER (permission check) — success
+        .mockResolvedValueOnce(execaResult({ exitCode: 0, stdout: '' }))
+        // iptables -L FW_WRAPPER (check if chain exists) — exists
+        .mockResolvedValueOnce(execaResult({ exitCode: 0 }));
+
+      // cleanupChain calls: list DOCKER-USER --line-numbers (throw here)
+      mockedExeca.mockRejectedValueOnce(new Error('unexpected cleanup error'));
+
+      // remaining calls succeed
+      mockedExeca.mockResolvedValue(execaResult({ stdout: '', exitCode: 0 }));
+
+      // should NOT throw — the catch block swallows the error
+      await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8'])).resolves.toBeUndefined();
+    });
+
+    it('should continue setup when IPv6 chain cleanup throws (line 213 catch)', async () => {
+      setupDefaultIptablesMocks();
+
+      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
+        // ip6tables availability check — available
+        if (cmd === 'ip6tables' && args.includes('-L') && args.includes('-n') && !args.includes('FW_WRAPPER_V6')) {
+          return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
+        }
+        // FW_WRAPPER_V6 check — exists
+        if (cmd === 'ip6tables' && args.includes('-L') && args.includes('FW_WRAPPER_V6')) {
+          return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
+        }
+        // ip6tables -F (flush) — throw to exercise line 213 catch
+        if (cmd === 'ip6tables' && args.includes('-F')) {
+          throw new Error('flush failed unexpectedly');
+        }
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
+      }) as any);
+
+      // Should NOT throw — the catch block at line 213 swallows the error
+      await expect(
+        setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '2001:4860:4860::8888']),
+      ).resolves.toBeUndefined();
+    });
+  });
 });
