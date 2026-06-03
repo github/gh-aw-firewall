@@ -297,7 +297,7 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.isEnabled()).toBe(true);
     expect(adapter.getTargetHost()).toBe('my-resource.openai.azure.com');
     expect(adapter.getBasePath()).toBe('/openai/deployments/gpt-5');
-    expect(adapter.getAuthHeaders()).toEqual({ Authorization: 'Bearer azure-byok-key' });
+    expect(adapter.getAuthHeaders()).toEqual({ 'api-key': 'azure-byok-key' });
     expect(adapter.getReflectionInfo().auth_type).toBe('static-key');
   });
 
@@ -314,7 +314,20 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.isEnabled()).toBe(true);
     expect(adapter.getTargetHost()).toBe('gateway.example.com');
     expect(adapter.getBasePath()).toBe('/v2');
-    expect(adapter.getAuthHeaders()).toEqual({ Authorization: 'Bearer sk-openai' });
+    // Explicit OPENAI_API_KEY still uses api-key header because COPILOT_PROVIDER_TYPE=azure
+    expect(adapter.getAuthHeaders()).toEqual({ 'api-key': 'sk-openai' });
+  });
+
+  it('should allow AWF_OPENAI_AUTH_HEADER to override Azure api-key default', () => {
+    const adapter = createOpenAIAdapter({
+      COPILOT_PROVIDER_TYPE: 'azure',
+      COPILOT_PROVIDER_BASE_URL: 'https://my-resource.openai.azure.com/openai/deployments/gpt-5',
+      COPILOT_PROVIDER_API_KEY: 'azure-byok-key',
+      AWF_OPENAI_AUTH_HEADER: 'X-Custom-Auth',
+    });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getAuthHeaders()).toEqual({ 'X-Custom-Auth': 'azure-byok-key' });
   });
 
   it('should not create OIDC provider when required vars are missing', () => {
