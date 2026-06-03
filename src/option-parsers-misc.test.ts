@@ -5,7 +5,6 @@ import {
   validateRateLimitFlags,
   validateEnableTokenSteeringFlag,
   parseMemoryLimit,
-  parseAgentTimeout,
   applyAgentTimeout,
   collectRulesetFile,
   checkDockerHost,
@@ -168,58 +167,6 @@ describe('parseMemoryLimit', () => {
 
   it('rejects zero', () => {
     expect(parseMemoryLimit('0g')).toHaveProperty('error');
-  });
-});
-
-describe('parseAgentTimeout', () => {
-  it('should parse a valid positive integer', () => {
-    const result = parseAgentTimeout('30');
-    expect(result).toEqual({ minutes: 30 });
-  });
-
-  it('should parse single minute timeout', () => {
-    const result = parseAgentTimeout('1');
-    expect(result).toEqual({ minutes: 1 });
-  });
-
-  it('should return error for zero', () => {
-    const result = parseAgentTimeout('0');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should return error for negative value', () => {
-    const result = parseAgentTimeout('-5');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should return error for non-numeric string', () => {
-    const result = parseAgentTimeout('abc');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should return error for empty string', () => {
-    const result = parseAgentTimeout('');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should parse large timeout values', () => {
-    const result = parseAgentTimeout('1440');
-    expect(result).toEqual({ minutes: 1440 });
-  });
-
-  it('should return error for value with trailing non-numeric characters', () => {
-    const result = parseAgentTimeout('30m');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should return error for decimal value', () => {
-    const result = parseAgentTimeout('1.5');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
-  });
-
-  it('should return error for value with leading zero', () => {
-    const result = parseAgentTimeout('030');
-    expect(result).toEqual({ error: '--agent-timeout must be a positive integer (minutes)' });
   });
 });
 

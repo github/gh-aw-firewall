@@ -69,7 +69,7 @@ export function parseMemoryLimit(input: string): { value: string; error?: undefi
  * @param value - The raw string value from the CLI option
  * @returns The parsed timeout in minutes, or an error
  */
-export function parseAgentTimeout(value: string): { minutes: number } | { error: string } {
+function parseAgentTimeout(value: string): { minutes: number } | { error: string } {
   if (!/^[1-9]\d*$/.test(value)) {
     return { error: '--agent-timeout must be a positive integer (minutes)' };
   }
