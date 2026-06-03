@@ -300,11 +300,15 @@ describe('docker-manager lifecycle', () => {
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
       );
       expect(upCalls).toHaveLength(2);
-      // Verify squid container was inspected as part of failure attribution
-      const inspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect'
+      // Verify only awf-api-proxy fallback inspect ran for this squid-specific error
+      const apiProxyInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
       );
-      expect(inspectCalls).toHaveLength(1);
+      expect(apiProxyInspectCalls).toHaveLength(1);
+      const squidInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-squid'
+      );
+      expect(squidInspectCalls).toHaveLength(0);
     });
 
     it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
@@ -349,6 +353,40 @@ describe('docker-manager lifecycle', () => {
 
       // Should succeed without emitting "No such container" noise at error level
       await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+    });
+
+    it('should retry once when docker compose only reports a generic error but awf-squid already exited', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (first attempt - generic execa error)
+      mockExecaFn.mockRejectedValueOnce(new Error('Command failed with exit code 1: docker compose up -d'));
+      // 3. docker inspect awf-api-proxy (fallback diagnosis - not failed)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'running|healthy', stderr: '', exitCode: 0 } as any);
+      // 4. docker inspect awf-squid (fallback diagnosis - exited)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'exited|', stderr: '', exitCode: 0 } as any);
+      // 5. docker logs --tail 50 awf-squid (get logs for diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'squid startup logs', stderr: '', exitCode: 0 } as any);
+      // 6. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 7. docker compose up (retry - succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+
+      const apiProxyInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
+      );
+      expect(apiProxyInspectCalls).toHaveLength(1);
+
+      const squidInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-squid'
+      );
+      expect(squidInspectCalls).toHaveLength(1);
+
+      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+      );
+      expect(upCalls).toHaveLength(2);
     });
 
     it('should retry once when awf-squid exits during startup', async () => {
