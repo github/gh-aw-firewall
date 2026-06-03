@@ -1,23 +1,15 @@
-import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { generateDockerCompose, WrapperConfig, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
-let mockConfig: WrapperConfig;
+const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
-  useTempWorkDir(
-    baseConfig,
-    (config) => {
-      mockConfig = config;
-    },
-    () => mockConfig
-  );
-
   it('should mount workspace directory under /host', () => {
-    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+    const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;
     const volumes = agent.volumes as string[];
 
@@ -28,14 +20,14 @@ describe('agent service', () => {
 
   describe('containerWorkDir option', () => {
     it('should not set working_dir when containerWorkDir is not specified', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
 
       expect(result.services.agent.working_dir).toBeUndefined();
     });
 
     it('should set working_dir when containerWorkDir is specified', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '/home/runner/work/repo/repo',
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -45,7 +37,7 @@ describe('agent service', () => {
 
     it('should set working_dir to /workspace when containerWorkDir is /workspace', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '/workspace',
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -55,7 +47,7 @@ describe('agent service', () => {
 
     it('should handle paths with special characters', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '/home/user/my-project with spaces',
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -65,7 +57,7 @@ describe('agent service', () => {
 
     it('should preserve working_dir alongside other agent service config', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '/custom/workdir',
         envAll: true,
       };
@@ -80,7 +72,7 @@ describe('agent service', () => {
 
     it('should handle empty string containerWorkDir by not setting working_dir', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '',
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -91,7 +83,7 @@ describe('agent service', () => {
 
     it('should handle absolute paths correctly', () => {
       const config: WrapperConfig = {
-        ...mockConfig,
+        ...getConfig(),
         containerWorkDir: '/var/lib/app/data',
       };
       const result = generateDockerCompose(config, mockNetworkConfig);

@@ -1,4 +1,4 @@
-import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
 import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,7 +13,7 @@ import { mockExecaSync } from '../test-helpers/mock-execa.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
-let mockConfig: WrapperConfig;
+const { getConfig } = useAgentVolumesTestConfig();
 
 function withEnv(envPatch: Record<string, string | undefined>, fn: () => void): void {
   const saved: Record<string, string | undefined> = {};
@@ -41,16 +41,8 @@ function withEnv(envPatch: Record<string, string | undefined>, fn: () => void): 
 }
 
 describe('agent service', () => {
-  useTempWorkDir(
-    baseConfig,
-    (config) => {
-      mockConfig = config;
-    },
-    () => mockConfig
-  );
-
-    it('should mount required volumes in agent container (default behavior)', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+  it('should mount required volumes in agent container (default behavior)', () => {
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
 
@@ -66,7 +58,7 @@ describe('agent service', () => {
 
     it('should use custom volume mounts when specified', () => {
       const configWithMounts = {
-        ...mockConfig,
+        ...getConfig(),
         volumeMounts: ['/workspace:/workspace:ro', '/data:/data:rw']
       };
       const result = generateDockerCompose(configWithMounts, mockNetworkConfig);
@@ -87,7 +79,7 @@ describe('agent service', () => {
 
     it('should apply dockerHostPathPrefix to bind-mount source paths', () => {
       const configWithPrefix = {
-        ...mockConfig,
+        ...getConfig(),
         dockerHostPathPrefix: '/daemon-root',
         volumeMounts: ['/workspace:/workspace:ro'],
       };
@@ -100,7 +92,7 @@ describe('agent service', () => {
       expect(volumes).toContain('/daemon-root/workspace:/host/workspace:ro');
       expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
       expect(volumes).toContain('/dev/null:/host/run/docker.sock:ro');
-      expect(volumes.some((v: string) => v.startsWith(`/daemon-root${mockConfig.workDir}/chroot-`) && v.endsWith(':/host/etc/hosts:ro'))).toBe(true);
+      expect(volumes.some((v: string) => v.startsWith(`/daemon-root${getConfig().workDir}/chroot-`) && v.endsWith(':/host/etc/hosts:ro'))).toBe(true);
 
       // Kernel virtual filesystems should NOT be prefixed — they are daemon-local
       expect(volumes).toContain('/dev:/host/dev:ro');
@@ -111,7 +103,7 @@ describe('agent service', () => {
 
     it('should normalize trailing slash in dockerHostPathPrefix', () => {
       const configWithPrefix = {
-        ...mockConfig,
+        ...getConfig(),
         dockerHostPathPrefix: '/daemon-root/',
       };
       const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
@@ -123,7 +115,7 @@ describe('agent service', () => {
     it('should auto-stage the ARC/DinD manual bootstrap files under a shared /tmp docker-host-path-prefix', () => {
       const originalPath = process.env.PATH;
       const sharedTmpPrefix = fs.mkdtempSync(path.join('/tmp', 'gh-aw-'));
-      const fakeBinDir = path.join(mockConfig.workDir, 'fake-bin');
+      const fakeBinDir = path.join(getConfig().workDir, 'fake-bin');
       fs.mkdirSync(fakeBinDir, { recursive: true });
       const fakeCopilotPath = path.join(fakeBinDir, 'copilot');
       fs.writeFileSync(fakeCopilotPath, '#!/bin/sh\necho copilot\n', { mode: 0o755 });
@@ -137,7 +129,7 @@ describe('agent service', () => {
 
       try {
         const configWithTmpPrefix = {
-          ...mockConfig,
+          ...getConfig(),
           dockerHostPathPrefix: sharedTmpPrefix,
           agentCommand: 'copilot --version',
           enableHostAccess: true,
@@ -190,8 +182,8 @@ describe('agent service', () => {
 
     it('should skip non-executable PATH candidates when staging the runner binary', () => {
       const originalPath = process.env.PATH;
-      const nonExecutableDir = path.join(mockConfig.workDir, 'fake-bin-nonexec');
-      const executableDir = path.join(mockConfig.workDir, 'fake-bin-exec');
+      const nonExecutableDir = path.join(getConfig().workDir, 'fake-bin-nonexec');
+      const executableDir = path.join(getConfig().workDir, 'fake-bin-exec');
       fs.mkdirSync(nonExecutableDir, { recursive: true });
       fs.mkdirSync(executableDir, { recursive: true });
       fs.writeFileSync(path.join(nonExecutableDir, 'copilot'), '#!/bin/sh\necho wrong\n', { mode: 0o644 });
@@ -201,7 +193,7 @@ describe('agent service', () => {
       try {
         generateDockerCompose(
           {
-            ...mockConfig,
+            ...getConfig(),
             dockerHostPathPrefix: '/tmp/gh-aw',
             agentCommand: 'copilot --version',
           },
@@ -221,8 +213,8 @@ describe('agent service', () => {
 
     it('should prefer an explicit command path when staging the runner binary', () => {
       const originalPath = process.env.PATH;
-      const fakeBinDir = path.join(mockConfig.workDir, 'fake-bin-path');
-      const explicitBinDir = path.join(mockConfig.workDir, 'explicit-bin');
+      const fakeBinDir = path.join(getConfig().workDir, 'fake-bin-path');
+      const explicitBinDir = path.join(getConfig().workDir, 'explicit-bin');
       fs.mkdirSync(fakeBinDir, { recursive: true });
       fs.mkdirSync(explicitBinDir, { recursive: true });
       fs.writeFileSync(path.join(fakeBinDir, 'copilot'), '#!/bin/sh\necho path\n', { mode: 0o755 });
@@ -233,7 +225,7 @@ describe('agent service', () => {
       try {
         generateDockerCompose(
           {
-            ...mockConfig,
+            ...getConfig(),
             dockerHostPathPrefix: '/tmp/gh-aw',
             agentCommand: `${explicitBinaryPath} --version`,
           },
@@ -269,7 +261,7 @@ describe('agent service', () => {
 
       const result = generateDockerCompose(
         {
-          ...mockConfig,
+          ...getConfig(),
           dockerHostPathPrefix: '/tmp/gh-aw',
         },
         mockNetworkConfig,
@@ -284,7 +276,7 @@ describe('agent service', () => {
 
     it('should mount api-proxy health-check script when api-proxy is enabled', () => {
       const configWithApiProxy = {
-        ...mockConfig,
+        ...getConfig(),
         enableApiProxy: true,
       };
       const result = generateDockerCompose(configWithApiProxy, mockNetworkConfig);
@@ -295,7 +287,7 @@ describe('agent service', () => {
 
     it('should apply dockerHostPathPrefix to api-proxy health-check script mount', () => {
       const configWithApiProxyAndPrefix = {
-        ...mockConfig,
+        ...getConfig(),
         enableApiProxy: true,
         dockerHostPathPrefix: '/daemon-root',
       };
@@ -307,7 +299,7 @@ describe('agent service', () => {
 
     it('should handle malformed volume mount without colon as fallback', () => {
       const configWithBadMount = {
-        ...mockConfig,
+        ...getConfig(),
         volumeMounts: ['no-colon-here']
       };
       const result = generateDockerCompose(configWithBadMount, mockNetworkConfig);
@@ -318,11 +310,11 @@ describe('agent service', () => {
     });
 
     it('should reject staged target paths that escape the docker-host staging root', () => {
-      const sourceFile = path.join(mockConfig.workDir, 'stage-source.txt');
+      const sourceFile = path.join(getConfig().workDir, 'stage-source.txt');
       fs.writeFileSync(sourceFile, 'stage me');
 
       const stagedPath = stageHostFile(
-        { ...mockConfig, dockerHostPathPrefix: '/tmp/gh-aw' },
+        { ...getConfig(), dockerHostPathPrefix: '/tmp/gh-aw' },
         sourceFile,
         '../escaped.txt',
       );
@@ -332,7 +324,7 @@ describe('agent service', () => {
     });
 
     it('should use selective mounts by default', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
 
@@ -372,7 +364,7 @@ describe('agent service', () => {
     });
 
     it('should expose Docker socket when enableDind is true', () => {
-      const dindConfig = { ...mockConfig, enableDind: true };
+      const dindConfig = { ...getConfig(), enableDind: true };
       const result = generateDockerCompose(dindConfig, mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
@@ -387,7 +379,7 @@ describe('agent service', () => {
 
     it('should expose the Unix DOCKER_HOST socket path when enableDind is true', () => {
       withEnv({ DOCKER_HOST: 'unix:///tmp/arc/docker.sock' }, () => {
-        const dindConfig = { ...mockConfig, enableDind: true };
+        const dindConfig = { ...getConfig(), enableDind: true };
         const result = generateDockerCompose(dindConfig, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
 
@@ -400,7 +392,7 @@ describe('agent service', () => {
     it('should prefer awfDockerHost over DOCKER_HOST when enableDind is true', () => {
       withEnv({ DOCKER_HOST: 'unix:///tmp/arc/docker.sock' }, () => {
         const dindConfig = {
-          ...mockConfig,
+          ...getConfig(),
           enableDind: true,
           awfDockerHost: 'unix:///run/user/1000/docker.sock',
         };
@@ -417,7 +409,7 @@ describe('agent service', () => {
     it('should set agent DOCKER_HOST from awfDockerHost when enableDind is true and host DOCKER_HOST is unset', () => {
       withEnv({ DOCKER_HOST: undefined }, () => {
         const dindConfig = {
-          ...mockConfig,
+          ...getConfig(),
           enableDind: true,
           awfDockerHost: 'unix:///run/user/1000/docker.sock',
         };
@@ -437,7 +429,7 @@ describe('agent service', () => {
 
       try {
         withEnv({ DOCKER_HOST: 'unix://relative/path' }, () => {
-          const dindConfig = { ...mockConfig, enableDind: true };
+          const dindConfig = { ...getConfig(), enableDind: true };
           const result = generateDockerCompose(dindConfig, mockNetworkConfig);
           const volumes = result.services.agent.volumes as string[];
 
@@ -452,7 +444,7 @@ describe('agent service', () => {
     });
 
     it('should mount Rust toolchain, Node/npm caches, and CLI state directories', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
 
@@ -474,12 +466,12 @@ describe('agent service', () => {
         expect(volumes).toContain(`${homeDir}/.copilot:/host${homeDir}/.copilot:rw`);
       }
       // session-state and logs are always overlaid from AWF workDir
-      expect(volumes).toContain(`${mockConfig.workDir}/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
-      expect(volumes).toContain(`${mockConfig.workDir}/agent-logs:/host${homeDir}/.copilot/logs:rw`);
+      expect(volumes).toContain(`${getConfig().workDir}/agent-session-state:/host${homeDir}/.copilot/session-state:rw`);
+      expect(volumes).toContain(`${getConfig().workDir}/agent-logs:/host${homeDir}/.copilot/logs:rw`);
     });
 
     it('should mount ~/.gemini when geminiApiKey is configured', () => {
-      const configWithGemini = { ...mockConfig, geminiApiKey: 'AIza-test-gemini-key' };
+      const configWithGemini = { ...getConfig(), geminiApiKey: 'AIza-test-gemini-key' };
       const result = generateDockerCompose(configWithGemini, mockNetworkConfig);
       const volumes = result.services.agent.volumes as string[];
 
@@ -495,7 +487,7 @@ describe('agent service', () => {
           const toolcacheDir = path.join(fakeHome, 'work', '_tool');
           fs.mkdirSync(toolcacheDir, { recursive: true });
 
-          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const result = generateDockerCompose(getConfig(), mockNetworkConfig);
           const volumes = result.services.agent.volumes as string[];
 
           expect(volumes).toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
@@ -516,7 +508,7 @@ describe('agent service', () => {
           const toolcacheDir = path.join(workDir, '_tool');
           fs.symlinkSync(symlinkTarget, toolcacheDir);
 
-          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const result = generateDockerCompose(getConfig(), mockNetworkConfig);
           const volumes = result.services.agent.volumes as string[];
 
           expect(volumes).not.toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
@@ -535,7 +527,7 @@ describe('agent service', () => {
           const copilotDir = path.join(fakeHome, '.copilot');
           expect(fs.existsSync(copilotDir)).toBe(false);
 
-          const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+          const result = generateDockerCompose(getConfig(), mockNetworkConfig);
           const volumes = result.services.agent.volumes as string[];
 
           // Directory should NOT be auto-created (changed in #2114)
@@ -554,7 +546,7 @@ describe('agent service', () => {
     });
 
     it('should use sessionStateDir when specified for chroot mounts', () => {
-      const configWithSessionDir = { ...mockConfig, sessionStateDir: '/custom/session-state' };
+      const configWithSessionDir = { ...getConfig(), sessionStateDir: '/custom/session-state' };
       const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
       const volumes = result.services.agent.volumes as string[];
       const homeDir = process.env.HOME || '/root';
@@ -563,7 +555,7 @@ describe('agent service', () => {
     });
 
     it('should mount /tmp under /host for chroot temp scripts', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
 
@@ -572,7 +564,7 @@ describe('agent service', () => {
     });
 
     it('should mount /etc/passwd and /etc/group for user lookup in chroot mode', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const volumes = agent.volumes as string[];
 
@@ -584,7 +576,7 @@ describe('agent service', () => {
 
     it('should mount read-only chroot-hosts when enableHostAccess is true', () => {
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         enableHostAccess: true
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -599,15 +591,15 @@ describe('agent service', () => {
 
     it('should inject host.docker.internal into chroot-hosts file', () => {
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         enableHostAccess: true
       };
       generateDockerCompose(config, mockNetworkConfig);
 
       // Find the chroot hosts file (mkdtempSync creates chroot-XXXXXX directory)
-      const chrootDir = fs.readdirSync(mockConfig.workDir).find(d => d.startsWith('chroot-'));
+      const chrootDir = fs.readdirSync(getConfig().workDir).find(d => d.startsWith('chroot-'));
       expect(chrootDir).toBeDefined();
-      const chrootHostsPath = `${mockConfig.workDir}/${chrootDir}/hosts`;
+      const chrootHostsPath = `${getConfig().workDir}/${chrootDir}/hosts`;
       expect(fs.existsSync(chrootHostsPath)).toBe(true);
       const content = fs.readFileSync(chrootHostsPath, 'utf8');
       // Docker bridge gateway resolution may succeed or fail in test env,
@@ -617,7 +609,7 @@ describe('agent service', () => {
 
     it('should mount custom chroot-hosts even without enableHostAccess', () => {
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         enableHostAccess: false
       };
       const result = generateDockerCompose(config, mockNetworkConfig);
@@ -648,15 +640,15 @@ describe('agent service', () => {
       });
 
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         allowedDomains: ['github.com', 'npmjs.org', '*.wildcard.com'],
       };
       generateDockerCompose(config, mockNetworkConfig);
 
       // Find the chroot hosts file (mkdtempSync creates chroot-XXXXXX directory)
-      const chrootDir = fs.readdirSync(mockConfig.workDir).find(d => d.startsWith('chroot-'));
+      const chrootDir = fs.readdirSync(getConfig().workDir).find(d => d.startsWith('chroot-'));
       expect(chrootDir).toBeDefined();
-      const chrootHostsPath = `${mockConfig.workDir}/${chrootDir}/hosts`;
+      const chrootHostsPath = `${getConfig().workDir}/${chrootDir}/hosts`;
       expect(fs.existsSync(chrootHostsPath)).toBe(true);
       const content = fs.readFileSync(chrootHostsPath, 'utf8');
 
@@ -677,16 +669,16 @@ describe('agent service', () => {
       });
 
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         allowedDomains: ['unreachable.tailnet.example'],
       };
       // Should not throw even if resolution fails
       generateDockerCompose(config, mockNetworkConfig);
 
       // Find the chroot hosts file (mkdtempSync creates chroot-XXXXXX directory)
-      const chrootDir = fs.readdirSync(mockConfig.workDir).find(d => d.startsWith('chroot-'));
+      const chrootDir = fs.readdirSync(getConfig().workDir).find(d => d.startsWith('chroot-'));
       expect(chrootDir).toBeDefined();
-      const chrootHostsPath = `${mockConfig.workDir}/${chrootDir}/hosts`;
+      const chrootHostsPath = `${getConfig().workDir}/${chrootDir}/hosts`;
       expect(fs.existsSync(chrootHostsPath)).toBe(true);
       const content = fs.readFileSync(chrootHostsPath, 'utf8');
 
@@ -709,15 +701,15 @@ describe('agent service', () => {
       });
 
       const config = {
-        ...mockConfig,
+        ...getConfig(),
         allowedDomains: ['localhost'], // localhost is already in /etc/hosts
       };
       generateDockerCompose(config, mockNetworkConfig);
 
       // Find the chroot hosts file (mkdtempSync creates chroot-XXXXXX directory)
-      const chrootDir = fs.readdirSync(mockConfig.workDir).find(d => d.startsWith('chroot-'));
+      const chrootDir = fs.readdirSync(getConfig().workDir).find(d => d.startsWith('chroot-'));
       expect(chrootDir).toBeDefined();
-      const chrootHostsPath = `${mockConfig.workDir}/${chrootDir}/hosts`;
+      const chrootHostsPath = `${getConfig().workDir}/${chrootDir}/hosts`;
       const content = fs.readFileSync(chrootHostsPath, 'utf8');
 
       // Count occurrences of 'localhost' - should only be the original entries, not duplicated

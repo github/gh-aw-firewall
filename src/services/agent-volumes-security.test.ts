@@ -1,4 +1,4 @@
-import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -8,19 +8,11 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
-let mockConfig: WrapperConfig;
+const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
-  useTempWorkDir(
-    baseConfig,
-    (config) => {
-      mockConfig = config;
-    },
-    () => mockConfig
-  );
-
   it('should use selective mounts when no custom mounts specified', () => {
-    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+    const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;
     const volumes = agent.volumes as string[];
 
@@ -31,7 +23,7 @@ describe('agent service', () => {
   });
 
   it('should hide Docker socket by default', () => {
-    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+    const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;
     const volumes = agent.volumes as string[];
 
@@ -42,37 +34,37 @@ describe('agent service', () => {
 
   describe('workDir tmpfs overlay (secrets protection)', () => {
     it('should hide workDir from agent container via tmpfs in normal mode', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
       // workDir should be hidden via tmpfs overlay to prevent reading docker-compose.yml
-      expect(tmpfs).toContainEqual(expect.stringContaining(mockConfig.workDir));
-      expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
+      expect(tmpfs).toContainEqual(expect.stringContaining(getConfig().workDir));
+      expect(tmpfs.some((t: string) => t.startsWith(`${getConfig().workDir}:`))).toBe(true);
     });
 
     it('should hide workDir at both normal and /host paths (chroot always on)', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
       // Both /tmp/awf-test and /host/tmp/awf-test should be hidden
-      expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`/host${mockConfig.workDir}:`))).toBe(true);
+      expect(tmpfs.some((t: string) => t.startsWith(`${getConfig().workDir}:`))).toBe(true);
+      expect(tmpfs.some((t: string) => t.startsWith(`/host${getConfig().workDir}:`))).toBe(true);
     });
 
     it('should still hide mcp-logs alongside workDir', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
       // Both mcp-logs and workDir should be hidden
       expect(tmpfs.some((t: string) => t.includes('/tmp/gh-aw/mcp-logs'))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
+      expect(tmpfs.some((t: string) => t.startsWith(`${getConfig().workDir}:`))).toBe(true);
     });
 
     it('should set secure tmpfs options (noexec, nosuid, size limit)', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
@@ -88,7 +80,7 @@ describe('agent service', () => {
     it('should apply tmpfs overlay to custom workDir paths', () => {
       const customWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-workdir-'));
       const configWithCustomWorkDir = {
-        ...mockConfig,
+        ...getConfig(),
         workDir: customWorkDir,
       };
       try {
@@ -104,17 +96,17 @@ describe('agent service', () => {
     });
 
     it('should include exactly 5 tmpfs mounts (mcp-logs + workDir both normal and /host, plus /host/dev/shm)', () => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
       expect(tmpfs).toHaveLength(5);
       // Normal paths
       expect(tmpfs.some((t: string) => t.includes('/tmp/gh-aw/mcp-logs:'))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`${mockConfig.workDir}:`))).toBe(true);
+      expect(tmpfs.some((t: string) => t.startsWith(`${getConfig().workDir}:`))).toBe(true);
       // /host-prefixed paths (chroot always on)
       expect(tmpfs.some((t: string) => t.includes('/host/tmp/gh-aw/mcp-logs:'))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`/host${mockConfig.workDir}:`))).toBe(true);
+      expect(tmpfs.some((t: string) => t.startsWith(`/host${getConfig().workDir}:`))).toBe(true);
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });
