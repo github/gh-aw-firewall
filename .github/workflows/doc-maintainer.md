@@ -42,7 +42,7 @@ jobs:
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 4
+  max-turns: 10
 tools:
   edit:
   bash: false
