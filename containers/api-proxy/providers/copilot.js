@@ -16,6 +16,10 @@
  * BYOK extra headers: AWF_BYOK_EXTRA_HEADERS (JSON object) injects supplemental
  * headers (e.g. x-session-id, HTTP-Referer) into upstream requests when the
  * BYOK API key is in use.  Auth-critical header names are rejected at parse time.
+ *
+ * BYOK extra body fields: AWF_BYOK_EXTRA_BODY_FIELDS (JSON object) injects
+ * supplemental top-level JSON fields (e.g. session_id) into upstream requests
+ * when the BYOK API key is in use.
  */
 
 const {
@@ -97,6 +101,74 @@ function parseByokExtraHeaders(raw) {
   }
 
   return result;
+}
+
+/**
+ * Parse AWF_BYOK_EXTRA_BODY_FIELDS into a plain string map.
+ *
+ * @param {string|undefined} raw - Raw value of AWF_BYOK_EXTRA_BODY_FIELDS
+ * @returns {Record<string, string>} Validated body field map (may be empty)
+ */
+function parseByokExtraBodyFields(raw) {
+  if (!raw || !raw.trim()) return {};
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch {
+    console.warn('AWF_BYOK_EXTRA_BODY_FIELDS: invalid JSON; ignoring extra body fields');
+    return {};
+  }
+
+  if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+    console.warn('AWF_BYOK_EXTRA_BODY_FIELDS: expected a JSON object; ignoring extra body fields');
+    return {};
+  }
+
+  const result = {};
+  for (const [name, value] of Object.entries(parsed)) {
+    if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+      console.warn(`AWF_BYOK_EXTRA_BODY_FIELDS: "${name}" is not an allowed field name; skipping`);
+      continue;
+    }
+    if (typeof value !== 'string') {
+      console.warn(`AWF_BYOK_EXTRA_BODY_FIELDS: value for "${name}" must be a string; skipping`);
+      continue;
+    }
+    result[name] = value;
+  }
+
+  return result;
+}
+
+/**
+ * Inject non-overriding top-level JSON fields into a request body.
+ *
+ * @param {Buffer} body
+ * @param {Record<string, string>} fields
+ * @returns {Buffer|null}
+ */
+function injectByokExtraBodyFields(body, fields) {
+  if (!fields || Object.keys(fields).length === 0) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  let changed = false;
+  for (const [field, value] of Object.entries(fields)) {
+    if (!Object.hasOwn(parsed, field)) {
+      parsed[field] = value;
+      changed = true;
+    }
+  }
+
+  if (!changed) return null;
+  return Buffer.from(JSON.stringify(parsed));
 }
 
 // AWF injects this sentinel value into the *agent* environment for credential isolation.
@@ -324,11 +396,26 @@ function createCopilotAdapter(env, deps = {}) {
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
   // GitHub OAuth (COPILOT_GITHUB_TOKEN-only) requests.
   const byokExtraHeaders = parseByokExtraHeaders(env.AWF_BYOK_EXTRA_HEADERS);
+  const byokExtraBodyFields = parseByokExtraBodyFields(env.AWF_BYOK_EXTRA_BODY_FIELDS);
+  const providerSessionId = (env.AWF_PROVIDER_SESSION_ID || '').trim() || undefined;
+  if (providerSessionId) {
+    const hasSessionIdHeader = Object.keys(byokExtraHeaders).some(k => k.toLowerCase() === 'x-session-id');
+    if (!hasSessionIdHeader) {
+      byokExtraHeaders['x-session-id'] = providerSessionId;
+    }
+    if (!Object.hasOwn(byokExtraBodyFields, 'session_id')) {
+      byokExtraBodyFields.session_id = providerSessionId;
+    }
+  }
 
-  const bodyTransform = composeBodyTransforms(
+  const sanitizedBodyTransform = composeBodyTransforms(
     deps.bodyTransform || null,
     (body) => { const result = sanitizeNullToolCallTypes(body); return result ? result.body : null; }
   );
+  const byokBodyFieldTransform = (apiKey && Object.keys(byokExtraBodyFields).length > 0)
+    ? (body) => injectByokExtraBodyFields(body, byokExtraBodyFields)
+    : null;
+  const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
 
   // Pre-computed models path used by getModelsFetchConfig and getReflectionInfo.
   // For BYOK/custom providers the base path prefix is included (e.g. /api/v1/models
@@ -506,5 +593,7 @@ module.exports = {
     isGithubCopilotCatalogTarget,
     COPILOT_PLACEHOLDER_TOKEN,
     parseByokExtraHeaders,
+    parseByokExtraBodyFields,
+    injectByokExtraBodyFields,
   },
 };

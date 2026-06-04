@@ -82,5 +82,6 @@ describe('export audit workflow optimization config', () => {
 
     // github-mcp-server image reference present (digest pinning removed in v0.77.5)
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
+    expect(lock).not.toContain('ghcr.io/github/github-mcp-server:v1.1.0@sha256:');
   });
 });

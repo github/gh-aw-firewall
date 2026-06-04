@@ -637,6 +637,47 @@ describe('API proxy sidecar: env var forwarding', () => {
           );
         });
 
+        it('should forward copilotByokExtraBodyFields as AWF_BYOK_EXTRA_BODY_FIELDS', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderApiKey: 'sk-test-key',
+            copilotByokExtraBodyFields: { session_id: 'run-42', user_id: 'octocat' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_BYOK_EXTRA_BODY_FIELDS).toBe(
+            JSON.stringify({ session_id: 'run-42', user_id: 'octocat' }),
+          );
+        });
+
+        describe('AWF_PROVIDER_SESSION_ID forwarding', () => {
+          const sessionIdVars = ['AWF_PROVIDER_SESSION_ID', 'GH_AW_GITHUB_RUN_ID', 'GITHUB_RUN_ID'];
+          let savedSessionEnv: Record<string, string | undefined>;
+
+          beforeEach(() => {
+            savedSessionEnv = {};
+            for (const key of sessionIdVars) {
+              savedSessionEnv[key] = process.env[key];
+              delete process.env[key];
+            }
+          });
+
+          afterEach(() => {
+            for (const key of sessionIdVars) {
+              if (savedSessionEnv[key] !== undefined) process.env[key] = savedSessionEnv[key];
+              else delete process.env[key];
+            }
+          });
+
+          it('should forward AWF_PROVIDER_SESSION_ID from GITHUB_RUN_ID when explicit value is not set', () => {
+            process.env.GITHUB_RUN_ID = '123456789';
+            const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true }, mockNetworkConfigWithProxy);
+            const env = result.services['api-proxy'].environment as Record<string, string>;
+            expect(env.AWF_PROVIDER_SESSION_ID).toBe('123456789');
+          });
+        });
+
         it('should forward modelAliases as AWF_MODEL_ALIASES (JSON-wrapped)', () => {
           const aliases: Record<string, string[]> = { 'gpt-4o': ['azure/gpt-4o-prod'] };
           const configWithProxy = {

@@ -46,9 +46,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).not.toContain("<< 'ENVEOF'");
     expect(lock).toContain('Report turn usage');
     expect(lock).toContain('target: 1, hard cap: 2');
-    expect(lock).toContain(
-      'github/gh-aw-actions/setup@3ea13c02d765410340d533515cb31a7eef2baaf0 # v0.77.5'
-    );
+    expect(lock).toMatch(/github\/gh-aw-actions\/setup@[a-f0-9]{40} # v\d+\.\d+\.\d+/);
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');

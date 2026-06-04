@@ -49,7 +49,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md §9 for credential isolation semantics."
+          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md \u00a79 for credential isolation semantics."
         },
         "enableTokenSteering": {
           "type": "boolean",
@@ -70,11 +70,11 @@
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
+          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input \u00d71, cache-read \u00d70.1, output \u00d74, reasoning \u00d74. See spec \u00a710."
         },
         "modelMultipliers": {
           "type": "object",
-          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
+          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec \u00a710.2.",
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0
@@ -93,7 +93,7 @@
         "maxRuns": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec \u00a711."
         },
         "maxPermissionDenied": {
           "type": "integer",
@@ -183,7 +183,7 @@
         },
         "auth": {
           "type": "object",
-          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD, AWS STS, GCP Workload Identity, or Anthropic Workload Identity Federation). See docs/awf-config-spec.md §9.5.",
+          "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC \u2192 Azure AD, AWS STS, GCP Workload Identity, or Anthropic Workload Identity Federation). See docs/awf-config-spec.md \u00a79.5.",
           "additionalProperties": false,
           "properties": {
             "type": {
@@ -485,7 +485,7 @@
     },
     "environment": {
       "type": "object",
-      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for credential isolation rules.",
+      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md \u00a78\u20139 for credential isolation rules.",
       "additionalProperties": false,
       "properties": {
         "envFile": {
@@ -494,7 +494,7 @@
         },
         "envAll": {
           "type": "boolean",
-          "description": "Forward all host environment variables into the agent container. Use with caution — may expose secrets."
+          "description": "Forward all host environment variables into the agent container. Use with caution \u2014 may expose secrets."
         },
         "excludeEnv": {
           "type": "array",
@@ -608,6 +608,13 @@
         "extraHeaders": {
           "type": "object",
           "description": "Additional non-sensitive headers to include on Copilot BYOK upstream requests. Values must be strings. Maps to AWF_BYOK_EXTRA_HEADERS in the sidecar.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "extraBodyFields": {
+          "type": "object",
+          "description": "Additional non-sensitive JSON body fields to include on Copilot BYOK upstream requests. Values must be strings. Maps to AWF_BYOK_EXTRA_BODY_FIELDS in the sidecar.",
           "additionalProperties": {
             "type": "string"
           }
