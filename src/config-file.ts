@@ -98,7 +98,9 @@ interface AwfFileConfig {
  * Uses the published JSON Schema (awf-config-schema.json) via ajv for
  * validation, ensuring the schema is the single source of truth for both
  * external consumers (gh-aw compiler) and internal validation.
+ * @internal Exposed only for unit tests — not part of the public API.
  */
+// ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
   return validateWithSchema(config);
 }
