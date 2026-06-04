@@ -93,11 +93,23 @@ function extractCacheReadTokens(usage) {
     let found = false;
     for (const entry of entries) {
       if (!entry || typeof entry !== 'object') continue;
-      if (entry.token_type !== 'cache_read') continue;
-      const count = entry.token_count;
-      if (typeof count === 'number') {
-        total += count;
-        found = true;
+      if (entry.token_type === 'cache_read') {
+        const count = entry.token_count;
+        if (typeof count === 'number') {
+          total += count;
+          found = true;
+        }
+      }
+      if (Array.isArray(entry.details)) {
+        for (const nested of entry.details) {
+          if (!nested || typeof nested !== 'object') continue;
+          if (nested.token_type !== 'cache_read') continue;
+          const count = nested.token_count;
+          if (typeof count === 'number') {
+            total += count;
+            found = true;
+          }
+        }
       }
     }
     if (found) return total;

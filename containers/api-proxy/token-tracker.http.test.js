@@ -222,19 +222,24 @@ describe('trackTokenUsage', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      const lines = writeSpy.mock.calls
-        .map((call) => call[0])
-        .filter((line) => typeof line === 'string' && line.includes('test-cache-rollup-mismatch'))
-        .map((line) => {
-          try { return JSON.parse(line); } catch { return null; }
-        })
-        .filter(Boolean);
+      try {
+        const lines = writeSpy.mock.calls
+          .map((call) => call[0])
+          .filter((line) => typeof line === 'string' && line.includes('test-cache-rollup-mismatch'))
+          .map((line) => {
+            try { return JSON.parse(line); } catch { return null; }
+          })
+          .filter(Boolean);
 
-      expect(lines.some((line) => line.event === 'token_cache_read_rollup_mismatch'
-        && line.observed_cache_read_tokens === 99
-        && line.rolled_up_cache_read_tokens === 0)).toBe(true);
-      writeSpy.mockRestore();
-      done();
+        expect(lines.some((line) => line.event === 'token_cache_read_rollup_mismatch'
+          && line.observed_cache_read_tokens === 99
+          && line.rolled_up_cache_read_tokens === 0)).toBe(true);
+        done();
+      } catch (err) {
+        done(err);
+      } finally {
+        writeSpy.mockRestore();
+      }
     }, 10);
   });
 
