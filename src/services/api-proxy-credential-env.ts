@@ -1,7 +1,7 @@
 import { logger } from '../logger';
 import { WrapperConfig, API_PROXY_PORTS } from '../types';
-import { readEnvFile } from '../github-env';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
+import { getConfigEnvValue, getLowerCaseProcessEnvValue } from '../env-utils';
 import { NetworkConfig } from './squid-service';
 
 interface ApiProxyCredentialEnvParams {
@@ -14,18 +14,6 @@ interface ApiProxyCredentialEnvParams {
 // are runtime-configurable and not limited to a fixed allowlist.
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
 
-function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
-  const envFileValue = config.envFile
-    ? readEnvFile(config.envFile)[key]
-    : undefined;
-  const value =
-    config.additionalEnv?.[key] ??
-    envFileValue ??
-    (config.envAll ? process.env[key] : undefined);
-  const normalizedValue = value?.trim();
-  return normalizedValue || undefined;
-}
-
 function requiresResponsesWireApi(copilotModel: string): boolean {
   return RESPONSES_WIRE_API_MODEL_PATTERN.test(copilotModel);
 }
@@ -35,8 +23,8 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
   if (!networkConfig.proxyIp) {
     throw new Error('buildAgentCredentialEnv: networkConfig.proxyIp is required');
   }
-  const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const normalizedAuthProvider = (process.env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
+  const normalizedAuthType = getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
+  const normalizedAuthProvider = getLowerCaseProcessEnvValue('AWF_AUTH_PROVIDER') || '';
   const shouldProxyAnthropic = Boolean(config.anthropicApiKey || (normalizedAuthType === 'github-oidc' && normalizedAuthProvider === 'anthropic'));
 
   const agentEnvAdditions: Record<string, string> = {

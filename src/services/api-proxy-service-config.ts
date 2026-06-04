@@ -4,10 +4,9 @@ import {
   SQUID_PORT,
 } from '../constants';
 import { stripScheme } from '../host-env';
-import { readEnvFile } from '../github-env';
 import { buildRuntimeImageRef } from '../image-tag';
 import { WrapperConfig, API_PROXY_HEALTH_PORT } from '../types';
-import { pickEnvVars } from '../env-utils';
+import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
@@ -72,25 +71,13 @@ function resolveProviderSessionId(config: WrapperConfig): string | undefined {
   return normalizedValue || undefined;
 }
 
-function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
-  const envFileValue = config.envFile
-    ? readEnvFile(config.envFile)[key]
-    : undefined;
-  const value =
-    config.additionalEnv?.[key] ??
-    envFileValue ??
-    (config.envAll ? process.env[key] : undefined);
-  const normalizedValue = value?.trim();
-  return normalizedValue || undefined;
-}
-
 export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams): any {
   const { config, networkConfig, apiProxyLogsPath, imageConfig } = params;
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
   }
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
-  const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const normalizedAuthType = getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
 
   const proxyService: any = {
     container_name: API_PROXY_CONTAINER_NAME,
