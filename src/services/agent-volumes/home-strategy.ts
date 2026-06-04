@@ -57,7 +57,7 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   mounts.push(`${effectiveHome}/.npm:/host${effectiveHome}/.npm:rw`);
   mounts.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
-  const runnerToolCacheDir = resolveRunnerToolCachePath(config);
+  const runnerToolCacheDir = resolveRunnerToolCachePath(config, effectiveHome);
   if (runnerToolCacheDir) {
     mounts.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
   }
@@ -65,11 +65,11 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   return mounts;
 }
 
-function resolveRunnerToolCachePath(config: WrapperConfig): string | undefined {
+function resolveRunnerToolCachePath(config: WrapperConfig, effectiveHome: string): string | undefined {
   const candidates = [
     config.runnerToolCachePath,
     process.env.RUNNER_TOOL_CACHE,
-    '/home/runner/work/_tool',
+    path.join(effectiveHome, 'work', '_tool'),
   ];
 
   for (const candidate of candidates) {
