@@ -115,7 +115,7 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
   // invariant and surfaces a clear error instead of a silent bypass.
   // Reference: https://github.blog/changelog/2026-04-07-copilot-cli-now-supports-byok-and-local-models/
   const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
-  const hasCopilotProviderBaseUrl = !!getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const hasCopilotProviderBaseUrl = !!config.copilotProviderBaseUrl || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
   if (config.copilotGithubToken || hasCopilotProviderApiKey || hasCopilotProviderBaseUrl) {
     agentEnvAdditions.COPILOT_API_URL = `http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`;
     logger.debug(`GitHub Copilot API will be proxied through sidecar at http://${networkConfig.proxyIp}:${API_PROXY_PORTS.COPILOT}`);

@@ -400,6 +400,59 @@ describe('API proxy sidecar: env var forwarding', () => {
         expect(env.COPILOT_PROVIDER_BASE_URL).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
       });
 
+      describe('config-driven modelRouter.baseUrl triggers agent-side BYOK routing', () => {
+        // When apiProxy.modelRouter.baseUrl is set in AWF config (stored as
+        // config.copilotProviderBaseUrl), the agent must be routed through the sidecar
+        // the same way it would be when COPILOT_PROVIDER_BASE_URL is supplied via
+        // --env / --env-file / --env-all. Without this wiring, the sidecar env is
+        // configured but COPILOT_OFFLINE / agent COPILOT_PROVIDER_BASE_URL are never
+        // set, so Copilot CLI would bypass the proxy entirely.
+
+        it('should set agent COPILOT_PROVIDER_BASE_URL to sidecar URL', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/my-router',
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          expect(env.COPILOT_PROVIDER_BASE_URL).toBe('http://172.30.0.30:10002');
+        });
+
+        it('should set agent COPILOT_OFFLINE=true', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/my-router',
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          expect(env.COPILOT_OFFLINE).toBe('true');
+        });
+
+        it('should forward the real baseUrl to the sidecar', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/my-router',
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxyEnv = result.services['api-proxy'].environment as Record<string, string>;
+          expect(proxyEnv.COPILOT_PROVIDER_BASE_URL).toBe('https://example-resource.openai.azure.com/openai/deployments/my-router');
+        });
+
+        it('should NOT inject a COPILOT_PROVIDER_API_KEY placeholder when no key was supplied', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/my-router',
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services.agent.environment as Record<string, string>;
+          expect(env.COPILOT_PROVIDER_API_KEY).toBeUndefined();
+        });
+      });
+
       describe('direct-BYOK mode (user-supplied COPILOT_PROVIDER_API_KEY without COPILOT_GITHUB_TOKEN)', () => {
         // When the user points Copilot CLI at an arbitrary upstream (Azure Foundry,
         // OpenRouter, etc.) via COPILOT_PROVIDER_BASE_URL + COPILOT_PROVIDER_API_KEY,
