@@ -557,7 +557,7 @@ describe('agent service', () => {
         expect(volumes).not.toContain(`${symlinkPath}:/host${symlinkPath}:ro`);
       });
     } finally {
-      fs.rmSync(symlinkPath, { force: true });
+      try { fs.unlinkSync(symlinkPath); } catch { /* already removed */ }
       fs.rmSync(symlinkTarget, { recursive: true, force: true });
     }
   });
