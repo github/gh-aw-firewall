@@ -240,12 +240,16 @@ export function assembleAndValidateConfig(
   emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
   // Check if COPILOT_MODEL is set via --env/-e flags, --env-file, or host env (when --env-all is active)
-  const copilotModelFromFlags = agentOptions.additionalEnv.COPILOT_MODEL?.trim();
+  const copilotModelFromFlags = agentOptions.additionalEnv.COPILOT_MODEL;
   const copilotModelInEnvFile = readCopilotModelFromEnvFiles(
     (config as { envFile?: unknown }).envFile,
   );
-  const copilotModelInHostEnv = config.envAll ? process.env.COPILOT_MODEL?.trim() : undefined;
-  const copilotModel = copilotModelFromFlags || copilotModelInEnvFile || copilotModelInHostEnv;
+  const copilotModelInHostEnv = config.envAll ? process.env.COPILOT_MODEL : undefined;
+  const copilotModel = (
+    copilotModelFromFlags ??
+    copilotModelInEnvFile ??
+    copilotModelInHostEnv
+  )?.trim();
   warnClassicPATWithCopilotModel(
     config.copilotGithubToken?.startsWith('ghp_') ?? false,
     !!copilotModel,
@@ -260,7 +264,9 @@ export function assembleAndValidateConfig(
     }
 
     if (validation.resolvedModel !== copilotModel) {
-      logger.info(`Resolved COPILOT_MODEL alias '${copilotModel}' -> '${validation.resolvedModel}'`);
+      logger.info(
+        `Normalized COPILOT_MODEL value '${copilotModel}' -> '${validation.resolvedModel}'`,
+      );
     }
     config.additionalEnv = {
       ...(config.additionalEnv ?? {}),
