@@ -125,6 +125,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
   let finalized = false;
   let frameCount = 0;
   let textMessageCount = 0;
+  let observedCacheReadTokens = 0;
 
   // Max buffer to prevent unbounded memory growth (1 MB)
   const MAX_WS_BUFFER = 1 * 1024 * 1024;
@@ -161,6 +162,10 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       const { usage, model } = extractUsageFromSseLine(text);
       if (model && !streamingModel) streamingModel = model;
       if (usage) {
+        const normalizedLineUsage = normalizeUsage(usage);
+        if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > observedCacheReadTokens) {
+          observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+        }
         logRequest('debug', 'ws_token_usage_found', {
           request_id: requestId,
           provider,
@@ -195,6 +200,26 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     const duration = Date.now() - startTime;
     const normalized = normalizeUsage(streamingUsage);
     if (!normalized) return;
+    if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
+      logRequest('warn', 'token_cache_read_rollup_mismatch', {
+        request_id: requestId,
+        provider,
+        model: streamingModel || 'unknown',
+        observed_cache_read_tokens: observedCacheReadTokens,
+        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
+        streaming: true,
+        transport: 'websocket',
+      });
+      diag('CACHE_READ_ROLLUP_MISMATCH', {
+        request_id: requestId,
+        provider,
+        model: streamingModel || 'unknown',
+        observed_cache_read_tokens: observedCacheReadTokens,
+        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
+        streaming: true,
+        transport: 'websocket',
+      });
+    }
     if (typeof onUsage === 'function') {
       try {
         onUsage(normalized, streamingModel || 'unknown');

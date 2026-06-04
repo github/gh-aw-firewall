@@ -177,6 +177,67 @@ describe('trackTokenUsage', () => {
     }, 10);
   });
 
+  test('warns when cache-read was observed in events but rolled-up value is zero', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const metricsRef = { increment: jest.fn() };
+    const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-cache-rollup-mismatch',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    const chunk1 = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 200,
+          output_tokens: 40,
+          total_tokens: 240,
+          prompt_tokens_details: {
+            cached_tokens: 99,
+          },
+        },
+      },
+    }) + '\n\n';
+
+    const chunk2 = 'data: ' + JSON.stringify({
+      usage: {
+        prompt_tokens: 200,
+        completion_tokens: 40,
+        total_tokens: 240,
+        cache_read_input_tokens: 0,
+      },
+    }) + '\n\ndata: [DONE]\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk1));
+    proxyRes.emit('data', Buffer.from(chunk2));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      const lines = writeSpy.mock.calls
+        .map((call) => call[0])
+        .filter((line) => typeof line === 'string' && line.includes('test-cache-rollup-mismatch'))
+        .map((line) => {
+          try { return JSON.parse(line); } catch { return null; }
+        })
+        .filter(Boolean);
+
+      expect(lines.some((line) => line.event === 'token_cache_read_rollup_mismatch'
+        && line.observed_cache_read_tokens === 99
+        && line.rolled_up_cache_read_tokens === 0)).toBe(true);
+      writeSpy.mockRestore();
+      done();
+    }, 10);
+  });
+
   test('skips non-2xx responses', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };
