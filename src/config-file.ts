@@ -29,6 +29,10 @@ interface AwfFileConfig {
       strategy?: 'middle_power';
       excludeEngines?: string[];
     };
+    modelRouter?: {
+      providerType?: string;
+      baseUrl?: string;
+    };
     targets?: {
       openai?: { host?: string; basePath?: string; authHeader?: string };
       anthropic?: { host?: string; basePath?: string; authHeader?: string };
@@ -103,7 +107,9 @@ interface AwfFileConfig {
  * Uses the published JSON Schema (awf-config-schema.json) via ajv for
  * validation, ensuring the schema is the single source of truth for both
  * external consumers (gh-aw compiler) and internal validation.
+ * @internal Exposed only for unit tests — not part of the public API.
  */
+// ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
   return validateWithSchema(config);
 }
@@ -197,6 +203,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
+    copilotProviderType: config.apiProxy?.modelRouter?.providerType,
+    copilotProviderBaseUrl: config.apiProxy?.modelRouter?.baseUrl,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     openaiApiAuthHeader: config.apiProxy?.targets?.openai?.authHeader,

@@ -24,8 +24,8 @@ interface ApiProxyServiceConfigParams {
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
  */
 function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
-  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
-  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
+  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
   const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};

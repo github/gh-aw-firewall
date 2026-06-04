@@ -150,6 +150,17 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.modelFallback.strategy must be one of: middle_power');
   });
 
+  it('validates apiProxy.modelRouter fields', () => {
+    expect(validateAwfFileConfig({
+      apiProxy: { modelRouter: { providerType: 'azure', baseUrl: 'https://router.example.com/v1' } },
+    })).toEqual([]);
+
+    expect(validateAwfFileConfig({ apiProxy: { modelRouter: { providerType: 123 } } }))
+      .toContain('config.apiProxy.modelRouter.providerType must be a string');
+    expect(validateAwfFileConfig({ apiProxy: { modelRouter: { baseUrl: 456 } } }))
+      .toContain('config.apiProxy.modelRouter.baseUrl must be a string');
+  });
+
   it('rejects non-object apiProxy.targets', () => {
     const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
     expect(errors).toContain('config.apiProxy.targets must be an object');

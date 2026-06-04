@@ -192,6 +192,19 @@ describe('mapAwfFileConfigToCliOptions', () => {
     });
   });
 
+  it('maps modelRouter fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        modelRouter: {
+          providerType: 'azure',
+          baseUrl: 'https://example-resource.openai.azure.com/openai/deployments/test',
+        },
+      },
+    });
+    expect(result.copilotProviderType).toBe('azure');
+    expect(result.copilotProviderBaseUrl).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
+  });
+
   it('leaves maxRuns undefined when not set', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.maxRuns).toBeUndefined();

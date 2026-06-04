@@ -155,6 +155,61 @@ describe('extractUsageFromJson', () => {
       total_tokens: 1801,
     });
   });
+
+  test('extracts OpenAI Responses API cached tokens from response.usage.prompt_tokens_details', () => {
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        id: 'resp_cache_123',
+        model: 'gpt-5-mini',
+        usage: {
+          input_tokens: 40000,
+          output_tokens: 64,
+          total_tokens: 40064,
+          prompt_tokens_details: {
+            cached_tokens: 32128,
+          },
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gpt-5-mini');
+    expect(result.usage).toEqual({
+      input_tokens: 40000,
+      output_tokens: 64,
+      total_tokens: 40064,
+      cache_read_input_tokens: 32128,
+    });
+  });
+
+  test('extracts cache_read tokens from token_type entries in usage details', () => {
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5-mini',
+        usage: {
+          input_tokens: 120,
+          output_tokens: 30,
+          total_tokens: 150,
+          prompt_tokens_details: {
+            details: [
+              { token_type: 'text', token_count: 12 },
+              { token_type: 'cache_read', token_count: 77 },
+            ],
+          },
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({
+      input_tokens: 120,
+      output_tokens: 30,
+      total_tokens: 150,
+      cache_read_input_tokens: 77,
+    });
+  });
 });
 
 // ── extractUsageFromSseLine ───────────────────────────────────────────
@@ -257,6 +312,33 @@ describe('extractUsageFromSseLine', () => {
       total_tokens: 125,
       reasoning_tokens: 7,
       cache_read_input_tokens: 33,
+    });
+  });
+
+  test('extracts cache tokens from OpenAI Responses API token_type entries', () => {
+    const line = JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 25,
+          total_tokens: 125,
+          prompt_tokens_details: {
+            details: [
+              { token_type: 'cache_read', token_count: 55 },
+            ],
+          },
+        },
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({
+      input_tokens: 100,
+      output_tokens: 25,
+      total_tokens: 125,
+      cache_read_input_tokens: 55,
     });
   });
 

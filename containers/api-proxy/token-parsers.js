@@ -57,6 +57,68 @@ function extractReasoningTokens(usage) {
 }
 
 /**
+ * Extract cache-read token count from provider usage payloads.
+ *
+ * Supports:
+ *  - Anthropic: usage.cache_read_input_tokens
+ *  - OpenAI/Copilot: usage.prompt_tokens_details.cached_tokens
+ *  - Token-entry arrays containing { token_type: "cache_read", token_count: <n> }
+ */
+function extractCacheReadTokens(usage) {
+  if (!usage || typeof usage !== 'object') return undefined;
+
+  if (typeof usage.cache_read_input_tokens === 'number') {
+    return usage.cache_read_input_tokens;
+  }
+
+  if (usage.prompt_tokens_details && typeof usage.prompt_tokens_details.cached_tokens === 'number') {
+    return usage.prompt_tokens_details.cached_tokens;
+  }
+
+  const tokenContainers = [
+    usage.prompt_tokens_details,
+    usage.input_tokens_details,
+    usage.token_details,
+    usage.usage_details,
+  ];
+
+  for (const container of tokenContainers) {
+    if (!container || typeof container !== 'object') continue;
+    const entries = Array.isArray(container)
+      ? container
+      : (Array.isArray(container.details) ? container.details : null);
+    if (!entries) continue;
+
+    let total = 0;
+    let found = false;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.token_type === 'cache_read') {
+        const count = entry.token_count;
+        if (typeof count === 'number') {
+          total += count;
+          found = true;
+        }
+      }
+      if (Array.isArray(entry.details)) {
+        for (const nested of entry.details) {
+          if (!nested || typeof nested !== 'object') continue;
+          if (nested.token_type !== 'cache_read') continue;
+          const count = nested.token_count;
+          if (typeof count === 'number') {
+            total += count;
+            found = true;
+          }
+        }
+      }
+    }
+    if (found) return total;
+  }
+
+  return undefined;
+}
+
+/**
  * Extract token usage from a non-streaming JSON response body.
  *
  * Supports:
@@ -95,10 +157,6 @@ function extractUsageFromJson(body) {
         usage.cache_creation_input_tokens = usageSource.cache_creation_input_tokens;
         hasField = true;
       }
-      if (typeof usageSource.cache_read_input_tokens === 'number') {
-        usage.cache_read_input_tokens = usageSource.cache_read_input_tokens;
-        hasField = true;
-      }
       // OpenAI/Copilot fields
       if (typeof usageSource.prompt_tokens === 'number') {
         usage.prompt_tokens = usageSource.prompt_tokens;
@@ -117,9 +175,9 @@ function extractUsageFromJson(body) {
         usage.reasoning_tokens = reasoningTokens;
         hasField = true;
       }
-      // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
-      if (usageSource.prompt_tokens_details && typeof usageSource.prompt_tokens_details.cached_tokens === 'number') {
-        usage.cache_read_input_tokens = usageSource.prompt_tokens_details.cached_tokens;
+      const cacheReadTokens = extractCacheReadTokens(usageSource);
+      if (typeof cacheReadTokens === 'number') {
+        usage.cache_read_input_tokens = cacheReadTokens;
         hasField = true;
       }
       if (hasField) {
@@ -161,7 +219,8 @@ function extractUsageFromSseLine(line) {
       const u = json.message.usage;
       if (typeof u.input_tokens === 'number') result.usage.input_tokens = u.input_tokens;
       if (typeof u.cache_creation_input_tokens === 'number') result.usage.cache_creation_input_tokens = u.cache_creation_input_tokens;
-      if (typeof u.cache_read_input_tokens === 'number') result.usage.cache_read_input_tokens = u.cache_read_input_tokens;
+      const cacheReadTokens = extractCacheReadTokens(u);
+      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
       result.model = (json.message && json.message.model) || result.model;
       return result;
     }
@@ -183,9 +242,8 @@ function extractUsageFromSseLine(line) {
       if (typeof u.total_tokens === 'number') result.usage.total_tokens = u.total_tokens;
       const reasoningTokens = extractReasoningTokens(u);
       if (typeof reasoningTokens === 'number') result.usage.reasoning_tokens = reasoningTokens;
-      if (u.prompt_tokens_details && typeof u.prompt_tokens_details.cached_tokens === 'number') {
-        result.usage.cache_read_input_tokens = u.prompt_tokens_details.cached_tokens;
-      }
+      const cacheReadTokens = extractCacheReadTokens(u);
+      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
       result.model = json.response.model || result.model;
       return result;
     }
@@ -200,10 +258,8 @@ function extractUsageFromSseLine(line) {
       if (typeof reasoningTokens === 'number') {
         result.usage.reasoning_tokens = reasoningTokens;
       }
-      // OpenAI/Copilot nested cache fields (prompt_tokens_details.cached_tokens)
-      if (json.usage.prompt_tokens_details && typeof json.usage.prompt_tokens_details.cached_tokens === 'number') {
-        result.usage.cache_read_input_tokens = json.usage.prompt_tokens_details.cached_tokens;
-      }
+      const cacheReadTokens = extractCacheReadTokens(json.usage);
+      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
       return result;
     }
 
@@ -257,6 +313,7 @@ module.exports = {
   isCompressedResponse,
   createDecompressor,
   extractReasoningTokens,
+  extractCacheReadTokens,
   extractUsageFromJson,
   extractUsageFromSseLine,
   parseSseDataLines,
