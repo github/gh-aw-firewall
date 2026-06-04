@@ -86,12 +86,15 @@ steps:
     id: pr-meta
     if: github.event.pull_request.number
     run: |
+      DELIM="GHAW_PR_META_$(date +%s)"
       PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
-        --json title,author,body,baseRefName,headRefName \
+        --json title,author,baseRefName,headRefName \
         --jq '"**Title:** " + .title + "\n**Author:** " + .author.login + "\n**Base→Head:** " + .baseRefName + "→" + .headRefName')
-      echo "PR_META<<GHAWMETA" >> "$GITHUB_OUTPUT"
-      echo "$PR_INFO" >> "$GITHUB_OUTPUT"
-      echo "GHAWMETA" >> "$GITHUB_OUTPUT"
+      {
+        echo "PR_META<<${DELIM}"
+        printf '%s\n' "$PR_INFO"
+        echo "${DELIM}"
+      } >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
