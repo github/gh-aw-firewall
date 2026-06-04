@@ -20,6 +20,7 @@
  */
 
 const { getTierSortedModels } = require('./model-discovery');
+const { parseBodyAsObject } = require('./body-utils');
 
 const DEFAULT_MODEL_FALLBACK = Object.freeze({
   enabled: true,
@@ -418,14 +419,8 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   // Only attempt rewrite for non-empty bodies
   if (!body || body.length === 0) return null;
 
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return null; // Non-JSON body — skip
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return null; // Non-JSON body — skip
 
   // Determine the requested model. If absent, try the default alias ("").
   const originalModel = typeof parsed.model === 'string' ? parsed.model : '';

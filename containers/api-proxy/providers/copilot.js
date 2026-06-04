@@ -30,6 +30,7 @@ const {
   composeBodyTransforms,
 } = require('../proxy-utils');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
+const { parseBodyAsObject } = require('../body-utils');
 const { URL } = require('url');
 
 /**
@@ -151,13 +152,8 @@ function parseByokExtraBodyFields(raw) {
 function injectByokExtraBodyFields(body, fields) {
   if (!fields || Object.keys(fields).length === 0) return null;
 
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return null;
 
   let changed = false;
   for (const [field, value] of Object.entries(fields)) {
