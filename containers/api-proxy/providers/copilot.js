@@ -398,7 +398,14 @@ function createCopilotAdapter(env, deps = {}) {
   const byokExtraHeaders = parseByokExtraHeaders(env.AWF_BYOK_EXTRA_HEADERS);
   const byokExtraBodyFields = parseByokExtraBodyFields(env.AWF_BYOK_EXTRA_BODY_FIELDS);
   const providerSessionId = (env.AWF_PROVIDER_SESSION_ID || '').trim() || undefined;
-  if (providerSessionId) {
+  // `session_id` (and the `x-session-id` header) is a GitHub Copilot API
+  // convention.  Strict OpenAI-compatible servers (e.g. Azure OpenAI's
+  // /openai/v1/responses) reject unknown body parameters with HTTP 400, so
+  // we only auto-inject these fields when the BYOK target is a known
+  // GitHub Copilot catalog host (api.githubcopilot.com, GHEC, GHES).
+  // Callers may still explicitly request injection against other targets
+  // via AWF_BYOK_EXTRA_HEADERS / AWF_BYOK_EXTRA_BODY_FIELDS.
+  if (providerSessionId && isGithubCopilotCatalogTarget(rawTarget)) {
     const hasSessionIdHeader = Object.keys(byokExtraHeaders).some(k => k.toLowerCase() === 'x-session-id');
     if (!hasSessionIdHeader) {
       byokExtraHeaders['x-session-id'] = providerSessionId;
