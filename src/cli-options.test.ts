@@ -62,9 +62,13 @@ describe('cli-options program', () => {
     expect(mountOption?.parseArg).toBeDefined();
 
     // Call with only one argument to hit the default `previous = []` branch.
-    expect(envOption!.parseArg!('KEY=VAL', undefined as unknown as string)).toEqual(['KEY=VAL']);
-    expect(excludeEnvOption!.parseArg!('HOME', undefined as unknown as string)).toEqual(['HOME']);
-    expect(mountOption!.parseArg!('/a:/b:ro', undefined as unknown as string)).toEqual(['/a:/b:ro']);
+    const parseEnv = envOption!.parseArg as unknown as (value: string, previous?: string[]) => string[];
+    const parseExcludeEnv = excludeEnvOption!.parseArg as unknown as (value: string, previous?: string[]) => string[];
+    const parseMount = mountOption!.parseArg as unknown as (value: string, previous?: string[]) => string[];
+
+    expect(parseEnv('KEY=VAL')).toEqual(['KEY=VAL']);
+    expect(parseExcludeEnv('HOME')).toEqual(['HOME']);
+    expect(parseMount('/a:/b:ro')).toEqual(['/a:/b:ro']);
   });
 
   describe('custom formatHelp', () => {
