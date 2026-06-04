@@ -1,3 +1,4 @@
+import { Command } from 'commander';
 import { program } from './cli-options';
 
 /**
@@ -47,5 +48,68 @@ describe('cli-options program', () => {
     );
     const opts = program.opts();
     expect(opts.mount).toEqual(['/a:/a:ro', '/b:/b']);
+  });
+
+  it('collector callbacks work when called with no previous value (default parameter)', () => {
+    // Access the collector callbacks directly to trigger the default-parameter branch
+    // (previous: string[] = []) which is only hit when called without a second argument.
+    const envOption = program.options.find((o) => o.long === '--env');
+    const excludeEnvOption = program.options.find((o) => o.long === '--exclude-env');
+    const mountOption = program.options.find((o) => o.long === '--mount');
+
+    expect(envOption?.parseArg).toBeDefined();
+    expect(excludeEnvOption?.parseArg).toBeDefined();
+    expect(mountOption?.parseArg).toBeDefined();
+
+    // Call with only one argument to hit the default `previous = []` branch.
+    expect(envOption!.parseArg!('KEY=VAL', undefined as unknown as string)).toEqual(['KEY=VAL']);
+    expect(excludeEnvOption!.parseArg!('HOME', undefined as unknown as string)).toEqual(['HOME']);
+    expect(mountOption!.parseArg!('/a:/b:ro', undefined as unknown as string)).toEqual(['/a:/b:ro']);
+  });
+
+  describe('custom formatHelp', () => {
+    it('generates help output containing usage and options sections', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Usage:');
+      expect(help).toContain('Options:');
+    });
+
+    it('includes section headers for option groups', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Domain Filtering:');
+      expect(help).toContain('Image Management:');
+      expect(help).toContain('Container Configuration:');
+      expect(help).toContain('Network & Security:');
+      expect(help).toContain('API Proxy:');
+      expect(help).toContain('Logging & Debug:');
+    });
+
+    it('includes the arguments section (program has [args...] argument)', () => {
+      const help = program.helpInformation();
+      expect(help).toContain('Arguments:');
+    });
+
+    it('handles a command with no description and no arguments', () => {
+      const cmd = new Command('test-sub');
+      // No description set, no arguments — exercises the if(desc) false and if(args.length>0) false branches.
+      // Borrow the same configureHelp helper by calling formatHelp via helpInformation().
+      // We can't call the private formatHelp directly, so use a minimal command that
+      // goes through commander's internal pipeline with our configured formatter.
+      // The simplest way: copy the configureHelp settings from program onto a sub-command.
+      cmd.copyInheritedSettings(program);
+      const help = cmd.helpInformation();
+      // Should not contain 'Arguments:' or a description paragraph
+      expect(help).not.toContain('Arguments:');
+    });
+
+    it('falls back to 80-column width when helpWidth is not set on the helper', () => {
+      // Exercise the `helpWidth ?? 80` fallback by using a fresh sub-command that
+      // inherits the configureHelp formatter but whose helper has no helpWidth.
+      const cmd = new Command('narrow-test');
+      cmd.copyInheritedSettings(program);
+      cmd.option('--foo <val>', 'A test option');
+      const help = cmd.helpInformation();
+      expect(help).toContain('--foo');
+    });
   });
 });
