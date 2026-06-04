@@ -209,6 +209,30 @@ describe('awf-config.schema.json', () => {
     })).toBe(false);
   });
 
+  it('accepts copilot extraBodyFields as string map', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 'run-42' },
+          },
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects non-string copilot extraBodyFields values', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 42 },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
   it('accepts allowHostPorts as string or array of strings', () => {
     expect(validate({ security: { allowHostPorts: '5432' } })).toBe(true);
     expect(validate({ security: { allowHostPorts: ['5432', '6379'] } })).toBe(true);

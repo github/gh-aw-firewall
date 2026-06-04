@@ -296,5 +296,12 @@ describe('buildConfig', () => {
       }));
       expect(config.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
     });
+
+    it('should pass through copilotByokExtraBodyFields', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, copilotByokExtraBodyFields: { session_id: 'run-42' } },
+      }));
+      expect(config.copilotByokExtraBodyFields).toEqual({ session_id: 'run-42' });
+    });
   });
 });

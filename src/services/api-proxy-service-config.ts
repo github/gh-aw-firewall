@@ -52,8 +52,23 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   if (config.copilotByokExtraHeaders !== undefined) {
     env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
   }
+  if (config.copilotByokExtraBodyFields !== undefined) {
+    env.AWF_BYOK_EXTRA_BODY_FIELDS = JSON.stringify(config.copilotByokExtraBodyFields);
+  }
+  const providerSessionId = resolveProviderSessionId();
+  if (providerSessionId) {
+    env.AWF_PROVIDER_SESSION_ID = providerSessionId;
+  }
 
   return env;
+}
+
+function resolveProviderSessionId(): string | undefined {
+  const value = process.env.AWF_PROVIDER_SESSION_ID
+    ?? process.env.GH_AW_GITHUB_RUN_ID
+    ?? process.env.GITHUB_RUN_ID;
+  const normalizedValue = value?.trim();
+  return normalizedValue || undefined;
 }
 
 function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {

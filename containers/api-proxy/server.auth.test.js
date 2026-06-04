@@ -12,6 +12,7 @@ const {
     stripBearerPrefix,
     COPILOT_PLACEHOLDER_TOKEN,
     parseByokExtraHeaders,
+    parseByokExtraBodyFields,
   },
   createCopilotAdapter,
 } = require('./providers/copilot');
@@ -362,6 +363,34 @@ describe('parseByokExtraHeaders', () => {
     });
   });
 
+  describe('parseByokExtraBodyFields', () => {
+    it('returns empty object for undefined input', () => {
+      expect(parseByokExtraBodyFields(undefined)).toEqual({});
+    });
+
+    it('returns empty object for invalid JSON', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(parseByokExtraBodyFields('{bad-json}')).toEqual({});
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
+      warnSpy.mockRestore();
+    });
+
+    it('parses a valid JSON string map', () => {
+      expect(parseByokExtraBodyFields('{"session_id":"run-42","user_id":"octocat"}')).toEqual({
+        session_id: 'run-42',
+        user_id: 'octocat',
+      });
+    });
+
+    it('skips entries with non-string values', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = parseByokExtraBodyFields('{"session_id":"run-42","attempt":1}');
+      expect(result).toEqual({ session_id: 'run-42' });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a string'));
+      warnSpy.mockRestore();
+    });
+  });
+
   it('returns empty object and warns for invalid JSON', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const result = parseByokExtraHeaders('{not-valid-json}');
@@ -506,6 +535,65 @@ describe('createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection', () => {
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
     warnSpy.mockRestore();
+  });
+
+  it('injects x-session-id header from AWF_PROVIDER_SESSION_ID by default in BYOK mode', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_PROVIDER_SESSION_ID: 'run-42',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['x-session-id']).toBe('run-42');
+  });
+
+  it('does not override explicit x-session-id header when AWF_PROVIDER_SESSION_ID is set', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_PROVIDER_SESSION_ID: 'run-default',
+      AWF_BYOK_EXTRA_HEADERS: '{"x-session-id":"run-custom"}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['x-session-id']).toBe('run-custom');
+  });
+});
+
+describe('createCopilotAdapter — AWF_BYOK_EXTRA_BODY_FIELDS injection', () => {
+  it('injects extra body fields in BYOK mode without overriding existing values', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_BYOK_EXTRA_BODY_FIELDS: '{"session_id":"run-42","user_id":"octocat"}',
+    });
+    const transform = adapter.getBodyTransform();
+    const input = Buffer.from(JSON.stringify({ model: 'gpt-5.4', session_id: 'client-session', messages: [] }));
+    const output = transform(input);
+    expect(output).not.toBeNull();
+    const parsed = JSON.parse(output.toString('utf8'));
+    expect(parsed.session_id).toBe('client-session');
+    expect(parsed.user_id).toBe('octocat');
+  });
+
+  it('injects default session_id body field from AWF_PROVIDER_SESSION_ID in BYOK mode', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_PROVIDER_SESSION_ID: 'run-42',
+    });
+    const transform = adapter.getBodyTransform();
+    const input = Buffer.from(JSON.stringify({ model: 'gpt-5.4', messages: [] }));
+    const output = transform(input);
+    expect(output).not.toBeNull();
+    const parsed = JSON.parse(output.toString('utf8'));
+    expect(parsed.session_id).toBe('run-42');
+  });
+
+  it('does not inject body fields when only GitHub OAuth token is configured', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'gho_oauth_token',
+      AWF_BYOK_EXTRA_BODY_FIELDS: '{"session_id":"run-42"}',
+    });
+    const transform = adapter.getBodyTransform();
+    const input = Buffer.from(JSON.stringify({ model: 'gpt-5.4', messages: [] }));
+    const output = transform(input);
+    expect(output).toBeNull();
   });
 });
 

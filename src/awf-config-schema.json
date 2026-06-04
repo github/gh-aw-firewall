@@ -596,6 +596,13 @@
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "extraBodyFields": {
+                    "type": "object",
+                    "description": "Additional non-sensitive JSON body fields to include on Copilot BYOK upstream requests. Values must be strings. Maps to AWF_BYOK_EXTRA_BODY_FIELDS in the sidecar.",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 }
             }
         }

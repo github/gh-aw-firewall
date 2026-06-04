@@ -37,7 +37,11 @@ describe('mapAwfFileConfigToCliOptions', () => {
       apiProxy: {
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
-          copilot: { host: 'api.githubcopilot.com', extraHeaders: { 'x-session-id': 'run-42' } },
+          copilot: {
+            host: 'api.githubcopilot.com',
+            extraHeaders: { 'x-session-id': 'run-42' },
+            extraBodyFields: { session_id: 'run-42' },
+          },
           gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
         },
       },
@@ -47,6 +51,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.openaiApiBasePath).toBe('/v1');
     expect(result.copilotApiTarget).toBe('api.githubcopilot.com');
     expect(result.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
+    expect(result.copilotByokExtraBodyFields).toEqual({ session_id: 'run-42' });
     expect(result.geminiApiTarget).toBe('generativelanguage.googleapis.com');
     expect(result.geminiApiBasePath).toBe('/v1beta');
   });

@@ -127,6 +127,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     copilotApiTarget: resolvedCopilotApiTarget,
     copilotApiBasePath: resolvedCopilotApiBasePath,
     copilotByokExtraHeaders: options.copilotByokExtraHeaders as Record<string, string> | undefined,
+    copilotByokExtraBodyFields: options.copilotByokExtraBodyFields as Record<string, string> | undefined,
     openaiApiTarget:
       (options.openaiApiTarget as string | undefined) || process.env.OPENAI_API_TARGET,
     openaiApiBasePath:

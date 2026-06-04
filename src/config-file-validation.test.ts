@@ -191,6 +191,27 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.targets.copilot.extraHeaders.x-session-id must be a string');
   });
 
+  it('accepts copilot extraBodyFields as object of string values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: { session_id: 'run-42' } } } },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects non-object copilot extraBodyFields', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: 'invalid' } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraBodyFields must be an object');
+  });
+
+  it('rejects non-string copilot extraBodyFields values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: { session_id: 42 } } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraBodyFields.session_id must be a string');
+  });
+
   it('accepts gemini target with host and basePath', () => {
     const errors = validateAwfFileConfig({
       apiProxy: { targets: { gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1' } } },
