@@ -399,7 +399,8 @@ function createCopilotAdapter(env, deps = {}) {
   const byokExtraBodyFields = parseByokExtraBodyFields(env.AWF_BYOK_EXTRA_BODY_FIELDS);
   const providerSessionId = (env.AWF_PROVIDER_SESSION_ID || '').trim() || undefined;
   if (providerSessionId) {
-    if (!Object.hasOwn(byokExtraHeaders, 'x-session-id')) {
+    const hasSessionIdHeader = Object.keys(byokExtraHeaders).some(k => k.toLowerCase() === 'x-session-id');
+    if (!hasSessionIdHeader) {
       byokExtraHeaders['x-session-id'] = providerSessionId;
     }
     if (!Object.hasOwn(byokExtraBodyFields, 'session_id')) {

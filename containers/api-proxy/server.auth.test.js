@@ -363,34 +363,6 @@ describe('parseByokExtraHeaders', () => {
     });
   });
 
-  describe('parseByokExtraBodyFields', () => {
-    it('returns empty object for undefined input', () => {
-      expect(parseByokExtraBodyFields(undefined)).toEqual({});
-    });
-
-    it('returns empty object for invalid JSON', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      expect(parseByokExtraBodyFields('{bad-json}')).toEqual({});
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
-      warnSpy.mockRestore();
-    });
-
-    it('parses a valid JSON string map', () => {
-      expect(parseByokExtraBodyFields('{"session_id":"run-42","user_id":"octocat"}')).toEqual({
-        session_id: 'run-42',
-        user_id: 'octocat',
-      });
-    });
-
-    it('skips entries with non-string values', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const result = parseByokExtraBodyFields('{"session_id":"run-42","attempt":1}');
-      expect(result).toEqual({ session_id: 'run-42' });
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a string'));
-      warnSpy.mockRestore();
-    });
-  });
-
   it('returns empty object and warns for invalid JSON', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const result = parseByokExtraHeaders('{not-valid-json}');
@@ -454,6 +426,36 @@ describe('parseByokExtraHeaders', () => {
     const result = parseByokExtraHeaders('{"x-count":42,"x-session-id":"sess-1"}');
     expect(result).not.toHaveProperty('x-count');
     expect(result['x-session-id']).toBe('sess-1');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a string'));
+    warnSpy.mockRestore();
+  });
+});
+
+// ── parseByokExtraBodyFields ──────────────────────────────────────────────────
+
+describe('parseByokExtraBodyFields', () => {
+  it('returns empty object for undefined input', () => {
+    expect(parseByokExtraBodyFields(undefined)).toEqual({});
+  });
+
+  it('returns empty object for invalid JSON', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(parseByokExtraBodyFields('{bad-json}')).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
+    warnSpy.mockRestore();
+  });
+
+  it('parses a valid JSON string map', () => {
+    expect(parseByokExtraBodyFields('{"session_id":"run-42","user_id":"octocat"}')).toEqual({
+      session_id: 'run-42',
+      user_id: 'octocat',
+    });
+  });
+
+  it('skips entries with non-string values', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraBodyFields('{"session_id":"run-42","attempt":1}');
+    expect(result).toEqual({ session_id: 'run-42' });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be a string'));
     warnSpy.mockRestore();
   });
@@ -554,6 +556,17 @@ describe('createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection', () => {
     });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['x-session-id']).toBe('run-custom');
+  });
+
+  it('does not add duplicate x-session-id when user set it with different casing', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123',
+      AWF_PROVIDER_SESSION_ID: 'run-default',
+      AWF_BYOK_EXTRA_HEADERS: '{"X-Session-Id":"run-custom"}',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['X-Session-Id']).toBe('run-custom');
+    expect(headers['x-session-id']).toBeUndefined();
   });
 });
 
