@@ -198,15 +198,13 @@ describe('pid-tracker', () => {
         expect(result.error).toContain('Socket inode 123456 found but no process owns it');
       });
 
-      it('should return null from findProcessByInode when /proc dir itself is unreadable', () => {
-        // Point to a path that has /proc/net/tcp but no readable pid dirs.
+      it('should return null from findProcessByInode when /proc has no numeric PID entries', () => {
         const netTcpContent = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 0100007F:B278 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 123456 1 0000000000000000 100 0 0 10 0`;
         createMockNetTcp(netTcpContent);
 
-        // Remove all pid directories so readdirSync returns only non-numeric entries,
-        // then verify no process is found (covers the no-process-found path in findProcessByInode).
-        // The net/ directory entry is non-numeric and will be filtered out by isNumeric().
+        // No numeric pid directories are created under mockProcPath, so findProcessByInode returns null.
+        // The existing net/ directory entry is non-numeric and will be filtered out by isNumeric().
         const result = trackPidForPortSync(45688, mockProcPath);
         expect(result.pid).toBe(-1);
         expect(result.error).toContain('Socket inode 123456 found but no process owns it');
