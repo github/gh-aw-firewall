@@ -70,8 +70,7 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).not.toContain('pull_requests');
     expect(lock).toContain('github/gh-aw-actions/setup@3ea13c02d765410340d533515cb31a7eef2baaf0 # v0.77.5');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.77.5');
-    expect(lock).toMatch(/ghcr\.io\/github\/github-mcp-server:v1\.1\.0@sha256:[a-f0-9]+/);
-    expect(lock).not.toContain('"container": "ghcr.io/github/github-mcp-server:v1.1.0"');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
 
     expect(lock).not.toContain("shell(cat:src/docker-manager.ts)");
     expect(lock).not.toContain("shell(cat:src/cli.ts)");

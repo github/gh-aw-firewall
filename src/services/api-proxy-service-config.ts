@@ -24,8 +24,8 @@ interface ApiProxyServiceConfigParams {
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
  */
 function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
-  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
-  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
+  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
   const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};
@@ -52,8 +52,24 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   if (config.copilotByokExtraHeaders !== undefined) {
     env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
   }
+  if (config.copilotByokExtraBodyFields !== undefined) {
+    env.AWF_BYOK_EXTRA_BODY_FIELDS = JSON.stringify(config.copilotByokExtraBodyFields);
+  }
+  const providerSessionId = resolveProviderSessionId(config);
+  if (providerSessionId) {
+    env.AWF_PROVIDER_SESSION_ID = providerSessionId;
+  }
 
   return env;
+}
+
+function resolveProviderSessionId(config: WrapperConfig): string | undefined {
+  const value = getConfigEnvValue(config, 'AWF_PROVIDER_SESSION_ID')
+    ?? process.env.AWF_PROVIDER_SESSION_ID
+    ?? process.env.GH_AW_GITHUB_RUN_ID
+    ?? process.env.GITHUB_RUN_ID;
+  const normalizedValue = value?.trim();
+  return normalizedValue || undefined;
 }
 
 function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {

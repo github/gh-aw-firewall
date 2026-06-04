@@ -336,4 +336,68 @@ describe('trackWebSocketTokenUsage', () => {
       done();
     }, 10);
   });
+
+  test('warns when per-frame cache-read is later overwritten to zero in WebSocket rollup', (done) => {
+    const socket = new EventEmitter();
+    const metricsRef = { increment: jest.fn() };
+    const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'ws-cache-rollup-mismatch',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    socket.emit('data', Buffer.from('HTTP/1.1 101 Switching Protocols\r\n\r\n'));
+
+    // Frame 1: response.completed with cache-read tokens
+    socket.emit('data', buildTextFrame(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: {
+          input_tokens: 200,
+          output_tokens: 40,
+          total_tokens: 240,
+          prompt_tokens_details: { cached_tokens: 99 },
+        },
+      },
+    })));
+
+    // Frame 2: final usage chunk that overwrites cache_read_input_tokens to 0
+    socket.emit('data', buildTextFrame(JSON.stringify({
+      usage: {
+        prompt_tokens: 200,
+        completion_tokens: 40,
+        total_tokens: 240,
+        cache_read_input_tokens: 0,
+      },
+    })));
+
+    socket.emit('close');
+
+    setTimeout(() => {
+      try {
+        const lines = writeSpy.mock.calls
+          .map((call) => call[0])
+          .filter((line) => typeof line === 'string' && line.includes('ws-cache-rollup-mismatch'))
+          .map((line) => {
+            try { return JSON.parse(line); } catch { return null; }
+          })
+          .filter(Boolean);
+
+        expect(lines.some((line) => line.event === 'token_cache_read_rollup_mismatch'
+          && line.observed_cache_read_tokens === 99
+          && line.rolled_up_cache_read_tokens === 0
+          && line.transport === 'websocket')).toBe(true);
+        done();
+      } catch (err) {
+        done(err);
+      } finally {
+        writeSpy.mockRestore();
+      }
+    }, 10);
+  });
 });

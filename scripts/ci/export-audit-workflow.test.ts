@@ -80,6 +80,7 @@ describe('export audit workflow optimization config', () => {
     expect(lock).not.toContain('Pre-verify unused exports (top 10)');
     expect(lock).not.toContain('TypeScript build output:\n```');
 
-    expect(lock).toMatch(/ghcr\.io\/github\/github-mcp-server:v1\.1\.0(?:@sha256:[a-f0-9]+)?/);
+    // github-mcp-server image must be present in the manifest
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
   });
 });

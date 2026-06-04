@@ -10,7 +10,7 @@ describe('doc maintainer workflow optimization config', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain('if: needs.check_relevant_changes.outputs.has_changes == \'true\'');
-    expect(source).toMatch(/max-turns:\s+\d+/);
+    expect(source).toContain('max-turns: 10');
     expect(source).toContain('bash: false');
     expect(source).toContain('github: false');
     expect(source).toContain('Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.');
@@ -45,7 +45,7 @@ describe('doc maintainer workflow optimization config', () => {
   it('compiles tool disabling into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toMatch(/--max-turns \d+/);
+    expect(lock).toContain('--max-turns 10');
     expect(lock).toContain('if: needs.check_relevant_changes.outputs.has_changes == \'true\'');
     expect(lock).toContain('Build documentation maintainer context');
     expect(lock).toContain('--patch --stat --unified=1');
