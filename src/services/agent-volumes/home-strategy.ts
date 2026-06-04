@@ -57,15 +57,33 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   mounts.push(`${effectiveHome}/.npm:/host${effectiveHome}/.npm:rw`);
   mounts.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
-  const runnerToolCacheDir = path.join(effectiveHome, 'work', '_tool');
-  try {
-    const stat = fs.lstatSync(runnerToolCacheDir);
-    if (stat.isDirectory()) {
-      mounts.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
-    }
-  } catch {
-    // Directory does not exist or is not accessible — skip the optional mount
+  const runnerToolCacheDir = resolveRunnerToolCachePath(config);
+  if (runnerToolCacheDir) {
+    mounts.push(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
   }
 
   return mounts;
+}
+
+function resolveRunnerToolCachePath(config: WrapperConfig): string | undefined {
+  const candidates = [
+    config.runnerToolCachePath,
+    process.env.RUNNER_TOOL_CACHE,
+    '/home/runner/work/_tool',
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    try {
+      const stat = fs.lstatSync(candidate);
+      if (stat.isDirectory()) {
+        return candidate;
+      }
+    } catch {
+      // Path does not exist or is not accessible — try next candidate
+    }
+  }
+
+  return undefined;
 }

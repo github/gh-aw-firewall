@@ -161,6 +161,7 @@ the corresponding CLI flag.
 - `container.tty` → `--tty`
 - `container.dockerHost` → `--docker-host`
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
+- `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `environment.envFile` → `--env-file`
 - `environment.envAll` → `--env-all`
 - `environment.excludeEnv[]` → `--exclude-env` *(repeatable)*

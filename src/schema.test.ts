@@ -190,6 +190,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { agentTimeout: 1 } })).toBe(true);
   });
 
+  it('accepts container.runnerToolCachePath as a string', () => {
+    expect(validate({ container: { runnerToolCachePath: '/opt/hostedtoolcache' } })).toBe(true);
+    expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
+  });
+
   it('rejects non-positive-integer rateLimiting values', () => {
     expect(validate({ rateLimiting: { requestsPerMinute: 0 } })).toBe(false);
     expect(validate({ rateLimiting: { requestsPerMinute: 1 } })).toBe(true);

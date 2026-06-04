@@ -96,6 +96,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     auditDir: (options.auditDir as string | undefined) || process.env.AWF_AUDIT_DIR,
     sessionStateDir:
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
+    runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,

@@ -256,6 +256,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
         tty: true,
         dockerHost: 'unix:///var/run/docker.sock',
         dockerHostPathPrefix: '/host',
+        runnerToolCachePath: '/opt/hostedtoolcache',
       },
     });
 
@@ -270,6 +271,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.tty).toBe(true);
     expect(result.dockerHost).toBe('unix:///var/run/docker.sock');
     expect(result.dockerHostPathPrefix).toBe('/host');
+    expect(result.runnerToolCachePath).toBe('/opt/hostedtoolcache');
   });
 
   it('maps environment fields', () => {

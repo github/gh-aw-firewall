@@ -79,6 +79,7 @@ interface AwfFileConfig {
     tty?: boolean;
     dockerHost?: string;
     dockerHostPathPrefix?: string;
+    runnerToolCachePath?: string;
   };
   environment?: {
     envFile?: string;
@@ -242,6 +243,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     tty: config.container?.tty,
     dockerHost: config.container?.dockerHost,
     dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
+    runnerToolCachePath: config.container?.runnerToolCachePath,
 
     envFile: config.environment?.envFile,
     envAll: config.environment?.envAll,

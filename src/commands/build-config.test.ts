@@ -293,6 +293,13 @@ describe('buildConfig', () => {
       expect(config.dockerHostPathPrefix).toBe('/host');
     });
 
+    it('should pass through runnerToolCachePath', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, runnerToolCachePath: '/opt/hostedtoolcache' },
+      }));
+      expect(config.runnerToolCachePath).toBe('/opt/hostedtoolcache');
+    });
+
     it('should pass through modelAliases', () => {
       const aliases = { 'gpt-4': ['gpt-4-turbo'] };
       const config = buildConfig(makeInputs({ modelAliases: aliases }));

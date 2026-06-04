@@ -386,6 +386,11 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.container.dockerHostPathPrefix must be a string');
   });
 
+  it('rejects non-string container.runnerToolCachePath', () => {
+    const errors = validateAwfFileConfig({ container: { runnerToolCachePath: 123 } });
+    expect(errors).toContain('config.container.runnerToolCachePath must be a string');
+  });
+
   it('rejects unknown container keys', () => {
     const errors = validateAwfFileConfig({ container: { unknown: true } });
     expect(errors).toContain('config.container.unknown is not supported');
