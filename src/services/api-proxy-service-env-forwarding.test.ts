@@ -386,6 +386,20 @@ describe('API proxy sidecar: env var forwarding', () => {
         expect(env.COPILOT_PROVIDER_API_KEY).toBe('azure-byok-key');
       });
 
+      it('should pass COPILOT_PROVIDER_TYPE/BASE_URL from config modelRouter fields', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotProviderType: 'azure',
+          copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/test',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_TYPE).toBe('azure');
+        expect(env.COPILOT_PROVIDER_BASE_URL).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
+      });
+
       describe('direct-BYOK mode (user-supplied COPILOT_PROVIDER_API_KEY without COPILOT_GITHUB_TOKEN)', () => {
         // When the user points Copilot CLI at an arbitrary upstream (Azure Foundry,
         // OpenRouter, etc.) via COPILOT_PROVIDER_BASE_URL + COPILOT_PROVIDER_API_KEY,

@@ -160,6 +160,22 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
   });
 
+  it('accepts apiProxy.modelRouter with string fields', () => {
+    expect(validate({
+      apiProxy: {
+        modelRouter: {
+          providerType: 'azure',
+          baseUrl: 'https://router.example.com/v1',
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid apiProxy.modelRouter field types', () => {
+    expect(validate({ apiProxy: { modelRouter: { providerType: 123 } } })).toBe(false);
+    expect(validate({ apiProxy: { modelRouter: { baseUrl: 456 } } })).toBe(false);
+  });
+
   it('rejects invalid logging.logLevel values', () => {
     expect(validate({ logging: { logLevel: 'verbose' } })).toBe(false);
     expect(validate({ logging: { logLevel: 'debug' } })).toBe(true);

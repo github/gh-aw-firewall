@@ -117,6 +117,34 @@ export interface ApiProxyOptions {
   copilotProviderApiKey?: string;
 
   /**
+   * Copilot BYOK provider type hint forwarded to the API proxy sidecar.
+   *
+   * When set, the sidecar uses this hint to select provider-specific behavior
+   * (for example, Azure OpenAI `api-key` header handling).
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.modelRouter.providerType`
+   * - Environment variable: `COPILOT_PROVIDER_TYPE`
+   *
+   * @default undefined
+   */
+  copilotProviderType?: string;
+
+  /**
+   * Copilot BYOK provider base URL forwarded to the API proxy sidecar.
+   *
+   * This points the sidecar at a model router or Copilot-compatible upstream
+   * endpoint (for example, OpenRouter or Azure OpenAI deployment URLs).
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.modelRouter.baseUrl`
+   * - Environment variable: `COPILOT_PROVIDER_BASE_URL`
+   *
+   * @default undefined
+   */
+  copilotProviderBaseUrl?: string;
+
+  /**
    * Google Gemini API key (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this key is injected into the Node.js sidecar
