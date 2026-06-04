@@ -8,10 +8,12 @@ export function isAgentExternallyKilled(): boolean {
   return agentExternallyKilled;
 }
 
-/**
- * Internal test-only reset helper.
- * Do not use in production flows.
- */
-export function resetAgentExternallyKilled(): void {
+function resetAgentExternallyKilled(): void {
   agentExternallyKilled = false;
 }
+
+/**
+ * @internal Exposed only for unit tests — not part of the public API.
+ */
+// ts-prune-ignore-next
+export const containerLifecycleStateTestHelpers = { resetAgentExternallyKilled };
