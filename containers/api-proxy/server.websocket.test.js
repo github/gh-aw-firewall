@@ -106,6 +106,7 @@ describe('proxyWebSocket', () => {
 
   describe('CONNECT tunnel and auth injection', () => {
     let wsProxy;
+    let socket, connectReq, tunnel, tlsSocket;
 
     beforeAll(() => {
       // Re-require server with HTTPS_PROXY so proxyWebSocket uses the proxy URL.
@@ -119,12 +120,18 @@ describe('proxyWebSocket', () => {
       jest.resetModules();
     });
 
-    it('returns 502 when the CONNECT response is not 200', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
+    beforeEach(() => {
+      socket = makeMockSocket();
+      connectReq = new EventEmitter();
       connectReq.end = jest.fn();
-      const tunnel = makeMockSocket();
+      tunnel = makeMockSocket();
+      tlsSocket = new EventEmitter();
+      tlsSocket.write = jest.fn();
+      tlsSocket.destroy = jest.fn();
+      tlsSocket.pipe = jest.fn();
+    });
 
+    it('returns 502 when the CONNECT response is not 200', () => {
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       setImmediate(() => connectReq.emit('connect', { statusCode: 407 }, tunnel));
 
@@ -139,10 +146,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('returns 502 when the CONNECT request emits an error', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       setImmediate(() => connectReq.emit('error', new Error('connection refused')));
 
@@ -156,15 +159,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('returns 502 when TLS handshake fails', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-      const tunnel = makeMockSocket();
-      const tlsSocket = new EventEmitter();
-      tlsSocket.write = jest.fn();
-      tlsSocket.destroy = jest.fn();
-      tlsSocket.pipe = jest.fn();
-
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
 
@@ -185,15 +179,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('injects Authorization header and fixes Host header in the upgrade request', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-      const tunnel = makeMockSocket();
-      const tlsSocket = new EventEmitter();
-      tlsSocket.write = jest.fn();
-      tlsSocket.destroy = jest.fn();
-      tlsSocket.pipe = jest.fn();
-
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
 
@@ -221,15 +206,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('strips client-supplied auth headers before forwarding', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-      const tunnel = makeMockSocket();
-      const tlsSocket = new EventEmitter();
-      tlsSocket.write = jest.fn();
-      tlsSocket.destroy = jest.fn();
-      tlsSocket.pipe = jest.fn();
-
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
 
@@ -264,10 +240,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('forwards the CONNECT request to the configured Squid proxy host/port', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-
       let capturedOptions;
       jest.spyOn(http, 'request').mockImplementation((options) => {
         capturedOptions = options;
@@ -284,15 +256,6 @@ describe('proxyWebSocket', () => {
     });
 
     it('forwards buffered head bytes to the upstream after upgrade', () => {
-      const socket = makeMockSocket();
-      const connectReq = new EventEmitter();
-      connectReq.end = jest.fn();
-      const tunnel = makeMockSocket();
-      const tlsSocket = new EventEmitter();
-      tlsSocket.write = jest.fn();
-      tlsSocket.destroy = jest.fn();
-      tlsSocket.pipe = jest.fn();
-
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
 
