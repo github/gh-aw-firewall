@@ -657,6 +657,32 @@ describe('config-assembly', () => {
         expect.any(Function),
       );
     });
+
+    it('should reject retired COPILOT_MODEL aliases before launch', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-5-codex' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("model 'gpt-5-codex' is retired or unsupported"),
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("Did you mean 'gpt-5.3-codex'?"),
+      );
+    });
   });
 
   describe('successful config assembly', () => {
