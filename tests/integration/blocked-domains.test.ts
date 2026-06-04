@@ -214,7 +214,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
 
   test('should still allow non-blocked subdomains when parent is allowed', async () => {
     const result = await runner.runWithSudo(
-      'curl -f --max-time 10 https://github.com',
+      'curl -f --retry 3 --retry-all-errors --retry-delay 1 --max-time 10 https://github.com',
       {
         allowDomains: ['github.com'],
         blockDomains: ['api.github.com'],
