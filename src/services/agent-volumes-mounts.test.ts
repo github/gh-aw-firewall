@@ -389,7 +389,7 @@ describe('agent service', () => {
     });
   });
 
-  it('should prefer awfDockerHost over DOCKER_HOST when enableDind is true', () => {
+  it('should preserve host DOCKER_HOST for agent env when enableDind is true', () => {
     withEnv({ DOCKER_HOST: 'unix:///tmp/arc/docker.sock' }, () => {
       const dindConfig = {
         ...getConfig(),
@@ -402,7 +402,7 @@ describe('agent service', () => {
 
       expect(volumes).toContain('/run/user/1000/docker.sock:/host/run/user/1000/docker.sock:rw');
       expect(volumes).not.toContain('/tmp/arc/docker.sock:/host/tmp/arc/docker.sock:rw');
-      expect(env.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
+      expect(env.DOCKER_HOST).toBe('unix:///tmp/arc/docker.sock');
     });
   });
 

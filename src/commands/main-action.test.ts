@@ -8,6 +8,7 @@ jest.mock('../cli-workflow');
 jest.mock('../redact-secrets');
 jest.mock('../option-parsers');
 jest.mock('../dind-probe');
+jest.mock('../dind-bootstrap');
 jest.mock('./preflight');
 jest.mock('./signal-handler');
 jest.mock('./validate-options');
@@ -19,6 +20,7 @@ import * as cliWorkflow from '../cli-workflow';
 import * as redactSecrets from '../redact-secrets';
 import * as optionParsers from '../option-parsers';
 import * as dindProbe from '../dind-probe';
+import * as dindBootstrap from '../dind-bootstrap';
 import * as preflight from './preflight';
 import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
@@ -30,6 +32,7 @@ const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
 const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
 const mockedDindProbe = dindProbe as jest.Mocked<typeof dindProbe>;
+const mockedDindBootstrap = dindBootstrap as jest.Mocked<typeof dindBootstrap>;
 const mockedPreflight = preflight as jest.Mocked<typeof preflight>;
 const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
@@ -79,6 +82,7 @@ describe('createMainAction', () => {
       splitDetected: false,
       inconclusive: false,
     });
+    mockedDindBootstrap.runDindBootstrap.mockResolvedValue(undefined);
     mockedSignalHandler.registerSignalHandlers.mockImplementation(() => {});
     mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
   });
@@ -162,6 +166,12 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
       expect(mockedSignalHandler.registerSignalHandlers).toHaveBeenCalled();
+    });
+
+    it('runs DinD bootstrap before workflow execution', async () => {
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+      expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(STUB_CONFIG);
     });
 
     it('logs allowed domains', async () => {

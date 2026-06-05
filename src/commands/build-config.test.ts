@@ -301,6 +301,46 @@ describe('buildConfig', () => {
       expect(config.runnerToolCachePath).toBe('/opt/hostedtoolcache');
     });
 
+    it('should pass through chroot identity fields', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          chrootIdentityHome: '/tmp/gh-aw/home',
+          chrootIdentityUser: 'runner',
+          chrootIdentityUid: '1001',
+          chrootIdentityGid: '1001',
+        },
+      }));
+      expect(config.chrootIdentity).toEqual({
+        home: '/tmp/gh-aw/home',
+        user: 'runner',
+        uid: 1001,
+        gid: 1001,
+      });
+    });
+
+    it('should pass through dind bootstrap fields', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          dindPreStageDirs: true,
+          dindWorkDir: '/tmp/gh-aw',
+          dindStagingImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
+          dindStageEngineBinaryPath: '/usr/local/bin/copilot',
+          dindStageEngineBinaryTargetPath: '/usr/local/bin/copilot',
+        },
+      }));
+      expect(config.dind).toEqual({
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
+        stageEngineBinary: {
+          path: '/usr/local/bin/copilot',
+          targetPath: '/usr/local/bin/copilot',
+        },
+      });
+    });
+
     it('should pass through modelAliases', () => {
       const aliases = { 'gpt-4': ['gpt-4-turbo'] };
       const config = buildConfig(makeInputs({ modelAliases: aliases }));

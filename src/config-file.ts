@@ -83,6 +83,23 @@ interface AwfFileConfig {
     dockerHostPathPrefix?: string;
     runnerToolCachePath?: string;
   };
+  chroot?: {
+    identity?: {
+      home?: string;
+      user?: string;
+      uid?: number;
+      gid?: number;
+    };
+  };
+  dind?: {
+    preStageDirs?: boolean;
+    workDir?: string;
+    stagingImage?: string;
+    stageEngineBinary?: {
+      path?: string;
+      targetPath?: string;
+    };
+  };
   environment?: {
     envFile?: string;
     envAll?: boolean;
@@ -248,6 +265,15 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     dockerHost: config.container?.dockerHost,
     dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
     runnerToolCachePath: config.container?.runnerToolCachePath,
+    chrootIdentityHome: config.chroot?.identity?.home,
+    chrootIdentityUser: config.chroot?.identity?.user,
+    chrootIdentityUid: toStringIfDefined(config.chroot?.identity?.uid),
+    chrootIdentityGid: toStringIfDefined(config.chroot?.identity?.gid),
+    dindPreStageDirs: config.dind?.preStageDirs,
+    dindWorkDir: config.dind?.workDir,
+    dindStagingImage: config.dind?.stagingImage,
+    dindStageEngineBinaryPath: config.dind?.stageEngineBinary?.path,
+    dindStageEngineBinaryTargetPath: config.dind?.stageEngineBinary?.targetPath,
 
     envFile: config.environment?.envFile,
     envAll: config.environment?.envAll,

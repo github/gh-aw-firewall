@@ -125,4 +125,31 @@ export interface RuntimeOptions {
    * @example 45
    */
   agentTimeout?: number;
+
+  /**
+   * Chroot identity override applied inside the agent entrypoint.
+   *
+   * These values are forwarded to the entrypoint and applied after `chroot /host`
+   * so tools that rely on HOME/USER identity (for example Copilot CLI state under
+   * `~/.copilot`) can run against DinD-staged writable paths.
+   */
+  chrootIdentity?: {
+    home?: string;
+    user?: string;
+    uid?: number;
+    gid?: number;
+  };
+
+  /**
+   * ARC/DinD bootstrap configuration for split runner/daemon filesystems.
+   */
+  dind?: {
+    preStageDirs?: boolean;
+    workDir?: string;
+    stagingImage?: string;
+    stageEngineBinary?: {
+      path?: string;
+      targetPath?: string;
+    };
+  };
 }

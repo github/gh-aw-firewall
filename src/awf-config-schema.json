@@ -492,6 +492,70 @@
         }
       }
     },
+    "chroot": {
+      "type": "object",
+      "description": "Chroot execution overrides for split-filesystem ARC/DinD runners.",
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "type": "object",
+          "description": "Identity values applied after chroot pivot to override HOME/USER defaults inside chroot mode.",
+          "additionalProperties": false,
+          "properties": {
+            "home": {
+              "type": "string",
+              "description": "Home directory path to export inside chroot mode (for example: \"/tmp/gh-aw/home\")."
+            },
+            "user": {
+              "type": "string",
+              "description": "User/LOGNAME string to export inside chroot mode (for example: \"runner\")."
+            },
+            "uid": {
+              "type": "integer",
+              "description": "UID hint used for chroot identity synthesis and user switching."
+            },
+            "gid": {
+              "type": "integer",
+              "description": "GID hint used for chroot identity synthesis and user switching."
+            }
+          }
+        }
+      }
+    },
+    "dind": {
+      "type": "object",
+      "description": "Bootstrap helpers for ARC/DinD split runner/daemon filesystems.",
+      "additionalProperties": false,
+      "properties": {
+        "preStageDirs": {
+          "type": "boolean",
+          "description": "When true and DinD is detected, AWF pre-creates the required /tmp/gh-aw directory tree inside the daemon-visible filesystem before compose startup."
+        },
+        "workDir": {
+          "type": "string",
+          "description": "Daemon-visible working directory for DinD pre-staging (default: \"/tmp/gh-aw\")."
+        },
+        "stagingImage": {
+          "type": "string",
+          "description": "Container image used for short-lived DinD staging operations."
+        },
+        "stageEngineBinary": {
+          "type": "object",
+          "description": "Engine binary staging settings for split-filesystem DinD setups.",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Runner-side path to the engine binary to stage (for example: \"/usr/local/bin/copilot\")."
+            },
+            "targetPath": {
+              "type": "string",
+              "description": "Daemon filesystem destination path for the staged engine binary."
+            }
+          }
+        }
+      }
+    },
     "environment": {
       "type": "object",
       "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for credential isolation rules.",

@@ -310,6 +310,38 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.sessionStateDir).toBe('/tmp/state');
   });
 
+  it('maps chroot and dind config-only fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      chroot: {
+        identity: {
+          home: '/tmp/gh-aw/home',
+          user: 'runner',
+          uid: 1001,
+          gid: 1001,
+        },
+      },
+      dind: {
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
+        stageEngineBinary: {
+          path: '/usr/local/bin/copilot',
+          targetPath: '/usr/local/bin/copilot',
+        },
+      },
+    });
+
+    expect(result.chrootIdentityHome).toBe('/tmp/gh-aw/home');
+    expect(result.chrootIdentityUser).toBe('runner');
+    expect(result.chrootIdentityUid).toBe('1001');
+    expect(result.chrootIdentityGid).toBe('1001');
+    expect(result.dindPreStageDirs).toBe(true);
+    expect(result.dindWorkDir).toBe('/tmp/gh-aw');
+    expect(result.dindStagingImage).toBe('ghcr.io/github/gh-aw-firewall/agent:latest');
+    expect(result.dindStageEngineBinaryPath).toBe('/usr/local/bin/copilot');
+    expect(result.dindStageEngineBinaryTargetPath).toBe('/usr/local/bin/copilot');
+  });
+
   it('maps apiProxy.auth.anthropicTokenUrl', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

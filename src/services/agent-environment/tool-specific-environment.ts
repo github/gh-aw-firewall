@@ -18,6 +18,19 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
   const stagedBinaryName = extractCommandBinaryName(config.agentCommand);
   const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
 
+  if (config.chrootIdentity?.home) {
+    environment.AWF_CHROOT_IDENTITY_HOME = config.chrootIdentity.home;
+  }
+  if (config.chrootIdentity?.user) {
+    environment.AWF_CHROOT_IDENTITY_USER = config.chrootIdentity.user;
+  }
+  if (config.chrootIdentity?.uid !== undefined) {
+    environment.AWF_CHROOT_IDENTITY_UID = String(config.chrootIdentity.uid);
+  }
+  if (config.chrootIdentity?.gid !== undefined) {
+    environment.AWF_CHROOT_IDENTITY_GID = String(config.chrootIdentity.gid);
+  }
+
   // Any Copilot signal (named command, GitHub token, or direct-BYOK key) means
   // the user is going to invoke Copilot CLI, which requires Node.js. Set
   // AWF_REQUIRE_NODE so the entrypoint emits a friendly preflight error when
