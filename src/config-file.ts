@@ -18,6 +18,7 @@ interface AwfFileConfig {
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
+    maxAiCredits?: number;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
@@ -29,10 +30,20 @@ interface AwfFileConfig {
       strategy?: 'middle_power';
       excludeEngines?: string[];
     };
+    modelRouter?: {
+      providerType?: string;
+      baseUrl?: string;
+    };
     targets?: {
       openai?: { host?: string; basePath?: string; authHeader?: string };
       anthropic?: { host?: string; basePath?: string; authHeader?: string };
-      copilot?: { host?: string; basePath?: string; extraHeaders?: Record<string, string> };
+      copilot?: {
+        host?: string;
+        basePath?: string;
+        extraHeaders?: Record<string, string>;
+        extraBodyFields?: Record<string, string>;
+        sessionId?: string;
+      };
       gemini?: { host?: string; basePath?: string };
       antigravity?: { host?: string; basePath?: string };
     };
@@ -70,6 +81,7 @@ interface AwfFileConfig {
     tty?: boolean;
     dockerHost?: string;
     dockerHostPathPrefix?: string;
+    runnerToolCachePath?: string;
   };
   environment?: {
     envFile?: string;
@@ -98,7 +110,9 @@ interface AwfFileConfig {
  * Uses the published JSON Schema (awf-config-schema.json) via ajv for
  * validation, ensuring the schema is the single source of truth for both
  * external consumers (gh-aw compiler) and internal validation.
+ * @internal Exposed only for unit tests — not part of the public API.
  */
+// ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
   return validateWithSchema(config);
 }
@@ -185,6 +199,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
+    maxAiCredits: config.apiProxy?.maxAiCredits,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
@@ -192,6 +207,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
+    copilotProviderType: config.apiProxy?.modelRouter?.providerType,
+    copilotProviderBaseUrl: config.apiProxy?.modelRouter?.baseUrl,
     openaiApiTarget: config.apiProxy?.targets?.openai?.host,
     openaiApiBasePath: config.apiProxy?.targets?.openai?.basePath,
     openaiApiAuthHeader: config.apiProxy?.targets?.openai?.authHeader,
@@ -200,6 +217,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicApiAuthHeader: config.apiProxy?.targets?.anthropic?.authHeader,
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
     copilotByokExtraHeaders: config.apiProxy?.targets?.copilot?.extraHeaders,
+    copilotByokExtraBodyFields: config.apiProxy?.targets?.copilot?.extraBodyFields,
+    copilotByokSessionId: config.apiProxy?.targets?.copilot?.sessionId,
     geminiApiTarget: antigravityTargetConfig?.host ?? geminiTargetConfig?.host,
     geminiApiBasePath: antigravityTargetConfig?.basePath ?? geminiTargetConfig?.basePath,
     modelAliases: config.apiProxy?.models,
@@ -228,6 +247,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     tty: config.container?.tty,
     dockerHost: config.container?.dockerHost,
     dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
+    runnerToolCachePath: config.container?.runnerToolCachePath,
 
     envFile: config.environment?.envFile,
     envAll: config.environment?.envAll,

@@ -69,6 +69,7 @@ const STUB_CONFIG = {
   anthropicCacheTailTtl: undefined,
   modelAliases: undefined,
   maxEffectiveTokens: undefined,
+  maxAiCredits: undefined,
   effectiveTokenModelMultipliers: undefined,
   effectiveTokenDefaultModelMultiplier: undefined,
   maxRuns: undefined,
@@ -212,6 +213,25 @@ describe('validateOptions', () => {
       ).toThrow('process.exit called');
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxEffectiveTokens'));
       consoleSpy.mockRestore();
+    });
+
+    describe('maxAiCredits validation', () => {
+      it('exits when maxAiCredits is not a positive number', () => {
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        expect(() =>
+          validateOptions({ logLevel: 'info', maxAiCredits: 'abc' }, 'echo hi'),
+        ).toThrow('process.exit called');
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxAiCredits'));
+        consoleSpy.mockRestore();
+      });
+
+      it('exits when maxAiCredits is zero', () => {
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        expect(() =>
+          validateOptions({ logLevel: 'info', maxAiCredits: 0 }, 'echo hi'),
+        ).toThrow('process.exit called');
+        consoleSpy.mockRestore();
+      });
     });
 
     it('exits when maxEffectiveTokens is zero', () => {

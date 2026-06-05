@@ -16,6 +16,7 @@ export interface LogAndLimitsResult {
   logLevel: LogLevel;
   modelAliases: Record<string, string[]> | undefined;
   maxEffectiveTokens: number | undefined;
+  maxAiCredits: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
   effectiveTokenDefaultModelMultiplier: number | undefined;
   maxModelMultiplierCap?: number;
@@ -60,6 +61,10 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     | string
     | number
     | undefined;
+  const maxAiCreditsOption = (options as Record<string, unknown>).maxAiCredits as
+    | string
+    | number
+    | undefined;
   const effectiveTokenDefaultModelMultiplierOption = (options as Record<string, unknown>)
     .effectiveTokenDefaultModelMultiplier as string | number | undefined;
   // Config-file multipliers (already a Record<string, number>)
@@ -85,6 +90,8 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
       : undefined;
   const maxEffectiveTokens =
     maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
+  const maxAiCredits =
+    maxAiCreditsOption !== undefined ? Number(maxAiCreditsOption) : undefined;
   const effectiveTokenDefaultModelMultiplier =
     effectiveTokenDefaultModelMultiplierOption !== undefined
       ? Number(effectiveTokenDefaultModelMultiplierOption)
@@ -95,6 +102,14 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     (!Number.isInteger(maxEffectiveTokens) || maxEffectiveTokens <= 0)
   ) {
     console.error('Error: Invalid maxEffectiveTokens value (must be a positive integer)');
+    process.exit(1);
+  }
+
+  if (
+    maxAiCredits !== undefined &&
+    (!Number.isFinite(maxAiCredits) || maxAiCredits <= 0)
+  ) {
+    console.error('Error: Invalid maxAiCredits value (must be > 0)');
     process.exit(1);
   }
 
@@ -172,6 +187,7 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     logLevel,
     modelAliases,
     maxEffectiveTokens,
+    maxAiCredits,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap,

@@ -102,11 +102,12 @@ the corresponding CLI flag.
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
-- `apiProxy.maxPermissionDenied` → *(config-only; maps to `AWF_MAX_PERMISSION_DENIED`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
+- `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
+- `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.logging.debugTokens` → *(config-only; maps to `AWF_DEBUG_TOKENS`)*
 - `apiProxy.logging.tokenLogDir` → *(config-only; maps to `AWF_TOKEN_LOG_DIR`)*
@@ -131,6 +132,8 @@ the corresponding CLI flag.
 - `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below)*
 - `apiProxy.targets.antigravity.host` → `--gemini-api-target`
 - `apiProxy.targets.copilot.extraHeaders` → *(config-only; non-sensitive supplemental BYOK headers, maps to `AWF_BYOK_EXTRA_HEADERS`)*
+- `apiProxy.targets.copilot.extraBodyFields` → *(config-only; non-sensitive supplemental BYOK body fields, maps to `AWF_BYOK_EXTRA_BODY_FIELDS`)*
+- `apiProxy.targets.copilot.sessionId` → *(config-only; opt-in `x-session-id` header / `session_id` body field for Copilot BYOK requests, maps to `AWF_PROVIDER_SESSION_ID`. Never auto-derived from `GITHUB_RUN_ID`.)*
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.openai.authHeader` → `--openai-api-auth-header`
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
@@ -158,6 +161,7 @@ the corresponding CLI flag.
 - `container.tty` → `--tty`
 - `container.dockerHost` → `--docker-host`
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
+- `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `environment.envFile` → `--env-file`
 - `environment.envAll` → `--env-all`
 - `environment.excludeEnv[]` → `--exclude-env` *(repeatable)*
@@ -704,6 +708,18 @@ current effective-token state:
 When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
 `false` and numeric fields MUST be `0` or `null`.
 
+### 10.7 Max AI Credits Configuration
+
+`maxAiCredits` is a positive number. It is supplied via the AWF config file
+(including stdin config via `--config -`) and maps to the
+`AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
+container.
+
+When configured, the proxy MUST enforce this budget in addition to any
+configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
+exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
+and error type `ai_credits_limit_exceeded`.
+
 ## 11. Max-Runs Enforcement
 
 *This section is normative.*
@@ -833,9 +849,9 @@ When `maxPermissionDenied` is not configured, the `enabled` field MUST be
 ### 11a.4 Configuration
 
 `maxPermissionDenied` is a positive integer. It is supplied via the AWF
-config file (stdin config) and maps to the `AWF_MAX_PERMISSION_DENIED`
-environment variable injected into the api-proxy container. There is no
-corresponding CLI flag.
+config file (stdin config) or the `--max-permission-denied` CLI flag, and
+maps to the `AWF_MAX_PERMISSION_DENIED` environment variable injected into
+the api-proxy container.
 
 **Example**:
 

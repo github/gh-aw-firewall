@@ -55,6 +55,13 @@ const {
   buildModelMultiplierCapError,
   resetMaxModelMultiplierGuardForTests,
 } = require('./guards/max-model-multiplier-guard');
+const {
+  applyAiCreditsUsage,
+  getAiCreditsReflectState,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
+  resetAiCreditsGuardForTests,
+} = require('./guards/ai-credits-guard');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -214,8 +221,11 @@ const proxyWebSocket = createProxyWebSocket({
   buildMaxRunsExceededError,
   getPermissionDeniedBlockState,
   buildPermissionDeniedLimitError,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
 });
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
@@ -281,6 +291,7 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   handleRequestError,
   trackTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
   applyMaxRunsInvocation,
   applyPermissionDenied,
   extractBillingHeaders,
@@ -558,6 +569,24 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       return;
     }
 
+    const aiCreditsBlock = getAiCreditsBlockState();
+    if (aiCreditsBlock && aiCreditsBlock.maxExceeded) {
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('warn', 'ai_credits_limit_exceeded', {
+        request_id: requestId,
+        provider,
+        total_ai_credits: aiCreditsBlock.totalAiCredits,
+        max_ai_credits: aiCreditsBlock.maxAiCredits,
+      });
+      otel.endSpan(span, 429);
+      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify(buildAiCreditsLimitError(aiCreditsBlock)));
+      return;
+    }
+
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
       const bodyModel = extractModelFromBody(body);
       const mmBlock = getModelMultiplierCapBlockState(bodyModel);
@@ -596,9 +625,11 @@ module.exports = {
   proxyAgent,
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
+  getAiCreditsReflectState,
   getMaxRunsReflectState,
   getPermissionDeniedReflectState,
   resetEffectiveTokenGuardForTests,
+  resetAiCreditsGuardForTests,
   resetMaxRunsGuardForTests,
   resetPermissionDeniedGuardForTests,
   resetMaxModelMultiplierGuardForTests,

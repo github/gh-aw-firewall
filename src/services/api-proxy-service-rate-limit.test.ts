@@ -64,6 +64,7 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
           enableApiProxy: true,
           openaiApiKey: 'sk-test-key',
           maxEffectiveTokens: 5000,
+          maxAiCredits: 1.25,
           effectiveTokenModelMultipliers: {
             'gpt-4o': 2,
             'claude-sonnet-4': 1.5,
@@ -75,9 +76,17 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         expect(env.AWF_MAX_EFFECTIVE_TOKENS).toBe('5000');
+        expect(env.AWF_MAX_AI_CREDITS).toBe('1.25');
         expect(env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS).toBe('{"gpt-4o":2,"claude-sonnet-4":1.5}');
         expect(env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER).toBe('27');
         expect(env.AWF_MAX_MODEL_MULTIPLIER).toBe('4');
+      });
+
+      it('should not set AWF_MAX_AI_CREDITS in api-proxy when maxAiCredits is not configured', () => {
+        const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' }, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_MAX_AI_CREDITS).toBeUndefined();
       });
 
       it('should set AWF_MAX_MODEL_MULTIPLIER when maxModelMultiplierCap is configured', () => {

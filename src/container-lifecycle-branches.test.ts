@@ -5,7 +5,7 @@
  *  - reportBlockedDomains "else" branch (domain allowed, standard port, other reason)
  *  - checkSquidLogs IPv6 target with non-numeric trailing segment
  *  - checkSquidLogs with no TCP_DENIED entries (empty log coverage)
- *  - didApiProxyFailStartup with healthStatus === 'unhealthy' from inspect output
+ *  - didContainerFailStartup with healthStatus === 'unhealthy' from inspect output
  */
 
 import { startContainers, runAgentCommand } from './container-lifecycle';
@@ -189,6 +189,37 @@ describe('container-lifecycle uncovered branches', () => {
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
       );
       expect(upCalls).toHaveLength(2);
+    });
+
+    describe('startContainers - squid unhealthy via inspect health status', () => {
+      it('should retry when docker inspect reports squid running but unhealthy', async () => {
+        // 1. docker rm (initial cleanup)
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult());
+        // 2. docker compose up (first attempt — generic error)
+        mockExecaFn.mockRejectedValueOnce(new Error('Command failed: docker compose up -d'));
+        // 3. docker inspect awf-api-proxy -> healthy (not the failing container)
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult('running|healthy'));
+        // 4. docker inspect awf-squid -> "running|unhealthy"
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult('running|unhealthy'));
+        // 5. docker logs (diagnosis before retry)
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult('squid logs'));
+        // 6. docker compose down (cleanup before retry)
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult());
+        // 7. docker compose up (retry — succeeds)
+        mockExecaFn.mockResolvedValueOnce(makeExecaResult());
+
+        await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+
+        const squidInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+          call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-squid'
+        );
+        expect(squidInspectCalls).toHaveLength(1);
+
+        const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+          call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+        );
+        expect(upCalls).toHaveLength(2);
+      });
     });
 
     it('should retry when docker inspect reports exited|unhealthy', async () => {

@@ -62,6 +62,7 @@ describe('awf-config.schema.json', () => {
         anthropicAutoCache: true,
         anthropicCacheTailTtl: '5m',
         maxEffectiveTokens: 100000,
+        maxAiCredits: 5.5,
         modelMultipliers: {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
@@ -149,6 +150,8 @@ describe('awf-config.schema.json', () => {
   it('validates effective-token guard apiProxy fields', () => {
     expect(validate({ apiProxy: { maxEffectiveTokens: 1000 } })).toBe(true);
     expect(validate({ apiProxy: { maxEffectiveTokens: 0 } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: 1.2 } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: 0 } })).toBe(false);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
     expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);
@@ -158,6 +161,22 @@ describe('awf-config.schema.json', () => {
   it('accepts apiProxy.requestedModel as a string', () => {
     expect(validate({ apiProxy: { requestedModel: 'gpt-4o' } })).toBe(true);
     expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
+  });
+
+  it('accepts apiProxy.modelRouter with string fields', () => {
+    expect(validate({
+      apiProxy: {
+        modelRouter: {
+          providerType: 'azure',
+          baseUrl: 'https://router.example.com/v1',
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid apiProxy.modelRouter field types', () => {
+    expect(validate({ apiProxy: { modelRouter: { providerType: 123 } } })).toBe(false);
+    expect(validate({ apiProxy: { modelRouter: { baseUrl: 456 } } })).toBe(false);
   });
 
   it('rejects invalid logging.logLevel values', () => {
@@ -172,6 +191,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { agentTimeout: 0 } })).toBe(false);
     expect(validate({ container: { agentTimeout: -1 } })).toBe(false);
     expect(validate({ container: { agentTimeout: 1 } })).toBe(true);
+  });
+
+  it('accepts container.runnerToolCachePath as a string', () => {
+    expect(validate({ container: { runnerToolCachePath: '/opt/hostedtoolcache' } })).toBe(true);
+    expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
   });
 
   it('rejects non-positive-integer rateLimiting values', () => {
@@ -203,6 +227,54 @@ describe('awf-config.schema.json', () => {
         targets: {
           copilot: {
             extraHeaders: { 'x-session-id': 42 },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
+  it('accepts copilot extraBodyFields as string map', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 'run-42' },
+          },
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects non-string copilot extraBodyFields values', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 42 },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
+  it('accepts copilot sessionId as a string', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            sessionId: 'run-42',
+          },
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects non-string copilot sessionId', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            sessionId: 42,
           },
         },
       },

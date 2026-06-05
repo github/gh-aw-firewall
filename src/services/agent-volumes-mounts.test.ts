@@ -479,42 +479,87 @@ describe('agent service', () => {
     expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
   });
 
-  it('should mount self-hosted runner toolcache when present under HOME/work/_tool', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+  it('should mount container.runnerToolCachePath when it points to a real directory', () => {
+    const toolcacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-toolcache-'));
 
     try {
-      withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
-        const toolcacheDir = path.join(fakeHome, 'work', '_tool');
-        fs.mkdirSync(toolcacheDir, { recursive: true });
-
-        const result = generateDockerCompose(getConfig(), mockNetworkConfig);
+      withEnv({ RUNNER_TOOL_CACHE: undefined }, () => {
+        const result = generateDockerCompose({
+          ...getConfig(),
+          runnerToolCachePath: toolcacheDir,
+        }, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
 
         expect(volumes).toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
       });
     } finally {
-      fs.rmSync(fakeHome, { recursive: true, force: true });
+      fs.rmSync(toolcacheDir, { recursive: true, force: true });
     }
   });
 
-  it('should not mount HOME/work/_tool when it is a symlink', () => {
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
-    const symlinkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-target-'));
+  it('should mount RUNNER_TOOL_CACHE when it is set to a real directory', () => {
+    const runnerToolCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-runner-toolcache-'));
 
     try {
-      withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
-        const workDir = path.join(fakeHome, 'work');
-        fs.mkdirSync(workDir, { recursive: true });
-        const toolcacheDir = path.join(workDir, '_tool');
-        fs.symlinkSync(symlinkTarget, toolcacheDir);
-
+      withEnv({ RUNNER_TOOL_CACHE: runnerToolCacheDir }, () => {
         const result = generateDockerCompose(getConfig(), mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
 
-        expect(volumes).not.toContain(`${toolcacheDir}:/host${toolcacheDir}:ro`);
+        expect(volumes).toContain(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
       });
     } finally {
-      fs.rmSync(fakeHome, { recursive: true, force: true });
+      fs.rmSync(runnerToolCacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should prefer container.runnerToolCachePath over RUNNER_TOOL_CACHE', () => {
+    const configuredDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-configured-toolcache-'));
+    const runnerToolCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-runner-toolcache-'));
+
+    try {
+      withEnv({ RUNNER_TOOL_CACHE: runnerToolCacheDir }, () => {
+        const result = generateDockerCompose(getConfig(), mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
+      });
+
+      withEnv({ RUNNER_TOOL_CACHE: runnerToolCacheDir }, () => {
+        const result = generateDockerCompose({
+          ...getConfig(),
+          runnerToolCachePath: configuredDir,
+        }, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).toContain(`${configuredDir}:/host${configuredDir}:ro`);
+        expect(volumes).not.toContain(`${runnerToolCacheDir}:/host${runnerToolCacheDir}:ro`);
+      });
+    } finally {
+      fs.rmSync(configuredDir, { recursive: true, force: true });
+      fs.rmSync(runnerToolCacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should not mount container.runnerToolCachePath when it is a symlink', () => {
+    const symlinkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-target-'));
+    const symlinkPath = path.join(os.tmpdir(), `awf-toolcache-link-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+    try {
+      fs.symlinkSync(symlinkTarget, symlinkPath);
+
+      withEnv({ RUNNER_TOOL_CACHE: undefined }, () => {
+        const result = generateDockerCompose({
+          ...getConfig(),
+          runnerToolCachePath: symlinkPath,
+        }, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).not.toContain(`${symlinkPath}:/host${symlinkPath}:ro`);
+      });
+    } finally {
+      if (fs.existsSync(symlinkPath)) {
+        fs.unlinkSync(symlinkPath);
+      }
       fs.rmSync(symlinkTarget, { recursive: true, force: true });
     }
   });

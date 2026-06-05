@@ -407,6 +407,14 @@ describe('reflectEndpoints', () => {
     });
   });
 
+  it('should include ai_credits in reflect output', () => {
+    const result = reflectEndpoints();
+    expect(result.ai_credits).toEqual({
+      total: 0,
+      by_model: {},
+    });
+  });
+
   it('should expose Copilot fallback suppression in reflect output for BYOK non-githubcopilot targets', () => {
     const prevTarget = process.env.COPILOT_API_TARGET;
     const prevProviderType = process.env.COPILOT_PROVIDER_TYPE;

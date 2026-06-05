@@ -87,6 +87,7 @@ describe('config-assembly', () => {
     agentImage: undefined,
     modelAliases: {},
     maxEffectiveTokens: undefined,
+    maxAiCredits: undefined,
     effectiveTokenModelMultipliers: {},
     effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,
@@ -638,6 +639,41 @@ describe('config-assembly', () => {
       }
     });
 
+    it('should not fall back to host env when --env sets empty COPILOT_MODEL', () => {
+      const originalCopilotModel = process.env.COPILOT_MODEL;
+      try {
+        process.env.COPILOT_MODEL = 'gpt-4';
+
+        mockBuildConfigOnce({
+          envAll: true,
+          copilotGithubToken: 'ghp_testtoken',
+        });
+
+        const agentOptions = createMinimalAgentOptions();
+        agentOptions.additionalEnv = { COPILOT_MODEL: '' };
+
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+
+        expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
+          true,
+          false,
+          expect.any(Function),
+        );
+      } finally {
+        if (originalCopilotModel) {
+          process.env.COPILOT_MODEL = originalCopilotModel;
+        } else {
+          delete process.env.COPILOT_MODEL;
+        }
+      }
+    });
+
     it('should handle array of env files', () => {
       const envFilePath1 = path.join(testDir, 'test1.env');
       const envFilePath2 = path.join(testDir, 'test2.env');
@@ -655,6 +691,53 @@ describe('config-assembly', () => {
         true,
         true, // COPILOT_MODEL found in second file
         expect.any(Function),
+      );
+    });
+
+    it('should reject retired COPILOT_MODEL aliases before launch', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-5-codex' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("model 'gpt-5-codex' is retired or unsupported"),
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("Did you mean 'gpt-5.3-codex'?"),
+      );
+    });
+
+    it('should log normalization when COPILOT_MODEL casing is adjusted', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: ' GPT-4.1 ' };
+
+      assembleAndValidateConfig(
+        {},
+        'echo test',
+        createMinimalLogAndLimits(),
+        createMinimalNetworkOptions(),
+        agentOptions,
+      );
+
+      expect(logger.info).toHaveBeenCalledWith(
+        "Normalized COPILOT_MODEL value 'GPT-4.1' -> 'gpt-4.1'",
       );
     });
   });

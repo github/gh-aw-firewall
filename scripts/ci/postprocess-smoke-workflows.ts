@@ -104,12 +104,17 @@ const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 // `claude` fails with "native binary not installed".
 
 // Work around gh-aw compiler bug (gh-aw#26565) where Copilot model fallback is
-// emitted as an empty string:
-//   COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}
-// In BYOK smoke workflows, this overrides workflow-level COPILOT_MODEL when the
-// repo variable is unset, causing Copilot CLI startup failure.
+// emitted at the step level and overrides the workflow-level COPILOT_MODEL env
+// when the repo variables are unset. Older compilers emitted an empty string
+// fallback (`|| ''`); newer compilers emit a hardcoded default model
+// (`|| 'claude-sonnet-4.6'`) and may add an extra `vars.GH_AW_DEFAULT_MODEL_COPILOT`
+// link in the fallback chain. In both cases the step-level value wins over the
+// workflow-level `env: COPILOT_MODEL: ...` we set on BYOK smoke workflows, which
+// breaks targeted BYOK testing (e.g. forcing `o4-mini-aw` against Azure OpenAI).
+// We replace the entire expression with `env.COPILOT_MODEL` so the step inherits
+// the workflow-level default verbatim.
 const copilotModelEmptyFallbackRegex =
-  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)''(\s*\}\})/g;
+  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?'[^']*'(\s*\}\})/g;
 
 // Sentinel used to detect whether the "Copy Copilot session state" step has
 // already been replaced with the AWF-aware inline script.
@@ -517,10 +522,10 @@ for (const workflowPath of workflowPaths) {
     }
   }
 
-  // For smoke-copilot-byok: replace empty model fallbacks with the workflow-
-  // level COPILOT_MODEL env so the generated step inherits the shared default
-  // without hardcoding a duplicate model string here.
-  const isCopilotByokSmoke = workflowPath.includes('smoke-copilot-byok.lock.yml');
+  // For smoke-copilot-byok variants: replace empty model fallbacks with the
+  // workflow-level COPILOT_MODEL env so the generated step inherits the shared
+  // default without hardcoding a duplicate model string here.
+  const isCopilotByokSmoke = /smoke-copilot-byok[^/]*\.lock\.yml$/.test(workflowPath);
   if (isCopilotByokSmoke) {
     const emptyFallbackMatches = content.match(copilotModelEmptyFallbackRegex);
     if (emptyFallbackMatches) {

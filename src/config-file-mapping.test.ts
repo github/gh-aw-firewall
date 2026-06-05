@@ -37,7 +37,12 @@ describe('mapAwfFileConfigToCliOptions', () => {
       apiProxy: {
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
-          copilot: { host: 'api.githubcopilot.com', extraHeaders: { 'x-session-id': 'run-42' } },
+          copilot: {
+            host: 'api.githubcopilot.com',
+            extraHeaders: { 'x-session-id': 'run-42' },
+            extraBodyFields: { session_id: 'run-42' },
+            sessionId: 'run-42',
+          },
           gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
         },
       },
@@ -47,6 +52,8 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.openaiApiBasePath).toBe('/v1');
     expect(result.copilotApiTarget).toBe('api.githubcopilot.com');
     expect(result.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
+    expect(result.copilotByokExtraBodyFields).toEqual({ session_id: 'run-42' });
+    expect(result.copilotByokSessionId).toBe('run-42');
     expect(result.geminiApiTarget).toBe('generativelanguage.googleapis.com');
     expect(result.geminiApiBasePath).toBe('/v1beta');
   });
@@ -135,6 +142,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
         maxEffectiveTokens: 6000,
+        maxAiCredits: 1.2,
         modelMultipliers: {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
@@ -144,6 +152,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
       },
     });
     expect(result.maxEffectiveTokens).toBe(6000);
+    expect(result.maxAiCredits).toBe(1.2);
     expect(result.effectiveTokenModelMultipliers).toEqual({
       'gpt-4o': 2,
       'claude-sonnet-4': 1.5,
@@ -185,6 +194,19 @@ describe('mapAwfFileConfigToCliOptions', () => {
       strategy: 'middle_power',
       excludeEngines: ['openai', 'copilot'],
     });
+  });
+
+  it('maps modelRouter fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        modelRouter: {
+          providerType: 'azure',
+          baseUrl: 'https://example-resource.openai.azure.com/openai/deployments/test',
+        },
+      },
+    });
+    expect(result.copilotProviderType).toBe('azure');
+    expect(result.copilotProviderBaseUrl).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
   });
 
   it('leaves maxRuns undefined when not set', () => {
@@ -238,6 +260,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
         tty: true,
         dockerHost: 'unix:///var/run/docker.sock',
         dockerHostPathPrefix: '/host',
+        runnerToolCachePath: '/opt/hostedtoolcache',
       },
     });
 
@@ -252,6 +275,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.tty).toBe(true);
     expect(result.dockerHost).toBe('unix:///var/run/docker.sock');
     expect(result.dockerHostPathPrefix).toBe('/host');
+    expect(result.runnerToolCachePath).toBe('/opt/hostedtoolcache');
   });
 
   it('maps environment fields', () => {

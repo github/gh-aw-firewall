@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseBodyAsObject } = require('./body-utils');
+
 /**
  * Sanitize OpenAI-compatible request history where tool_calls[].type is null.
  *
@@ -10,14 +12,8 @@
  * @returns {{ body: Buffer, normalizedCount: number, droppedCount: number }|null}
  */
 function sanitizeNullToolCallTypes(body) {
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return null;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.messages)) {
+  const parsed = parseBodyAsObject(body);
+  if (!parsed || !Array.isArray(parsed.messages)) {
     return null;
   }
 
@@ -82,13 +78,8 @@ function sanitizeNullToolCallTypes(body) {
  * @returns {Buffer|null}
  */
 function injectSteeringMessage(body, provider, message) {
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString());
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  let parsed = parseBodyAsObject(body);
+  if (!parsed) return null;
 
   if (provider === 'anthropic') {
     if (typeof parsed.system === 'string') {
@@ -148,14 +139,8 @@ function injectStreamOptions(body, provider, requestPath = '') {
   const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
   if (/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
 
-  let parsed;
-  try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return null;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const parsed = parseBodyAsObject(body);
+  if (!parsed) return null;
   if (!parsed.stream) return null;
   if (parsed.stream_options) return null;
 

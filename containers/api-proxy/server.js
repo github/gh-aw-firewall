@@ -48,6 +48,7 @@ const {
   HTTPS_PROXY,
   extractBillingHeaders,
   getEffectiveTokenReflectState,
+  getAiCreditsReflectState,
   getMaxRunsReflectState,
   getPermissionDeniedReflectState,
 } = require('./proxy-request');
@@ -125,6 +126,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getModelFallback: () => MODEL_FALLBACK,
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
+  getAiCreditsUsage: () => getAiCreditsReflectState(),
   getMaxRunsUsage: () => getMaxRunsReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
 });

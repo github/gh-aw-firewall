@@ -117,6 +117,34 @@ export interface ApiProxyOptions {
   copilotProviderApiKey?: string;
 
   /**
+   * Copilot BYOK provider type hint forwarded to the API proxy sidecar.
+   *
+   * When set, the sidecar uses this hint to select provider-specific behavior
+   * (for example, Azure OpenAI `api-key` header handling).
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.modelRouter.providerType`
+   * - Environment variable: `COPILOT_PROVIDER_TYPE`
+   *
+   * @default undefined
+   */
+  copilotProviderType?: string;
+
+  /**
+   * Copilot BYOK provider base URL forwarded to the API proxy sidecar.
+   *
+   * This points the sidecar at a model router or Copilot-compatible upstream
+   * endpoint (for example, OpenRouter or Azure OpenAI deployment URLs).
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.modelRouter.baseUrl`
+   * - Environment variable: `COPILOT_PROVIDER_BASE_URL`
+   *
+   * @default undefined
+   */
+  copilotProviderBaseUrl?: string;
+
+  /**
    * Google Gemini API key (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this key is injected into the Node.js sidecar
@@ -179,6 +207,38 @@ export interface ApiProxyOptions {
    * @default undefined
    */
   copilotByokExtraHeaders?: Record<string, string>;
+
+  /**
+   * Supplemental JSON body fields for Copilot BYOK upstream requests (non-sensitive).
+   *
+   * When set, these fields are JSON-encoded and passed to the API proxy as
+   * `AWF_BYOK_EXTRA_BODY_FIELDS`. They are only applied by the sidecar when
+   * `COPILOT_PROVIDER_API_KEY` is in use.
+   *
+   * Set via config file path `apiProxy.targets.copilot.extraBodyFields`.
+   *
+   * @default undefined
+   */
+  copilotByokExtraBodyFields?: Record<string, string>;
+
+  /**
+   * Opt-in session identifier injected on Copilot BYOK upstream requests.
+   *
+   * When set, this value is forwarded to the API proxy as
+   * `AWF_PROVIDER_SESSION_ID`. The Copilot adapter then injects it as a
+   * default `x-session-id` request header and `session_id` body field
+   * (unless those keys are already set via `copilotByokExtraHeaders` /
+   * `copilotByokExtraBodyFields`). This is a GitHub Copilot API
+   * convention; strict OpenAI-compatible servers (e.g. Azure OpenAI) reject
+   * the unknown `session_id` body field with HTTP 400, so this field must
+   * be set explicitly by the caller and is never auto-derived from
+   * `GITHUB_RUN_ID`.
+   *
+   * Set via config file path `apiProxy.targets.copilot.sessionId`.
+   *
+   * @default undefined
+   */
+  copilotByokSessionId?: string;
 
   /**
    * Target hostname for OpenAI API requests (used by API proxy sidecar)

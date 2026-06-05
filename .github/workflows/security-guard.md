@@ -12,7 +12,7 @@ permissions:
 engine:
   id: claude
   model: claude-sonnet-4-5
-  max-turns: 6
+  max-turns: 4
 tools:
   github:
     mode: gh-proxy
@@ -82,6 +82,24 @@ steps:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REPO: ${{ github.repository }}
 
+  - name: Fetch PR metadata
+    id: pr-meta
+    if: github.event.pull_request.number
+    run: |
+      DELIM="GHAW_PR_META_$(date +%s)"
+      PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
+        --json title,author,baseRefName,headRefName \
+        --jq '"**Title:** " + .title + "\n**Author:** " + .author.login + "\n**Base→Head:** " + .baseRefName + "→" + .headRefName')
+      {
+        echo "PR_META<<${DELIM}"
+        printf '%s\n' "$PR_INFO"
+        echo "${DELIM}"
+      } >> "$GITHUB_OUTPUT"
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_REPO: ${{ github.repository }}
+
   - name: Set security relevance count
     id: security-relevance
     env:
@@ -107,13 +125,8 @@ Read the pre-fetched diff below first. If you see `[DIFF TRUNCATED ...]`, fetch 
 
 ## Repository Context
 
-You are a security-focused AI agent that carefully reviews pull requests in this repository to identify changes that could weaken the security posture or extend the security boundaries of the Agentic Workflow Firewall (AWF).
-
-This repository implements a **network firewall for AI agents** that provides L7 (HTTP/HTTPS) egress control using Squid proxy and Docker containers. The firewall restricts network access to a whitelist of approved domains.
-
-### Critical Security Components
-
-Key subsystems: `src/host-iptables.ts` (host egress), `containers/agent/setup-iptables.sh` (container NAT), `src/squid-config.ts` (domain ACL), `src/docker-manager.ts` + `containers/agent/` (container hardening), `src/domain-patterns.ts` (wildcard validation). Check for: weakened DROP/REJECT, expanded ACCEPT, capability additions, seccomp relaxations, and input validation removal.
+AWF is a network firewall for AI agents.
+Security-critical files: `src/host-iptables.ts`, `containers/agent/setup-iptables.sh`, `src/squid-config.ts`, `src/docker-manager.ts`, `containers/agent/entrypoint.sh`, `src/domain-patterns.ts`.
 
 ## Your Task
 
@@ -121,10 +134,8 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 1. **Review the pre-fetched diff below** (up to 100 KB of changes are included)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Use the pre-fetched diff below as your primary source of truth. Do NOT call `gh pr diff`, `git diff`, or `gh api .../files`.** If you see `[DIFF TRUNCATED ...]`, fetch full context once with `mcp__github__get_pull_request_diff`, then continue.
-4. **Do not use local branch comparisons or commit history** (for example `git diff main...HEAD` or `git log main..`) unless you first confirm the base branch exists locally; the checkout may contain only the PR branch, and these calls waste turns
-5. **Use direct file reads from the checked-out repository** only for files you need to inspect further (e.g., to understand adjacent security context)
-6. **Collect evidence** with specific file names, line numbers, and code snippets
+3. **Use ONLY the pre-fetched diff below.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do NOT read files from the checkout. If `[DIFF TRUNCATED ...]` appears, call `mcp__github__get_pull_request_diff` once — then stop making tool calls and analyze inline.
+4. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
 
@@ -152,6 +163,8 @@ If no security issues are found:
 ## Changed Files (Pre-fetched, up to 100 KB)
 
 The following PR diff has been pre-computed. Focus your security analysis on these changes:
+
+${{ steps.pr-meta.outputs.PR_META }}
 
 ```
 __GH_AW_EXPR_BAA3A6C6__

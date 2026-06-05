@@ -89,6 +89,7 @@ function trackTokenUsage(proxyRes, opts) {
   // For streaming: accumulate usage across SSE events
   let streamingUsage = {};
   let streamingModel = null;
+  let observedCacheReadTokens = 0;
   let partialLine = '';
 
   // If the response is compressed, create a decompressor.
@@ -118,6 +119,10 @@ function trackTokenUsage(proxyRes, opts) {
           const { usage, model } = extractUsageFromSseLine(line);
           if (model && !streamingModel) streamingModel = model;
           if (usage) {
+            const normalizedLineUsage = normalizeUsage(usage);
+            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > observedCacheReadTokens) {
+              observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+            }
             for (const [k, v] of Object.entries(usage)) {
               streamingUsage[k] = v;
             }
@@ -198,6 +203,10 @@ function trackTokenUsage(proxyRes, opts) {
           const { usage: u, model: m } = extractUsageFromSseLine(line);
           if (m && !streamingModel) streamingModel = m;
           if (u) {
+            const normalizedLineUsage = normalizeUsage(u);
+            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > observedCacheReadTokens) {
+              observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+            }
             for (const [k, v] of Object.entries(u)) {
               streamingUsage[k] = v;
             }
@@ -214,6 +223,10 @@ function trackTokenUsage(proxyRes, opts) {
       const result = extractUsageFromJson(body);
       usage = result.usage;
       model = result.model;
+      const normalizedSingleUsage = normalizeUsage(usage);
+      if (normalizedSingleUsage && normalizedSingleUsage.cache_read_tokens > observedCacheReadTokens) {
+        observedCacheReadTokens = normalizedSingleUsage.cache_read_tokens;
+      }
     }
 
     logRequest('debug', 'token_track_end', {
@@ -233,6 +246,24 @@ function trackTokenUsage(proxyRes, opts) {
     if (!normalized) {
       if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
       return;
+    }
+    if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
+      logRequest('warn', 'token_cache_read_rollup_mismatch', {
+        request_id: requestId,
+        provider,
+        model: model || 'unknown',
+        observed_cache_read_tokens: observedCacheReadTokens,
+        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
+        streaming,
+      });
+      diag('CACHE_READ_ROLLUP_MISMATCH', {
+        request_id: requestId,
+        provider,
+        model: model || 'unknown',
+        observed_cache_read_tokens: observedCacheReadTokens,
+        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
+        streaming,
+      });
     }
     if (typeof onUsage === 'function') {
       try {

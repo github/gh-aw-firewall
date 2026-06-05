@@ -8,6 +8,7 @@ import {
   emitCliProxyStatusLogs,
   warnClassicPATWithCopilotModel,
 } from '../../api-proxy-config';
+import { validateCopilotModel } from '../../copilot-model';
 import {
   buildRateLimitConfig,
   validateRateLimitFlags,
@@ -43,6 +44,31 @@ export function assembleAndValidateConfig(
   networkOptions: NetworkOptionsResult,
   agentOptions: AgentOptionsResult,
 ): WrapperConfig {
+  const readCopilotModelFromEnvFiles = (envFile: unknown): string | undefined => {
+    const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
+    let lastSeen: string | undefined;
+    for (const candidate of envFiles) {
+      if (typeof candidate !== 'string' || candidate.trim() === '') continue;
+      try {
+        const envFilePath = path.isAbsolute(candidate)
+          ? candidate
+          : path.resolve(process.cwd(), candidate);
+        const envFileContents = fs.readFileSync(envFilePath, 'utf8');
+        for (const line of envFileContents.split(/\r?\n/)) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+          const match = trimmedLine.match(/^(?:export\s+)?COPILOT_MODEL\s*=\s*(.*)$/);
+          if (match) {
+            lastSeen = match[1]?.trim() || '';
+          }
+        }
+      } catch {
+        // Ignore unreadable env files here; this check is only for a pre-flight warning.
+      }
+    }
+    return lastSeen;
+  };
+
   // --- Config assembly -----------------------------------------------------
 
   const config = buildConfig({
@@ -62,6 +88,7 @@ export function assembleAndValidateConfig(
     agentImage: logAndLimits.agentImage,
     modelAliases: logAndLimits.modelAliases,
     maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
+    maxAiCredits: logAndLimits.maxAiCredits,
     effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap: logAndLimits.maxModelMultiplierCap,
@@ -213,41 +240,40 @@ export function assembleAndValidateConfig(
   // Log CLI proxy status
   emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
 
-  // Warn if a classic PAT is combined with COPILOT_MODEL (Copilot CLI 1.0.21+ incompatibility)
-  const hasCopilotModelInEnvFiles = (envFile: unknown): boolean => {
-    const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
-    for (const candidate of envFiles) {
-      if (typeof candidate !== 'string' || candidate.trim() === '') continue;
-      try {
-        const envFilePath = path.isAbsolute(candidate)
-          ? candidate
-          : path.resolve(process.cwd(), candidate);
-        const envFileContents = fs.readFileSync(envFilePath, 'utf8');
-        for (const line of envFileContents.split(/\r?\n/)) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-          if (/^(?:export\s+)?COPILOT_MODEL\s*=/.test(trimmedLine)) {
-            return true;
-          }
-        }
-      } catch {
-        // Ignore unreadable env files here; this check is only for a pre-flight warning.
-      }
-    }
-    return false;
-  };
-
-  // Check if COPILOT_MODEL is set via --env/-e flags, host env (when --env-all is active), or --env-file
-  const copilotModelFromFlags = !!agentOptions.additionalEnv['COPILOT_MODEL'];
-  const copilotModelInHostEnv = !!(config.envAll && process.env.COPILOT_MODEL);
-  const copilotModelInEnvFile = hasCopilotModelInEnvFiles(
+  // Check if COPILOT_MODEL is set via --env/-e flags, --env-file, or host env (when --env-all is active)
+  const copilotModelFromFlags = agentOptions.additionalEnv.COPILOT_MODEL;
+  const copilotModelInEnvFile = readCopilotModelFromEnvFiles(
     (config as { envFile?: unknown }).envFile,
   );
+  const copilotModelInHostEnv = config.envAll ? process.env.COPILOT_MODEL : undefined;
+  const copilotModel = (
+    copilotModelFromFlags ??
+    copilotModelInEnvFile ??
+    copilotModelInHostEnv
+  )?.trim();
   warnClassicPATWithCopilotModel(
     config.copilotGithubToken?.startsWith('ghp_') ?? false,
-    copilotModelFromFlags || copilotModelInHostEnv || copilotModelInEnvFile,
+    !!copilotModel,
     logger.warn.bind(logger),
   );
+
+  if (copilotModel && config.copilotGithubToken) {
+    const validation = validateCopilotModel(copilotModel);
+    if (!validation.valid) {
+      logger.error(validation.message);
+      process.exit(1);
+    }
+
+    if (validation.resolvedModel !== copilotModel) {
+      logger.info(
+        `Normalized COPILOT_MODEL value '${copilotModel}' -> '${validation.resolvedModel}'`,
+      );
+    }
+    config.additionalEnv = {
+      ...(config.additionalEnv ?? {}),
+      COPILOT_MODEL: validation.resolvedModel,
+    };
+  }
 
   return config;
 }
