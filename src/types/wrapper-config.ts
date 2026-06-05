@@ -10,6 +10,7 @@ import type { NetworkOptions } from './network-options';
 import type { VolumeOptions } from './volume-options';
 import type { SecurityOptions } from './security-options';
 import type { ApiProxyOptions } from './api-proxy-options';
+import type { CliProxyOptions } from './cli-proxy-options';
 import type { RateLimitOptions } from './rate-limit-options';
 import type { RuntimeOptions } from './runtime-options';
 
@@ -19,5 +20,6 @@ export type WrapperConfig =
   & VolumeOptions
   & SecurityOptions
   & ApiProxyOptions
+  & CliProxyOptions
   & RateLimitOptions
   & RuntimeOptions;
