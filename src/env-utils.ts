@@ -1,3 +1,26 @@
+import { readEnvFile } from './github-env';
+import { WrapperConfig } from './types';
+
+export function normalizeEnvValue(value: string | undefined): string | undefined {
+  const normalizedValue = value?.trim();
+  return normalizedValue || undefined;
+}
+
+export function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
+  const envFileValue = config.envFile
+    ? readEnvFile(config.envFile)[key]
+    : undefined;
+  const value =
+    config.additionalEnv?.[key] ??
+    envFileValue ??
+    (config.envAll ? process.env[key] : undefined);
+  return normalizeEnvValue(value);
+}
+
+export function getLowerCaseProcessEnvValue(key: string): string | undefined {
+  return normalizeEnvValue(process.env[key])?.toLowerCase();
+}
+
 /**
  * Returns an object containing only the specified environment variable names
  * that are currently set (non-empty) in `process.env`.
