@@ -22,6 +22,7 @@ function createProxyWebSocket({
   buildPermissionDeniedLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
 }) {
   /**
    * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.
@@ -215,7 +216,18 @@ function createProxyWebSocket({
           startTime,
           metrics,
           onUsage: (normalizedUsage, model) => {
-            applyEffectiveTokenUsage(normalizedUsage, model);
+            const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
+            const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
+            if (effectiveTokenUsage || aiCreditsUsage) {
+              logRequest('info', 'token_budget_usage', {
+                request_id: requestId,
+                provider,
+                model: model || 'unknown',
+                effectiveTokensThisResponse: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
+                ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
+                ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
+              });
+            }
           },
         });
 

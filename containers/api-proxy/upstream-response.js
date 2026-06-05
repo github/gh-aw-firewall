@@ -29,6 +29,7 @@ function createUpstreamResponseHandlers({
   handleRequestError,
   trackTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
   applyMaxRunsInvocation,
   applyPermissionDenied,
   extractBillingHeaders,
@@ -198,7 +199,18 @@ function createUpstreamResponseHandlers({
       requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent,
       onUsage: (normalizedUsage, model) => {
         otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-        applyEffectiveTokenUsage(normalizedUsage, model);
+        const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
+        const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
+        if (effectiveTokenUsage || aiCreditsUsage) {
+          logRequest('info', 'token_budget_usage', {
+            request_id: requestId,
+            provider,
+            model: model || 'unknown',
+            effectiveTokensThisResponse: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
+            ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
+            ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
+          });
+        }
       },
       onSpanEnd: (statusCode) => {
         otel.endSpan(span, statusCode);

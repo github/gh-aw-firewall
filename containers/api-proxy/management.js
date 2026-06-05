@@ -28,6 +28,7 @@ const metrics = require('./metrics');
  * @property {() => { enabled: boolean, strategy: string }} getModelFallback - Returns fallback config
  * @property {() => Record<string, { enabled: boolean, strategy: string, suppressed: boolean, suppression_reason?: string }>} getEffectiveModelFallback - Returns provider-effective fallback summary
  * @property {() => object}         getEffectiveTokenUsage - Returns effective token usage summary
+ * @property {() => object}         getAiCreditsUsage     - Returns AI credits usage summary
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
  */
@@ -52,6 +53,7 @@ function createManagementHandlers(deps) {
     getModelFallback,
     getEffectiveModelFallback,
     getEffectiveTokenUsage,
+    getAiCreditsUsage,
     getMaxRunsUsage,
     getPermissionDeniedUsage,
   } = deps;
@@ -104,6 +106,7 @@ function createManagementHandlers(deps) {
       model_fallback: getModelFallback(),
       model_fallback_effective: getEffectiveModelFallback(),
       effective_tokens: getEffectiveTokenUsage(),
+      ai_credits: getAiCreditsUsage(),
       runs: getMaxRunsUsage(),
       permission_denied: getPermissionDeniedUsage(),
     };

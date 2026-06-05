@@ -10,6 +10,7 @@ const { EventEmitter } = require('events');
 const {
   makeReq: makeReqFactory,
   makeRes,
+  getStructuredLogs,
   setupServerTestEnv,
 } = require('./test-helpers/server-mock-factories');
 
@@ -18,6 +19,7 @@ let resetEffectiveTokenGuardForTests;
 let resetMaxRunsGuardForTests;
 let resetPermissionDeniedGuardForTests;
 let resetMaxModelMultiplierGuardForTests;
+let resetAiCreditsGuardForTests;
 
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
@@ -26,8 +28,9 @@ setupServerTestEnv(() => {
     resetMaxRunsGuardForTests,
     resetPermissionDeniedGuardForTests,
     resetMaxModelMultiplierGuardForTests,
+    resetAiCreditsGuardForTests,
   } = require('./proxy-request'));
-  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests };
+  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests, resetAiCreditsGuardForTests };
 });
 
 describe('proxyRequest effective token guard', () => {
@@ -41,12 +44,14 @@ describe('proxyRequest effective token guard', () => {
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '10';
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
     jest.restoreAllMocks();
   });
 
@@ -93,6 +98,47 @@ describe('proxyRequest effective token guard', () => {
     expect(payload.error.type).toBe('effective_tokens_limit_exceeded');
     expect(payload.error.max_effective_tokens).toBe(10);
     expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
+  });
+
+  it('logs ai credits and effective tokens for each response usage update', () => {
+    const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req.emit('end');
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.pipe = jest.fn();
+    responseHandler(proxyRes);
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5-mini',
+      usage: { prompt_tokens: 1000, completion_tokens: 500 },
+    })));
+    proxyRes.emit('end');
+
+    const budgetLogs = getStructuredLogs(writeSpy, 'token_budget_usage');
+    expect(budgetLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        effectiveTokensThisResponse: 3000,
+        ai_credits_this_response: 0.125,
+        ai_credits_total: 0.125,
+      }),
+    ]));
+    expect(process.env.AWF_AI_CREDITS_USED).toBe('0.125');
+
+    writeSpy.mockRestore();
   });
 });
 

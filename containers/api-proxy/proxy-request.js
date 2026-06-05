@@ -55,6 +55,11 @@ const {
   buildModelMultiplierCapError,
   resetMaxModelMultiplierGuardForTests,
 } = require('./guards/max-model-multiplier-guard');
+const {
+  applyAiCreditsUsage,
+  getAiCreditsReflectState,
+  resetAiCreditsGuardForTests,
+} = require('./guards/ai-credits-guard');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -216,6 +221,7 @@ const proxyWebSocket = createProxyWebSocket({
   buildPermissionDeniedLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
 });
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
@@ -281,6 +287,7 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   handleRequestError,
   trackTokenUsage,
   applyEffectiveTokenUsage,
+  applyAiCreditsUsage,
   applyMaxRunsInvocation,
   applyPermissionDenied,
   extractBillingHeaders,
@@ -596,9 +603,11 @@ module.exports = {
   proxyAgent,
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
+  getAiCreditsReflectState,
   getMaxRunsReflectState,
   getPermissionDeniedReflectState,
   resetEffectiveTokenGuardForTests,
+  resetAiCreditsGuardForTests,
   resetMaxRunsGuardForTests,
   resetPermissionDeniedGuardForTests,
   resetMaxModelMultiplierGuardForTests,

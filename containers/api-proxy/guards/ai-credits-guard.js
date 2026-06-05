@@ -1,0 +1,129 @@
+'use strict';
+
+const { logRequest, sanitizeForLog } = require('../logging');
+const pricingByModel = require('../ai-credits-pricing');
+
+const TOKENS_PER_MILLION = 1_000_000;
+const DOLLARS_PER_CREDIT = 0.01;
+const CREDIT_DENOMINATOR = TOKENS_PER_MILLION * DOLLARS_PER_CREDIT;
+
+function roundCredits(value) {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+}
+
+function createAiCreditsState() {
+  return {
+    totalAiCredits: 0,
+    byModel: {},
+    warnedUnknownModels: new Set(),
+  };
+}
+
+let aiCreditsState = createAiCreditsState();
+
+function resolveModelPricing(model, state = aiCreditsState) {
+  if (Object.hasOwn(pricingByModel, model)) return pricingByModel[model];
+
+  let prefixMatch = null;
+  for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
+    if (model.startsWith(`${configuredModel}-`)) {
+      if (!prefixMatch || configuredModel.length > prefixMatch.model.length) {
+        prefixMatch = { model: configuredModel, pricing };
+      }
+    }
+  }
+  if (prefixMatch) return prefixMatch.pricing;
+
+  if (!state.warnedUnknownModels.has(model)) {
+    logRequest('warn', 'unknown_model_ai_credits_pricing', {
+      model: sanitizeForLog(model),
+    });
+    state.warnedUnknownModels.add(model);
+  }
+  return null;
+}
+
+function calculateAiCredits(normalizedUsage, model, state = aiCreditsState) {
+  const pricing = resolveModelPricing(model, state);
+  if (!pricing) return null;
+
+  const inputCredits = ((normalizedUsage.input_tokens || 0) * pricing.input) / CREDIT_DENOMINATOR;
+  const cachedInputCredits = ((normalizedUsage.cache_read_tokens || 0) * pricing.cachedInput) / CREDIT_DENOMINATOR;
+  const cacheWriteCredits = pricing.cacheWrite
+    ? ((normalizedUsage.cache_write_tokens || 0) * pricing.cacheWrite) / CREDIT_DENOMINATOR
+    : 0;
+  const outputCredits = ((normalizedUsage.output_tokens || 0) * pricing.output) / CREDIT_DENOMINATOR;
+  const totalCredits = inputCredits + cachedInputCredits + cacheWriteCredits + outputCredits;
+
+  return {
+    inputCredits,
+    cachedInputCredits,
+    cacheWriteCredits,
+    outputCredits,
+    totalCredits,
+  };
+}
+
+function applyAiCreditsUsage(normalizedUsage, model) {
+  if (!normalizedUsage) return null;
+  const safeModel = model || 'unknown';
+  const calc = calculateAiCredits(normalizedUsage, safeModel);
+  if (!calc) return null;
+
+  if (!Object.hasOwn(aiCreditsState.byModel, safeModel)) {
+    aiCreditsState.byModel[safeModel] = {
+      inputCredits: 0,
+      cachedInputCredits: 0,
+      cacheWriteCredits: 0,
+      outputCredits: 0,
+      totalCredits: 0,
+    };
+  }
+
+  const modelBucket = aiCreditsState.byModel[safeModel];
+  modelBucket.inputCredits += calc.inputCredits;
+  modelBucket.cachedInputCredits += calc.cachedInputCredits;
+  modelBucket.cacheWriteCredits += calc.cacheWriteCredits;
+  modelBucket.outputCredits += calc.outputCredits;
+  modelBucket.totalCredits += calc.totalCredits;
+  aiCreditsState.totalAiCredits += calc.totalCredits;
+
+  process.env.AWF_AI_CREDITS_USED = String(roundCredits(aiCreditsState.totalAiCredits));
+
+  return {
+    aiCreditsThisResponse: roundCredits(calc.totalCredits),
+    inputCreditsThisResponse: roundCredits(calc.inputCredits),
+    cachedInputCreditsThisResponse: roundCredits(calc.cachedInputCredits),
+    cacheWriteCreditsThisResponse: roundCredits(calc.cacheWriteCredits),
+    outputCreditsThisResponse: roundCredits(calc.outputCredits),
+    totalAiCredits: roundCredits(aiCreditsState.totalAiCredits),
+  };
+}
+
+function getAiCreditsReflectState() {
+  const byModel = {};
+  for (const [model, usage] of Object.entries(aiCreditsState.byModel)) {
+    byModel[model] = {
+      input_credits: roundCredits(usage.inputCredits),
+      cached_input_credits: roundCredits(usage.cachedInputCredits),
+      cache_write_credits: roundCredits(usage.cacheWriteCredits),
+      output_credits: roundCredits(usage.outputCredits),
+      total: roundCredits(usage.totalCredits),
+    };
+  }
+  return {
+    total: roundCredits(aiCreditsState.totalAiCredits),
+    by_model: byModel,
+  };
+}
+
+function resetAiCreditsGuardForTests() {
+  aiCreditsState = createAiCreditsState();
+  delete process.env.AWF_AI_CREDITS_USED;
+}
+
+module.exports = {
+  applyAiCreditsUsage,
+  getAiCreditsReflectState,
+  resetAiCreditsGuardForTests,
+};
