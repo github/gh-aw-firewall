@@ -3,7 +3,7 @@
 const { parseModelAliases, rewriteModelInBody, filterResolvableAliases } = require('./model-resolver');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
-const { getCopilotModelFallbackPolicy } = require('./providers/copilot');
+const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
