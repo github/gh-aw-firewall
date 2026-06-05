@@ -9,8 +9,8 @@ describe('doc maintainer workflow optimization config', () => {
   it('disables unused tools and keeps condensed prompt sections in source workflow', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
-    expect(source).toContain('if: needs.check_relevant_changes.outputs.has_changes == \'true\'');
-    expect(source).toContain('max-turns: 10');
+    expect(source).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
+    expect(source).toContain('max-turns: 5');
     expect(source).toContain('bash: false');
     expect(source).toContain('github: false');
     expect(source).toContain('Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.');
@@ -21,6 +21,12 @@ describe('doc maintainer workflow optimization config', () => {
     expect(source).toContain('echo "## Affected Documentation"');
     expect(source).toContain('echo "## Recent Git Diffs"');
     expect(source).toContain("git log --since=\"7 days ago\" --format=\"=== Commit %H: %s ===\" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100");
+    expect(source).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
+    expect(source).toContain('echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."');
+    expect(source).toContain('echo "Context size: ${CONTEXT_SIZE} bytes"');
+    expect(source).toContain('echo "Diff lines: ${DIFF_LINES}"');
+    expect(source).toContain('echo "::warning::Context file is empty or minimal ($CONTEXT_SIZE bytes). Skipping agent run."');
+    expect(source).toContain('echo "skip_agent=true" >> "$GITHUB_OUTPUT"');
     expect(source).toContain("grep -i -F -f \"$TOKENS\" \"$DOC_POOL\" | head -10 > \"$AFFECTED\" || true");
     expect(source).toContain(
       '**PR Description**: Summarize updated docs, reference the triggering code changes, and list what was verified.'
@@ -45,9 +51,10 @@ describe('doc maintainer workflow optimization config', () => {
   it('compiles tool disabling into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 10');
-    expect(lock).toContain('if: needs.check_relevant_changes.outputs.has_changes == \'true\'');
+    expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
     expect(lock).toContain('Build documentation maintainer context');
+    expect(lock).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
     expect(lock).toContain('--patch --stat --unified=1');
     expect(lock).toContain('| grep -v \'^Binary\' | head -100 > \\"$CONTEXT_DIR/recent-diffs.txt\\"');
     expect(lock).toContain('head -10 > \\"$AFFECTED\\" || true');
