@@ -10,12 +10,16 @@ const {
     resolveCopilotAuthToken,
     resolveApiKey,
     stripBearerPrefix,
+  },
+} = require('./providers/copilot-auth');
+const {
+  _testing: {
     COPILOT_PLACEHOLDER_TOKEN,
     parseByokExtraHeaders,
     parseByokExtraBodyFields,
   },
-  createCopilotAdapter,
-} = require('./providers/copilot');
+} = require('./providers/copilot-byok');
+const { createCopilotAdapter } = require('./providers/copilot');
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { sanitizeNullToolCallTypes } = require('./body-transform');
 
