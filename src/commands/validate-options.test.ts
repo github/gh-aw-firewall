@@ -265,6 +265,97 @@ describe('validateOptions', () => {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // allowedModels / disallowedModels validation
+  // ---------------------------------------------------------------------------
+
+  describe('allowedModels / disallowedModels validation', () => {
+    it('exits when allowedModels is not an array', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      expect(() =>
+        validateOptions(
+          { logLevel: 'info', allowedModels: 'copilot/gpt-*' as unknown as string[] },
+          'echo hi',
+        ),
+      ).toThrow('process.exit called');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('apiProxy.allowedModels must be an array of strings'),
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('exits when allowedModels contains non-string entries', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      expect(() =>
+        validateOptions(
+          { logLevel: 'info', allowedModels: ['copilot/gpt-*', 42 as unknown as string] },
+          'echo hi',
+        ),
+      ).toThrow('process.exit called');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('apiProxy.allowedModels must be an array of strings'),
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('exits when disallowedModels is not an array', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      expect(() =>
+        validateOptions(
+          {
+            logLevel: 'info',
+            disallowedModels: { foo: 'bar' } as unknown as string[],
+          },
+          'echo hi',
+        ),
+      ).toThrow('process.exit called');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('apiProxy.disallowedModels must be an array of strings'),
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('accepts valid allowedModels and disallowedModels arrays', () => {
+      expect(() =>
+        validateOptions(
+          {
+            logLevel: 'info',
+            allowedModels: ['copilot/gpt-*', '*/claude-sonnet-*'],
+            disallowedModels: ['*/claude-opus-*'],
+          },
+          'echo hi',
+        ),
+      ).not.toThrow();
+    });
+
+    it('accepts undefined and null for model glob lists', () => {
+      expect(() =>
+        validateOptions(
+          {
+            logLevel: 'info',
+            allowedModels: undefined,
+            disallowedModels: null as unknown as string[],
+          },
+          'echo hi',
+        ),
+      ).not.toThrow();
+    });
+
+    it('accepts an empty allowedModels array (treated as no allow-list)', () => {
+      // Empty / all-whitespace entries are trimmed away; the resulting list is undefined.
+      expect(() =>
+        validateOptions(
+          {
+            logLevel: 'info',
+            allowedModels: ['', '   '],
+            disallowedModels: ['copilot/o1-*', ''],
+          },
+          'echo hi',
+        ),
+      ).not.toThrow();
+    });
+  });
+
   describe('parseModelMultipliersCli error', () => {
     it('exits when --max-model-multiplier is malformed', () => {
       mockedOptionParsers.parseModelMultipliersCli.mockReturnValue({ error: 'bad format' });
