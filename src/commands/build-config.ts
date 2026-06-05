@@ -22,6 +22,7 @@ interface BuildConfigInputs {
   agentImage: string | undefined;
   modelAliases: Record<string, string[]> | undefined;
   maxEffectiveTokens: number | undefined;
+  maxAiCredits: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
   effectiveTokenDefaultModelMultiplier: number | undefined;
   maxModelMultiplierCap?: number;
@@ -57,6 +58,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     agentImage,
     modelAliases,
     maxEffectiveTokens,
+    maxAiCredits,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap,
@@ -112,6 +114,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     modelAliases,
     maxEffectiveTokens,
+    maxAiCredits,
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap,

@@ -221,6 +221,70 @@ describe('proxyRequest max-runs guard', () => {
   });
 });
 
+describe('proxyRequest max-ai-credits guard', () => {
+  function makeReq(headers = {}) {
+    return makeReqFactory('/v1/chat/completions', headers);
+  }
+
+  beforeEach(() => {
+    process.env.AWF_MAX_AI_CREDITS = '0.1';
+    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_AI_CREDITS;
+    resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('returns 429 with structured payload when ai credits limit is reached', () => {
+    let responseHandler;
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      responseHandler = cb;
+      return upstreamRequest;
+    });
+
+    const req1 = makeReq();
+    const res1 = makeRes();
+    proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req1.emit('end');
+
+    const proxyRes = new EventEmitter();
+    proxyRes.statusCode = 200;
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.pipe = jest.fn();
+
+    responseHandler(proxyRes);
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5-mini',
+      usage: { prompt_tokens: 1000, completion_tokens: 500 },
+    })));
+    proxyRes.emit('end');
+
+    const req2 = makeReq();
+    const res2 = makeRes();
+    proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req2.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    const payload = JSON.parse(res2.end.mock.calls[0][0]);
+    expect(payload.error.type).toBe('ai_credits_limit_exceeded');
+    expect(payload.error.max_ai_credits).toBe(0.1);
+    expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
+  });
+});
+
 describe('proxyRequest permission-denied guard', () => {
   function makeReq(headers = {}) {
     return makeReqFactory('/v1/chat/completions', headers);

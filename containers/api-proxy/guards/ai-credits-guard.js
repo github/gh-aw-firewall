@@ -2,6 +2,7 @@
 
 const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
+const { parsePositiveNumber } = require('./guard-utils');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -20,6 +21,23 @@ function createAiCreditsState() {
 }
 
 let aiCreditsState = createAiCreditsState();
+
+const aiCreditsConfigCache = {
+  rawMax: undefined,
+  parsed: { max: null },
+};
+
+function getAiCreditsConfig() {
+  const rawMax = process.env.AWF_MAX_AI_CREDITS;
+  if (aiCreditsConfigCache.rawMax === rawMax) {
+    return aiCreditsConfigCache.parsed;
+  }
+  aiCreditsConfigCache.rawMax = rawMax;
+  aiCreditsConfigCache.parsed = {
+    max: parsePositiveNumber(rawMax),
+  };
+  return aiCreditsConfigCache.parsed;
+}
 
 function resolveModelPricing(model, state = aiCreditsState) {
   if (Object.hasOwn(pricingByModel, model)) return pricingByModel[model];
@@ -117,13 +135,38 @@ function getAiCreditsReflectState() {
   };
 }
 
+function getAiCreditsBlockState() {
+  const config = getAiCreditsConfig();
+  if (!config.max) return null;
+  return {
+    maxAiCredits: config.max,
+    totalAiCredits: roundCredits(aiCreditsState.totalAiCredits),
+    maxExceeded: aiCreditsState.totalAiCredits >= config.max,
+  };
+}
+
+function buildAiCreditsLimitError(aiCreditsBlockState) {
+  return {
+    error: {
+      type: 'ai_credits_limit_exceeded',
+      message: `Maximum AI credits exceeded (${aiCreditsBlockState.totalAiCredits.toFixed(6)} / ${aiCreditsBlockState.maxAiCredits}).`,
+      total_ai_credits: aiCreditsBlockState.totalAiCredits,
+      max_ai_credits: aiCreditsBlockState.maxAiCredits,
+    },
+  };
+}
+
 function resetAiCreditsGuardForTests() {
   aiCreditsState = createAiCreditsState();
+  aiCreditsConfigCache.rawMax = undefined;
+  aiCreditsConfigCache.parsed = { max: null };
   delete process.env.AWF_AI_CREDITS_USED;
 }
 
 module.exports = {
   applyAiCreditsUsage,
   getAiCreditsReflectState,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
   resetAiCreditsGuardForTests,
 };

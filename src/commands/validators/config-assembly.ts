@@ -88,6 +88,7 @@ export function assembleAndValidateConfig(
     agentImage: logAndLimits.agentImage,
     modelAliases: logAndLimits.modelAliases,
     maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
+    maxAiCredits: logAndLimits.maxAiCredits,
     effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap: logAndLimits.maxModelMultiplierCap,

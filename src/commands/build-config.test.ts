@@ -35,6 +35,7 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
     agentImage: undefined,
     modelAliases: undefined,
     maxEffectiveTokens: undefined,
+    maxAiCredits: undefined,
     effectiveTokenModelMultipliers: undefined,
     effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,

@@ -58,6 +58,8 @@ const {
 const {
   applyAiCreditsUsage,
   getAiCreditsReflectState,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
 
@@ -219,6 +221,8 @@ const proxyWebSocket = createProxyWebSocket({
   buildMaxRunsExceededError,
   getPermissionDeniedBlockState,
   buildPermissionDeniedLimitError,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
   trackWebSocketTokenUsage,
   applyEffectiveTokenUsage,
   applyAiCreditsUsage,
@@ -562,6 +566,24 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       otel.endSpan(span, 403);
       res.writeHead(403, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
       res.end(JSON.stringify(buildPermissionDeniedLimitError(pdBlock)));
+      return;
+    }
+
+    const aiCreditsBlock = getAiCreditsBlockState();
+    if (aiCreditsBlock && aiCreditsBlock.maxExceeded) {
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      metrics.observe('request_duration_ms', duration, { provider });
+      logRequest('warn', 'ai_credits_limit_exceeded', {
+        request_id: requestId,
+        provider,
+        total_ai_credits: aiCreditsBlock.totalAiCredits,
+        max_ai_credits: aiCreditsBlock.maxAiCredits,
+      });
+      otel.endSpan(span, 429);
+      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify(buildAiCreditsLimitError(aiCreditsBlock)));
       return;
     }
 

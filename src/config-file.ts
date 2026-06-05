@@ -18,6 +18,7 @@ interface AwfFileConfig {
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
+    maxAiCredits?: number;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
@@ -197,6 +198,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
+    maxAiCredits: config.apiProxy?.maxAiCredits,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,

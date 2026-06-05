@@ -708,6 +708,18 @@ current effective-token state:
 When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
 `false` and numeric fields MUST be `0` or `null`.
 
+### 10.7 Max AI Credits Configuration
+
+`maxAiCredits` is a positive number. It is supplied via the AWF config file
+(including stdin config via `--config -`) and maps to the
+`AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
+container.
+
+When configured, the proxy MUST enforce this budget in addition to any
+configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
+exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
+and error type `ai_credits_limit_exceeded`.
+
 ## 11. Max-Runs Enforcement
 
 *This section is normative.*

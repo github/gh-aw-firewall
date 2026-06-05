@@ -1,6 +1,8 @@
 const {
   applyAiCreditsUsage,
   getAiCreditsReflectState,
+  getAiCreditsBlockState,
+  buildAiCreditsLimitError,
   resetAiCreditsGuardForTests,
 } = require('./ai-credits-guard');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
@@ -64,5 +66,33 @@ describe('ai-credits-guard', () => {
       level: 'warn',
       model: 'unknown-model',
     }));
+  });
+
+  it('reports block state when max ai credits is configured and exceeded', () => {
+    process.env.AWF_MAX_AI_CREDITS = '0.1';
+    applyAiCreditsUsage({
+      input_tokens: 1000,
+      output_tokens: 500,
+    }, 'gpt-5-mini');
+
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: 0.1,
+      totalAiCredits: 0.125,
+      maxExceeded: true,
+    });
+  });
+
+  it('builds a structured max ai credits limit error payload', () => {
+    expect(buildAiCreditsLimitError({
+      totalAiCredits: 0.125,
+      maxAiCredits: 0.1,
+    })).toEqual({
+      error: {
+        type: 'ai_credits_limit_exceeded',
+        message: 'Maximum AI credits exceeded (0.125000 / 0.1).',
+        total_ai_credits: 0.125,
+        max_ai_credits: 0.1,
+      },
+    });
   });
 });

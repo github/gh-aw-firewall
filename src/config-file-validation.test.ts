@@ -110,6 +110,7 @@ describe('validateAwfFileConfig', () => {
     expect(validateAwfFileConfig({
       apiProxy: {
         maxEffectiveTokens: 5000,
+        maxAiCredits: 1.5,
         modelMultipliers: { 'gpt-4o': 2, 'claude-sonnet-4': 1.5 },
         defaultModelMultiplier: 27,
         maxModelMultiplierCap: 5,
@@ -118,6 +119,8 @@ describe('validateAwfFileConfig', () => {
 
     expect(validateAwfFileConfig({ apiProxy: { maxEffectiveTokens: 0 } }))
       .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
+    expect(validateAwfFileConfig({ apiProxy: { maxAiCredits: 0 } }))
+      .toContain('config.apiProxy.maxAiCredits must be > 0');
     expect(validateAwfFileConfig({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))
       .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
     expect(validateAwfFileConfig({ apiProxy: { defaultModelMultiplier: 0 } }))

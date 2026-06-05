@@ -24,6 +24,15 @@ export interface RateLimitOptions {
   maxEffectiveTokens?: number;
 
   /**
+   * Maximum total AI credits allowed for the current AWF run.
+   *
+   * When set, the API proxy tracks AI credits across responses using
+   * model-specific pricing and rejects additional requests once this limit is
+   * reached.
+   */
+  maxAiCredits?: number;
+
+  /**
    * Model-specific multipliers used by effective token accounting.
    *
    * Keys are model names and values are positive numeric multipliers.

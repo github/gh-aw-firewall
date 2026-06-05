@@ -62,6 +62,7 @@ describe('awf-config.schema.json', () => {
         anthropicAutoCache: true,
         anthropicCacheTailTtl: '5m',
         maxEffectiveTokens: 100000,
+        maxAiCredits: 5.5,
         modelMultipliers: {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
@@ -149,6 +150,8 @@ describe('awf-config.schema.json', () => {
   it('validates effective-token guard apiProxy fields', () => {
     expect(validate({ apiProxy: { maxEffectiveTokens: 1000 } })).toBe(true);
     expect(validate({ apiProxy: { maxEffectiveTokens: 0 } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: 1.2 } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: 0 } })).toBe(false);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
     expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);
