@@ -37,7 +37,7 @@ function assertAbsolutePath(value: string, fieldName: string): void {
 async function preStageDindDirs(workDir: string, stagingImage: string): Promise<void> {
   assertAbsolutePath(workDir, 'dind.workDir');
 
-  const mkdirArgs = DEFAULT_PRE_STAGE_DIRS
+  const stageDirs = DEFAULT_PRE_STAGE_DIRS
     .map((dirName) => `/awf-work/${dirName}`)
     .join(' ');
   await execa(
@@ -50,7 +50,7 @@ async function preStageDindDirs(workDir: string, stagingImage: string): Promise<
       stagingImage,
       '/bin/sh',
       '-c',
-      `set -eu; mkdir -p ${mkdirArgs}; chmod -R 0777 /awf-work`,
+      `set -eu; mkdir -p ${stageDirs}; chmod 0777 /awf-work ${stageDirs}`,
     ],
     { env: getLocalDockerEnv() },
   );
@@ -64,18 +64,23 @@ async function stageEngineBinary(
   assertAbsolutePath(sourcePath, 'dind.stageEngineBinary.path');
   assertAbsolutePath(targetPath, 'dind.stageEngineBinary.targetPath');
 
-  const stat = fs.statSync(sourcePath);
-  if (!stat.isFile()) {
-    throw new Error(`dind.stageEngineBinary.path is not a file: ${sourcePath}`);
-  }
-
   const targetDir = path.posix.dirname(targetPath);
   const targetBaseName = path.posix.basename(targetPath);
   if (!SAFE_BINARY_NAME_REGEX.test(targetBaseName)) {
     throw new Error(`dind.stageEngineBinary.targetPath has unsafe file name: ${targetPath}`);
   }
 
-  const binaryBytes = fs.readFileSync(sourcePath);
+  const sourceFd = fs.openSync(sourcePath, 'r');
+  let binaryBytes: Buffer;
+  try {
+    const sourceStat = fs.fstatSync(sourceFd);
+    if (!sourceStat.isFile()) {
+      throw new Error(`dind.stageEngineBinary.path is not a file: ${sourcePath}`);
+    }
+    binaryBytes = fs.readFileSync(sourceFd);
+  } finally {
+    fs.closeSync(sourceFd);
+  }
   await execa(
     'docker',
     [

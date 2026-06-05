@@ -512,10 +512,12 @@
             },
             "uid": {
               "type": "integer",
+              "minimum": 1,
               "description": "UID hint used for chroot identity synthesis and user switching."
             },
             "gid": {
               "type": "integer",
+              "minimum": 1,
               "description": "GID hint used for chroot identity synthesis and user switching."
             }
           }

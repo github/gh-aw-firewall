@@ -1062,12 +1062,14 @@ AWFEOF
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
+  AWF_CHROOT_EFFECTIVE_HOME="${CHROOT_HOME_OVERRIDE}" \
+  AWF_CHROOT_EFFECTIVE_USER="${CHROOT_USER_OVERRIDE}" \
   run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
-    if [ -n '${CHROOT_HOME_OVERRIDE}' ]; then export HOME='${CHROOT_HOME_OVERRIDE}'; fi
-    if [ -n '${CHROOT_USER_OVERRIDE}' ]; then export USER='${CHROOT_USER_OVERRIDE}'; export LOGNAME='${CHROOT_USER_OVERRIDE}'; fi
+    if [ -n \"\${AWF_CHROOT_EFFECTIVE_HOME:-}\" ]; then export HOME=\"\${AWF_CHROOT_EFFECTIVE_HOME}\"; fi
+    if [ -n \"\${AWF_CHROOT_EFFECTIVE_USER:-}\" ]; then export USER=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; export LOGNAME=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; fi
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 else

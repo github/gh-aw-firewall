@@ -206,12 +206,12 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
 }
 
 function parseOptionalIntegerOption(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isInteger(value)) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
     return value;
   }
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
-    if (Number.isInteger(parsed)) {
+    if (Number.isInteger(parsed) && parsed > 0) {
       return parsed;
     }
   }

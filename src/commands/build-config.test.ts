@@ -319,6 +319,17 @@ describe('buildConfig', () => {
       });
     });
 
+    it('should ignore non-positive chroot identity uid/gid values', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          chrootIdentityUid: '0',
+          chrootIdentityGid: '-1',
+        },
+      }));
+      expect(config.chrootIdentity).toBeUndefined();
+    });
+
     it('should pass through dind bootstrap fields', () => {
       const config = buildConfig(makeInputs({
         options: {

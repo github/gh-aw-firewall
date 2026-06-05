@@ -53,6 +53,9 @@ describe('runDindBootstrap', () => {
       expect.arrayContaining(['run', '--rm', '-v', '/tmp/gh-aw:/awf-work:rw', 'busybox:latest']),
       expect.objectContaining({ env: expect.any(Object) }),
     );
+    const preStageCommand = mockExecaFn.mock.calls[0]?.[1]?.[7];
+    expect(preStageCommand).toContain('chmod 0777 /awf-work');
+    expect(preStageCommand).not.toContain('chmod -R');
   });
 
   it('stages engine binary when configured', async () => {

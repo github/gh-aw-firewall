@@ -412,7 +412,11 @@ describe('validateAwfFileConfig', () => {
   it('rejects invalid chroot.identity field types', () => {
     expect(validateAwfFileConfig({ chroot: { identity: { home: 1 } } })).toContain('config.chroot.identity.home must be a string');
     expect(validateAwfFileConfig({ chroot: { identity: { user: 1 } } })).toContain('config.chroot.identity.user must be a string');
+    expect(validateAwfFileConfig({ chroot: { identity: { uid: 0 } } })).toContain('config.chroot.identity.uid must be a positive integer');
+    expect(validateAwfFileConfig({ chroot: { identity: { uid: -1 } } })).toContain('config.chroot.identity.uid must be a positive integer');
     expect(validateAwfFileConfig({ chroot: { identity: { uid: 1.5 } } })).toContain('config.chroot.identity.uid must be a positive integer');
+    expect(validateAwfFileConfig({ chroot: { identity: { gid: 0 } } })).toContain('config.chroot.identity.gid must be a positive integer');
+    expect(validateAwfFileConfig({ chroot: { identity: { gid: -1 } } })).toContain('config.chroot.identity.gid must be a positive integer');
     expect(validateAwfFileConfig({ chroot: { identity: { gid: 1.5 } } })).toContain('config.chroot.identity.gid must be a positive integer');
   });
 
