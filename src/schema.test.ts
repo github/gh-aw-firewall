@@ -36,6 +36,8 @@ describe('awf-config.schema.json', () => {
         'apiProxy',
         'security',
         'container',
+        'chroot',
+        'dind',
         'environment',
         'logging',
         'rateLimiting',
@@ -100,6 +102,23 @@ describe('awf-config.schema.json', () => {
         tty: false,
         dockerHost: 'unix:///var/run/docker.sock',
         dockerHostPathPrefix: '/host',
+      },
+      chroot: {
+        identity: {
+          home: '/tmp/gh-aw/home',
+          user: 'runner',
+          uid: 1001,
+          gid: 1001,
+        },
+      },
+      dind: {
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
+        stageEngineBinary: {
+          path: '/usr/local/bin/copilot',
+          targetPath: '/usr/local/bin/copilot',
+        },
       },
       environment: {
         envFile: '.env',
@@ -196,6 +215,28 @@ describe('awf-config.schema.json', () => {
   it('accepts container.runnerToolCachePath as a string', () => {
     expect(validate({ container: { runnerToolCachePath: '/opt/hostedtoolcache' } })).toBe(true);
     expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
+  });
+
+  it('validates chroot.identity fields', () => {
+    expect(validate({ chroot: { identity: { home: '/tmp/gh-aw/home', user: 'runner', uid: 1001, gid: 1001 } } })).toBe(true);
+    expect(validate({ chroot: { identity: { uid: 1.2 } } })).toBe(false);
+    expect(validate({ chroot: { identity: { gid: 1.2 } } })).toBe(false);
+  });
+
+  it('validates dind bootstrap fields', () => {
+    expect(validate({
+      dind: {
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
+        stageEngineBinary: {
+          path: '/usr/local/bin/copilot',
+          targetPath: '/usr/local/bin/copilot',
+        },
+      },
+    })).toBe(true);
+    expect(validate({ dind: { preStageDirs: 'true' } })).toBe(false);
+    expect(validate({ dind: { stageEngineBinary: { path: 123 } } })).toBe(false);
   });
 
   it('rejects non-positive-integer rateLimiting values', () => {

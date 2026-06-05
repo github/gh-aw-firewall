@@ -11,12 +11,13 @@ describe('COPILOT_PLACEHOLDER_TOKEN', () => {
     expect(match?.[1]).toBe(COPILOT_PLACEHOLDER_TOKEN);
   });
 
-  it('matches the api-proxy copilot.js placeholder value', () => {
-    const copilotJsPath = path.resolve(__dirname, '../../containers/api-proxy/providers/copilot-byok.js');
-    const scriptContent = fs.readFileSync(copilotJsPath, 'utf8');
+  it('matches the api-proxy copilot-byok.js placeholder value', () => {
+    const copilotByokJsPath = path.resolve(__dirname, '../../containers/api-proxy/providers/copilot-byok.js');
+    const scriptContent = fs.readFileSync(copilotByokJsPath, 'utf8');
+    // Value is constructed as: 'ghu_' + 'a'.repeat(36)
     const match = scriptContent.match(/COPILOT_PLACEHOLDER_TOKEN\s*=\s*'([^']+)'\s*\+\s*'([^']+)'\.repeat\((\d+)\)/);
 
-    const reconstructed = match ? match[1] + match[2].repeat(parseInt(match[3], 10)) : undefined;
+    const reconstructed = match ? match[1] + match[2].repeat(Number(match[3])) : undefined;
     expect(reconstructed).toBe(COPILOT_PLACEHOLDER_TOKEN);
   });
 });

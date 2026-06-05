@@ -162,6 +162,15 @@ the corresponding CLI flag.
 - `container.dockerHost` → `--docker-host`
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
+- `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
+- `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
+- `chroot.identity.uid` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_UID` for chroot user mapping)*
+- `chroot.identity.gid` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_GID` for chroot user mapping)*
+- `dind.preStageDirs` → *(config-only; enables daemon-side pre-staging of the DinD work directory tree before compose startup)*
+- `dind.workDir` → *(config-only; daemon-visible staging root, default `/tmp/gh-aw`)*
+- `dind.stagingImage` → *(config-only; image used for short-lived DinD staging containers)*
+- `dind.stageEngineBinary.path` → *(config-only; runner-side engine binary source path for DinD staging)*
+- `dind.stageEngineBinary.targetPath` → *(config-only; daemon-side destination path for staged engine binary)*
 - `environment.envFile` → `--env-file`
 - `environment.envAll` → `--env-all`
 - `environment.excludeEnv[]` → `--exclude-env` *(repeatable)*
@@ -176,6 +185,8 @@ the corresponding CLI flag.
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
+
+When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 
 The following CLI flag has no config-file equivalent by design:
 
