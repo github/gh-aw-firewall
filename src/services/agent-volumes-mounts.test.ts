@@ -557,7 +557,11 @@ describe('agent service', () => {
         expect(volumes).not.toContain(`${symlinkPath}:/host${symlinkPath}:ro`);
       });
     } finally {
-      try { fs.unlinkSync(symlinkPath); } catch { /* already removed */ }
+      try {
+        fs.unlinkSync(symlinkPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
       fs.rmSync(symlinkTarget, { recursive: true, force: true });
     }
   });
