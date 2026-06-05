@@ -79,9 +79,9 @@ export interface ContainerImageOptions {
    * - If `DOCKER_HOST` is a TCP address (e.g. a Docker-in-Docker (DinD) daemon),
    *   AWF clears it and falls back to the system default socket.
    *
-   * The original `DOCKER_HOST` value (if any) is always forwarded into the
-   * agent container so the agent workload can still reach the DinD daemon.
-   *
+   * The original `DOCKER_HOST` value (if any) is forwarded into the agent container
+   * by default so the agent workload can still reach an external DinD daemon, but it may be
+   * overridden (e.g. in DinD mode when `awfDockerHost` is set to a unix:// socket).
    * @example 'unix:///var/run/docker.sock'
    * @example 'unix:///run/user/1000/docker.sock'
    */
