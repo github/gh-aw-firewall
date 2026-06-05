@@ -13,7 +13,7 @@ permissions:
 sandbox:
   agent:
     id: awf
-if: needs.check_relevant_changes.outputs.has_changes == 'true'
+if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'
 jobs:
   check_relevant_changes:
     runs-on: ubuntu-latest
@@ -22,6 +22,7 @@ jobs:
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
       changed_count: ${{ steps.check.outputs.changed_count }}
+      skip_agent: ${{ steps.check.outputs.skip_agent }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,19 +31,28 @@ jobs:
       - name: Check for relevant changes
         id: check
         run: |
+          DIFF_PREVIEW=$(mktemp)
           COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l | tr -d ' ')
+          git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$DIFF_PREVIEW"
+          DIFF_BYTES=$(wc -c < "$DIFF_PREVIEW" | tr -d ' ')
           HAS_CHANGES=false
+          SKIP_AGENT=false
           if [ "$COUNT" -gt 0 ]; then
             HAS_CHANGES=true
+          fi
+          if [ "$HAS_CHANGES" = "true" ] && [ "$DIFF_BYTES" -lt 100 ]; then
+            SKIP_AGENT=true
+            echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."
           fi
           {
             echo "changed_count=$COUNT"
             echo "has_changes=$HAS_CHANGES"
+            echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 10
+  max-turns: 5
 tools:
   edit:
   bash: false
@@ -111,6 +121,18 @@ steps:
         echo "## Recent Git Diffs"
         cat "$CONTEXT_DIR/recent-diffs.txt"
       } > "$CONTEXT_DIR/context.md"
+
+      CONTEXT_SIZE=$(wc -c < "$CONTEXT_DIR/context.md" | tr -d ' ')
+      DIFF_LINES=$(wc -l < "$CONTEXT_DIR/recent-diffs.txt" | tr -d ' ')
+      echo "Context size: ${CONTEXT_SIZE} bytes"
+      echo "Diff lines: ${DIFF_LINES}"
+      cat "$CONTEXT_DIR/affected-docs.txt" || echo "(empty)"
+      if [ "$CONTEXT_SIZE" -lt 100 ]; then
+        echo "::warning::Context file is empty or minimal ($CONTEXT_SIZE bytes). Skipping agent run."
+        echo "skip_agent=true" >> "$GITHUB_OUTPUT"
+      else
+        echo "skip_agent=false" >> "$GITHUB_OUTPUT"
+      fi
 ---
 
 # Documentation Maintainer
