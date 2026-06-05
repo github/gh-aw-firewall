@@ -31,6 +31,7 @@ const {
 } = require('../proxy-utils');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const { parseBodyAsObject } = require('../body-utils');
+const { OidcTokenProvider } = require('../oidc-token-provider');
 const { URL } = require('url');
 
 /**
@@ -384,10 +385,76 @@ function createCopilotAdapter(env, deps = {}) {
   const githubToken = stripBearerPrefix(env.COPILOT_GITHUB_TOKEN);
   // resolveApiKey filters out the AWF placeholder so it is never used as a real BYOK credential.
   const apiKey = resolveApiKey(env);
-  const authToken = resolveCopilotAuthToken(env);
+  const staticAuthToken = resolveCopilotAuthToken(env);
   const integrationId = env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
   const rawTarget = deriveCopilotApiTarget(env);
   const basePath = normalizeBasePath(env.COPILOT_API_BASE_PATH);
+
+  // OIDC auth strategy (Azure OpenAI via Entra, AWS Bedrock, GCP Vertex AI) for
+  // BYOK targets pointed at by COPILOT_PROVIDER_BASE_URL. Mirrors the OpenAI
+  // adapter's OIDC plumbing so the Copilot CLI's direct-BYOK path can exchange a
+  // GitHub Actions OIDC JWT for an upstream cloud token instead of requiring a
+  // static COPILOT_PROVIDER_API_KEY.
+  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
+  let oidcProvider = null;
+  let awsOidcProvider = null;
+  if (authType === 'github-oidc' && !staticAuthToken) {
+    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    if (requestUrl && requestToken) {
+      if (authProvider === 'aws') {
+        const roleArn = env.AWF_AUTH_AWS_ROLE_ARN;
+        const region = env.AWF_AUTH_AWS_REGION;
+        if (roleArn && region) {
+          const { AwsOidcTokenProvider } = require('../aws-oidc-token-provider');
+          awsOidcProvider = new AwsOidcTokenProvider({
+            requestUrl,
+            requestToken,
+            roleArn,
+            region,
+            roleSessionName: env.AWF_AUTH_AWS_ROLE_SESSION_NAME,
+            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
+          });
+        }
+      } else if (authProvider === 'gcp') {
+        const workloadIdentityProvider = env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER;
+        if (workloadIdentityProvider) {
+          const { GcpOidcTokenProvider } = require('../gcp-oidc-token-provider');
+          oidcProvider = new GcpOidcTokenProvider({
+            requestUrl,
+            requestToken,
+            workloadIdentityProvider,
+            serviceAccount: env.AWF_AUTH_GCP_SERVICE_ACCOUNT,
+            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
+            scope: env.AWF_AUTH_GCP_SCOPE,
+          });
+        }
+      } else {
+        // Azure (default)
+        const tenantId = env.AWF_AUTH_AZURE_TENANT_ID;
+        const clientId = env.AWF_AUTH_AZURE_CLIENT_ID;
+        if (tenantId && clientId) {
+          oidcProvider = new OidcTokenProvider({
+            requestUrl,
+            requestToken,
+            tenantId,
+            clientId,
+            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'api://AzureADTokenExchange',
+            azureScope: env.AWF_AUTH_AZURE_SCOPE || 'https://cognitiveservices.azure.com/.default',
+            azureCloud: env.AWF_AUTH_AZURE_CLOUD,
+          });
+        }
+      }
+    }
+  }
+  const oidcConfigured = !!(oidcProvider || awsOidcProvider);
+
+  // authToken is consumed by the existing validation/models-fetch/auth-header paths.
+  // For OIDC mode the token isn't available synchronously at construction time, so
+  // we surface a non-empty marker here to keep alwaysBind/isEnabled probes happy and
+  // resolve the real token lazily inside getAuthHeaders.
+  const authToken = staticAuthToken;
   // Extra headers to inject on all requests that use the BYOK API key.
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
   // GitHub OAuth (COPILOT_GITHUB_TOKEN-only) requests.
@@ -436,9 +503,12 @@ function createCopilotAdapter(env, deps = {}) {
     provider: 'copilot',
     port: 10002,
     modelsPath,
-    reflectionConfigured: !!authToken,
+    reflectionConfigured: !!authToken || oidcConfigured,
     reflectionModelsPath: modelsPath,
     getValidationProbe() {
+      if (oidcConfigured) {
+        return { skip: true, reason: `OIDC auth (${authProvider}); validation via token acquisition` };
+      }
       if (!authToken) return null;
 
       // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
@@ -466,6 +536,9 @@ function createCopilotAdapter(env, deps = {}) {
       };
     },
     getModelsFetchConfig() {
+      // OIDC mode: skip startup model fetch — the token isn't available yet at this
+      // point and the upstream BYOK target typically isn't api.githubcopilot.com.
+      if (oidcConfigured) return null;
       if (!authToken) return null;
 
       // Standard Copilot API (api.githubcopilot.com):
@@ -519,7 +592,21 @@ function createCopilotAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when credentials are present) does.
      */
-    isEnabled() { return !!authToken; },
+    isEnabled() {
+      return !!authToken || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady();
+    },
+
+    /**
+     * Get the OIDC token provider (Azure or GCP — Bearer-token compatible).
+     * Used by startup.js to initialize OIDC on startup.
+     */
+    getOidcProvider() { return oidcProvider; },
+
+    /**
+     * Get the AWS OIDC credential provider (SigV4-based).
+     * Used by startup.js to initialize AWS OIDC on startup and sign requests.
+     */
+    getAwsOidcProvider() { return awsOidcProvider; },
 
     /**
      * Build Copilot auth headers for this request.
@@ -546,6 +633,24 @@ function createCopilotAdapter(env, deps = {}) {
         };
       }
 
+      // OIDC (Bearer): Azure Entra / GCP. Acquired lazily, refreshed by the provider.
+      if (oidcProvider) {
+        const token = oidcProvider.getToken();
+        if (token) {
+          return {
+            'Authorization': `Bearer ${token}`,
+            'Copilot-Integration-Id': integrationId,
+          };
+        }
+        // Token not yet available — return no auth header. The proxy layer will
+        // fall back to getUnconfiguredResponse and emit a clear 503.
+        return {};
+      }
+      // AWS OIDC: SigV4 signing is handled at the request layer; emit no static header here.
+      if (awsOidcProvider) {
+        return {};
+      }
+
       return {
         ...(apiKey ? byokExtraHeaders : {}),
         'Authorization': `Bearer ${authToken}`,
@@ -558,6 +663,13 @@ function createCopilotAdapter(env, deps = {}) {
 
     /** Response returned for all requests when no Copilot credentials are configured. */
     getUnconfiguredResponse() {
+      if (oidcConfigured) {
+        return makeProviderNotConfiguredResponse(
+          'copilot',
+          10002,
+          `Copilot OIDC token (${authProvider}) unavailable; retry shortly`
+        );
+      }
       return makeProviderNotConfiguredResponse(
         'copilot',
         10002,
@@ -567,6 +679,12 @@ function createCopilotAdapter(env, deps = {}) {
 
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
+      if (oidcConfigured) {
+        return {
+          statusCode: 503,
+          body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` },
+        };
+      }
       return {
         statusCode: 503,
         body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar' },
@@ -579,6 +697,8 @@ function createCopilotAdapter(env, deps = {}) {
     _integrationId: integrationId,
     _rawTarget: rawTarget,
     _basePath: basePath,
+    _oidcProvider: oidcProvider,
+    _awsOidcProvider: awsOidcProvider,
   };
 }
 
