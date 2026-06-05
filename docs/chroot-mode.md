@@ -351,6 +351,25 @@ AWF handles this automatically at two layers:
 
 No configuration is required — synthesis is triggered automatically when user lookup fails.
 
+### Chroot Identity Override (ARC/DinD)
+
+On split-filesystem ARC/DinD runners, you can explicitly override chroot identity values via stdin config:
+
+```json
+{
+  "chroot": {
+    "identity": {
+      "home": "/tmp/gh-aw/home",
+      "user": "runner",
+      "uid": 1001,
+      "gid": 1001
+    }
+  }
+}
+```
+
+AWF forwards these values to the agent entrypoint and applies them **after** `chroot /host`, overriding default `HOME`, `USER`, and `LOGNAME` values for the chrooted command runtime.
+
 ### Error: Working directory does not exist
 
 ```

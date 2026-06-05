@@ -79,7 +79,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
     environment.TERM = process.env.TERM;
   }
 
-  if (config.enableDind && config.awfDockerHost?.startsWith('unix://')) {
+  if (config.enableDind && !environment.DOCKER_HOST && config.awfDockerHost?.startsWith('unix://')) {
     environment.DOCKER_HOST = config.awfDockerHost;
   }
 }

@@ -22,6 +22,7 @@ import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
+import { runDindBootstrap } from '../dind-bootstrap';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -96,6 +97,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         'Set --docker-host-path-prefix manually if bind mounts fail.',
       );
     }
+
+    await runDindBootstrap(config);
   }
 
   // Log config with redacted secrets - remove API keys entirely

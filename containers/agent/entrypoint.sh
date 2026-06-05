@@ -708,11 +708,12 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
 
   # Find the user name on the host system by UID
   # This allows us to run as the same user inside the chroot
-  HOST_USER_UID="${AWF_USER_UID:-1000}"
-  HOST_USER_GID="${AWF_USER_GID:-${HOST_USER_UID}}"
+  HOST_USER_UID="${AWF_CHROOT_IDENTITY_UID:-${AWF_USER_UID:-1000}}"
+  HOST_USER_GID="${AWF_CHROOT_IDENTITY_GID:-${AWF_USER_GID:-${HOST_USER_UID}}}"
   HOST_USER=$(chroot /host getent passwd "${HOST_USER_UID}" 2>/dev/null | cut -d: -f1 || echo "")
   CAPSH_IDENTITY_ARGS=""
-  CHROOT_HOME_OVERRIDE=""
+  CHROOT_HOME_OVERRIDE="${AWF_CHROOT_IDENTITY_HOME:-}"
+  CHROOT_USER_OVERRIDE="${AWF_CHROOT_IDENTITY_USER:-}"
   if [ -z "${HOST_USER}" ]; then
     # User not found in chroot's /etc/passwd (common on ARC-DinD Alpine daemons).
     # Synthesize minimal identity files so the agent can resolve its own UID/GID.
@@ -793,12 +794,18 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
       echo "[entrypoint] Running as synthesized host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
     else
       CAPSH_IDENTITY_ARGS="--gid=${HOST_USER_GID} --uid=${HOST_USER_UID} --groups=${HOST_USER_GID}"
-      CHROOT_HOME_OVERRIDE="${SYNTH_HOME}"
+      if [ -z "${CHROOT_HOME_OVERRIDE}" ]; then
+        CHROOT_HOME_OVERRIDE="${SYNTH_HOME}"
+      fi
       echo "[entrypoint][WARN] Proceeding with numeric UID/GID fallback (${HOST_USER_UID}:${HOST_USER_GID})"
     fi
   else
     CAPSH_IDENTITY_ARGS="--user=${HOST_USER}"
     echo "[entrypoint] Running as host user: ${HOST_USER} (UID: ${HOST_USER_UID})"
+  fi
+
+  if [ -z "${CHROOT_USER_OVERRIDE}" ] && [ -n "${HOST_USER}" ]; then
+    CHROOT_USER_OVERRIDE="${HOST_USER}"
   fi
 
   # Write the command to a temporary script file in the chroot
@@ -1055,11 +1062,14 @@ AWFEOF
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
+  AWF_CHROOT_EFFECTIVE_HOME="${CHROOT_HOME_OVERRIDE}" \
+  AWF_CHROOT_EFFECTIVE_USER="${CHROOT_USER_OVERRIDE}" \
   run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
-    if [ -n '${CHROOT_HOME_OVERRIDE}' ]; then export HOME='${CHROOT_HOME_OVERRIDE}'; fi
+    if [ -n \"\${AWF_CHROOT_EFFECTIVE_HOME:-}\" ]; then export HOME=\"\${AWF_CHROOT_EFFECTIVE_HOME}\"; fi
+    if [ -n \"\${AWF_CHROOT_EFFECTIVE_USER:-}\" ]; then export USER=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; export LOGNAME=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; fi
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 else

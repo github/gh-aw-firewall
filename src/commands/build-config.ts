@@ -69,6 +69,44 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     dockerHostPathPrefix,
   } = inputs;
 
+  const chrootIdentityUid = parseOptionalIntegerOption(options.chrootIdentityUid);
+  const chrootIdentityGid = parseOptionalIntegerOption(options.chrootIdentityGid);
+  const chrootIdentity = (
+    options.chrootIdentityHome !== undefined ||
+    options.chrootIdentityUser !== undefined ||
+    chrootIdentityUid !== undefined ||
+    chrootIdentityGid !== undefined
+  )
+    ? {
+      home: options.chrootIdentityHome as string | undefined,
+      user: options.chrootIdentityUser as string | undefined,
+      uid: chrootIdentityUid,
+      gid: chrootIdentityGid,
+    }
+    : undefined;
+  const dind = (
+    options.dindPreStageDirs !== undefined ||
+    options.dindWorkDir !== undefined ||
+    options.dindStagingImage !== undefined ||
+    options.dindStageEngineBinaryPath !== undefined ||
+    options.dindStageEngineBinaryTargetPath !== undefined
+  )
+    ? {
+      preStageDirs: options.dindPreStageDirs as boolean | undefined,
+      workDir: options.dindWorkDir as string | undefined,
+      stagingImage: options.dindStagingImage as string | undefined,
+      stageEngineBinary: (
+        options.dindStageEngineBinaryPath !== undefined ||
+        options.dindStageEngineBinaryTargetPath !== undefined
+      )
+        ? {
+          path: options.dindStageEngineBinaryPath as string | undefined,
+          targetPath: options.dindStageEngineBinaryTargetPath as string | undefined,
+        }
+        : undefined,
+    }
+    : undefined;
+
   return {
     allowedDomains,
     blockedDomains: blockedDomains.length > 0 ? blockedDomains : undefined,
@@ -162,5 +200,20 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,
     dockerHostPathPrefix,
+    chrootIdentity,
+    dind,
   };
+}
+
+function parseOptionalIntegerOption(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return undefined;
 }

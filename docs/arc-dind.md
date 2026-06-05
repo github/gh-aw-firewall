@@ -1,29 +1,60 @@
-# ARC + DinD notes
+# ARC + DinD Configuration
 
-When using ARC runners with a split runner/daemon filesystem (`DOCKER_HOST` sidecar) and `--docker-host-path-prefix`, AWF now stages required chroot files automatically:
+AWF supports ARC runners where the runner filesystem and Docker daemon filesystem are split (DinD sidecar patterns).
 
-- invoking CLI binary (for example `copilot`, `claude`, `codex`)
-- `/etc/passwd`
-- `/etc/group`
-- chroot `/etc/hosts`
+## What AWF now handles automatically
 
-AWF validates the staged runner binary name before using it in chroot bootstrap paths. Per-run staged chroot-host directories remain unique and AWF prunes stale ones automatically from the shared staging root.
+- Split-filesystem probing for `--docker-host-path-prefix`
+- Chroot staging for:
+  - invoking CLI binary (`copilot`, `claude`, `codex`, etc.)
+  - `/etc/passwd`
+  - `/etc/group`
+  - generated chroot `/etc/hosts`
+- DinD `DOCKER_HOST` propagation into agent/MCP environments when DinD is detected
+
+## ARC/DinD stdin config surface
+
+```json
+{
+  "container": {
+    "enableDind": true,
+    "dockerHostPathPrefix": "/tmp/gh-aw"
+  },
+  "chroot": {
+    "identity": {
+      "home": "/tmp/gh-aw/home",
+      "user": "runner",
+      "uid": 1001,
+      "gid": 1001
+    }
+  },
+  "dind": {
+    "preStageDirs": true,
+    "workDir": "/tmp/gh-aw",
+    "stagingImage": "ghcr.io/github/gh-aw-firewall/agent:latest",
+    "stageEngineBinary": {
+      "path": "/usr/local/bin/copilot",
+      "targetPath": "/usr/local/bin/copilot"
+    }
+  }
+}
+```
+
+## Field behavior
+
+- `chroot.identity.*`: applied inside entrypoint **after** `chroot /host` to override HOME/USER/LOGNAME and identity mapping hints.
+- `dind.preStageDirs`: runs a short-lived staging container in DinD mode to create required workdir tree with open permissions.
+- `dind.stageEngineBinary`: copies an engine binary from the runner path into daemon-visible filesystem before compose startup.
+- `dind.stagingImage`: image used for short-lived staging containers.
+- `dind.workDir`: target root for DinD pre-staged directory tree (`/tmp/gh-aw` default).
 
 ## Auto-detection of split filesystem setups
 
 AWF detects likely ARC/DinD environments at startup and warns when `--docker-host-path-prefix` is missing:
 
-- **Non-standard `DOCKER_HOST` unix socket**: any `unix://` socket outside `/var/run/docker.sock` and `/run/docker.sock` is treated as a sibling-daemon pod indicator.
-- **`AWF_DIND=1`**: operators can set this environment variable to explicitly declare a DinD setup.
+- non-default unix `DOCKER_HOST` socket paths (outside `/var/run/docker.sock` and `/run/docker.sock`)
+- `AWF_DIND=1`
 
-When either signal is present and no explicit prefix is supplied, AWF emits a warning suggesting `--docker-host-path-prefix` (for example, `--docker-host-path-prefix /tmp/gh-aw` for typical ARC layouts). The DinD probe also considers `/tmp/gh-aw` as a candidate prefix when discovering the split-filesystem layout.
+## Runtime prerequisite
 
-## Remaining requirement: Node.js in the DinD-visible host filesystem
-
-Copilot CLI still requires `node` to be available inside the chrooted runtime PATH. Ensure your DinD image (or staged host toolcache) includes Node.js.
-
-Recommended base image for ARC DinD sidecars:
-
-- `node:20-bookworm`
-
-This provides a glibc userspace compatible with AWF chroot mode plus a current Node.js runtime.
+Copilot CLI still requires `node` to be available inside the chrooted runtime PATH.

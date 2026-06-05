@@ -214,4 +214,25 @@ describe('agent environment: runtime', () => {
 
     expect(environment.AWF_WORKDIR).toBe('/workspace/project');
   });
+
+  it('should set chroot identity override environment variables when configured', () => {
+    const result = generateDockerCompose(
+      {
+        ...mockConfig,
+        chrootIdentity: {
+          home: '/tmp/gh-aw/home',
+          user: 'runner',
+          uid: 1001,
+          gid: 1001,
+        },
+      },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_CHROOT_IDENTITY_HOME).toBe('/tmp/gh-aw/home');
+    expect(environment.AWF_CHROOT_IDENTITY_USER).toBe('runner');
+    expect(environment.AWF_CHROOT_IDENTITY_UID).toBe('1001');
+    expect(environment.AWF_CHROOT_IDENTITY_GID).toBe('1001');
+  });
 });
