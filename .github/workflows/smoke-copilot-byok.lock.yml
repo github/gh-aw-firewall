@@ -76,7 +76,7 @@ concurrency:
 run-name: "Smoke Copilot BYOK"
 
 env:
-  COPILOT_MODEL: claude-opus-4.6
+  COPILOT_MODEL: claude-opus-4.8
 
 jobs:
   activation:

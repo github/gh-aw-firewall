@@ -403,13 +403,13 @@ describe('buildCopySessionStateStep', () => {
 });
 
 describe('copilotModelEmptyFallbackRegex', () => {
-  const EXPECTED_COPILOT_MODEL_FALLBACK = 'claude-opus-4.6';
+  const EXPECTED_COPILOT_MODEL_FALLBACK = 'claude-opus-4.8';
 
   beforeEach(() => {
     copilotModelEmptyFallbackRegex.lastIndex = 0;
   });
 
-  it('should replace empty fallback with claude-opus-4.6 fallback', () => {
+  it('should replace empty fallback with claude-opus-4.8 fallback', () => {
     const input = "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}\n";
     const result = input.replace(
       copilotModelEmptyFallbackRegex,
@@ -422,7 +422,7 @@ describe('copilotModelEmptyFallbackRegex', () => {
 
   it('should not modify already-correct fallback', () => {
     const input =
-      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.6' }}\n";
+      "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.8' }}\n";
     const result = input.replace(
       copilotModelEmptyFallbackRegex,
       `$1'${EXPECTED_COPILOT_MODEL_FALLBACK}'$2`
