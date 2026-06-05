@@ -138,10 +138,11 @@ function getAiCreditsReflectState() {
 function getAiCreditsBlockState() {
   const config = getAiCreditsConfig();
   if (!config.max) return null;
+  const roundedTotalAiCredits = roundCredits(aiCreditsState.totalAiCredits);
   return {
     maxAiCredits: config.max,
-    totalAiCredits: roundCredits(aiCreditsState.totalAiCredits),
-    maxExceeded: aiCreditsState.totalAiCredits >= config.max,
+    totalAiCredits: roundedTotalAiCredits,
+    maxExceeded: roundedTotalAiCredits >= config.max,
   };
 }
 

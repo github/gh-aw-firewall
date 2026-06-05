@@ -239,7 +239,7 @@ function createProxyWebSocket({
                 request_id: requestId,
                 provider,
                 model: model || 'unknown',
-                effectiveTokensThisResponse: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
+                effective_tokens_this_response: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
                 ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
                 ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
               });

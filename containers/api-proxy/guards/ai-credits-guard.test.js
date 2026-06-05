@@ -8,12 +8,21 @@ const {
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
 
 describe('ai-credits-guard', () => {
+  let originalMaxAiCredits;
+
   beforeEach(() => {
+    originalMaxAiCredits = process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_MAX_AI_CREDITS;
     resetAiCreditsGuardForTests();
   });
 
   afterEach(() => {
     resetAiCreditsGuardForTests();
+    if (originalMaxAiCredits === undefined) {
+      delete process.env.AWF_MAX_AI_CREDITS;
+    } else {
+      process.env.AWF_MAX_AI_CREDITS = originalMaxAiCredits;
+    }
     jest.restoreAllMocks();
   });
 

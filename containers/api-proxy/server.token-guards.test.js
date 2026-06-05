@@ -131,7 +131,7 @@ describe('proxyRequest effective token guard', () => {
     const budgetLogs = getStructuredLogs(writeSpy, 'token_budget_usage');
     expect(budgetLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        effectiveTokensThisResponse: 3000,
+        effective_tokens_this_response: 3000,
         ai_credits_this_response: 0.125,
         ai_credits_total: 0.125,
       }),
