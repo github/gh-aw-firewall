@@ -41,6 +41,11 @@ network:
   allowed:
     - defaults
     - github
+    # api-proxy sidecar exchanges the GitHub Actions OIDC JWT for an Azure AD
+    # access token at login.microsoftonline.com. The agent/sidecar share an
+    # egress allowlist via Squid, so this host must be listed here even though
+    # only the sidecar talks to it.
+    - login.microsoftonline.com
 tools:
   bash:
     - "*"

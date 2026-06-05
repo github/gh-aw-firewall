@@ -24,7 +24,6 @@ const {
   composeBodyTransforms,
 } = require('../proxy-utils');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
-const { parseBodyAsObject } = require('../body-utils');
 const { OidcTokenProvider } = require('../oidc-token-provider');
 const {
   parseByokExtraHeaders,
