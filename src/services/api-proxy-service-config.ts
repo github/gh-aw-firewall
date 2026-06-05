@@ -64,10 +64,14 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
 }
 
 function resolveProviderSessionId(config: WrapperConfig): string | undefined {
-  const value = getConfigEnvValue(config, 'AWF_PROVIDER_SESSION_ID')
-    ?? process.env.AWF_PROVIDER_SESSION_ID
-    ?? process.env.GH_AW_GITHUB_RUN_ID
-    ?? process.env.GITHUB_RUN_ID;
+  // Auto-derivation from GITHUB_RUN_ID was removed because the Copilot
+  // `session_id`/`x-session-id` convention causes strict OpenAI-compatible
+  // BYOK targets (e.g. Azure OpenAI) to reject every request with HTTP 400.
+  // Callers must opt in explicitly via the awf config (`apiProxy.targets.
+  // copilot.sessionId`) or by setting AWF_PROVIDER_SESSION_ID in env.
+  const value = config.copilotByokSessionId
+    ?? getConfigEnvValue(config, 'AWF_PROVIDER_SESSION_ID')
+    ?? process.env.AWF_PROVIDER_SESSION_ID;
   const normalizedValue = value?.trim();
   return normalizedValue || undefined;
 }

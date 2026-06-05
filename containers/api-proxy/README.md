@@ -51,7 +51,7 @@ Optional:
   ```
   AWF_BYOK_EXTRA_BODY_FIELDS='{"session_id":"my-session"}'
   ```
-- `AWF_PROVIDER_SESSION_ID` - Optional session identifier (typically workflow run ID). In BYOK mode this is used as a default `x-session-id` header and default `session_id` body field when those keys are not explicitly provided. Auto-injection only applies when the target is a known GitHub Copilot catalog host (`*.githubcopilot.com`, `*.ghe.com`); for non-Copilot BYOK targets (e.g. Azure OpenAI), neither the header nor the body field is auto-injected because strict OpenAI-compatible servers reject unknown body parameters. Callers can still opt in for non-Copilot targets by setting `AWF_BYOK_EXTRA_HEADERS` / `AWF_BYOK_EXTRA_BODY_FIELDS` explicitly.
+- `AWF_PROVIDER_SESSION_ID` - Optional session identifier (typically workflow run ID). When set, the Copilot adapter injects it as a default `x-session-id` header and `session_id` body field on BYOK upstream requests (unless those keys are already provided via `AWF_BYOK_EXTRA_HEADERS` / `AWF_BYOK_EXTRA_BODY_FIELDS`). This is opt-in: the host wrapper only forwards this variable when the caller sets it explicitly via `apiProxy.targets.copilot.sessionId` in awf-config or via `AWF_PROVIDER_SESSION_ID` in env. It is never auto-derived from `GITHUB_RUN_ID`, because strict OpenAI-compatible servers (e.g. Azure OpenAI) reject the unknown `session_id` body field with HTTP 400.
 
 Set by AWF:
 - `HTTP_PROXY` - Squid proxy URL (http://172.30.0.10:3128)

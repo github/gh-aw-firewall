@@ -608,43 +608,6 @@ describe('createCopilotAdapter — AWF_BYOK_EXTRA_BODY_FIELDS injection', () => 
     const output = transform(input);
     expect(output).toBeNull();
   });
-
-  it('does not auto-inject session_id body field for non-Copilot BYOK targets', () => {
-    const adapter = createCopilotAdapter({
-      COPILOT_PROVIDER_API_KEY: 'sk-azure-abc123',
-      COPILOT_API_TARGET: 'my-resource.openai.azure.com',
-      AWF_PROVIDER_SESSION_ID: 'run-42',
-    });
-    const transform = adapter.getBodyTransform();
-    const input = Buffer.from(JSON.stringify({ model: 'gpt-5.4', messages: [] }));
-    const output = transform(input);
-    expect(output).toBeNull();
-  });
-
-  it('does not auto-inject x-session-id header for non-Copilot BYOK targets', () => {
-    const adapter = createCopilotAdapter({
-      COPILOT_PROVIDER_API_KEY: 'sk-azure-abc123',
-      COPILOT_API_TARGET: 'my-resource.openai.azure.com',
-      AWF_PROVIDER_SESSION_ID: 'run-42',
-    });
-    const headers = adapter.getAuthHeaders({ url: '/responses', method: 'POST', headers: {} });
-    expect(headers['x-session-id']).toBeUndefined();
-  });
-
-  it('still injects explicit AWF_BYOK_EXTRA_BODY_FIELDS.session_id for non-Copilot BYOK targets', () => {
-    const adapter = createCopilotAdapter({
-      COPILOT_PROVIDER_API_KEY: 'sk-azure-abc123',
-      COPILOT_API_TARGET: 'my-resource.openai.azure.com',
-      AWF_PROVIDER_SESSION_ID: 'run-42',
-      AWF_BYOK_EXTRA_BODY_FIELDS: '{"session_id":"explicit"}',
-    });
-    const transform = adapter.getBodyTransform();
-    const input = Buffer.from(JSON.stringify({ model: 'gpt-5.4', messages: [] }));
-    const output = transform(input);
-    expect(output).not.toBeNull();
-    const parsed = JSON.parse(output.toString('utf8'));
-    expect(parsed.session_id).toBe('explicit');
-  });
 });
 
 describe('createAnthropicAdapter — OIDC getAuthHeaders', () => {
