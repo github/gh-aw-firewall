@@ -42,6 +42,7 @@ interface AwfFileConfig {
         basePath?: string;
         extraHeaders?: Record<string, string>;
         extraBodyFields?: Record<string, string>;
+        sessionId?: string;
       };
       gemini?: { host?: string; basePath?: string };
       antigravity?: { host?: string; basePath?: string };
@@ -217,6 +218,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     copilotApiTarget: config.apiProxy?.targets?.copilot?.host,
     copilotByokExtraHeaders: config.apiProxy?.targets?.copilot?.extraHeaders,
     copilotByokExtraBodyFields: config.apiProxy?.targets?.copilot?.extraBodyFields,
+    copilotByokSessionId: config.apiProxy?.targets?.copilot?.sessionId,
     geminiApiTarget: antigravityTargetConfig?.host ?? geminiTargetConfig?.host,
     geminiApiBasePath: antigravityTargetConfig?.basePath ?? geminiTargetConfig?.basePath,
     modelAliases: config.apiProxy?.models,

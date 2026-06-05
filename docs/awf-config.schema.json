@@ -627,6 +627,10 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Opt-in session identifier injected as the `x-session-id` request header and `session_id` body field on Copilot BYOK upstream requests. This is a GitHub Copilot API convention; strict OpenAI-compatible servers (e.g. Azure OpenAI) reject the unknown body field with HTTP 400, so the value must be set explicitly and is never auto-derived from `GITHUB_RUN_ID`. Maps to AWF_PROVIDER_SESSION_ID in the sidecar."
         }
       }
     }

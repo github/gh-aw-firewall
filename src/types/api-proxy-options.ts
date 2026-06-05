@@ -222,6 +222,25 @@ export interface ApiProxyOptions {
   copilotByokExtraBodyFields?: Record<string, string>;
 
   /**
+   * Opt-in session identifier injected on Copilot BYOK upstream requests.
+   *
+   * When set, this value is forwarded to the API proxy as
+   * `AWF_PROVIDER_SESSION_ID`. The Copilot adapter then injects it as a
+   * default `x-session-id` request header and `session_id` body field
+   * (unless those keys are already set via `copilotByokExtraHeaders` /
+   * `copilotByokExtraBodyFields`). This is a GitHub Copilot API
+   * convention; strict OpenAI-compatible servers (e.g. Azure OpenAI) reject
+   * the unknown `session_id` body field with HTTP 400, so this field must
+   * be set explicitly by the caller and is never auto-derived from
+   * `GITHUB_RUN_ID`.
+   *
+   * Set via config file path `apiProxy.targets.copilot.sessionId`.
+   *
+   * @default undefined
+   */
+  copilotByokSessionId?: string;
+
+  /**
    * Target hostname for OpenAI API requests (used by API proxy sidecar)
    *
    * When enableApiProxy is true, this hostname is passed to the Node.js sidecar

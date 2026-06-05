@@ -670,11 +670,27 @@ describe('API proxy sidecar: env var forwarding', () => {
             }
           });
 
-          it('should forward AWF_PROVIDER_SESSION_ID from GITHUB_RUN_ID when explicit value is not set', () => {
+          it('should not forward AWF_PROVIDER_SESSION_ID when only GITHUB_RUN_ID is set (auto-derivation removed)', () => {
             process.env.GITHUB_RUN_ID = '123456789';
             const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true }, mockNetworkConfigWithProxy);
             const env = result.services['api-proxy'].environment as Record<string, string>;
-            expect(env.AWF_PROVIDER_SESSION_ID).toBe('123456789');
+            expect(env.AWF_PROVIDER_SESSION_ID).toBeUndefined();
+          });
+
+          it('should forward AWF_PROVIDER_SESSION_ID from explicit copilotByokSessionId config', () => {
+            const result = generateDockerCompose(
+              { ...mockConfig, enableApiProxy: true, copilotByokSessionId: 'explicit-run-42' },
+              mockNetworkConfigWithProxy,
+            );
+            const env = result.services['api-proxy'].environment as Record<string, string>;
+            expect(env.AWF_PROVIDER_SESSION_ID).toBe('explicit-run-42');
+          });
+
+          it('should forward AWF_PROVIDER_SESSION_ID from explicit process.env when no config value is set', () => {
+            process.env.AWF_PROVIDER_SESSION_ID = 'explicit-from-env';
+            const result = generateDockerCompose({ ...mockConfig, enableApiProxy: true }, mockNetworkConfigWithProxy);
+            const env = result.services['api-proxy'].environment as Record<string, string>;
+            expect(env.AWF_PROVIDER_SESSION_ID).toBe('explicit-from-env');
           });
         });
 
