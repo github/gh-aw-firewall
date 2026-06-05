@@ -75,6 +75,20 @@ function loadOtelWithMemoryExporter(envOverrides = {}) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+describe('otel split modules', () => {
+  test('otel-serialization exports expected helpers', () => {
+    const serialization = require('./otel-serialization');
+    expect(serialization.parseOtlpHeaders('X-Key=abc')).toEqual({ 'X-Key': 'abc' });
+    expect(typeof serialization.buildResourceSpans).toBe('function');
+  });
+
+  test('otel-exporters exports expected classes', () => {
+    const exporters = require('./otel-exporters');
+    expect(typeof exporters.ProxyAwareOtlpExporter).toBe('function');
+    expect(typeof exporters.FileSpanExporter).toBe('function');
+  });
+});
+
 describe('otel — module initialisation', () => {
   test('isEnabled() returns true after normal load', () => {
     const otel = loadOtel();
