@@ -106,6 +106,19 @@ export interface VolumeOptions {
   sessionStateDir?: string;
 
   /**
+   * Host runner tool cache directory to mount read-only into chroot mode.
+   *
+   * When specified, AWF prefers this path over auto-detection and mounts it as:
+   * `<path>:/host<path>:ro` if the host path exists and is a real directory.
+   *
+   * Primarily intended for stdin config usage where shell interpolation of
+   * `RUNNER_TOOL_CACHE` is unavailable.
+   *
+   * @example '/opt/hostedtoolcache'
+   */
+  runnerToolCachePath?: string;
+
+  /**
    * Enable diagnostic log collection on non-zero exit
    *
    * When true and AWF exits with a non-zero exit code, container stdout/stderr

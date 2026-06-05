@@ -160,6 +160,22 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
   });
 
+  it('accepts apiProxy.modelRouter with string fields', () => {
+    expect(validate({
+      apiProxy: {
+        modelRouter: {
+          providerType: 'azure',
+          baseUrl: 'https://router.example.com/v1',
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects invalid apiProxy.modelRouter field types', () => {
+    expect(validate({ apiProxy: { modelRouter: { providerType: 123 } } })).toBe(false);
+    expect(validate({ apiProxy: { modelRouter: { baseUrl: 456 } } })).toBe(false);
+  });
+
   it('rejects invalid logging.logLevel values', () => {
     expect(validate({ logging: { logLevel: 'verbose' } })).toBe(false);
     expect(validate({ logging: { logLevel: 'debug' } })).toBe(true);
@@ -172,6 +188,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { agentTimeout: 0 } })).toBe(false);
     expect(validate({ container: { agentTimeout: -1 } })).toBe(false);
     expect(validate({ container: { agentTimeout: 1 } })).toBe(true);
+  });
+
+  it('accepts container.runnerToolCachePath as a string', () => {
+    expect(validate({ container: { runnerToolCachePath: '/opt/hostedtoolcache' } })).toBe(true);
+    expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
   });
 
   it('rejects non-positive-integer rateLimiting values', () => {
@@ -203,6 +224,30 @@ describe('awf-config.schema.json', () => {
         targets: {
           copilot: {
             extraHeaders: { 'x-session-id': 42 },
+          },
+        },
+      },
+    })).toBe(false);
+  });
+
+  it('accepts copilot extraBodyFields as string map', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 'run-42' },
+          },
+        },
+      },
+    })).toBe(true);
+  });
+
+  it('rejects non-string copilot extraBodyFields values', () => {
+    expect(validate({
+      apiProxy: {
+        targets: {
+          copilot: {
+            extraBodyFields: { session_id: 42 },
           },
         },
       },

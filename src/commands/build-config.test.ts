@@ -51,6 +51,8 @@ const ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'COPILOT_GITHUB_TOKEN',
   'COPILOT_PROVIDER_API_KEY',
+  'COPILOT_PROVIDER_TYPE',
+  'COPILOT_PROVIDER_BASE_URL',
   'GEMINI_API_KEY',
   'GITHUB_TOKEN',
   'GH_TOKEN',
@@ -190,6 +192,18 @@ describe('buildConfig', () => {
       expect(config.copilotProviderApiKey).toBe('sk-byok-provider');
     });
 
+    it('should read COPILOT_PROVIDER_TYPE from process.env', () => {
+      process.env.COPILOT_PROVIDER_TYPE = 'azure';
+      const config = buildConfig(makeInputs());
+      expect(config.copilotProviderType).toBe('azure');
+    });
+
+    it('should read COPILOT_PROVIDER_BASE_URL from process.env', () => {
+      process.env.COPILOT_PROVIDER_BASE_URL = 'https://router.example.com/v1';
+      const config = buildConfig(makeInputs());
+      expect(config.copilotProviderBaseUrl).toBe('https://router.example.com/v1');
+    });
+
     it('should prefer GITHUB_TOKEN over GH_TOKEN', () => {
       process.env.GITHUB_TOKEN = 'github-token';
       process.env.GH_TOKEN = 'gh-token';
@@ -279,6 +293,13 @@ describe('buildConfig', () => {
       expect(config.dockerHostPathPrefix).toBe('/host');
     });
 
+    it('should pass through runnerToolCachePath', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, runnerToolCachePath: '/opt/hostedtoolcache' },
+      }));
+      expect(config.runnerToolCachePath).toBe('/opt/hostedtoolcache');
+    });
+
     it('should pass through modelAliases', () => {
       const aliases = { 'gpt-4': ['gpt-4-turbo'] };
       const config = buildConfig(makeInputs({ modelAliases: aliases }));
@@ -295,6 +316,27 @@ describe('buildConfig', () => {
         options: { ...makeInputs().options, copilotByokExtraHeaders: { 'x-session-id': 'run-42' } },
       }));
       expect(config.copilotByokExtraHeaders).toEqual({ 'x-session-id': 'run-42' });
+    });
+
+    it('should pass through copilotByokExtraBodyFields', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, copilotByokExtraBodyFields: { session_id: 'run-42' } },
+      }));
+      expect(config.copilotByokExtraBodyFields).toEqual({ session_id: 'run-42' });
+    });
+
+    it('should prefer config options over COPILOT_PROVIDER_TYPE/BASE_URL env vars', () => {
+      process.env.COPILOT_PROVIDER_TYPE = 'env-type';
+      process.env.COPILOT_PROVIDER_BASE_URL = 'https://env-router.example.com/v1';
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          copilotProviderType: 'azure',
+          copilotProviderBaseUrl: 'https://config-router.example.com/v1',
+        },
+      }));
+      expect(config.copilotProviderType).toBe('azure');
+      expect(config.copilotProviderBaseUrl).toBe('https://config-router.example.com/v1');
     });
   });
 });

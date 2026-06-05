@@ -150,6 +150,17 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.modelFallback.strategy must be one of: middle_power');
   });
 
+  it('validates apiProxy.modelRouter fields', () => {
+    expect(validateAwfFileConfig({
+      apiProxy: { modelRouter: { providerType: 'azure', baseUrl: 'https://router.example.com/v1' } },
+    })).toEqual([]);
+
+    expect(validateAwfFileConfig({ apiProxy: { modelRouter: { providerType: 123 } } }))
+      .toContain('config.apiProxy.modelRouter.providerType must be a string');
+    expect(validateAwfFileConfig({ apiProxy: { modelRouter: { baseUrl: 456 } } }))
+      .toContain('config.apiProxy.modelRouter.baseUrl must be a string');
+  });
+
   it('rejects non-object apiProxy.targets', () => {
     const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
     expect(errors).toContain('config.apiProxy.targets must be an object');
@@ -189,6 +200,27 @@ describe('validateAwfFileConfig', () => {
       apiProxy: { targets: { copilot: { extraHeaders: { 'x-session-id': 42 } } } },
     });
     expect(errors).toContain('config.apiProxy.targets.copilot.extraHeaders.x-session-id must be a string');
+  });
+
+  it('accepts copilot extraBodyFields as object of string values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: { session_id: 'run-42' } } } },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects non-object copilot extraBodyFields', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: 'invalid' } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraBodyFields must be an object');
+  });
+
+  it('rejects non-string copilot extraBodyFields values', () => {
+    const errors = validateAwfFileConfig({
+      apiProxy: { targets: { copilot: { extraBodyFields: { session_id: 42 } } } },
+    });
+    expect(errors).toContain('config.apiProxy.targets.copilot.extraBodyFields.session_id must be a string');
   });
 
   it('accepts gemini target with host and basePath', () => {
@@ -352,6 +384,11 @@ describe('validateAwfFileConfig', () => {
   it('rejects non-string container.dockerHostPathPrefix', () => {
     const errors = validateAwfFileConfig({ container: { dockerHostPathPrefix: 123 } });
     expect(errors).toContain('config.container.dockerHostPathPrefix must be a string');
+  });
+
+  it('rejects non-string container.runnerToolCachePath', () => {
+    const errors = validateAwfFileConfig({ container: { runnerToolCachePath: 123 } });
+    expect(errors).toContain('config.container.runnerToolCachePath must be a string');
   });
 
   it('rejects unknown container keys', () => {

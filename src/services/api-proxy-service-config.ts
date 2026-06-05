@@ -4,10 +4,9 @@ import {
   SQUID_PORT,
 } from '../constants';
 import { stripScheme } from '../host-env';
-import { readEnvFile } from '../github-env';
 import { buildRuntimeImageRef } from '../image-tag';
 import { WrapperConfig, API_PROXY_HEALTH_PORT } from '../types';
-import { pickEnvVars } from '../env-utils';
+import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
@@ -24,8 +23,8 @@ interface ApiProxyServiceConfigParams {
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
  */
 function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
-  const copilotProviderType = getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
-  const copilotProviderBaseUrl = getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
+  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
   const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};
@@ -52,18 +51,22 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   if (config.copilotByokExtraHeaders !== undefined) {
     env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
   }
+  if (config.copilotByokExtraBodyFields !== undefined) {
+    env.AWF_BYOK_EXTRA_BODY_FIELDS = JSON.stringify(config.copilotByokExtraBodyFields);
+  }
+  const providerSessionId = resolveProviderSessionId(config);
+  if (providerSessionId) {
+    env.AWF_PROVIDER_SESSION_ID = providerSessionId;
+  }
 
   return env;
 }
 
-function getConfigEnvValue(config: WrapperConfig, key: string): string | undefined {
-  const envFileValue = config.envFile
-    ? readEnvFile(config.envFile)[key]
-    : undefined;
-  const value =
-    config.additionalEnv?.[key] ??
-    envFileValue ??
-    (config.envAll ? process.env[key] : undefined);
+function resolveProviderSessionId(config: WrapperConfig): string | undefined {
+  const value = getConfigEnvValue(config, 'AWF_PROVIDER_SESSION_ID')
+    ?? process.env.AWF_PROVIDER_SESSION_ID
+    ?? process.env.GH_AW_GITHUB_RUN_ID
+    ?? process.env.GITHUB_RUN_ID;
   const normalizedValue = value?.trim();
   return normalizedValue || undefined;
 }
@@ -74,7 +77,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     throw new Error('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
   }
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
-  const normalizedAuthType = (process.env.AWF_AUTH_TYPE || '').trim().toLowerCase();
+  const normalizedAuthType = getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
 
   const proxyService: any = {
     container_name: API_PROXY_CONTAINER_NAME,

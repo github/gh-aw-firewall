@@ -83,14 +83,14 @@ async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{
 }
 
 /**
- * Returns true when the Docker Compose error message indicates that the
- * api-proxy container specifically failed to start.
- * Docker emits "dependency failed to start: container <name> is unhealthy"
- * for healthcheck failures, and may emit "dependency failed to start:
- * container <name> exited (1)" for startup-time process exits.
+ * Returns true when the Docker Compose error message indicates that a specific
+ * container failed to start. Docker emits
+ * "dependency failed to start: container <name> is unhealthy" for healthcheck
+ * failures, and may emit "dependency failed to start: container <name> exited
+ * (1)" for startup-time process exits.
  */
-function isApiProxyStartupFailureError(errorMsg: string): boolean {
-  if (!errorMsg.includes(API_PROXY_CONTAINER_NAME)) {
+function isContainerStartupFailureError(errorMsg: string, containerName: string): boolean {
+  if (!errorMsg.includes(containerName)) {
     return false;
   }
   return errorMsg.includes('is unhealthy') || errorMsg.includes('exited (1)');
@@ -98,17 +98,17 @@ function isApiProxyStartupFailureError(errorMsg: string): boolean {
 
 /**
  * Some docker compose failures surface only as a generic execa error message
- * while the actionable api-proxy state is visible only via container inspect.
+ * while the actionable container state is visible only via container inspect.
  */
-async function didApiProxyFailStartup(errorMsg: string): Promise<boolean> {
-  if (isApiProxyStartupFailureError(errorMsg)) {
+async function didContainerFailStartup(errorMsg: string, containerName: string): Promise<boolean> {
+  if (isContainerStartupFailureError(errorMsg, containerName)) {
     return true;
   }
 
   try {
     const result = await execa(
       'docker',
-      ['inspect', API_PROXY_CONTAINER_NAME, '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}'],
+      ['inspect', containerName, '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}'],
       {
         reject: false,
         env: getLocalDockerEnv(),
@@ -122,51 +122,7 @@ async function didApiProxyFailStartup(errorMsg: string): Promise<boolean> {
     const [containerStatus = '', healthStatus = ''] = result.stdout.trim().split('|');
     return containerStatus === 'exited' || healthStatus === 'unhealthy';
   } catch (error) {
-    logger.debug(`Could not inspect ${API_PROXY_CONTAINER_NAME} after startup failure:`, error);
-    return false;
-  }
-}
-
-/**
- * Returns true when the Docker Compose error message indicates that the
- * squid container specifically failed to start.
- * The squid proxy is occasionally flaky on busy CI runners; detecting its
- * startup failure separately allows the retry path to apply to it too.
- */
-function isSquidStartupFailureError(errorMsg: string): boolean {
-  if (!errorMsg.includes(SQUID_CONTAINER_NAME)) {
-    return false;
-  }
-  return errorMsg.includes('is unhealthy') || errorMsg.includes('exited (1)');
-}
-
-/**
- * Some docker compose failures surface only as a generic execa error message
- * while the actionable squid state is visible only via container inspect.
- */
-async function didSquidFailStartup(errorMsg: string): Promise<boolean> {
-  if (isSquidStartupFailureError(errorMsg)) {
-    return true;
-  }
-
-  try {
-    const result = await execa(
-      'docker',
-      ['inspect', SQUID_CONTAINER_NAME, '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}'],
-      {
-        reject: false,
-        env: getLocalDockerEnv(),
-      }
-    );
-
-    if (result.exitCode !== 0) {
-      return false;
-    }
-
-    const [containerStatus = '', healthStatus = ''] = result.stdout.trim().split('|');
-    return containerStatus === 'exited' || healthStatus === 'unhealthy';
-  } catch (error) {
-    logger.debug(`Could not inspect ${SQUID_CONTAINER_NAME} after startup failure:`, error);
+    logger.debug(`Could not inspect ${containerName} after startup failure:`, error);
     return false;
   }
 }
@@ -246,10 +202,11 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     logger.success('Containers started successfully');
   } catch (firstError) {
     const firstErrorMsg = firstError instanceof Error ? firstError.message : String(firstError);
-    const firstAttemptApiProxyStartupFailure = await didApiProxyFailStartup(firstErrorMsg);
+    const firstAttemptApiProxyStartupFailure = await didContainerFailStartup(firstErrorMsg, API_PROXY_CONTAINER_NAME);
     // Only check squid if api-proxy didn't already claim the failure, so we
     // don't fire two inspect calls when api-proxy is the root cause.
-    const firstAttemptSquidStartupFailure = !firstAttemptApiProxyStartupFailure && await didSquidFailStartup(firstErrorMsg);
+    const firstAttemptSquidStartupFailure = !firstAttemptApiProxyStartupFailure
+      && await didContainerFailStartup(firstErrorMsg, SQUID_CONTAINER_NAME);
 
     // When api-proxy or squid specifically fails to start, retry once.
     // Both containers are occasionally flaky on slow or busy CI runners:
@@ -274,7 +231,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
         return;
       } catch (retryError) {
         const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-        if (await didApiProxyFailStartup(retryErrorMsg)) {
+        if (await didContainerFailStartup(retryErrorMsg, API_PROXY_CONTAINER_NAME)) {
           // Surface api-proxy logs and emit a clear, unambiguous error so
           // downstream parse steps don't blame the model for never running.
           await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
@@ -286,7 +243,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
         }
         // Dump squid container logs before falling through to the domain-blockage
         // diagnostic path, so that persistent squid failures are diagnosable.
-        if (await didSquidFailStartup(retryErrorMsg)) {
+        if (await didContainerFailStartup(retryErrorMsg, SQUID_CONTAINER_NAME)) {
           await logContainerLogsToStderr(SQUID_CONTAINER_NAME);
         }
         // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls

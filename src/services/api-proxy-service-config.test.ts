@@ -263,4 +263,43 @@ describe('API proxy sidecar: service configuration', () => {
         const env = agent.environment as Record<string, string>;
         expect(env.CLAUDE_CODE_API_KEY_HELPER).toBeUndefined();
       });
+
+      it('should forward AWF_PROVIDER_SESSION_ID from additionalEnv to api-proxy', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          additionalEnv: { AWF_PROVIDER_SESSION_ID: 'run-from-config' },
+        };
+        const savedEnv = process.env.AWF_PROVIDER_SESSION_ID;
+        delete process.env.AWF_PROVIDER_SESSION_ID;
+        try {
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.AWF_PROVIDER_SESSION_ID).toBe('run-from-config');
+        } finally {
+          if (savedEnv !== undefined) process.env.AWF_PROVIDER_SESSION_ID = savedEnv;
+        }
+      });
+
+      it('should prefer additionalEnv AWF_PROVIDER_SESSION_ID over process.env', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          additionalEnv: { AWF_PROVIDER_SESSION_ID: 'run-from-config' },
+        };
+        const savedEnv = process.env.AWF_PROVIDER_SESSION_ID;
+        process.env.AWF_PROVIDER_SESSION_ID = 'run-from-process-env';
+        try {
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.AWF_PROVIDER_SESSION_ID).toBe('run-from-config');
+        } finally {
+          if (savedEnv !== undefined) process.env.AWF_PROVIDER_SESSION_ID = savedEnv;
+          else delete process.env.AWF_PROVIDER_SESSION_ID;
+        }
+      });
 });

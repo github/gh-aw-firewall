@@ -96,6 +96,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     auditDir: (options.auditDir as string | undefined) || process.env.AWF_AUDIT_DIR,
     sessionStateDir:
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
+    runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,
@@ -123,10 +124,15 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
     copilotProviderApiKey: process.env.COPILOT_PROVIDER_API_KEY,
+    copilotProviderType:
+      (options.copilotProviderType as string | undefined) || process.env.COPILOT_PROVIDER_TYPE,
+    copilotProviderBaseUrl:
+      (options.copilotProviderBaseUrl as string | undefined) || process.env.COPILOT_PROVIDER_BASE_URL,
     geminiApiKey: process.env.GEMINI_API_KEY,
     copilotApiTarget: resolvedCopilotApiTarget,
     copilotApiBasePath: resolvedCopilotApiBasePath,
     copilotByokExtraHeaders: options.copilotByokExtraHeaders as Record<string, string> | undefined,
+    copilotByokExtraBodyFields: options.copilotByokExtraBodyFields as Record<string, string> | undefined,
     openaiApiTarget:
       (options.openaiApiTarget as string | undefined) || process.env.OPENAI_API_TARGET,
     openaiApiBasePath:
