@@ -6,7 +6,7 @@ export interface CliProxyOptions {
   /**
    * Enable CLI proxy sidecar for secure gh CLI access
    *
-   * When true, deploys a CLI proxy sidecar container that:
+   * When set, deploys a CLI proxy sidecar container that:
    * - Routes gh CLI invocations through an external DIFC proxy (mcpg)
    * - The DIFC proxy enforces guard policies (min-integrity, repo restrictions)
    * - Generates audit logs via mcpg's JSONL output
