@@ -102,7 +102,6 @@ the corresponding CLI flag.
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
-- `apiProxy.maxPermissionDenied` → *(config-only; maps to `AWF_MAX_PERMISSION_DENIED`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
@@ -837,9 +836,9 @@ When `maxPermissionDenied` is not configured, the `enabled` field MUST be
 ### 11a.4 Configuration
 
 `maxPermissionDenied` is a positive integer. It is supplied via the AWF
-config file (stdin config) and maps to the `AWF_MAX_PERMISSION_DENIED`
-environment variable injected into the api-proxy container. There is no
-corresponding CLI flag.
+config file (stdin config) or the `--max-permission-denied` CLI flag, and
+maps to the `AWF_MAX_PERMISSION_DENIED` environment variable injected into
+the api-proxy container.
 
 **Example**:
 
