@@ -11,7 +11,7 @@ const {
   makeProviderNotConfiguredResponse,
   createAdapterMethods,
 } = require('./proxy-utils');
-const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot');
+const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot-auth');
 
 describe('normalizeApiTarget', () => {
   it('should strip https:// prefix', () => {
