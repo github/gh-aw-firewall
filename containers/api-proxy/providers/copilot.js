@@ -24,7 +24,6 @@ const {
   composeBodyTransforms,
 } = require('../proxy-utils');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
-const { OidcTokenProvider } = require('../oidc-token-provider');
 const {
   parseByokExtraHeaders,
   parseByokExtraBodyFields,
@@ -36,6 +35,7 @@ const {
   resolveCopilotAuthToken,
   deriveCopilotApiTarget,
 } = require('./copilot-auth');
+const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 const { URL } = require('url');
 
 /**
@@ -59,60 +59,12 @@ function createCopilotAdapter(env, deps = {}) {
   // adapter's OIDC plumbing so the Copilot CLI's direct-BYOK path can exchange a
   // GitHub Actions OIDC JWT for an upstream cloud token instead of requiring a
   // static COPILOT_PROVIDER_API_KEY.
-  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
-  let oidcProvider = null;
-  let awsOidcProvider = null;
-  if (authType === 'github-oidc' && !staticAuthToken) {
-    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    if (requestUrl && requestToken) {
-      if (authProvider === 'aws') {
-        const roleArn = env.AWF_AUTH_AWS_ROLE_ARN;
-        const region = env.AWF_AUTH_AWS_REGION;
-        if (roleArn && region) {
-          const { AwsOidcTokenProvider } = require('../aws-oidc-token-provider');
-          awsOidcProvider = new AwsOidcTokenProvider({
-            requestUrl,
-            requestToken,
-            roleArn,
-            region,
-            roleSessionName: env.AWF_AUTH_AWS_ROLE_SESSION_NAME,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
-          });
-        }
-      } else if (authProvider === 'gcp') {
-        const workloadIdentityProvider = env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER;
-        if (workloadIdentityProvider) {
-          const { GcpOidcTokenProvider } = require('../gcp-oidc-token-provider');
-          oidcProvider = new GcpOidcTokenProvider({
-            requestUrl,
-            requestToken,
-            workloadIdentityProvider,
-            serviceAccount: env.AWF_AUTH_GCP_SERVICE_ACCOUNT,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
-            scope: env.AWF_AUTH_GCP_SCOPE,
-          });
-        }
-      } else {
-        // Azure (default)
-        const tenantId = env.AWF_AUTH_AZURE_TENANT_ID;
-        const clientId = env.AWF_AUTH_AZURE_CLIENT_ID;
-        if (tenantId && clientId) {
-          oidcProvider = new OidcTokenProvider({
-            requestUrl,
-            requestToken,
-            tenantId,
-            clientId,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'api://AzureADTokenExchange',
-            azureScope: env.AWF_AUTH_AZURE_SCOPE || 'https://cognitiveservices.azure.com/.default',
-            azureCloud: env.AWF_AUTH_AZURE_CLOUD,
-          });
-        }
-      }
-    }
-  }
-  const oidcConfigured = !!(oidcProvider || awsOidcProvider);
+  const {
+    authProvider,
+    oidcProvider,
+    awsOidcProvider,
+    oidcConfigured,
+  } = resolveCloudOidcProviders(env, { skipWhen: !!staticAuthToken });
 
   // authToken is consumed by the existing validation/models-fetch/auth-header paths.
   // For OIDC mode the token isn't available synchronously at construction time, so

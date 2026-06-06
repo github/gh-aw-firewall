@@ -15,7 +15,7 @@ const {
   createAdapterMethods,
   normalizeBasePath,
 } = require('../proxy-utils');
-const { OidcTokenProvider } = require('../oidc-token-provider');
+const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 
 function parseByokBaseUrl(baseUrl) {
   if (!baseUrl) return { target: undefined, basePath: '' };
@@ -83,60 +83,7 @@ function createOpenAIAdapter(env, deps = {}) {
   const bodyTransform = deps.bodyTransform || null;
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
-  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const authProvider = (env.AWF_AUTH_PROVIDER || 'azure').trim().toLowerCase();
-  let oidcProvider = null;
-  let awsOidcProvider = null;
-  if (authType === 'github-oidc') {
-    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-
-    if (requestUrl && requestToken) {
-      if (authProvider === 'aws') {
-        const roleArn = env.AWF_AUTH_AWS_ROLE_ARN;
-        const region = env.AWF_AUTH_AWS_REGION;
-        if (roleArn && region) {
-          const { AwsOidcTokenProvider } = require('../aws-oidc-token-provider');
-          awsOidcProvider = new AwsOidcTokenProvider({
-            requestUrl,
-            requestToken,
-            roleArn,
-            region,
-            roleSessionName: env.AWF_AUTH_AWS_ROLE_SESSION_NAME,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
-          });
-        }
-      } else if (authProvider === 'gcp') {
-        const workloadIdentityProvider = env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER;
-        if (workloadIdentityProvider) {
-          const { GcpOidcTokenProvider } = require('../gcp-oidc-token-provider');
-          oidcProvider = new GcpOidcTokenProvider({
-            requestUrl,
-            requestToken,
-            workloadIdentityProvider,
-            serviceAccount: env.AWF_AUTH_GCP_SERVICE_ACCOUNT,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE,
-            scope: env.AWF_AUTH_GCP_SCOPE,
-          });
-        }
-      } else {
-        // Azure (default)
-        const tenantId = env.AWF_AUTH_AZURE_TENANT_ID;
-        const clientId = env.AWF_AUTH_AZURE_CLIENT_ID;
-        if (tenantId && clientId) {
-          oidcProvider = new OidcTokenProvider({
-            requestUrl,
-            requestToken,
-            tenantId,
-            clientId,
-            oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'api://AzureADTokenExchange',
-            azureScope: env.AWF_AUTH_AZURE_SCOPE || 'https://cognitiveservices.azure.com/.default',
-            azureCloud: env.AWF_AUTH_AZURE_CLOUD,
-          });
-        }
-      }
-    }
-  }
+  const { authProvider, oidcProvider, awsOidcProvider, oidcConfigured } = resolveCloudOidcProviders(env);
   /**
    * Build a static-key auth header object.
    * When AWF_OPENAI_AUTH_HEADER is set, uses that header name with the raw key.
@@ -149,7 +96,6 @@ function createOpenAIAdapter(env, deps = {}) {
     return { 'Authorization': `Bearer ${key}` };
   }
 
-  const oidcConfigured = !!(oidcProvider || awsOidcProvider);
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,
