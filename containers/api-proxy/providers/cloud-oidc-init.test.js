@@ -59,4 +59,21 @@ describe('resolveCloudOidcProviders', () => {
 
     result.awsOidcProvider.shutdown();
   });
+
+  it('creates GCP provider when configured', () => {
+    const result = resolveCloudOidcProviders({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'gcp',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/provider',
+    });
+
+    expect(result.authProvider).toBe('gcp');
+    expect(result.oidcProvider).toBeTruthy();
+    expect(result.awsOidcProvider).toBeNull();
+    expect(result.oidcConfigured).toBe(true);
+
+    result.oidcProvider.shutdown();
+  });
 });
