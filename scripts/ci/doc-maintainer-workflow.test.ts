@@ -10,7 +10,7 @@ describe('doc maintainer workflow optimization config', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
-    expect(source).toContain('max-turns: 5');
+    expect(source).toContain('max-turns: 8');
     expect(source).toContain('bash: false');
     expect(source).toContain('github: false');
     expect(source).toContain('Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.');
@@ -51,7 +51,7 @@ describe('doc maintainer workflow optimization config', () => {
   it('compiles tool disabling into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain('--max-turns 8');
     expect(lock).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
     expect(lock).toContain('Build documentation maintainer context');
     expect(lock).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
