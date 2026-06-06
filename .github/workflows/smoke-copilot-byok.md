@@ -52,7 +52,7 @@ safe-outputs:
     run-failure: "❌ [{workflow_name}]({run_url}) reports {status}. BYOK mode investigation needed..."
 timeout-minutes: 15
 env:
-  COPILOT_MODEL: claude-haiku-3.5
+  COPILOT_MODEL: claude-haiku-4.5
 sandbox:
   agent:
     id: awf
