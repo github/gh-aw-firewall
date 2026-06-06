@@ -11,7 +11,7 @@ describe('test coverage improver workflow token optimization config', () => {
 
     expect(source).toContain('toolsets: [repos]');
     expect(source).not.toContain('toolsets: [repos, pull_requests]');
-    expect(source).toContain('cat:src/*.test.ts');
+    expect(source).toContain('COPILOT_MODEL: claude-haiku-4-5');
     expect(source).toContain('node:*');
     expect(source).toContain('./node_modules/.bin/jest:*');
     expect(source).toContain('./node_modules/.bin/eslint:*');
@@ -23,9 +23,10 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(source).toContain('Verify injected context');
     expect(source).toContain('TARGET_TEST_FILE: $TARGET_TEST_FILE');
     expect(source).toContain('## Turn Budget');
-    expect(source).toContain('Complete this task in ≤ 10 tool calls.');
+    expect(source).toContain('Complete this task in ≤ 6 tool calls.');
     expect(source).toContain('unless the injected section is unexpectedly empty');
     expect(source).toContain('./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60');
+    expect(source).toContain('./node_modules/.bin/eslint <file> --max-warnings=0');
     expect(source).toContain('## Target File (pre-selected)');
     expect(source).toContain('${{ steps.target.outputs.TARGET_FILE }}');
     expect(source).toContain('${{ steps.target.outputs.TARGET_TEST_FILE }}');
@@ -33,12 +34,14 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(source).toContain('${{ steps.target.outputs.TEST_CONTENT }}');
     expect(source).toContain('Do not glob-read `src/*.test.ts` for style reference.');
     expect(source).toContain('Run targeted Jest reruns only when fixing failures');
+    expect(source).toContain('do not run full-suite `npm run test` or `npm run lint`');
 
     expect(source).not.toContain('cat:src/docker-manager.ts');
     expect(source).not.toContain('cat:src/cli.ts');
     expect(source).not.toContain('cat:src/host-iptables.ts');
     expect(source).not.toContain('cat:src/squid-config.ts');
     expect(source).not.toContain('cat:src/domain-patterns.ts');
+    expect(source).not.toContain('cat:src/*.test.ts');
     expect(source).not.toContain('cat:tests/integration/*docker*.test.ts');
     expect(source).not.toContain('cat:tests/integration/blocked-domains.test.ts');
     expect(source).not.toContain('ls:src');
@@ -53,7 +56,7 @@ describe('test coverage improver workflow token optimization config', () => {
   it('compiles reduced tool permissions and target injection into lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toContain("shell(cat:src/*.test.ts)");
+    expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
     expect(lock).toContain("shell(node:*)");
     expect(lock).toContain("shell(./node_modules/.bin/jest:*)");
     expect(lock).toContain("shell(./node_modules/.bin/eslint:*)");
@@ -68,6 +71,9 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('TARGET_TEST_FILE: ${{ steps.target.outputs.TARGET_TEST_FILE }}');
     expect(lock).toContain('TARGET_TEST_FILE empty');
     expect(lock).not.toContain('pull_requests');
+    expect(lock).not.toContain("shell(cat:src/*.test.ts)");
+    expect(lock).not.toContain("shell(npm run lint)");
+    expect(lock).not.toContain("shell(npm run test)");
     expect(lock).toContain('github/gh-aw-actions/setup@3ea13c02d765410340d533515cb31a7eef2baaf0 # v0.77.5');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.77.5');
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
