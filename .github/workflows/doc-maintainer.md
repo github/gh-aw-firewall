@@ -33,7 +33,7 @@ jobs:
         run: |
           DIFF_PREVIEW=$(mktemp)
           COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l | tr -d ' ')
-          git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$DIFF_PREVIEW"
+          git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -50 > "$DIFF_PREVIEW"
           DIFF_BYTES=$(wc -c < "$DIFF_PREVIEW" | tr -d ' ')
           HAS_CHANGES=false
           SKIP_AGENT=false
@@ -44,6 +44,12 @@ jobs:
             SKIP_AGENT=true
             echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."
           fi
+          MD_CHANGES=$(git log --since="7 days ago" --name-only --format="" -- docs/ '*.md' | grep -cE '.' || true)
+          MD_CHANGES=${MD_CHANGES:-0}
+          if [ "$HAS_CHANGES" = "true" ] && [ "$SKIP_AGENT" = "false" ] && [ "$MD_CHANGES" -eq 0 ]; then
+            SKIP_AGENT=true
+            echo "::notice::No markdown/docs changes in 7 days. Skipping documentation review."
+          fi
           {
             echo "changed_count=$COUNT"
             echo "has_changes=$HAS_CHANGES"
@@ -52,7 +58,7 @@ jobs:
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 5
+  max-turns: 8
 tools:
   edit:
   bash: false
@@ -89,24 +95,24 @@ steps:
         find . -maxdepth 1 -name "*.md"
       } | sort > "$DOC_POOL"
 
-      git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -100 > "$CONTEXT_DIR/recent-diffs.txt"
+      git log --since="7 days ago" --format="=== Commit %H: %s ===" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -50 > "$CONTEXT_DIR/recent-diffs.txt"
 
       git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
         while read -r sha; do
           git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
-        done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -10 > "$AFFECTED" || true
+        done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -3 > "$AFFECTED" || true
 
       if [ ! -s "$AFFECTED" ]; then
         git log --since="7 days ago" --name-only --format="" -- src/ containers/ scripts/ | \
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true
         if [ -s "$TOKENS" ]; then
-          grep -i -F -f "$TOKENS" "$DOC_POOL" | head -10 > "$AFFECTED" || true
+          grep -i -F -f "$TOKENS" "$DOC_POOL" | head -3 > "$AFFECTED" || true
         fi
       fi
 
       if [ ! -s "$AFFECTED" ]; then
-        head -10 "$DOC_POOL" > "$AFFECTED"
+        head -3 "$DOC_POOL" > "$AFFECTED"
       fi
 
       cp "$AFFECTED" "$CONTEXT_DIR/affected-docs.txt"
@@ -133,6 +139,33 @@ steps:
       else
         echo "skip_agent=false" >> "$GITHUB_OUTPUT"
       fi
+  - name: Pre-load affected documentation content
+    run: |
+      CONTEXT_DIR=/tmp/gh-aw/doc-maintainer-context
+      AFFECTED="$CONTEXT_DIR/affected-docs.txt"
+
+      if [ ! -s "$AFFECTED" ]; then
+        echo "No affected docs to pre-load"
+        exit 0
+      fi
+
+      {
+        echo ""
+        echo "## Affected Documentation Content (pre-loaded — do not re-read these files)"
+        echo ""
+        head -3 "$AFFECTED" | while read -r doc; do
+          if [ -f "$doc" ]; then
+            echo "### File: $doc"
+            echo '```'
+            head -200 "$doc"
+            echo '```'
+            echo ""
+          fi
+        done
+      } >> "$CONTEXT_DIR/context.md"
+
+      SIZE=$(wc -c < "$CONTEXT_DIR/context.md" | tr -d ' ')
+      echo "Final context.md size: ${SIZE} bytes"
 ---
 
 # Documentation Maintainer
@@ -161,7 +194,9 @@ Use the **Recent Git Diffs** section from that file as your **sole source** for 
 
 ### 2. Identify Documentation Gaps
 
-Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md` (max 10 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
+The full content of up to 3 affected documentation files is pre-loaded in `context.md` under **Affected Documentation Content**. Read from `context.md` directly and do not use the `edit` tool to re-read those files before making edits.
+
+Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md` (max 3 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
 
 ### 3. Verify Code Examples
 
@@ -192,5 +227,6 @@ After making updates, the safe-outputs system will automatically create a PR. In
 
 - Be conservative, accurate, minimal, and consistent with existing style.
 - Reference the commits that triggered your updates.
+- Do not attempt to use bash commands or GitHub tools — they are unavailable in this environment.
 
 **Success**: Review 7-day commits, update out-of-sync docs, verify examples, and create a clear PR summary.
