@@ -948,12 +948,6 @@ jobs:
             SKIP_AGENT=true
             echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."
           fi
-          MD_CHANGES=$(git log --since="7 days ago" --name-only --format="" -- docs/ '*.md' | grep -cE '.' || true)
-          MD_CHANGES=${MD_CHANGES:-0}
-          if [ "$HAS_CHANGES" = "true" ] && [ "$SKIP_AGENT" = "false" ] && [ "$MD_CHANGES" -eq 0 ]; then
-            SKIP_AGENT=true
-            echo "::notice::No markdown/docs changes in 7 days. Skipping documentation review."
-          fi
           {
             echo "changed_count=$COUNT"
             echo "has_changes=$HAS_CHANGES"
@@ -1282,4 +1276,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-
