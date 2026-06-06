@@ -490,4 +490,22 @@ describe('proxyRequest max-model-multiplier guard', () => {
     expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
     expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
   });
+
+  it('does not enforce model multiplier guard on GET requests', () => {
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const body = JSON.stringify({ model: 'claude-opus-4.7', messages: [] });
+    const req = makeModelReq(body);
+    req.method = 'GET';
+    const res = makeRes();
+    proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
+  });
 });
