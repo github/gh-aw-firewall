@@ -70,6 +70,10 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('steps.target.outputs.TARGET_TEST_FILE');
     expect(lock).toContain('TARGET_TEST_FILE: ${{ steps.target.outputs.TARGET_TEST_FILE }}');
     expect(lock).toContain('TARGET_TEST_FILE empty');
+    expect(lock).toContain('COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}');
+    expect(lock).not.toContain(
+      "COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'claude-sonnet-4.6' }}",
+    );
     expect(lock).not.toContain('pull_requests');
     expect(lock).not.toContain("shell(cat:src/*.test.ts)");
     expect(lock).not.toContain("shell(npm run lint)");
