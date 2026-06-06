@@ -84,7 +84,7 @@ describe('Protocol Support', () => {
 
     test('should support HTTP/1.1 fallback', async () => {
       const result = await runner.runWithSudo(
-        'curl -fsS --http1.1 https://github.com',
+        'curl -sS --http1.1 -o /dev/null https://github.com',
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
