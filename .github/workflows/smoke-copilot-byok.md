@@ -52,7 +52,7 @@ safe-outputs:
     run-failure: "❌ [{workflow_name}]({run_url}) reports {status}. BYOK mode investigation needed..."
 timeout-minutes: 15
 env:
-  COPILOT_MODEL: claude-opus-4.8
+  COPILOT_MODEL: claude-haiku-3.5
 sandbox:
   agent:
     id: awf
@@ -80,7 +80,7 @@ steps:
 
       echo "::group::File write/read test"
       TEST_DIR="/tmp/gh-aw/agent"
-      TEST_FILE="$TEST_DIR/smoke-test-copilot-byok-${GITHUB_RUN_ID}.txt"
+      TEST_FILE="$TEST_DIR/smoke-test-copilot-byok.txt"
       mkdir -p "$TEST_DIR"
       echo "BYOK smoke test passed at $(date)" > "$TEST_FILE"
       FILE_CONTENT=$(cat "$TEST_FILE")
@@ -145,22 +145,14 @@ The following tests were already executed in a deterministic pre-agent step. You
 Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
 
 ### 2. GitHub.com Connectivity
-Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
+Check the HTTP code in **Pre-Fetched Data** below.
 ✅ if HTTP 200 or 301, ❌ otherwise.
 
 ### 3. File Write/Read Test
-Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
-File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
-Verify by running `cat` on the file path using bash to confirm it exists.
+Run `cat` on the file path from **Pre-Fetched Data** below to confirm it exists.
 
 ### 4. BYOK Inference Test
 You are running in direct BYOK mode right now. The fact that you can read this prompt and respond means the BYOK inference path (agent → api-proxy sidecar → api.githubcopilot.com) is working. Confirm ✅.
-
-## Pre-Fetched PR Data
-
-```
-${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-```
 
 ## Output
 
@@ -172,3 +164,15 @@ Add a **very brief** comment (max 5-10 lines) to the current pull request with:
 - Mention the pull request author and any assignees
 
 If all tests pass, add the label `smoke-copilot-byok` to the pull request.
+
+## Pre-Fetched Data
+
+<!-- Dynamic section — keep all template substitutions here at the end to maximize prefix caching above -->
+
+- HTTP code: `${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}`
+- File path: `${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}`
+- File content: `${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}`
+- PR data:
+  ```
+  ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+  ```
