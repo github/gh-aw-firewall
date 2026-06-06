@@ -10,7 +10,7 @@ describe('security guard workflow optimization config', () => {
     const source = fs.readFileSync(securityGuardSourcePath, 'utf-8');
 
     expect(source).toContain('model: claude-sonnet-4-5');
-    expect(source).toContain('max-turns: 4');
+    expect(source).toContain('max-turns: 6');
     expect(source).toContain('## ⚡ Fast Path');
     expect(source).toContain('safeoutputs noop');
     expect(source).toContain('[DIFF TRUNCATED ...]');
@@ -35,9 +35,9 @@ describe('security guard workflow optimization config', () => {
     const lock = fs.readFileSync(securityGuardLockPath, 'utf-8');
 
     expect(lock).toContain('"agent_model":"claude-sonnet-4-5"');
-    expect(lock).toContain('--max-turns 4');
+    expect(lock).toContain('--max-turns 6');
     expect(lock).toContain('ANTHROPIC_MODEL: claude-sonnet-4-5');
-    expect(lock).toContain('GH_AW_MAX_TURNS: 4');
+    expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toContain('github/gh-aw-actions/setup@3ea13c02d765410340d533515cb31a7eef2baaf0 # v0.77.5');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.77.5');
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
