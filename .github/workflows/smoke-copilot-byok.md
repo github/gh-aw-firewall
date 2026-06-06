@@ -142,7 +142,7 @@ This smoke test validates that Copilot CLI runs in **direct BYOK mode** — trig
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
 ### 1. GitHub MCP Testing
-Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
+Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 2, state merged). Confirm the result matches the pre-fetched data below.
 
 ### 2. GitHub.com Connectivity
 Check the HTTP code in **Pre-Fetched Data** below.
