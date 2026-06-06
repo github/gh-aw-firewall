@@ -742,7 +742,7 @@ jobs:
           DISABLE_BUG_COMMAND: 1
           DISABLE_ERROR_REPORTING: 1
           DISABLE_TELEMETRY: 1
-          GH_AW_MAX_TURNS: 5
+          GH_AW_MAX_TURNS: 8
           GH_AW_MCP_CONFIG: ${{ runner.temp }}/gh-aw/mcp-config/mcp-servers.json
           GH_AW_PHASE: agent
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
