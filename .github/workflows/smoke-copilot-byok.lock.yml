@@ -76,7 +76,7 @@ concurrency:
 run-name: "Smoke Copilot BYOK"
 
 env:
-  COPILOT_MODEL: claude-haiku-3.5
+  COPILOT_MODEL: claude-haiku-4.5
 
 jobs:
   activation:
