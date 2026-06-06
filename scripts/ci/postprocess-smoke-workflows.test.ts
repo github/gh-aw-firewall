@@ -285,6 +285,8 @@ const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 
 const sessionStateDirInjectionRegex =
   /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
+const legacyApiProxyLogsDirRegex =
+  /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
 
 const copySessionStateStepRegex =
   /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
@@ -354,6 +356,31 @@ describe('sessionStateDirInjectionRegex', () => {
     );
     const count = (result.match(/--session-state-dir/g) || []).length;
     expect(count).toBe(2);
+  });
+});
+
+describe('legacyApiProxyLogsDirRegex', () => {
+  beforeEach(() => {
+    legacyApiProxyLogsDirRegex.lastIndex = 0;
+  });
+
+  it('should match legacy api-proxy log directory path', () => {
+    const input = 'LOG_DIR="/tmp/gh-aw/sandbox/firewall/logs/api-proxy"';
+    expect(legacyApiProxyLogsDirRegex.test(input)).toBe(true);
+  });
+
+  it('should replace legacy path with api-proxy-logs path', () => {
+    const input = 'LOG_DIR="/tmp/gh-aw/sandbox/firewall/logs/api-proxy"';
+    const result = input.replace(
+      legacyApiProxyLogsDirRegex,
+      '/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs'
+    );
+    expect(result).toContain('/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs');
+  });
+
+  it('should not match already-updated api-proxy-logs path', () => {
+    const input = 'LOG_DIR="/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs"';
+    expect(legacyApiProxyLogsDirRegex.test(input)).toBe(false);
   });
 });
 

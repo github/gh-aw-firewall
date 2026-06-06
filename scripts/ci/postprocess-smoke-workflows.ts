@@ -98,6 +98,8 @@ const standaloneSkipPullRegex = /--skip-pull(?!\s+--build-local)/g;
 const sessionStateDirInjectionRegex =
   /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
 const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
+const legacyApiProxyLogsDirRegex =
+  /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
 
 // NOTE: Claude Code is intentionally NOT given --ignore-scripts because its
 // postinstall script downloads the platform-specific native binary.  Without it,
@@ -441,6 +443,19 @@ for (const workflowPath of workflowPaths) {
     );
   } else {
     console.log(`  --session-state-dir already present (or no awf invocation found)`);
+  }
+
+  // Normalize legacy api-proxy log directory paths to the current logs folder.
+  const legacyApiProxyLogDirMatches = content.match(legacyApiProxyLogsDirRegex);
+  if (legacyApiProxyLogDirMatches) {
+    content = content.replace(
+      legacyApiProxyLogsDirRegex,
+      '/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs'
+    );
+    modified = true;
+    console.log(
+      `  Updated ${legacyApiProxyLogDirMatches.length} legacy api-proxy log path reference(s)`
+    );
   }
 
   // Claude Code: no --ignore-scripts injection (needs postinstall for native binary)
