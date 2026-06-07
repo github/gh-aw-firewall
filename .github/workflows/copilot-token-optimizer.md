@@ -18,7 +18,7 @@ network:
     - github
 tools:
   github:
-    toolsets: [default, actions]
+    toolsets: [issues]
   bash: true
 safe-outputs:
   threat-detection:
@@ -27,7 +27,7 @@ safe-outputs:
     title-prefix: "\u26a1 Copilot Token Optimization"
     labels: [copilot-token-optimization]
     close-older-issues: true
-timeout-minutes: 10
+timeout-minutes: 15
 sandbox:
   agent:
     id: awf
@@ -48,6 +48,7 @@ steps:
         --start-date -7d \
         --json \
         -c 50 \
+        -o /tmp/gh-aw/token-audit/logs \
         > /tmp/gh-aw/token-audit/copilot-logs.json || LOGS_EXIT=$?
 
       if [ -s /tmp/gh-aw/token-audit/copilot-logs.json ]; then
@@ -291,3 +292,4 @@ Body structure:
 - **Reference the report** \u2014 Link back to the source token usage report issue
 - **One workflow per issue** \u2014 Focus on the single most expensive workflow
 - **Use pre-downloaded data** \u2014 All run data is at `/tmp/gh-aw/token-audit/copilot-logs.json`. Do not download artifacts manually.
+- **Do not read individual run files** \u2014 Do not explore or read files under `.github/aw/logs/` or `/tmp/gh-aw/token-audit/logs/`. All needed data is already aggregated in the JSON file at `/tmp/gh-aw/token-audit/copilot-logs.json`.
