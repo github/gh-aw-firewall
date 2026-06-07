@@ -61,14 +61,20 @@ echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 # workflows do not enter long in-agent retry loops for connection-refused errors.
 MAX_LIVENESS_ATTEMPTS="${AWF_CLI_PROXY_LIVENESS_ATTEMPTS:-2}"
 LIVENESS_SLEEP_SECONDS="${AWF_CLI_PROXY_LIVENESS_SLEEP_SECONDS:-1}"
+LIVENESS_TIMEOUT_SECONDS="${AWF_CLI_PROXY_LIVENESS_TIMEOUT_SECONDS:-5}"
 ATTEMPT=1
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
-  if gh api rate_limit >/dev/null 2>&1; then
+  PROBE_ERR=""
+  if PROBE_ERR="$(timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit 2>&1 >/dev/null)"; then
     echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
     break
   fi
+  PROBE_EXIT=$?
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
-    echo "[cli-proxy] ERROR: external DIFC proxy is unreachable at ${GH_HOST} (connection refused or unavailable)"
+    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT})"
+    if [ -n "${PROBE_ERR}" ]; then
+      echo "[cli-proxy] gh api error: ${PROBE_ERR}"
+    fi
     echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
     exit 1
   fi
