@@ -88,14 +88,19 @@ export function setupDockerBridgeMock(opts: {
     error,
   } = opts;
 
-  const mockImplementation: MockedExecaFn = (cmd: string, args: readonly string[] = []) => {
+  const previousImplementation = mockedExeca.getMockImplementation();
+
+  const mockImplementation: MockedExecaFn = (cmd: string, args: readonly string[] = [], options?: unknown) => {
     if (cmd === 'docker' && args.includes('bridge')) {
       if (error) {
         return Promise.reject(error);
       }
       return Promise.resolve(execaResult({ stdout: gateway, stderr, exitCode }));
     }
-    return Promise.resolve(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
+
+    return previousImplementation
+      ? previousImplementation(cmd, args, options)
+      : Promise.resolve(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
   };
 
   mockedExeca.mockImplementation(mockImplementation);
