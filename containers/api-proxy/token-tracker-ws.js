@@ -104,7 +104,7 @@ function parseWebSocketFrames(buf) {
  * @param {string} opts.path - Request path
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
- * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  */
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage } = opts;

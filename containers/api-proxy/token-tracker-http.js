@@ -59,7 +59,7 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {object} opts.metrics - Metrics module reference
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
- * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeTracking() to signal span completion
  */
 function trackTokenUsage(proxyRes, opts) {

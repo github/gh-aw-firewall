@@ -90,6 +90,10 @@ Tools generating AWF invocations (such as `gh-aw`) SHOULD use the mapping
 below. The left side is the configuration-document path; the right side is
 the corresponding CLI flag.
 
+Security-sensitive values (API keys, tokens, and credential secrets) MUST be
+provided via environment variables, not AWF config documents. Non-sensitive
+AWF settings MAY be supplied via config files, including stdin (`--config -`).
+
 - `network.allowDomains[]` → `--allow-domains <csv>`
 - `network.blockDomains[]` → `--block-domains <csv>`
 - `network.dnsServers[]` → `--dns-servers <csv>`
@@ -101,7 +105,7 @@ the corresponding CLI flag.
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
-- `apiProxy.maxRuns` → *(config-only; no CLI equivalent)*
+- `apiProxy.maxTurns` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
@@ -700,25 +704,6 @@ The API proxy exposes a `GET /reflect` endpoint on every provider port
 (10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
 ports still serve provider-local `/health` responses.
 
-When the `/reflect` endpoint is queried, the response MUST include the
-current effective-token state:
-
-```json
-{
-  "effective_tokens": {
-    "enabled": true,
-    "max_effective_tokens": 1000,
-    "total_effective_tokens": 456.78,
-    "remaining_effective_tokens": 543.22,
-    "percent_used": 45.68,
-    "thresholds_crossed": []
-  }
-}
-```
-
-When `maxEffectiveTokens` is not configured, the `enabled` field MUST be
-`false` and numeric fields MUST be `0` or `null`.
-
 ### 10.7 Max AI Credits Configuration
 
 `maxAiCredits` is a positive number. It is supplied via the AWF config file
@@ -735,7 +720,7 @@ and error type `ai_credits_limit_exceeded`.
 
 *This section is normative.*
 
-When `apiProxy.maxRuns` is configured, the API proxy MUST enforce an absolute
+When `apiProxy.maxTurns` is configured, the API proxy MUST enforce an absolute
 maximum number of LLM invocations per run.
 
 ### 11.1 Counting Invocations
@@ -750,7 +735,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 1. **Pre-request check**: Before forwarding each request to the upstream
    provider, the proxy checks whether the invocation count has reached or
-   exceeded `maxRuns`.
+   exceeded `maxTurns`.
 
 2. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
    the request with:
@@ -791,7 +776,7 @@ The `/reflect` endpoint (available on all provider ports 10000–10003; see
 }
 ```
 
-When `maxRuns` is not configured, the `enabled` field MUST be `false` and
+When `maxTurns` is not configured, the `enabled` field MUST be `false` and
 `max_runs` and `remaining_runs` MUST be `null`.
 
 ## 11a. Permission-Denied Guard

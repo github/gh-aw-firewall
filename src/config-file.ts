@@ -22,7 +22,7 @@ interface AwfFileConfig {
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
-    maxRuns?: number;
+    maxTurns?: number;
     maxPermissionDenied?: number;
     requestedModel?: string;
     modelFallback?: {
@@ -220,7 +220,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
-    maxRuns: config.apiProxy?.maxRuns,
+    maxRuns: config.apiProxy?.maxTurns,
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,

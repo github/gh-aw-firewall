@@ -201,24 +201,26 @@ function createUpstreamResponseHandlers({
         otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
         const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
         const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
-        if (effectiveTokenUsage || aiCreditsUsage) {
+        if (aiCreditsUsage) {
           logRequest('info', 'token_budget_usage', {
             request_id: requestId,
             provider,
             model: model || 'unknown',
-            effective_tokens_this_response: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
-            ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
-            ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
+            ai_credits_this_response: aiCreditsUsage.aiCreditsThisResponse,
+            ai_credits_total: aiCreditsUsage.totalAiCredits,
           });
         }
-        // Return budget fields for inclusion in token-usage.jsonl
-        return {
-          effective_tokens_this_response: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
-          effective_tokens_total: effectiveTokenUsage?.totalEffectiveTokens ?? null,
-          model_multiplier: effectiveTokenUsage?.modelMultiplier ?? null,
-          ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
-          ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
-        };
+        const budgetFields = {};
+        if (effectiveTokenUsage) {
+          budgetFields.effective_tokens_this_response = effectiveTokenUsage.effectiveTokensThisResponse;
+          budgetFields.effective_tokens_total = effectiveTokenUsage.totalEffectiveTokens;
+          budgetFields.model_multiplier = effectiveTokenUsage.modelMultiplier;
+        }
+        if (aiCreditsUsage) {
+          budgetFields.ai_credits_this_response = aiCreditsUsage.aiCreditsThisResponse;
+          budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
+        }
+        return Object.keys(budgetFields).length > 0 ? budgetFields : undefined;
       },
       onSpanEnd: (statusCode) => {
         otel.endSpan(span, statusCode);

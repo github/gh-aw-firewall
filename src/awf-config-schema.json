@@ -95,7 +95,7 @@
           "exclusiveMinimum": 0,
           "description": "Maximum allowed model multiplier. When set, the proxy resolves each incoming request's model against the configured modelMultipliers (and defaultModelMultiplier) and rejects any request whose resolved multiplier exceeds this cap with HTTP 400 and error type model_multiplier_cap_exceeded. This guards against unexpected pricing spikes from model routing changes."
         },
-        "maxRuns": {
+        "maxTurns": {
           "type": "integer",
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
