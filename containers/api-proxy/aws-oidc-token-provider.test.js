@@ -1,9 +1,8 @@
 'use strict';
 
-const http = require('http');
 const { AwsOidcTokenProvider } = require('./aws-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
-const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
+const { withMockServer, testInitializationFailure } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers) => {
@@ -181,30 +180,14 @@ describe('AwsOidcTokenProvider', () => {
   });
 
   it('should handle initialization failure gracefully', async () => {
-    const failServer = http.createServer((req, res) => {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
-    });
-
-    await new Promise(resolve => failServer.listen(0, '127.0.0.1', resolve));
-    const failPort = failServer.address().port;
-
-    const provider = new AwsOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${failPort}/token`,
-      requestToken: 'bad-token',
+    await testInitializationFailure(
+      AwsOidcTokenProvider,
+      {
       roleArn: 'arn:aws:iam::123456789012:role/my-role',
       region: 'us-east-1',
-      retryDelayMs: 10,
-      maxInitRetries: 2,
-    });
-
-    await provider.initialize();
-
-    expect(provider.isReady()).toBe(false);
-    expect(provider.getCredentials()).toBeNull();
-
-    provider.shutdown();
-    await new Promise(resolve => failServer.close(resolve));
+      },
+      { getCachedValue: provider => provider.getCredentials() }
+    );
   });
 
   it('should not schedule refresh after shutdown during in-flight refresh', async () => {

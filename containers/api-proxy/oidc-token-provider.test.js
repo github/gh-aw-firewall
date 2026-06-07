@@ -4,6 +4,7 @@ const http = require('http');
 const { httpPost } = require('./github-oidc');
 const { OidcTokenProvider } = require('./oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
+const { testInitializationFailure } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 // Helper to create a mock OIDC server with Azure token exchange support
 function createMockOidcServer(handlers = {}) {
@@ -168,30 +169,10 @@ describe('OidcTokenProvider', () => {
   });
 
   it('should handle GitHub OIDC token failure gracefully', async () => {
-    const failServer = http.createServer((req, res) => {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
-    });
-
-    await new Promise(resolve => failServer.listen(0, '127.0.0.1', resolve));
-    const failPort = failServer.address().port;
-
-    const provider = new OidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${failPort}/token`,
-      requestToken: 'bad-token',
+    await testInitializationFailure(OidcTokenProvider, {
       tenantId: 'test',
       clientId: 'test',
-      retryDelayMs: 10, // Fast retries for testing
-      maxInitRetries: 2,
     });
-
-    await provider.initialize(); // Should not throw, just log
-
-    expect(provider.isReady()).toBe(false);
-    expect(provider.getToken()).toBeNull();
-
-    provider.shutdown();
-    await new Promise(resolve => failServer.close(resolve));
   });
 
   it('should schedule refresh at 75% or 5 minutes-before-expiry, whichever is earlier', async () => {
