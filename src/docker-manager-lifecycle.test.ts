@@ -311,6 +311,29 @@ describe('docker-manager lifecycle', () => {
       expect(squidInspectCalls).toHaveLength(0);
     });
 
+    it('fails fast when awf-cli-proxy startup fails and does not retry compose up', async () => {
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up (fails with cli-proxy unhealthy)
+      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-cli-proxy is unhealthy'));
+      // 3. docker inspect awf-api-proxy (fallback check - healthy)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'running|healthy', stderr: '', exitCode: 0 } as any);
+      // 4. docker inspect awf-squid (fallback check - healthy)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'running|healthy', stderr: '', exitCode: 0 } as any);
+      // 5. docker logs --tail 50 awf-cli-proxy (diagnostics before fail-fast throw)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'cli-proxy startup logs', stderr: '', exitCode: 0 } as any);
+
+      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+        'AWF firewall failed to start: awf-cli-proxy could not connect to the external DIFC proxy'
+      );
+
+      // Verify no retry happened: compose up should be called once
+      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
+        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
+      );
+      expect(upCalls).toHaveLength(1);
+    });
+
     it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
       // Create access.log with denied entries so Squid diagnostics fire
       const squidLogsDir = path.join(testDir, 'squid-logs');

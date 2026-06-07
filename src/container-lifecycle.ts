@@ -207,6 +207,12 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     // don't fire two inspect calls when api-proxy is the root cause.
     const firstAttemptSquidStartupFailure = !firstAttemptApiProxyStartupFailure
       && await didContainerFailStartup(firstErrorMsg, SQUID_CONTAINER_NAME);
+    // CLI proxy startup failures are non-retriable because they usually mean
+    // the external DIFC proxy is unavailable (connection refused) and retries
+    // only delay failure while the agent repeatedly burns tokens.
+    const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
+      && !firstAttemptSquidStartupFailure
+      && await didContainerFailStartup(firstErrorMsg, CLI_PROXY_CONTAINER_NAME);
 
     // When api-proxy or squid specifically fails to start, retry once.
     // Both containers are occasionally flaky on slow or busy CI runners:
@@ -246,10 +252,29 @@ export async function startContainers(workDir: string, allowedDomains: string[],
         if (await didContainerFailStartup(retryErrorMsg, SQUID_CONTAINER_NAME)) {
           await logContainerLogsToStderr(SQUID_CONTAINER_NAME);
         }
+        if (await didContainerFailStartup(retryErrorMsg, CLI_PROXY_CONTAINER_NAME)) {
+          await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
+          throw new Error(
+            `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy. ` +
+            `Failing fast to avoid repeated in-agent retries. ` +
+            `The agent was never invoked. ` +
+            `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
+          );
+        }
         // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
         // through to the Squid log diagnostic path below as if it were the first error.
         return await handleHealthcheckError(retryErrorMsg, retryError as Error, workDir, proxyLogsDir, allowedDomains);
       }
+    }
+
+    if (firstAttemptCliProxyStartupFailure) {
+      await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
+      throw new Error(
+        `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy. ` +
+        `Failing fast to avoid repeated in-agent retries. ` +
+        `The agent was never invoked. ` +
+        `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
+      );
     }
 
     return await handleHealthcheckError(firstErrorMsg, firstError as Error, workDir, proxyLogsDir, allowedDomains);
