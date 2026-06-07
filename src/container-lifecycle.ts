@@ -270,7 +270,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     if (firstAttemptCliProxyStartupFailure) {
       await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
       throw new Error(
-        `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy. ` +
+        `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy (or exited before establishing a connection). ` +
         `Failing fast to avoid repeated in-agent retries. ` +
         `The agent was never invoked. ` +
         `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
