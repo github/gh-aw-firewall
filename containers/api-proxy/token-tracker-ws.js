@@ -220,9 +220,10 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
         transport: 'websocket',
       });
     }
+    let budgetResult;
     if (typeof onUsage === 'function') {
       try {
-        onUsage(normalized, streamingModel || 'unknown');
+        budgetResult = onUsage(normalized, streamingModel || 'unknown');
       } catch {
         // best-effort callback
       }
@@ -240,6 +241,25 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       duration,
       responseBytes: totalBytes - headerBytes,
     });
+
+    // Include effective token and AI credit budget fields when computed
+    if (budgetResult) {
+      if (budgetResult.effective_tokens_this_response != null) {
+        record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
+      }
+      if (budgetResult.effective_tokens_total != null) {
+        record.effective_tokens_total = budgetResult.effective_tokens_total;
+      }
+      if (budgetResult.model_multiplier != null) {
+        record.model_multiplier = budgetResult.model_multiplier;
+      }
+      if (budgetResult.ai_credits_this_response != null) {
+        record.ai_credits_this_response = budgetResult.ai_credits_this_response;
+      }
+      if (budgetResult.ai_credits_total != null) {
+        record.ai_credits_total = budgetResult.ai_credits_total;
+      }
+    }
 
     writeTokenUsage(record);
 

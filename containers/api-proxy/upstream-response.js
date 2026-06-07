@@ -211,6 +211,14 @@ function createUpstreamResponseHandlers({
             ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
           });
         }
+        // Return budget fields for inclusion in token-usage.jsonl
+        return {
+          effective_tokens_this_response: effectiveTokenUsage?.effectiveTokensThisResponse ?? null,
+          effective_tokens_total: effectiveTokenUsage?.totalEffectiveTokens ?? null,
+          model_multiplier: effectiveTokenUsage?.modelMultiplier ?? null,
+          ai_credits_this_response: aiCreditsUsage?.aiCreditsThisResponse ?? null,
+          ai_credits_total: aiCreditsUsage?.totalAiCredits ?? null,
+        };
       },
       onSpanEnd: (statusCode) => {
         otel.endSpan(span, statusCode);

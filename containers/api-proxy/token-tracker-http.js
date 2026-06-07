@@ -194,6 +194,7 @@ function trackTokenUsage(proxyRes, opts) {
     const duration = Date.now() - startTime;
     let usage = null;
     let model = null;
+    let budgetResult;
 
     if (streaming) {
       // Process any remaining partial line
@@ -267,7 +268,7 @@ function trackTokenUsage(proxyRes, opts) {
     }
     if (typeof onUsage === 'function') {
       try {
-        onUsage(normalized, model || 'unknown');
+        budgetResult = onUsage(normalized, model || 'unknown');
       } catch {
         // best-effort callback
       }
@@ -291,6 +292,25 @@ function trackTokenUsage(proxyRes, opts) {
     // Include billing/quota info when available (Copilot PRU tracking)
     if (initiatorSent) record.x_initiator = initiatorSent;
     if (billingInfo) record.billing = billingInfo;
+
+    // Include effective token and AI credit budget fields when computed
+    if (budgetResult) {
+      if (budgetResult.effective_tokens_this_response != null) {
+        record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
+      }
+      if (budgetResult.effective_tokens_total != null) {
+        record.effective_tokens_total = budgetResult.effective_tokens_total;
+      }
+      if (budgetResult.model_multiplier != null) {
+        record.model_multiplier = budgetResult.model_multiplier;
+      }
+      if (budgetResult.ai_credits_this_response != null) {
+        record.ai_credits_this_response = budgetResult.ai_credits_this_response;
+      }
+      if (budgetResult.ai_credits_total != null) {
+        record.ai_credits_total = budgetResult.ai_credits_total;
+      }
+    }
 
     // Write to JSONL log file
     writeTokenUsage(record);
