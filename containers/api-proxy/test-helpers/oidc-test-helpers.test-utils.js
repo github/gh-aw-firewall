@@ -43,7 +43,19 @@ async function testInitializationFailure(ProviderClass, config, options = {}) {
     res.end(JSON.stringify({ error: 'unauthorized' }));
   });
 
-  await new Promise(resolve => failServer.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve, reject) => {
+    const onError = err => {
+      failServer.off('listening', onListening);
+      reject(err);
+    };
+    const onListening = () => {
+      failServer.off('error', onError);
+      resolve();
+    };
+    failServer.once('error', onError);
+    failServer.once('listening', onListening);
+    failServer.listen(0, '127.0.0.1');
+  });
   const failPort = failServer.address().port;
   const getCachedValue = options.getCachedValue || (provider => provider.getToken());
   let provider;

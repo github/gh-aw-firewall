@@ -183,8 +183,8 @@ describe('AwsOidcTokenProvider', () => {
     await testInitializationFailure(
       AwsOidcTokenProvider,
       {
-      roleArn: 'arn:aws:iam::123456789012:role/my-role',
-      region: 'us-east-1',
+        roleArn: 'arn:aws:iam::123456789012:role/my-role',
+        region: 'us-east-1',
       },
       { getCachedValue: provider => provider.getCredentials() }
     );
