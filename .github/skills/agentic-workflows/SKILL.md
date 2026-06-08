@@ -29,8 +29,8 @@ After loading the matching workflow prompt, follow it directly:
 - Fix Dependabot manifest PRs: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/dependabot.md
 - Analyze coverage workflows: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/test-coverage.md
 - Render compact markdown charts: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/asciicharts.md
-- Map CLI commands to MCP usage: `.github/aw/cli-commands.md`
-- Choose workflow architecture and patterns: `.github/aw/patterns.md`
-- Optimize token usage and cost: `.github/aw/token-optimization.md`
+- Map CLI commands to MCP usage: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/cli-commands.md
+- Choose workflow architecture and patterns: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/patterns.md
+- Optimize token usage and cost: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/token-optimization.md
 
 When the task involves OTEL, OTLP, traces, observability backends, or telemetry-driven analysis, also read and follow `skills/otel-queries/SKILL.md` after loading the matching workflow prompt.
