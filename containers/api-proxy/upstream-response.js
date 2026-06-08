@@ -1,5 +1,7 @@
 'use strict';
 
+const { computeTokenBudgetUsage } = require('./token-budget-log');
+
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
 
@@ -28,8 +30,6 @@ function createUpstreamResponseHandlers({
   otel,
   handleRequestError,
   trackTokenUsage,
-  applyEffectiveTokenUsage,
-  applyAiCreditsUsage,
   applyMaxRunsInvocation,
   applyPermissionDenied,
   extractBillingHeaders,
@@ -199,28 +199,7 @@ function createUpstreamResponseHandlers({
       requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent,
       onUsage: (normalizedUsage, model) => {
         otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-        const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
-        const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
-        if (aiCreditsUsage) {
-          logRequest('info', 'token_budget_usage', {
-            request_id: requestId,
-            provider,
-            model: model || 'unknown',
-            ai_credits_this_response: aiCreditsUsage.aiCreditsThisResponse,
-            ai_credits_total: aiCreditsUsage.totalAiCredits,
-          });
-        }
-        const budgetFields = {};
-        if (effectiveTokenUsage) {
-          budgetFields.effective_tokens_this_response = effectiveTokenUsage.effectiveTokensThisResponse;
-          budgetFields.effective_tokens_total = effectiveTokenUsage.totalEffectiveTokens;
-          budgetFields.model_multiplier = effectiveTokenUsage.modelMultiplier;
-        }
-        if (aiCreditsUsage) {
-          budgetFields.ai_credits_this_response = aiCreditsUsage.aiCreditsThisResponse;
-          budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
-        }
-        return Object.keys(budgetFields).length > 0 ? budgetFields : undefined;
+        return computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
       },
       onSpanEnd: (statusCode) => {
         otel.endSpan(span, statusCode);

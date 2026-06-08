@@ -25,7 +25,6 @@ const { createUpstreamResponseHandlers } = require('./upstream-response');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
-  applyEffectiveTokenUsage,
   getEffectiveTokenBlockState,
   getEffectiveTokenReflectState,
   resetEffectiveTokenGuardForTests,
@@ -56,7 +55,6 @@ const {
   resetMaxModelMultiplierGuardForTests,
 } = require('./guards/max-model-multiplier-guard');
 const {
-  applyAiCreditsUsage,
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
@@ -225,8 +223,6 @@ const proxyWebSocket = createProxyWebSocket({
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   trackWebSocketTokenUsage,
-  applyEffectiveTokenUsage,
-  applyAiCreditsUsage,
 });
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
@@ -291,8 +287,6 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   otel,
   handleRequestError,
   trackTokenUsage,
-  applyEffectiveTokenUsage,
-  applyAiCreditsUsage,
   applyMaxRunsInvocation,
   applyPermissionDenied,
   extractBillingHeaders,
