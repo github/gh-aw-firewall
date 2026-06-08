@@ -116,18 +116,18 @@ post-steps:
     if: always()
     run: |
       echo "=== OTEL Diagnostics ==="
-      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl ]; then
+      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl ]; then
         echo "OTEL spans exported:"
-        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl
+        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl
         echo "Sample spans:"
-        head -5 /tmp/gh-aw/sandbox/firewall/logs/api-proxy/otel.jsonl
+        head -5 /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/otel.jsonl
       else
         echo "No OTEL span file found (api-proxy OTEL not yet active)"
       fi
-      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy/token-usage.jsonl ]; then
+      if [ -f /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl ]; then
         echo ""
         echo "Token usage records (existing tracking):"
-        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy/token-usage.jsonl
+        wc -l /tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl
       fi
   - name: Validate safe outputs were invoked
     run: |
