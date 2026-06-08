@@ -13,9 +13,9 @@ import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils'
 import { logger } from './logger';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -24,18 +24,10 @@ function makeExecaResult(stdout = '', stderr = '', exitCode = 0): any {
 }
 
 describe('container-lifecycle uncovered branches', () => {
-  let testDir: string;
+  const { getDir } = useTempDir();
 
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-    jest.clearAllMocks();
     containerLifecycleTestHelpers.resetAgentExternallyKilled();
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
   });
 
   // ─── reportBlockedDomains "else" branch ──────────────────────────────────────
@@ -45,7 +37,7 @@ describe('container-lifecycle uncovered branches', () => {
 
   describe('reportBlockedDomains - allowed domain on standard port', () => {
     it('should log generic blocked message when allowed domain is blocked on port 443', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // github.com:443 — domain IS in the allowlist, port IS standard
       fs.writeFileSync(
@@ -58,7 +50,7 @@ describe('container-lifecycle uncovered branches', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        const result = await runAgentCommand(testDir, ['github.com']);
+        const result = await runAgentCommand(getDir(), ['github.com']);
         expect(result.exitCode).toBe(1);
         // The "else" branch emits "Blocked: github.com:443" without extra context
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('  - Blocked: github.com:443'));
@@ -72,7 +64,7 @@ describe('container-lifecycle uncovered branches', () => {
     });
 
     it('should log generic blocked message when allowed domain is blocked on port 80', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -84,7 +76,7 @@ describe('container-lifecycle uncovered branches', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        await runAgentCommand(testDir, ['github.com']);
+        await runAgentCommand(getDir(), ['github.com']);
         // "else" branch — generic message, no port complaint
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('  - Blocked: github.com:80'));
         const allWarnings = warnSpy.mock.calls.map(([m]) => m).join('\n');
@@ -103,7 +95,7 @@ describe('container-lifecycle uncovered branches', () => {
 
   describe('checkSquidLogs - IPv6 targets', () => {
     it('should handle IPv6 target where extracted "port" is non-numeric', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // Simulate an IPv6 address without a numeric port suffix; the last segment
       // after ':' would be something like "abc" (non-numeric) so the code falls
@@ -117,14 +109,14 @@ describe('container-lifecycle uncovered branches', () => {
       mockExecaFn.mockResolvedValueOnce(makeExecaResult()); // docker logs -f
       mockExecaFn.mockResolvedValueOnce(makeExecaResult('1')); // docker wait
 
-      const result = await runAgentCommand(testDir, []);
+      const result = await runAgentCommand(getDir(), []);
       expect(result.exitCode).toBe(1);
       // The full IPv6 target is treated as the domain (no port extracted)
       expect(result.blockedDomains).toContain('2001:db8::abc');
     });
 
     it('should correctly parse bracketed IPv6 target with port', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // [::1]:443 — port after last ':' is "443" (numeric), so domain = "[::1]", port = "443"
       fs.writeFileSync(
@@ -135,7 +127,7 @@ describe('container-lifecycle uncovered branches', () => {
       mockExecaFn.mockResolvedValueOnce(makeExecaResult()); // docker logs -f
       mockExecaFn.mockResolvedValueOnce(makeExecaResult('1')); // docker wait
 
-      const result = await runAgentCommand(testDir, []);
+      const result = await runAgentCommand(getDir(), []);
       expect(result.exitCode).toBe(1);
       // Domain should be "[::1]" without the port
       expect(result.blockedDomains).toContain('[::1]');
@@ -146,7 +138,7 @@ describe('container-lifecycle uncovered branches', () => {
 
   describe('checkSquidLogs - log with only allowed entries', () => {
     it('should return empty blockedDomains when log has TCP_TUNNEL entries only', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // TCP_TUNNEL (allowed) — no TCP_DENIED lines
       fs.writeFileSync(
@@ -157,7 +149,7 @@ describe('container-lifecycle uncovered branches', () => {
       mockExecaFn.mockResolvedValueOnce(makeExecaResult()); // docker logs -f
       mockExecaFn.mockResolvedValueOnce(makeExecaResult('0')); // docker wait — success
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
       expect(result.exitCode).toBe(0);
       expect(result.blockedDomains).toEqual([]);
     });
@@ -182,7 +174,7 @@ describe('container-lifecycle uncovered branches', () => {
       // 6. docker compose up (retry — succeeds)
       mockExecaFn.mockResolvedValueOnce(makeExecaResult());
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Confirm two compose-up calls were made (initial + retry)
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
@@ -208,7 +200,7 @@ describe('container-lifecycle uncovered branches', () => {
         // 7. docker compose up (retry — succeeds)
         mockExecaFn.mockResolvedValueOnce(makeExecaResult());
 
-        await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+        await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
         const squidInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
           call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-squid'
@@ -236,7 +228,7 @@ describe('container-lifecycle uncovered branches', () => {
       // 6. docker compose up (retry — succeeds)
       mockExecaFn.mockResolvedValueOnce(makeExecaResult());
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
@@ -251,7 +243,7 @@ describe('container-lifecycle uncovered branches', () => {
 
   describe('runAgentCommand - zero exit code suppresses blocked-domain warning', () => {
     it('should not warn about blocked domains when exit code is 0', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -263,7 +255,7 @@ describe('container-lifecycle uncovered branches', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        const result = await runAgentCommand(testDir, ['github.com']);
+        const result = await runAgentCommand(getDir(), ['github.com']);
         expect(result.exitCode).toBe(0);
         // Blocked domains are still returned but no user-facing warning is emitted
         expect(result.blockedDomains).toContain('blocked.com');

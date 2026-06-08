@@ -16,29 +16,19 @@ import * as os from 'os';
 
 // Mock execa module
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 describe('docker-manager lifecycle', () => {
   describe('startContainers', () => {
-    let testDir: string;
-
-    beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-      jest.clearAllMocks();
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-    });
+    const { getDir } = useTempDir();
 
     it('should remove existing containers before starting', async () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await startContainers(testDir, ['github.com']);
+      await startContainers(getDir(), ['github.com']);
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
@@ -53,13 +43,13 @@ describe('docker-manager lifecycle', () => {
       // Second call (docker compose up) succeeds
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await startContainers(testDir, ['github.com']);
+      await startContainers(getDir(), ['github.com']);
 
       // Should still call docker compose up even if rm failed
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -67,12 +57,12 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await startContainers(testDir, ['github.com']);
+      await startContainers(getDir(), ['github.com']);
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -80,12 +70,12 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await startContainers(testDir, ['github.com'], undefined, true);
+      await startContainers(getDir(), ['github.com'], undefined, true);
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d', '--pull', 'never'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -93,12 +83,12 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await startContainers(testDir, ['github.com'], undefined, false);
+      await startContainers(getDir(), ['github.com'], undefined, false);
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'up', '-d'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
@@ -106,12 +96,12 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockRejectedValueOnce(new Error('Docker compose failed'));
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow('Docker compose failed');
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow('Docker compose failed');
     });
 
     it('should handle healthcheck failure with blocked domains', async () => {
       // Create access.log with denied entries
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -121,7 +111,7 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       mockExecaFn.mockRejectedValueOnce(new Error('is unhealthy'));
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow();
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow();
     });
 
     it('should retry once when awf-api-proxy fails its health check', async () => {
@@ -136,7 +126,7 @@ describe('docker-manager lifecycle', () => {
       // 5. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
@@ -146,7 +136,7 @@ describe('docker-manager lifecycle', () => {
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v', '-t', '1'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit', reject: false })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit', reject: false })
       );
     });
 
@@ -162,7 +152,7 @@ describe('docker-manager lifecycle', () => {
       // 5. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
@@ -184,7 +174,7 @@ describe('docker-manager lifecycle', () => {
       // 6. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       const inspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
@@ -211,7 +201,7 @@ describe('docker-manager lifecycle', () => {
       // 6. docker logs (second diagnosis)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(
         'AWF firewall failed to start: awf-api-proxy failed to start on both attempts'
       );
     });
@@ -230,7 +220,7 @@ describe('docker-manager lifecycle', () => {
       // 6. docker logs (second diagnosis)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(
         'AWF firewall failed to start: awf-api-proxy failed to start on both attempts'
       );
     });
@@ -253,7 +243,7 @@ describe('docker-manager lifecycle', () => {
       // 8. docker logs (second diagnosis)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(
         'AWF firewall failed to start: awf-api-proxy failed to start on both attempts'
       );
     });
@@ -270,7 +260,7 @@ describe('docker-manager lifecycle', () => {
       // 5. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
@@ -293,7 +283,7 @@ describe('docker-manager lifecycle', () => {
       // 6. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
@@ -323,7 +313,7 @@ describe('docker-manager lifecycle', () => {
       // 5. docker logs --tail 50 awf-cli-proxy (diagnostics before fail-fast throw)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'cli-proxy startup logs', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(
         'AWF firewall failed to start: awf-cli-proxy could not connect to the external DIFC proxy'
       );
 
@@ -336,7 +326,7 @@ describe('docker-manager lifecycle', () => {
 
     it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
       // Create access.log with denied entries so Squid diagnostics fire
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -359,7 +349,7 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: 'squid logs', stderr: '', exitCode: 0 } as any);
 
       // Should surface the Squid blocked-domain error, not a raw throw
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow('Firewall blocked access to:');
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow('Firewall blocked access to:');
     });
 
     it('should not emit container logs when docker logs exits non-zero (container not found)', async () => {
@@ -375,7 +365,7 @@ describe('docker-manager lifecycle', () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
       // Should succeed without emitting "No such container" noise at error level
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
     });
 
     it('should retry once when docker compose only reports a generic error but awf-squid already exited', async () => {
@@ -394,7 +384,7 @@ describe('docker-manager lifecycle', () => {
       // 7. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       const apiProxyInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
@@ -426,7 +416,7 @@ describe('docker-manager lifecycle', () => {
       // 6. docker compose up (retry - succeeds)
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).resolves.toBeUndefined();
+      await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
@@ -452,7 +442,7 @@ describe('docker-manager lifecycle', () => {
       // 8. docker logs --tail 50 awf-squid (dumped before falling through to diagnostics)
       mockExecaFn.mockResolvedValueOnce({ stdout: 'squid retry logs', stderr: '', exitCode: 0 } as any);
 
-      await expect(startContainers(testDir, ['github.com'])).rejects.toThrow(
+      await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(
         'dependency failed to start: container awf-squid is unhealthy'
       );
 
@@ -464,21 +454,10 @@ describe('docker-manager lifecycle', () => {
   });
 
   describe('stopContainers', () => {
-    let testDir: string;
-
-    beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-      jest.clearAllMocks();
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-    });
+    const { getDir } = useTempDir();
 
     it('should skip stopping when keepContainers is true', async () => {
-      await stopContainers(testDir, true);
+      await stopContainers(getDir(), true);
 
       expect(mockExecaFn).not.toHaveBeenCalled();
     });
@@ -486,19 +465,19 @@ describe('docker-manager lifecycle', () => {
     it('should run docker compose down when keepContainers is false', async () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      await stopContainers(testDir, false);
+      await stopContainers(getDir(), false);
 
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v', '-t', '1'],
-        expect.objectContaining({ cwd: testDir, stdout: process.stderr, stderr: 'inherit' })
+        expect.objectContaining({ cwd: getDir(), stdout: process.stderr, stderr: 'inherit' })
       );
     });
 
     it('should throw error when docker compose down fails', async () => {
       mockExecaFn.mockRejectedValueOnce(new Error('Docker compose down failed'));
 
-      await expect(stopContainers(testDir, false)).rejects.toThrow('Docker compose down failed');
+      await expect(stopContainers(getDir(), false)).rejects.toThrow('Docker compose down failed');
     });
   });
 
@@ -641,18 +620,10 @@ describe('docker-manager lifecycle', () => {
   });
 
   describe('runAgentCommand', () => {
-    let testDir: string;
+    const { getDir } = useTempDir();
 
     beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-      jest.clearAllMocks();
       containerLifecycleTestHelpers.resetAgentExternallyKilled();
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
     });
 
     it('should return exit code from container', async () => {
@@ -661,7 +632,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait
       mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(0);
     });
@@ -672,14 +643,14 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait with non-zero exit code
       mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(1);
     });
 
     it('should detect blocked domains from access log', async () => {
       // Create access.log with denied entries
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -691,14 +662,14 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait with non-zero exit code (command failed)
       mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(1);
       expect(result.blockedDomains).toContain('blocked.com');
     });
 
     it('should use proxyLogsDir when specified', async () => {
-      const proxyLogsDir = path.join(testDir, 'custom-logs');
+      const proxyLogsDir = path.join(getDir(), 'custom-logs');
       fs.mkdirSync(proxyLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(proxyLogsDir, 'access.log'),
@@ -710,7 +681,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait
       mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com'], proxyLogsDir);
+      const result = await runAgentCommand(getDir(), ['github.com'], proxyLogsDir);
 
       expect(result.blockedDomains).toContain('blocked.com');
     });
@@ -721,11 +692,11 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait failure
       mockExecaFn.mockRejectedValueOnce(new Error('Container not found'));
 
-      await expect(runAgentCommand(testDir, ['github.com'])).rejects.toThrow('Container not found');
+      await expect(runAgentCommand(getDir(), ['github.com'])).rejects.toThrow('Container not found');
     });
 
     it('should handle blocked domain without port (standard port 443)', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -737,14 +708,14 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait with non-zero exit code
       mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(1);
       expect(result.blockedDomains).toContain('example.com');
     });
 
     it('should handle allowed domain in blocklist correctly', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // Create a log entry for subdomain of allowed domain
       fs.writeFileSync(
@@ -757,7 +728,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait with non-zero exit code
       mockExecaFn.mockResolvedValueOnce({ stdout: '1', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(1);
       // api.github.com should be blocked because port 8443 is not allowed
@@ -772,7 +743,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait
       mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       expect(result.exitCode).toBe(0);
       expect(result.blockedDomains).toEqual([]);
@@ -788,7 +759,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker stop
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-      const resultPromise = runAgentCommand(testDir, ['github.com'], undefined, 1);
+      const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 1);
 
       // Use advanceTimersByTimeAsync to flush microtasks between timer advances
       // This handles the 60s timeout AND the subsequent 500ms log flush delay
@@ -811,7 +782,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait - resolves immediately with exit code 0
       mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
 
-      const resultPromise = runAgentCommand(testDir, ['github.com'], undefined, 30);
+      const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 30);
 
       // Advance past the 500ms log flush delay
       await jest.advanceTimersByTimeAsync(1000);
@@ -826,7 +797,7 @@ describe('docker-manager lifecycle', () => {
 
     it('should skip post-run analysis when agent was externally killed', async () => {
       // Create access.log with denied entries — these should be ignored
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -842,7 +813,7 @@ describe('docker-manager lifecycle', () => {
       // Mock docker wait — container was stopped externally, returns 143
       mockExecaFn.mockResolvedValueOnce({ stdout: '143', stderr: '', exitCode: 0 } as any);
 
-      const result = await runAgentCommand(testDir, ['github.com']);
+      const result = await runAgentCommand(getDir(), ['github.com']);
 
       // Should return 143 and skip log analysis (empty blockedDomains)
       expect(result.exitCode).toBe(143);
@@ -850,7 +821,7 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should recognize domains matched by a wildcard allowlist entry', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // api.github.com is blocked on a non-standard port
       fs.writeFileSync(
@@ -863,7 +834,7 @@ describe('docker-manager lifecycle', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        await runAgentCommand(testDir, ['*.github.com']);
+        await runAgentCommand(getDir(), ['*.github.com']);
         // *.github.com covers api.github.com, so the message should report a port issue, not a missing domain
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('port 8443 not allowed'));
         expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('domain not in allowlist'));
@@ -873,7 +844,7 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should recognize domains matched by a protocol-prefixed allowlist entry', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // github.com is listed as https://github.com; a non-standard port block should show as port issue
       fs.writeFileSync(
@@ -886,7 +857,7 @@ describe('docker-manager lifecycle', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        await runAgentCommand(testDir, ['https://github.com']);
+        await runAgentCommand(getDir(), ['https://github.com']);
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('port 8080 not allowed'));
         expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('domain not in allowlist'));
       } finally {
@@ -895,7 +866,7 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should deduplicate domains in --allow-domains suggestion', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       // Same domain blocked on two different ports — should appear once in the suggestion
       fs.writeFileSync(
@@ -909,7 +880,7 @@ describe('docker-manager lifecycle', () => {
 
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       try {
-        await runAgentCommand(testDir, ['github.com']);
+        await runAgentCommand(getDir(), ['github.com']);
         const suggestionCalls = warnSpy.mock.calls.filter(([msg]) =>
           typeof msg === 'string' && msg.includes('--allow-domains')
         );
@@ -924,7 +895,7 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should use logger.warn (not logger.error) for post-run blocked-domain diagnostics', async () => {
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(
         path.join(squidLogsDir, 'access.log'),
@@ -937,7 +908,7 @@ describe('docker-manager lifecycle', () => {
       const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
       try {
-        await runAgentCommand(testDir, ['github.com']);
+        await runAgentCommand(getDir(), ['github.com']);
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('blocked.com'));
         expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('blocked.com'));
       } finally {

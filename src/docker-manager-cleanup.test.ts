@@ -11,6 +11,7 @@ import * as os from 'os';
 
 // Mock execa module
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
+import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -27,21 +28,10 @@ jest.mock('./host-env', () => {
 
 describe('docker-manager writeConfigs and cleanup', () => {
   describe('writeConfigs', () => {
-    let testDir: string;
-
-    beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-      jest.clearAllMocks();
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-    });
+    const { getDir } = useTempDir();
 
     it('should create work directory if it does not exist', async () => {
-      const newWorkDir = path.join(testDir, 'new-work-dir');
+      const newWorkDir = path.join(getDir(), 'new-work-dir');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
@@ -67,7 +57,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -77,7 +67,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       }
 
       // Verify agent-logs directory was created
-      expect(fs.existsSync(path.join(testDir, 'agent-logs'))).toBe(true);
+      expect(fs.existsSync(path.join(getDir(), 'agent-logs'))).toBe(true);
     });
 
     it('should create squid-logs directory', async () => {
@@ -86,7 +76,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -96,7 +86,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       }
 
       // Verify squid-logs directory was created
-      expect(fs.existsSync(path.join(testDir, 'squid-logs'))).toBe(true);
+      expect(fs.existsSync(path.join(getDir(), 'squid-logs'))).toBe(true);
     });
 
     it('should create /tmp/gh-aw/mcp-logs directory with world-writable permissions', async () => {
@@ -105,7 +95,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -128,7 +118,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -138,7 +128,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       }
 
       // Verify squid.conf was created (it's created before seccomp check)
-      const squidConfPath = path.join(testDir, 'squid.conf');
+      const squidConfPath = path.join(getDir(), 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const content = fs.readFileSync(squidConfPath, 'utf-8');
         expect(content).toContain('github.com');
@@ -152,7 +142,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -162,7 +152,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       }
 
       // Verify docker-compose.yml was created
-      const dockerComposePath = path.join(testDir, 'docker-compose.yml');
+      const dockerComposePath = path.join(getDir(), 'docker-compose.yml');
       if (fs.existsSync(dockerComposePath)) {
         const content = fs.readFileSync(dockerComposePath, 'utf-8');
         expect(content).toContain('awf-squid');
@@ -171,7 +161,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should create work directory with restricted permissions (0o700)', async () => {
-      const newWorkDir = path.join(testDir, 'restricted-dir');
+      const newWorkDir = path.join(getDir(), 'restricted-dir');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
@@ -198,7 +188,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -208,14 +198,14 @@ describe('docker-manager writeConfigs and cleanup', () => {
       }
 
       // Verify squid.conf is readable by proxy user (0o644) for non-root Squid
-      const squidConfPath = path.join(testDir, 'squid.conf');
+      const squidConfPath = path.join(getDir(), 'squid.conf');
       if (fs.existsSync(squidConfPath)) {
         const stats = fs.statSync(squidConfPath);
         expect((stats.mode & 0o777).toString(8)).toBe('644');
       }
 
       // Verify docker-compose.yml has restricted permissions
-      const dockerComposePath = path.join(testDir, 'docker-compose.yml');
+      const dockerComposePath = path.join(getDir(), 'docker-compose.yml');
       if (fs.existsSync(dockerComposePath)) {
         const stats = fs.statSync(dockerComposePath);
         expect((stats.mode & 0o777).toString(8)).toBe('600');
@@ -223,13 +213,13 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should use proxyLogsDir when specified', async () => {
-      const proxyLogsDir = path.join(testDir, 'custom-proxy-logs');
+      const proxyLogsDir = path.join(getDir(), 'custom-proxy-logs');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
         proxyLogsDir,
       };
 
@@ -244,13 +234,13 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should create api-proxy-logs subdirectory inside proxyLogsDir when specified', async () => {
-      const proxyLogsDir = path.join(testDir, 'custom-proxy-logs');
+      const proxyLogsDir = path.join(getDir(), 'custom-proxy-logs');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
         proxyLogsDir,
       };
 
@@ -266,13 +256,13 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should create proxyLogsDir with nested non-existent parents', async () => {
-      const proxyLogsDir = path.join(testDir, 'deeply', 'nested', 'proxy-logs');
+      const proxyLogsDir = path.join(getDir(), 'deeply', 'nested', 'proxy-logs');
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
         proxyLogsDir,
       };
 
@@ -288,7 +278,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should pre-create chroot home subdirectories with correct ownership', async () => {
       // Use a temporary home directory to avoid modifying the real one
-      const fakeHome = path.join(testDir, 'fakehome');
+      const fakeHome = path.join(getDir(), 'fakehome');
       fs.mkdirSync(fakeHome, { recursive: true });
       const originalHome = process.env.HOME;
       const originalSudoUser = process.env.SUDO_USER;
@@ -301,7 +291,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
       };
 
       try {
@@ -334,7 +324,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should pre-create ~/.gemini when geminiApiKey is configured', async () => {
-      const fakeHome = path.join(testDir, 'fakehome-gemini');
+      const fakeHome = path.join(getDir(), 'fakehome-gemini');
       fs.mkdirSync(fakeHome, { recursive: true });
       const originalHome = process.env.HOME;
       const originalSudoUser = process.env.SUDO_USER;
@@ -346,7 +336,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: testDir,
+        workDir: getDir(),
         geminiApiKey: 'AIza-test-key',
       };
 
@@ -371,22 +361,16 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
   });
   describe('cleanup', () => {
-    let testDir: string;
+    const { getDir } = useTempDir('awf-');
 
     beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
-      jest.clearAllMocks();
       // Mock execa.sync for chmod
       mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 0 });
     });
 
     afterEach(() => {
-      // Clean up any remaining test directories
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
       // Clean up any moved log directories
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const agentLogsDir = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
       const squidLogsDir = path.join(os.tmpdir(), `squid-logs-${timestamp}`);
       if (fs.existsSync(agentLogsDir)) {
@@ -398,43 +382,43 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should skip cleanup when keepFiles is true', async () => {
-      await cleanup(testDir, true);
+      await cleanup(getDir(), true);
 
       // Verify directory still exists
-      expect(fs.existsSync(testDir)).toBe(true);
+      expect(fs.existsSync(getDir())).toBe(true);
     });
 
     it('should remove work directory when keepFiles is false', async () => {
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
-      expect(fs.existsSync(testDir)).toBe(false);
+      expect(fs.existsSync(getDir())).toBe(false);
     });
 
     it('should clean up chroot-home directory alongside workDir', async () => {
       // Create chroot-home sibling directory (as writeConfigs does in chroot mode)
-      const chrootHomeDir = `${testDir}-chroot-home`;
+      const chrootHomeDir = `${getDir()}-chroot-home`;
       fs.mkdirSync(chrootHomeDir, { recursive: true });
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
       // Both workDir and chroot-home should be removed
-      expect(fs.existsSync(testDir)).toBe(false);
+      expect(fs.existsSync(getDir())).toBe(false);
       expect(fs.existsSync(chrootHomeDir)).toBe(false);
     });
 
     it('should preserve agent logs when they exist', async () => {
       // Create agent logs directory with a file
-      const agentLogsDir = path.join(testDir, 'agent-logs');
+      const agentLogsDir = path.join(getDir(), 'agent-logs');
       fs.mkdirSync(agentLogsDir, { recursive: true });
       fs.writeFileSync(path.join(agentLogsDir, 'test.log'), 'test log content');
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
       // Verify work directory was removed
-      expect(fs.existsSync(testDir)).toBe(false);
+      expect(fs.existsSync(getDir())).toBe(false);
 
       // Verify agent logs were moved
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preservedLogsDir = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
       expect(fs.existsSync(preservedLogsDir)).toBe(true);
       expect(fs.readFileSync(path.join(preservedLogsDir, 'test.log'), 'utf-8')).toBe('test log content');
@@ -442,43 +426,43 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should preserve squid logs when they exist', async () => {
       // Create squid logs directory with a file
-      const squidLogsDir = path.join(testDir, 'squid-logs');
+      const squidLogsDir = path.join(getDir(), 'squid-logs');
       fs.mkdirSync(squidLogsDir, { recursive: true });
       fs.writeFileSync(path.join(squidLogsDir, 'access.log'), 'squid log content');
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
       // Verify work directory was removed
-      expect(fs.existsSync(testDir)).toBe(false);
+      expect(fs.existsSync(getDir())).toBe(false);
 
       // Verify squid logs were moved
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preservedLogsDir = path.join(os.tmpdir(), `squid-logs-${timestamp}`);
       expect(fs.existsSync(preservedLogsDir)).toBe(true);
     });
 
     it('should not preserve empty log directories', async () => {
       // Create empty agent logs directory
-      const agentLogsDir = path.join(testDir, 'agent-logs');
+      const agentLogsDir = path.join(getDir(), 'agent-logs');
       fs.mkdirSync(agentLogsDir, { recursive: true });
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
       // Verify work directory was removed
-      expect(fs.existsSync(testDir)).toBe(false);
+      expect(fs.existsSync(getDir())).toBe(false);
 
       // Verify no empty log directory was created
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preservedLogsDir = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
       expect(fs.existsSync(preservedLogsDir)).toBe(false);
     });
 
     it('should use proxyLogsDir when specified', async () => {
-      const proxyLogsDir = path.join(testDir, 'custom-proxy-logs');
+      const proxyLogsDir = path.join(getDir(), 'custom-proxy-logs');
       fs.mkdirSync(proxyLogsDir, { recursive: true });
       fs.writeFileSync(path.join(proxyLogsDir, 'access.log'), 'proxy log content');
 
-      await cleanup(testDir, false, proxyLogsDir);
+      await cleanup(getDir(), false, proxyLogsDir);
 
       // Verify chmod was called on proxyLogsDir
       expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
@@ -492,7 +476,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       fs.writeFileSync(path.join(proxyLogsDir, 'access.log'), 'proxy log content');
 
       try {
-        await cleanup(testDir, false, proxyLogsDir);
+        await cleanup(getDir(), false, proxyLogsDir);
 
         // Logs should remain in proxyLogsDir (not moved to /tmp/squid-logs-*)
         expect(fs.existsSync(path.join(proxyLogsDir, 'access.log'))).toBe(true);
@@ -512,7 +496,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       fs.writeFileSync(path.join(apiProxyLogsDir, 'access.log'), 'api proxy log content');
 
       try {
-        await cleanup(testDir, false, proxyLogsDir);
+        await cleanup(getDir(), false, proxyLogsDir);
 
         // Verify chmod was called on both proxyLogsDir and api-proxy-logs subdirectory
         expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
@@ -530,15 +514,15 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should preserve session state to /tmp when sessionStateDir is not specified', async () => {
-      const sessionStateDir = path.join(testDir, 'agent-session-state');
+      const sessionStateDir = path.join(getDir(), 'agent-session-state');
       const sessionDir = path.join(sessionStateDir, 'abc-123');
       fs.mkdirSync(sessionDir, { recursive: true });
       fs.writeFileSync(path.join(sessionDir, 'events.jsonl'), '{"event":"test"}');
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
       // Verify session state was moved to timestamped /tmp directory
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preservedDir = path.join(os.tmpdir(), `awf-agent-session-state-${timestamp}`);
       expect(fs.existsSync(preservedDir)).toBe(true);
       expect(fs.existsSync(path.join(preservedDir, 'abc-123', 'events.jsonl'))).toBe(true);
@@ -551,7 +535,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       fs.writeFileSync(path.join(sessionStateDir, 'events.jsonl'), '{"event":"test"}');
 
       try {
-        await cleanup(testDir, false, undefined, undefined, sessionStateDir);
+        await cleanup(getDir(), false, undefined, undefined, sessionStateDir);
 
         // Verify chmod was called on sessionStateDir (not moved)
         expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', sessionStateDir]);
@@ -564,18 +548,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
   });
 
   describe('collectDiagnosticLogs', () => {
-    let testDir: string;
-
-    beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
-      jest.clearAllMocks();
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-    });
+    const { getDir } = useTempDir('awf-');
 
     it('should create diagnostics directory and write container logs', async () => {
       // Mock docker logs returning content
@@ -603,11 +576,11 @@ describe('docker-manager writeConfigs and cleanup', () => {
         '      SOME_KEY: mykey',
         '      NORMAL_VAR: normalvalue',
       ].join('\n');
-      fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), composeContent);
+      fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), composeContent);
 
-      await collectDiagnosticLogs(testDir);
+      await collectDiagnosticLogs(getDir());
 
-      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      const diagnosticsDir = path.join(getDir(), 'diagnostics');
       expect(fs.existsSync(diagnosticsDir)).toBe(true);
 
       // awf-squid.log should have content
@@ -644,9 +617,9 @@ describe('docker-manager writeConfigs and cleanup', () => {
       mockExecaFn
         .mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }); // all containers return empty
 
-      await collectDiagnosticLogs(testDir);
+      await collectDiagnosticLogs(getDir());
 
-      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      const diagnosticsDir = path.join(getDir(), 'diagnostics');
       // No .log files should be written for empty output
       const files = fs.existsSync(diagnosticsDir) ? fs.readdirSync(diagnosticsDir) : [];
       const logFiles = files.filter(f => f.endsWith('.log'));
@@ -656,10 +629,10 @@ describe('docker-manager writeConfigs and cleanup', () => {
     it('should skip docker-compose.yml sanitization when file does not exist', async () => {
       mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 
-      // No docker-compose.yml created in testDir
-      await expect(collectDiagnosticLogs(testDir)).resolves.not.toThrow();
+      // No docker-compose.yml created in getDir()
+      await expect(collectDiagnosticLogs(getDir())).resolves.not.toThrow();
 
-      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      const diagnosticsDir = path.join(getDir(), 'diagnostics');
       expect(fs.existsSync(path.join(diagnosticsDir, 'docker-compose.yml'))).toBe(false);
     });
 
@@ -667,7 +640,7 @@ describe('docker-manager writeConfigs and cleanup', () => {
       // All docker commands throw errors
       mockExecaFn.mockRejectedValue(new Error('docker not found'));
 
-      await expect(collectDiagnosticLogs(testDir)).resolves.not.toThrow();
+      await expect(collectDiagnosticLogs(getDir())).resolves.not.toThrow();
     });
 
     it('should redact lowercase and mixed-case secret env var names', async () => {
@@ -682,11 +655,11 @@ describe('docker-manager writeConfigs and cleanup', () => {
         '      OAUTH_SECRET: uppercase_secret',
         '      not_sensitive: keepme',
       ].join('\n');
-      fs.writeFileSync(path.join(testDir, 'docker-compose.yml'), composeContent);
+      fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), composeContent);
 
-      await collectDiagnosticLogs(testDir);
+      await collectDiagnosticLogs(getDir());
 
-      const sanitized = fs.readFileSync(path.join(testDir, 'diagnostics', 'docker-compose.yml'), 'utf8');
+      const sanitized = fs.readFileSync(path.join(getDir(), 'diagnostics', 'docker-compose.yml'), 'utf8');
       // All three secret patterns should be redacted
       expect(sanitized).not.toContain('ghp_lowercase');
       expect(sanitized).not.toContain('mixedcase_value');
@@ -697,19 +670,14 @@ describe('docker-manager writeConfigs and cleanup', () => {
   });
 
   describe('cleanup - diagnostics preservation', () => {
-    let testDir: string;
+    const { getDir } = useTempDir('awf-');
 
     beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
-      jest.clearAllMocks();
       mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 0 });
     });
 
     afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const diagDir = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
       if (fs.existsSync(diagDir)) {
         fs.rmSync(diagDir, { recursive: true, force: true });
@@ -717,13 +685,13 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should preserve diagnostics to /tmp when no auditDir is specified', async () => {
-      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      const diagnosticsDir = path.join(getDir(), 'diagnostics');
       fs.mkdirSync(diagnosticsDir, { recursive: true });
       fs.writeFileSync(path.join(diagnosticsDir, 'awf-squid.log'), 'squid crashed\n');
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
       expect(fs.existsSync(preserved)).toBe(true);
       expect(fs.readFileSync(path.join(preserved, 'awf-squid.log'), 'utf8')).toBe('squid crashed\n');
@@ -732,11 +700,11 @@ describe('docker-manager writeConfigs and cleanup', () => {
     it('should co-locate diagnostics under auditDir/diagnostics when auditDir is specified', async () => {
       const auditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-test-'));
       try {
-        const diagnosticsDir = path.join(testDir, 'diagnostics');
+        const diagnosticsDir = path.join(getDir(), 'diagnostics');
         fs.mkdirSync(diagnosticsDir, { recursive: true });
         fs.writeFileSync(path.join(diagnosticsDir, 'awf-agent.log'), 'agent output\n');
 
-        await cleanup(testDir, false, undefined, auditDir);
+        await cleanup(getDir(), false, undefined, auditDir);
 
         const auditDiagnosticsDir = path.join(auditDir, 'diagnostics');
         expect(fs.existsSync(auditDiagnosticsDir)).toBe(true);
@@ -749,39 +717,29 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should not create diagnostics destination when diagnostics dir is empty', async () => {
       // Empty diagnostics dir
-      const diagnosticsDir = path.join(testDir, 'diagnostics');
+      const diagnosticsDir = path.join(getDir(), 'diagnostics');
       fs.mkdirSync(diagnosticsDir, { recursive: true });
 
-      await cleanup(testDir, false);
+      await cleanup(getDir(), false);
 
-      const timestamp = path.basename(testDir).replace('awf-', '');
+      const timestamp = path.basename(getDir()).replace('awf-', '');
       const preserved = path.join(os.tmpdir(), `awf-diagnostics-${timestamp}`);
       expect(fs.existsSync(preserved)).toBe(false);
     });
   });
 
   describe('preserveIptablesAudit', () => {
-    let testDir: string;
-
-    beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-'));
-    });
-
-    afterEach(() => {
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
-    });
+    const { getDir } = useTempDir('awf-audit-');
 
     it('should copy iptables audit file when both source and target directory exist', () => {
-      const initSignalDir = path.join(testDir, 'init-signal');
+      const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
       fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules here');
 
-      const auditDir = path.join(testDir, 'audit');
+      const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir, { recursive: true });
 
-      preserveIptablesAudit(testDir, auditDir);
+      preserveIptablesAudit(getDir(), auditDir);
 
       const destFile = path.join(auditDir, 'iptables-audit.txt');
       expect(fs.existsSync(destFile)).toBe(true);
@@ -789,33 +747,33 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should do nothing when source file does not exist', () => {
-      const auditDir = path.join(testDir, 'audit');
+      const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir, { recursive: true });
 
-      preserveIptablesAudit(testDir, auditDir);
+      preserveIptablesAudit(getDir(), auditDir);
 
       expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
     });
 
     it('should do nothing when target audit directory does not exist', () => {
-      const initSignalDir = path.join(testDir, 'init-signal');
+      const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
       fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules');
 
-      preserveIptablesAudit(testDir, path.join(testDir, 'nonexistent-audit'));
+      preserveIptablesAudit(getDir(), path.join(getDir(), 'nonexistent-audit'));
 
-      expect(fs.existsSync(path.join(testDir, 'nonexistent-audit', 'iptables-audit.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(getDir(), 'nonexistent-audit', 'iptables-audit.txt'))).toBe(false);
     });
 
     it('should use default audit dir (workDir/audit) when auditDir is not specified', () => {
-      const initSignalDir = path.join(testDir, 'init-signal');
+      const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
       fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'default audit');
 
-      const defaultAuditDir = path.join(testDir, 'audit');
+      const defaultAuditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(defaultAuditDir, { recursive: true });
 
-      preserveIptablesAudit(testDir);
+      preserveIptablesAudit(getDir());
 
       expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
