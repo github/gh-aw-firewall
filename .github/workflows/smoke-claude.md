@@ -16,7 +16,7 @@ name: Smoke Claude
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 5
+  max-turns: 2
 sandbox:
   mcp:
     version: v0.3.1
@@ -24,6 +24,7 @@ strict: false
 tools:
   bash:
     - "*"
+  github: false
 safe-outputs:
     threat-detection:
       enabled: false
@@ -118,13 +119,12 @@ Pre-computed data is available:
 - **Workflow context**: Source `/tmp/gh-aw/agent/workflow-context.env` for trigger/run variables
 
 **CRITICAL — Single Response Execution:**
-This workflow should complete in exactly 1 LLM turn (your first response); `max-turns: 5` is a hard cap for safety.
+This workflow should complete in exactly 1 LLM turn (your first response); `max-turns: 2` is a hard cap for safety.
 All required data exists in pre-created files. There is nothing to explore, investigate, or validate beyond reading the 3 files listed below.
 
 Steps:
 1. Make ONE bash tool call containing all commands shown below
-2. Make ONE safeoutputs tool call based on the trigger type
-3. End your response — task complete
+2. End your response — task complete
 
 If you find yourself thinking "I should check..." or "Let me verify..." — STOP. The pre-steps already verified everything.
 
@@ -138,10 +138,14 @@ cat /tmp/gh-aw/agent/recent-prs.json
 cat /tmp/gh-aw/agent/smoke-context.txt
 cat /tmp/gh-aw/agent/smoke-test-claude-${GITHUB_RUN_ID}.txt
 if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-  printf '{"issue_number":%s,"body":"✅ All checks passed"}' "$PR_NUMBER" > /tmp/gh-aw/agent/result.json
+  printf '{"issue_number":%s,"body":"✅ GitHub API: 2 PRs\n✅ GitHub check: PASS\n✅ File verify: PASS\n\n**Total: PASS**"}' \
+    "$PR_NUMBER" > /tmp/gh-aw/agent/result.json
   safeoutputs add_comment . < /tmp/gh-aw/agent/result.json
+  printf '{"issue_number":%s,"labels":["smoke-claude"]}' \
+    "$PR_NUMBER" > /tmp/gh-aw/agent/labels.json
+  safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json
 else
-  safeoutputs noop --message "Smoke test completed successfully"
+  safeoutputs noop --message "Smoke test passed"
 fi
 ```
 
@@ -159,3 +163,5 @@ Call safe-outputs immediately after these 3 reads.
 
 **If triggered by pull request**: add a brief comment (✅/❌ per test, PASS/FAIL total) and add label `smoke-claude` if all pass.
 **If not triggered by pull request**: use noop to report results.
+
+After calling safeoutputs, stop immediately. Do NOT produce a text summary turn.

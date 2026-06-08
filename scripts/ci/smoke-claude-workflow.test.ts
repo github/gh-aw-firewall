@@ -9,7 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-step GitHub check and stricter turn budget in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 5');
+    expect(source).toContain('max-turns: 2');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -20,10 +20,13 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('<< ENVEOF');
     expect(source).not.toContain("<< 'ENVEOF'");
     expect(source).toContain('**CRITICAL — Single Response Execution:**');
-    expect(source).toContain('`max-turns: 5` is a hard cap for safety.');
+    expect(source).toContain('`max-turns: 2` is a hard cap for safety.');
+    expect(source).toContain('github: false');
     expect(source).toContain('## Expected Commands');
     expect(source).toContain('source /tmp/gh-aw/agent/workflow-context.env');
     expect(source).toContain('safeoutputs add_comment . < /tmp/gh-aw/agent/result.json');
+    expect(source).toContain('safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json');
+    expect(source).toContain('After calling safeoutputs, stop immediately.');
     expect(source).toContain("Use the `safeoutputs` CLI (`add_comment`, `add_labels`, `noop`) with real arguments.");
     expect(source).toContain('Do not use pipe-to-stdin for safeoutputs JSON payloads.');
     expect(source).toContain('Never call `add_comment` or `add_labels` with empty arguments');
@@ -35,10 +38,12 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('Ensure playwright log directory is writable');
   });
 
-  it('compiles the workflow without playwright tools and with max-turns 5', () => {
+  it('compiles the workflow without playwright tools and with max-turns 2', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain('--max-turns 2');
+    expect(lock).not.toContain('--max-turns 5');
+    expect(lock).not.toContain('mcp__github__');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');
