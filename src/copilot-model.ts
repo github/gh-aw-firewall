@@ -9,7 +9,7 @@ interface CopilotModelValidationFailure {
   message: string;
 }
 
-type CopilotModelValidationResult =
+export type CopilotModelValidationResult =
   | CopilotModelValidationSuccess
   | CopilotModelValidationFailure;
 
