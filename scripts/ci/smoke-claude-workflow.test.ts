@@ -26,6 +26,12 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('source /tmp/gh-aw/agent/workflow-context.env');
     expect(source).toContain('safeoutputs add_comment . < /tmp/gh-aw/agent/result.json');
     expect(source).toContain('safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json');
+    // add_labels is conditional on TOTAL=PASS — must not be called unconditionally
+    expect(source).toContain('if [ "$TOTAL" = "PASS" ]');
+    // Results evaluated dynamically from context file, not hard-coded
+    expect(source).toContain("echo \"$GH_CHECK\" | grep -q '✅'");
+    // Explicit guard against direct MCP tool calls that caused CI probe failures
+    expect(source).toContain('Do NOT call the `mcp__safeoutputs` MCP tools directly');
     expect(source).toContain('After calling safeoutputs, stop immediately.');
     expect(source).toContain("Use the `safeoutputs` CLI (`add_comment`, `add_labels`, `noop`) with real arguments.");
     expect(source).toContain('Do not use pipe-to-stdin for safeoutputs JSON payloads.');
