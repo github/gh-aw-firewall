@@ -39,14 +39,35 @@ function getAiCreditsConfig() {
   return aiCreditsConfigCache.parsed;
 }
 
+/**
+ * Canonicalize a model name by stripping provider prefix and normalizing
+ * separators (dash, dot, underscore are all treated as equivalent).
+ * E.g. "copilot/claude-sonnet-4.6" → "claude-sonnet-4-6"
+ *      "claude_sonnet_4_6"          → "claude-sonnet-4-6"
+ */
+function canonicalizeModel(model) {
+  const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+  return bare.replace(/[._]/g, '-');
+}
+
 function resolveModelPricing(model, state = aiCreditsState) {
   if (Object.hasOwn(pricingByModel, model)) return pricingByModel[model];
 
+  const canonical = canonicalizeModel(model);
+
+  // Try canonical form against canonicalized pricing keys
+  for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
+    const canonicalKey = canonicalizeModel(configuredModel);
+    if (canonical === canonicalKey) return pricing;
+  }
+
+  // Prefix match: canonical model starts with a canonical pricing key
   let prefixMatch = null;
   for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
-    if (model.startsWith(`${configuredModel}-`)) {
-      if (!prefixMatch || configuredModel.length > prefixMatch.model.length) {
-        prefixMatch = { model: configuredModel, pricing };
+    const canonicalKey = canonicalizeModel(configuredModel);
+    if (canonical.startsWith(`${canonicalKey}-`)) {
+      if (!prefixMatch || canonicalKey.length > prefixMatch.key.length) {
+        prefixMatch = { key: canonicalKey, pricing };
       }
     }
   }
