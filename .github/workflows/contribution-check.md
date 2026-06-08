@@ -44,10 +44,12 @@ steps:
       DELIM="GHAW_CONTRIBUTING_$(date +%s)"
       {
         echo "CONTENT<<${DELIM}"
-        cat CONTRIBUTING.md 2>/dev/null || echo "(CONTRIBUTING.md not found)"
+        gh api "repos/${GH_REPO}/contents/CONTRIBUTING.md" --jq '.content' 2>/dev/null | tr -d '\n' | base64 -d 2>/dev/null || echo "(CONTRIBUTING.md not found)"
         echo "${DELIM}"
       } >> "$GITHUB_OUTPUT"
-
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
   - name: Fetch PR changed files
     id: pr-diff
     if: github.event.pull_request.number
