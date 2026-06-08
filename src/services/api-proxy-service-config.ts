@@ -153,6 +153,9 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...(config.maxAiCredits !== undefined && {
         AWF_MAX_AI_CREDITS: String(config.maxAiCredits),
       }),
+      ...(config.defaultAiCreditsPricing && {
+        AWF_DEFAULT_AI_CREDITS_PRICING: JSON.stringify(config.defaultAiCreditsPricing),
+      }),
       ...(config.effectiveTokenModelMultipliers && {
         AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
       }),

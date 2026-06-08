@@ -18,6 +18,9 @@ permissions:
   issues: read
   pull-requests: read
 
+env:
+  COPILOT_MODEL: claude-haiku-4-5
+
 sandbox:
   agent:
     id: awf
@@ -29,12 +32,9 @@ tools:
   github:
     toolsets: [repos]
   bash:
-    - "npm run test"
-    - "npm run lint"
     - "node:*"
     - "./node_modules/.bin/jest:*"
     - "./node_modules/.bin/eslint:*"
-    - "cat:src/*.test.ts"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"
 
@@ -146,14 +146,13 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI that provi
 
 ## Turn Budget
 
-**Complete this task in ≤ 10 tool calls.** The target file and its current tests are already injected below — do not re-read them unless the injected section is unexpectedly empty. The coverage summary is already provided. Jump directly to writing tests.
+**Complete this task in ≤ 6 tool calls.** The target file and its current tests are already injected below — do not re-read them unless the injected section is unexpectedly empty. The coverage summary is already provided. Jump directly to writing tests.
 
 Expected sequence:
 1. Write the new/updated test file (1 call)
 2. Targeted rerun only when needed: `./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60`
-3. `npm run test` (1 call, final verification only)
-4. `npm run lint` (1 call) — fix any issues in ≤ 1 more call
-5. Create PR (1 call)
+3. Optional targeted lint for changed test file only: `./node_modules/.bin/eslint <file> --max-warnings=0`
+4. Create PR (1 call)
 
 ## Your Task
 
@@ -166,7 +165,7 @@ The target file is pre-selected below. Write Jest unit tests that:
 
 If the injected target section below is unexpectedly empty, use `cat` to read `${{ steps.target.outputs.TARGET_FILE }}` directly before writing tests.
 
-Run targeted Jest reruns only when fixing failures, run full `npm run test` at most once for final verification, then run `npm run lint` and open a draft PR titled `[Test Coverage] <target-file>`.
+Run targeted Jest reruns only when fixing failures, do not run full-suite `npm run test` or `npm run lint` in this workflow, and open a draft PR titled `[Test Coverage] <target-file>`.
 
 ## Target File (pre-selected)
 

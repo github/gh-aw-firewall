@@ -994,7 +994,7 @@ Set in the AWF config file (not available as a CLI flag):
 ```json
 {
   "apiProxy": {
-    "maxRuns": 50
+    "maxTurns": 50
   }
 }
 ```
@@ -1040,7 +1040,7 @@ The `/reflect` endpoint exposes the current max-runs state under the `runs` key:
 }
 ```
 
-When `maxRuns` is not configured, `enabled` is `false` and `max_runs`/`remaining_runs` are `null`.
+When `maxTurns` is not configured, `enabled` is `false` and `max_runs`/`remaining_runs` are `null`.
 
 ### Detecting the limit
 

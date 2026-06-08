@@ -77,6 +77,18 @@
           "exclusiveMinimum": 0,
           "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'ai_credits_limit_exceeded'."
         },
+        "defaultAiCreditsPricing": {
+          "type": "object",
+          "description": "Fallback per-token pricing ($/1M tokens) for models not in the built-in pricing table. When maxAiCredits is active and a model is unrecognized, this rate is used. If not set, unrecognized models are rejected with HTTP 400 (type: unknown_model_ai_credits).",
+          "required": ["input", "output"],
+          "properties": {
+            "input": { "type": "number", "minimum": 0, "description": "Input token price per 1M tokens in dollars." },
+            "output": { "type": "number", "minimum": 0, "description": "Output token price per 1M tokens in dollars." },
+            "cachedInput": { "type": "number", "minimum": 0, "description": "Cached input token price per 1M tokens. Defaults to input × 0.1 if omitted." },
+            "cacheWrite": { "type": ["number", "null"], "minimum": 0, "description": "Cache write token price per 1M tokens. Null means cache writes are free." }
+          },
+          "additionalProperties": false
+        },
         "modelMultipliers": {
           "type": "object",
           "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
@@ -95,10 +107,15 @@
           "exclusiveMinimum": 0,
           "description": "Maximum allowed model multiplier. When set, the proxy resolves each incoming request's model against the configured modelMultipliers (and defaultModelMultiplier) and rejects any request whose resolved multiplier exceeds this cap with HTTP 400 and error type model_multiplier_cap_exceeded. This guards against unexpected pricing spikes from model routing changes."
         },
-        "maxRuns": {
+        "maxTurns": {
           "type": "integer",
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+        },
+        "maxRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Deprecated alias for maxTurns. Use maxTurns instead."
         },
         "maxPermissionDenied": {
           "type": "integer",

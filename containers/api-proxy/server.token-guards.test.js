@@ -100,7 +100,7 @@ describe('proxyRequest effective token guard', () => {
     expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
   });
 
-  it('logs ai credits and effective tokens for each response usage update', () => {
+  it('logs ai credits for each response usage update', () => {
     const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
     let responseHandler;
     const upstreamRequest = new EventEmitter();
@@ -131,7 +131,6 @@ describe('proxyRequest effective token guard', () => {
     const budgetLogs = getStructuredLogs(writeSpy, 'token_budget_usage');
     expect(budgetLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        effective_tokens_this_response: 3000,
         ai_credits_this_response: 0.125,
         ai_credits_total: 0.125,
       }),
@@ -483,6 +482,24 @@ describe('proxyRequest max-model-multiplier guard', () => {
 
     const body = JSON.stringify({ model: 'claude-opus-4.7', messages: [] });
     const req = makeModelReq(body);
+    const res = makeRes();
+    proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
+    req.emit('end');
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
+  });
+
+  it('does not enforce model multiplier guard on GET requests', () => {
+    const upstreamRequest = new EventEmitter();
+    upstreamRequest.end = jest.fn();
+    upstreamRequest.write = jest.fn();
+    upstreamRequest.destroy = jest.fn();
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const body = JSON.stringify({ model: 'claude-opus-4.7', messages: [] });
+    const req = makeModelReq(body);
+    req.method = 'GET';
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');

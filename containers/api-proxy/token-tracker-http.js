@@ -59,7 +59,7 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {object} opts.metrics - Metrics module reference
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
- * @param {(normalizedUsage: object, model: string|null) => void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeTracking() to signal span completion
  */
 function trackTokenUsage(proxyRes, opts) {
@@ -194,6 +194,7 @@ function trackTokenUsage(proxyRes, opts) {
     const duration = Date.now() - startTime;
     let usage = null;
     let model = null;
+    let budgetResult;
 
     if (streaming) {
       // Process any remaining partial line
@@ -267,7 +268,7 @@ function trackTokenUsage(proxyRes, opts) {
     }
     if (typeof onUsage === 'function') {
       try {
-        onUsage(normalized, model || 'unknown');
+        budgetResult = onUsage(normalized, model || 'unknown');
       } catch {
         // best-effort callback
       }
@@ -291,6 +292,25 @@ function trackTokenUsage(proxyRes, opts) {
     // Include billing/quota info when available (Copilot PRU tracking)
     if (initiatorSent) record.x_initiator = initiatorSent;
     if (billingInfo) record.billing = billingInfo;
+
+    // Include effective token and AI credit budget fields when computed
+    if (budgetResult) {
+      if (budgetResult.effective_tokens_this_response != null) {
+        record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
+      }
+      if (budgetResult.effective_tokens_total != null) {
+        record.effective_tokens_total = budgetResult.effective_tokens_total;
+      }
+      if (budgetResult.model_multiplier != null) {
+        record.model_multiplier = budgetResult.model_multiplier;
+      }
+      if (budgetResult.ai_credits_this_response != null) {
+        record.ai_credits_this_response = budgetResult.ai_credits_this_response;
+      }
+      if (budgetResult.ai_credits_total != null) {
+        record.ai_credits_total = budgetResult.ai_credits_total;
+      }
+    }
 
     // Write to JSONL log file
     writeTokenUsage(record);

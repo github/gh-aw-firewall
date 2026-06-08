@@ -4,7 +4,7 @@ const http = require('http');
 const { httpPost } = require('./github-oidc');
 const { AnthropicOidcTokenProvider } = require('./anthropic-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
-const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
+const { withMockServer, testInitializationFailure } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers, body) => {
@@ -248,31 +248,11 @@ describe('AnthropicOidcTokenProvider', () => {
   });
 
   it('should handle initialization failure gracefully', async () => {
-    const failServer = http.createServer((req, res) => {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
-    });
-
-    await new Promise(resolve => failServer.listen(0, '127.0.0.1', resolve));
-    const failPort = failServer.address().port;
-
-    const provider = new AnthropicOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${failPort}/token`,
-      requestToken: 'bad-token',
+    await testInitializationFailure(AnthropicOidcTokenProvider, {
       federationRuleId: 'fdrl_test',
       organizationId: 'org-uuid-test',
       serviceAccountId: 'svac_test',
-      retryDelayMs: 10,
-      maxInitRetries: 2,
     });
-
-    await provider.initialize();
-
-    expect(provider.isReady()).toBe(false);
-    expect(provider.getToken()).toBeNull();
-
-    provider.shutdown();
-    await new Promise(resolve => failServer.close(resolve));
   });
 
   it('should use https://api.anthropic.com as default audience', () => {

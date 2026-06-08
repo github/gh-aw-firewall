@@ -1,9 +1,8 @@
 'use strict';
 
-const http = require('http');
 const { GcpOidcTokenProvider } = require('./gcp-oidc-token-provider');
 const { createBaseMockServer } = require('./test-helpers/mock-oidc-server');
-const { withMockServer } = require('./test-helpers/oidc-test-helpers.test-utils');
+const { withMockServer, testInitializationFailure } = require('./test-helpers/oidc-test-helpers.test-utils');
 
 function createMockServer(handlers = {}) {
   return createBaseMockServer((url, req, res, routeHandlers, body) => {
@@ -117,29 +116,9 @@ describe('GcpOidcTokenProvider', () => {
   });
 
   it('should handle initialization failure gracefully', async () => {
-    const failServer = http.createServer((req, res) => {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
-    });
-
-    await new Promise(resolve => failServer.listen(0, '127.0.0.1', resolve));
-    const failPort = failServer.address().port;
-
-    const provider = new GcpOidcTokenProvider({
-      requestUrl: `http://127.0.0.1:${failPort}/token`,
-      requestToken: 'bad-token',
+    await testInitializationFailure(GcpOidcTokenProvider, {
       workloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
-      retryDelayMs: 10,
-      maxInitRetries: 2,
     });
-
-    await provider.initialize();
-
-    expect(provider.isReady()).toBe(false);
-    expect(provider.getToken()).toBeNull();
-
-    provider.shutdown();
-    await new Promise(resolve => failServer.close(resolve));
   });
 
   it('should use workloadIdentityProvider as default audience', () => {

@@ -1,4 +1,4 @@
-import { mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
+import { mockedExeca, setupDefaultIptablesMocks, setupDockerBridgeMock, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { HostAccessConfig, setupHostIptables } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 import { expectGatewayHttpAcceptRules } from './host-iptables-test-helpers.test-utils';
@@ -11,15 +11,7 @@ describe('host-iptables (host access)', () => {
       setupDefaultIptablesMocks();
 
       // Default mock for all subsequent calls; getDockerBridgeGateway returns 172.17.0.1
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        if (cmd === 'ip6tables') {
-          return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -57,12 +49,7 @@ describe('host-iptables (host access)', () => {
     it('should add custom port rules when allowHostPorts is specified', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -95,13 +82,8 @@ describe('host-iptables (host access)', () => {
     it('should only use AWF gateway when Docker bridge gateway is null', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        // Make getDockerBridgeGateway return null (docker network inspect bridge fails)
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.reject(new Error('network bridge not found'));
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      // Make getDockerBridgeGateway return null (docker network inspect bridge fails)
+      setupDockerBridgeMock({ error: new Error('network bridge not found') });
 
       const hostAccess: HostAccessConfig = { enabled: true };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -124,12 +106,7 @@ describe('host-iptables (host access)', () => {
     it('should only add default ports when allowHostPorts is empty', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -141,12 +118,7 @@ describe('host-iptables (host access)', () => {
     it('should support port ranges in allowHostPorts', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000-3010' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -167,12 +139,7 @@ describe('host-iptables (host access)', () => {
     it('should skip invalid ports in allowHostServicePorts', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: 'abc,99999,-1' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -199,12 +166,7 @@ describe('host-iptables (host access)', () => {
     it('should skip invalid ports in allowHostPorts', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: 'abc,99999,-1' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -227,12 +189,7 @@ describe('host-iptables (host access)', () => {
     it('should deduplicate ports when custom ports overlap with defaults', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       // Pass 80 and 443 as custom ports (duplicates of defaults) plus 3000
       const hostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '80,443,3000' };
@@ -261,12 +218,7 @@ describe('host-iptables (host access)', () => {
     it('should add service port rules when allowHostServicePorts is specified', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: '5432,6379' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -297,12 +249,7 @@ describe('host-iptables (host access)', () => {
     it('should skip invalid service ports in allowHostServicePorts', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: 'abc,99999,-1,5432' };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
@@ -329,12 +276,7 @@ describe('host-iptables (host access)', () => {
     it('should deduplicate service ports with regular host ports', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       // Both allowHostPorts and allowHostServicePorts include 5432
       const hostAccess: HostAccessConfig = {
@@ -369,13 +311,8 @@ describe('host-iptables (host access)', () => {
     it('should skip gateway rule when Docker bridge returns non-IPv4 gateway', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        // Return non-IPv4 (e.g. IPv6 address) from Docker bridge gateway
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: 'not-an-ip-address', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      // Return non-IPv4 (e.g. IPv6 address) from Docker bridge gateway
+      setupDockerBridgeMock({ gateway: 'not-an-ip-address' });
 
       const hostAccess = { enabled: true };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);

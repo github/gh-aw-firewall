@@ -1,5 +1,12 @@
 import { API_PROXY_PORTS } from './types';
-import { execaError, execaResult, mockedExeca, setupDefaultIptablesMocks, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
+import {
+  execaError,
+  execaResult,
+  mockedExeca,
+  setupDefaultIptablesMocks,
+  setupDockerBridgeMock,
+  setupHostIptablesTestSuite,
+} from './test-helpers/host-iptables-test-setup';
 import { iptablesRulesTestHelpers } from './host-iptables-rules.test-utils';
 import { setupHostIptables } from './host-iptables';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
@@ -324,13 +331,8 @@ describe('host-iptables (setup)', () => {
     it('should add iptables rules allowing cli-proxy to reach host gateway when cliProxyConfig is provided', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        // getDockerBridgeGateway
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      // getDockerBridgeGateway
+      setupDockerBridgeMock();
 
       const cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: 18443 };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, cliProxyConfig);
@@ -353,12 +355,7 @@ describe('host-iptables (setup)', () => {
     it('should only add AWF gateway rule when Docker bridge gateway is unavailable', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.reject(new Error('bridge network not found'));
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock({ error: new Error('bridge network not found') });
 
       const cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: 18443 };
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, cliProxyConfig);
@@ -380,12 +377,7 @@ describe('host-iptables (setup)', () => {
     it('should resolve Docker bridge gateway once when cliProxyConfig and hostAccess are both enabled', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '172.17.0.1', stderr: '', exitCode: 0 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock();
 
       const cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: 18443 };
       const hostAccess = { enabled: true };
@@ -498,12 +490,7 @@ describe('host-iptables (setup)', () => {
     it('should skip empty entries in allowHostPorts (covers parseValidPortSpecs empty-entry branch)', async () => {
       setupDefaultIptablesMocks();
 
-      mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
-        if (cmd === 'docker' && args.includes('bridge')) {
-          return Promise.resolve({ stdout: '', stderr: '', exitCode: 1 });
-        }
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
-      }) as any);
+      setupDockerBridgeMock({ gateway: '', exitCode: 1 });
 
       // "80,,443,8080" contains an empty entry between the two commas; 8080 is a non-default port
       await setupHostIptables(

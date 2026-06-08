@@ -56,6 +56,33 @@ export GIT_SSL_CAINFO="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 
+# Probe external DIFC proxy liveness before serving agent traffic.
+# If this fails, keep retries tightly bounded and fail startup early so
+# workflows do not enter long in-agent retry loops for connection-refused errors.
+MAX_LIVENESS_ATTEMPTS="${AWF_CLI_PROXY_LIVENESS_ATTEMPTS:-2}"
+LIVENESS_SLEEP_SECONDS="${AWF_CLI_PROXY_LIVENESS_SLEEP_SECONDS:-1}"
+LIVENESS_TIMEOUT_SECONDS="${AWF_CLI_PROXY_LIVENESS_TIMEOUT_SECONDS:-5}"
+ATTEMPT=1
+while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
+  PROBE_ERR=""
+  if PROBE_ERR="$(timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit 2>&1 >/dev/null)"; then
+    echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
+    break
+  fi
+  PROBE_EXIT=$?
+  if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
+    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT})"
+    if [ -n "${PROBE_ERR}" ]; then
+      echo "[cli-proxy] gh api error: ${PROBE_ERR}"
+    fi
+    echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
+    exit 1
+  fi
+  echo "[cli-proxy] DIFC proxy probe failed (attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}), retrying in ${LIVENESS_SLEEP_SECONDS}s..."
+  sleep "${LIVENESS_SLEEP_SECONDS}"
+  ATTEMPT=$((ATTEMPT + 1))
+done
+
 # Cleanup handler: stop the Node HTTP server and TCP tunnel on signal
 cleanup() {
   echo "[cli-proxy] Shutting down..."

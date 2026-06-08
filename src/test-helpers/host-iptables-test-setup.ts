@@ -74,3 +74,34 @@ export function setupDefaultIptablesMocks(
     .mockResolvedValueOnce(execaResult({ exitCode: chainExists ? 0 : 1 }));
   mockedExeca.mockResolvedValue(execaResult({ stdout: catchAllStdout, exitCode: 0 }));
 }
+
+export function setupDockerBridgeMock(opts: {
+  gateway?: string;
+  exitCode?: number;
+  stderr?: string;
+  error?: Error;
+} = {}): void {
+  const {
+    gateway = '172.17.0.1',
+    exitCode = 0,
+    stderr = '',
+    error,
+  } = opts;
+
+  const previousImplementation = mockedExeca.getMockImplementation();
+
+  const mockImplementation: MockedExecaFn = (cmd: string, args: readonly string[] = [], options?: unknown) => {
+    if (cmd === 'docker' && args.includes('bridge')) {
+      if (error) {
+        return Promise.reject(error);
+      }
+      return Promise.resolve(execaResult({ stdout: gateway, stderr, exitCode }));
+    }
+
+    return previousImplementation
+      ? previousImplementation(cmd, args, options)
+      : Promise.resolve(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
+  };
+
+  mockedExeca.mockImplementation(mockImplementation);
+}

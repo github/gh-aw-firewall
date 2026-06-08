@@ -60,6 +60,7 @@ const {
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  checkUnknownModelRejection,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
 
@@ -360,6 +361,127 @@ function sendUpstreamRequest(requestHeaders, {
   proxyReq.end();
 }
 
+function sendGuardBlockedResponse(block, {
+  req,
+  res,
+  provider,
+  requestId,
+  startTime,
+  span,
+  statusCode,
+  eventName,
+  buildError,
+  buildLogFields,
+}) {
+  const duration = Date.now() - startTime;
+  metrics.gaugeDec('active_requests', { provider });
+  metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+  metrics.observe('request_duration_ms', duration, { provider });
+  logRequest('warn', eventName, {
+    request_id: requestId,
+    provider,
+    ...buildLogFields(block),
+  });
+  otel.endSpan(span, statusCode);
+  res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+  res.end(JSON.stringify(buildError(block)));
+}
+
+function enforceGuards({ body, provider, req, res, requestId, startTime, span }) {
+  const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
+  const guardChecks = [
+    {
+      block: getEffectiveTokenBlockState(),
+      isBlocked: block => block && block.maxExceeded,
+      statusCode: 429,
+      eventName: 'effective_tokens_limit_exceeded',
+      buildError: buildEffectiveTokenLimitError,
+      buildLogFields: block => ({
+        total_effective_tokens: block.totalEffectiveTokens,
+        max_effective_tokens: block.maxEffectiveTokens,
+      }),
+    },
+    {
+      block: getMaxRunsBlockState(),
+      isBlocked: block => block && block.maxExceeded,
+      statusCode: 429,
+      eventName: 'max_runs_exceeded',
+      buildError: buildMaxRunsExceededError,
+      buildLogFields: block => ({
+        invocation_count: block.invocationCount,
+        max_runs: block.maxRuns,
+      }),
+    },
+    {
+      block: getPermissionDeniedBlockState(),
+      isBlocked: block => block && block.maxExceeded,
+      statusCode: 403,
+      eventName: 'permission_denied_limit_exceeded',
+      buildError: buildPermissionDeniedLimitError,
+      buildLogFields: block => ({
+        denied_count: block.deniedCount,
+        max_permission_denied: block.maxPermissionDenied,
+      }),
+    },
+    {
+      block: getAiCreditsBlockState(),
+      isBlocked: block => block && block.maxExceeded,
+      statusCode: 429,
+      eventName: 'ai_credits_limit_exceeded',
+      buildError: buildAiCreditsLimitError,
+      buildLogFields: block => ({
+        total_ai_credits: block.totalAiCredits,
+        max_ai_credits: block.maxAiCredits,
+      }),
+    },
+    ...(checkModelMultiplier
+      ? [{
+        block: getModelMultiplierCapBlockState(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'model_multiplier_cap_exceeded',
+        buildError: buildModelMultiplierCapError,
+        buildLogFields: block => ({
+          model: block.model,
+          model_multiplier: block.multiplier,
+          max_model_multiplier: block.maxModelMultiplier,
+        }),
+      }]
+      : []),
+    ...(checkModelMultiplier
+      ? [{
+        block: checkUnknownModelRejection(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'unknown_model_ai_credits',
+        buildError: block => block.error,
+        buildLogFields: block => ({
+          model: block.model,
+        }),
+      }]
+      : []),
+  ];
+
+  for (const guard of guardChecks) {
+    if (!guard.isBlocked(guard.block)) continue;
+    sendGuardBlockedResponse(guard.block, {
+      req,
+      res,
+      provider,
+      requestId,
+      startTime,
+      span,
+      statusCode: guard.statusCode,
+      eventName: guard.eventName,
+      buildError: guard.buildError,
+      buildLogFields: guard.buildLogFields,
+    });
+    return true;
+  }
+
+  return false;
+}
+
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
@@ -515,99 +637,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     const headers = buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId });
 
-    const etBlock = getEffectiveTokenBlockState();
-    if (etBlock && etBlock.maxExceeded) {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('warn', 'effective_tokens_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        total_effective_tokens: etBlock.totalEffectiveTokens,
-        max_effective_tokens: etBlock.maxEffectiveTokens,
-      });
-      otel.endSpan(span, 429);
-      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
-      return;
-    }
-
-    const mrBlock = getMaxRunsBlockState();
-    if (mrBlock && mrBlock.maxExceeded) {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('warn', 'max_runs_exceeded', {
-        request_id: requestId,
-        provider,
-        invocation_count: mrBlock.invocationCount,
-        max_runs: mrBlock.maxRuns,
-      });
-      otel.endSpan(span, 429);
-      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
-      return;
-    }
-
-    const pdBlock = getPermissionDeniedBlockState();
-    if (pdBlock && pdBlock.maxExceeded) {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('warn', 'permission_denied_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        denied_count: pdBlock.deniedCount,
-        max_permission_denied: pdBlock.maxPermissionDenied,
-      });
-      otel.endSpan(span, 403);
-      res.writeHead(403, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify(buildPermissionDeniedLimitError(pdBlock)));
-      return;
-    }
-
-    const aiCreditsBlock = getAiCreditsBlockState();
-    if (aiCreditsBlock && aiCreditsBlock.maxExceeded) {
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      metrics.observe('request_duration_ms', duration, { provider });
-      logRequest('warn', 'ai_credits_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        total_ai_credits: aiCreditsBlock.totalAiCredits,
-        max_ai_credits: aiCreditsBlock.maxAiCredits,
-      });
-      otel.endSpan(span, 429);
-      res.writeHead(429, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-      res.end(JSON.stringify(buildAiCreditsLimitError(aiCreditsBlock)));
-      return;
-    }
-
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-      const bodyModel = extractModelFromBody(body);
-      const mmBlock = getModelMultiplierCapBlockState(bodyModel);
-      if (mmBlock) {
-        const duration = Date.now() - startTime;
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-        metrics.observe('request_duration_ms', duration, { provider });
-        logRequest('warn', 'model_multiplier_cap_exceeded', {
-          request_id: requestId,
-          provider,
-          model: mmBlock.model,
-          model_multiplier: mmBlock.multiplier,
-          max_model_multiplier: mmBlock.maxModelMultiplier,
-        });
-        otel.endSpan(span, 400);
-        res.writeHead(400, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-        res.end(JSON.stringify(buildModelMultiplierCapError(mmBlock)));
-        return;
-      }
-    }
+    if (enforceGuards({ body, provider, req, res, requestId, startTime, span })) return;
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,

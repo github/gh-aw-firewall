@@ -313,6 +313,178 @@ describe('token-usage JSONL record schema field', () => {
       done();
     }, 20);
   });
+
+  test('trackTokenUsage HTTP path persists optional budget fields returned by onUsage', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.statusCode = 200;
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'budget-fields-http',
+      provider: 'openai',
+      path: '/v1/chat/completions',
+      startTime: Date.now(),
+      metrics: null,
+      onUsage: () => ({
+        effective_tokens_this_response: 40,
+        effective_tokens_total: 140,
+        model_multiplier: 2,
+        ai_credits_this_response: 0.01,
+        ai_credits_total: 0.05,
+      }),
+    });
+
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    })));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed).toMatchObject({
+        request_id: 'budget-fields-http',
+        effective_tokens_this_response: 40,
+        effective_tokens_total: 140,
+        model_multiplier: 2,
+        ai_credits_this_response: 0.01,
+        ai_credits_total: 0.05,
+      });
+      done();
+    }, 20);
+  });
+
+  test('trackTokenUsage HTTP path omits optional budget fields when onUsage returns undefined', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.statusCode = 200;
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'budget-fields-http-none',
+      provider: 'openai',
+      path: '/v1/chat/completions',
+      startTime: Date.now(),
+      metrics: null,
+      onUsage: () => undefined,
+    });
+
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    })));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed.effective_tokens_this_response).toBeUndefined();
+      expect(parsed.effective_tokens_total).toBeUndefined();
+      expect(parsed.model_multiplier).toBeUndefined();
+      expect(parsed.ai_credits_this_response).toBeUndefined();
+      expect(parsed.ai_credits_total).toBeUndefined();
+      done();
+    }, 20);
+  });
+
+  test('trackWebSocketTokenUsage path persists optional budget fields returned by onUsage', (done) => {
+    const socket = new EventEmitter();
+
+    function buildFrame(text) {
+      const payload = Buffer.from(text, 'utf8');
+      const header = Buffer.alloc(2);
+      header[0] = 0x81;
+      header[1] = payload.length;
+      return Buffer.concat([header, payload]);
+    }
+
+    const httpHeader = Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n');
+    const frame1 = buildFrame(JSON.stringify({
+      type: 'message_start',
+      message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 20, output_tokens: 0 } },
+    }));
+    const frame2 = buildFrame(JSON.stringify({
+      type: 'message_delta',
+      usage: { output_tokens: 8 },
+    }));
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'budget-fields-ws',
+      provider: 'anthropic',
+      path: '/v1/messages',
+      startTime: Date.now(),
+      metrics: null,
+      onUsage: () => ({
+        effective_tokens_this_response: 112,
+        effective_tokens_total: 224,
+        model_multiplier: 4,
+        ai_credits_this_response: 0.02,
+        ai_credits_total: 0.08,
+      }),
+    });
+
+    socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
+    socket.emit('close');
+
+    setTimeout(() => {
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed).toMatchObject({
+        request_id: 'budget-fields-ws',
+        effective_tokens_this_response: 112,
+        effective_tokens_total: 224,
+        model_multiplier: 4,
+        ai_credits_this_response: 0.02,
+        ai_credits_total: 0.08,
+      });
+      done();
+    }, 20);
+  });
+
+  test('trackWebSocketTokenUsage path omits optional budget fields when onUsage returns undefined', (done) => {
+    const socket = new EventEmitter();
+
+    function buildFrame(text) {
+      const payload = Buffer.from(text, 'utf8');
+      const header = Buffer.alloc(2);
+      header[0] = 0x81;
+      header[1] = payload.length;
+      return Buffer.concat([header, payload]);
+    }
+
+    const httpHeader = Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n');
+    const frame1 = buildFrame(JSON.stringify({
+      type: 'message_start',
+      message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 20, output_tokens: 0 } },
+    }));
+    const frame2 = buildFrame(JSON.stringify({
+      type: 'message_delta',
+      usage: { output_tokens: 8 },
+    }));
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'budget-fields-ws-none',
+      provider: 'anthropic',
+      path: '/v1/messages',
+      startTime: Date.now(),
+      metrics: null,
+      onUsage: () => undefined,
+    });
+
+    socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
+    socket.emit('close');
+
+    setTimeout(() => {
+      expect(mockStream.write).toHaveBeenCalledTimes(1);
+      const parsed = mockStream.writtenRecords[0];
+      expect(parsed.effective_tokens_this_response).toBeUndefined();
+      expect(parsed.effective_tokens_total).toBeUndefined();
+      expect(parsed.model_multiplier).toBeUndefined();
+      expect(parsed.ai_credits_this_response).toBeUndefined();
+      expect(parsed.ai_credits_total).toBeUndefined();
+      done();
+    }, 20);
+  });
 });
 
 // ── AWF_VERSION env var propagated as exact _schema value ─────────────
