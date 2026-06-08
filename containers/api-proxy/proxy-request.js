@@ -60,6 +60,7 @@ const {
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  checkUnknownModelRejection,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
 
@@ -444,6 +445,18 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
           model: block.model,
           model_multiplier: block.multiplier,
           max_model_multiplier: block.maxModelMultiplier,
+        }),
+      }]
+      : []),
+    ...(checkModelMultiplier
+      ? [{
+        block: checkUnknownModelRejection(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'unknown_model_ai_credits',
+        buildError: block => block.error,
+        buildLogFields: block => ({
+          model: block.model,
         }),
       }]
       : []),

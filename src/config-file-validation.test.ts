@@ -136,13 +136,13 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.maxModelMultiplierCap must be > 0');
   });
 
-  it('validates maxRuns in apiProxy', () => {
-    expect(validateAwfFileConfig({ apiProxy: { maxRuns: 10 } })).toEqual([]);
-    expect(validateAwfFileConfig({ apiProxy: { maxRuns: 1 } })).toEqual([]);
-    expect(validateAwfFileConfig({ apiProxy: { maxRuns: 0 } }))
-      .toContain('config.apiProxy.maxRuns must be a positive integer');
-    expect(validateAwfFileConfig({ apiProxy: { maxRuns: -1 } }))
-      .toContain('config.apiProxy.maxRuns must be a positive integer');
+  it('validates maxTurns in apiProxy', () => {
+    expect(validateAwfFileConfig({ apiProxy: { maxTurns: 10 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxTurns: 1 } })).toEqual([]);
+    expect(validateAwfFileConfig({ apiProxy: { maxTurns: 0 } }))
+      .toContain('config.apiProxy.maxTurns must be a positive integer');
+    expect(validateAwfFileConfig({ apiProxy: { maxTurns: -1 } }))
+      .toContain('config.apiProxy.maxTurns must be a positive integer');
   });
 
   it('validates apiProxy.modelFallback fields', () => {

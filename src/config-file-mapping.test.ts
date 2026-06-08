@@ -161,8 +161,8 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.enableTokenSteering).toBe(true);
   });
 
-  it('maps maxRuns field', () => {
-    const result = mapAwfFileConfigToCliOptions({ apiProxy: { maxRuns: 42 } });
+  it('maps maxTurns field', () => {
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: { maxTurns: 42 } });
     expect(result.maxRuns).toBe(42);
   });
 
@@ -209,7 +209,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.copilotProviderBaseUrl).toBe('https://example-resource.openai.azure.com/openai/deployments/test');
   });
 
-  it('leaves maxRuns undefined when not set', () => {
+  it('leaves maxRuns undefined when maxTurns is not set', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.maxRuns).toBeUndefined();
   });

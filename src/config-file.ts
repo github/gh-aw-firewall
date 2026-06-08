@@ -19,9 +19,12 @@ interface AwfFileConfig {
     anthropicCacheTailTtl?: string;
     maxEffectiveTokens?: number;
     maxAiCredits?: number;
+    defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
+    maxTurns?: number;
+    /** @deprecated Use maxTurns instead */
     maxRuns?: number;
     maxPermissionDenied?: number;
     requestedModel?: string;
@@ -217,10 +220,11 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     maxAiCredits: config.apiProxy?.maxAiCredits,
+    defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
-    maxRuns: config.apiProxy?.maxRuns,
+    maxRuns: config.apiProxy?.maxTurns ?? config.apiProxy?.maxRuns,
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
