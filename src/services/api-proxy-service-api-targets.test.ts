@@ -505,7 +505,7 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
       });
 
       describe('COPILOT_INTEGRATION_ID forwarding', () => {
-        it('should forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID to api-proxy', () => {
+        it('should not forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID to api-proxy', () => {
           const orig = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           process.env.GITHUB_COPILOT_INTEGRATION_ID = 'agentic-workflows';
           try {
@@ -513,7 +513,7 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
             const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
             const proxy = result.services['api-proxy'];
             const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBe('agentic-workflows');
+            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
           } finally {
             if (orig !== undefined) {
               process.env.GITHUB_COPILOT_INTEGRATION_ID = orig;

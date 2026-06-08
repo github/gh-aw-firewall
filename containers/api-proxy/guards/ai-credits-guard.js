@@ -61,13 +61,16 @@ function getAiCreditsConfig() {
 
 /**
  * Canonicalize a model name by stripping provider prefix and normalizing
- * separators (dash, dot, underscore are all treated as equivalent).
+ * common deployment suffixes and separators (dash, dot, underscore are all
+ * treated as equivalent).
  * E.g. "copilot/claude-sonnet-4.6" → "claude-sonnet-4-6"
  *      "claude_sonnet_4_6"          → "claude-sonnet-4-6"
+ *      "gpt-5-codex-mini-alpha-2025-11-07" → "gpt-5-codex-mini"
  */
 function canonicalizeModel(model) {
   const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
-  return bare.replace(/[._]/g, '-');
+  const withoutDateSuffix = bare.replace(/(-alpha)?-(\d{4}-\d{2}-\d{2}|\d{8})$/, '');
+  return withoutDateSuffix.replace(/[._]/g, '-');
 }
 
 function resolveModelPricing(model, state = aiCreditsState) {

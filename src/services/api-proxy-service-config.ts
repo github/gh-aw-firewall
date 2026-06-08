@@ -113,10 +113,8 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
       // target on GHES/GHEC (e.g. api.mycompany.ghe.com instead of api.github.com)
       ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
-      // Forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID so the api-proxy
-      // injects the correct Copilot-Integration-Id header on BYOK requests (defaults to
-      // 'copilot-developer-cli' when absent; gh-aw sets 'agentic-workflows').
-      ...(process.env.GITHUB_COPILOT_INTEGRATION_ID && { COPILOT_INTEGRATION_ID: process.env.GITHUB_COPILOT_INTEGRATION_ID }),
+      // Do not forward GITHUB_COPILOT_INTEGRATION_ID for now. api-proxy defaults to
+      // 'copilot-developer-cli', which remains required for PAT compatibility.
       // Note: AWF_VERSION is intentionally NOT forwarded here. It is baked into the api-proxy
       // container image at release build time (via --build-arg AWF_VERSION=...), so the
       // token-usage.jsonl _schema field reflects the api-proxy image version rather than

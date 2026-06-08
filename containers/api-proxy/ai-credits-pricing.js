@@ -1,9 +1,10 @@
 'use strict';
 
 // Per-model pricing in dollars per 1M tokens.
-// Source: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
+// Source: https://models.dev/catalog.json
 module.exports = Object.freeze({
   'gpt-5-mini':        { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
+  'gpt-5-codex-mini':  { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
   'gpt-5.2':           { input: 1.75,  cachedInput: 0.175, cacheWrite: null, output: 14.00 },
   'gpt-5.2-codex':     { input: 1.75,  cachedInput: 0.175, cacheWrite: null, output: 14.00 },
   'gpt-5.3-codex':     { input: 1.75,  cachedInput: 0.175, cacheWrite: null, output: 14.00 },

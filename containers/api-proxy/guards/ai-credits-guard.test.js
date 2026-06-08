@@ -4,6 +4,7 @@ const {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   checkUnknownModelRejection,
+  canonicalizeModel,
   resetAiCreditsGuardForTests,
 } = require('./ai-credits-guard');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
@@ -140,6 +141,18 @@ describe('ai-credits-guard', () => {
       const usage = applyAiCreditsUsage({ input_tokens: 1000, output_tokens: 100 }, 'copilot/gpt-5.4-mini');
       expect(usage).not.toBeNull();
       expect(usage.aiCreditsThisResponse).toBeGreaterThan(0);
+    });
+
+    it('strips alpha date suffixes before pricing lookup', () => {
+      resetAiCreditsGuardForTests();
+      const usage = applyAiCreditsUsage({ input_tokens: 1000, output_tokens: 100 }, 'gpt-5-codex-mini-alpha-2025-11-07');
+      expect(usage).not.toBeNull();
+      expect(usage.aiCreditsThisResponse).toBeGreaterThan(0);
+      expect(canonicalizeModel('gpt-5-codex-mini-alpha-2025-11-07')).toBe('gpt-5-codex-mini');
+    });
+
+    it('strips compact date suffixes in canonicalized model names', () => {
+      expect(canonicalizeModel('claude-sonnet-4-6-20260601')).toBe('claude-sonnet-4-6');
     });
   });
 
