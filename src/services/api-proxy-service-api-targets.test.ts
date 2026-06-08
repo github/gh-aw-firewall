@@ -503,4 +503,42 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         const env = proxy.environment as Record<string, string>;
         expect(env.AWF_ANTHROPIC_AUTH_HEADER).toBeUndefined();
       });
+
+      describe('COPILOT_INTEGRATION_ID forwarding', () => {
+        it('should forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID to api-proxy', () => {
+          const orig = process.env.GITHUB_COPILOT_INTEGRATION_ID;
+          process.env.GITHUB_COPILOT_INTEGRATION_ID = 'agentic-workflows';
+          try {
+            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+            const proxy = result.services['api-proxy'];
+            const env = proxy.environment as Record<string, string>;
+            expect(env.COPILOT_INTEGRATION_ID).toBe('agentic-workflows');
+          } finally {
+            if (orig !== undefined) {
+              process.env.GITHUB_COPILOT_INTEGRATION_ID = orig;
+            } else {
+              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+            }
+          }
+        });
+
+        it('should not set COPILOT_INTEGRATION_ID when GITHUB_COPILOT_INTEGRATION_ID is not set', () => {
+          const orig = process.env.GITHUB_COPILOT_INTEGRATION_ID;
+          delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+          try {
+            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+            const proxy = result.services['api-proxy'];
+            const env = proxy.environment as Record<string, string>;
+            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
+          } finally {
+            if (orig !== undefined) {
+              process.env.GITHUB_COPILOT_INTEGRATION_ID = orig;
+            } else {
+              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+            }
+          }
+        });
+      });
 });
