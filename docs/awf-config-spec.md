@@ -716,6 +716,64 @@ configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
 and error type `ai_credits_limit_exceeded`.
 
+### 10.7.1 Model Name Resolution for Pricing
+
+The AI credits guard resolves model names against a built-in pricing table.
+Model names are **canonicalized** before lookup: provider prefixes
+(e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
+as interchangeable. For example, `copilot/claude-sonnet-4.6`,
+`claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
+entry.
+
+### 10.7.2 Default AI Credits Pricing (Fallback)
+
+`defaultAiCreditsPricing` is an optional object with `input` and `output`
+fields (both required, in $/1M tokens), plus optional `cachedInput` and
+`cacheWrite` fields.
+
+It is supplied via the AWF config file and maps to the
+`AWF_DEFAULT_AI_CREDITS_PRICING` environment variable (JSON string) injected
+into the api-proxy container.
+
+When configured, any model not found in the built-in pricing table uses
+these rates as a fallback for AI credits calculation.
+
+### 10.7.3 Unknown Model Rejection
+
+When `maxAiCredits` is active and the proxy encounters a request whose model
+cannot be resolved from the built-in pricing table:
+
+1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
+   and the request proceeds normally.
+
+2. **If `defaultAiCreditsPricing` is NOT configured**: the proxy MUST reject
+   the request with HTTP `400` and error type `unknown_model_ai_credits`. The
+   error payload includes:
+   - `model`: the unresolved model name
+   - `message`: human-readable instructions to configure
+     `apiProxy.defaultAiCreditsPricing`
+
+   This fail-closed behavior prevents unaccounted spending from models whose
+   pricing is unknown to the proxy.
+
+Note: Requests without a `model` field in the body (e.g. non-chat endpoints)
+are not subject to this check.
+
+### 10.7.4 Token Usage JSONL Schema Extensions
+
+When AI credits and/or effective tokens are computed, the `token-usage.jsonl`
+records include additional optional fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `effective_tokens_this_response` | number | Weighted tokens for this request |
+| `effective_tokens_total` | number | Running total of effective tokens |
+| `model_multiplier` | number | Cost multiplier applied for this model |
+| `ai_credits_this_response` | number | AI credits consumed by this request |
+| `ai_credits_total` | number | Running total of AI credits |
+
+These fields are only present when the respective guard is active.
+
 ## 11. Max-Runs Enforcement
 
 *This section is normative.*

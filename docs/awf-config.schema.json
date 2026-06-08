@@ -77,6 +77,18 @@
           "exclusiveMinimum": 0,
           "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'ai_credits_limit_exceeded'."
         },
+        "defaultAiCreditsPricing": {
+          "type": "object",
+          "description": "Fallback per-token pricing ($/1M tokens) for models not in the built-in pricing table. When maxAiCredits is active and a model is unrecognized, this rate is used. If not set, unrecognized models are rejected with HTTP 400 (type: unknown_model_ai_credits).",
+          "required": ["input", "output"],
+          "properties": {
+            "input": { "type": "number", "minimum": 0, "description": "Input token price per 1M tokens in dollars." },
+            "output": { "type": "number", "minimum": 0, "description": "Output token price per 1M tokens in dollars." },
+            "cachedInput": { "type": "number", "minimum": 0, "description": "Cached input token price per 1M tokens. Defaults to input × 0.1 if omitted." },
+            "cacheWrite": { "type": ["number", "null"], "minimum": 0, "description": "Cache write token price per 1M tokens. Null means cache writes are free." }
+          },
+          "additionalProperties": false
+        },
         "modelMultipliers": {
           "type": "object",
           "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
