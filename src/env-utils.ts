@@ -1,7 +1,7 @@
 import { readEnvFile } from './github-env';
 import { WrapperConfig } from './types';
 
-export function normalizeEnvValue(value: string | undefined): string | undefined {
+function normalizeEnvValue(value: string | undefined): string | undefined {
   const normalizedValue = value?.trim();
   return normalizedValue || undefined;
 }
