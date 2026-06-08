@@ -100,6 +100,11 @@
           "minimum": 1,
           "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
         },
+        "maxRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Deprecated alias for maxTurns. Use maxTurns instead."
+        },
         "maxPermissionDenied": {
           "type": "integer",
           "minimum": 1,
