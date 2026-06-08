@@ -80,7 +80,7 @@ export function useCleanupTestDir(
  * @returns An object with a `getDir()` accessor for the current temp dir path.
  */
 export function useTempDir(prefix = 'awf-test-'): { getDir: () => string } {
-  let testDir: string;
+  let testDir: string | undefined;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -88,12 +88,19 @@ export function useTempDir(prefix = 'awf-test-'): { getDir: () => string } {
   });
 
   afterEach(() => {
-    if (fs.existsSync(testDir)) {
+    if (testDir) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   });
 
-  return { getDir: () => testDir };
+  return {
+    getDir: () => {
+      if (!testDir) {
+        throw new Error('Temp test directory is not initialized');
+      }
+      return testDir;
+    },
+  };
 }
 
 /**
