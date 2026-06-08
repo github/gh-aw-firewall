@@ -25,10 +25,10 @@ After loading the matching workflow prompt, follow it directly:
 - Debug, audit, or investigate workflows: `.github/aw/debug-agentic-workflow.md`
 - Upgrade workflows and fix deprecations: `.github/aw/upgrade-agentic-workflows.md`
 - Create shared components or MCP wrappers: `.github/aw/create-shared-agentic-workflow.md`
-- Create report-generating workflows: `.github/aw/report.md`
-- Fix Dependabot manifest PRs: `.github/aw/dependabot.md`
-- Analyze coverage workflows: `.github/aw/test-coverage.md`
-- Render compact markdown charts: `.github/aw/asciicharts.md`
+- Create report-generating workflows: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/report.md
+- Fix Dependabot manifest PRs: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/dependabot.md
+- Analyze coverage workflows: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/test-coverage.md
+- Render compact markdown charts: https://github.com/github/gh-aw/blob/v0.76.1/.github/aw/asciicharts.md
 - Map CLI commands to MCP usage: `.github/aw/cli-commands.md`
 - Choose workflow architecture and patterns: `.github/aw/patterns.md`
 - Optimize token usage and cost: `.github/aw/token-optimization.md`
