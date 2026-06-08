@@ -151,6 +151,25 @@ echo "[entrypoint] iptables initialization complete"
 # If health check fails, the script exits with non-zero code and prevents agent from running
 /usr/local/bin/api-proxy-health-check.sh || exit 1
 
+# Run CLI proxy liveness check (fail-fast when DIFC proxy / Docker is unavailable)
+# This prevents unbounded in-agent retries on connection-refused errors (e.g. when
+# awmg-cli-proxy is not running).  Must run BEFORE the user command so the agent
+# never starts into a broken proxy environment.
+if [ -n "$AWF_CLI_PROXY_URL" ]; then
+  echo "[entrypoint] Checking CLI proxy liveness at $AWF_CLI_PROXY_URL..."
+  # Extract host and port from the URL (format: http://IP:PORT)
+  CLI_PROXY_HOST=$(echo "$AWF_CLI_PROXY_URL" | sed -E 's|^https?://([^:/]+).*|\1|')
+  CLI_PROXY_PORT=$(echo "$AWF_CLI_PROXY_URL" | sed -E 's|^https?://[^:]+:([0-9]+).*|\1|')
+  if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${CLI_PROXY_HOST}/${CLI_PROXY_PORT}" 2>/dev/null; then
+    echo "[entrypoint] ✓ CLI proxy is reachable at $AWF_CLI_PROXY_URL"
+  else
+    echo "[entrypoint][ERROR] CLI proxy at $AWF_CLI_PROXY_URL is not reachable"
+    echo "[entrypoint][ERROR] The DIFC proxy (awmg-cli-proxy) may be unavailable or Docker may be down"
+    echo "[entrypoint][ERROR] Failing fast to prevent unbounded in-agent retries on connection-refused errors"
+    exit 1
+  fi
+fi
+
 # Configure Claude Code API key helper
 # This ensures the apiKeyHelper is properly configured in the config files
 # The config files must exist before Claude Code starts for authentication to work
