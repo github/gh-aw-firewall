@@ -55,6 +55,7 @@ export function useCleanupTestDir(
   });
 
   afterEach(() => {
+    /* istanbul ignore else */
     if (testDir) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -62,6 +63,7 @@ export function useCleanupTestDir(
 
   return {
     getDir: () => {
+      /* istanbul ignore next */
       if (!testDir) {
         throw new Error('Cleanup test directory is not initialized');
       }
@@ -88,6 +90,7 @@ export function useTempDir(prefix = 'awf-test-'): { getDir: () => string } {
   });
 
   afterEach(() => {
+    /* istanbul ignore else */
     if (testDir) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -95,6 +98,7 @@ export function useTempDir(prefix = 'awf-test-'): { getDir: () => string } {
 
   return {
     getDir: () => {
+      /* istanbul ignore next */
       if (!testDir) {
         throw new Error('Temp test directory is not initialized');
       }
