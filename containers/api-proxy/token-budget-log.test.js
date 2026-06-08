@@ -66,27 +66,31 @@ describe('computeTokenBudgetUsage', () => {
   });
 
   it('uses "unknown" as model name when model is falsy', () => {
+    // ai-credits-guard may emit unknown-model warnings to stdout; silence for this test.
+    const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
     process.env.AWF_MAX_AI_CREDITS = '100';
-    // Use a model with known pricing so credits are computed
-    computeTokenBudgetUsage(
-      { logRequest, requestId: 'req-3', provider: 'openai' },
-      { input_tokens: 1000, output_tokens: 500 },
-      'gpt-5-mini',
-    );
-    expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
-      model: 'gpt-5-mini',
-    }));
+    process.env.AWF_DEFAULT_AI_CREDITS_PRICING = JSON.stringify({ input: 2.0, output: 10.0 });
 
-    resetAiCreditsGuardForTests();
-    logRequest.mockClear();
-
-    computeTokenBudgetUsage(
-      { logRequest, requestId: 'req-4', provider: 'openai' },
-      { input_tokens: 1000, output_tokens: 500 },
-      undefined,
-    );
-    // unknown model: no pricing → aiCreditsUsage is null → no log emitted
-    expect(logRequest).not.toHaveBeenCalled();
+    try {
+      const result = computeTokenBudgetUsage(
+        { logRequest, requestId: 'req-4', provider: 'openai' },
+        { input_tokens: 1000, output_tokens: 500 },
+        undefined,
+      );
+      expect(result).toMatchObject({
+        ai_credits_this_response: expect.any(Number),
+        ai_credits_total: expect.any(Number),
+      });
+      expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
+        request_id: 'req-4',
+        provider: 'openai',
+        model: 'unknown',
+      }));
+    } finally {
+      delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+      stdoutSpy.mockRestore();
+    }
   });
 
   it('returns both effective token and AI credits fields when both guards are active', () => {
