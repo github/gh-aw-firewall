@@ -40,8 +40,10 @@ const defaultExecaResult: ExecaMockResult = {
   all: undefined,
 };
 
+// ts-prune-ignore-next
 export const mockedExeca = execa as unknown as jest.MockedFunction<MockedExecaFn>;
 
+// ts-prune-ignore-next
 export function execaResult(overrides: Partial<ExecaMockResult> = {}): ExecaMockResult {
   return {
     ...defaultExecaResult,
@@ -49,10 +51,12 @@ export function execaResult(overrides: Partial<ExecaMockResult> = {}): ExecaMock
   };
 }
 
+// ts-prune-ignore-next
 export function execaError(message: string, stderr = message): ExecaMockError {
   return Object.assign(new Error(message), { stderr });
 }
 
+// ts-prune-ignore-next
 export function setupHostIptablesTestSuite(resetIpv6State: () => void): void {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -60,6 +64,7 @@ export function setupHostIptablesTestSuite(resetIpv6State: () => void): void {
   });
 }
 
+// ts-prune-ignore-next
 export function setupDefaultIptablesMocks(
   opts: {
     chainExists?: boolean;
@@ -75,6 +80,7 @@ export function setupDefaultIptablesMocks(
   mockedExeca.mockResolvedValue(execaResult({ stdout: catchAllStdout, exitCode: 0 }));
 }
 
+// ts-prune-ignore-next
 export function setupDockerBridgeMock(opts: {
   gateway?: string;
   exitCode?: number;
