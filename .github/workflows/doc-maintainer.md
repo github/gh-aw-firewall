@@ -25,7 +25,7 @@ jobs:
       skip_agent: ${{ steps.check.outputs.skip_agent }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.3
         with:
           fetch-depth: 0
       - name: Check for relevant changes
@@ -49,10 +49,10 @@ jobs:
             echo "has_changes=$HAS_CHANGES"
             echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
+max-turns: 8
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 8
 tools:
   edit:
   bash: false

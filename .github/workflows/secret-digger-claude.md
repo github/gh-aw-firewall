@@ -8,9 +8,9 @@ permissions:
   actions: read
   issues: read
   pull-requests: read
+max-turns: 4
 engine:
   id: claude
-  max-turns: 4
   env:
     BASH_DEFAULT_TIMEOUT_MS: "1800000"  # 30 minutes for bash commands
     BASH_MAX_TIMEOUT_MS: "1800000"      # 30 minutes max timeout

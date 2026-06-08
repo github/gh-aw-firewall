@@ -9,10 +9,10 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+max-turns: 5
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 5
 tools:
   github:
     mode: gh-proxy

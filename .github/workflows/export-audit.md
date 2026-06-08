@@ -14,10 +14,9 @@ permissions:
   contents: read
   issues: read
 
+max-turns: 6
 engine:
   id: claude
-  max-turns: 6
-
 sandbox:
   agent:
     id: awf

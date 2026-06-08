@@ -7,10 +7,10 @@ on:
 permissions:
   contents: read
   issues: read
+max-turns: 8
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 8
 sandbox:
   agent:
     id: awf
