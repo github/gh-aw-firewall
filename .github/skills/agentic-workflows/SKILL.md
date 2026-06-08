@@ -10,7 +10,7 @@ Use this skill when a user asks to create, update, debug, or upgrade GitHub Agen
 This skill is a dispatcher: identify the task type, load the matching `.github/aw/*.md` file, and follow it directly. Keep responses concise and ask a clarifying question if the correct prompt is unclear.
 
 Read only the files you need:
-Load these files from `github/gh-aw` (they are not available locally).
+Load these files from this repository (available locally under `.github/aw/`).
 - `.github/aw/create-agentic-workflow.md`
 - `.github/aw/create-shared-agentic-workflow.md`
 - `.github/aw/debug-agentic-workflow.md`
