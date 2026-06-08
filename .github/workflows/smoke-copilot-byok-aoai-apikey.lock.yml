@@ -227,12 +227,8 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_SAFE_OUTPUTS: ${{ runner.temp }}/gh-aw/safeoutputs/outputs.jsonl
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
@@ -242,13 +238,20 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
+<<<<<<< HEAD
           cat << 'GH_AW_PROMPT_ad29ff7fbd5c369a_EOF'
           <system>
           GH_AW_PROMPT_ad29ff7fbd5c369a_EOF
+=======
+          cat << 'GH_AW_PROMPT_8be94ddb8ca2c71d_EOF'
+          <system>
+          GH_AW_PROMPT_8be94ddb8ca2c71d_EOF
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
+<<<<<<< HEAD
           cat << 'GH_AW_PROMPT_ad29ff7fbd5c369a_EOF'
           <safe-output-tools>
           Tools: add_comment, add_labels, missing_tool, missing_data, noop
@@ -256,6 +259,15 @@ jobs:
           GH_AW_PROMPT_ad29ff7fbd5c369a_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/mcp_cli_tools_prompt.md"
           cat << 'GH_AW_PROMPT_ad29ff7fbd5c369a_EOF'
+=======
+          cat << 'GH_AW_PROMPT_8be94ddb8ca2c71d_EOF'
+          <safe-output-tools>
+          Tools: add_comment, add_labels, missing_tool, missing_data, noop
+          </safe-output-tools>
+          GH_AW_PROMPT_8be94ddb8ca2c71d_EOF
+          cat "${RUNNER_TEMP}/gh-aw/prompts/mcp_cli_tools_prompt.md"
+          cat << 'GH_AW_PROMPT_8be94ddb8ca2c71d_EOF'
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
           <github-context>
           The following GitHub context information is available for this workflow:
           {{#if github.actor}}
@@ -284,12 +296,21 @@ jobs:
           {{/if}}
           </github-context>
           
+<<<<<<< HEAD
           GH_AW_PROMPT_ad29ff7fbd5c369a_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
           cat << 'GH_AW_PROMPT_ad29ff7fbd5c369a_EOF'
           </system>
           {{#runtime-import .github/workflows/smoke-copilot-byok-aoai-apikey.md}}
           GH_AW_PROMPT_ad29ff7fbd5c369a_EOF
+=======
+          GH_AW_PROMPT_8be94ddb8ca2c71d_EOF
+          cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
+          cat << 'GH_AW_PROMPT_8be94ddb8ca2c71d_EOF'
+          </system>
+          {{#runtime-import .github/workflows/smoke-copilot-byok-aoai-apikey.md}}
+          GH_AW_PROMPT_8be94ddb8ca2c71d_EOF
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -297,10 +318,6 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_ENGINE_ID: "copilot"
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -312,12 +329,8 @@ jobs:
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
@@ -336,12 +349,8 @@ jobs:
               file: process.env.GH_AW_PROMPT,
               substitutions: {
                 GH_AW_EXPR_1A3A194A: process.env.GH_AW_EXPR_1A3A194A,
-                GH_AW_EXPR_2805DAC9: process.env.GH_AW_EXPR_2805DAC9,
                 GH_AW_EXPR_463A214A: process.env.GH_AW_EXPR_463A214A,
-                GH_AW_EXPR_7EA93000: process.env.GH_AW_EXPR_7EA93000,
                 GH_AW_EXPR_802A9F6A: process.env.GH_AW_EXPR_802A9F6A,
-                GH_AW_EXPR_ABDF8D58: process.env.GH_AW_EXPR_ABDF8D58,
-                GH_AW_EXPR_EC16C26C: process.env.GH_AW_EXPR_EC16C26C,
                 GH_AW_EXPR_FF1D34CE: process.env.GH_AW_EXPR_FF1D34CE,
                 GH_AW_GITHUB_ACTOR: process.env.GH_AW_GITHUB_ACTOR,
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
@@ -447,9 +456,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - env:
           GH_TOKEN: ${{ github.token }}
-        id: smoke-data
         name: Pre-compute BYOK smoke test data
-        run: "echo \"::group::Verify BYOK configuration\"\necho \"COPILOT_API_TARGET=${COPILOT_API_TARGET:-derived from COPILOT_PROVIDER_BASE_URL}\"\necho \"::endgroup::\"\n\necho \"::group::Fetching last 2 merged PRs\"\nPR_DATA=$(gh pr list --repo \"$GITHUB_REPOSITORY\" --state merged --limit 2 \\\n  --json number,title,author,mergedAt \\\n  --jq '.[] | \"PR #\\(.number): \\(.title) (by @\\(.author.login), merged \\(.mergedAt))\"' \\\n  || echo \"(PR fetch failed)\")\necho \"$PR_DATA\"\necho \"::endgroup::\"\n\necho \"::group::GitHub.com connectivity check\"\nHTTP_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://github.com || echo \"000\")\necho \"github.com returned HTTP $HTTP_CODE\"\necho \"::endgroup::\"\n\necho \"::group::File write/read test\"\nTEST_DIR=\"/tmp/gh-aw/agent\"\nTEST_FILE=\"$TEST_DIR/smoke-test-copilot-byok-aoai-apikey-${GITHUB_RUN_ID}.txt\"\nmkdir -p \"$TEST_DIR\"\necho \"BYOK AOAI api-key smoke test passed at $(date)\" > \"$TEST_FILE\"\nFILE_CONTENT=$(cat \"$TEST_FILE\")\necho \"Wrote and read back: $FILE_CONTENT\"\necho \"::endgroup::\"\n\n{\n  echo \"SMOKE_PR_DATA<<SMOKE_EOF\"\n  echo \"$PR_DATA\"\n  echo \"SMOKE_EOF\"\n  echo \"SMOKE_HTTP_CODE=$HTTP_CODE\"\n  echo \"SMOKE_FILE_CONTENT=$FILE_CONTENT\"\n  echo \"SMOKE_FILE_PATH=$TEST_FILE\"\n} >> \"$GITHUB_OUTPUT\"\n"
+        run: "TEST_DIR=\"/tmp/gh-aw/agent\"\nmkdir -p \"$TEST_DIR\"\n\necho \"::group::Verify BYOK configuration\"\necho \"COPILOT_API_TARGET=${COPILOT_API_TARGET:-derived from COPILOT_PROVIDER_BASE_URL}\"\necho \"::endgroup::\"\n\necho \"::group::Fetching last 2 merged PRs\"\ngh pr list --repo \"$GITHUB_REPOSITORY\" --state merged --limit 2 \\\n  --json number,title,author,mergedAt \\\n  --jq '.[] | \"PR #\\(.number): \\(.title) (by @\\(.author.login), merged \\(.mergedAt))\"' \\\n  > \"$TEST_DIR/smoke-prs.txt\" 2>/dev/null || echo \"(PR fetch failed)\" > \"$TEST_DIR/smoke-prs.txt\"\ncat \"$TEST_DIR/smoke-prs.txt\"\necho \"::endgroup::\"\n\necho \"::group::GitHub.com connectivity check\"\nHTTP_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://github.com || echo \"000\")\necho \"github.com returned HTTP $HTTP_CODE\"\necho \"::endgroup::\"\n\necho \"::group::File write/read test\"\nTEST_FILE=\"$TEST_DIR/smoke-test-copilot-byok-aoai-apikey-${GITHUB_RUN_ID}.txt\"\necho \"BYOK AOAI api-key smoke test passed at $(date)\" > \"$TEST_FILE\"\nFILE_CONTENT=$(cat \"$TEST_FILE\")\necho \"Wrote and read back: $FILE_CONTENT\"\necho \"::endgroup::\"\n\ncat > \"$TEST_DIR/smoke-context.txt\" << SMOKE_EOF\nSMOKE_HTTP_CODE=$HTTP_CODE\nSMOKE_FILE_CONTENT=$FILE_CONTENT\nSMOKE_FILE_PATH=$TEST_FILE\nSMOKE_EOF\necho \"Context written to $TEST_DIR/smoke-context.txt\"\n"
 
       - name: Configure Git credentials
         env:
@@ -549,9 +557,15 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
+<<<<<<< HEAD
           cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_f3770e39c31b7efa_EOF'
           {"add_comment":{"hide_older_comments":true,"max":1},"add_labels":{"allowed":["smoke-copilot-byok-aoai-apikey"]},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
           GH_AW_SAFE_OUTPUTS_CONFIG_f3770e39c31b7efa_EOF
+=======
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_d8f2810bc5c7a1dd_EOF'
+          {"add_comment":{"hide_older_comments":true,"max":1},"add_labels":{"allowed":["smoke-copilot-byok-aoai-apikey"]},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
+          GH_AW_SAFE_OUTPUTS_CONFIG_d8f2810bc5c7a1dd_EOF
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
       - name: Generate Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
@@ -765,7 +779,11 @@ jobs:
           
           mkdir -p /home/runner/.copilot
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
+<<<<<<< HEAD
           cat << GH_AW_MCP_CONFIG_a6ee4bd473111639_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+=======
+          cat << GH_AW_MCP_CONFIG_6678a8c4f9417022_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
           {
             "mcpServers": {
               "github": {
@@ -806,7 +824,11 @@ jobs:
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}"
             }
           }
+<<<<<<< HEAD
           GH_AW_MCP_CONFIG_a6ee4bd473111639_EOF
+=======
+          GH_AW_MCP_CONFIG_6678a8c4f9417022_EOF
+>>>>>>> 9342c152 (fix(smoke-aoai-apikey): pass pre-step data via files not step outputs)
       - name: Mount MCP servers as CLIs
         id: mount-mcp-clis
         continue-on-error: true
