@@ -43,9 +43,11 @@ secrets:
     description: "Google Gemini API key for inference"
 timeout-minutes: 15
 sandbox:
+  mcp:
+    version: latest
   agent:
     id: awf
-strict: true
+strict: false
 post-steps:
   - name: Validate safe outputs were invoked
     run: |

@@ -18,7 +18,7 @@ engine:
   model: gpt-5.4
 sandbox:
   mcp:
-    version: v0.3.1
+    version: latest
 strict: false
 imports:
   - shared/gh.md
