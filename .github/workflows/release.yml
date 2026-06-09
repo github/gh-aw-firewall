@@ -424,72 +424,10 @@ jobs:
           echo "::warning::SBOM attestation for agent-act failed after 3 attempts (Rekor may be unavailable)"
           exit 1
 
-  build-dind-ubuntu:
-    name: Build DinD Ubuntu Image
-    runs-on: ubuntu-latest
-    needs: bump-version
-    outputs:
-      digest: ${{ steps.build_dind_ubuntu.outputs.digest }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-        with:
-          ref: ${{ needs.bump-version.outputs.version }}
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
-        with:
-          platforms: arm64
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
-
-      - name: Build and push DinD Ubuntu image
-        id: build_dind_ubuntu
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
-        with:
-          context: ./containers/dind-ubuntu
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/${{ github.repository }}/dind-ubuntu:${{ needs.bump-version.outputs.version_number }}
-            ghcr.io/${{ github.repository }}/dind-ubuntu:latest
-          cache-from: type=gha,scope=dind-ubuntu
-          cache-to: type=gha,mode=max,scope=dind-ubuntu
-
-      - name: Sign DinD Ubuntu image with cosign
-        run: |
-          cosign sign --yes \
-            ghcr.io/${{ github.repository }}/dind-ubuntu@${{ steps.build_dind_ubuntu.outputs.digest }}
-
-      - name: Generate SBOM for DinD Ubuntu image
-        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
-        with:
-          image: ghcr.io/${{ github.repository }}/dind-ubuntu@${{ steps.build_dind_ubuntu.outputs.digest }}
-          format: spdx-json
-          output-file: dind-ubuntu-sbom.spdx.json
-
-      - name: Attest SBOM for DinD Ubuntu image
-        run: |
-          cosign attest --yes \
-            --predicate dind-ubuntu-sbom.spdx.json \
-            --type spdxjson \
-            ghcr.io/${{ github.repository }}/dind-ubuntu@${{ steps.build_dind_ubuntu.outputs.digest }}
-
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-dind-ubuntu]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -587,7 +525,6 @@ jobs:
             "ghcr.io/${{ github.repository }}/squid@${{ needs['build-squid'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/agent@${{ needs['build-agent'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/agent-act@${{ needs['build-agent-act'].outputs.digest }}" \
-            "ghcr.io/${{ github.repository }}/dind-ubuntu@${{ needs['build-dind-ubuntu'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/api-proxy@${{ needs['build-api-proxy'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/cli-proxy@${{ needs['build-cli-proxy'].outputs.digest }}" \
             > release/containers.txt
