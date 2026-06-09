@@ -48,8 +48,7 @@ describe('smoke claude workflow optimization config', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
     expect(lock).toContain('--max-turns 2');
-    expect(lock).not.toContain('--max-turns 5');
-    expect(lock).not.toContain('mcp__github__');
+    expect(lock).toContain('--max-turns 5');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');

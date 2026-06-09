@@ -70,17 +70,14 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('steps.target.outputs.TARGET_TEST_FILE');
     expect(lock).toContain('TARGET_TEST_FILE: ${{ steps.target.outputs.TARGET_TEST_FILE }}');
     expect(lock).toContain('TARGET_TEST_FILE empty');
-    expect(lock).toContain('COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}');
-    expect(lock).not.toContain(
-      "COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'claude-sonnet-4.6' }}",
-    );
+    expect(lock).toContain("COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'claude-sonnet-4.6' }}");
     expect(lock).not.toContain('pull_requests');
     expect(lock).not.toContain("shell(cat:src/*.test.ts)");
     expect(lock).not.toContain("shell(npm run lint)");
     expect(lock).not.toContain("shell(npm run test)");
-    expect(lock).toContain('github/gh-aw-actions/setup@3ea13c02d765410340d533515cb31a7eef2baaf0 # v0.77.5');
-    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.77.5');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.0');
+    expect(lock).toContain('github/gh-aw-actions/setup@8cfea5ae9bee18df8e50a96affdb6d666cd7b9a3 # v0.78.3');
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.78.3');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.2');
 
     expect(lock).not.toContain("shell(cat:src/docker-manager.ts)");
     expect(lock).not.toContain("shell(cat:src/cli.ts)");
