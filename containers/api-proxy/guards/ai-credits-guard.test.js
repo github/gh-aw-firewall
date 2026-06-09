@@ -103,8 +103,14 @@ describe('ai-credits-guard', () => {
   });
 
   it('enforces hard cap even when no max is configured', () => {
-    // No AWF_MAX_AI_CREDITS set — hard cap still applies
-    expect(HARD_CAP_AI_CREDITS).toBe(10_000);
+    expect(process.env.AWF_MAX_AI_CREDITS).toBeUndefined();
+    applyAiCreditsUsage({ input_tokens: 400_000_000, output_tokens: 0 }, 'gpt-5-mini');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: HARD_CAP_AI_CREDITS,
+      totalAiCredits: HARD_CAP_AI_CREDITS,
+      maxExceeded: true,
+      hardCap: true,
+    });
   });
 
   it('clamps configured max to hard cap', () => {

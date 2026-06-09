@@ -57,8 +57,9 @@ function getAiCreditsConfig() {
     } catch { /* invalid JSON — leave null */ }
   }
 
+  const parsedMax = parsePositiveNumber(rawMax);
   aiCreditsConfigCache.parsed = {
-    max: parsePositiveNumber(rawMax) ? Math.min(parsePositiveNumber(rawMax), HARD_CAP_AI_CREDITS) : null,
+    max: parsedMax ? Math.min(parsedMax, HARD_CAP_AI_CREDITS) : null,
     defaultPricing,
   };
   return aiCreditsConfigCache.parsed;
