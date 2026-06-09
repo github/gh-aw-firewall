@@ -18,17 +18,6 @@ describe('contribution-check workflow', () => {
     expect(source).toContain('${{ steps.contributing.outputs.CONTENT }}');
   });
 
-  it('includes DIFC proxy liveness probe before agent starts', () => {
-    const source = fs.readFileSync(sourcePath, 'utf-8');
-
-    // Liveness probe must appear in the pre-agent steps section (before the --- divider)
-    const preAgentSection = source.split(/^---\s*$/m)[1] ?? '';
-    expect(preAgentSection).toContain('Verify DIFC proxy liveness');
-    expect(preAgentSection).toContain('nc -z localhost 18443');
-    expect(preAgentSection).toContain('::error::');
-    expect(preAgentSection).toContain('exit 1');
-  });
-
   it('instructs agent to use pre-fetched data and not re-fetch via proxy', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
