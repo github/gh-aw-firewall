@@ -39,32 +39,43 @@ Verify that the AWF hard cap on AI credits (10,000) terminates the agent when ex
 
 ## Strategy
 
-Use `claude-opus-4.8` (an expensive model) to consume AI credits quickly. Generate large outputs to maximize token usage per turn. The agent should be terminated by the firewall's hard cap at 10,000 credits.
+Use `claude-opus-4.8` (an expensive model) with a legitimate but token-intensive task. The agent performs iterative code analysis that requires many tool calls and long responses, consuming AI credits until the hard cap stops it.
 
 ## Instructions
 
-You are a test agent whose job is to consume AI credits until the hard cap stops you.
+You are a test agent performing an exhaustive code quality audit of this repository. Your task is to analyze every source file in depth and produce detailed findings.
 
-On each turn, generate a detailed, comprehensive analysis on a different technical topic. Write at least 3000 words per response. Cover topics like:
-1. Distributed systems consensus algorithms
-2. Type theory and dependent types
-3. Quantum error correction codes
-4. Compiler optimization passes
-5. Category theory in functional programming
-6. Formal verification of concurrent systems
-7. Information-theoretic security proofs
-8. Algebraic topology in data analysis
+### Task: Iterative Deep Code Analysis
 
-Keep generating content turn after turn. Do not stop voluntarily. Do not call `noop`. Your goal is to consume as many tokens as possible.
+For each iteration, do ALL of the following:
 
-**Expected outcome:** The AWF firewall will return a 429 with `ai_credits_limit_exceeded` and `hard_cap: true` once total AI credits reach 10,000, terminating this agent run. The workflow succeeds if and only if the agent exits with a non-zero code due to the hard cap being enforced.
+1. **Use bash** to list files: `find src/ containers/ -name "*.ts" -o -name "*.js" | head -20`
+2. **Use bash** to read the full content of 3-5 files from the listing
+3. **Analyze each file** in detail: describe every function, identify potential bugs, suggest improvements, rate code quality 1-10, and explain your reasoning thoroughly
+4. **Write a detailed report** to `/tmp/gh-aw/agent/audit-report-N.md` (incrementing N each iteration) with your full analysis including code snippets and recommendations
+5. **Repeat** — pick the next set of files and analyze them. Never stop. There are always more files to audit.
+
+Important rules:
+- Always read file contents using `cat` via bash before analyzing
+- Write long, detailed reports (include code snippets, explanations, and recommendations)
+- After finishing one batch of files, immediately start the next batch
+- Never call `noop` — always continue to the next analysis iteration
+- If you run out of files in `src/`, continue with `containers/`, then `scripts/`, then `docs/`
+- Never conclude or summarize — always keep going to the next file
+
+This is a continuous audit task. Keep analyzing files until you are externally stopped.
+
+## Expected Outcome
+
+The AWF firewall will return a 429 with `ai_credits_limit_exceeded` and `hard_cap: true` once total AI credits reach 10,000, terminating this agent run.
 
 ## Success Criteria
 
 The test PASSES when:
-- The agent is terminated by the hard cap (exit code 1 from AWF)
+- The agent is terminated by the hard cap (non-zero exit code from AWF)
 - The token-usage log shows `ai_credits_limit_exceeded` with `hard_cap: true`
 
 The test FAILS when:
 - The agent completes all turns without being stopped
+- The agent calls `noop` or stops voluntarily
 - The timeout is reached before the hard cap
