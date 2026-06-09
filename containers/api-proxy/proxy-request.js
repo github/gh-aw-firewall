@@ -61,6 +61,10 @@ const {
   checkUnknownModelRejection,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
+const {
+  getRetiredModelBlockState,
+  buildRetiredModelError,
+} = require('./guards/retired-model-guard');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -451,6 +455,19 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
         buildError: block => block.error,
         buildLogFields: block => ({
           model: block.model,
+        }),
+      }]
+      : []),
+    ...(checkModelMultiplier
+      ? [{
+        block: getRetiredModelBlockState(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'retired_model',
+        buildError: buildRetiredModelError,
+        buildLogFields: block => ({
+          model: block.model,
+          suggestion: block.suggestion,
         }),
       }]
       : []),
