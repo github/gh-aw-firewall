@@ -33,14 +33,6 @@ safe-outputs:
     max: 1
 timeout-minutes: 10
 steps:
-  - name: Verify DIFC proxy liveness
-    run: |
-      if ! nc -z localhost 18443 2>/dev/null; then
-        echo "::error::DIFC proxy not reachable at localhost:18443. Halting to prevent unbounded agent retries."
-        exit 1
-      fi
-      echo "DIFC proxy liveness check passed (localhost:18443)"
-
   - name: Fetch CONTRIBUTING.md
     id: contributing
     run: |
