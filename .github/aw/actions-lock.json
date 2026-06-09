@@ -60,6 +60,11 @@
       "version": "v7.0.1",
       "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     },
+    "astral-sh/setup-uv@v8.2.0": {
+      "repo": "astral-sh/setup-uv",
+      "version": "v8.2.0",
+      "sha": "fac544c07dec837d0ccb6301d7b5580bf5edae39"
+    },
     "docker/build-push-action@v7.2.0": {
       "repo": "docker/build-push-action",
       "version": "v7.2.0",
@@ -75,15 +80,30 @@
       "version": "v4.1.0",
       "sha": "d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5"
     },
-    "github/gh-aw-actions/setup@v0.78.3": {
+    "github/gh-aw-actions/setup-cli@v0.79.2": {
+      "repo": "github/gh-aw-actions/setup-cli",
+      "version": "v0.79.2",
+      "sha": "9b1d730701c16b15673633e5696d01677fad9844"
+    },
+    "github/gh-aw-actions/setup@v0.79.2": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.78.3",
-      "sha": "8cfea5ae9bee18df8e50a96affdb6d666cd7b9a3"
+      "version": "v0.79.2",
+      "sha": "9b1d730701c16b15673633e5696d01677fad9844"
     },
     "github/gh-aw/actions/setup-cli@v0.78.3": {
       "repo": "github/gh-aw/actions/setup-cli",
       "version": "v0.78.3",
       "sha": "544dd7355d846f9a7a1a5817a18148442e9ffe35"
+    },
+    "github/gh-aw/actions/setup-cli@v0.79.1": {
+      "repo": "github/gh-aw/actions/setup-cli",
+      "version": "v0.79.1",
+      "sha": "a478150b234d71d663eda1d687f1075fd9818cde"
+    },
+    "github/gh-aw/actions/setup-cli@v0.79.2": {
+      "repo": "github/gh-aw/actions/setup-cli",
+      "version": "v0.79.2",
+      "sha": "05fab00ffacfaf079f6007d4309d7e37e56b3fd8"
     },
     "github/gh-aw/actions/setup@v0.78.3": {
       "repo": "github/gh-aw/actions/setup",
