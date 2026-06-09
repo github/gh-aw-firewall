@@ -27,6 +27,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-EXPOSE 2375 2376
-
 CMD ["dockerd", "--host=unix:///var/run/docker.sock"]

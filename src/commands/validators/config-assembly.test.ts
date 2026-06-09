@@ -296,6 +296,38 @@ describe('config-assembly', () => {
         expect.stringContaining('chroot.binariesSourcePath cannot be "/"'),
       );
     });
+
+    it('should reject chroot binaries source path containing a colon', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/tmp/bin:/extra',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath must not contain ":" or newline characters'),
+      );
+    });
+
+    it('should reject chroot binaries source path containing a newline', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/tmp/bin\n/extra',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath must not contain ":" or newline characters'),
+      );
+    });
   });
 
   describe('rate limit validation', () => {

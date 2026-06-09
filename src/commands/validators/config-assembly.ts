@@ -127,6 +127,13 @@ export function assembleAndValidateConfig(
     logger.error('   Provide a specific binaries directory, for example /tmp/gh-aw/runner-bin');
     process.exit(1);
   }
+  if (config.chrootBinariesSourcePath && /[:\n\r]/.test(config.chrootBinariesSourcePath)) {
+    logger.error(
+      `❌ chroot.binariesSourcePath must not contain ":" or newline characters, got: ${config.chrootBinariesSourcePath}`,
+    );
+    logger.error('   Example (stdin config): {"chroot":{"binariesSourcePath":"/tmp/gh-aw/runner-bin"}}');
+    process.exit(1);
+  }
 
   // Parse and validate --agent-timeout
   applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);
