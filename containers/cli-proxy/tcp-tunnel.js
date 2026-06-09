@@ -38,7 +38,11 @@ if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
   process.exit(1);
 }
 
-const server = net.createServer(client => {
+const bindHosts = ['127.0.0.1', '::1'];
+let startedServers = 0;
+let readyLogged = false;
+
+function handleConnection(client) {
   const clientAddr = `${client.remoteAddress}:${client.remotePort}`;
   console.error(`[tcp-tunnel] Connection from ${sanitizeForLog(clientAddr)}`);
   const upstream = net.connect(remotePort, remoteHost);
@@ -47,13 +51,25 @@ const server = net.createServer(client => {
   client.on('error', (err) => { console.error(`[tcp-tunnel] Client error (${sanitizeForLog(clientAddr)}): ${sanitizeForLog(err.message)}`); upstream.destroy(); });
   upstream.on('error', (err) => { console.error(`[tcp-tunnel] Upstream error (${sanitizeForLog(clientAddr)}): ${sanitizeForLog(err.message)}`); client.destroy(); });
   client.on('close', () => { console.error(`[tcp-tunnel] Connection closed: ${sanitizeForLog(clientAddr)}`); });
-});
+}
 
-server.on('error', (err) => {
-  console.error('[tcp-tunnel] Server error:', sanitizeForLog(err.message));
-  process.exit(1);
-});
+for (const bindHost of bindHosts) {
+  const server = net.createServer(handleConnection);
+  server.on('error', (err) => {
+    const errCode = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
+    if ((errCode === 'EADDRNOTAVAIL' || errCode === 'EAFNOSUPPORT') && bindHost === '::1') {
+      console.error(`[tcp-tunnel] IPv6 loopback unavailable, skipping ::1 bind (${sanitizeForLog(err.message)})`);
+      return;
+    }
+    console.error(`[tcp-tunnel] Server error (${bindHost}):`, sanitizeForLog(err.message));
+    process.exit(1);
+  });
 
-server.listen(localPort, '127.0.0.1', () => {
-  console.log(`[tcp-tunnel] Forwarding localhost:${localPort} → ${remoteHost}:${remotePort}`);
-});
+  server.listen(localPort, bindHost, () => {
+    startedServers += 1;
+    if (!readyLogged && (startedServers === bindHosts.length || bindHost === '127.0.0.1')) {
+      readyLogged = true;
+      console.log(`[tcp-tunnel] Forwarding localhost:${localPort} → ${remoteHost}:${remotePort}`);
+    }
+  });
+}
