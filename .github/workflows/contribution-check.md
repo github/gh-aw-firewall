@@ -18,8 +18,11 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests]
 sandbox:
+  mcp:
+    version: "latest"
   agent:
     id: awf
+strict: false
 network:
   allowed:
     - github

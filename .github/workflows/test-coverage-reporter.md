@@ -19,8 +19,11 @@ permissions:
   discussions: read
 
 sandbox:
+  mcp:
+    version: "latest"
   agent:
     id: awf
+strict: false
 network:
   allowed:
     - node

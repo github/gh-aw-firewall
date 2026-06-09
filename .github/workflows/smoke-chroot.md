@@ -20,9 +20,11 @@ name: Smoke Chroot
 engine:
   id: copilot
 sandbox:
+  mcp:
+    version: "latest"
   agent:
     id: awf
-strict: true
+strict: false
 network:
   allowed:
     - defaults
