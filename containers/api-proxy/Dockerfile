@@ -18,7 +18,7 @@ RUN npm ci --omit=dev
 COPY server.js logging.js metrics.js rate-limiter.js \
      token-tracker.js token-persistence.js token-parsers.js \
      token-tracker-http.js token-tracker-ws.js \
-     model-resolver.js proxy-utils.js anthropic-transforms.js \
+     model-resolver.js model-utils.js model-body-rewriter.js proxy-utils.js anthropic-transforms.js \
      model-config.js key-validation.js server-factory.js startup.js \
      proxy-request.js model-discovery.js management.js oidc-token-provider.js \
      oidc-token-provider-base.js \
