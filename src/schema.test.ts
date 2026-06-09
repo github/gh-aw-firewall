@@ -223,6 +223,11 @@ describe('awf-config.schema.json', () => {
     expect(validate({ chroot: { identity: { gid: 1.2 } } })).toBe(false);
   });
 
+  it('validates chroot.binariesSourcePath as string', () => {
+    expect(validate({ chroot: { binariesSourcePath: '/tmp/gh-aw/runner-bin' } })).toBe(true);
+    expect(validate({ chroot: { binariesSourcePath: 123 } })).toBe(false);
+  });
+
   it('validates dind bootstrap fields', () => {
     expect(validate({
       dind: {

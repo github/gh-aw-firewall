@@ -46,8 +46,11 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   if (copilotProviderBaseUrl) env.COPILOT_PROVIDER_BASE_URL = copilotProviderBaseUrl;
   if (copilotProviderApiKey) env.COPILOT_PROVIDER_API_KEY = copilotProviderApiKey;
 
-  // Pre-startup model validation (non-sensitive config value)
-  if (config.requestedModel) env.AWF_REQUESTED_MODEL = config.requestedModel;
+  // Pre-startup model validation (non-sensitive config value).
+  // Prefer explicit requestedModel, but fall back to COPILOT_MODEL when present so
+  // api-proxy can validate user-facing model aliases (apiProxy.models) at startup.
+  const requestedModel = (config.requestedModel || getConfigEnvValue(config, 'COPILOT_MODEL') || '').trim();
+  if (requestedModel) env.AWF_REQUESTED_MODEL = requestedModel;
   if (config.copilotByokExtraHeaders !== undefined) {
     env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
   }
@@ -113,8 +116,8 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
       // target on GHES/GHEC (e.g. api.mycompany.ghe.com instead of api.github.com)
       ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
-      // Do not forward GITHUB_COPILOT_INTEGRATION_ID for now. api-proxy defaults to
-      // 'copilot-developer-cli', which remains required for PAT compatibility.
+      // Do not forward GITHUB_COPILOT_INTEGRATION_ID — api-proxy defaults to
+      // 'agentic-workflows' which is the correct integration ID for AWF.
       // Note: AWF_VERSION is intentionally NOT forwarded here. It is baked into the api-proxy
       // container image at release build time (via --build-arg AWF_VERSION=...), so the
       // token-usage.jsonl _schema field reflects the api-proxy image version rather than

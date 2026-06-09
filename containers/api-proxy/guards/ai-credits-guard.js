@@ -8,6 +8,11 @@ const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
 const CREDIT_DENOMINATOR = TOKENS_PER_MILLION * DOLLARS_PER_CREDIT;
 
+// Absolute hard cap on AI credits that cannot be overridden by configuration.
+// This is a safety limit to prevent runaway spending regardless of what
+// maxAiCredits is set to via CLI flags or config files.
+const HARD_CAP_AI_CREDITS = 10_000;
+
 function roundCredits(value) {
   return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
@@ -52,8 +57,9 @@ function getAiCreditsConfig() {
     } catch { /* invalid JSON — leave null */ }
   }
 
+  const parsedMax = parsePositiveNumber(rawMax);
   aiCreditsConfigCache.parsed = {
-    max: parsePositiveNumber(rawMax),
+    max: parsedMax ? Math.min(parsedMax, HARD_CAP_AI_CREDITS) : null,
     defaultPricing,
   };
   return aiCreditsConfigCache.parsed;
@@ -215,8 +221,19 @@ function getAiCreditsReflectState() {
 
 function getAiCreditsBlockState() {
   const config = getAiCreditsConfig();
-  if (!config.max) return null;
   const roundedTotalAiCredits = roundCredits(aiCreditsState.totalAiCredits);
+
+  // Hard cap always applies, regardless of config
+  if (roundedTotalAiCredits >= HARD_CAP_AI_CREDITS) {
+    return {
+      maxAiCredits: HARD_CAP_AI_CREDITS,
+      totalAiCredits: roundedTotalAiCredits,
+      maxExceeded: true,
+      hardCap: true,
+    };
+  }
+
+  if (!config.max) return null;
   return {
     maxAiCredits: config.max,
     totalAiCredits: roundedTotalAiCredits,
@@ -225,12 +242,16 @@ function getAiCreditsBlockState() {
 }
 
 function buildAiCreditsLimitError(aiCreditsBlockState) {
+  const isHardCap = aiCreditsBlockState.hardCap === true;
   return {
     error: {
       type: 'ai_credits_limit_exceeded',
-      message: `Maximum AI credits exceeded (${aiCreditsBlockState.totalAiCredits.toFixed(6)} / ${aiCreditsBlockState.maxAiCredits}).`,
+      message: isHardCap
+        ? `Hard cap on AI credits reached (${aiCreditsBlockState.totalAiCredits.toFixed(6)} / ${aiCreditsBlockState.maxAiCredits}). This limit cannot be overridden.`
+        : `Maximum AI credits exceeded (${aiCreditsBlockState.totalAiCredits.toFixed(6)} / ${aiCreditsBlockState.maxAiCredits}).`,
       total_ai_credits: aiCreditsBlockState.totalAiCredits,
       max_ai_credits: aiCreditsBlockState.maxAiCredits,
+      hard_cap: isHardCap,
     },
   };
 }
@@ -244,6 +265,7 @@ function resetAiCreditsGuardForTests() {
 }
 
 module.exports = {
+  HARD_CAP_AI_CREDITS,
   applyAiCreditsUsage,
   getAiCreditsReflectState,
   getAiCreditsBlockState,

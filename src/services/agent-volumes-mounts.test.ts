@@ -81,6 +81,7 @@ describe('agent service', () => {
     const configWithPrefix = {
       ...getConfig(),
       dockerHostPathPrefix: '/daemon-root',
+      chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
       volumeMounts: ['/workspace:/workspace:ro'],
     };
     const result = generateDockerCompose(configWithPrefix, mockNetworkConfig);
@@ -88,6 +89,7 @@ describe('agent service', () => {
 
     expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     expect(volumes).toContain('/daemon-root/usr:/host/usr:ro');
+    expect(volumes).toContain('/daemon-root/tmp/gh-aw/runner-bin:/host/usr/local/bin:ro');
     expect(volumes).toContain('/daemon-root/etc/passwd:/host/etc/passwd:ro');
     expect(volumes).toContain('/daemon-root/workspace:/host/workspace:ro');
     expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
@@ -99,6 +101,18 @@ describe('agent service', () => {
     expect(volumes).toContain('/sys:/host/sys:ro');
     expect(volumes).not.toContain('/daemon-root/dev:/host/dev:ro');
     expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
+  });
+
+  it('should mount chroot binaries source path over /host/usr/local/bin', () => {
+    const configWithBinariesOverlay = {
+      ...getConfig(),
+      chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
+    };
+    const result = generateDockerCompose(configWithBinariesOverlay, mockNetworkConfig);
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain('/usr:/host/usr:ro');
+    expect(volumes).toContain('/tmp/gh-aw/runner-bin:/host/usr/local/bin:ro');
   });
 
   it('should normalize trailing slash in dockerHostPathPrefix', () => {

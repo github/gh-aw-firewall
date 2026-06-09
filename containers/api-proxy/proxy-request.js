@@ -61,6 +61,10 @@ const {
   checkUnknownModelRejection,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
+const {
+  getRetiredModelBlockState,
+  buildRetiredModelError,
+} = require('./guards/retired-model-guard');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -426,6 +430,7 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
       buildLogFields: block => ({
         total_ai_credits: block.totalAiCredits,
         max_ai_credits: block.maxAiCredits,
+        hard_cap: block.hardCap || false,
       }),
     },
     ...(checkModelMultiplier
@@ -439,6 +444,19 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
           model: block.model,
           model_multiplier: block.multiplier,
           max_model_multiplier: block.maxModelMultiplier,
+        }),
+      }]
+      : []),
+    ...(checkModelMultiplier
+      ? [{
+        block: getRetiredModelBlockState(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'retired_model',
+        buildError: buildRetiredModelError,
+        buildLogFields: block => ({
+          model: block.model,
+          suggestion: block.suggestion,
         }),
       }]
       : []),
@@ -477,6 +495,149 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
 }
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
+
+/**
+ * Collect the full request body from the inbound stream, enforcing the 10 MB
+ * size limit. Sends a 413 response inline when the limit is exceeded, and
+ * handles client stream errors with a 400 response.
+ *
+ * @param {import('http').IncomingMessage} req
+ * @param {string} provider
+ * @param {string} requestId
+ * @param {import('http').ServerResponse} res
+ * @param {object} span - OTEL span (or no-op shim)
+ * @param {number} startTime - Request start timestamp (ms)
+ * @param {string} targetHost - Upstream hostname (used in log fields)
+ * @returns {Promise<Buffer|null>} Collected body, or null if the request was
+ *   already rejected (413) or errored before the body was fully received.
+ */
+function collectRequestBody(req, provider, requestId, res, span, startTime, targetHost) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    let totalBytes = 0;
+    let settled = false;
+
+    function settle(value) {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    }
+
+    req.on('close', () => {
+      if (settled || req.complete) return;
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      logRequest('warn', 'request_aborted', {
+        request_id: requestId, provider, method: req.method,
+        path: sanitizeForLog(req.url), duration_ms: duration,
+        upstream_host: targetHost,
+      });
+      otel.endSpan(span, 0);
+      settle(null);
+    });
+
+    req.on('error', (err) => {
+      if (settled) return;
+      otel.endSpanError(span, err, 400);
+      handleRequestError(err, {
+        res, requestId, provider, req, targetHost,
+        startTime, statusCode: 400, clientMessage: 'Client error',
+      });
+      settle(null);
+    });
+
+    req.on('data', (chunk) => {
+      if (settled) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_SIZE) {
+        const duration = Date.now() - startTime;
+        metrics.gaugeDec('active_requests', { provider });
+        metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+        logRequest('warn', 'request_complete', {
+          request_id: requestId, provider, method: req.method,
+          path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
+          request_bytes: totalBytes, upstream_host: targetHost,
+        });
+        otel.endSpan(span, 413);
+        if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
+        settle(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      settle(Buffer.concat(chunks));
+    });
+  });
+}
+
+/**
+ * Apply the sequential body-transform pipeline to the raw inbound body.
+ *
+ * Transforms applied in order:
+ *   1. `bodyTransform` — optional caller-supplied transform
+ *   2. `sanitizeNullToolCallTypes` — strips/normalizes null tool-call types
+ *   3. `injectSteeringMessage` — timeout + token-budget steering (when enabled)
+ *   4. `injectStreamOptions` — adds `stream_options.include_usage`
+ *
+ * @param {Buffer} body
+ * @param {string} provider
+ * @param {import('http').IncomingMessage} req
+ * @param {string} requestId
+ * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} bodyTransform
+ * @returns {Promise<Buffer>}
+ */
+async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
+  if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
+    const transformed = await bodyTransform(body);
+    if (transformed) body = transformed;
+  }
+
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    const sanitized = sanitizeNullToolCallTypes(body);
+    if (sanitized) {
+      body = sanitized.body;
+      logRequest('info', 'request_sanitized', {
+        request_id: requestId,
+        provider,
+        normalized_tool_calls: sanitized.normalizedCount,
+        dropped_tool_calls: sanitized.droppedCount,
+      });
+    }
+  }
+
+  if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
+    const steeringMessages = [
+      { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
+      { type: 'token', message: getAndClearPendingSteeringMessage() },
+    ];
+    for (const { type, message } of steeringMessages) {
+      if (!message) continue;
+      const steered = injectSteeringMessage(body, provider, message);
+      if (steered) {
+        body = steered;
+        logRequest('info', `${type}_steering`, {
+          request_id: requestId,
+          provider,
+          message,
+        });
+      }
+    }
+  }
+
+  // Inject stream_options.include_usage so streaming responses include token data
+  if (req.method === 'POST') {
+    const streamOpts = injectStreamOptions(body, provider, req.url);
+    if (streamOpts) {
+      body = streamOpts.body;
+    }
+  }
+
+  return body;
+}
+
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
  *
@@ -533,99 +694,15 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
   const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-  const chunks = [];
-  let totalBytes = 0;
-  let rejected = false;
-  let errored = false;
+  // Step 1: collect body (enforces 10 MB limit; returns null if already rejected)
+  collectRequestBody(req, provider, requestId, res, span, startTime, targetHost).then(async (rawBody) => {
+    if (rawBody === null) return;
 
-  req.on('error', (err) => {
-    if (errored) return;
-    errored = true;
-    otel.endSpanError(span, err, 400);
-    handleRequestError(err, {
-      res,
-      requestId,
-      provider,
-      req,
-      targetHost,
-      startTime,
-      statusCode: 400,
-      clientMessage: 'Client error',
-    });
-  });
+    // Step 2: apply transform pipeline
+    const inboundBytes = rawBody.length;
+    const body = await transformRequestBody(rawBody, provider, req, requestId, bodyTransform);
 
-  req.on('data', chunk => {
-    if (rejected || errored) return;
-    totalBytes += chunk.length;
-    if (totalBytes > MAX_BODY_SIZE) {
-      rejected = true;
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-      logRequest('warn', 'request_complete', {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
-        request_bytes: totalBytes, upstream_host: targetHost,
-      });
-      otel.endSpan(span, 413);
-      if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
-      return;
-    }
-    chunks.push(chunk);
-  });
-
-  req.on('end', async () => {
-    if (rejected || errored) return;
-    let body = Buffer.concat(chunks);
-    const inboundBytes = body.length;
-
-    if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
-      const transformed = await bodyTransform(body);
-      if (transformed) body = transformed;
-    }
-
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-      const sanitized = sanitizeNullToolCallTypes(body);
-      if (sanitized) {
-        body = sanitized.body;
-        logRequest('info', 'request_sanitized', {
-          request_id: requestId,
-          provider,
-          normalized_tool_calls: sanitized.normalizedCount,
-          dropped_tool_calls: sanitized.droppedCount,
-        });
-      }
-    }
-
-    if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
-      const steeringMessages = [
-        { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
-        { type: 'token', message: getAndClearPendingSteeringMessage() },
-      ];
-      for (const { type, message } of steeringMessages) {
-        if (!message) continue;
-        const steered = injectSteeringMessage(body, provider, message);
-        if (steered) {
-          body = steered;
-          logRequest('info', `${type}_steering`, {
-            request_id: requestId,
-            provider,
-            message,
-          });
-        }
-      }
-    }
-
-    // Inject stream_options.include_usage so streaming responses include token data
-    if (req.method === 'POST') {
-      const streamOpts = injectStreamOptions(body, provider, req.url);
-      if (streamOpts) {
-        body = streamOpts.body;
-      }
-    }
-
-
+    // Step 3: dispatch upstream
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
@@ -642,6 +719,8 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 module.exports = {
   isValidRequestId,
   checkRateLimit,
+  collectRequestBody,
+  transformRequestBody,
   proxyRequest,
   proxyWebSocket,
   extractBillingHeaders,

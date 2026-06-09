@@ -10,6 +10,7 @@ const {
   makeRes,
   makeProxyReq,
   setupServerTestEnv,
+  flushPromises,
 } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
@@ -48,39 +49,43 @@ describe('proxyRequest X-Initiator injection', () => {
     };
   }
 
-  it('injects x-initiator: agent when absent on direct copilot requests', () => {
+  it('injects x-initiator: agent when absent on direct copilot requests', async () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();
     proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
     req.emit('end');
+    await flushPromises();
     expect(getCaptured().headers['x-initiator']).toBe('agent');
   });
 
-  it('injects x-initiator: agent when absent on enterprise githubcopilot.com target', () => {
+  it('injects x-initiator: agent when absent on enterprise githubcopilot.com target', async () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();
     proxyRequest(req, makeRes(), 'api.enterprise.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
     req.emit('end');
+    await flushPromises();
     expect(getCaptured().headers['x-initiator']).toBe('agent');
   });
 
-  it('preserves a client-supplied x-initiator value on copilot requests', () => {
+  it('preserves a client-supplied x-initiator value on copilot requests', async () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq({ 'x-initiator': 'user' });
     proxyRequest(req, makeRes(), 'api.githubcopilot.com', { 'Authorization': 'Bearer token' }, 'copilot');
     req.emit('end');
+    await flushPromises();
     expect(getCaptured().headers['x-initiator']).toBe('user');
   });
 
-  it('does not inject x-initiator for non-copilot provider targets', () => {
+  it('does not inject x-initiator for non-copilot provider targets', async () => {
     const { getCaptured } = mockHttpsRequest();
     const req = makeReq();
     proxyRequest(req, makeRes(), 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
     expect(getCaptured().headers['x-initiator']).toBeUndefined();
   });
 
-  it('normalizes null tool_calls[].type to function before forwarding', () => {
+  it('normalizes null tool_calls[].type to function before forwarding', async () => {
     const { getWrittenBody } = mockHttpsRequest();
     const req = makeReq();
 
@@ -97,12 +102,13 @@ describe('proxyRequest X-Initiator injection', () => {
       }],
     })));
     req.emit('end');
+    await flushPromises();
 
     const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
     expect(forwarded.messages[0].tool_calls[0].type).toBe('function');
   });
 
-  it('drops malformed tool calls with null type and no function payload', () => {
+  it('drops malformed tool calls with null type and no function payload', async () => {
     const { getWrittenBody } = mockHttpsRequest();
     const req = makeReq();
 
@@ -118,6 +124,7 @@ describe('proxyRequest X-Initiator injection', () => {
       }],
     })));
     req.emit('end');
+    await flushPromises();
 
     const forwarded = JSON.parse(getWrittenBody().toString('utf8'));
     expect(forwarded.messages[0].tool_calls).toEqual([

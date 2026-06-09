@@ -1,4 +1,5 @@
 const {
+  HARD_CAP_AI_CREDITS,
   applyAiCreditsUsage,
   getAiCreditsReflectState,
   getAiCreditsBlockState,
@@ -101,6 +102,24 @@ describe('ai-credits-guard', () => {
     });
   });
 
+  it('enforces hard cap even when no max is configured', () => {
+    expect(process.env.AWF_MAX_AI_CREDITS).toBeUndefined();
+    applyAiCreditsUsage({ input_tokens: 400_000_000, output_tokens: 0 }, 'gpt-5-mini');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: HARD_CAP_AI_CREDITS,
+      totalAiCredits: HARD_CAP_AI_CREDITS,
+      maxExceeded: true,
+      hardCap: true,
+    });
+  });
+
+  it('clamps configured max to hard cap', () => {
+    process.env.AWF_MAX_AI_CREDITS = '99999';
+    applyAiCreditsUsage({ input_tokens: 100, output_tokens: 0 }, 'gpt-5-mini');
+    const state = getAiCreditsBlockState();
+    expect(state.maxAiCredits).toBe(HARD_CAP_AI_CREDITS);
+  });
+
   it('builds a structured max ai credits limit error payload', () => {
     expect(buildAiCreditsLimitError({
       totalAiCredits: 0.125,
@@ -111,6 +130,23 @@ describe('ai-credits-guard', () => {
         message: 'Maximum AI credits exceeded (0.125000 / 0.1).',
         total_ai_credits: 0.125,
         max_ai_credits: 0.1,
+        hard_cap: false,
+      },
+    });
+  });
+
+  it('builds a hard cap error payload when hardCap is true', () => {
+    expect(buildAiCreditsLimitError({
+      totalAiCredits: 10000.5,
+      maxAiCredits: 10000,
+      hardCap: true,
+    })).toEqual({
+      error: {
+        type: 'ai_credits_limit_exceeded',
+        message: 'Hard cap on AI credits reached (10000.500000 / 10000). This limit cannot be overridden.',
+        total_ai_credits: 10000.5,
+        max_ai_credits: 10000,
+        hard_cap: true,
       },
     });
   });

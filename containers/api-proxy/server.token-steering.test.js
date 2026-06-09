@@ -7,7 +7,7 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
-const { setupServerTestEnv } = require('./test-helpers/server-mock-factories');
+const { setupServerTestEnv, flushPromises } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
 let getAndClearPendingSteeringMessage;
@@ -86,7 +86,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(msg90).toContain('90%');
   });
 
-  it('injects timeout steering warning into OpenAI request body', () => {
+  it('injects timeout steering warning into OpenAI request body', async () => {
     process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
     const start = 1_700_000_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
@@ -117,6 +117,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req1.emit('data', req1Body);
     req1.emit('end');
+    await flushPromises();
 
     nowSpy.mockReturnValue(start + (8 * 60 * 1000));
 
@@ -131,6 +132,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req2.emit('data', req2Body);
     req2.emit('end');
+    await flushPromises();
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
@@ -139,7 +141,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(writtenBody2.messages[0].content).toContain('80%');
   });
 
-  it('injects 80% warning into an OpenAI request body and clears it on the next request', () => {
+  it('injects 80% warning into an OpenAI request body and clears it on the next request', async () => {
     // Two upstream request objects — one per proxyRequest call.
     let responseHandler;
     const upstreamReq1 = new EventEmitter();
@@ -171,6 +173,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
 
     proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req1.emit('end');
+    await flushPromises();
 
     const proxyRes = new EventEmitter();
     proxyRes.statusCode = 200;
@@ -198,6 +201,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req2.emit('data', req2Body);
     req2.emit('end');
+    await flushPromises();
 
     // The proxy writes the (modified) body to the upstream request.
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
@@ -222,6 +226,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     proxyRequest(req3, res3, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req3.emit('data', req3Body);
     req3.emit('end');
+    await flushPromises();
 
     expect(upstreamReq3.write).toHaveBeenCalledTimes(1);
     const writtenBody3 = JSON.parse(upstreamReq3.write.mock.calls[0][0].toString());
@@ -229,7 +234,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(systemMessages3).toHaveLength(0);
   });
 
-  it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', () => {
+  it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {
     // Disable token steering for this test
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
 
@@ -263,6 +268,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
 
     localProxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req1.emit('end');
+    await flushPromises();
 
     const proxyRes = new EventEmitter();
     proxyRes.statusCode = 200;
@@ -289,6 +295,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     localProxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req2.emit('data', req2Body);
     req2.emit('end');
+    await flushPromises();
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());

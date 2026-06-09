@@ -38,6 +38,31 @@ describe('API proxy sidecar: miscellaneous env forwarding', () => {
           expect(env.AWF_REQUESTED_MODEL).toBe('gpt-4o-2024-08-06');
         });
 
+        it('should default AWF_REQUESTED_MODEL from COPILOT_MODEL when requestedModel is unset', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotGithubToken: 'gho_test_token',
+            additionalEnv: { COPILOT_MODEL: 'gpt-5-codex' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_REQUESTED_MODEL).toBe('gpt-5-codex');
+        });
+
+        it('should prefer requestedModel over COPILOT_MODEL for AWF_REQUESTED_MODEL', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotGithubToken: 'gho_test_token',
+            requestedModel: 'gpt-5.3-codex',
+            additionalEnv: { COPILOT_MODEL: 'gpt-5-codex' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_REQUESTED_MODEL).toBe('gpt-5.3-codex');
+        });
+
         it('should forward copilotByokExtraHeaders as AWF_BYOK_EXTRA_HEADERS', () => {
           const configWithProxy = {
             ...mockConfig,

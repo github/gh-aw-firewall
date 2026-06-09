@@ -73,6 +73,17 @@ function setupServerTestEnv(importFn) {
   return { get: () => imported };
 }
 
+/**
+ * Drain all pending microtasks / Promises so that async callbacks scheduled
+ * inside `proxyRequest` (e.g. the collectRequestBody → then → dispatch chain)
+ * have had a chance to run before test assertions.
+ *
+ * @returns {Promise<void>}
+ */
+function flushPromises() {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
 module.exports = {
   makeReq,
   makeRes,
@@ -80,4 +91,5 @@ module.exports = {
   makeProxyRes,
   getStructuredLogs,
   setupServerTestEnv,
+  flushPromises,
 };

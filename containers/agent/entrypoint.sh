@@ -980,6 +980,15 @@ AWFEOF
       echo "[entrypoint][WARN] AWF_PREFLIGHT_BINARY='${AWF_PREFLIGHT_BINARY}' contains unsafe characters; skipping preflight check." >&2
     fi
   fi
+  # Apply explicit chroot identity overrides inside the script runtime (after
+  # capsh user-switch) so capsh does not clobber HOME/USER/LOGNAME.
+  if [ -n "${CHROOT_HOME_OVERRIDE}" ]; then
+    printf 'export HOME=%q\n' "${CHROOT_HOME_OVERRIDE}" >> "/host${SCRIPT_FILE}"
+  fi
+  if [ -n "${CHROOT_USER_OVERRIDE}" ]; then
+    printf 'export USER=%q\n' "${CHROOT_USER_OVERRIDE}" >> "/host${SCRIPT_FILE}"
+    printf 'export LOGNAME=%q\n' "${CHROOT_USER_OVERRIDE}" >> "/host${SCRIPT_FILE}"
+  fi
   # Append the actual command arguments
   # Docker CMD passes commands as ['/bin/bash', '-c', 'command_string'].
   # Instead of writing the full [bash, -c, cmd] via printf '%q' (which creates
@@ -1081,14 +1090,10 @@ AWFEOF
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
-  AWF_CHROOT_EFFECTIVE_HOME="${CHROOT_HOME_OVERRIDE}" \
-  AWF_CHROOT_EFFECTIVE_USER="${CHROOT_USER_OVERRIDE}" \
   run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
-    if [ -n \"\${AWF_CHROOT_EFFECTIVE_HOME:-}\" ]; then export HOME=\"\${AWF_CHROOT_EFFECTIVE_HOME}\"; fi
-    if [ -n \"\${AWF_CHROOT_EFFECTIVE_USER:-}\" ]; then export USER=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; export LOGNAME=\"\${AWF_CHROOT_EFFECTIVE_USER}\"; fi
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 else

@@ -235,8 +235,8 @@ describe('host-iptables (setup)', () => {
     });
 
     it('should skip inserting DOCKER-USER jump rule if it already exists', async () => {
-      // Default mock: all calls succeed, and DOCKER-USER listing includes bridge rule
-      setupDefaultIptablesMocks({ catchAllStdout: '1    FW_WRAPPER  all  --  -i fw-bridge  0.0.0.0/0            0.0.0.0/0' });
+      // Simulate rule already present: iptables -C returns exit code 0
+      setupDefaultIptablesMocks({ dockerUserJumpRuleExists: true });
 
       await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4']);
 

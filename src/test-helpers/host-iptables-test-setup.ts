@@ -70,14 +70,21 @@ export function setupDefaultIptablesMocks(
     chainExists?: boolean;
     bridgeName?: string;
     catchAllStdout?: string;
+    /** Whether the DOCKER-USER jump rule already exists (controls iptables -C exit code). Default: false. */
+    dockerUserJumpRuleExists?: boolean;
   } = {}
 ): void {
-  const { chainExists = false, bridgeName = 'fw-bridge', catchAllStdout = '' } = opts;
+  const { chainExists = false, bridgeName = 'fw-bridge', catchAllStdout = '', dockerUserJumpRuleExists = false } = opts;
   mockedExeca
     .mockResolvedValueOnce(execaResult({ stdout: bridgeName, exitCode: 0 }))
     .mockResolvedValueOnce(execaResult({ stdout: '', exitCode: 0 }))
     .mockResolvedValueOnce(execaResult({ exitCode: chainExists ? 0 : 1 }));
-  mockedExeca.mockResolvedValue(execaResult({ stdout: catchAllStdout, exitCode: 0 }));
+  mockedExeca.mockImplementation(((cmd: string, args: readonly string[]) => {
+    if (cmd === 'iptables' && Array.isArray(args) && args.includes('-C')) {
+      return Promise.resolve(execaResult({ stdout: '', exitCode: dockerUserJumpRuleExists ? 0 : 1 }));
+    }
+    return Promise.resolve(execaResult({ stdout: catchAllStdout, exitCode: 0 }));
+  }) as MockedExecaFn);
 }
 
 // ts-prune-ignore-next
