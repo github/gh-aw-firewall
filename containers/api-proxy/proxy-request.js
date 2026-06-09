@@ -426,6 +426,7 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
       buildLogFields: block => ({
         total_ai_credits: block.totalAiCredits,
         max_ai_credits: block.maxAiCredits,
+        hard_cap: block.hardCap || false,
       }),
     },
     ...(checkModelMultiplier
