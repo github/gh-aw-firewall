@@ -38,8 +38,8 @@ describe('security guard workflow optimization config', () => {
     expect(lock).toContain('--max-turns 6');
     expect(lock).toContain('ANTHROPIC_MODEL: claude-sonnet-4-5');
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
-    expect(lock).toContain('github/gh-aw-actions/setup@8cfea5ae9bee18df8e50a96affdb6d666cd7b9a3 # v0.78.3');
-    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.78.3');
+    expect(lock).toContain('github/gh-aw-actions/setup@9b1d730701c16b15673633e5696d01677fad9844 # v0.79.2');
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.79.2');
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.2');
   });
 });
