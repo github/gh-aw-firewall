@@ -3,8 +3,8 @@
  *
  * The integration-level behaviour (setupHostIptables full flows with hostAccess,
  * cliProxy, DoH, etc.) lives in host-iptables-setup.test.ts and
- * host-iptables-host-access.test.ts.  This file targets the pure-logic helpers
- * that those suites never exercise directly:
+ * host-iptables-host-access.test.ts. This file adds focused unit coverage for
+ * pure-logic helpers that those suites only sanity-check:
  *
  *   - isValidPortSpec  – boundary values, leading zeros, floats, ranges
  */
