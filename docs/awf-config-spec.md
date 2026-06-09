@@ -717,6 +717,18 @@ configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
 and error type `ai_credits_limit_exceeded`.
 
+Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
+hard cap of **10,000 AI credits**. When cumulative AI credits reach this hard
+cap, subsequent requests MUST be rejected with HTTP `429` and error type
+`ai_credits_limit_exceeded`, and the error/log payload MUST include
+`hard_cap: true`.
+
+If both limits are present, the effective enforcement threshold is the lower of:
+- configured `maxAiCredits`
+- the fixed hard cap (10,000)
+
+Setting `maxAiCredits` above 10,000 MUST NOT raise the effective limit.
+
 ### 10.7.1 Model Name Resolution for Pricing
 
 The AI credits guard resolves model names using a two-step lookup:

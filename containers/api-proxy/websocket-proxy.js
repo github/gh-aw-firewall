@@ -114,7 +114,7 @@ function createProxyWebSocket({
         provider,
         total_ai_credits: aiCreditsBlock.totalAiCredits,
         max_ai_credits: aiCreditsBlock.maxAiCredits,
-        hard_cap: aiCreditsBlock.hardCap || false,
+        hard_cap: aiCreditsBlock.hardCap === true,
       });
       socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
       socket.write(JSON.stringify(buildAiCreditsLimitError(aiCreditsBlock)));
