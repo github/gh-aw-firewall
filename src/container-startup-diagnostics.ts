@@ -90,27 +90,39 @@ export function reportBlockedDomains(
   blockedTargets: BlockedTarget[],
   allowedDomains: string[],
   log: (msg: string) => void,
-): { missingDomains: string[]; portIssues: BlockedTarget[] } {
+): { missingDomains: string[]; portIssues: BlockedTarget[]; protocolIssues: BlockedTarget[] } {
   const uniqueMissingDomains = new Set<string>();
   const portIssues: BlockedTarget[] = [];
+  const protocolIssues: BlockedTarget[] = [];
 
   blockedTargets.forEach(blocked => {
-    const isAllowed = allowedDomains.some(allowed => {
-      // Strip any protocol prefix (e.g. "https://github.com" -> "github.com")
-      const normalizedAllowed = parseDomainWithProtocol(allowed).domain;
-      if (isWildcardPattern(normalizedAllowed)) {
-        // Wildcard pattern match (e.g. "*.github.com")
-        try {
-          return new RegExp(wildcardToRegex(normalizedAllowed), 'i').test(blocked.domain);
-        } catch {
-          return false;
+    const blockedProtocol = blocked.port === '80'
+      ? 'http'
+      : blocked.port === '443'
+        ? 'https'
+        : 'both';
+
+    const matchingAllowlistEntries = allowedDomains
+      .map(parseDomainWithProtocol)
+      .filter(allowed => {
+        if (isWildcardPattern(allowed.domain)) {
+          try {
+            return new RegExp(wildcardToRegex(allowed.domain), 'i').test(blocked.domain);
+          } catch {
+            return false;
+          }
         }
+        return blocked.domain === allowed.domain || blocked.domain.endsWith('.' + allowed.domain);
+      });
+
+    const isAllowed = matchingAllowlistEntries.some(allowed => {
+      if (allowed.protocol === 'both' || blockedProtocol === 'both') {
+        return true;
       }
-      // Exact match or subdomain match
-      return blocked.domain === normalizedAllowed || blocked.domain.endsWith('.' + normalizedAllowed);
+      return allowed.protocol === blockedProtocol;
     });
 
-    if (!isAllowed) {
+    if (matchingAllowlistEntries.length === 0) {
       // Domain not in allowlist
       log(`  - Blocked: ${blocked.target} (domain not in allowlist)`);
       uniqueMissingDomains.add(blocked.domain);
@@ -118,6 +130,10 @@ export function reportBlockedDomains(
       // Domain is allowed but port is not
       log(`  - Blocked: ${blocked.target} (port ${blocked.port} not allowed, only 80 and 443 are permitted)`);
       portIssues.push(blocked);
+    } else if (!isAllowed) {
+      // Domain matches allowlist, but protocol does not
+      log(`  - Blocked: ${blocked.target} (protocol not allowed by allowlist entry)`);
+      protocolIssues.push(blocked);
     } else {
       // Other reason (shouldn't happen often)
       log(`  - Blocked: ${blocked.target}`);
@@ -134,8 +150,11 @@ export function reportBlockedDomains(
   if (portIssues.length > 0) {
     log('To fix port issues: Use standard ports 80 (HTTP) or 443 (HTTPS)');
   }
+  if (protocolIssues.length > 0) {
+    log('To fix protocol issues: add an allowlist entry for the correct protocol (http://domain or https://domain), or allow both by using the bare domain');
+  }
 
-  return { missingDomains, portIssues };
+  return { missingDomains, portIssues, protocolIssues };
 }
 
 /**
