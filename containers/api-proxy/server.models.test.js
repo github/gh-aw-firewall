@@ -32,8 +32,8 @@ describe('makeModelBodyTransform', () => {
     cachedModels.copilot = ['claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-4o'];
 
     // Build a transform directly by simulating what makeModelBodyTransform does:
-    // call rewriteModelInBody from model-resolver.
-    const { rewriteModelInBody } = require('./model-resolver');
+    // call rewriteModelInBody from model-body-rewriter.
+    const { rewriteModelInBody } = require('./model-body-rewriter');
 
     const aliases = {
       sonnet: ['copilot/*sonnet*'],
@@ -53,7 +53,7 @@ describe('makeModelBodyTransform', () => {
 
   it('should update content-length and strip transfer-encoding after body rewrite', () => {
     // Simulate the header fixup logic in proxyRequest directly.
-    const { rewriteModelInBody } = require('./model-resolver');
+    const { rewriteModelInBody } = require('./model-body-rewriter');
 
     cachedModels.copilot = ['claude-sonnet-4.6'];
     const aliases = { sonnet: ['copilot/*sonnet*'] };
@@ -81,7 +81,7 @@ describe('makeModelBodyTransform', () => {
 
   it('should report forwarded (post-rewrite) byte count in metrics', () => {
     // Verify that requestBytes reflects the transformed body size, not original.
-    const { rewriteModelInBody } = require('./model-resolver');
+    const { rewriteModelInBody } = require('./model-body-rewriter');
 
     cachedModels.copilot = ['claude-sonnet-4.6'];
     const aliases = { sonnet: ['copilot/*sonnet*'] };
@@ -95,7 +95,7 @@ describe('makeModelBodyTransform', () => {
   });
 
   it('should not modify body when model is already a direct match', () => {
-    const { rewriteModelInBody } = require('./model-resolver');
+    const { rewriteModelInBody } = require('./model-body-rewriter');
 
     cachedModels.copilot = ['gpt-4o'];
     const aliases = { sonnet: ['copilot/*sonnet*'] };

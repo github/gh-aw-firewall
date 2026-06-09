@@ -88,6 +88,34 @@ describe('ai-credits-guard', () => {
     }));
   });
 
+  it('uses bundled models.dev pricing for known catalog models', () => {
+    const usage = applyAiCreditsUsage({
+      input_tokens: 100,
+      output_tokens: 10,
+    }, 'perceptron/perceptron-mk1');
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 0.003,
+      totalAiCredits: 0.003,
+    });
+  });
+
+  it('treats zero-cost catalog models as free instead of unknown', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      output_tokens: 500,
+    }, 'google/gemma-4-31b-it:free');
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 0,
+      totalAiCredits: 0,
+    });
+    expect(checkUnknownModelRejection('google/gemma-4-31b-it:free')).toBeNull();
+  });
+
   it('reports block state when max ai credits is configured and exceeded', () => {
     process.env.AWF_MAX_AI_CREDITS = '0.1';
     applyAiCreditsUsage({
@@ -103,8 +131,14 @@ describe('ai-credits-guard', () => {
   });
 
   it('enforces hard cap even when no max is configured', () => {
-    // No AWF_MAX_AI_CREDITS set — hard cap still applies
-    expect(HARD_CAP_AI_CREDITS).toBe(10_000);
+    expect(process.env.AWF_MAX_AI_CREDITS).toBeUndefined();
+    applyAiCreditsUsage({ input_tokens: 400_000_000, output_tokens: 0 }, 'gpt-5-mini');
+    expect(getAiCreditsBlockState()).toEqual({
+      maxAiCredits: HARD_CAP_AI_CREDITS,
+      totalAiCredits: HARD_CAP_AI_CREDITS,
+      maxExceeded: true,
+      hardCap: true,
+    });
   });
 
   it('clamps configured max to hard cap', () => {

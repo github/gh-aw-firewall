@@ -12,6 +12,7 @@ const {
   makeRes,
   getStructuredLogs,
   setupServerTestEnv,
+  flushPromises,
 } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
@@ -68,7 +69,7 @@ describe('proxyRequest error handling', () => {
     });
   });
 
-  it('destroys response when upstream response stream errors after headers are sent', () => {
+  it('destroys response when upstream response stream errors after headers are sent', async () => {
     const before = healthResponse().metrics_summary;
     let responseHandler;
     const upstreamRequest = new EventEmitter();
@@ -85,6 +86,7 @@ describe('proxyRequest error handling', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req.emit('end');
+    await flushPromises();
 
     const proxyRes = new EventEmitter();
     proxyRes.statusCode = 200;
@@ -111,7 +113,7 @@ describe('proxyRequest error handling', () => {
     });
   });
 
-  it('returns 502 when the upstream proxy request errors', () => {
+  it('returns 502 when the upstream proxy request errors', async () => {
     const before = healthResponse().metrics_summary;
     const upstreamRequest = new EventEmitter();
     upstreamRequest.end = jest.fn();
@@ -124,6 +126,7 @@ describe('proxyRequest error handling', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
     req.emit('end');
+    await flushPromises();
     upstreamRequest.emit('error', new Error('upstream connect failed'));
 
     expect(res.writeHead).toHaveBeenCalledWith(502, { 'Content-Type': 'application/json' });

@@ -1,6 +1,7 @@
 'use strict';
 
 const { computeTokenBudgetUsage } = require('./token-budget-log');
+const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -21,6 +22,33 @@ const MODEL_NOT_SUPPORTED_PATTERN = /the requested model is not supported/i;
  */
 function parseModelNotSupportedFromBody(body) {
   return MODEL_NOT_SUPPORTED_PATTERN.test(body.toString('utf8'));
+}
+
+function stripBearerPrefix(value) {
+  return ((value || '').replace(/^\s*(?:Bearer|token)\s+/i, '').trim()) || '';
+}
+
+function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
+  const baseMessage = `Upstream returned ${statusCode}`;
+  const byokBaseUrl = (env.COPILOT_PROVIDER_BASE_URL || '').trim();
+  const byokKey = stripBearerPrefix(env.COPILOT_PROVIDER_API_KEY);
+  const hasByokBaseUrl = Boolean(byokBaseUrl);
+
+  if (hasByokBaseUrl && byokKey === COPILOT_PLACEHOLDER_TOKEN) {
+    return `${baseMessage} — COPILOT_PROVIDER_API_KEY is the AWF placeholder sentinel. ` +
+      'This indicates an internal credential-isolation misconfiguration (real BYOK key not forwarded to api-proxy).';
+  }
+
+  if (hasByokBaseUrl && !byokKey) {
+    return `${baseMessage} — BYOK provider request to COPILOT_PROVIDER_BASE_URL failed because COPILOT_PROVIDER_API_KEY is not set.`;
+  }
+
+  if (hasByokBaseUrl) {
+    return `${baseMessage} — BYOK provider request to COPILOT_PROVIDER_BASE_URL failed. ` +
+      'Verify COPILOT_PROVIDER_BASE_URL and COPILOT_PROVIDER_API_KEY.';
+  }
+
+  return `${baseMessage} — check that the API key is valid and correctly formatted`;
 }
 
 function createUpstreamResponseHandlers({
@@ -60,12 +88,16 @@ function createUpstreamResponseHandlers({
   }
 
   function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req, responseBody }) {
+    const authErrorMessage = provider === 'copilot'
+      ? buildCopilotAuthErrorMessage(statusCode)
+      : `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`;
+
     if (statusCode === 401 || statusCode === 403) {
       applyPermissionDenied();
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,
         upstream_host: targetHost, path: sanitizeForLog(req.url),
-        message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
+        message: authErrorMessage,
       });
     } else if (statusCode === 400) {
       // Suppress generic auth-error message when the 400 is a model-not-supported
@@ -74,7 +106,7 @@ function createUpstreamResponseHandlers({
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,
         upstream_host: targetHost, path: sanitizeForLog(req.url),
-        message: `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`,
+        message: authErrorMessage,
       });
     }
   }

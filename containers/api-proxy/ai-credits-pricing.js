@@ -1,7 +1,8 @@
 'use strict';
 
-// Per-model pricing in dollars per 1M tokens.
-// Source: https://models.dev/catalog.json
+// Curated per-model pricing in dollars per 1M tokens.
+// These provider-agnostic aliases take precedence over the bundled models.dev
+// catalog fallback.
 module.exports = Object.freeze({
   'gpt-5-mini':        { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
   'gpt-5-codex-mini':  { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },

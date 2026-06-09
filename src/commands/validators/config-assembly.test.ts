@@ -251,6 +251,83 @@ describe('config-assembly', () => {
       expect(result).toBeDefined();
       expect(mockExit).not.toHaveBeenCalled();
     });
+
+    it('should reject relative chroot binaries source path', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: 'relative/path',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath must be an absolute path'),
+      );
+    });
+
+    it('should accept absolute chroot binaries source path', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
+      });
+
+      const result = callAssembleWith();
+
+      expect(result).toBeDefined();
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
+    it('should reject chroot binaries source path set to root', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath cannot be "/"'),
+      );
+    });
+
+    it('should reject chroot binaries source path containing a colon', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/tmp/bin:/extra',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath must not contain ":" or newline characters'),
+      );
+    });
+
+    it('should reject chroot binaries source path containing a newline', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: undefined,
+        dockerHostPathPrefix: undefined,
+        chrootBinariesSourcePath: '/tmp/bin\n/extra',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('chroot.binariesSourcePath must not contain ":" or newline characters'),
+      );
+    });
   });
 
   describe('rate limit validation', () => {
@@ -697,6 +774,32 @@ describe('config-assembly', () => {
     it('should reject retired COPILOT_MODEL aliases before launch', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-5-codex' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("model 'gpt-5-codex' is retired or unsupported"),
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("Did you mean 'gpt-5.3-codex'?"),
+      );
+    });
+
+    it('should reject retired COPILOT_MODEL aliases in BYOK mode (copilotProviderApiKey)', () => {
+      mockBuildConfigOnce({
+        copilotProviderApiKey: 'byok-api-key-for-azure-foundry',
       });
 
       const agentOptions = createMinimalAgentOptions();

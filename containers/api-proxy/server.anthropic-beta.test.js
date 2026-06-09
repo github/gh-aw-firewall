@@ -13,6 +13,7 @@ const {
   makeProxyRes,
   getStructuredLogs,
   setupServerTestEnv,
+  flushPromises,
 } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
@@ -52,11 +53,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     jest.restoreAllMocks();
   });
 
-  it('retries once after Anthropic rejects a deprecated anthropic-beta value', () => {
+  it('retries once after Anthropic rejects a deprecated anthropic-beta value', async () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07,other-beta' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0].headers['anthropic-beta']).toBe('context-1m-2025-08-07,other-beta');
@@ -90,11 +92,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     ]));
   });
 
-  it('proactively strips learned deprecated anthropic-beta values on later requests', () => {
+  it('proactively strips learned deprecated anthropic-beta values on later requests', async () => {
     const learnReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const learnRes = makeRes();
     proxyRequest(learnReq, learnRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     learnReq.emit('end');
+    await flushPromises();
 
     const rejection = makeProxyRes(400);
     responseHandlers[0](rejection);
@@ -114,6 +117,7 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     const nextRes = makeRes();
     proxyRequest(nextReq, nextRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     nextReq.emit('end');
+    await flushPromises();
 
     expect(capturedOptions[2].headers['anthropic-beta']).toBeUndefined();
 
@@ -133,11 +137,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     ]));
   });
 
-  it('retries after deprecated anthropic-beta rejection via copilot provider', () => {
+  it('retries after deprecated anthropic-beta rejection via copilot provider', async () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07,prompt-caching-2024-07-31' });
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { authorization: 'Bearer ghu_test' }, 'copilot');
     req.emit('end');
+    await flushPromises();
 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0].headers['anthropic-beta']).toBe('context-1m-2025-08-07,prompt-caching-2024-07-31');
@@ -173,12 +178,13 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     ]));
   });
 
-  it('proactively strips learned deprecated values for copilot provider requests', () => {
+  it('proactively strips learned deprecated values for copilot provider requests', async () => {
     // First: learn via anthropic provider
     const learnReq = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const learnRes = makeRes();
     proxyRequest(learnReq, learnRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     learnReq.emit('end');
+    await flushPromises();
 
     const rejection = makeProxyRes(400);
     responseHandlers[0](rejection);
@@ -197,6 +203,7 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     const copilotRes = makeRes();
     proxyRequest(copilotReq, copilotRes, 'api.githubcopilot.com', { authorization: 'Bearer ghu_test' }, 'copilot');
     copilotReq.emit('end');
+    await flushPromises();
 
     expect(capturedOptions[2].headers['anthropic-beta']).toBe('prompt-caching-2024-07-31');
 
@@ -211,11 +218,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     ]));
   });
 
-  it('handles deprecated values in arbitrary headers (not just anthropic-beta)', () => {
+  it('handles deprecated values in arbitrary headers (not just anthropic-beta)', async () => {
     const req = makeReq({ 'x-custom-feature': 'old-feature-2024,new-feature-2025' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     expect(capturedOptions).toHaveLength(1);
 
@@ -239,6 +247,7 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     const nextRes = makeRes();
     proxyRequest(nextReq, nextRes, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     nextReq.emit('end');
+    await flushPromises();
 
     expect(capturedOptions[2].headers['x-custom-feature']).toBe('new-feature-2025');
 
@@ -259,11 +268,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     ]));
   });
 
-  it('does not retry when 400 body does not match the deprecated header pattern', () => {
+  it('does not retry when 400 body does not match the deprecated header pattern', async () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     const firstResponse = makeProxyRes(400);
     responseHandlers[0](firstResponse);
@@ -279,11 +289,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  it('does not retry more than once (retry itself returns 400)', () => {
+  it('does not retry more than once (retry itself returns 400)', async () => {
     const req = makeReq({ 'anthropic-beta': 'bad-value-1,bad-value-2' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     // First 400 — triggers retry after stripping bad-value-1
     const firstResponse = makeProxyRes(400);
@@ -313,11 +324,12 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     }));
   });
 
-  it('removes header entirely when all values are deprecated', () => {
+  it('removes header entirely when all values are deprecated', async () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     const firstResponse = makeProxyRes(400);
     responseHandlers[0](firstResponse);
@@ -338,12 +350,13 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
   });
 
-  it('does not buffer 400 responses for non-anthropic/non-copilot providers', () => {
+  it('does not buffer 400 responses for non-anthropic/non-copilot providers', async () => {
     const req = makeReq({ 'anthropic-beta': 'context-1m-2025-08-07' });
     req.url = '/v1/chat/completions';
     const res = makeRes();
     proxyRequest(req, res, 'api.openai.com', { authorization: 'Bearer sk-test' }, 'openai');
     req.emit('end');
+    await flushPromises();
 
     const firstResponse = makeProxyRes(400);
     responseHandlers[0](firstResponse);
@@ -357,12 +370,13 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     expect(capturedOptions).toHaveLength(1);
   });
 
-  it('learns multiple deprecated values across separate requests', () => {
+  it('learns multiple deprecated values across separate requests', async () => {
     // First request: learn that value-a is deprecated
     const req1 = makeReq({ 'anthropic-beta': 'value-a,value-b,value-c' });
     const res1 = makeRes();
     proxyRequest(req1, res1, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req1.emit('end');
+    await flushPromises();
 
     const rej1 = makeProxyRes(400);
     responseHandlers[0](rej1);
@@ -380,6 +394,7 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     const res2 = makeRes();
     proxyRequest(req2, res2, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req2.emit('end');
+    await flushPromises();
 
     // value-a was proactively stripped, so only value-b,value-c sent
     expect(capturedOptions[2].headers['anthropic-beta']).toBe('value-b,value-c');
@@ -402,16 +417,18 @@ describe('proxyRequest anthropic deprecated beta handling', () => {
     const res3 = makeRes();
     proxyRequest(req3, res3, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req3.emit('end');
+    await flushPromises();
 
     expect(capturedOptions[4].headers['anthropic-beta']).toBe('value-c');
   });
 
-  it('handles whitespace in comma-separated header values', () => {
+  it('handles whitespace in comma-separated header values', async () => {
     // Header with spaces around commas
     const req = makeReq({ 'anthropic-beta': ' context-1m-2025-08-07 , prompt-caching-2024-07-31 ' });
     const res = makeRes();
     proxyRequest(req, res, 'api.anthropic.com', { 'x-api-key': 'sk-ant-test' }, 'anthropic');
     req.emit('end');
+    await flushPromises();
 
     const firstResponse = makeProxyRes(400);
     responseHandlers[0](firstResponse);

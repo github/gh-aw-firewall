@@ -1,6 +1,7 @@
 'use strict';
 
-const { parseModelAliases, rewriteModelInBody, filterResolvableAliases } = require('./model-resolver');
+const { parseModelAliases, filterResolvableAliases } = require('./model-resolver');
+const { rewriteModelInBody } = require('./model-body-rewriter');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');

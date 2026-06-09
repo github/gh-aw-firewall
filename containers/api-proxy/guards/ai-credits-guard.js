@@ -2,6 +2,7 @@
 
 const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
+const { resolveCatalogModel } = require('../models-dev-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
 
 const TOKENS_PER_MILLION = 1_000_000;
@@ -57,8 +58,9 @@ function getAiCreditsConfig() {
     } catch { /* invalid JSON — leave null */ }
   }
 
+  const parsedMax = parsePositiveNumber(rawMax);
   aiCreditsConfigCache.parsed = {
-    max: parsePositiveNumber(rawMax) ? Math.min(parsePositiveNumber(rawMax), HARD_CAP_AI_CREDITS) : null,
+    max: parsedMax ? Math.min(parsedMax, HARD_CAP_AI_CREDITS) : null,
     defaultPricing,
   };
   return aiCreditsConfigCache.parsed;
@@ -100,6 +102,9 @@ function resolveModelPricing(model, state = aiCreditsState) {
     }
   }
   if (prefixMatch) return prefixMatch.pricing;
+
+  const catalogModel = resolveCatalogModel(model);
+  if (catalogModel.pricing) return catalogModel.pricing;
 
   if (!state.warnedUnknownModels.has(model)) {
     logRequest('warn', 'unknown_model_ai_credits_pricing', {

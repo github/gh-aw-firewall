@@ -10,6 +10,7 @@ const { EventEmitter } = require('events');
 
 const { fetchStartupModels, healthResponse, createProviderServer, resetModelCacheState } = require('./server');
 const { createCopilotAdapter } = require('./providers/copilot');
+const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { collectLogOutput } = require('./test-helpers/log-test-helpers');
 
 describe('healthResponse', () => {
@@ -475,6 +476,82 @@ describe('createProviderServer', () => {
     expect(authErrLog).toBeDefined();
     expect(authErrLog.provider).toBe('copilot');
     expect(authErrLog.message).toContain('401');
+  });
+
+  it('emits BYOK-specific upstream_auth_error details for copilot auth failures', async () => {
+    const prevBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
+    const prevProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://openrouter.ai/api/v1';
+    process.env.COPILOT_PROVIDER_API_KEY = 'sk-or-real-byok-key';
+
+    const { lines, spy } = collectLogOutput();
+    mockHttpsWithStatus(401);
+
+    const adapter = {
+      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'openrouter.ai',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({ Authorization: '******' }),
+      getBodyTransform: () => null,
+    };
+    const port = await startAdapter(adapter);
+
+    try {
+      await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+    } finally {
+      if (prevBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
+      else process.env.COPILOT_PROVIDER_BASE_URL = prevBaseUrl;
+      if (prevProviderKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
+      else process.env.COPILOT_PROVIDER_API_KEY = prevProviderKey;
+    }
+
+    jest.restoreAllMocks();
+    spy.mockRestore();
+
+    const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 401);
+    expect(authErrLog).toBeDefined();
+    expect(authErrLog.message).toContain('BYOK provider request to COPILOT_PROVIDER_BASE_URL failed');
+    expect(authErrLog.message).toContain('COPILOT_PROVIDER_API_KEY');
+  });
+
+  it('emits internal-placeholder diagnostic when copilot BYOK key is AWF sentinel', async () => {
+    const prevBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
+    const prevProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://openrouter.ai/api/v1';
+    process.env.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
+
+    const { lines, spy } = collectLogOutput();
+    mockHttpsWithStatus(401);
+
+    const adapter = {
+      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
+      participatesInValidation: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'openrouter.ai',
+      getBasePath: () => '',
+      getAuthHeaders: () => ({ Authorization: '******' }),
+      getBodyTransform: () => null,
+    };
+    const port = await startAdapter(adapter);
+
+    try {
+      await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
+    } finally {
+      if (prevBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
+      else process.env.COPILOT_PROVIDER_BASE_URL = prevBaseUrl;
+      if (prevProviderKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
+      else process.env.COPILOT_PROVIDER_API_KEY = prevProviderKey;
+    }
+
+    jest.restoreAllMocks();
+    spy.mockRestore();
+
+    const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 401);
+    expect(authErrLog).toBeDefined();
+    expect(authErrLog.message).toContain('AWF placeholder sentinel');
+    expect(authErrLog.message).toContain('internal credential-isolation misconfiguration');
   });
 
   it('does NOT emit upstream_auth_error for a successful 200 response', async () => {

@@ -166,6 +166,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHost` → `--docker-host`
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
+- `chroot.binariesSourcePath` → *(config-only; overlays a runner-side binaries directory at `/usr/local/bin` inside chroot mode)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
 - `chroot.identity.uid` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_UID` for chroot user mapping)*
@@ -718,12 +719,21 @@ and error type `ai_credits_limit_exceeded`.
 
 ### 10.7.1 Model Name Resolution for Pricing
 
-The AI credits guard resolves model names against a built-in pricing table.
+The AI credits guard resolves model names using a two-step lookup:
+
+1. **Curated pricing table** — a built-in table of known models with exact pricing.
+2. **Bundled models.dev catalog** — a bundled snapshot of the models.dev catalog used as a fallback when the model is not found in the curated table.
+
 Model names are **canonicalized** before lookup: provider prefixes
 (e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
 as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
 entry.
+
+If neither source resolves the model, the `defaultAiCreditsPricing` fallback
+(if configured) is used. If that is also absent, the request is rejected.
+Models whose catalog entry carries zero-cost pricing are recognized as known
+models with zero AI credit impact, so they are never rejected as "unknown".
 
 ### 10.7.2 Default AI Credits Pricing (Fallback)
 
@@ -735,13 +745,15 @@ It is supplied via the AWF config file and maps to the
 `AWF_DEFAULT_AI_CREDITS_PRICING` environment variable (JSON string) injected
 into the api-proxy container.
 
-When configured, any model not found in the built-in pricing table uses
-these rates as a fallback for AI credits calculation.
+When configured, any model not found in the curated built-in pricing table or
+the bundled models.dev catalog uses these rates as a fallback for AI credits
+calculation.
 
 ### 10.7.3 Unknown Model Rejection
 
 When `maxAiCredits` is active and the proxy encounters a request whose model
-cannot be resolved from the built-in pricing table:
+cannot be resolved from the curated built-in pricing table or the bundled
+models.dev catalog:
 
 1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
    and the request proceeds normally.
