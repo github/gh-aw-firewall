@@ -46,8 +46,11 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   if (copilotProviderBaseUrl) env.COPILOT_PROVIDER_BASE_URL = copilotProviderBaseUrl;
   if (copilotProviderApiKey) env.COPILOT_PROVIDER_API_KEY = copilotProviderApiKey;
 
-  // Pre-startup model validation (non-sensitive config value)
-  if (config.requestedModel) env.AWF_REQUESTED_MODEL = config.requestedModel;
+  // Pre-startup model validation (non-sensitive config value).
+  // Prefer explicit requestedModel, but fall back to COPILOT_MODEL when present so
+  // api-proxy can validate user-facing model aliases (apiProxy.models) at startup.
+  const requestedModel = (config.requestedModel || getConfigEnvValue(config, 'COPILOT_MODEL') || '').trim();
+  if (requestedModel) env.AWF_REQUESTED_MODEL = requestedModel;
   if (config.copilotByokExtraHeaders !== undefined) {
     env.AWF_BYOK_EXTRA_HEADERS = JSON.stringify(config.copilotByokExtraHeaders);
   }
