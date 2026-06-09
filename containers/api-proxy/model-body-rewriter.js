@@ -11,11 +11,6 @@
 const { parseBodyAsObject } = require('./body-utils');
 const { resolveModel } = require('./model-resolver');
 
-const DEFAULT_MODEL_FALLBACK = Object.freeze({
-  enabled: true,
-  strategy: 'middle_power',
-});
-
 /**
  * Attempt to rewrite the "model" field in a JSON request body using the alias map.
  *
@@ -29,7 +24,7 @@ const DEFAULT_MODEL_FALLBACK = Object.freeze({
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
  * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
+function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig) {
   // Only attempt rewrite for non-empty bodies
   if (!body || body.length === 0) return null;
 
