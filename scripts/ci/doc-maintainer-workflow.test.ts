@@ -10,7 +10,7 @@ describe('doc maintainer workflow optimization config', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
-    expect(source).toContain('max-turns: 8');
+    expect(source).toContain('max-turns: 6');
     expect(source).toContain('bash: false');
     expect(source).toContain('github: false');
     expect(source).toContain('Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.');
@@ -20,9 +20,11 @@ describe('doc maintainer workflow optimization config', () => {
     expect(source).toContain('echo "## Changes"');
     expect(source).toContain('echo "## Affected Documentation"');
     expect(source).toContain('echo "## Recent Git Diffs"');
-    expect(source).toContain("git log --since=\"7 days ago\" --format=\"=== Commit %H: %s ===\" --patch --stat --unified=1 -- src/ containers/ scripts/ docs/ '*.md' | grep -v '^Binary' | head -50");
+    expect(source).toContain("git log --since=\"7 days ago\" --format=\"=== Commit %H: %s ===\" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -30");
     expect(source).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
-    expect(source).toContain('echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."');
+    expect(source).toContain('DIFF_LINES=$(wc -l < "$DIFF_PREVIEW" | tr -d \' \')');
+    expect(source).toContain('if [ "$HAS_CHANGES" = "true" ] && [ "$DIFF_LINES" -lt 3 ]; then');
+    expect(source).toContain('echo "::warning::Recent diffs are minimal ($DIFF_LINES lines, $DIFF_BYTES bytes). Skipping agent run."');
     expect(source).not.toContain('No markdown/docs changes in 7 days. Skipping documentation review.');
     expect(source).toContain('echo "Context size: ${CONTEXT_SIZE} bytes"');
     expect(source).toContain('echo "Diff lines: ${DIFF_LINES}"');
@@ -30,12 +32,11 @@ describe('doc maintainer workflow optimization config', () => {
     expect(source).toContain('echo "skip_agent=true" >> "$GITHUB_OUTPUT"');
     expect(source).toContain("grep -i -F -f \"$TOKENS\" \"$DOC_POOL\" | head -3 > \"$AFFECTED\" || true");
     expect(source).toContain('## Affected Documentation Content (pre-loaded — do not re-read these files)');
-    expect(source).toContain('The full content of up to 3 affected documentation files is pre-loaded');
-    expect(source).toContain('Do not attempt to use bash commands or GitHub tools — they are unavailable in this environment.');
+    expect(source).toContain('The first 80 lines of up to 3 affected documentation files are pre-loaded');
+    expect(source).not.toContain('## Guidelines');
     expect(source).toContain(
       '**PR Description**: Summarize updated docs, reference the triggering code changes, and list what was verified.'
     );
-    expect(source).toContain('- Be conservative, accurate, minimal, and consistent with existing style.');
     expect(source).toContain(
       '**Success**: Review 7-day commits, update out-of-sync docs, verify examples, and create a clear PR summary.'
     );
@@ -55,13 +56,12 @@ describe('doc maintainer workflow optimization config', () => {
   it('compiles tool disabling into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 8');
-    expect(lock).toContain('GH_AW_MAX_TURNS: 8');
+    expect(lock).toContain('--max-turns 6');
+    expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toContain("(needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true')");
     expect(lock).toContain('Build documentation maintainer context');
     expect(lock).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
-    expect(lock).toContain('--patch --stat --unified=1');
-    expect(lock).toContain('| grep -v \'^Binary\' | head -50 > \\"$CONTEXT_DIR/recent-diffs.txt\\"');
+    expect(lock).toContain('--stat -- src/ containers/ scripts/ docs/ \'*.md\' | head -30');
     expect(lock).toContain('head -3 > \\"$AFFECTED\\" || true');
     expect(lock).not.toContain('No markdown/docs changes in 7 days. Skipping documentation review.');
     expect(lock).not.toContain('/tmp/gh-aw/doc-maintainer-context/has-changes.txt');

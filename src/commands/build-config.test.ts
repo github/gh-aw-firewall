@@ -319,6 +319,16 @@ describe('buildConfig', () => {
       });
     });
 
+    it('should pass through chroot binaries source path', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
+        },
+      }));
+      expect(config.chrootBinariesSourcePath).toBe('/tmp/gh-aw/runner-bin');
+    });
+
     it('should ignore non-positive chroot identity uid/gid values', () => {
       const config = buildConfig(makeInputs({
         options: {

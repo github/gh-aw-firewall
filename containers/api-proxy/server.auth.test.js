@@ -254,7 +254,7 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   it('injects Copilot-Integration-Id header for BYOK inference request', () => {
     const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'sk-or-v1-abc123' });
     const headers = adapter.getAuthHeaders(fakeReq);
-    expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
+    expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
   });
 
   it('prevents double "Bearer " prefix when API key already contains "Bearer " prefix (BYOK bug fix)', () => {
@@ -489,7 +489,7 @@ describe('createCopilotAdapter — AWF_BYOK_EXTRA_HEADERS injection', () => {
     });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('Bearer sk-or-v1-abc123');
-    expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
+    expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
     expect(headers['x-session-id']).toBe('sess-1');
     warnSpy.mockRestore();
   });
@@ -711,7 +711,7 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
 
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe(['Bearer', 'aad-access-token'].join(' '));
-    expect(headers['Copilot-Integration-Id']).toBe('copilot-developer-cli');
+    expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
 
     provider.shutdown();
   });

@@ -200,6 +200,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,
     dockerHostPathPrefix,
+    chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
   };

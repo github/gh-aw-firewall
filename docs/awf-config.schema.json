@@ -514,6 +514,10 @@
       "description": "Chroot execution overrides for split-filesystem ARC/DinD runners.",
       "additionalProperties": false,
       "properties": {
+        "binariesSourcePath": {
+          "type": "string",
+          "description": "Optional runner-side directory to overlay at /usr/local/bin inside chroot mode (for split-filesystem ARC/DinD runners)."
+        },
         "identity": {
           "type": "object",
           "description": "Identity values applied after chroot pivot to override HOME/USER defaults inside chroot mode.",

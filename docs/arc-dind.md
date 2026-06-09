@@ -21,6 +21,7 @@ AWF supports ARC runners where the runner filesystem and Docker daemon filesyste
     "dockerHostPathPrefix": "/tmp/gh-aw"
   },
   "chroot": {
+    "binariesSourcePath": "/tmp/gh-aw/runner-bin",
     "identity": {
       "home": "/tmp/gh-aw/home",
       "user": "runner",
@@ -43,6 +44,7 @@ AWF supports ARC runners where the runner filesystem and Docker daemon filesyste
 ## Field behavior
 
 - `chroot.identity.*`: applied inside entrypoint **after** `chroot /host` to override HOME/USER/LOGNAME and identity mapping hints.
+- `chroot.binariesSourcePath`: mounts a runner-side binaries directory over `/usr/local/bin` inside chroot mode so runner-installed CLIs are visible even when `/usr` comes from the DinD daemon filesystem.
 - `dind.preStageDirs`: runs a short-lived staging container in DinD mode to create required workdir tree with open permissions.
 - `dind.stageEngineBinary`: copies an engine binary from the runner path into daemon-visible filesystem before compose startup.
 - `dind.stagingImage`: image used for short-lived staging containers.
@@ -54,6 +56,14 @@ AWF detects likely ARC/DinD environments at startup and warns when `--docker-hos
 
 - non-default unix `DOCKER_HOST` socket paths (outside `/var/run/docker.sock` and `/run/docker.sock`)
 - `AWF_DIND=1`
+
+## Recommended DinD base image
+
+For ARC DinD chroot workloads, prefer the glibc companion image:
+
+- `ghcr.io/github/gh-aw-firewall/dind-ubuntu:latest`
+
+It includes `docker-ce`, `libcap2-bin` (`capsh`), and Node.js preinstalled.
 
 ## Runtime prerequisite
 

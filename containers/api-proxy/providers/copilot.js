@@ -50,7 +50,7 @@ function createCopilotAdapter(env, deps = {}) {
   // resolveApiKey filters out the AWF placeholder so it is never used as a real BYOK credential.
   const apiKey = resolveApiKey(env);
   const staticAuthToken = resolveCopilotAuthToken(env);
-  const integrationId = env.COPILOT_INTEGRATION_ID || 'copilot-developer-cli';
+  const integrationId = env.COPILOT_INTEGRATION_ID || 'agentic-workflows';
   const rawTarget = deriveCopilotApiTarget(env);
   const basePath = normalizeBasePath(env.COPILOT_API_BASE_PATH);
 
