@@ -35,14 +35,15 @@ jobs:
           COUNT=$(git log --since="7 days ago" --oneline -- src/ containers/ scripts/ | wc -l | tr -d ' ')
           git log --since="7 days ago" --format="=== Commit %H: %s ===" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -30 > "$DIFF_PREVIEW"
           DIFF_BYTES=$(wc -c < "$DIFF_PREVIEW" | tr -d ' ')
+          DIFF_LINES=$(wc -l < "$DIFF_PREVIEW" | tr -d ' ')
           HAS_CHANGES=false
           SKIP_AGENT=false
           if [ "$COUNT" -gt 0 ]; then
             HAS_CHANGES=true
           fi
-          if [ "$HAS_CHANGES" = "true" ] && [ "$DIFF_BYTES" -lt 100 ]; then
+          if [ "$HAS_CHANGES" = "true" ] && [ "$DIFF_LINES" -lt 3 ]; then
             SKIP_AGENT=true
-            echo "::warning::Recent diffs are minimal ($DIFF_BYTES bytes). Skipping agent run."
+            echo "::warning::Recent diffs are minimal ($DIFF_LINES lines, $DIFF_BYTES bytes). Skipping agent run."
           fi
           {
             echo "changed_count=$COUNT"
@@ -188,7 +189,7 @@ Use the **Recent Git Diffs** section from that file as your **sole source** for 
 
 ### 2. Identify Documentation Gaps
 
-The full content of up to 3 affected documentation files is pre-loaded in `context.md` under **Affected Documentation Content**. Read from `context.md` directly and do not use the `edit` tool to re-read those files before making edits.
+The first 80 lines of up to 3 affected documentation files are pre-loaded in `context.md` under **Affected Documentation Content**. Read from `context.md` directly and only re-read a file with the `edit` tool when you need content beyond the pre-loaded preview.
 
 Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md` (max 3 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
 
