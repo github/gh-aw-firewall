@@ -409,6 +409,11 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.chroot.identity must be an object');
   });
 
+  it('rejects non-string chroot.binariesSourcePath', () => {
+    const errors = validateAwfFileConfig({ chroot: { binariesSourcePath: 1 } });
+    expect(errors).toContain('config.chroot.binariesSourcePath must be a string');
+  });
+
   it('rejects invalid chroot.identity field types', () => {
     expect(validateAwfFileConfig({ chroot: { identity: { home: 1 } } })).toContain('config.chroot.identity.home must be a string');
     expect(validateAwfFileConfig({ chroot: { identity: { user: 1 } } })).toContain('config.chroot.identity.user must be a string');
@@ -423,6 +428,11 @@ describe('validateAwfFileConfig', () => {
   it('rejects unknown chroot.identity keys', () => {
     const errors = validateAwfFileConfig({ chroot: { identity: { home: '/tmp', extra: true } } });
     expect(errors).toContain('config.chroot.identity.extra is not supported');
+  });
+
+  it('rejects unknown chroot keys', () => {
+    const errors = validateAwfFileConfig({ chroot: { unknown: true } });
+    expect(errors).toContain('config.chroot.unknown is not supported');
   });
 
   it('rejects non-object dind', () => {

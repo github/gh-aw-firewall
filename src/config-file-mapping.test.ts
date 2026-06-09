@@ -313,6 +313,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
   it('maps chroot and dind config-only fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       chroot: {
+        binariesSourcePath: '/tmp/gh-aw/runner-bin',
         identity: {
           home: '/tmp/gh-aw/home',
           user: 'runner',
@@ -335,6 +336,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.chrootIdentityUser).toBe('runner');
     expect(result.chrootIdentityUid).toBe('1001');
     expect(result.chrootIdentityGid).toBe('1001');
+    expect(result.chrootBinariesSourcePath).toBe('/tmp/gh-aw/runner-bin');
     expect(result.dindPreStageDirs).toBe(true);
     expect(result.dindWorkDir).toBe('/tmp/gh-aw');
     expect(result.dindStagingImage).toBe('ghcr.io/github/gh-aw-firewall/agent:latest');

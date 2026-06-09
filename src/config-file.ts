@@ -87,6 +87,7 @@ interface AwfFileConfig {
     runnerToolCachePath?: string;
   };
   chroot?: {
+    binariesSourcePath?: string;
     identity?: {
       home?: string;
       user?: string;
@@ -269,6 +270,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     dockerHost: config.container?.dockerHost,
     dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
     runnerToolCachePath: config.container?.runnerToolCachePath,
+    chrootBinariesSourcePath: config.chroot?.binariesSourcePath,
     chrootIdentityHome: config.chroot?.identity?.home,
     chrootIdentityUser: config.chroot?.identity?.user,
     chrootIdentityUid: toStringIfDefined(config.chroot?.identity?.uid),

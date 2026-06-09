@@ -38,7 +38,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   logger.debug('Using selective path mounts for security');
 
-  agentVolumes.push(...buildSystemMounts(workspaceDir));
+  agentVolumes.push(...buildSystemMounts(workspaceDir, config.chrootBinariesSourcePath));
   agentVolumes.push(...buildHomeMounts({ config, effectiveHome, agentLogsPath, sessionStatePath }));
   agentVolumes.push(...buildEtcMounts(config));
   agentVolumes.push(generateHostsFileMount(config));

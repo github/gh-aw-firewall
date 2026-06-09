@@ -141,6 +141,15 @@ export interface RuntimeOptions {
   };
 
   /**
+   * Optional host directory of runner-installed binaries to overlay at
+   * `/usr/local/bin` inside chroot mode.
+   *
+   * This is primarily for split-filesystem ARC/DinD runners where `/usr` in the
+   * daemon filesystem does not contain binaries installed on the runner.
+   */
+  chrootBinariesSourcePath?: string;
+
+  /**
    * ARC/DinD bootstrap configuration for split runner/daemon filesystems.
    */
   dind?: {

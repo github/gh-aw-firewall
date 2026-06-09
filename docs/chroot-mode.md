@@ -183,6 +183,12 @@ In chroot mode, selective paths are mounted for security instead of the entire f
 | `/etc/passwd` | `/host/etc/passwd:ro` | User lookup |
 | `/etc/group` | `/host/etc/group:ro` | Group lookup |
 
+When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
+
+| Host Path | Container Path | Purpose |
+|-----------|----------------|---------|
+| `chroot.binariesSourcePath` | `/host/usr/local/bin:ro` | Overlay runner-installed binaries in chroot PATH |
+
 **Note:** As of v0.13.13, `/proc` is no longer bind-mounted. Instead, a fresh container-scoped procfs is mounted at `/host/proc` during entrypoint initialization. This provides dynamic `/proc/self/exe` resolution required by Java and .NET runtimes.
 
 ### Read-Write Mounts
