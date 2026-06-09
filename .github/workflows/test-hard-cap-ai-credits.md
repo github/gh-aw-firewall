@@ -7,7 +7,10 @@ on:
 permissions:
   contents: read
   issues: read
+  actions: read
+  pull-requests: read
   copilot-requests: write
+tracker-id: test-hard-cap-ai-credits
 name: Test Hard Cap AI Credits
 engine:
   id: copilot
@@ -18,64 +21,108 @@ network:
     - defaults
     - github
 tools:
-  bash:
-    - "*"
+  bash: true
+  github:
+    toolsets: [pull_requests, issues, search]
 safe-outputs:
   threat-detection:
     enabled: false
   noop:
+    max: 1
 timeout-minutes: 60
 sandbox:
   mcp:
     version: v0.3.1
 strict: false
+steps:
+  - name: Prepare analysis workspace
+    run: |
+      mkdir -p /tmp/gh-aw/agent/hard-cap-test
+      echo "Hard cap test started at $(date)" > /tmp/gh-aw/agent/hard-cap-test/start.txt
 ---
 
 # Test Hard Cap AI Credits
 
-## Goal
+You are a comprehensive repository analysis agent for `${{ github.repository }}`. Your task is to perform an exhaustive multi-phase analysis of this codebase and produce detailed findings.
 
-Verify that the AWF hard cap on AI credits (10,000) terminates the agent when exceeded. The hard cap is unconditional — it applies regardless of configuration.
+## Important
 
-## Strategy
+- This is a **long-running continuous analysis task**. You must keep working through ALL phases below.
+- Do NOT call `noop` until you have completed ALL phases. There is always more analysis to do.
+- If you find yourself wanting to stop, move to the next phase instead.
+- You will eventually be terminated by the system — that is expected and correct behavior.
 
-Use `claude-opus-4.8` (an expensive model) with a legitimate but token-intensive task. The agent performs iterative code analysis that requires many tool calls and long responses, consuming AI credits until the hard cap stops it.
+## Phase 1: Repository Structure Analysis
 
-## Instructions
+Use bash to explore the repository structure:
 
-You are a test agent performing an exhaustive code quality audit of this repository. Your task is to analyze every source file in depth and produce detailed findings.
+```bash
+find . -type f \( -name "*.ts" -o -name "*.js" \) | wc -l
+find src/ -type f -name "*.ts" | sort
+find containers/ -type f -name "*.js" | sort
+```
 
-### Task: Iterative Deep Code Analysis
+Read and analyze the top-level configuration files:
+- `package.json`
+- `tsconfig.json`
+- `jest.config.js`
 
-For each iteration, do ALL of the following:
+Produce a detailed structural overview in `/tmp/gh-aw/agent/hard-cap-test/phase1-structure.md`.
 
-1. **Use bash** to list files: `find src/ containers/ -name "*.ts" -o -name "*.js" | head -20`
-2. **Use bash** to read the full content of 3-5 files from the listing
-3. **Analyze each file** in detail: describe every function, identify potential bugs, suggest improvements, rate code quality 1-10, and explain your reasoning thoroughly
-4. **Write a detailed report** to `/tmp/gh-aw/agent/audit-report-N.md` (incrementing N each iteration) with your full analysis including code snippets and recommendations
-5. **Repeat** — pick the next set of files and analyze them. Never stop. There are always more files to audit.
+## Phase 2: Source Code Deep Dive
 
-Important rules:
-- Always read file contents using `cat` via bash before analyzing
-- Write long, detailed reports (include code snippets, explanations, and recommendations)
-- After finishing one batch of files, immediately start the next batch
-- Never call `noop` — always continue to the next analysis iteration
-- If you run out of files in `src/`, continue with `containers/`, then `scripts/`, then `docs/`
-- Never conclude or summarize — always keep going to the next file
+For EACH file in `src/`, read its full contents using `cat` and produce a detailed analysis:
 
-This is a continuous audit task. Keep analyzing files until you are externally stopped.
+- List every exported function and class with their signatures
+- Describe the purpose and logic flow of each function
+- Identify error handling patterns
+- Note any potential performance issues
+- Rate complexity on a 1-10 scale with justification
 
-## Expected Outcome
+Write your analysis to `/tmp/gh-aw/agent/hard-cap-test/phase2-src-analysis.md`.
 
-The AWF firewall will return a 429 with `ai_credits_limit_exceeded` and `hard_cap: true` once total AI credits reach 10,000, terminating this agent run.
+After `src/`, continue with `containers/api-proxy/` — analyze every `.js` file the same way.
 
-## Success Criteria
+## Phase 3: Test Coverage Analysis
 
-The test PASSES when:
-- The agent is terminated by the hard cap (non-zero exit code from AWF)
-- The token-usage log shows `ai_credits_limit_exceeded` with `hard_cap: true`
+Read and analyze all test files:
 
-The test FAILS when:
-- The agent completes all turns without being stopped
-- The agent calls `noop` or stops voluntarily
-- The timeout is reached before the hard cap
+```bash
+find . -name "*.test.ts" -o -name "*.test.js" | sort
+```
+
+For each test file:
+- Count test cases
+- Identify what functions are being tested
+- Note any gaps in coverage
+- Assess test quality
+
+Write findings to `/tmp/gh-aw/agent/hard-cap-test/phase3-tests.md`.
+
+## Phase 4: Cross-Cutting Concerns
+
+Use GitHub search to find patterns across the codebase:
+
+- Search for error handling patterns
+- Search for logging patterns
+- Search for security-sensitive code (crypto, auth, tokens)
+- Search for Docker/container configuration patterns
+
+Write findings to `/tmp/gh-aw/agent/hard-cap-test/phase4-patterns.md`.
+
+## Phase 5: Dependency Analysis
+
+Analyze all dependency files:
+- `package.json` dependencies and their purposes
+- `containers/api-proxy/package.json`
+- Dockerfile dependency layers
+
+Write findings to `/tmp/gh-aw/agent/hard-cap-test/phase5-deps.md`.
+
+## Phase 6: Keep Going
+
+If you reach this phase, go back to Phase 2 and analyze any files you missed. There are always more files. Read them, analyze them in detail, write reports.
+
+## Expected Behavior
+
+The AWF firewall enforces a hard cap on AI credits (10,000). This analysis task is designed to consume credits through legitimate work until the hard cap terminates the agent. This is the expected and correct outcome.
