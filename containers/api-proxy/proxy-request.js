@@ -505,6 +505,19 @@ function collectRequestBody(req, provider, requestId, res, span, startTime, targ
       resolve(value);
     }
 
+    req.on('close', () => {
+      if (settled || req.complete) return;
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      logRequest('warn', 'request_aborted', {
+        request_id: requestId, provider, method: req.method,
+        path: sanitizeForLog(req.url), duration_ms: duration,
+        upstream_host: targetHost,
+      });
+      otel.endSpan(span, 0);
+      settle(null);
+    });
+
     req.on('error', (err) => {
       if (settled) return;
       otel.endSpanError(span, err, 400);

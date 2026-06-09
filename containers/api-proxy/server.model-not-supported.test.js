@@ -14,6 +14,7 @@ const {
   makeProxyRes,
   getStructuredLogs,
   setupServerTestEnv,
+  flushPromises,
 } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
@@ -36,11 +37,6 @@ afterAll(() => {
 
 function makeReq(headers = {}) {
   return makeReqFactory('/v1/chat/completions', headers);
-}
-
-/** Flush all pending microtasks/promises so async retry callbacks can run. */
-function flushPromises() {
-  return new Promise(resolve => setImmediate(resolve));
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
