@@ -17,10 +17,7 @@ max-turns: 5
 engine:
   id: claude
   model: claude-haiku-4-5
-<<<<<<< copilot/fix-api-proxy-revert-integration-id
-=======
   max-turns: 2
->>>>>>> main
 sandbox:
   mcp:
     version: v0.3.1
