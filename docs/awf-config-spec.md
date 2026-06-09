@@ -735,13 +735,15 @@ It is supplied via the AWF config file and maps to the
 `AWF_DEFAULT_AI_CREDITS_PRICING` environment variable (JSON string) injected
 into the api-proxy container.
 
-When configured, any model not found in the built-in pricing table uses
-these rates as a fallback for AI credits calculation.
+When configured, any model not found in the curated built-in pricing table or
+the bundled models.dev catalog uses these rates as a fallback for AI credits
+calculation.
 
 ### 10.7.3 Unknown Model Rejection
 
 When `maxAiCredits` is active and the proxy encounters a request whose model
-cannot be resolved from the built-in pricing table:
+cannot be resolved from the curated built-in pricing table or the bundled
+models.dev catalog:
 
 1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
    and the request proceeds normally.

@@ -87,6 +87,34 @@ describe('ai-credits-guard', () => {
     }));
   });
 
+  it('uses bundled models.dev pricing for known catalog models', () => {
+    const usage = applyAiCreditsUsage({
+      input_tokens: 100,
+      output_tokens: 10,
+    }, 'perceptron/perceptron-mk1');
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 0.003,
+      totalAiCredits: 0.003,
+    });
+  });
+
+  it('treats zero-cost catalog models as free instead of unknown', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      output_tokens: 500,
+    }, 'google/gemma-4-31b-it:free');
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 0,
+      totalAiCredits: 0,
+    });
+    expect(checkUnknownModelRejection('google/gemma-4-31b-it:free')).toBeNull();
+  });
+
   it('reports block state when max ai credits is configured and exceeded', () => {
     process.env.AWF_MAX_AI_CREDITS = '0.1';
     applyAiCreditsUsage({

@@ -23,7 +23,7 @@ describe('computeTokenBudgetUsage', () => {
     const result = computeTokenBudgetUsage(
       { logRequest, requestId: 'req-1', provider: 'openai' },
       { input_tokens: 10, output_tokens: 5 },
-      'gpt-4o',
+      'brand-new-model-xyz',
     );
     expect(result).toBeUndefined();
     expect(logRequest).not.toHaveBeenCalled();
@@ -34,7 +34,7 @@ describe('computeTokenBudgetUsage', () => {
     const result = computeTokenBudgetUsage(
       { logRequest, requestId: 'req-1', provider: 'openai' },
       { input_tokens: 10, output_tokens: 5 },
-      'gpt-4o',
+      'brand-new-model-xyz',
     );
     expect(result).toMatchObject({
       effective_tokens_this_response: expect.any(Number),
