@@ -13,7 +13,7 @@ function canonicalizeModel(model) {
 
 function parseDollarsPerToken(value) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed * DOLLARS_PER_TOKEN_TO_DOLLARS_PER_MILLION;
 }
 
@@ -82,17 +82,13 @@ function resolveCatalogModel(model) {
     return { exists: true, pricing: exactPricing, zeroCost: isZeroCostPricing(exactPricing) };
   }
 
-  let prefixMatch = null;
-  for (const [knownModel, pricing] of pricingByModel.entries()) {
-    if (canonical.startsWith(`${knownModel}-`)) {
-      if (!prefixMatch || knownModel.length > prefixMatch.key.length) {
-        prefixMatch = { key: knownModel, pricing };
-      }
+  let stripped = canonical;
+  while (stripped.includes('-')) {
+    stripped = stripped.slice(0, stripped.lastIndexOf('-'));
+    const pricing = pricingByModel.get(stripped);
+    if (pricing) {
+      return { exists: true, pricing, zeroCost: isZeroCostPricing(pricing) };
     }
-  }
-
-  if (prefixMatch) {
-    return { exists: true, pricing: prefixMatch.pricing, zeroCost: isZeroCostPricing(prefixMatch.pricing) };
   }
 
   return { exists: knownModels.has(canonical), pricing: null, zeroCost: false };

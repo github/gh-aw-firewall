@@ -718,12 +718,21 @@ and error type `ai_credits_limit_exceeded`.
 
 ### 10.7.1 Model Name Resolution for Pricing
 
-The AI credits guard resolves model names against a built-in pricing table.
+The AI credits guard resolves model names using a two-step lookup:
+
+1. **Curated pricing table** — a built-in table of known models with exact pricing.
+2. **Bundled models.dev catalog** — a bundled snapshot of the models.dev catalog used as a fallback when the model is not found in the curated table.
+
 Model names are **canonicalized** before lookup: provider prefixes
 (e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
 as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
 entry.
+
+If neither source resolves the model, the `defaultAiCreditsPricing` fallback
+(if configured) is used. If that is also absent, the request is rejected.
+Models whose catalog entry carries zero-cost pricing are recognized as known
+models with zero AI credit impact, so they are never rejected as "unknown".
 
 ### 10.7.2 Default AI Credits Pricing (Fallback)
 

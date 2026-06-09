@@ -14,6 +14,15 @@ describe('models-dev-catalog', () => {
     });
   });
 
+  it('treats catalog entries with negative sentinel pricing as unpriced', () => {
+    // "openrouter/pareto-code" has prompt/completion "-1" sentinel values in the bundled catalog
+    expect(resolveCatalogModel('openrouter/pareto-code')).toEqual({
+      exists: true,
+      pricing: null,
+      zeroCost: false,
+    });
+  });
+
   it('recognizes zero-cost catalog models', () => {
     expect(resolveCatalogModel('google/gemma-4-31b-it:free')).toEqual({
       exists: true,
