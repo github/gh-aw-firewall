@@ -41,7 +41,6 @@ if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
 const bindHosts = ['127.0.0.1', '::1'];
 let startedServers = 0;
 let readyLogged = false;
-const servers = [];
 
 function handleConnection(client) {
   const clientAddr = `${client.remoteAddress}:${client.remotePort}`;
@@ -56,7 +55,6 @@ function handleConnection(client) {
 
 for (const bindHost of bindHosts) {
   const server = net.createServer(handleConnection);
-  servers.push(server);
   server.on('error', (err) => {
     const errCode = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
     if ((errCode === 'EADDRNOTAVAIL' || errCode === 'EAFNOSUPPORT') && bindHost === '::1') {
