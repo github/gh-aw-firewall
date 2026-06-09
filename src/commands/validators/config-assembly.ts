@@ -276,7 +276,7 @@ export function assembleAndValidateConfig(
     logger.warn.bind(logger),
   );
 
-  if (copilotModel && config.copilotGithubToken) {
+  if (copilotModel && (config.copilotGithubToken || config.copilotProviderApiKey)) {
     const validation = validateCopilotModel(copilotModel);
     if (!validation.valid) {
       logger.error(validation.message);
