@@ -11,7 +11,7 @@ permissions:
 name: Test Hard Cap AI Credits
 engine:
   id: copilot
-  model: claude-opus-4.7
+  model: claude-opus-4.8
 max-turns: 200
 network:
   allowed:
@@ -39,7 +39,7 @@ Verify that the AWF hard cap on AI credits (10,000) terminates the agent when ex
 
 ## Strategy
 
-Use `claude-opus-4.7` (an expensive model) to consume AI credits quickly. Generate large outputs to maximize token usage per turn. The agent should be terminated by the firewall's hard cap at 10,000 credits.
+Use `claude-opus-4.8` (an expensive model) to consume AI credits quickly. Generate large outputs to maximize token usage per turn. The agent should be terminated by the firewall's hard cap at 10,000 credits.
 
 ## Instructions
 
