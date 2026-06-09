@@ -71,6 +71,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
     req.emit('end');
+    await flushPromises();
 
     expect(capturedOptions).toHaveLength(1);
 
@@ -108,6 +109,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
     req.emit('end');
+    await flushPromises();
 
     // First attempt: 400 model not supported → retry 1
     const resp1 = makeProxyRes(400);
@@ -138,6 +140,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
     req.emit('end');
+    await flushPromises();
 
     const errorBody = '{"message":"The requested model is not supported"}';
 
@@ -163,6 +166,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     const res = makeRes();
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
     req.emit('end');
+    await flushPromises();
 
     const resp = makeProxyRes(400);
     responseHandlers[0](resp);
@@ -181,6 +185,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     // Use openai provider — model-not-supported retry only applies to copilot
     proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
     req.emit('end');
+    await flushPromises();
 
     const resp = makeProxyRes(400);
     responseHandlers[0](resp);
@@ -209,6 +214,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
     req.emit('data', Buffer.from(requestPayload));
     req.emit('end');
+    await flushPromises();
 
     const resp1 = makeProxyRes(400);
     responseHandlers[0](resp1);
