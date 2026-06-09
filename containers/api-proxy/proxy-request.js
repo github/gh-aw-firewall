@@ -448,18 +448,6 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
       : []),
     ...(checkModelMultiplier
       ? [{
-        block: checkUnknownModelRejection(extractModelFromBody(body)),
-        isBlocked: block => !!block,
-        statusCode: 400,
-        eventName: 'unknown_model_ai_credits',
-        buildError: block => block.error,
-        buildLogFields: block => ({
-          model: block.model,
-        }),
-      }]
-      : []),
-    ...(checkModelMultiplier
-      ? [{
         block: getRetiredModelBlockState(extractModelFromBody(body)),
         isBlocked: block => !!block,
         statusCode: 400,
@@ -468,6 +456,18 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
         buildLogFields: block => ({
           model: block.model,
           suggestion: block.suggestion,
+        }),
+      }]
+      : []),
+    ...(checkModelMultiplier
+      ? [{
+        block: checkUnknownModelRejection(extractModelFromBody(body)),
+        isBlocked: block => !!block,
+        statusCode: 400,
+        eventName: 'unknown_model_ai_credits',
+        buildError: block => block.error,
+        buildLogFields: block => ({
+          model: block.model,
         }),
       }]
       : []),
