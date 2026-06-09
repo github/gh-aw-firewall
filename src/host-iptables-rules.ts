@@ -181,8 +181,7 @@ async function addIpv6DnsRules(chain: string, dnsServers: string[]): Promise<{ i
       const { exitCode: v6ChainExists } = await execa('ip6tables', ['-t', 'filter', '-L', ipv6ChainName, '-n'], { reject: false });
       if (v6ChainExists === 0) {
         logger.debug(`Chain '${ipv6ChainName}' already exists, cleaning up...`);
-        await execa('ip6tables', ['-t', 'filter', '-F', ipv6ChainName], { reject: false });
-        await execa('ip6tables', ['-t', 'filter', '-X', ipv6ChainName], { reject: false });
+        await cleanupChain('ip6tables', ipv6ChainName);
       }
     } catch (error) {
       logger.debug('Error during IPv6 chain cleanup:', error);
@@ -342,11 +341,13 @@ async function addBlockRules(chain: string, _ipv6ChainName: string | null): Prom
 }
 
 async function insertDockerUserJumpRule(chain: string, bridgeName: string): Promise<void> {
-  const { stdout: existingRules } = await execa('iptables', [
-    '-t', 'filter', '-L', 'DOCKER-USER', '-n', '--line-numbers',
-  ]);
+  const { exitCode: ruleExists } = await execa('iptables', [
+    '-t', 'filter', '-C', 'DOCKER-USER',
+    '-i', bridgeName,
+    '-j', chain,
+  ], { reject: false });
 
-  if (!existingRules.includes(`-i ${bridgeName}`)) {
+  if (ruleExists !== 0) {
     logger.debug(`Inserting rule in DOCKER-USER to jump to ${chain} for bridge ${bridgeName}...`);
     await execa('iptables', [
       '-t', 'filter', '-I', 'DOCKER-USER', '1',
