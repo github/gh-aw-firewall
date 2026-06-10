@@ -120,14 +120,18 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
   // Persist redacted config to audit artifact for post-run diagnostics
   try {
-    const configArtifactDir = config.auditDir || config.workDir;
-    fs.mkdirSync(configArtifactDir, { recursive: true });
+    const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
+    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o755 });
+    const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
     fs.writeFileSync(
-      path.join(configArtifactDir, 'awf-resolved-config.json'),
+      configArtifactPath,
       JSON.stringify(redactedConfig, null, 2) + '\n',
-      { mode: 0o600 },
+      { mode: 0o644 },
     );
-  } catch { /* best-effort — never block startup */ }
+    fs.chmodSync(configArtifactPath, 0o644);
+  } catch (err) {
+    logger.debug(`Failed to write resolved config artifact: ${err}`);
+  }
 
   logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
   if (config.blockedDomains && config.blockedDomains.length > 0) {
