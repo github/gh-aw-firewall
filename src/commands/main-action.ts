@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../logger';
 import {
   writeConfigs,
@@ -115,6 +117,18 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
   }
   logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
+
+  // Persist redacted config to audit artifact for post-run diagnostics
+  try {
+    const configArtifactDir = config.auditDir || config.workDir;
+    fs.mkdirSync(configArtifactDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configArtifactDir, 'awf-resolved-config.json'),
+      JSON.stringify(redactedConfig, null, 2) + '\n',
+      { mode: 0o600 },
+    );
+  } catch { /* best-effort — never block startup */ }
+
   logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
   if (config.blockedDomains && config.blockedDomains.length > 0) {
     logger.info(`Blocked domains: ${config.blockedDomains.join(', ')}`);

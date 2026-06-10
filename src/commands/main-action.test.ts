@@ -373,4 +373,57 @@ describe('createMainAction', () => {
       expect(serialized).not.toContain('gem-secret');
     });
   });
+
+  describe('resolved config artifact', () => {
+    it('writes awf-resolved-config.json to audit dir when set', async () => {
+      const fs = require('fs');
+      const mkdirSyncSpy = jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+      const writeFileSyncSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined);
+
+      const configWithAudit = {
+        ...STUB_CONFIG,
+        auditDir: '/tmp/awf-audit',
+      };
+      mockedValidateOptions.validateOptions.mockReturnValue(
+        configWithAudit as unknown as import('../types').WrapperConfig
+      );
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mkdirSyncSpy).toHaveBeenCalledWith('/tmp/awf-audit', { recursive: true });
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(
+        '/tmp/awf-audit/awf-resolved-config.json',
+        expect.stringContaining('"allowedDomains"'),
+        { mode: 0o600 },
+      );
+      // Verify secrets are not in the artifact
+      const written = writeFileSyncSpy.mock.calls.find(
+        (c) => String(c[0]).includes('awf-resolved-config.json')
+      );
+      expect(written).toBeDefined();
+      expect(String(written![1])).not.toContain('ApiKey');
+
+      mkdirSyncSpy.mockRestore();
+      writeFileSyncSpy.mockRestore();
+    });
+
+    it('falls back to workDir when auditDir is not set', async () => {
+      const fs = require('fs');
+      const mkdirSyncSpy = jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+      const writeFileSyncSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined);
+
+      mockedValidateOptions.validateOptions.mockReturnValue(STUB_CONFIG);
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(
+        '/tmp/awf-test/awf-resolved-config.json',
+        expect.any(String),
+        { mode: 0o600 },
+      );
+
+      mkdirSyncSpy.mockRestore();
+      writeFileSyncSpy.mockRestore();
+    });
+  });
 });
