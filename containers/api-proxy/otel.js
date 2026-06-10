@@ -192,6 +192,45 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
 }
 
 /**
+ * Attach AI-credits and effective-token budget attributes to the span.
+ *
+ * Called from the onUsage callback after computeTokenBudgetUsage returns,
+ * so that per-request AI credits are queryable in Sentry/Grafana.
+ *
+ * All values are emitted as strings following the awf.* convention
+ * (Sentry drops unknown numeric attributes; see docs/otel-sentry.md).
+ * Effective-token counts use the key prefix "model_units" to avoid Sentry's
+ * PII scrubbing rule that redacts values for keys containing "token".
+ *
+ * @param {import('@opentelemetry/api').Span} span
+ * @param {object|undefined} budgetResult - Output from computeTokenBudgetUsage
+ */
+function setBudgetAttributes(span, budgetResult) {
+  if (!_enabled || !span || !budgetResult) return;
+  try {
+    const attrs = {};
+    if (budgetResult.ai_credits_this_response != null) {
+      attrs['awf.ai_credits'] = String(budgetResult.ai_credits_this_response);
+    }
+    if (budgetResult.ai_credits_total != null) {
+      attrs['awf.ai_credits_total'] = String(budgetResult.ai_credits_total);
+    }
+    if (budgetResult.effective_tokens_this_response != null) {
+      attrs['awf.model_units'] = String(budgetResult.effective_tokens_this_response);
+    }
+    if (budgetResult.effective_tokens_total != null) {
+      attrs['awf.model_units_total'] = String(budgetResult.effective_tokens_total);
+    }
+    if (budgetResult.model_multiplier != null) {
+      attrs['awf.model_multiplier'] = String(budgetResult.model_multiplier);
+    }
+    if (Object.keys(attrs).length > 0) {
+      span.setAttributes(attrs);
+    }
+  } catch { /* best-effort */ }
+}
+
+/**
  * End a span successfully with the upstream HTTP status code.
  *
  * @param {import('@opentelemetry/api').Span} span
@@ -251,6 +290,7 @@ function isEnabled() { return _enabled; }
 module.exports = {
   startRequestSpan,
   setTokenAttributes,
+  setBudgetAttributes,
   endSpan,
   endSpanError,
   shutdown,

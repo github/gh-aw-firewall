@@ -93,6 +93,7 @@ try {
     otel = {
       startRequestSpan:  () => noopSpan,
       setTokenAttributes: noop,
+      setBudgetAttributes: noop,
       endSpan:           noop,
       endSpanError:      noop,
       shutdown:          () => Promise.resolve(),

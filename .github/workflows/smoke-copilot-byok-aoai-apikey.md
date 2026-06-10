@@ -56,46 +56,48 @@ sandbox:
   agent:
     id: awf
 strict: true
-steps:
-  - name: Pre-compute BYOK smoke test data
-    id: smoke-data
-    run: |
-      echo "::group::Verify BYOK configuration"
-      echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-derived from COPILOT_PROVIDER_BASE_URL}"
-      echo "::endgroup::"
+jobs:
+  activation:
+    pre-steps:
+      - name: Pre-compute BYOK smoke test data
+        id: smoke-data
+        run: |
+          echo "::group::Verify BYOK configuration"
+          echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-derived from COPILOT_PROVIDER_BASE_URL}"
+          echo "::endgroup::"
 
-      echo "::group::Fetching last 2 merged PRs"
-      PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
-        --json number,title,author,mergedAt \
-        --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"' \
-        || echo "(PR fetch failed)")
-      echo "$PR_DATA"
-      echo "::endgroup::"
+          echo "::group::Fetching last 2 merged PRs"
+          PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
+            --json number,title,author,mergedAt \
+            --jq '.[] | "PR #\(.number): \(.title) (by @\(.author.login), merged \(.mergedAt))"' \
+            || echo "(PR fetch failed)")
+          echo "$PR_DATA"
+          echo "::endgroup::"
 
-      echo "::group::GitHub.com connectivity check"
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || echo "000")
-      echo "github.com returned HTTP $HTTP_CODE"
-      echo "::endgroup::"
+          echo "::group::GitHub.com connectivity check"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || echo "000")
+          echo "github.com returned HTTP $HTTP_CODE"
+          echo "::endgroup::"
 
-      echo "::group::File write/read test"
-      TEST_DIR="/tmp/gh-aw/agent"
-      TEST_FILE="$TEST_DIR/smoke-test-copilot-byok-aoai-apikey-${GITHUB_RUN_ID}.txt"
-      mkdir -p "$TEST_DIR"
-      echo "BYOK AOAI api-key smoke test passed at $(date)" > "$TEST_FILE"
-      FILE_CONTENT=$(cat "$TEST_FILE")
-      echo "Wrote and read back: $FILE_CONTENT"
-      echo "::endgroup::"
+          echo "::group::File write/read test"
+          TEST_DIR="/tmp/gh-aw/agent"
+          TEST_FILE="$TEST_DIR/smoke-test-copilot-byok-aoai-apikey-${GITHUB_RUN_ID}.txt"
+          mkdir -p "$TEST_DIR"
+          echo "BYOK AOAI api-key smoke test passed at $(date)" > "$TEST_FILE"
+          FILE_CONTENT=$(cat "$TEST_FILE")
+          echo "Wrote and read back: $FILE_CONTENT"
+          echo "::endgroup::"
 
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
-        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
-        echo "SMOKE_FILE_PATH=$TEST_FILE"
-      } >> "$GITHUB_OUTPUT"
-    env:
-      GH_TOKEN: ${{ github.token }}
+          {
+            echo "SMOKE_PR_DATA<<SMOKE_EOF"
+            echo "$PR_DATA"
+            echo "SMOKE_EOF"
+            echo "SMOKE_HTTP_CODE=$HTTP_CODE"
+            echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
+            echo "SMOKE_FILE_PATH=$TEST_FILE"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -151,9 +153,7 @@ Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from githu
 ✅ if HTTP 200 or 301, ❌ otherwise.
 
 ### 3. File Write/Read Test
-Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
-File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
-Verify by running `cat` on the file path using bash to confirm it exists.
+The activation pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}" (that file lives on the activation runner, not here). To exercise agent-side file I/O in the sandbox, write a short string to `/tmp/gh-aw/agent/agent-write-test.txt` and `cat` it back with bash. ✅ if the read-back matches.
 
 ### 4. BYOK Inference Test
 You are running in direct BYOK mode against Azure OpenAI (Foundry) right now, using `o4-mini-aw` via an api-key. The fact that you can read this prompt and respond means the BYOK inference path (agent → api-proxy sidecar → Foundry endpoint) is working. Confirm ✅.

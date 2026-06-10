@@ -138,7 +138,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
         expect(proxy.healthcheck).toBeDefined();
-        expect((proxy.healthcheck as any).test).toEqual(['CMD', 'curl', '-f', 'http://localhost:11000/health']);
+        expect((proxy.healthcheck as any).test).toEqual(['CMD', 'curl', '-f', 'http://127.0.0.1:11000/health']);
       });
 
       it('should drop all capabilities from cli-proxy', () => {

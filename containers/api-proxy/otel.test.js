@@ -290,6 +290,68 @@ describe('otel — setTokenAttributes', () => {
   });
 });
 
+describe('otel — setBudgetAttributes', () => {
+  test('sets AI credits and model unit attributes as strings', async () => {
+    const { otel, memExporter } = loadOtelWithMemoryExporter();
+
+    const span = otel.startRequestSpan({
+      provider: 'anthropic', method: 'POST', path: '/v1/messages', requestId: 'b1',
+    });
+
+    otel.setBudgetAttributes(span, {
+      ai_credits_this_response: 0.042,
+      ai_credits_total: 1.5,
+      effective_tokens_this_response: 3500,
+      effective_tokens_total: 85000,
+      model_multiplier: 2.5,
+    });
+
+    otel.endSpan(span, 200);
+
+    await otel._provider.forceFlush();
+    const s = memExporter.getFinishedSpans()[0];
+
+    expect(s.attributes['awf.ai_credits']).toBe('0.042');
+    expect(s.attributes['awf.ai_credits_total']).toBe('1.5');
+    expect(s.attributes['awf.model_units']).toBe('3500');
+    expect(s.attributes['awf.model_units_total']).toBe('85000');
+    expect(s.attributes['awf.model_multiplier']).toBe('2.5');
+  });
+
+  test('sets only ai_credits when model units are absent', async () => {
+    const { otel, memExporter } = loadOtelWithMemoryExporter();
+
+    const span = otel.startRequestSpan({
+      provider: 'openai', method: 'POST', path: '/v1/chat/completions', requestId: 'b2',
+    });
+
+    otel.setBudgetAttributes(span, {
+      ai_credits_this_response: 0.01,
+      ai_credits_total: 0.05,
+    });
+
+    otel.endSpan(span, 200);
+
+    await otel._provider.forceFlush();
+    const s = memExporter.getFinishedSpans()[0];
+
+    expect(s.attributes['awf.ai_credits']).toBe('0.01');
+    expect(s.attributes['awf.ai_credits_total']).toBe('0.05');
+    expect(s.attributes['awf.model_units']).toBeUndefined();
+    expect(s.attributes['awf.model_units_total']).toBeUndefined();
+  });
+
+  test('is a no-op when budgetResult is undefined', () => {
+    const otel = loadOtel();
+    expect(() => otel.setBudgetAttributes({}, undefined)).not.toThrow();
+  });
+
+  test('is a no-op on a null span', () => {
+    const otel = loadOtel();
+    expect(() => otel.setBudgetAttributes(null, { ai_credits_this_response: 1 })).not.toThrow();
+  });
+});
+
 describe('otel — endSpan', () => {
   test('sets OK status for 2xx response', async () => {
     const { otel, memExporter } = loadOtelWithMemoryExporter();
