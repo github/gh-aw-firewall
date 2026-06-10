@@ -53,6 +53,11 @@ In Sentry's trace detail view, expand a span and look under **Tags & Attributes*
 | `awf.cached_read` | string | Number of prompt tokens served from cache (as string) |
 | `awf.cached_write` | string | Number of tokens written to cache (as string) |
 | `awf.reasoning` | string | Number of reasoning/thinking tokens (as string) |
+| `awf.ai_credits` | string | AI credits consumed by this request |
+| `awf.ai_credits_total` | string | Running total AI credits for the session |
+| `awf.model_units` | string | Effective (multiplier-adjusted) token units this request |
+| `awf.model_units_total` | string | Running total effective token units for the session |
+| `awf.model_multiplier` | string | Model cost multiplier applied to this request |
 
 ### `http` group
 
