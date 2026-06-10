@@ -44,9 +44,10 @@ export function assembleAndValidateConfig(
   networkOptions: NetworkOptionsResult,
   agentOptions: AgentOptionsResult,
 ): WrapperConfig {
-  const readCopilotModelFromEnvFiles = (envFile: unknown): string | undefined => {
+  const readEnvVarFromEnvFiles = (envFile: unknown, key: string): string | undefined => {
     const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
     let lastSeen: string | undefined;
+    const pattern = new RegExp(`^(?:export\\s+)?${key}\\s*=\\s*(.*)$`);
     for (const candidate of envFiles) {
       if (typeof candidate !== 'string' || candidate.trim() === '') continue;
       try {
@@ -57,7 +58,7 @@ export function assembleAndValidateConfig(
         for (const line of envFileContents.split(/\r?\n/)) {
           const trimmedLine = line.trim();
           if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-          const match = trimmedLine.match(/^(?:export\s+)?COPILOT_MODEL\s*=\s*(.*)$/);
+          const match = trimmedLine.match(pattern);
           if (match) {
             lastSeen = match[1]?.trim() || '';
           }
@@ -67,6 +68,10 @@ export function assembleAndValidateConfig(
       }
     }
     return lastSeen;
+  };
+
+  const readCopilotModelFromEnvFiles = (envFile: unknown): string | undefined => {
+    return readEnvVarFromEnvFiles(envFile, 'COPILOT_MODEL');
   };
 
   // --- Config assembly -----------------------------------------------------
@@ -279,6 +284,7 @@ export function assembleAndValidateConfig(
   const hasCustomCopilotProviderBaseUrl = !!(
     config.copilotProviderBaseUrl ||
     config.additionalEnv?.COPILOT_PROVIDER_BASE_URL ||
+    readEnvVarFromEnvFiles((config as { envFile?: unknown }).envFile, 'COPILOT_PROVIDER_BASE_URL') ||
     (config.envAll ? process.env.COPILOT_PROVIDER_BASE_URL : undefined)
   );
   if (
