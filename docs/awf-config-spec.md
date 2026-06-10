@@ -1240,7 +1240,7 @@ apiProxy:
 |----------|------|---------|---------|-------------|
 | `apiProxy.logging.debugTokens` | boolean | `false` | `AWF_DEBUG_TOKENS` | Enable diagnostic token/model-alias logging to file |
 | `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl` and `token-diag.jsonl` |
-| `apiProxy.diagnostics.captureBlockedRequests` | string | `false` | `AWF_CAPTURE_BLOCKED_LLM_REQUESTS` | Capture body-shape info for guard-blocked requests (`false`/`summary`/`redacted`/`full`) |
+| `apiProxy.diagnostics.captureBlockedRequests` | string \| boolean | `false` | `AWF_CAPTURE_BLOCKED_LLM_REQUESTS` | Capture body-shape info for guard-blocked requests (`false`/`true`/`summary`/`redacted`/`full`; `true` is an alias for `summary`) |
 | `apiProxy.diagnostics.maxCapturedBytes` | integer | `250000` | `AWF_MAX_BLOCKED_CAPTURE_BYTES` | Max bytes per record in `full` capture mode |
 
 ### 13.4 Log File Inventory

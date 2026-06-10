@@ -10,7 +10,7 @@
  * Capture modes:
  *   false / not set : disabled (default)
  *   summary         : body-shape metadata only — counts, sizes, hashes. No content.
- *   redacted        : summary + first 200 chars of each message (no secrets)
+ *   redacted        : summary + first 200 chars of each message (may still contain secrets)
  *   full            : full body capture up to AWF_MAX_BLOCKED_CAPTURE_BYTES
  *
  * The resulting file is written to the same directory as token-usage.jsonl
@@ -173,7 +173,7 @@ function extractContentPreview(content) {
  *
  * @param {unknown[]} messages
  * @param {'summary'|'redacted'|'full'} captureMode
- * @returns {{ messageCount: number, toolResultCount: number, messageSizes: object[] }}
+ * @returns {{ messageCount: number, toolResultCount: number, messageSizes: object[] } | null}
  */
 function analyzeMessages(messages, captureMode) {
   if (!Array.isArray(messages)) return null;
@@ -193,7 +193,7 @@ function analyzeMessages(messages, captureMode) {
     let toolBlocksInMsg = 0;
     if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
-        if (block && (block.type === 'tool_result' || block.type === 'tool_use')) {
+        if (block && block.type === 'tool_result') {
           toolBlocksInMsg++;
           toolResultCount++;
         }
