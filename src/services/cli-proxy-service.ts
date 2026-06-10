@@ -81,7 +81,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       no_proxy: `localhost,127.0.0.1,::1,host.docker.internal`,
     },
     healthcheck: {
-      test: ['CMD', 'curl', '-f', `http://localhost:${CLI_PROXY_PORT}/health`],
+      test: ['CMD', 'curl', '-f', `http://127.0.0.1:${CLI_PROXY_PORT}/health`],
       interval: '5s',
       timeout: '3s',
       retries: 5,

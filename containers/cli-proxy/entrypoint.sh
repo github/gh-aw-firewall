@@ -57,9 +57,9 @@ export GIT_SSL_CAINFO="${COMBINED_CA}"
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 
 # Probe external DIFC proxy liveness before serving agent traffic.
-# If this fails, keep retries tightly bounded and fail startup early so
-# workflows do not enter long in-agent retry loops for connection-refused errors.
-MAX_LIVENESS_ATTEMPTS="${AWF_CLI_PROXY_LIVENESS_ATTEMPTS:-2}"
+# Retries with exponential backoff to handle transient startup delays.
+# Distinct error messages help distinguish "not yet ready" from "unreachable".
+MAX_LIVENESS_ATTEMPTS="${AWF_CLI_PROXY_LIVENESS_ATTEMPTS:-10}"
 LIVENESS_SLEEP_SECONDS="${AWF_CLI_PROXY_LIVENESS_SLEEP_SECONDS:-1}"
 LIVENESS_TIMEOUT_SECONDS="${AWF_CLI_PROXY_LIVENESS_TIMEOUT_SECONDS:-5}"
 ATTEMPT=1
@@ -70,16 +70,29 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
     break
   fi
   PROBE_EXIT=$?
+  # Classify the failure for clearer diagnostics:
+  #   ECONNREFUSED (exit 7 for curl, or "connection refused" in gh output) → not yet ready
+  #   Timeout (exit 28 for curl, or "context deadline" in gh output)        → unreachable / slow
+  #   Other                                                                  → unknown / auth error
+  DIAG_TYPE="unknown"
+  if echo "${PROBE_ERR}" | grep -qiE "connection refused|ECONNREFUSED"; then
+    DIAG_TYPE="not-yet-ready (ECONNREFUSED)"
+  elif [ "${PROBE_EXIT}" -eq 124 ] || echo "${PROBE_ERR}" | grep -qiE "timeout|deadline|timed out"; then
+    DIAG_TYPE="unreachable (timeout)"
+  fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
-    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT})"
+    echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
     if [ -n "${PROBE_ERR}" ]; then
       echo "[cli-proxy] gh api error: ${PROBE_ERR}"
     fi
     echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
     exit 1
   fi
-  echo "[cli-proxy] DIFC proxy probe failed (attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}), retrying in ${LIVENESS_SLEEP_SECONDS}s..."
-  sleep "${LIVENESS_SLEEP_SECONDS}"
+  # Exponential backoff: sleep 1, 2, 4, 8 … seconds (capped at 30s)
+  SLEEP_SECS=$(( LIVENESS_SLEEP_SECONDS * (1 << (ATTEMPT - 1)) ))
+  if [ "${SLEEP_SECS}" -gt 30 ]; then SLEEP_SECS=30; fi
+  echo "[cli-proxy] DIFC proxy probe failed (attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}, diagnosis=${DIAG_TYPE}), retrying in ${SLEEP_SECS}s..."
+  sleep "${SLEEP_SECS}"
   ATTEMPT=$((ATTEMPT + 1))
 done
 

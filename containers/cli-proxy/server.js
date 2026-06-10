@@ -353,7 +353,12 @@ if (require.main === module) {
     });
   });
 
-  server.listen(CLI_PROXY_PORT, '0.0.0.0', () => {
+  // Bind on '::' to accept both IPv4 and IPv6 connections (dual-stack).
+  // On Linux the default net.ipv6only=0 means '::' also accepts IPv4 traffic,
+  // so this is equivalent to 0.0.0.0 + [::] in one bind call.  This prevents
+  // health-check failures on dual-stack hosts where Docker resolves `localhost`
+  // to [::1] but a server listening only on 0.0.0.0 would reject that connection.
+  server.listen(CLI_PROXY_PORT, '::', () => {
     accessLog({
       event: 'server_start',
       port: CLI_PROXY_PORT,
