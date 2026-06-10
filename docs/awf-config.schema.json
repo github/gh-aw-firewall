@@ -380,6 +380,27 @@
               "default": "/var/log/api-proxy"
             }
           }
+        },
+        "diagnostics": {
+          "type": "object",
+          "description": "Opt-in diagnostics for blocked LLM requests. Writes body-shape records to blocked-request-diag.jsonl when a guard hard-rails a request.",
+          "additionalProperties": false,
+          "properties": {
+            "captureBlockedRequests": {
+              "description": "Enable capture of body-shape diagnostics for guard-blocked requests. 'summary' captures counts/sizes/hashes only (no content). 'redacted' adds first 200 chars per message. 'full' captures the entire body up to maxCapturedBytes. Maps to AWF_CAPTURE_BLOCKED_LLM_REQUESTS.",
+              "oneOf": [
+                { "type": "boolean" },
+                { "type": "string", "enum": ["summary", "redacted", "full"] }
+              ],
+              "default": false
+            },
+            "maxCapturedBytes": {
+              "type": "integer",
+              "description": "Maximum body bytes to include in a single 'full'-mode blocked-request-diag record. Maps to AWF_MAX_BLOCKED_CAPTURE_BYTES.",
+              "minimum": 1,
+              "default": 250000
+            }
+          }
         }
       }
     },

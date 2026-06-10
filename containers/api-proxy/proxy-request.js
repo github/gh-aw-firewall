@@ -65,6 +65,7 @@ const {
   getRetiredModelBlockState,
   buildRetiredModelError,
 } = require('./guards/retired-model-guard');
+const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -370,22 +371,35 @@ function sendGuardBlockedResponse(block, {
   eventName,
   buildError,
   buildLogFields,
+  body,
+  inboundBytes,
 }) {
   const duration = Date.now() - startTime;
+  const guardLogFields = buildLogFields(block);
   metrics.gaugeDec('active_requests', { provider });
   metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
   metrics.observe('request_duration_ms', duration, { provider });
   logRequest('warn', eventName, {
     request_id: requestId,
     provider,
-    ...buildLogFields(block),
+    ...guardLogFields,
   });
   otel.endSpan(span, statusCode);
   res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
   res.end(JSON.stringify(buildError(block)));
+
+  writeBlockedRequestDiag({
+    requestId,
+    provider,
+    path: sanitizeForLog(req.url),
+    guardType: eventName,
+    guardLogFields,
+    body: body || Buffer.alloc(0),
+    inboundBytes: inboundBytes || 0,
+  });
 }
 
-function enforceGuards({ body, provider, req, res, requestId, startTime, span }) {
+function enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes }) {
   const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
   const guardChecks = [
     {
@@ -487,6 +501,8 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span })
       eventName: guard.eventName,
       buildError: guard.buildError,
       buildLogFields: guard.buildLogFields,
+      body,
+      inboundBytes,
     });
     return true;
   }
@@ -708,7 +724,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     const headers = buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId });
 
-    if (enforceGuards({ body, provider, req, res, requestId, startTime, span })) return;
+    if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) return;
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,

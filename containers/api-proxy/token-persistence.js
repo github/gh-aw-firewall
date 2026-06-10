@@ -240,19 +240,28 @@ function writeTokenUsage(record) {
  * Returns a Promise that resolves once the stream has flushed.
  */
 function closeLogStream() {
-  return new Promise((resolve) => {
-    let pending = 0;
-    const check = () => { if (pending === 0) resolve(); };
-    if (logStream) {
-      pending++;
-      logStream.end(() => { logStream = null; pending--; check(); });
-    }
-    if (diagStream) {
-      pending++;
-      diagStream.end(() => { diagStream = null; pending--; check(); });
-    }
-    if (pending === 0) resolve();
-  });
+  // Also close the blocked-request diagnostics stream if the module is loaded.
+  let closeBlockedRequestDiagStream = () => Promise.resolve();
+  try {
+    ({ closeBlockedRequestDiagStream } = require('./blocked-request-diagnostics'));
+  } catch { /* optional module — no-op when absent */ }
+
+  return Promise.all([
+    new Promise((resolve) => {
+      let pending = 0;
+      const check = () => { if (pending === 0) resolve(); };
+      if (logStream) {
+        pending++;
+        logStream.end(() => { logStream = null; pending--; check(); });
+      }
+      if (diagStream) {
+        pending++;
+        diagStream.end(() => { diagStream = null; pending--; check(); });
+      }
+      if (pending === 0) resolve();
+    }),
+    closeBlockedRequestDiagStream(),
+  ]).then(() => {});
 }
 
 module.exports = {

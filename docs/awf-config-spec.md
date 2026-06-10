@@ -115,6 +115,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.logging.debugTokens` → *(config-only; maps to `AWF_DEBUG_TOKENS`)*
 - `apiProxy.logging.tokenLogDir` → *(config-only; maps to `AWF_TOKEN_LOG_DIR`)*
+- `apiProxy.diagnostics.captureBlockedRequests` → *(config-only; maps to `AWF_CAPTURE_BLOCKED_LLM_REQUESTS`)*
+- `apiProxy.diagnostics.maxCapturedBytes` → *(config-only; maps to `AWF_MAX_BLOCKED_CAPTURE_BYTES`)*
 - `apiProxy.auth.type` → *(config-only; maps to `AWF_AUTH_TYPE`)*
 - `apiProxy.auth.provider` → *(config-only; maps to `AWF_AUTH_PROVIDER`)*
 - `apiProxy.auth.oidcAudience` → *(config-only; maps to `AWF_AUTH_OIDC_AUDIENCE`)*
@@ -1229,12 +1231,17 @@ apiProxy:
   logging:
     debugTokens: true
     tokenLogDir: "/var/log/api-proxy"
+  diagnostics:
+    captureBlockedRequests: summary  # false | summary | redacted | full
+    maxCapturedBytes: 250000
 ```
 
 | Property | Type | Default | Env var | Description |
 |----------|------|---------|---------|-------------|
 | `apiProxy.logging.debugTokens` | boolean | `false` | `AWF_DEBUG_TOKENS` | Enable diagnostic token/model-alias logging to file |
 | `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl` and `token-diag.jsonl` |
+| `apiProxy.diagnostics.captureBlockedRequests` | string | `false` | `AWF_CAPTURE_BLOCKED_LLM_REQUESTS` | Capture body-shape info for guard-blocked requests (`false`/`summary`/`redacted`/`full`) |
+| `apiProxy.diagnostics.maxCapturedBytes` | integer | `250000` | `AWF_MAX_BLOCKED_CAPTURE_BYTES` | Max bytes per record in `full` capture mode |
 
 ### 13.4 Log File Inventory
 
@@ -1265,6 +1272,7 @@ Directory: configured by `apiProxy.logging.tokenLogDir` / `AWF_TOKEN_LOG_DIR`
 |------|--------|-------------|----------------|
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
 | `token-diag.jsonl` | JSONL (`token-diag/v<version>` schema) | Diagnostic events: model resolution steps, alias rewrites, token budget decisions | Only when `apiProxy.logging.debugTokens: true` |
+| `blocked-request-diag.jsonl` | JSONL (`blocked-request-diag/v<version>` schema) | Body-shape diagnostics for guard-blocked requests (effective tokens, AI credits, etc.) | Only when `apiProxy.diagnostics.captureBlockedRequests` is set |
 | `otel.jsonl` | JSONL (OpenTelemetry spans) | Distributed tracing spans; written as local fallback when no OTLP collector is configured | Only when OTEL is active and no collector endpoint set |
 
 #### CLI Proxy Logs
@@ -1288,6 +1296,92 @@ Model alias logging was introduced in **v0.25.40** (PR #2329). The diagnostic
 file mechanism (`token-persistence.js`) was refactored into a dedicated module
 in v0.25.50 but the logging events and their format have been stable since
 initial release.
+
+### 13.6 Blocked Request Diagnostics (blocked-request-diag.jsonl)
+
+When a guard hard-rails a request (e.g. `effective_tokens_limit_exceeded`,
+`ai_credits_limit_exceeded`, `max_runs_exceeded`), the api-proxy can write a
+structured diagnostic record to `blocked-request-diag.jsonl`.  This is
+**opt-in and disabled by default**.
+
+#### Enabling
+
+Set the environment variable or config key before starting the container:
+
+```sh
+# Minimal (body-shape only, no content):
+AWF_CAPTURE_BLOCKED_LLM_REQUESTS=summary
+
+# Include first 200 chars of each message (for debugging over-large tool results):
+AWF_CAPTURE_BLOCKED_LLM_REQUESTS=redacted
+
+# Full body up to AWF_MAX_BLOCKED_CAPTURE_BYTES (default 250 000 bytes):
+AWF_CAPTURE_BLOCKED_LLM_REQUESTS=full
+AWF_MAX_BLOCKED_CAPTURE_BYTES=250000
+```
+
+Or via config YAML:
+
+```yaml
+apiProxy:
+  diagnostics:
+    captureBlockedRequests: summary   # false | summary | redacted | full
+    maxCapturedBytes: 250000
+```
+
+#### Capture modes
+
+| Mode | Content | Use case |
+|------|---------|----------|
+| `false` (default) | Nothing written | Production default |
+| `summary` | Counts, sizes, hashes — **no content** | Safe for normal debugging; identify which message/tool-result was large |
+| `redacted` | Summary + first 200 chars per message | Debug prompt growth without full disclosure |
+| `full` | Full body up to `maxCapturedBytes` | Local/private runs only; explicitly document and review |
+
+#### Record format
+
+Each record follows the `blocked-request-diag/v<version>` schema:
+
+```json
+{
+  "_schema": "blocked-request-diag/v0.26.0",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "event": "blocked_request_diag",
+  "capture_mode": "summary",
+  "request_id": "bc446626-a67b-4a78-a8c3-7293a2bc7306",
+  "provider": "anthropic",
+  "path": "/v1/messages",
+  "guard_type": "effective_tokens_limit_exceeded",
+  "guard_totals": {
+    "total_effective_tokens": 27198679,
+    "max_effective_tokens": 25000000
+  },
+  "body_transformed": true,
+  "inbound_bytes": 184320,
+  "body_bytes": 185040,
+  "body_sha256": "a3f2b1c8d9e0f1a2",
+  "model": "claude-opus-4.7",
+  "streaming": true,
+  "message_count": 52,
+  "tool_result_count": 14,
+  "message_sizes": [
+    { "role": "user",      "content_type": "text",        "chars": 312,   "bytes": 312,   "estimated_tokens": 78 },
+    { "role": "assistant", "content_type": "text",        "chars": 1840,  "bytes": 1840,  "estimated_tokens": 460 },
+    { "role": "user",      "content_type": "tool_result", "chars": 94321, "bytes": 94321, "estimated_tokens": 23580, "tool_blocks": 3 }
+  ]
+}
+```
+
+#### Security considerations
+
+- `summary` mode captures **no message content** and is safe for shared/public
+  workflow runs.
+- `redacted` mode includes short previews; review before attaching to public
+  issues.
+- `full` mode captures potentially sensitive prompt and tool-result content.
+  Use only for private runs and rotate or delete the artifact promptly.
+- The file is written to `AWF_TOKEN_LOG_DIR` alongside `token-usage.jsonl`
+  and is governed by the same artifact-retention policy.
 
 ## Normative References
 
