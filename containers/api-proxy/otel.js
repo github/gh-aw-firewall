@@ -192,6 +192,40 @@ function setTokenAttributes(span, { provider, model, normalizedUsage, streaming 
 }
 
 /**
+ * Attach AI-credits and effective-token budget attributes to the span.
+ *
+ * Called from the onUsage callback after computeTokenBudgetUsage resolves,
+ * so that per-request AI credits are queryable in Sentry/Grafana.
+ *
+ * @param {import('@opentelemetry/api').Span} span
+ * @param {object|undefined} budgetResult - Output from computeTokenBudgetUsage
+ */
+function setBudgetAttributes(span, budgetResult) {
+  if (!_enabled || !span || !budgetResult) return;
+  try {
+    const attrs = {};
+    if (budgetResult.ai_credits_this_response != null) {
+      attrs['awf.ai_credits'] = budgetResult.ai_credits_this_response;
+    }
+    if (budgetResult.ai_credits_total != null) {
+      attrs['awf.ai_credits_total'] = budgetResult.ai_credits_total;
+    }
+    if (budgetResult.effective_tokens_this_response != null) {
+      attrs['awf.effective_tokens'] = budgetResult.effective_tokens_this_response;
+    }
+    if (budgetResult.effective_tokens_total != null) {
+      attrs['awf.effective_tokens_total'] = budgetResult.effective_tokens_total;
+    }
+    if (budgetResult.model_multiplier != null) {
+      attrs['awf.model_multiplier'] = budgetResult.model_multiplier;
+    }
+    if (Object.keys(attrs).length > 0) {
+      span.setAttributes(attrs);
+    }
+  } catch { /* best-effort */ }
+}
+
+/**
  * End a span successfully with the upstream HTTP status code.
  *
  * @param {import('@opentelemetry/api').Span} span
@@ -251,6 +285,7 @@ function isEnabled() { return _enabled; }
 module.exports = {
   startRequestSpan,
   setTokenAttributes,
+  setBudgetAttributes,
   endSpan,
   endSpanError,
   shutdown,

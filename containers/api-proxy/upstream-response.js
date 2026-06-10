@@ -231,7 +231,9 @@ function createUpstreamResponseHandlers({
       requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent,
       onUsage: (normalizedUsage, model) => {
         otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-        return computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
+        const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
+        otel.setBudgetAttributes(span, budgetResult);
+        return budgetResult;
       },
       onSpanEnd: (statusCode) => {
         otel.endSpan(span, statusCode);
