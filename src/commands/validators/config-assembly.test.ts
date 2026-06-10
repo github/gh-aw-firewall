@@ -823,6 +823,28 @@ describe('config-assembly', () => {
       );
     });
 
+    it('should allow custom COPILOT_MODEL values in BYOK mode with a provider base URL', () => {
+      mockBuildConfigOnce({
+        copilotProviderApiKey: 'byok-api-key-for-azure-foundry',
+        copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/o4-mini-aw',
+        additionalEnv: { COPILOT_MODEL: 'o4-mini-aw' },
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'o4-mini-aw' };
+
+      const result = assembleAndValidateConfig(
+        {},
+        'echo test',
+        createMinimalLogAndLimits(),
+        createMinimalNetworkOptions(),
+        agentOptions,
+      );
+
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(result.additionalEnv?.COPILOT_MODEL).toBe('o4-mini-aw');
+    });
+
     it('should log normalization when COPILOT_MODEL casing is adjusted', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',

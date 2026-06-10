@@ -276,7 +276,16 @@ export function assembleAndValidateConfig(
     logger.warn.bind(logger),
   );
 
-  if (copilotModel && (config.copilotGithubToken || config.copilotProviderApiKey)) {
+  const hasCustomCopilotProviderBaseUrl = !!(
+    config.copilotProviderBaseUrl ||
+    config.additionalEnv?.COPILOT_PROVIDER_BASE_URL ||
+    (config.envAll ? process.env.COPILOT_PROVIDER_BASE_URL : undefined)
+  );
+  if (
+    copilotModel &&
+    !hasCustomCopilotProviderBaseUrl &&
+    (config.copilotGithubToken || config.copilotProviderApiKey)
+  ) {
     const validation = validateCopilotModel(copilotModel);
     if (!validation.valid) {
       logger.error(validation.message);
