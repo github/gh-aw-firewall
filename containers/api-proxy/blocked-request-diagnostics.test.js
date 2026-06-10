@@ -347,7 +347,6 @@ describe('writeBlockedRequestDiag()', () => {
         });
 
         // Flush stream before reading
-        const stream = mod.testHelpers.DIAG_FILE;
         setImmediate(() => {
           mod.closeBlockedRequestDiagStream().then(() => {
             const diagFile = path.join(tmpDir, 'blocked-request-diag.jsonl');
