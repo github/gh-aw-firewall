@@ -378,6 +378,16 @@ describe('createCopilotAdapter — GHE enterprise auth format', () => {
     expect(headers['Authorization']).toBe('Bearer sk-byok-key');
   });
 
+  it('uses "token" prefix for /models on GHES even when BYOK key is configured', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      COPILOT_PROVIDER_API_KEY: 'sk-byok-key',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
   it('uses "Bearer" prefix for standard api.githubcopilot.com target', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'ghu_standard_token_123',

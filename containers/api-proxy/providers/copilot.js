@@ -241,15 +241,17 @@ function createCopilotAdapter(env, deps = {}) {
         reqPathname = req.url || '';
       }
 
-      // Enterprise Copilot API (GHES) requires 'token <value>' format;
-      // standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer <value>'.
+      // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens;
+      // BYOK API keys always use 'Bearer <value>' regardless of target.
+      // Standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer' for all credentials.
       const isEnterprise = rawTarget === 'api.enterprise.githubcopilot.com';
-      const authPrefix = (isEnterprise && !apiKey) ? 'token' : 'Bearer';
 
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
       if (isModelsPath && req.method === 'GET' && githubToken) {
+        // /models always uses the GitHub OAuth token (not BYOK key)
+        const prefix = isEnterprise ? 'token' : 'Bearer';
         return {
-          'Authorization': [authPrefix, githubToken].join(' '),
+          'Authorization': [prefix, githubToken].join(' '),
           'Copilot-Integration-Id': integrationId,
         };
       }
@@ -272,6 +274,8 @@ function createCopilotAdapter(env, deps = {}) {
         return {};
       }
 
+      // For inference: BYOK keys use 'Bearer'; GitHub tokens use 'token' on GHES
+      const authPrefix = (isEnterprise && !apiKey) ? 'token' : 'Bearer';
       return {
         ...(apiKey ? byokExtraHeaders : {}),
         'Authorization': [authPrefix, authToken].join(' '),
