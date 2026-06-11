@@ -192,6 +192,14 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       // Token and model-alias diagnostic logging
       ...(config.debugTokens && { AWF_DEBUG_TOKENS: '1' }),
       ...(config.tokenLogDir && { AWF_TOKEN_LOG_DIR: config.tokenLogDir }),
+      // Blocked-request diagnostics
+      ...(config.captureBlockedRequests !== undefined &&
+        config.captureBlockedRequests !== false && {
+          AWF_CAPTURE_BLOCKED_LLM_REQUESTS: String(config.captureBlockedRequests),
+        }),
+      ...(config.maxCapturedBytes !== undefined && {
+        AWF_MAX_BLOCKED_CAPTURE_BYTES: String(config.maxCapturedBytes),
+      }),
       // OIDC authentication (Azure, AWS, GCP, Anthropic)
       ...pickEnvVars(
         'AWF_AUTH_TYPE',

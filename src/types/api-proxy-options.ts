@@ -476,6 +476,34 @@ export interface ApiProxyOptions {
   tokenLogDir?: string;
 
   /**
+   * Enable capture of body-shape diagnostics for guard-blocked requests.
+   *
+   * - `false` (default): Nothing written.
+   * - `'summary'`: Counts, sizes, hashes — no message content.
+   * - `'redacted'`: Summary plus first 200 chars per message.
+   * - `'full'`: Full body up to `maxCapturedBytes`.
+   * - `true`: Alias for `'summary'`.
+   *
+   * Set via:
+   * - Config file: `apiProxy.diagnostics.captureBlockedRequests: "summary"`
+   * - Environment variable: `AWF_CAPTURE_BLOCKED_LLM_REQUESTS=summary`
+   *
+   * @default false
+   */
+  captureBlockedRequests?: boolean | 'summary' | 'redacted' | 'full';
+
+  /**
+   * Maximum body bytes to include in a single `full`-mode blocked-request-diag record.
+   *
+   * Set via:
+   * - Config file: `apiProxy.diagnostics.maxCapturedBytes: 250000`
+   * - Environment variable: `AWF_MAX_BLOCKED_CAPTURE_BYTES=250000`
+   *
+   * @default 250000
+   */
+  maxCapturedBytes?: number;
+
+  /**
    * Enable Anthropic prompt-cache optimizations in the API proxy sidecar.
    *
    * When true, the Anthropic proxy (port 10001) automatically mutates every

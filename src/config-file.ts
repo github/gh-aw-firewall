@@ -55,6 +55,10 @@ interface AwfFileConfig {
       debugTokens?: boolean;
       tokenLogDir?: string;
     };
+    diagnostics?: {
+      captureBlockedRequests?: boolean | 'summary' | 'redacted' | 'full';
+      maxCapturedBytes?: number;
+    };
     auth?: {
       anthropicTokenUrl?: string;
     };
@@ -246,6 +250,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     modelAliases: config.apiProxy?.models,
     debugTokens: config.apiProxy?.logging?.debugTokens,
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
+    captureBlockedRequests: config.apiProxy?.diagnostics?.captureBlockedRequests,
+    maxCapturedBytes: config.apiProxy?.diagnostics?.maxCapturedBytes,
     anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
