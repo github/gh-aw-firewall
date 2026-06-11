@@ -44,20 +44,24 @@ describe('ai-credits-guard', () => {
       output_tokens: 500,
     }, 'gpt-5-mini');
 
+    // input_tokens includes cache_read_tokens, so non-cached = 900
+    // inputCredits = 900 × $0.25/Mtok / 10000 = 0.0225
+    // cachedInputCredits = 100 × $0.025/Mtok / 10000 = 0.00025
+    // outputCredits = 500 × $2.00/Mtok / 10000 = 0.1
     expect(usage).toMatchObject({
-      aiCreditsThisResponse: 0.12525,
-      totalAiCredits: 0.12525,
+      aiCreditsThisResponse: 0.12275,
+      totalAiCredits: 0.12275,
     });
-    expect(process.env.AWF_AI_CREDITS_USED).toBe('0.12525');
+    expect(process.env.AWF_AI_CREDITS_USED).toBe('0.12275');
     expect(getAiCreditsReflectState()).toEqual({
-      total: 0.12525,
+      total: 0.12275,
       by_model: {
         'gpt-5-mini': {
-          input_credits: 0.025,
+          input_credits: 0.0225,
           cached_input_credits: 0.00025,
           cache_write_credits: 0,
           output_credits: 0.1,
-          total: 0.12525,
+          total: 0.12275,
         },
       },
     });
@@ -71,8 +75,37 @@ describe('ai-credits-guard', () => {
       output_tokens: 100,
     }, 'claude-sonnet-4-6-20260601');
 
-    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.9675, 10);
-    expect(getAiCreditsReflectState().by_model['claude-sonnet-4-6-20260601'].total).toBeCloseTo(0.9675, 10);
+    // nonCached = 2000 - 1000 - 500 = 500
+    // inputCredits = 500 × $3.00 / 10000 = 0.15
+    // cachedInputCredits = 1000 × $0.30 / 10000 = 0.03
+    // cacheWriteCredits = 500 × $3.75 / 10000 = 0.1875
+    // outputCredits = 100 × $15.00 / 10000 = 0.15
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.5175, 10);
+    expect(getAiCreditsReflectState().by_model['claude-sonnet-4-6-20260601'].total).toBeCloseTo(0.5175, 10);
+  });
+
+  it('does not double-count cached tokens (cache_read included in input_tokens)', () => {
+    // Simulates: 3M total input, 2.9M from cache, 0.1M new input
+    // This is how Anthropic reports: input_tokens is the total (includes cache hits)
+    const usage = applyAiCreditsUsage({
+      input_tokens: 3_000_000,
+      cache_read_tokens: 2_900_000,
+      output_tokens: 50_000,
+    }, 'claude-sonnet-4-6');
+
+    // nonCached = 3M - 2.9M = 100K
+    // inputCredits = 100_000 × $3.00 / 10000 = 30
+    // cachedInputCredits = 2_900_000 × $0.30 / 10000 = 87
+    // outputCredits = 50_000 × $15.00 / 10000 = 75
+    // total = 192 AIC
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(30, 5);
+    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(87, 5);
+    expect(usage.outputCreditsThisResponse).toBeCloseTo(75, 5);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(192, 5);
+
+    // BUG (before fix): would have been 30 + 87 + 75 + (2.9M × $3 / 10000) = 192 + 870 = 1062
+    // i.e., cached tokens counted at full price AND cache rate
+    expect(usage.aiCreditsThisResponse).toBeLessThan(250);
   });
 
   it('warns and skips usage for unknown models', () => {

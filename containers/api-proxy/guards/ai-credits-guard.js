@@ -153,10 +153,18 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState) {
   const pricing = resolveModelPricing(model, state);
   if (!pricing) return null;
 
-  const inputCredits = ((normalizedUsage.input_tokens || 0) * pricing.input) / CREDIT_DENOMINATOR;
-  const cachedInputCredits = ((normalizedUsage.cache_read_tokens || 0) * pricing.cachedInput) / CREDIT_DENOMINATOR;
+  // Both Anthropic and OpenAI report input_tokens as the TOTAL input including
+  // cache_read and cache_creation tokens. To avoid double-counting, subtract
+  // cached portions before applying the full input rate.
+  const totalInput = normalizedUsage.input_tokens || 0;
+  const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
+  const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
+  const nonCachedInput = Math.max(0, totalInput - cacheReadTokens - cacheWriteTokens);
+
+  const inputCredits = (nonCachedInput * pricing.input) / CREDIT_DENOMINATOR;
+  const cachedInputCredits = (cacheReadTokens * pricing.cachedInput) / CREDIT_DENOMINATOR;
   const cacheWriteCredits = pricing.cacheWrite
-    ? ((normalizedUsage.cache_write_tokens || 0) * pricing.cacheWrite) / CREDIT_DENOMINATOR
+    ? (cacheWriteTokens * pricing.cacheWrite) / CREDIT_DENOMINATOR
     : 0;
   const outputCredits = ((normalizedUsage.output_tokens || 0) * pricing.output) / CREDIT_DENOMINATOR;
   const totalCredits = inputCredits + cachedInputCredits + cacheWriteCredits + outputCredits;
