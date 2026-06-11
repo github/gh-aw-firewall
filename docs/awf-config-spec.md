@@ -1395,8 +1395,9 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 
 ## Runtime JSONL Schemas
 
-AWF emits structured JSONL artifact files at runtime. Each record type has
-a corresponding JSON Schema in the `schemas/` directory:
+AWF emits structured JSONL artifact files at runtime. Most record types have
+a corresponding JSON Schema in the `schemas/` directory; opt-in diagnostic
+formats are documented inline in this spec instead:
 
 | Schema | JSONL file | Description |
 |--------|------------|-------------|
