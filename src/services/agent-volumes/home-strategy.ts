@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
+import { resolveRunnerToolCachePath } from '../../runner-tool-cache';
 import { WrapperConfig } from '../../types';
 
 interface HomeMountsParams {
@@ -63,27 +64,4 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   }
 
   return mounts;
-}
-
-function resolveRunnerToolCachePath(config: WrapperConfig, effectiveHome: string): string | undefined {
-  const candidates = [
-    config.runnerToolCachePath,
-    process.env.RUNNER_TOOL_CACHE,
-    path.join(effectiveHome, 'work', '_tool'),
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-
-    try {
-      const stat = fs.lstatSync(candidate);
-      if (stat.isDirectory()) {
-        return candidate;
-      }
-    } catch {
-      // Path does not exist or is not accessible — try next candidate
-    }
-  }
-
-  return undefined;
 }

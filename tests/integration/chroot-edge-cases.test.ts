@@ -14,6 +14,9 @@
 /// <reference path="../jest-custom-matchers.d.ts" />
 
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
 import { runBatch, BatchResults } from '../fixtures/batch-runner';
@@ -70,6 +73,31 @@ describe('Chroot Edge Cases', () => {
       });
     }, 180000);
 
+
+  describe('Runner Tool Cache Mounts', () => {
+    test('should access fallback runner tool cache nested under home', async () => {
+      const toolCacheDir = path.join(os.homedir(), 'work', '_tool');
+      const markerPath = path.join(toolCacheDir, `awf-toolcache-${Date.now()}.txt`);
+      fs.mkdirSync(toolCacheDir, { recursive: true });
+      fs.writeFileSync(markerPath, 'toolcache-ok\n');
+
+      try {
+        const result = await runner.runWithSudo(`cat ${markerPath}`, {
+          allowDomains: ['localhost'],
+          logLevel: 'debug',
+          timeout: 120000,
+          env: {
+            RUNNER_TOOL_CACHE: '',
+          },
+        });
+
+        expect(result).toSucceed();
+        expect(result.stdout).toContain('toolcache-ok');
+      } finally {
+        fs.rmSync(markerPath, { force: true });
+      }
+    }, 180000);
+  });
     // Environment Variables
     test('should preserve PATH including tool cache paths', () => {
       const r = batch.get('echo_path');

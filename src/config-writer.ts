@@ -8,6 +8,7 @@ import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } fr
 import { SslConfig, SQUID_PORT, getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import { resolveLogPaths } from './log-paths';
+import { resolveRunnerToolCachePath } from './runner-tool-cache';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -45,6 +46,68 @@ function ensureDirectory(dirPath: string, options: EnsureDirectoryOptions = {}):
 
   onAfterEnsure?.();
   return created;
+}
+
+function assertRealDirectory(dirPath: string): void {
+  const lstat = fs.lstatSync(dirPath);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Refusing to use symlink as directory: ${dirPath}`);
+  }
+
+  const stat = fs.statSync(dirPath);
+  if (!stat.isDirectory()) {
+    throw new Error(`Expected directory but found non-directory path: ${dirPath}`);
+  }
+}
+
+function createMissingOwnedDirectorySegments(dirPath: string, uid: number, gid: number): void {
+  let currentPath = path.isAbsolute(dirPath)
+    ? path.parse(dirPath).root
+    : '';
+  const segments = dirPath.split(path.sep).filter(Boolean);
+
+  for (const segment of segments) {
+    currentPath = currentPath ? path.join(currentPath, segment) : segment;
+    let created = false;
+    if (!fs.existsSync(currentPath)) {
+      fs.mkdirSync(currentPath);
+      created = true;
+    }
+
+    assertRealDirectory(currentPath);
+
+    if (created) {
+      fs.chownSync(currentPath, uid, gid);
+      fs.chmodSync(currentPath, 0o755);
+    }
+  }
+}
+
+// Prepare a nested bind-mount destination inside the empty chroot home before
+// Docker sees it. Without this, Docker may create intermediate parents such as
+// `<emptyHome>/work` as root-owned directories with restrictive traversal bits,
+// causing the chrooted runner user to get EACCES before reaching the leaf mount.
+// This operates only on the chroot-home placeholder path, e.g.
+// `<emptyHome>/work/_tool`; it does not chown or chmod the real host source
+// `/home/runner/work/_tool`, which Docker will later mount over the placeholder.
+function prepareChrootHomeMountpoint(emptyHomeDir: string, relativeMountPath: string, uid: number, gid: number): string {
+  let chrootPath = emptyHomeDir;
+  const segments = relativeMountPath.split(path.sep).filter(Boolean);
+
+  for (const segment of segments) {
+    chrootPath = path.join(chrootPath, segment);
+    if (!fs.existsSync(chrootPath)) {
+      fs.mkdirSync(chrootPath);
+    }
+
+    // The final segment may be the leaf mountpoint (`_tool`). That is okay: this
+    // is still only the placeholder inside emptyHomeDir, not the host tool cache.
+    assertRealDirectory(chrootPath);
+    fs.chownSync(chrootPath, uid, gid);
+    fs.chmodSync(chrootPath, 0o755);
+  }
+
+  return chrootPath;
 }
 
 /**
@@ -169,18 +232,38 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     fs.chownSync(emptyHomeDir, uid, gid);
     logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
-    // Ensure source directories for subdirectory mounts exist with correct ownership
-    const chrootHomeDirs = [
+    // Ensure source directories for home subdirectory mounts exist with correct ownership.
+    const hostHomeMountSourceDirs = [
       '.copilot', '.cache', '.config', '.local',
       '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
       ...(config.geminiApiKey ? ['.gemini'] : []),
     ];
-    for (const dir of chrootHomeDirs) {
+    for (const dir of hostHomeMountSourceDirs) {
       const dirPath = path.join(effectiveHome, dir);
       if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
         fs.chownSync(dirPath, uid, gid);
         logger.debug(`Created host home subdirectory: ${dirPath} (${uid}:${gid})`);
+      }
+    }
+
+    // Source-side prep: this only applies when the config file explicitly names
+    // a runner tool-cache source path that does not exist yet. Create that host
+    // source so Docker has something real to bind-mount later.
+    if (config.runnerToolCachePath && !fs.existsSync(config.runnerToolCachePath)) {
+      createMissingOwnedDirectorySegments(config.runnerToolCachePath, uid, gid);
+      logger.debug(`Created runner tool cache directory: ${config.runnerToolCachePath} (${uid}:${gid})`);
+    }
+
+    // Destination-side prep: resolve the same source path that home-strategy.ts
+    // will mount. If that source is nested under the empty chroot home, prepare
+    // the placeholder mountpoint there so Docker does not create parents as root.
+    const runnerToolCachePath = resolveRunnerToolCachePath(config, effectiveHome);
+    if (runnerToolCachePath) {
+      const relativeToolCachePath = path.relative(effectiveHome, runnerToolCachePath);
+      if (relativeToolCachePath && !relativeToolCachePath.startsWith('..') && !path.isAbsolute(relativeToolCachePath)) {
+        const chrootToolCachePath = prepareChrootHomeMountpoint(emptyHomeDir, relativeToolCachePath, uid, gid);
+        logger.debug(`Prepared chroot runner tool cache mountpoint: ${chrootToolCachePath} (${uid}:${gid})`);
       }
     }
   }
