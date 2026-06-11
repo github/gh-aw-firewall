@@ -26,6 +26,7 @@ interface ApiProxyValidationResult {
  * @param hasAnthropicKey - Whether an Anthropic API key is present
  * @param hasCopilotKey - Whether a GitHub Copilot API key is present
  * @param hasGeminiKey - Whether a Google Gemini API key is present
+ * @param hasAnthropicWif - Whether Anthropic WIF (GitHub OIDC) auth is configured
  * @returns ApiProxyValidationResult with warnings and debug messages
  */
 export function validateApiProxyConfig(
@@ -33,7 +34,8 @@ export function validateApiProxyConfig(
   hasOpenaiKey?: boolean,
   hasAnthropicKey?: boolean,
   hasCopilotKey?: boolean,
-  hasGeminiKey?: boolean
+  hasGeminiKey?: boolean,
+  hasAnthropicWif?: boolean,
 ): ApiProxyValidationResult {
   if (!enableApiProxy) {
     return { enabled: false, warnings: [], debugMessages: [] };
@@ -42,7 +44,7 @@ export function validateApiProxyConfig(
   const warnings: string[] = [];
   const debugMessages: string[] = [];
 
-  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey) {
+  if (!hasOpenaiKey && !hasAnthropicKey && !hasCopilotKey && !hasGeminiKey && !hasAnthropicWif) {
     warnings.push('⚠️  API proxy enabled but no API keys found in environment');
     warnings.push('   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, or GEMINI_API_KEY to use the proxy');
   }
@@ -51,6 +53,9 @@ export function validateApiProxyConfig(
   }
   if (hasAnthropicKey) {
     debugMessages.push('Anthropic API key detected - will be held securely in sidecar');
+  }
+  if (hasAnthropicWif) {
+    debugMessages.push('Anthropic WIF (GitHub OIDC) auth configured - OIDC token exchange will be used in sidecar');
   }
   if (hasCopilotKey) {
     debugMessages.push('GitHub Copilot API key detected - will be held securely in sidecar');

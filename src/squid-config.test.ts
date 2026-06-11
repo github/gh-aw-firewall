@@ -413,6 +413,22 @@ describe('generatePolicyManifest', () => {
       expect(allowPos).toBeLessThan(denyIpv4Pos);
     });
 
+    it('should insert from_api_proxy src rule before domain denyRule', () => {
+      const config: SquidConfig = {
+        domains: ['example.com'],
+        port: defaultPort,
+        apiProxyIp,
+        apiProxyPorts,
+      };
+      const result = generateSquidConfig(config);
+      expect(result).toContain(`acl from_api_proxy src ${apiProxyIp}/32`);
+      expect(result).toContain('http_access allow from_api_proxy');
+      // from_api_proxy allow rule must fire before the domain denyRule
+      const fromApiProxyPos = result.indexOf('http_access allow from_api_proxy');
+      const denyRulePos = result.indexOf('http_access deny !allowed_domains');
+      expect(fromApiProxyPos).toBeLessThan(denyRulePos);
+    });
+
     it('should not emit api-proxy rules when apiProxyIp is not set', () => {
       const config: SquidConfig = {
         domains: ['example.com'],
@@ -420,6 +436,7 @@ describe('generatePolicyManifest', () => {
       };
       const result = generateSquidConfig(config);
       expect(result).not.toContain('allow_api_proxy_ip');
+      expect(result).not.toContain('from_api_proxy');
     });
 
     it('should reject non-integer apiProxyPorts values', () => {

@@ -129,6 +129,13 @@ function generateApiProxySection(apiProxyIp?: string): string {
 # This allow rule fires first for the known api-proxy IP.
 acl allow_api_proxy_ip dst ${apiProxyIp}
 http_access allow allow_api_proxy_ip
+
+# Allow the api-proxy sidecar unrestricted outbound through Squid.
+# The sidecar must reach upstream API endpoints (e.g. api.anthropic.com for
+# WIF/OIDC token exchange) that may not be in the agent's allow-list.
+# The api-proxy is a trusted AWF component (not the agent threat model).
+acl from_api_proxy src ${apiProxyIp}/32
+http_access allow from_api_proxy
 ` : '';
 }
 

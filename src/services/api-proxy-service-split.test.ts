@@ -95,4 +95,47 @@ describe('API proxy split builders', () => {
       networkConfig: networkConfigWithoutProxyIp,
     })).toThrow('buildAgentCredentialEnv: networkConfig.proxyIp is required');
   });
+
+  it('buildAgentCredentialEnv sets ANTHROPIC_API_KEY placeholder when anthropicApiKey is present', () => {
+    const agentEnvAdditions = buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        anthropicApiKey: 'sk-ant-real-key',
+      },
+      networkConfig,
+    });
+
+    expect(agentEnvAdditions.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+    expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
+    expect(agentEnvAdditions.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
+    expect(agentEnvAdditions.CLAUDE_CODE_API_KEY_HELPER).toBe('/usr/local/bin/get-claude-key.sh');
+  });
+
+  it('buildAgentCredentialEnv sets ANTHROPIC_API_KEY placeholder for WIF auth (no static key)', () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'anthropic',
+    };
+    try {
+      const agentEnvAdditions = buildAgentCredentialEnv({
+        config: {
+          ...baseConfig,
+          workDir: '/tmp/awf-test',
+          enableApiProxy: true,
+          // No anthropicApiKey — WIF-only path
+        },
+        networkConfig,
+      });
+
+      expect(agentEnvAdditions.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
+      expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
+      expect(agentEnvAdditions.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
 });

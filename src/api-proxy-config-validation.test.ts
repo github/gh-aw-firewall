@@ -74,6 +74,23 @@ describe('validateApiProxyConfig', () => {
     expect(result.debugMessages[3]).toContain('Gemini');
   });
 
+  it('should not warn when Anthropic WIF auth is configured (no static key)', () => {
+    const result = validateApiProxyConfig(true, false, false, false, false, true);
+    expect(result.enabled).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(result.debugMessages).toHaveLength(1);
+    expect(result.debugMessages[0]).toContain('WIF');
+  });
+
+  it('should emit WIF debug message alongside static key debug message when both present', () => {
+    const result = validateApiProxyConfig(true, false, true, false, false, true);
+    expect(result.enabled).toBe(true);
+    expect(result.warnings).toEqual([]);
+    // Both Anthropic key and WIF debug messages appear
+    expect(result.debugMessages.some(m => m.includes('Anthropic API key'))).toBe(true);
+    expect(result.debugMessages.some(m => m.includes('WIF'))).toBe(true);
+  });
+
   it('should not warn when disabled even with keys', () => {
     const result = validateApiProxyConfig(false, true, true);
     expect(result.enabled).toBe(false);

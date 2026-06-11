@@ -27,8 +27,9 @@ describe('API proxy sidecar: API key isolation', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // Agent should NOT have the raw API key — only the sidecar gets it
-          expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+          // Agent should NOT have the real API key — it must be replaced with the placeholder
+          // so it never reaches the agent regardless of how it entered the environment
+          expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
           // Agent should have the BASE_URL to reach the sidecar instead
           expect(env.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
           // Agent should have placeholder token for Claude Code compatibility
@@ -124,8 +125,9 @@ describe('API proxy sidecar: API key isolation', () => {
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const agent = result.services.agent;
           const env = agent.environment as Record<string, string>;
-          // Even with envAll, agent should NOT have ANTHROPIC_API_KEY when api-proxy is enabled
-          expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+          // Even with envAll, agent should NOT have the real ANTHROPIC_API_KEY — it is replaced
+          // with the placeholder so the real key never reaches the agent
+          expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
           expect(env.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
           // But should have placeholder token for Claude Code compatibility
           expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');

@@ -18,6 +18,7 @@ import {
   applyHostServicePortsConfig,
   applyAgentTimeout,
 } from '../../option-parsers';
+import { getLowerCaseProcessEnvValue } from '../../env-utils';
 import { buildConfig } from '../build-config';
 import { LogAndLimitsResult } from './log-and-limits';
 import { NetworkOptionsResult } from './network-options';
@@ -231,12 +232,18 @@ export function assembleAndValidateConfig(
   // mode (Azure Foundry, OpenRouter, etc.) without a GitHub token; the sidecar still
   // routes through it, so for "is there a Copilot path?" purposes either signal counts.
   const copilotByokDirect = !!config.copilotProviderApiKey;
+  // Detect Anthropic WIF (GitHub OIDC) auth: the sidecar performs the OIDC token
+  // exchange so no static ANTHROPIC_API_KEY is required.
+  const hasAnthropicWif =
+    getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') === 'github-oidc' &&
+    getLowerCaseProcessEnvValue('AWF_AUTH_PROVIDER') === 'anthropic';
   const apiProxyValidation = validateApiProxyConfig(
     config.enableApiProxy || false,
     !!config.openaiApiKey,
     !!config.anthropicApiKey,
     !!config.copilotGithubToken || copilotByokDirect,
     !!config.geminiApiKey,
+    hasAnthropicWif,
   );
 
   // Log API proxy status at info level for visibility
@@ -246,8 +253,13 @@ export function assembleAndValidateConfig(
       : copilotByokDirect
         ? 'true (byok-direct)'
         : 'false';
+    const anthropicStatus = config.anthropicApiKey
+      ? 'true'
+      : hasAnthropicWif
+        ? 'true (wif)'
+        : 'false';
     logger.info(
-      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${!!config.anthropicApiKey}, Copilot=${copilotStatus}, Gemini=${!!config.geminiApiKey}`,
+      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${anthropicStatus}, Copilot=${copilotStatus}, Gemini=${!!config.geminiApiKey}`,
     );
   }
 
