@@ -1,3 +1,5 @@
+import path from 'path';
+
 const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
 
 type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
@@ -97,7 +99,7 @@ export function assignImageSource(
     service.image = buildRuntimeImageRef(opts.registry, opts.imageName, opts.parsedTag);
   } else {
     service.build = {
-      context: `${opts.projectRoot}/containers/${opts.containerDir}`,
+      context: path.join(opts.projectRoot, 'containers', opts.containerDir),
       dockerfile: 'Dockerfile',
     };
   }
