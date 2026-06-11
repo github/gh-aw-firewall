@@ -26,12 +26,11 @@ sandbox:
 strict: false
 network:
   allowed:
-    - node
     - github
 
 tools:
   github:
-    toolsets: [repos, actions, discussions]
+    toolsets: [repos, discussions]
   bash: true
 
 safe-outputs:
@@ -59,7 +58,17 @@ steps:
     run: |
       {
         echo "COVERAGE_JSON<<EOF"
-        cat coverage/coverage-summary.json 2>/dev/null || echo "{}"
+        node -e "
+          const fs = require('fs');
+          const raw = fs.readFileSync('coverage/coverage-summary.json', 'utf8');
+          const d = JSON.parse(raw);
+          const filtered = Object.fromEntries(
+            Object.entries(d).filter(([k, v]) =>
+              k === 'total' || (v.statements && v.statements.pct < 80)
+            )
+          );
+          console.log(JSON.stringify(filtered, null, 2));
+        " 2>/dev/null || echo "{}"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 
@@ -125,6 +134,32 @@ steps:
         " 2>/dev/null || echo "Coverage data not available"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
+
+  - name: Identify exported functions in security-critical files
+    id: func-audit
+    run: |
+      {
+        echo "FUNC_AUDIT<<EOF"
+        echo "=== host-iptables.ts ==="
+        grep -n "^export\s\+function\|^export\s\+async\s\+function\|^export\s\+const" src/host-iptables.ts 2>/dev/null | head -20
+        echo "=== squid-config.ts ==="
+        grep -n "^export\s\+function\|^export\s\+const" src/squid-config.ts 2>/dev/null | head -20
+        echo "=== domain-patterns.ts branches ==="
+        grep -n "if\s*(\|switch\s*(\|?\s*:" src/domain-patterns.ts 2>/dev/null | head -20
+        echo "Test files: $(find src -name '*.test.ts' | wc -l) / Source files: $(find src -name '*.ts' ! -name '*.test.ts' | wc -l)"
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
+
+  - name: Identify recently changed source files
+    id: recent-changes
+    run: |
+      {
+        echo "RECENT_FILES<<EOF"
+        git log --since="7 days ago" --name-only --format="" | grep -E "^src/.*\.ts$" | sort -u | head -20
+        echo "---"
+        git log --since="7 days ago" -p -- "src/*.ts" 2>/dev/null | grep "^+.*export.*function\|^+.*export.*const.*=.*(" | head -20
+        echo "EOF"
+      } >> "$GITHUB_OUTPUT"
 ---
 
 # Test Coverage Reporter
@@ -163,35 +198,17 @@ Identify:
 
 ### Phase 2: Analyze Coverage Gaps in Security-Critical Paths
 
-Use bash to look deeper at the specific uncovered areas in security-critical files:
-
-```bash
-# Check which functions in host-iptables.ts are covered
-grep -n "^export\s\+function\|^export\s\+async\s\+function\|^export\s\+const" src/host-iptables.ts 2>/dev/null | head -20
-
-# Check which functions in squid-config.ts are covered
-grep -n "^export\s\+function\|^export\s\+const" src/squid-config.ts 2>/dev/null | head -20
-
-# Look for uncovered branches in domain-patterns.ts
-grep -n "if\s*(\|switch\s*(\|?\s*:" src/domain-patterns.ts 2>/dev/null | head -20
-
-# Check overall test file health
-find src -name "*.test.ts" | xargs wc -l 2>/dev/null | sort -rn | head -10
-echo "Total test files: $(find src -name '*.test.ts' | wc -l)"
-echo "Total source files: $(find src -name '*.ts' ! -name '*.test.ts' | wc -l)"
-```
+Use the pre-computed function audit from `${{ steps.func-audit.outputs.FUNC_AUDIT }}` to identify which exported functions and branches exist in security-critical files. This includes:
+- Exported functions/constants in `src/host-iptables.ts`
+- Exported functions/constants in `src/squid-config.ts`
+- Branch points (`if`/`switch`/ternary) in `src/domain-patterns.ts`
+- Test file count vs source file count
 
 ### Phase 3: Check Recent Coverage Changes
 
-Look at recent commits to identify new code paths that may lack tests:
-
-```bash
-# Files changed in the last 7 days
-git log --since="7 days ago" --name-only --format="" | grep -E "^src/.*\.ts$" | sort -u | head -20
-
-# New functions added recently (rough heuristic)
-git log --since="7 days ago" -p -- "src/*.ts" 2>/dev/null | grep "^+.*export.*function\|^+.*export.*const.*=.*(" | head -20
-```
+Use the pre-computed recent changes from `${{ steps.recent-changes.outputs.RECENT_FILES }}` to identify new code paths that may lack tests. This includes:
+- TypeScript files under `src/` changed in the last 7 days
+- Newly exported functions or constants added recently
 
 ### Phase 4: Post Coverage Report Discussion
 
