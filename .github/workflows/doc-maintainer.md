@@ -50,7 +50,7 @@ jobs:
             echo "has_changes=$HAS_CHANGES"
             echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
-max-turns: 6
+max-turns: 4
 engine:
   id: claude
   model: claude-haiku-4-5
@@ -87,18 +87,18 @@ steps:
 
       {
         find docs/ -name "*.md" 2>/dev/null
-        find . -maxdepth 1 -name "*.md"
+        find . -maxdepth 1 -name "*.md" ! -name "AGENTS.md" ! -name "CLAUDE.md" ! -name "skill.md"
       } | sort > "$DOC_POOL"
 
-      git log --since="7 days ago" --format="=== Commit %H: %s ===" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -30 > "$CONTEXT_DIR/recent-diffs.txt"
+      git log --since="24 hours ago" --format="=== Commit %H: %s ===" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -20 > "$CONTEXT_DIR/recent-diffs.txt"
 
-      git log --since="7 days ago" --format="%H" -- src/ containers/ scripts/ | \
+      git log --since="24 hours ago" --format="%H" -- src/ containers/ scripts/ | \
         while read -r sha; do
           git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
         done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -3 > "$AFFECTED" || true
 
       if [ ! -s "$AFFECTED" ]; then
-        git log --since="7 days ago" --name-only --format="" -- src/ containers/ scripts/ | \
+        git log --since="24 hours ago" --name-only --format="" -- src/ containers/ scripts/ | \
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true
         if [ -s "$TOKENS" ]; then
@@ -152,7 +152,7 @@ steps:
           if [ -f "$doc" ]; then
             echo "### File: $doc"
             echo '```'
-            head -80 "$doc"
+            head -40 "$doc"
             echo '```'
             echo ""
           fi
@@ -169,15 +169,7 @@ You are an AI agent responsible for keeping documentation synchronized with code
 
 ## Your Mission
 
-Review git commits from the past 7 days, identify documentation that has drifted out of sync with code, and create a PR with the necessary updates.
-
-## Context
-
-This repository is a security-critical firewall for GitHub Copilot CLI. Accurate documentation is essential for safe usage. The documentation frequently drifts out of sync with code changes, especially:
-- Architecture changes (Docker, containers, networking, iptables)
-- CLI flag additions and modifications
-- MCP configuration changes
-- Security guidance updates
+Review git commits from the past 24 hours, identify documentation that has drifted out of sync with code, and create a PR with the necessary updates.
 
 ## Task Steps
 
@@ -189,7 +181,7 @@ Use the **Recent Git Diffs** section from that file as your **sole source** for 
 
 ### 2. Identify Documentation Gaps
 
-The first 80 lines of up to 3 affected documentation files are pre-loaded in `context.md` under **Affected Documentation Content**. Read from `context.md` directly and only re-read a file with the `edit` tool when you need content beyond the pre-loaded preview.
+The first 40 lines of up to 3 affected documentation files are pre-loaded in `context.md` under **Affected Documentation Content**. Read from `context.md` directly and only re-read a file with the `edit` tool when you need content beyond the pre-loaded preview.
 
 Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md` (max 3 files) and identify what needs to be updated. Do not proactively read additional files not in this list.
 
@@ -218,4 +210,4 @@ After making updates, the safe-outputs system will automatically create a PR. In
 
 **PR Description**: Summarize updated docs, reference the triggering code changes, and list what was verified.
 
-**Success**: Review 7-day commits, update out-of-sync docs, verify examples, and create a clear PR summary.
+**Success**: Review 24-hour commits, update out-of-sync docs, verify examples, and create a clear PR summary.
