@@ -96,7 +96,7 @@ describe('API proxy split builders', () => {
     })).toThrow('buildAgentCredentialEnv: networkConfig.proxyIp is required');
   });
 
-  it('buildAgentCredentialEnv sets ANTHROPIC_API_KEY placeholder when anthropicApiKey is present', () => {
+  it('buildAgentCredentialEnv sets ANTHROPIC_AUTH_TOKEN placeholder when anthropicApiKey is present', () => {
     const agentEnvAdditions = buildAgentCredentialEnv({
       config: {
         ...baseConfig,
@@ -108,12 +108,13 @@ describe('API proxy split builders', () => {
     });
 
     expect(agentEnvAdditions.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
-    expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
+    // ANTHROPIC_API_KEY must NOT be in agentEnvAdditions — it is excluded via excluded-vars.ts
+    expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBeUndefined();
     expect(agentEnvAdditions.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
     expect(agentEnvAdditions.CLAUDE_CODE_API_KEY_HELPER).toBe('/usr/local/bin/get-claude-key.sh');
   });
 
-  it('buildAgentCredentialEnv sets ANTHROPIC_API_KEY placeholder for WIF auth (no static key)', () => {
+  it('buildAgentCredentialEnv sets ANTHROPIC_AUTH_TOKEN placeholder for WIF auth (no static key)', () => {
     const originalEnv = process.env;
     process.env = {
       ...originalEnv,
@@ -132,7 +133,8 @@ describe('API proxy split builders', () => {
       });
 
       expect(agentEnvAdditions.ANTHROPIC_BASE_URL).toBe('http://172.30.0.30:10001');
-      expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBe('sk-ant-placeholder-key-for-credential-isolation');
+      // ANTHROPIC_API_KEY must NOT be in agentEnvAdditions — excluded-vars.ts handles removal
+      expect(agentEnvAdditions.ANTHROPIC_API_KEY).toBeUndefined();
       expect(agentEnvAdditions.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
     } finally {
       process.env = originalEnv;

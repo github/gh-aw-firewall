@@ -71,13 +71,10 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
     // Real authentication happens via ANTHROPIC_BASE_URL pointing to api-proxy.
     // Use sk-ant- prefix so Claude Code's key-format validation passes.
     //
-    // ANTHROPIC_API_KEY must be set here (in agentEnvAdditions, applied last in
-    // compose-generator) so it overrides any value that leaked into the environment
-    // via config.additionalEnv (e.g. a --env ANTHROPIC_API_KEY=... workaround).
-    // Without this, the real or placeholder key would reach the agent, causing it
-    // to bypass ANTHROPIC_BASE_URL and go directly to api.anthropic.com (→ 401).
-    agentEnvAdditions.ANTHROPIC_API_KEY = 'sk-ant-placeholder-key-for-credential-isolation';
-    logger.debug('ANTHROPIC_API_KEY set to placeholder value for credential isolation');
+    // NOTE: ANTHROPIC_API_KEY is NOT set here — it is excluded from the agent env
+    // via excluded-vars.ts when enableApiProxy is active. Setting it (even as a
+    // placeholder) would cause Claude Code to attempt direct auth with it instead
+    // of routing through ANTHROPIC_BASE_URL.
     agentEnvAdditions.ANTHROPIC_AUTH_TOKEN = 'sk-ant-placeholder-key-for-credential-isolation';
     logger.debug('ANTHROPIC_AUTH_TOKEN set to placeholder value for credential isolation');
 
