@@ -17,6 +17,7 @@ const {
   incrementTokenMetrics,
   diag,
 } = require('./token-persistence');
+const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-tracker-shared');
 
 /**
  * Parse WebSocket frames from a buffer (server→client direction, unmasked).
@@ -201,24 +202,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     const normalized = normalizeUsage(streamingUsage);
     if (!normalized) return;
     if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
-      logRequest('warn', 'token_cache_read_rollup_mismatch', {
-        request_id: requestId,
-        provider,
-        model: streamingModel || 'unknown',
-        observed_cache_read_tokens: observedCacheReadTokens,
-        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
-        streaming: true,
-        transport: 'websocket',
-      });
-      diag('CACHE_READ_ROLLUP_MISMATCH', {
-        request_id: requestId,
-        provider,
-        model: streamingModel || 'unknown',
-        observed_cache_read_tokens: observedCacheReadTokens,
-        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
-        streaming: true,
-        transport: 'websocket',
-      });
+      warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model: streamingModel, observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming: true, transport: 'websocket' });
     }
     let budgetResult;
     if (typeof onUsage === 'function') {
@@ -243,23 +227,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     });
 
     // Include effective token and AI credit budget fields when computed
-    if (budgetResult) {
-      if (budgetResult.effective_tokens_this_response != null) {
-        record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
-      }
-      if (budgetResult.effective_tokens_total != null) {
-        record.effective_tokens_total = budgetResult.effective_tokens_total;
-      }
-      if (budgetResult.model_multiplier != null) {
-        record.model_multiplier = budgetResult.model_multiplier;
-      }
-      if (budgetResult.ai_credits_this_response != null) {
-        record.ai_credits_this_response = budgetResult.ai_credits_this_response;
-      }
-      if (budgetResult.ai_credits_total != null) {
-        record.ai_credits_total = budgetResult.ai_credits_total;
-      }
-    }
+    mergeBudgetFields(record, budgetResult);
 
     writeTokenUsage(record);
 
