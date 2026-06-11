@@ -77,12 +77,13 @@ describe('Chroot Edge Cases', () => {
   describe('Runner Tool Cache Mounts', () => {
     test('should access fallback runner tool cache nested under home', async () => {
       const toolCacheDir = path.join(os.homedir(), 'work', '_tool');
+      const toolCacheDirExisted = fs.existsSync(toolCacheDir);
       const markerPath = path.join(toolCacheDir, `awf-toolcache-${Date.now()}.txt`);
       fs.mkdirSync(toolCacheDir, { recursive: true });
       fs.writeFileSync(markerPath, 'toolcache-ok\n');
 
       try {
-        const result = await runner.runWithSudo(`cat ${markerPath}`, {
+        const result = await runner.runWithSudo(`cat "${markerPath}"`, {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 120000,
@@ -95,6 +96,9 @@ describe('Chroot Edge Cases', () => {
         expect(result.stdout).toContain('toolcache-ok');
       } finally {
         fs.rmSync(markerPath, { force: true });
+        if (!toolCacheDirExisted) {
+          fs.rmSync(toolCacheDir, { recursive: true, force: true });
+        }
       }
     }, 180000);
   });
