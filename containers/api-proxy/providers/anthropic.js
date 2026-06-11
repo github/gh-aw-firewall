@@ -15,6 +15,7 @@
 const {
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
+  makeUnconfiguredHealthResponse,
   validateAuthHeaderEnv,
   createBaseAdapterConfig,
   createAdapterMethods,
@@ -229,15 +230,9 @@ function createAnthropicAdapter(env, deps = {}) {
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
       if (oidcRequested) {
-        return {
-          statusCode: 503,
-          body: { status: 'unavailable', service: 'awf-api-proxy-anthropic', error: oidcUnavailableError },
-        };
+        return makeUnconfiguredHealthResponse('awf-api-proxy-anthropic', oidcUnavailableError, 'unavailable');
       }
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-anthropic', error: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar' },
-      };
+      return makeUnconfiguredHealthResponse('awf-api-proxy-anthropic', 'ANTHROPIC_API_KEY not configured in api-proxy sidecar');
     },
 
     // Exposed for introspection (logging, tests)

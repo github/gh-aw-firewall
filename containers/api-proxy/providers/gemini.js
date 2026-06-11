@@ -13,7 +13,7 @@
  *   Gemini SDK versions append alongside the header.
  */
 
-const { stripGeminiKeyParam, createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
+const { stripGeminiKeyParam, createBaseAdapterConfig, createAdapterMethods, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -90,10 +90,7 @@ function createGeminiAdapter(env, deps = {}) {
 
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-gemini', error: 'GEMINI_API_KEY not configured in api-proxy sidecar' },
-      };
+      return makeUnconfiguredHealthResponse('awf-api-proxy-gemini', 'GEMINI_API_KEY not configured in api-proxy sidecar');
     },
   };
 }

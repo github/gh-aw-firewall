@@ -20,6 +20,7 @@
 const {
   normalizeBasePath,
   makeProviderNotConfiguredResponse,
+  makeUnconfiguredHealthResponse,
   createAdapterMethods,
   composeBodyTransforms,
 } = require('../proxy-utils');
@@ -305,15 +306,9 @@ function createCopilotAdapter(env, deps = {}) {
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
       if (oidcConfigured) {
-        return {
-          statusCode: 503,
-          body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` },
-        };
+        return makeUnconfiguredHealthResponse('awf-api-proxy-copilot', `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar`);
       }
-      return {
-        statusCode: 503,
-        body: { status: 'not_configured', service: 'awf-api-proxy-copilot', error: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar' },
-      };
+      return makeUnconfiguredHealthResponse('awf-api-proxy-copilot', 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar');
     },
 
     // Exposed for introspection / testing

@@ -217,6 +217,16 @@ function makeProviderNotConfiguredResponse(provider, port, message) {
 }
 
 /**
+ * Build the standard health-endpoint response for an unconfigured provider.
+ * @param {string} service - Service identifier (e.g. 'awf-api-proxy-anthropic')
+ * @param {string} error - Human-readable error message
+ * @param {string} [status='not_configured'] - Status string ('not_configured' or 'unavailable')
+ */
+function makeUnconfiguredHealthResponse(service, error, status = 'not_configured') {
+  return { statusCode: 503, body: { status, service, error } };
+}
+
+/**
  * Validate that a string is a legal HTTP header name.
  * @param {string} name - The header name to validate
  * @returns {boolean} true if valid
@@ -392,6 +402,7 @@ module.exports = {
   shouldStripHeader,
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
+  makeUnconfiguredHealthResponse,
   isValidHeaderName,
   validateAuthHeaderEnv,
   createBaseAdapterConfig,
