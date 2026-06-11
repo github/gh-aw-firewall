@@ -3,12 +3,10 @@
  *
  * This file covers three specific uncovered branches identified in the coverage report:
  *
- * 1. host-iptables-rules.ts:85 – ternary `''` fallback when the thrown error has no
+ * 1. checkPermissionsAndSetupChain – fallback to empty stderr string when the thrown error has no
  *    string `stderr` property (e.g. a plain `new Error()` rather than an ExecaError).
- * 2. host-iptables-rules.ts:172 – ternary `DEFAULT_DNS_SERVERS` fallback when
- *    `dnsServers` is an empty array.
- * 3. host-iptables-shared.ts:171 – `if (match)` false branch when a line satisfies
- *    `shouldDelete` but does not start with a digit (e.g. an iptables header line).
+ * 2. addIpv6DnsRules – fallback to DEFAULT_DNS_SERVERS when `dnsServers` is an empty array.
+ * 3. cleanupChain – skip deletion for matching lines that don't start with a digit (no line number).
  */
 
 import {
