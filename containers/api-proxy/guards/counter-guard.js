@@ -12,7 +12,7 @@ const { parsePositiveInteger } = require('./guard-utils');
  * @param {object} opts
  * @param {string} opts.envVar - Environment variable name (e.g. 'AWF_MAX_RUNS')
  * @param {string} opts.countField - Name of the counter field in state (e.g. 'invocationCount')
- * @returns {{ getConfig, getState, applyIncrement, getBlockState, getReflectState, resetForTests }}
+ * @returns {{ getConfig, getState, applyIncrement, getBlockState, resetForTests }}
  */
 function createCounterGuard({ envVar, countField }) {
   let guardState = { configKey: null, [countField]: 0 };
