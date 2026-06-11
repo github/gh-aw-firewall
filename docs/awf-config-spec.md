@@ -1395,8 +1395,9 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 
 ## Runtime JSONL Schemas
 
-AWF emits structured JSONL artifact files at runtime. Each record type has
-a corresponding JSON Schema in the `schemas/` directory:
+AWF emits structured JSONL artifact files at runtime. Most record types have
+a corresponding JSON Schema in the `schemas/` directory; opt-in diagnostic
+formats are documented inline in this spec instead:
 
 | Schema | JSONL file | Description |
 |--------|------------|-------------|
@@ -1405,6 +1406,7 @@ a corresponding JSON Schema in the `schemas/` directory:
 | [`schemas/otel-span.schema.json`](../schemas/otel-span.schema.json) | `otel.jsonl` | OpenTelemetry span records emitted by the local file exporter |
 | [`schemas/cli-proxy-access.schema.json`](../schemas/cli-proxy-access.schema.json) | `access.jsonl` (cli-proxy) | CLI proxy request audit records |
 | *(inline, see §13.2)* | `token-diag.jsonl` | Model alias resolution steps and diagnostic events (opt-in via `apiProxy.logging.debugTokens`) |
+| *(inline, see §13.6)* | `blocked-request-diag.jsonl` | Body-shape diagnostics for guard-blocked requests (opt-in via `apiProxy.diagnostics.captureBlockedRequests`) |
 
 ### Versioning
 
