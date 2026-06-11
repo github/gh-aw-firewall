@@ -217,6 +217,16 @@ function makeProviderNotConfiguredResponse(provider, port, message) {
 }
 
 /**
+ * Build the standard health-endpoint response for an unconfigured provider.
+ * @param {string} service - Service identifier (e.g. 'awf-api-proxy-anthropic')
+ * @param {string} error - Human-readable error message
+ * @param {string} [status='not_configured'] - Status string ('not_configured' or 'unavailable')
+ */
+function makeUnconfiguredHealthResponse(service, error, status = 'not_configured') {
+  return { statusCode: 503, body: { status, service, error } };
+}
+
+/**
  * Extract common adapter configuration from environment variables.
  *
  * Every non-Copilot adapter repeats the same three-line pattern to read
@@ -362,6 +372,7 @@ module.exports = {
   shouldStripHeader,
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
+  makeUnconfiguredHealthResponse,
   createBaseAdapterConfig,
   createAdapterMethods,
 };
