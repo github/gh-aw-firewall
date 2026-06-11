@@ -21,6 +21,9 @@ jest.mock('fs', () => {
     existsSync: jest.fn((...args: Parameters<typeof actual.existsSync>) =>
       actual.existsSync(...args)
     ),
+    lstatSync: jest.fn((...args: Parameters<typeof actual.lstatSync>) =>
+      actual.lstatSync(...args)
+    ) as typeof actual.lstatSync,
   };
 });
 
@@ -254,6 +257,48 @@ describe('writeConfigs', () => {
       expect(fs.chmodSync).toHaveBeenCalledWith(runnerToolCacheParent, 0o755);
       expect(fs.chownSync).toHaveBeenCalledWith(runnerToolCachePath, 1000, 1000);
       expect(fs.chmodSync).toHaveBeenCalledWith(runnerToolCachePath, 0o755);
+    });
+
+    it('throws when runnerToolCachePath contains a pre-existing non-root-owned intermediate symlink', async () => {
+      const realDir = path.join(tempDir, 'real-dir');
+      const symlinkDir = path.join(tempDir, 'link-to-real');
+      fs.mkdirSync(realDir, { recursive: true });
+      fs.symlinkSync(realDir, symlinkDir);
+      const runnerToolCachePath = path.join(symlinkDir, 'child');
+      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+
+      await expect(
+        writeConfigs(buildWriteConfig({ runnerToolCachePath }))
+      ).rejects.toThrow(`Refusing to use symlink as directory: ${symlinkDir}`);
+    });
+
+    it('allows pre-existing root-owned intermediate symlinks in runnerToolCachePath', async () => {
+      const actualDir = path.join(tempDir, 'real-dir');
+      const symlinkDir = path.join(tempDir, 'root-symlink');
+      fs.mkdirSync(actualDir, { recursive: true });
+      fs.symlinkSync(actualDir, symlinkDir);
+
+      const lstatSyncMock = fs.lstatSync as jest.MockedFunction<typeof fs.lstatSync>;
+      const actualLstatSync = jest.requireActual<typeof import('fs')>('fs').lstatSync;
+      lstatSyncMock.mockImplementation((...args) => {
+        const p = typeof args[0] === 'string' ? args[0] : args[0].toString();
+        if (p === symlinkDir) {
+          // Simulate a root-owned symlink (e.g. /var → /private/var on macOS)
+          return { isSymbolicLink: () => true, uid: 0 } as unknown as fs.Stats;
+        }
+        return actualLstatSync(...args);
+      });
+
+      const runnerToolCachePath = path.join(symlinkDir, 'child');
+      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+
+      try {
+        await expect(
+          writeConfigs(buildWriteConfig({ runnerToolCachePath }))
+        ).resolves.toBeUndefined();
+      } finally {
+        lstatSyncMock.mockImplementation(actualLstatSync);
+      }
     });
 
     it('prepares chroot mountpoint for fallback runner tool cache under home', async () => {
