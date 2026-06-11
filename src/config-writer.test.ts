@@ -260,7 +260,17 @@ describe('writeConfigs', () => {
       const runnerToolCachePath = path.join(tempDir, 'work', '_tool');
       fs.mkdirSync(runnerToolCachePath, { recursive: true });
 
-      await writeConfigs(buildWriteConfig());
+      // Unset RUNNER_TOOL_CACHE so resolveRunnerToolCachePath falls through to the
+      // home-relative fallback (work/_tool). Restore after the test.
+      const savedRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
+      delete process.env.RUNNER_TOOL_CACHE;
+      try {
+        await writeConfigs(buildWriteConfig());
+      } finally {
+        if (savedRunnerToolCache !== undefined) {
+          process.env.RUNNER_TOOL_CACHE = savedRunnerToolCache;
+        }
+      }
 
       const chrootWorkDir = path.join(`${tempDir}-chroot-home`, 'work');
       const chrootToolCacheDir = path.join(chrootWorkDir, '_tool');
