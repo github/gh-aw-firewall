@@ -83,6 +83,15 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
       domains: [apiProxyIp],
       description: 'Allow connections to the AWF api-proxy sidecar IP before raw-IP deny rules',
     });
+    rules.push({
+      id: 'allow-from-api-proxy',
+      order: ++order,
+      action: 'allow',
+      aclName: 'from_api_proxy',
+      protocol: 'both',
+      domains: ['*'],
+      description: 'Allow unrestricted outbound from api-proxy sidecar (trusted AWF component, not subject to agent domain ACL)',
+    });
   }
 
   // --- Raw IP blocking ---
