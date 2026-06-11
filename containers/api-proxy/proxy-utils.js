@@ -217,7 +217,37 @@ function makeProviderNotConfiguredResponse(provider, port, message) {
 }
 
 /**
- * Extract common adapter configuration from environment variables.
+ * Validate that a string is a legal HTTP header name.
+ * @param {string} name - The header name to validate
+ * @returns {boolean} true if valid
+ */
+function isValidHeaderName(name) {
+  try {
+    require('http').validateHeaderName(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read and validate a custom auth header from an env var.
+ * @param {string} envVarName - The environment variable name (for error messages)
+ * @param {string|undefined} rawValue - The raw env var value
+ * @param {string} [defaultHeader] - Fallback if value is empty
+ * @returns {string} The validated header name (or empty string if no value and no default)
+ * @throws {Error} If the value is not a valid HTTP header name
+ */
+function validateAuthHeaderEnv(envVarName, rawValue, defaultHeader) {
+  const header = (rawValue || '').trim() || defaultHeader || '';
+  if (!header) return '';
+  if (!isValidHeaderName(header)) {
+    throw new Error(`Invalid ${envVarName} value: expected a valid HTTP header name`);
+  }
+  return header;
+}
+
+/**
  *
  * Every non-Copilot adapter repeats the same three-line pattern to read
  * an API key, normalize a target hostname, and normalize a base path.
@@ -362,6 +392,8 @@ module.exports = {
   shouldStripHeader,
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
+  isValidHeaderName,
+  validateAuthHeaderEnv,
   createBaseAdapterConfig,
   createAdapterMethods,
 };
