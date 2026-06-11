@@ -1,5 +1,5 @@
 ---
-description: Daily documentation review and sync with code changes from the past 7 days
+description: Daily documentation review with a 7-day change gate and 48-hour agent context
 on:
   schedule: daily
   workflow_dispatch:
@@ -90,15 +90,15 @@ steps:
         find . -maxdepth 1 -name "*.md" ! -name "AGENTS.md" ! -name "CLAUDE.md" ! -name "skill.md"
       } | sort > "$DOC_POOL"
 
-      git log --since="24 hours ago" --format="=== Commit %H: %s ===" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -20 > "$CONTEXT_DIR/recent-diffs.txt"
+      git log --since="48 hours ago" --format="=== Commit %H: %s ===" --stat -- src/ containers/ scripts/ docs/ '*.md' | head -20 > "$CONTEXT_DIR/recent-diffs.txt"
 
-      git log --since="24 hours ago" --format="%H" -- src/ containers/ scripts/ | \
+      git log --since="48 hours ago" --format="%H" -- src/ containers/ scripts/ | \
         while read -r sha; do
           git show --name-only --format="" "$sha" -- docs/ '*.md' 2>/dev/null
         done | grep -E '(^docs/.*\.md$|^[^/]+\.md$)' | sort -u | head -3 > "$AFFECTED" || true
 
       if [ ! -s "$AFFECTED" ]; then
-        git log --since="24 hours ago" --name-only --format="" -- src/ containers/ scripts/ | \
+        git log --since="48 hours ago" --name-only --format="" -- src/ containers/ scripts/ | \
           grep -v '^$' | sed -E 's|.*/||; s|\.[^.]+$||' | \
           tr '[:upper:]' '[:lower:]' | tr '[:punct:]' '\n' | grep -E '^[a-z0-9]{3,}$' | sort -u > "$TOKENS" || true
         if [ -s "$TOKENS" ]; then
@@ -169,7 +169,7 @@ You are an AI agent responsible for keeping documentation synchronized with code
 
 ## Your Mission
 
-Review git commits from the past 24 hours, identify documentation that has drifted out of sync with code, and create a PR with the necessary updates.
+Review the precomputed git context from the past 48 hours, identify documentation that has drifted out of sync with code, and create a PR with the necessary updates. The workflow only runs after the 7-day gate detects relevant source changes.
 
 ## Task Steps
 
@@ -178,6 +178,8 @@ Review git commits from the past 24 hours, identify documentation that has drift
 Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.
 
 Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **Do not run any `git` commands** — all required git data is already pre-computed. Running `git show`, `git log`, or `git diff` wastes turns.
+
+The workflow gate already checked the past 7 days to decide whether this run is needed. The pre-computed recent diff context is intentionally limited to the past 48 hours to stay focused while still covering delayed daily runs.
 
 ### 2. Identify Documentation Gaps
 
@@ -210,4 +212,4 @@ After making updates, the safe-outputs system will automatically create a PR. In
 
 **PR Description**: Summarize updated docs, reference the triggering code changes, and list what was verified.
 
-**Success**: Review 24-hour commits, update out-of-sync docs, verify examples, and create a clear PR summary.
+**Success**: Review the 48-hour commit context after the 7-day gate fires, update out-of-sync docs, verify examples, and create a clear PR summary.
