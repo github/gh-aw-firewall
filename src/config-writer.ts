@@ -74,9 +74,10 @@ function createMissingOwnedDirectorySegments(dirPath: string, uid: number, gid: 
       created = true;
     }
 
-    assertRealDirectory(currentPath);
-
+    // Only validate directories we created — pre-existing system paths (e.g.
+    // /var on macOS which is a symlink to /private/var) are trusted.
     if (created) {
+      assertRealDirectory(currentPath);
       fs.chownSync(currentPath, uid, gid);
       fs.chmodSync(currentPath, 0o755);
     }
