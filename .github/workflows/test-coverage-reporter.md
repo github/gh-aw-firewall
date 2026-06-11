@@ -141,11 +141,11 @@ steps:
       {
         echo "FUNC_AUDIT<<EOF"
         echo "=== host-iptables.ts ==="
-        grep -n "^export\s\+function\|^export\s\+async\s\+function\|^export\s\+const" src/host-iptables.ts 2>/dev/null | head -20
+        grep -nE "^export[[:space:]]+(async[[:space:]]+)?function|^export[[:space:]]+const" src/host-iptables.ts 2>/dev/null | head -20
         echo "=== squid-config.ts ==="
-        grep -n "^export\s\+function\|^export\s\+const" src/squid-config.ts 2>/dev/null | head -20
+        grep -nE "^export[[:space:]]+(async[[:space:]]+)?function|^export[[:space:]]+const" src/squid-config.ts 2>/dev/null | head -20
         echo "=== domain-patterns.ts branches ==="
-        grep -n "if\s*(\|switch\s*(\|?\s*:" src/domain-patterns.ts 2>/dev/null | head -20
+        grep -nE "\\bif[[:space:]]*\\(|\\bswitch[[:space:]]*\\(|\\?.*:" src/domain-patterns.ts 2>/dev/null | head -20
         echo "Test files: $(find src -name '*.test.ts' | wc -l) / Source files: $(find src -name '*.ts' ! -name '*.test.ts' | wc -l)"
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
@@ -155,9 +155,12 @@ steps:
     run: |
       {
         echo "RECENT_FILES<<EOF"
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --prune --unshallow --tags
+        fi
         git log --since="7 days ago" --name-only --format="" | grep -E "^src/.*\.ts$" | sort -u | head -20
         echo "---"
-        git log --since="7 days ago" -p -- "src/*.ts" 2>/dev/null | grep "^+.*export.*function\|^+.*export.*const.*=.*(" | head -20
+        git log --since="7 days ago" -p -- "src/*.ts" 2>/dev/null | grep -E "^\\+.*export.*function|^\\+.*export.*const.*=.*\\(" | head -20
         echo "EOF"
       } >> "$GITHUB_OUTPUT"
 ---
