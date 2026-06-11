@@ -31,6 +31,112 @@ describe('agent environment: credentials', () => {
     }
   });
 
+  it('should mask COPILOT_GITHUB_TOKEN with ghu_ placeholder on github.com', () => {
+    const origServerUrl = process.env.GITHUB_SERVER_URL;
+    process.env.GITHUB_SERVER_URL = 'https://github.com';
+    try {
+      const configWithProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+        copilotGithubToken: 'ghp_real_token',
+      };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      // github.com: use ghu_ placeholder so Copilot CLI auth prechecks pass
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      expect(env.COPILOT_TOKEN).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    } finally {
+      if (origServerUrl !== undefined) process.env.GITHUB_SERVER_URL = origServerUrl;
+      else delete process.env.GITHUB_SERVER_URL;
+    }
+  });
+
+  it('should use empty string for COPILOT_GITHUB_TOKEN on GHE (GHEC) to prevent 400 badly formatted', () => {
+    const origServerUrl = process.env.GITHUB_SERVER_URL;
+    process.env.GITHUB_SERVER_URL = 'https://myorg.ghe.com';
+    try {
+      const configWithProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+        copilotGithubToken: 'ghp_real_ghe_token',
+      };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      // GHE: empty string prevents ghu_ placeholder from triggering
+      // "400: badly formatted" on GHE REST APIs
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('');
+      expect(env.COPILOT_TOKEN).toBe('');
+      // Credential isolation still maintained (no real token in agent env)
+      expect(env.COPILOT_GITHUB_TOKEN).not.toBe('ghp_real_ghe_token');
+    } finally {
+      if (origServerUrl !== undefined) process.env.GITHUB_SERVER_URL = origServerUrl;
+      else delete process.env.GITHUB_SERVER_URL;
+    }
+  });
+
+  it('should use empty string for COPILOT_GITHUB_TOKEN on GHES to prevent 400 badly formatted', () => {
+    const origServerUrl = process.env.GITHUB_SERVER_URL;
+    process.env.GITHUB_SERVER_URL = 'https://github.mycompany.com';
+    try {
+      const configWithProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+        copilotGithubToken: 'ghp_real_ghes_token',
+      };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('');
+      expect(env.COPILOT_TOKEN).toBe('');
+      expect(env.COPILOT_GITHUB_TOKEN).not.toBe('ghp_real_ghes_token');
+    } finally {
+      if (origServerUrl !== undefined) process.env.GITHUB_SERVER_URL = origServerUrl;
+      else delete process.env.GITHUB_SERVER_URL;
+    }
+  });
+
+  it('should still use ghu_ placeholder when GITHUB_SERVER_URL is unset', () => {
+    const origServerUrl = process.env.GITHUB_SERVER_URL;
+    delete process.env.GITHUB_SERVER_URL;
+    try {
+      const configWithProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+        copilotGithubToken: 'ghp_real_token',
+      };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.COPILOT_GITHUB_TOKEN).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    } finally {
+      if (origServerUrl !== undefined) process.env.GITHUB_SERVER_URL = origServerUrl;
+    }
+  });
+
+  it('should still mask COPILOT_PROVIDER_API_KEY with ghu_ placeholder on GHE (BYOK flow unchanged)', () => {
+    const origServerUrl = process.env.GITHUB_SERVER_URL;
+    process.env.GITHUB_SERVER_URL = 'https://myorg.ghe.com';
+    try {
+      const configWithProxy = {
+        ...mockConfig,
+        enableApiProxy: true,
+        copilotProviderApiKey: 'sk-real-provider-key',
+      };
+      const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+      const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      // The COPILOT_PROVIDER_API_KEY placeholder (sent to the sidecar, not GHE REST API)
+      // must keep ghu_ format so the sidecar can recognize it as a placeholder.
+      expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      expect(env.COPILOT_PROVIDER_API_KEY).not.toBe('sk-real-provider-key');
+    } finally {
+      if (origServerUrl !== undefined) process.env.GITHUB_SERVER_URL = origServerUrl;
+      else delete process.env.GITHUB_SERVER_URL;
+    }
+  });
+
   it('should not forward COPILOT_PROVIDER_API_KEY to agent when api-proxy is enabled and key is configured', () => {
     const configWithProxy = {
       ...mockConfig,

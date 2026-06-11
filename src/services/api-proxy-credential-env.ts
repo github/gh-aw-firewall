@@ -4,6 +4,21 @@ import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue } from '../env-utils';
 import { NetworkConfig } from './squid-service';
 
+/**
+ * Returns true when the GITHUB_SERVER_URL indicates a GHE instance (GHEC or GHES).
+ * GHE REST APIs reject the `ghu_` token prefix (a github.com-only OAuth token format)
+ * with "400: badly formatted", so any placeholder that needs to survive a format
+ * check on GHE must be something other than `ghu_`.
+ */
+function isGheInstance(serverUrl: string | undefined): boolean {
+  if (!serverUrl) return false;
+  try {
+    return new URL(serverUrl).hostname !== 'github.com';
+  } catch {
+    return false;
+  }
+}
+
 interface ApiProxyCredentialEnvParams {
   config: WrapperConfig;
   networkConfig: NetworkConfig;
@@ -111,10 +126,19 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
       logger.debug(`Copilot API target overridden to: ${config.copilotApiTarget}`);
     }
 
+    // On GHE (GHEC/GHES) instances the ghu_ prefix in COPILOT_PLACEHOLDER_TOKEN is
+    // not a valid token format: GHE REST APIs validate the token prefix before
+    // checking credentials and return "400: badly formatted" for ghu_ tokens (which
+    // are github.com-only OAuth User Access Tokens).  Use an empty string instead so
+    // the Copilot CLI treats the env var as absent and does not send it to GHE APIs.
+    // The sidecar holds the real credential; credential isolation is preserved because
+    // agentEnvAdditions is applied last (highest priority) in compose-generator.
+    const ghe = isGheInstance(process.env.GITHUB_SERVER_URL);
+
     // Set placeholder token for GitHub Copilot CLI compatibility
     // Real authentication happens via COPILOT_API_URL pointing to api-proxy
-    agentEnvAdditions.COPILOT_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
-    logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
+    agentEnvAdditions.COPILOT_TOKEN = ghe ? '' : COPILOT_PLACEHOLDER_TOKEN;
+    logger.debug(`COPILOT_TOKEN set to ${ghe ? 'empty string (GHE)' : 'placeholder value'} for credential isolation`);
 
     // Credential-isolation placeholders for the BYOK auth variables. These MUST be
     // set here (in agentEnvAdditions, applied last in compose-generator) rather than
@@ -126,8 +150,8 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
     // placeholders regardless of which env input path (--env / --env-file / --env-all)
     // the user used.
     if (config.copilotGithubToken) {
-      agentEnvAdditions.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
-      logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value for credential isolation');
+      agentEnvAdditions.COPILOT_GITHUB_TOKEN = ghe ? '' : COPILOT_PLACEHOLDER_TOKEN;
+      logger.debug(`COPILOT_GITHUB_TOKEN set to ${ghe ? 'empty string (GHE)' : 'placeholder value'} for credential isolation`);
     }
     // Only mask COPILOT_PROVIDER_API_KEY when the user actually supplied one. If
     // there is nothing to mask, omit it rather than injecting a placeholder that

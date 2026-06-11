@@ -50,8 +50,17 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
 
   // GitHub-token path: user supplied COPILOT_GITHUB_TOKEN. Mask it in the agent
   // so the real token (held by the sidecar) cannot leak via --env-all.
+  // For GHE instances, use an empty string instead of the ghu_ placeholder because
+  // GHE REST APIs reject the github.com-only ghu_ token format with "400: badly formatted".
   if (config.enableApiProxy && config.copilotGithubToken) {
-    environment.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
+    let copilotGhePlaceholder: string;
+    try {
+      const serverUrl = process.env.GITHUB_SERVER_URL;
+      copilotGhePlaceholder = (serverUrl && new URL(serverUrl).hostname !== 'github.com') ? '' : COPILOT_PLACEHOLDER_TOKEN;
+    } catch {
+      copilotGhePlaceholder = COPILOT_PLACEHOLDER_TOKEN;
+    }
+    environment.COPILOT_GITHUB_TOKEN = copilotGhePlaceholder;
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value (early) to prevent --env-all override');
   }
 
