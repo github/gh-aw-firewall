@@ -75,3 +75,30 @@ export function buildRuntimeImageRef(
   const digest = parsedTag.digests[imageName as ImageDigestKey];
   return `${imageRegistry}/${imageName}:${parsedTag.tag}${digest ? `@${digest}` : ''}`;
 }
+
+/**
+ * Assigns either an `image` reference (GHCR pull) or a `build` config (local build)
+ * to a Docker Compose service object based on the `useGHCR` flag.
+ *
+ * Consolidates the repeated image/build assignment pattern used across service builders.
+ */
+export function assignImageSource(
+  service: Record<string, unknown>,
+  opts: {
+    useGHCR: boolean;
+    registry: string;
+    imageName: string;
+    parsedTag: ParsedImageTag;
+    projectRoot: string;
+    containerDir: string;
+  }
+): void {
+  if (opts.useGHCR) {
+    service.image = buildRuntimeImageRef(opts.registry, opts.imageName, opts.parsedTag);
+  } else {
+    service.build = {
+      context: `${opts.projectRoot}/containers/${opts.containerDir}`,
+      dockerfile: 'Dockerfile',
+    };
+  }
+}

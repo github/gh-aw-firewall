@@ -1,7 +1,6 @@
-import * as path from 'path';
 import { CLI_PROXY_CONTAINER_NAME } from '../constants';
 import { parseDifcProxyHost } from '../host-env';
-import { buildRuntimeImageRef } from '../image-tag';
+import { assignImageSource } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -98,14 +97,9 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   };
 
   // Use GHCR image or build locally for the Node.js HTTP server container
-  if (useGHCR) {
-    cliProxyService.image = buildRuntimeImageRef(registry, 'cli-proxy', parsedTag);
-  } else {
-    cliProxyService.build = {
-      context: path.join(projectRoot, 'containers/cli-proxy'),
-      dockerfile: 'Dockerfile',
-    };
-  }
+  assignImageSource(cliProxyService, {
+    useGHCR, registry, imageName: 'cli-proxy', parsedTag, projectRoot, containerDir: 'cli-proxy',
+  });
 
   // Tell the agent how to reach the CLI proxy (use cli-proxy's own IP)
   const agentEnvAdditions: Record<string, string> = {
