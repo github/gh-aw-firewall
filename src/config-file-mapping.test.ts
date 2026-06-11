@@ -370,4 +370,31 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({ network: { allowDomains: [] } });
     expect(result.allowDomains).toBeUndefined();
   });
+
+  it('maps apiProxy.diagnostics.captureBlockedRequests', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { diagnostics: { captureBlockedRequests: 'redacted' } },
+    });
+    expect(result.captureBlockedRequests).toBe('redacted');
+  });
+
+  it('maps apiProxy.diagnostics.captureBlockedRequests boolean true', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { diagnostics: { captureBlockedRequests: true } },
+    });
+    expect(result.captureBlockedRequests).toBe(true);
+  });
+
+  it('maps apiProxy.diagnostics.maxCapturedBytes', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { diagnostics: { maxCapturedBytes: 500000 } },
+    });
+    expect(result.maxCapturedBytes).toBe(500000);
+  });
+
+  it('leaves captureBlockedRequests and maxCapturedBytes undefined when diagnostics not set', () => {
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: {} });
+    expect(result.captureBlockedRequests).toBeUndefined();
+    expect(result.maxCapturedBytes).toBeUndefined();
+  });
 });

@@ -211,5 +211,54 @@ describe('API proxy sidecar: miscellaneous env forwarding', () => {
           const env = result.services['api-proxy'].environment as Record<string, string>;
           expect(env.AWF_AUTH_ANTHROPIC_TOKEN_URL).toBe('https://auth.anthropic.example/oauth/token');
         });
+
+        it('should forward captureBlockedRequests as AWF_CAPTURE_BLOCKED_LLM_REQUESTS', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            captureBlockedRequests: 'redacted' as const,
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS).toBe('redacted');
+        });
+
+        it('should forward captureBlockedRequests=true as AWF_CAPTURE_BLOCKED_LLM_REQUESTS=true', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            captureBlockedRequests: true,
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS).toBe('true');
+        });
+
+        it('should not set AWF_CAPTURE_BLOCKED_LLM_REQUESTS when captureBlockedRequests is false', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            captureBlockedRequests: false,
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS).toBeUndefined();
+        });
+
+        it('should forward maxCapturedBytes as AWF_MAX_BLOCKED_CAPTURE_BYTES', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            captureBlockedRequests: 'full' as const,
+            maxCapturedBytes: 500000,
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_MAX_BLOCKED_CAPTURE_BYTES).toBe('500000');
+        });
       });
 });

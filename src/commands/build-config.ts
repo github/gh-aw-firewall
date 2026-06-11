@@ -161,6 +161,12 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     enableTokenSteering: options.enableTokenSteering as boolean,
     debugTokens: (options.debugTokens as boolean | undefined) ?? (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
     tokenLogDir: (options.tokenLogDir as string | undefined) ?? (process.env.AWF_TOKEN_LOG_DIR?.trim() || undefined),
+    captureBlockedRequests: (options.captureBlockedRequests as boolean | 'summary' | 'redacted' | 'full' | undefined) ??
+      (process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS
+        ? (process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS as 'summary' | 'redacted' | 'full')
+        : undefined),
+    maxCapturedBytes: (options.maxCapturedBytes as number | undefined) ??
+      (process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES ? Number(process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES) : undefined),
     openaiApiKey: process.env.OPENAI_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
