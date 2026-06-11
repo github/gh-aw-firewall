@@ -344,6 +344,68 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   });
 });
 
+// ── GHE (Enterprise) auth format ──────────────────────────────────────────────
+
+describe('createCopilotAdapter — GHE enterprise auth format', () => {
+  const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+  const fakeModelsReq = { url: '/models', method: 'GET', headers: {} };
+
+  it('uses "token" prefix for GHES target (api.enterprise.githubcopilot.com)', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
+  it('uses "token" prefix for /models on GHES target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
+  it('uses "Bearer" prefix for BYOK key even on GHES target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      COPILOT_PROVIDER_API_KEY: 'sk-byok-key',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer sk-byok-key');
+  });
+
+  it('uses "Bearer" prefix for standard api.githubcopilot.com target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_standard_token_123',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer ghu_standard_token_123');
+  });
+
+  it('uses "Bearer" prefix for GHEC tenant (*.ghe.com)', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_ghec_token_123',
+      GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer ghu_ghec_token_123');
+  });
+
+  it('strips "token " prefix from COPILOT_GITHUB_TOKEN before re-prefixing for GHES', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'token ghu_enterprise_token_123',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+    expect(headers['Authorization']).not.toContain('token token');
+  });
+});
+
 // ── parseByokExtraHeaders ─────────────────────────────────────────────────────
 
 describe('parseByokExtraHeaders', () => {

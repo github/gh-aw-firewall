@@ -241,10 +241,15 @@ function createCopilotAdapter(env, deps = {}) {
         reqPathname = req.url || '';
       }
 
+      // Enterprise Copilot API (GHES) requires 'token <value>' format;
+      // standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer <value>'.
+      const isEnterprise = rawTarget === 'api.enterprise.githubcopilot.com';
+      const authPrefix = (isEnterprise && !apiKey) ? 'token' : 'Bearer';
+
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
       if (isModelsPath && req.method === 'GET' && githubToken) {
         return {
-          'Authorization': ['Bearer', githubToken].join(' '),
+          'Authorization': [authPrefix, githubToken].join(' '),
           'Copilot-Integration-Id': integrationId,
         };
       }
@@ -269,7 +274,7 @@ function createCopilotAdapter(env, deps = {}) {
 
       return {
         ...(apiKey ? byokExtraHeaders : {}),
-        'Authorization': ['Bearer', authToken].join(' '),
+        'Authorization': [authPrefix, authToken].join(' '),
         'Copilot-Integration-Id': integrationId,
       };
     },
