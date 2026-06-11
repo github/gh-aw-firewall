@@ -34,6 +34,7 @@ const {
   incrementTokenMetrics,
   diag,
 } = require('./token-persistence');
+const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-tracker-shared');
 
 // Max response body to buffer for non-streaming usage extraction (5 MB).
 // Responses larger than this are still forwarded but usage is not extracted.
@@ -249,22 +250,7 @@ function trackTokenUsage(proxyRes, opts) {
       return;
     }
     if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
-      logRequest('warn', 'token_cache_read_rollup_mismatch', {
-        request_id: requestId,
-        provider,
-        model: model || 'unknown',
-        observed_cache_read_tokens: observedCacheReadTokens,
-        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
-        streaming,
-      });
-      diag('CACHE_READ_ROLLUP_MISMATCH', {
-        request_id: requestId,
-        provider,
-        model: model || 'unknown',
-        observed_cache_read_tokens: observedCacheReadTokens,
-        rolled_up_cache_read_tokens: normalized.cache_read_tokens,
-        streaming,
-      });
+      warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model, observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming });
     }
     if (typeof onUsage === 'function') {
       try {
@@ -294,23 +280,7 @@ function trackTokenUsage(proxyRes, opts) {
     if (billingInfo) record.billing = billingInfo;
 
     // Include effective token and AI credit budget fields when computed
-    if (budgetResult) {
-      if (budgetResult.effective_tokens_this_response != null) {
-        record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
-      }
-      if (budgetResult.effective_tokens_total != null) {
-        record.effective_tokens_total = budgetResult.effective_tokens_total;
-      }
-      if (budgetResult.model_multiplier != null) {
-        record.model_multiplier = budgetResult.model_multiplier;
-      }
-      if (budgetResult.ai_credits_this_response != null) {
-        record.ai_credits_this_response = budgetResult.ai_credits_this_response;
-      }
-      if (budgetResult.ai_credits_total != null) {
-        record.ai_credits_total = budgetResult.ai_credits_total;
-      }
-    }
+    mergeBudgetFields(record, budgetResult);
 
     // Write to JSONL log file
     writeTokenUsage(record);

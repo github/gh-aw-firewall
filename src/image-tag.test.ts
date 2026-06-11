@@ -1,4 +1,5 @@
-import { parseImageTag, buildRuntimeImageRef } from './image-tag';
+import path from 'path';
+import { parseImageTag, buildRuntimeImageRef, assignImageSource } from './image-tag';
 
 const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
 
@@ -133,6 +134,45 @@ describe('buildRuntimeImageRef', () => {
       const parsed = parseImageTag(`0.25.18,squid=${VALID_DIGEST}`);
       const ref = buildRuntimeImageRef('ghcr.io/github/gh-aw-firewall', 'agent', parsed);
       expect(ref).toBe('ghcr.io/github/gh-aw-firewall/agent:0.25.18');
+    });
+  });
+
+  describe('assignImageSource', () => {
+    it('should assign image when useGHCR is true', () => {
+      const service: Record<string, unknown> = {};
+      const parsedTag = parseImageTag(`0.25.18,squid=${VALID_DIGEST}`);
+
+      assignImageSource(service, {
+        useGHCR: true,
+        registry: 'ghcr.io/github/gh-aw-firewall',
+        imageName: 'squid',
+        parsedTag,
+        projectRoot: '/repo',
+        containerDir: 'squid',
+      });
+
+      expect(service.image).toBe(`ghcr.io/github/gh-aw-firewall/squid:0.25.18@${VALID_DIGEST}`);
+      expect(service.build).toBeUndefined();
+    });
+
+    it('should assign build config when useGHCR is false', () => {
+      const service: Record<string, unknown> = {};
+      const parsedTag = parseImageTag('0.25.18');
+
+      assignImageSource(service, {
+        useGHCR: false,
+        registry: 'ghcr.io/github/gh-aw-firewall',
+        imageName: 'squid',
+        parsedTag,
+        projectRoot: '/repo',
+        containerDir: 'squid',
+      });
+
+      expect(service.image).toBeUndefined();
+      expect(service.build).toEqual({
+        context: path.join('/repo', 'containers', 'squid'),
+        dockerfile: 'Dockerfile',
+      });
     });
   });
 

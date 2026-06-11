@@ -1,7 +1,6 @@
-import * as path from 'path';
 import { SQUID_PORT, SQUID_CONTAINER_NAME } from '../constants';
 import { SslConfig } from '../host-env';
-import { parseImageTag, buildRuntimeImageRef } from '../image-tag';
+import { parseImageTag, assignImageSource } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
@@ -167,14 +166,10 @@ export function buildSquidService(params: SquidServiceParams): any {
 
   // Use GHCR image or build locally
   // For SSL Bump, we always build locally to include OpenSSL tools
-  if (useGHCR && !config.sslBump) {
-    squidService.image = buildRuntimeImageRef(registry, 'squid', parsedTag);
-  } else {
-    squidService.build = {
-      context: path.join(projectRoot, 'containers/squid'),
-      dockerfile: 'Dockerfile',
-    };
-  }
+  assignImageSource(squidService, {
+    useGHCR: useGHCR && !config.sslBump,
+    registry, imageName: 'squid', parsedTag, projectRoot, containerDir: 'squid',
+  });
 
   return squidService;
 }

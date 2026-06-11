@@ -1,10 +1,9 @@
-import * as path from 'path';
 import {
   API_PROXY_CONTAINER_NAME,
   SQUID_PORT,
 } from '../constants';
 import { stripScheme } from '../host-env';
-import { buildRuntimeImageRef } from '../image-tag';
+import { assignImageSource } from '../image-tag';
 import { WrapperConfig, API_PROXY_HEALTH_PORT } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -260,14 +259,9 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
   };
 
   // Use GHCR image or build locally
-  if (useGHCR) {
-    proxyService.image = buildRuntimeImageRef(registry, 'api-proxy', parsedTag);
-  } else {
-    proxyService.build = {
-      context: path.join(projectRoot, 'containers/api-proxy'),
-      dockerfile: 'Dockerfile',
-    };
-  }
+  assignImageSource(proxyService, {
+    useGHCR, registry, imageName: 'api-proxy', parsedTag, projectRoot, containerDir: 'api-proxy',
+  });
 
   return proxyService;
 }

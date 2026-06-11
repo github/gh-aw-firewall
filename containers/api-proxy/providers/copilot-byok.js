@@ -1,6 +1,7 @@
 'use strict';
 
 const { parseBodyAsObject } = require('../body-utils');
+const { isValidHeaderName } = require('../proxy-utils');
 
 /**
  * Header names that must never be overridden by caller-supplied extra headers.
@@ -43,7 +44,6 @@ function parseByokExtraHeaders(raw) {
   }
 
   const result = {};
-  const http = require('http');
   for (const [name, value] of Object.entries(parsed)) {
     const lowerName = name.toLowerCase();
 
@@ -57,9 +57,7 @@ function parseByokExtraHeaders(raw) {
       console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is an auth-critical header and cannot be overridden; skipping`);
       continue;
     }
-    try {
-      http.validateHeaderName(name);
-    } catch {
+    if (!isValidHeaderName(name)) {
       console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is not a valid HTTP header name; skipping`);
       continue;
     }

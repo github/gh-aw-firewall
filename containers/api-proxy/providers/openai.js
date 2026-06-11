@@ -14,6 +14,7 @@ const {
   createBaseAdapterConfig,
   createAdapterMethods,
   normalizeBasePath,
+  validateAuthHeaderEnv,
 } = require('../proxy-utils');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 
@@ -53,15 +54,8 @@ function createOpenAIAdapter(env, deps = {}) {
   const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
-    const header = (env.AWF_OPENAI_AUTH_HEADER || '').trim();
-    if (header) {
-      try {
-        require('http').validateHeaderName(header);
-      } catch {
-        throw new Error('Invalid AWF_OPENAI_AUTH_HEADER value: expected a valid HTTP header name');
-      }
-      return header;
-    }
+    const header = validateAuthHeaderEnv('AWF_OPENAI_AUTH_HEADER', env.AWF_OPENAI_AUTH_HEADER);
+    if (header) return header;
     // Azure OpenAI BYOK uses `api-key` header instead of `Authorization: Bearer`
     // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden)
     if (copilotAzureByokEnabled && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() !== 'github-oidc') return 'api-key';
