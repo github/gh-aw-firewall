@@ -95,4 +95,126 @@ describe('runDindBootstrap', () => {
 
     expect(mockExecaFn).not.toHaveBeenCalled();
   });
+
+  it('returns early when dind config has neither preStageDirs nor stageEngineBinary', async () => {
+    await runDindBootstrap(makeConfig({ dind: undefined }));
+    expect(mockExecaFn).not.toHaveBeenCalled();
+  });
+
+  it('detects DinD via enableDind flag', async () => {
+    delete process.env.DOCKER_HOST;
+    await runDindBootstrap(makeConfig({
+      enableDind: true,
+      dind: {
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'busybox:latest',
+      },
+    }));
+
+    expect(mockExecaFn).toHaveBeenCalled();
+  });
+
+  it('uses default staging image and workDir when not specified', async () => {
+    await runDindBootstrap(makeConfig({
+      dind: { preStageDirs: true },
+    }));
+
+    expect(mockExecaFn).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['-v', '/tmp/gh-aw:/awf-work:rw', 'ghcr.io/github/gh-aw-firewall/agent:latest']),
+      expect.any(Object),
+    );
+  });
+
+  it('uses source path as targetPath when stageEngineBinary.targetPath is omitted', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dind-bootstrap-'));
+    const sourcePath = path.join(tempDir, 'copilot');
+    fs.writeFileSync(sourcePath, 'binary-data');
+
+    try {
+      await runDindBootstrap(makeConfig({
+        dind: {
+          stageEngineBinary: { path: sourcePath },
+          stagingImage: 'busybox:latest',
+        },
+      }));
+
+      const targetDir = path.posix.dirname(sourcePath);
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining(['-v', `${targetDir}:/awf-target:rw`]),
+        expect.any(Object),
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('detects DinD via unix socket path that is not a standard socket', async () => {
+    process.env.DOCKER_HOST = 'unix:///run/custom/docker.sock';
+    await runDindBootstrap(makeConfig({
+      dind: {
+        preStageDirs: true,
+        workDir: '/tmp/gh-aw',
+        stagingImage: 'busybox:latest',
+      },
+    }));
+
+    expect(mockExecaFn).toHaveBeenCalled();
+  });
+
+  it('throws when preStageDirs workDir is a relative path', async () => {
+    await expect(
+      runDindBootstrap(makeConfig({
+        dind: {
+          preStageDirs: true,
+          workDir: 'relative/path',
+          stagingImage: 'busybox:latest',
+        },
+      })),
+    ).rejects.toThrow('dind.workDir must be an absolute path');
+  });
+
+  it('throws when stageEngineBinary targetPath has an unsafe file name', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dind-bootstrap-'));
+    const sourcePath = path.join(tempDir, 'copilot');
+    fs.writeFileSync(sourcePath, 'binary-data');
+
+    try {
+      await expect(
+        runDindBootstrap(makeConfig({
+          dind: {
+            stageEngineBinary: {
+              path: sourcePath,
+              targetPath: '/usr/local/bin/bad name!',
+            },
+            stagingImage: 'busybox:latest',
+          },
+        })),
+      ).rejects.toThrow('dind.stageEngineBinary.targetPath has unsafe file name');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws when stageEngineBinary source path is a directory, not a file', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dind-bootstrap-'));
+
+    try {
+      await expect(
+        runDindBootstrap(makeConfig({
+          dind: {
+            stageEngineBinary: {
+              path: tempDir,
+              targetPath: '/usr/local/bin/copilot',
+            },
+            stagingImage: 'busybox:latest',
+          },
+        })),
+      ).rejects.toThrow('dind.stageEngineBinary.path is not a file');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
