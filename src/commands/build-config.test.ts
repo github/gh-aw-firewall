@@ -65,6 +65,8 @@ const ENV_KEYS = [
   'ANTHROPIC_API_BASE_PATH',
   'GEMINI_API_TARGET',
   'GEMINI_API_BASE_PATH',
+  'AWF_CAPTURE_BLOCKED_LLM_REQUESTS',
+  'AWF_MAX_BLOCKED_CAPTURE_BYTES',
 ] as const;
 
 describe('buildConfig', () => {
@@ -406,6 +408,44 @@ describe('buildConfig', () => {
       }));
       expect(config.copilotProviderType).toBe('azure');
       expect(config.copilotProviderBaseUrl).toBe('https://config-router.example.com/v1');
+    });
+
+    it('should read AWF_CAPTURE_BLOCKED_LLM_REQUESTS from process.env', () => {
+      process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = 'redacted';
+      const config = buildConfig(makeInputs());
+      expect(config.captureBlockedRequests).toBe('redacted');
+    });
+
+    it('should prefer options.captureBlockedRequests over AWF_CAPTURE_BLOCKED_LLM_REQUESTS', () => {
+      process.env.AWF_CAPTURE_BLOCKED_LLM_REQUESTS = 'summary';
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, captureBlockedRequests: 'full' },
+      }));
+      expect(config.captureBlockedRequests).toBe('full');
+    });
+
+    it('should leave captureBlockedRequests undefined when neither option nor env var is set', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.captureBlockedRequests).toBeUndefined();
+    });
+
+    it('should read AWF_MAX_BLOCKED_CAPTURE_BYTES from process.env', () => {
+      process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES = '500000';
+      const config = buildConfig(makeInputs());
+      expect(config.maxCapturedBytes).toBe(500000);
+    });
+
+    it('should prefer options.maxCapturedBytes over AWF_MAX_BLOCKED_CAPTURE_BYTES', () => {
+      process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES = '100000';
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, maxCapturedBytes: 250000 },
+      }));
+      expect(config.maxCapturedBytes).toBe(250000);
+    });
+
+    it('should leave maxCapturedBytes undefined when neither option nor env var is set', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.maxCapturedBytes).toBeUndefined();
     });
   });
 });
