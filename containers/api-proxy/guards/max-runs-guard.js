@@ -1,57 +1,23 @@
 'use strict';
 
-const { parsePositiveInteger } = require('./guard-utils');
+const { createCounterGuard } = require('./counter-guard');
 
-let maxRunsGuardState = {
-  configKey: null,
-  invocationCount: 0,
-};
-
-const maxRunsConfigCache = {
-  rawMax: undefined,
-  parsed: null,
-};
-
-function getMaxRunsConfig() {
-  const rawMax = process.env.AWF_MAX_RUNS;
-  if (maxRunsConfigCache.rawMax === rawMax) {
-    return maxRunsConfigCache.parsed;
-  }
-  maxRunsConfigCache.rawMax = rawMax;
-  maxRunsConfigCache.parsed = parsePositiveInteger(rawMax);
-  return maxRunsConfigCache.parsed;
-}
-
-function getMaxRunsState(max) {
-  if (!max) return null;
-  const configKey = String(max);
-  if (maxRunsGuardState.configKey !== configKey) {
-    maxRunsGuardState = { configKey, invocationCount: 0 };
-  }
-  return maxRunsGuardState;
-}
+const guard = createCounterGuard({
+  envVar: 'AWF_MAX_RUNS',
+  countField: 'invocationCount',
+});
 
 function applyMaxRunsInvocation() {
-  const max = getMaxRunsConfig();
-  const state = getMaxRunsState(max);
-  if (!state) return;
-  state.invocationCount += 1;
+  guard.applyIncrement();
 }
 
 function getMaxRunsBlockState() {
-  const max = getMaxRunsConfig();
-  const state = getMaxRunsState(max);
-  if (!state) return null;
-  return {
-    maxRuns: max,
-    invocationCount: state.invocationCount,
-    maxExceeded: state.invocationCount >= max,
-  };
+  return guard.getBlockState('maxRuns');
 }
 
 function getMaxRunsReflectState() {
-  const max = getMaxRunsConfig();
-  const state = getMaxRunsState(max);
+  const max = guard.getConfig();
+  const state = guard.getState(max);
   if (!state) {
     return {
       enabled: false,
@@ -69,9 +35,7 @@ function getMaxRunsReflectState() {
 }
 
 function resetMaxRunsGuardForTests() {
-  maxRunsGuardState = { configKey: null, invocationCount: 0 };
-  maxRunsConfigCache.rawMax = undefined;
-  maxRunsConfigCache.parsed = null;
+  guard.resetForTests();
 }
 
 function buildMaxRunsExceededError(state) {

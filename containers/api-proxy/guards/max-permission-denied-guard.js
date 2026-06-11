@@ -1,57 +1,23 @@
 'use strict';
 
-const { parsePositiveInteger } = require('./guard-utils');
+const { createCounterGuard } = require('./counter-guard');
 
-let permDeniedGuardState = {
-  configKey: null,
-  deniedCount: 0,
-};
-
-const permDeniedConfigCache = {
-  rawMax: undefined,
-  parsed: null,
-};
-
-function getPermDeniedConfig() {
-  const rawMax = process.env.AWF_MAX_PERMISSION_DENIED;
-  if (permDeniedConfigCache.rawMax === rawMax) {
-    return permDeniedConfigCache.parsed;
-  }
-  permDeniedConfigCache.rawMax = rawMax;
-  permDeniedConfigCache.parsed = parsePositiveInteger(rawMax);
-  return permDeniedConfigCache.parsed;
-}
-
-function getPermDeniedState(max) {
-  if (!max) return null;
-  const configKey = String(max);
-  if (permDeniedGuardState.configKey !== configKey) {
-    permDeniedGuardState = { configKey, deniedCount: 0 };
-  }
-  return permDeniedGuardState;
-}
+const guard = createCounterGuard({
+  envVar: 'AWF_MAX_PERMISSION_DENIED',
+  countField: 'deniedCount',
+});
 
 function applyPermissionDenied() {
-  const max = getPermDeniedConfig();
-  const state = getPermDeniedState(max);
-  if (!state) return;
-  state.deniedCount += 1;
+  guard.applyIncrement();
 }
 
 function getPermissionDeniedBlockState() {
-  const max = getPermDeniedConfig();
-  const state = getPermDeniedState(max);
-  if (!state) return null;
-  return {
-    maxPermissionDenied: max,
-    deniedCount: state.deniedCount,
-    maxExceeded: state.deniedCount >= max,
-  };
+  return guard.getBlockState('maxPermissionDenied');
 }
 
 function getPermissionDeniedReflectState() {
-  const max = getPermDeniedConfig();
-  const state = getPermDeniedState(max);
+  const max = guard.getConfig();
+  const state = guard.getState(max);
   if (!state) {
     return {
       enabled: false,
@@ -67,9 +33,7 @@ function getPermissionDeniedReflectState() {
 }
 
 function resetPermissionDeniedGuardForTests() {
-  permDeniedGuardState = { configKey: null, deniedCount: 0 };
-  permDeniedConfigCache.rawMax = undefined;
-  permDeniedConfigCache.parsed = null;
+  guard.resetForTests();
 }
 
 function buildPermissionDeniedLimitError(state) {
