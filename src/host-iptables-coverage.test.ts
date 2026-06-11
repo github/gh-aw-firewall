@@ -65,10 +65,19 @@ describe('host-iptables branch coverage', () => {
       ]);
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
         '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '8.8.8.8', '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
         '-p', 'udp', '-d', '8.8.4.4', '--dport', '53',
         '-j', 'ACCEPT',
       ]);
-    });
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
+        '-t', 'filter', '-A', 'FW_WRAPPER',
+        '-p', 'tcp', '-d', '8.8.4.4', '--dport', '53',
+        '-j', 'ACCEPT',
+      ]);
   });
 
   // -------------------------------------------------------------------------
