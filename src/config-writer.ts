@@ -251,8 +251,15 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // a runner tool-cache source path that does not exist yet. Create that host
     // source so Docker has something real to bind-mount later.
     if (config.runnerToolCachePath && !fs.existsSync(config.runnerToolCachePath)) {
-      createMissingOwnedDirectorySegments(config.runnerToolCachePath, uid, gid);
-      logger.debug(`Created runner tool cache directory: ${config.runnerToolCachePath} (${uid}:${gid})`);
+      const relToHome = path.relative(effectiveHome, config.runnerToolCachePath);
+      const isUnderHome = relToHome && !relToHome.startsWith('..') && !path.isAbsolute(relToHome);
+
+      if (isUnderHome) {
+        createMissingOwnedDirectorySegments(config.runnerToolCachePath, uid, gid);
+        logger.debug(`Created runner tool cache directory: ${config.runnerToolCachePath} (${uid}:${gid})`);
+      } else {
+        logger.warn(`Runner tool cache path does not exist; refusing to create outside effective home (${effectiveHome}): ${config.runnerToolCachePath}`);
+      }
     }
 
     // Destination-side prep: resolve the same source path that home-strategy.ts
