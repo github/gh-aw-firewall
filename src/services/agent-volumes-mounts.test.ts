@@ -604,6 +604,39 @@ describe('agent service', () => {
     }
   });
 
+  it('should skip .copilot bind mount and warn when directory exists but is not accessible', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-home-'));
+
+    try {
+      withEnv({ HOME: fakeHome, SUDO_USER: undefined }, () => {
+        const copilotDir = path.join(fakeHome, '.copilot');
+        fs.mkdirSync(copilotDir, { recursive: true });
+        // Remove all permissions so accessSync throws
+        fs.chmodSync(copilotDir, 0o000);
+
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        try {
+          const result = generateDockerCompose(getConfig(), mockNetworkConfig);
+          const volumes = result.services.agent.volumes as string[];
+
+          // The blanket .copilot mount should be skipped
+          expect(volumes).not.toContain(`${fakeHome}/.copilot:/host${fakeHome}/.copilot:rw`);
+          // A warning should have been emitted
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Cannot access ~/.copilot directory'));
+          // But session-state and logs overlays are always present
+          expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/session-state:rw`));
+          expect(volumes).toContainEqual(expect.stringContaining(`${fakeHome}/.copilot/logs:rw`));
+        } finally {
+          warnSpy.mockRestore();
+          // Restore permissions so cleanup can proceed
+          fs.chmodSync(copilotDir, 0o755);
+        }
+      });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
   it('should use sessionStateDir when specified for chroot mounts', () => {
     const configWithSessionDir = { ...getConfig(), sessionStateDir: '/custom/session-state' };
     const result = generateDockerCompose(configWithSessionDir, mockNetworkConfig);
