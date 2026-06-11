@@ -87,14 +87,13 @@ describe('host-iptables branch coverage', () => {
   // the regex match is null and the line number is silently skipped.
   // -------------------------------------------------------------------------
   describe('cleanupChain – shouldDelete true but line has no leading digit', () => {
-    it('silently skips header lines that match chainName but lack a digit prefix', async () => {
+    it('silently skips matching lines that lack a numeric prefix', async () => {
       mockedExeca.mockImplementation(((cmd: string, args: string[]) => {
         if (cmd === 'iptables' && Array.isArray(args) && args.includes('--line-numbers')) {
-          // Include the "Chain FW_WRAPPER ..." header line: it includes 'FW_WRAPPER'
-          // (shouldDelete = true) but starts with "Chain", not a digit (match = null).
+          // Include a line that matches the chain name but has no leading digits (match = null).
           return Promise.resolve(execaResult({
             stdout: [
-              'Chain FW_WRAPPER (2 references)',
+              'FW_WRAPPER all -- 0.0.0.0/0 0.0.0.0/0',
               '1 FW_WRAPPER all -- 0.0.0.0/0 0.0.0.0/0',
               '',
             ].join('\n'),
