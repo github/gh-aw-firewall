@@ -119,10 +119,12 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       // (e.g. external agents using AWF as their network firewall + auth proxy)
       // can identify themselves to the Copilot API with their own integration ID
       // instead of being attributed to AWF's default 'agentic-workflows'.
-      // Default behaviour is unchanged: when the env var is unset, api-proxy
-      // falls back to its built-in default.
-      ...(process.env.COPILOT_INTEGRATION_ID && {
-        COPILOT_INTEGRATION_ID: process.env.COPILOT_INTEGRATION_ID,
+      // Whitespace-only values are treated as unset to avoid accidentally
+      // shipping a meaningless integration ID. Default behaviour is unchanged:
+      // when the env var is unset or whitespace, api-proxy falls back to its
+      // built-in default.
+      ...(process.env.COPILOT_INTEGRATION_ID?.trim() && {
+        COPILOT_INTEGRATION_ID: process.env.COPILOT_INTEGRATION_ID.trim(),
       }),
       // Note: GITHUB_COPILOT_INTEGRATION_ID (the gh-aw-prefixed variant) is
       // intentionally NOT forwarded -- api-proxy's default 'agentic-workflows'
