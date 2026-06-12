@@ -14,6 +14,16 @@ const CREDIT_DENOMINATOR = TOKENS_PER_MILLION * DOLLARS_PER_CREDIT;
 // maxAiCredits is set to via CLI flags or config files.
 const HARD_CAP_AI_CREDITS = 10_000;
 
+// Conservative fallback pricing ($/1M tokens) used when the model is the
+// 'unknown' sentinel — i.e., both response and request omitted the model name.
+// Uses claude-sonnet-4 level rates so credits are tracked rather than lost.
+const BUILTIN_FALLBACK_PRICING = Object.freeze({
+  input: 3.00,
+  cachedInput: 0.30,
+  cacheWrite: 3.75,
+  output: 15.00,
+});
+
 function roundCredits(value) {
   return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
@@ -116,6 +126,12 @@ function resolveModelPricing(model, state = aiCreditsState) {
   // Fall back to configured default pricing if available
   const config = getAiCreditsConfig();
   if (config.defaultPricing) return config.defaultPricing;
+
+  // When the model is the 'unknown' sentinel (response omitted model and
+  // request body didn't contain one either), use conservative fallback pricing
+  // so AI credits are never silently lost. This is NOT applied to truly unknown
+  // model names which should still be rejected by checkUnknownModelRejection.
+  if (model === 'unknown') return BUILTIN_FALLBACK_PRICING;
 
   return null;
 }
