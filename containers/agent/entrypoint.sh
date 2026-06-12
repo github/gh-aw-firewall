@@ -767,7 +767,20 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
         if echo "${PASSWD_ENTRY}" >> /host/etc/passwd 2>/dev/null; then
           echo "[entrypoint] Appended ${HOST_USER} (UID ${HOST_USER_UID}) to /host/etc/passwd"
         else
-          echo "[entrypoint][WARN] Could not write to /host/etc/passwd — identity resolution may fail"
+          # /host/etc is read-only (e.g. ARC/DinD with tmpfs-backed daemon root).
+          # Copy the existing file to a writable tmpfs location, append the new entry,
+          # then bind-mount the copy over the read-only original.  SYS_ADMIN is still
+          # available at this point (it is dropped by capsh before user code runs).
+          SYNTH_ETC_DIR="/tmp/awf-etc"
+          mkdir -p "${SYNTH_ETC_DIR}"
+          cp /host/etc/passwd "${SYNTH_ETC_DIR}/passwd"
+          echo "${PASSWD_ENTRY}" >> "${SYNTH_ETC_DIR}/passwd"
+          chmod 644 "${SYNTH_ETC_DIR}/passwd"
+          if mount --bind "${SYNTH_ETC_DIR}/passwd" /host/etc/passwd 2>/dev/null; then
+            echo "[entrypoint] Bind-mounted synthesized /host/etc/passwd over read-only original"
+          else
+            echo "[entrypoint][WARN] Could not write or bind-mount /host/etc/passwd — identity resolution may fail"
+          fi
         fi
       else
         # Create minimal passwd with root and the runner user
@@ -787,7 +800,17 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
         if echo "${GROUP_ENTRY}" >> /host/etc/group 2>/dev/null; then
           echo "[entrypoint] Appended group ${SYNTH_GROUP_NAME} (GID ${HOST_USER_GID}) to /host/etc/group"
         else
-          echo "[entrypoint][WARN] Could not write to /host/etc/group"
+          # /host/etc is read-only — same bind-mount fallback as for passwd above.
+          SYNTH_ETC_DIR="/tmp/awf-etc"
+          mkdir -p "${SYNTH_ETC_DIR}"
+          cp /host/etc/group "${SYNTH_ETC_DIR}/group"
+          echo "${GROUP_ENTRY}" >> "${SYNTH_ETC_DIR}/group"
+          chmod 644 "${SYNTH_ETC_DIR}/group"
+          if mount --bind "${SYNTH_ETC_DIR}/group" /host/etc/group 2>/dev/null; then
+            echo "[entrypoint] Bind-mounted synthesized /host/etc/group over read-only original"
+          else
+            echo "[entrypoint][WARN] Could not write or bind-mount /host/etc/group — identity resolution may fail"
+          fi
         fi
       else
         if printf '%s\n' "root:x:0:" "nobody:x:65534:" "${GROUP_ENTRY}" > /host/etc/group 2>/dev/null; then

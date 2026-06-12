@@ -353,7 +353,7 @@ AWF handles this automatically at two layers:
 
 1. **Mount staging** (`etc-mounts.ts`): When `--docker-host-path-prefix` uses a `/tmp/...` prefix (the DinD staging path) and `/etc/passwd` or `/etc/group` cannot be staged from the runner, AWF synthesizes minimal identity files containing `root` and a `runner` entry matching the host UID/GID. If staging succeeds but the staged files are missing the runner UID/GID, AWF supplements them before mounting.
 
-2. **Runtime fallback** (`entrypoint.sh`): If `getent passwd $UID` fails inside the chroot (user not found), the entrypoint attempts to synthesize `/etc/passwd` and `/etc/group` entries. If those mounts are read-only, it falls back to running with numeric `UID:GID` directly.
+2. **Runtime fallback** (`entrypoint.sh`): If `getent passwd $UID` fails inside the chroot (user not found), the entrypoint attempts to synthesize `/etc/passwd` and `/etc/group` entries. If `/host/etc` is read-only (e.g. ARC/DinD with a tmpfs-backed daemon root), it copies the existing file to `/tmp/awf-etc/`, appends the synthesized entry, and bind-mounts the result over the read-only original. This requires `CAP_SYS_ADMIN`, which is still held at entrypoint time and is dropped by `capsh` before user code runs. If even the bind-mount fails, it falls back to running with numeric `UID:GID` directly.
 
 No configuration is required — synthesis is triggered automatically when user lookup fails.
 
