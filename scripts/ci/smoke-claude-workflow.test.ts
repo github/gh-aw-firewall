@@ -47,7 +47,7 @@ describe('smoke claude workflow optimization config', () => {
   it('compiles the workflow without playwright tools and with max-turns 2', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain('--max-turns 2');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Export workflow context');

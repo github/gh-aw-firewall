@@ -90,15 +90,15 @@ steps:
 
       # Test Python version in chroot
       echo "Testing Python..."
-      CHROOT_PYTHON=$(sudo -E awf --skip-pull --allow-domains localhost -- python3 --version 2>&1 | grep -oP 'Python \d+\.\d+\.\d+' | head -1) || CHROOT_PYTHON="FAILED"
+      CHROOT_PYTHON=$(sudo -E awf --build-local --allow-domains localhost -- python3 --version 2>&1 | grep -oP 'Python \d+\.\d+\.\d+' | head -1) || CHROOT_PYTHON="FAILED"
 
       # Test Node version in chroot
       echo "Testing Node..."
-      CHROOT_NODE=$(sudo -E awf --skip-pull --allow-domains localhost -- node --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1) || CHROOT_NODE="FAILED"
+      CHROOT_NODE=$(sudo -E awf --build-local --allow-domains localhost -- node --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1) || CHROOT_NODE="FAILED"
 
       # Test Go version in chroot
       echo "Testing Go..."
-      CHROOT_GO=$(sudo -E awf --skip-pull --allow-domains localhost -- go version 2>&1 | grep -oP 'go\d+\.\d+(\.\d+)?' | head -1) || CHROOT_GO="FAILED"
+      CHROOT_GO=$(sudo -E awf --build-local --allow-domains localhost -- go version 2>&1 | grep -oP 'go\d+\.\d+(\.\d+)?' | head -1) || CHROOT_GO="FAILED"
 
       # Save chroot versions
       {
