@@ -60,11 +60,12 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {object} opts.metrics - Metrics module reference
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
+ * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeTracking() to signal span completion
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, onUsage, onSpanEnd } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -254,7 +255,7 @@ function trackTokenUsage(proxyRes, opts) {
     }
     if (typeof onUsage === 'function') {
       try {
-        budgetResult = onUsage(normalized, model || 'unknown');
+        budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
       } catch {
         // best-effort callback
       }
@@ -267,7 +268,7 @@ function trackTokenUsage(proxyRes, opts) {
     const record = buildTokenUsageRecord(normalized, {
       requestId,
       provider,
-      model,
+      model: model || requestModel || provider,
       reqPath,
       status: proxyRes.statusCode,
       streaming,
@@ -289,7 +290,7 @@ function trackTokenUsage(proxyRes, opts) {
     logRequest('info', 'token_usage', {
       request_id: requestId,
       provider,
-      model: model || 'unknown',
+      model: model || requestModel || provider || 'unknown',
       input_tokens: normalized.input_tokens,
       output_tokens: normalized.output_tokens,
       cache_read_tokens: normalized.cache_read_tokens,
