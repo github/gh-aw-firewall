@@ -9,18 +9,20 @@
  * GITHUB_AW_OTEL_PARENT_SPAN_ID so that end-to-end traces flow from the
  * GitHub Actions workflow through the api-proxy to the LLM provider.
  *
- * Activation:
- *   - When OTEL_EXPORTER_OTLP_ENDPOINT is set: exports via OTLP/HTTP routed
- *     through the Squid proxy (HTTPS_PROXY / HTTP_PROXY env vars) so the
- *     domain whitelist is respected.
- *   - Otherwise: writes span NDJSON to /var/log/api-proxy/otel.jsonl as a
+ * Activation (in priority order):
+ *   - GH_AW_OTLP_ENDPOINTS (JSON array of {url, headers} objects): fan-out
+ *     mode — spans are exported concurrently to all listed endpoints.
+ *   - OTEL_EXPORTER_OTLP_ENDPOINT (single URL): legacy single-endpoint mode.
+ *   - Neither set: writes span NDJSON to /var/log/api-proxy/otel.jsonl as a
  *     local fallback (mirrors the MCPG /tmp/gh-aw/otel.jsonl pattern).
- *   - Network export remains opt-in. When OTLP is unset, only best-effort
- *     local file writes are attempted (no outbound network traffic).
+ *
+ * All OTLP exports route through the Squid proxy (HTTPS_PROXY / HTTP_PROXY)
+ * so the domain whitelist is respected.
  *
  * Environment variables consumed:
- *   OTEL_EXPORTER_OTLP_ENDPOINT   - OTLP/HTTP collector URL (e.g. https://otel.example.com:4318)
- *   OTEL_EXPORTER_OTLP_HEADERS    - Comma-separated "key=value" auth headers
+ *   GH_AW_OTLP_ENDPOINTS          - JSON array of {url, headers} endpoint objects (fan-out)
+ *   OTEL_EXPORTER_OTLP_ENDPOINT   - OTLP/HTTP collector URL (single-endpoint fallback)
+ *   OTEL_EXPORTER_OTLP_HEADERS    - Comma-separated "key=value" auth headers (single-endpoint)
  *   OTEL_SERVICE_NAME              - Service name tag (default: awf-api-proxy)
  *   GITHUB_AW_OTEL_TRACE_ID       - W3C trace-id of the parent workflow trace
  *   GITHUB_AW_OTEL_PARENT_SPAN_ID - W3C span-id of the parent workflow span
@@ -43,9 +45,10 @@ const {
   INVALID_SPAN_CONTEXT,
 } = require('@opentelemetry/api');
 const { parseOtlpHeaders, buildResourceSpans } = require('./otel-serialization');
-const { ProxyAwareOtlpExporter, FileSpanExporter } = require('./otel-exporters');
+const { ProxyAwareOtlpExporter, FileSpanExporter, FanOutSpanExporter } = require('./otel-exporters');
 
 // ── Environment variables ─────────────────────────────────────────────────────
+const OTLP_ENDPOINTS_JSON = (process.env.GH_AW_OTLP_ENDPOINTS || '').trim();
 const OTLP_ENDPOINT    = (process.env.OTEL_EXPORTER_OTLP_ENDPOINT    || '').trim();
 const OTLP_HEADERS_RAW = (process.env.OTEL_EXPORTER_OTLP_HEADERS     || '').trim();
 const SERVICE_NAME     = (process.env.OTEL_SERVICE_NAME               || 'awf-api-proxy').trim();
@@ -63,11 +66,51 @@ let _enabled  = false;
 
 // ── SDK initialisation ────────────────────────────────────────────────────────
 
+/**
+ * Parse GH_AW_OTLP_ENDPOINTS JSON array into [{url, headers}] objects.
+ * Returns empty array if the env var is absent/invalid.
+ * Each entry: { url: string, headers: Record<string,string> }
+ */
+function _parseEndpoints() {
+  if (!OTLP_ENDPOINTS_JSON) return [];
+  try {
+    const parsed = JSON.parse(OTLP_ENDPOINTS_JSON);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(ep => ep && typeof ep.url === 'string' && ep.url.trim())
+      .map(ep => ({
+        url: ep.url.trim(),
+        headers: (typeof ep.headers === 'object' && ep.headers !== null) ? ep.headers : {},
+      }));
+  } catch {
+    return [];
+  }
+}
+
 function _init() {
   const resource = new Resource({ [ATTR_SERVICE_NAME]: SERVICE_NAME });
 
   let exporter;
-  if (OTLP_ENDPOINT) {
+  const endpoints = _parseEndpoints();
+
+  if (endpoints.length > 1) {
+    // Fan-out: send spans to all configured endpoints concurrently
+    const exporters = endpoints.map(ep => new ProxyAwareOtlpExporter({
+      url: ep.url,
+      headers: ep.headers || {},
+      httpsProxy: HTTPS_PROXY_URL || null,
+      resource,
+    }));
+    exporter = new FanOutSpanExporter(exporters);
+  } else if (endpoints.length === 1) {
+    exporter = new ProxyAwareOtlpExporter({
+      url: endpoints[0].url,
+      headers: endpoints[0].headers || {},
+      httpsProxy: HTTPS_PROXY_URL || null,
+      resource,
+    });
+  } else if (OTLP_ENDPOINT) {
+    // Legacy single-endpoint fallback
     exporter = new ProxyAwareOtlpExporter({
       url:        OTLP_ENDPOINT,
       headers:    parseOtlpHeaders(OTLP_HEADERS_RAW),
@@ -299,6 +342,8 @@ module.exports = {
   get _provider() { return _provider; },
   _ProxyAwareOtlpExporter: ProxyAwareOtlpExporter,
   _FileSpanExporter: FileSpanExporter,
+  _FanOutSpanExporter: FanOutSpanExporter,
+  _parseEndpoints,
   _parseOtlpHeaders: parseOtlpHeaders,
   _buildResourceSpans: buildResourceSpans,
 };
