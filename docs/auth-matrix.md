@@ -79,7 +79,7 @@ Note: When Azure OIDC is active, the header switches from `api-key:` back to `Au
 
 ### Custom Auth Header
 
-`AWF_OPENAI_AUTH_HEADER` overrides the header name used for the API key. The key is still sent as the header value (with `Bearer` prefix for non-Azure, without for Azure).
+`AWF_OPENAI_AUTH_HEADER` overrides the header name used for the API key. The raw key or token value is sent directly as the header value (no `Bearer` prefix is added), both for static keys and OIDC tokens.
 
 ---
 
@@ -144,7 +144,7 @@ Additional header: `Copilot-Integration-Id: <integration-id>`
 
 ### `/models` Endpoint (Special Case)
 
-The `/models` endpoint ALWAYS uses `COPILOT_GITHUB_TOKEN` (GitHub OAuth), never a BYOK key. This is because model listing is a GitHub platform feature, not a provider feature.
+The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential.
 
 ### BYOK (Bring Your Own Key)
 
@@ -304,7 +304,7 @@ The `token` prefix is ONLY used for GitHub OAuth tokens on GHES. BYOK and OIDC a
 JSON object of headers injected on BYOK inference requests:
 - Only active when `COPILOT_PROVIDER_API_KEY` is set
 - NOT injected on `/models` GET when GitHub OAuth token is available
-- Protected headers silently skipped with warning
+- Protected headers are skipped with a `console.warn` message
 
 ### BYOK Extra Body Fields (`AWF_BYOK_EXTRA_BODY_FIELDS`)
 
@@ -336,8 +336,8 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | BYOK key | — | ✅ | `copilot.js:278-284` |
 | Copilot | Azure BYOK | — | ✅ | via OpenAI adapter |
 | Copilot | Azure OIDC | — | ✅ | `server.auth.test.js:749+` |
-| Copilot | AWS OIDC | — | ⚠️ partial | Scaffolding only |
-| Copilot | GCP OIDC | — | ⚠️ partial | Scaffolding only |
-| Copilot | GHES + BYOK | GHES | ⚠️ gap | Untested interaction |
+| Copilot | AWS OIDC | — | ✅ | `cloud-oidc-init.js:19-37`, `server.auth-matrix.test.js` |
+| Copilot | GCP OIDC | — | ✅ | `cloud-oidc-init.js:38-50`, `server.auth-matrix.test.js` |
+| Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |
 | Gemini | Static key | — | ✅ | `gemini.js:25-45` |
 | Gemini | GCP WIF | — | ❌ not impl | Would need Vertex AI |

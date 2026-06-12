@@ -540,9 +540,9 @@ describe('Auth Matrix — Credential Isolation', () => {
   });
 
   it('Copilot dummy BYOK key is used as-is at the adapter level', () => {
-    // The 'dummy-byok-key-for-offline-mode' placeholder is filtered at the
-    // credential-env layer (api-proxy-credential-env.ts), not in the adapter.
-    // At the adapter level it's treated as a real key.
+    // The 'dummy-byok-key-for-offline-mode' string has no special handling
+    // in the adapter — it's treated as a regular BYOK key. The Copilot CLI
+    // auth layer (copilot-auth.js) is where placeholder detection occurs.
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'ghu_real_token',
       COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
