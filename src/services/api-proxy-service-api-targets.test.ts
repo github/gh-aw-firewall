@@ -540,5 +540,41 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
             }
           }
         });
+
+        it('should forward COPILOT_INTEGRATION_ID from host env to api-proxy when explicitly set', () => {
+          const orig = process.env.COPILOT_INTEGRATION_ID;
+          process.env.COPILOT_INTEGRATION_ID = 'my-custom-integration';
+          try {
+            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+            const proxy = result.services['api-proxy'];
+            const env = proxy.environment as Record<string, string>;
+            expect(env.COPILOT_INTEGRATION_ID).toBe('my-custom-integration');
+          } finally {
+            if (orig !== undefined) {
+              process.env.COPILOT_INTEGRATION_ID = orig;
+            } else {
+              delete process.env.COPILOT_INTEGRATION_ID;
+            }
+          }
+        });
+
+        it('should not set COPILOT_INTEGRATION_ID when host env var is empty', () => {
+          const orig = process.env.COPILOT_INTEGRATION_ID;
+          process.env.COPILOT_INTEGRATION_ID = '';
+          try {
+            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+            const proxy = result.services['api-proxy'];
+            const env = proxy.environment as Record<string, string>;
+            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
+          } finally {
+            if (orig !== undefined) {
+              process.env.COPILOT_INTEGRATION_ID = orig;
+            } else {
+              delete process.env.COPILOT_INTEGRATION_ID;
+            }
+          }
+        });
       });
 });

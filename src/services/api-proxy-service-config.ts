@@ -115,8 +115,18 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
       // target on GHES/GHEC (e.g. api.mycompany.ghe.com instead of api.github.com)
       ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
-      // Do not forward GITHUB_COPILOT_INTEGRATION_ID — api-proxy defaults to
-      // 'agentic-workflows' which is the correct integration ID for AWF.
+      // Forward COPILOT_INTEGRATION_ID if explicitly set on the host so callers
+      // (e.g. external agents using AWF as their network firewall + auth proxy)
+      // can identify themselves to the Copilot API with their own integration ID
+      // instead of being attributed to AWF's default 'agentic-workflows'.
+      // Default behaviour is unchanged: when the env var is unset, api-proxy
+      // falls back to its built-in default.
+      ...(process.env.COPILOT_INTEGRATION_ID && {
+        COPILOT_INTEGRATION_ID: process.env.COPILOT_INTEGRATION_ID,
+      }),
+      // Note: GITHUB_COPILOT_INTEGRATION_ID (the gh-aw-prefixed variant) is
+      // intentionally NOT forwarded -- api-proxy's default 'agentic-workflows'
+      // is the correct integration ID for AWF's own internal use.
       // Note: AWF_VERSION is intentionally NOT forwarded here. It is baked into the api-proxy
       // container image at release build time (via --build-arg AWF_VERSION=...), so the
       // token-usage.jsonl _schema field reflects the api-proxy image version rather than
