@@ -13,11 +13,10 @@ permissions:
   pull-requests: read
   
 name: Smoke Claude
-max-turns: 5
+max-turns: 2
 engine:
   id: claude
   model: claude-haiku-4-5
-  max-turns: 2
 sandbox:
   mcp:
     version: v0.3.1
