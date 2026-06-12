@@ -112,7 +112,7 @@ function createUpstreamResponseHandlers({
   }
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
-    res, provider, requestId, req, targetHost, startTime, span, requestBytes,
+    body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
     hasRetried, onRetry,
     modelNotSupportedRetryCount = 0, onModelNotSupportedRetry,
   }) {
@@ -227,8 +227,17 @@ function createUpstreamResponseHandlers({
     proxyRes.pipe(res);
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
+    // Extract model from request body as fallback for token tracking when the
+    // upstream response omits the model field (e.g., Copilot SDK streaming).
+    let requestModel = null;
+    if (body && body.length > 0) {
+      try {
+        const parsed = JSON.parse(body.toString('utf8'));
+        if (parsed && typeof parsed.model === 'string') requestModel = parsed.model;
+      } catch { /* non-JSON body */ }
+    }
     trackTokenUsage(proxyRes, {
-      requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent,
+      requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent, requestModel,
       onUsage: (normalizedUsage, model) => {
         otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
         const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
