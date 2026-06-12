@@ -4,7 +4,7 @@
  * Tests for OTLP fan-out exporter and GH_AW_OTLP_ENDPOINTS parsing.
  */
 
-const { FanOutSpanExporter, ProxyAwareOtlpExporter } = require('./otel-exporters');
+const { FanOutSpanExporter } = require('./otel-exporters');
 
 // ── FanOutSpanExporter unit tests ─────────────────────────────────────────────
 
