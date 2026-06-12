@@ -66,24 +66,26 @@ export interface ContainerImageOptions {
   agentImage?: 'default' | 'act' | string;
 
   /**
-   * Docker host (socket) to use for AWF's own container operations
+   * Docker host to use for AWF's own container operations
    *
    * When set, overrides the `DOCKER_HOST` environment variable for all
    * docker CLI calls made by AWF itself (compose up/down, docker wait, etc.).
    *
-   * Use this when you need to point AWF at a specific local Unix socket that
-   * is not the system default (`/var/run/docker.sock`).
+   * Both unix:// socket paths and loopback TCP endpoints are supported:
+   * - `unix:///run/user/1000/docker.sock` — non-default unix socket
+   * - `tcp://localhost:2375` — ARC/DinD sidecar (standard RunnerScaleSet config)
+   * - `tcp://127.0.0.1:2375` — loopback TCP sidecar
    *
-   * When not set, AWF auto-detects the Docker host:
-   * - If `DOCKER_HOST` is a Unix socket, it is used as-is.
-   * - If `DOCKER_HOST` is a TCP address (e.g. a Docker-in-Docker (DinD) daemon),
-   *   AWF clears it and falls back to the system default socket.
+   * When not set, AWF uses the current `DOCKER_HOST` environment variable
+   * unchanged.  Loopback TCP and unix:// values are passed through as-is;
+   * non-loopback TCP endpoints emit a warning and fall back to the default
+   * socket.
    *
-   * The original `DOCKER_HOST` value (if any) is forwarded into the agent container
-   * by default so the agent workload can still reach an external DinD daemon, but it may be
-   * overridden (e.g. in DinD mode when `awfDockerHost` is set to a unix:// socket).
+   * The original `DOCKER_HOST` value (if any) is forwarded into the agent
+   * container so the agent workload can still reach an external DinD daemon.
    * @example 'unix:///var/run/docker.sock'
    * @example 'unix:///run/user/1000/docker.sock'
+   * @example 'tcp://localhost:2375'
    */
   awfDockerHost?: string;
 

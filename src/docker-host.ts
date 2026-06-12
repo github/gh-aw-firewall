@@ -11,10 +11,9 @@ let awfDockerHostOverride: string | undefined;
  * When set, overrides DOCKER_HOST for all docker CLI calls made by AWF
  * (compose up/down, docker wait, docker logs, etc.).
  *
- * When not set, AWF auto-detects:
- *  - unix:// DOCKER_HOST values are kept as-is (local socket).
- *  - TCP DOCKER_HOST values (e.g. DinD) are cleared so docker falls back
- *    to the system default socket.
+ * When not set, AWF uses the current DOCKER_HOST as-is — both unix://
+ * sockets and tcp:// endpoints (e.g. tcp://localhost:2375 in ARC/DinD
+ * deployments) are passed through unchanged.
  *
  * @internal Called from cli.ts when --docker-host flag is provided.
  */
@@ -25,10 +24,11 @@ export function setAwfDockerHost(host: string | undefined): void {
 /**
  * Returns an environment object suitable for AWF's own docker CLI calls.
  *
- * When DOCKER_HOST is set to an external TCP daemon (e.g. a workflow-scope
- * DinD sidecar), it is removed so docker/docker-compose use the local Unix
- * socket instead.  When --docker-host was provided via the CLI, that value
- * is used regardless of the environment.
+ * When --docker-host was provided via the CLI, that value is used regardless
+ * of the environment.  Otherwise the current DOCKER_HOST is passed through
+ * unchanged — both unix:// sockets and tcp:// endpoints (e.g. the ARC/DinD
+ * sidecar at tcp://localhost:2375) are valid Docker API endpoints and work
+ * correctly with docker/docker-compose.
  *
  * The original DOCKER_HOST value is NOT removed from the agent container's
  * environment — see generateDockerCompose for the passthrough logic.
@@ -37,16 +37,12 @@ export function getLocalDockerEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   if (awfDockerHostOverride !== undefined) {
-    // Explicit CLI override — always use this socket for AWF operations
+    // Explicit CLI override — always use this value for AWF operations
     env.DOCKER_HOST = awfDockerHostOverride;
-  } else {
-    const dockerHost = env.DOCKER_HOST;
-    if (dockerHost && !dockerHost.startsWith('unix://')) {
-      // Non-unix DOCKER_HOST (e.g. tcp://localhost:2375 from a DinD sidecar).
-      // Clear it so AWF's docker commands target the local daemon, not the DinD one.
-      delete env.DOCKER_HOST;
-    }
   }
+  // Otherwise, preserve whatever DOCKER_HOST is set in the environment.
+  // TCP endpoints such as tcp://localhost:2375 (standard ARC/DinD sidecar
+  // configuration) work fine for docker compose orchestration.
 
   return env;
 }

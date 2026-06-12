@@ -272,18 +272,33 @@ describe('checkDockerHost', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('should return invalid for a TCP daemon (workflow-scope DinD)', () => {
+  it('should return valid for tcp://localhost (ARC/DinD standard endpoint)', () => {
     const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2375' });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should return valid for tcp://localhost on a non-default port', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2376' });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should return valid for tcp://127.0.0.1', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://127.0.0.1:2375' });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should return invalid for a non-loopback TCP daemon (workflow-scope DinD)', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://192.168.1.100:2375' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.error).toContain('tcp://localhost:2375');
+      expect(result.error).toContain('tcp://192.168.1.100:2375');
       expect(result.error).toContain('external daemon');
       expect(result.error).toContain('network isolation model');
     }
   });
 
-  it('should return invalid for a TCP daemon on a non-default port', () => {
-    const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2376' });
+  it('should return invalid for a remote TCP daemon', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://docker.example.com:2375' });
     expect(result.valid).toBe(false);
   });
 
@@ -354,11 +369,29 @@ describe('resolveDockerHostPathPrefix', () => {
     expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
   });
 
-  it('does not set dindHint for TCP DOCKER_HOST (checked by checkDockerHost separately)', () => {
+  it('sets dindHint for tcp://localhost (ARC/DinD sidecar endpoint)', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { DOCKER_HOST: 'tcp://localhost:2375' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: true });
+  });
+
+  it('sets dindHint for tcp://127.0.0.1 (ARC/DinD sidecar endpoint)', () => {
+    const result = resolveDockerHostPathPrefix(
+      { valid: true },
+      undefined,
+      { DOCKER_HOST: 'tcp://127.0.0.1:2375' },
+    );
+    expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: true });
+  });
+
+  it('does not set dindHint for non-loopback TCP DOCKER_HOST', () => {
     const result = resolveDockerHostPathPrefix(
       { valid: false, error: 'external' },
       undefined,
-      { DOCKER_HOST: 'tcp://localhost:2375' },
+      { DOCKER_HOST: 'tcp://192.168.1.100:2375' },
     );
     expect(result).toEqual({ dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false });
   });

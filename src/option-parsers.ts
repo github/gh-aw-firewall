@@ -97,22 +97,46 @@ export function applyAgentTimeout(
 }
 
 /**
+ * Returns `true` when `dockerHost` is a TCP endpoint on the loopback
+ * interface — either `tcp://localhost:*` or `tcp://127.0.0.1:*`.  These are
+ * the standard ARC/DinD sidecar endpoints and are fully supported by AWF.
+ *
+ * Also exported as `isLoopbackTcpDockerHostUri` for callers that receive a
+ * Docker host URI string directly.
+ */
+function isLoopbackTcpDockerHost(dockerHost: string): boolean {
+  if (!dockerHost.startsWith('tcp://')) return false;
+  const rest = dockerHost.slice('tcp://'.length);
+  return rest.startsWith('localhost:') || rest.startsWith('localhost/') ||
+         rest === 'localhost' ||
+         rest.startsWith('127.0.0.1:') || rest.startsWith('127.0.0.1/') ||
+         rest === '127.0.0.1';
+}
+
+/** Public alias for use by callers outside this module. */
+export const isLoopbackTcpDockerHostUri = isLoopbackTcpDockerHost;
+
+/**
  * Checks whether DOCKER_HOST is set to an external daemon that is incompatible
  * with AWF.
  *
  * AWF manages its own Docker network (`172.30.0.0/24`) and iptables rules that
  * require direct access to the host's Docker socket.  When DOCKER_HOST points
- * at an external TCP daemon (e.g. a DinD sidecar), Docker Compose routes all
- * container creation through that daemon's network namespace, which breaks:
+ * at an external TCP daemon on a remote host, Docker Compose routes all
+ * container creation through that daemon's network namespace, which may break:
  *  - AWF's fixed subnet routing
  *  - The iptables DNAT rules set up by awf-iptables-init
  *  - Port-binding expectations between containers
  *
- * Any unix socket (standard or non-standard path) is considered local and valid.
+ * Any unix socket (standard or non-standard path) is considered local and
+ * valid.  TCP endpoints on the loopback address (`localhost` or `127.0.0.1`)
+ * are also considered valid — they are the standard way to reach the DinD
+ * sidecar daemon in ARC RunnerScaleSet pods.
  *
  * @param env - Environment variables to inspect (defaults to process.env)
- * @returns `{ valid: true }` when DOCKER_HOST is absent or points at a local
- *          unix socket; `{ valid: false, error: string }` otherwise.
+ * @returns `{ valid: true }` when DOCKER_HOST is absent, points at a local
+ *          unix socket, or is a loopback TCP endpoint; `{ valid: false, error:
+ *          string }` for non-loopback TCP endpoints.
  */
 export function checkDockerHost(
   env: Record<string, string | undefined> = process.env
@@ -127,11 +151,17 @@ export function checkDockerHost(
     return { valid: true };
   }
 
+  // tcp://localhost:* and tcp://127.0.0.1:* are the standard ARC/DinD sidecar
+  // endpoints and are fully supported for AWF's own docker/compose operations.
+  if (isLoopbackTcpDockerHost(dockerHost)) {
+    return { valid: true };
+  }
+
   return {
     valid: false,
     error:
       `DOCKER_HOST is set to an external daemon (${dockerHost}). ` +
-      'AWF requires the local Docker daemon (default socket). ' +
+      'AWF requires the local Docker daemon (default socket or loopback TCP). ' +
       'Workflow-scope DinD is incompatible with AWF\'s network isolation model. ' +
       'See the "Workflow-Scope DinD Incompatibility" section in docs/usage.md for details and workarounds.',
   };
@@ -148,15 +178,21 @@ const DEFAULT_DOCKER_SOCKET_URIS = [
 ];
 
 /**
- * Returns `true` when `DOCKER_HOST` is a unix socket on a non-default path,
- * which typically indicates a sibling daemon pod in ARC/DinD deployments.
- * These setups bind-mount the daemon's socket into the runner pod, meaning
- * the runner and daemon may have separate root filesystems.
+ * Returns `true` when `DOCKER_HOST` indicates a sibling daemon in ARC/DinD
+ * deployments, where the runner and daemon may have separate root filesystems.
+ *
+ * This covers two patterns:
+ *  - A unix socket on a non-default path (socket bind-mounted from DinD pod)
+ *  - A loopback TCP endpoint (`tcp://localhost:*` / `tcp://127.0.0.1:*`),
+ *    which is the standard ARC RunnerScaleSet DinD sidecar configuration
  */
 function isSiblingDaemonSocket(env: Record<string, string | undefined>): boolean {
   const dockerHost = env['DOCKER_HOST'];
-  if (!dockerHost || !dockerHost.startsWith('unix://')) return false;
-  return !DEFAULT_DOCKER_SOCKET_URIS.includes(dockerHost);
+  if (!dockerHost) return false;
+  if (dockerHost.startsWith('unix://')) {
+    return !DEFAULT_DOCKER_SOCKET_URIS.includes(dockerHost);
+  }
+  return isLoopbackTcpDockerHost(dockerHost);
 }
 
 /**

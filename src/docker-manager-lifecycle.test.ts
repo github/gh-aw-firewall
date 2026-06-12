@@ -547,7 +547,7 @@ describe('docker-manager lifecycle', () => {
       jest.clearAllMocks();
     });
 
-    it('docker compose up should NOT forward a TCP DOCKER_HOST to the docker CLI', async () => {
+    it('docker compose up should forward a loopback TCP DOCKER_HOST to the docker CLI', async () => {
       process.env.DOCKER_HOST = 'tcp://localhost:2375';
       const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
       try {
@@ -561,9 +561,9 @@ describe('docker-manager lifecycle', () => {
         );
         expect(composeCalls.length).toBeGreaterThan(0);
         const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
-        // DOCKER_HOST must be absent from the env passed to docker compose
+        // tcp://localhost DOCKER_HOST must be passed through to docker compose (ARC/DinD support)
         expect(composeEnv).toBeDefined();
-        expect(composeEnv!.DOCKER_HOST).toBeUndefined();
+        expect(composeEnv!.DOCKER_HOST).toBe('tcp://localhost:2375');
       } finally {
         fs.rmSync(testDir, { recursive: true, force: true });
       }
@@ -591,7 +591,7 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('setAwfDockerHost should override DOCKER_HOST for AWF operations', async () => {
-      process.env.DOCKER_HOST = 'tcp://localhost:2375'; // Would normally be cleared
+      process.env.DOCKER_HOST = 'tcp://localhost:2375'; // CLI override wins over env var
       setAwfDockerHost('unix:///run/user/1000/docker.sock');
       const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
       try {
