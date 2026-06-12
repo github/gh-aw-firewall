@@ -38,7 +38,7 @@ describe('Copilot SDK model extraction gap', () => {
    * Copilot CLI is the intermediary. The usage chunk includes token counts
    * but the `model` field is absent from the SSE data.
    */
-  test('streaming response without model field results in model=null (BUG: AI credits lost)', (done) => {
+  test('streaming response without model field should still resolve a real model name', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'text/event-stream' };
     proxyRes.statusCode = 200;
@@ -80,31 +80,26 @@ describe('Copilot SDK model extraction gap', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      // Tokens ARE tracked (metrics increment works)
-      expect(metricsRef.increment).toHaveBeenCalledWith(
-        'input_tokens_total',
-        { provider: 'copilot' },
-        1500,
-      );
-      expect(metricsRef.increment).toHaveBeenCalledWith(
-        'output_tokens_total',
-        { provider: 'copilot' },
-        800,
-      );
+      try {
+        // Tokens ARE tracked (metrics increment works)
+        expect(metricsRef.increment).toHaveBeenCalledWith(
+          'input_tokens_total',
+          { provider: 'copilot' },
+          1500,
+        );
+        expect(metricsRef.increment).toHaveBeenCalledWith(
+          'output_tokens_total',
+          { provider: 'copilot' },
+          800,
+        );
 
-      // BUG: onUsage is called with model='unknown' because the response
-      // never included a model field. This causes AI credits to be lost
-      // because 'unknown' has no pricing entry.
-      expect(onUsageCalledWith).not.toBeNull();
-      expect(onUsageCalledWith.model).toBe('unknown');
+        // The model should NOT fall back to 'unknown' — it should be resolved
+        // from the request body or another source so AI credits can be computed.
+        expect(onUsageCalledWith).not.toBeNull();
+        expect(onUsageCalledWith.model).not.toBe('unknown');
 
-      // This assertion documents the DESIRED behavior (currently failing).
-      // When fixed, the model should be extracted from the request body
-      // or another source, not fall back to 'unknown'.
-      // Uncomment when implementing the fix:
-      // expect(onUsageCalledWith.model).not.toBe('unknown');
-
-      done();
+        done();
+      } catch (e) { done(e); }
     }, 50);
   });
 
@@ -153,10 +148,12 @@ describe('Copilot SDK model extraction gap', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      expect(onUsageCalledWith).not.toBeNull();
-      // Model is correctly extracted — AI credits will work
-      expect(onUsageCalledWith.model).toBe('claude-sonnet-4-20250514');
-      done();
+      try {
+        expect(onUsageCalledWith).not.toBeNull();
+        // Model is correctly extracted — AI credits will work
+        expect(onUsageCalledWith.model).toBe('claude-sonnet-4-20250514');
+        done();
+      } catch (e) { done(e); }
     }, 50);
   });
 
@@ -164,7 +161,7 @@ describe('Copilot SDK model extraction gap', () => {
    * Non-streaming variant: Copilot API returns JSON without model field.
    * Same bug manifests for non-streaming responses.
    */
-  test('non-streaming response without model field results in model=null (BUG)', (done) => {
+  test('non-streaming response without model field should still resolve a real model name', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };
     proxyRes.statusCode = 200;
@@ -197,17 +194,19 @@ describe('Copilot SDK model extraction gap', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      expect(metricsRef.increment).toHaveBeenCalledWith(
-        'input_tokens_total',
-        { provider: 'copilot' },
-        200,
-      );
+      try {
+        expect(metricsRef.increment).toHaveBeenCalledWith(
+          'input_tokens_total',
+          { provider: 'copilot' },
+          200,
+        );
 
-      // BUG: model is 'unknown' because response body didn't include it
-      expect(onUsageCalledWith).not.toBeNull();
-      expect(onUsageCalledWith.model).toBe('unknown');
+        // The model should NOT fall back to 'unknown'
+        expect(onUsageCalledWith).not.toBeNull();
+        expect(onUsageCalledWith.model).not.toBe('unknown');
 
-      done();
+        done();
+      } catch (e) { done(e); }
     }, 50);
   });
 
@@ -216,7 +215,7 @@ describe('Copilot SDK model extraction gap', () => {
    * the AI credits guard produces no result (null), meaning credits are
    * not tracked for the run.
    */
-  test('AI credits guard returns null for unknown model (credits silently lost)', () => {
+  test('AI credits guard should compute credits even when response omits model', () => {
     // Reset state
     const { resetAiCreditsGuardForTests, applyAiCreditsUsage } = require('./guards/ai-credits-guard');
     resetAiCreditsGuardForTests();
@@ -237,11 +236,12 @@ describe('Copilot SDK model extraction gap', () => {
     expect(resultKnown).not.toBeNull();
     expect(resultKnown.aiCreditsThisResponse).toBeGreaterThan(0);
 
-    // BUG: With 'unknown' model, credits are silently dropped
+    // With 'unknown' model, credits should STILL be computed (not silently dropped).
+    // Today this returns null — 1500 input + 800 output tokens go completely untracked.
     resetAiCreditsGuardForTests();
     const resultUnknown = applyAiCreditsUsage(normalizedUsage, 'unknown');
-    // This is null — the bug. 1500 input + 800 output tokens completely untracked.
-    expect(resultUnknown).toBeNull();
+    expect(resultUnknown).not.toBeNull();
+    expect(resultUnknown.aiCreditsThisResponse).toBeGreaterThan(0);
 
     // Cleanup
     delete process.env.AWF_MAX_AI_CREDITS;
