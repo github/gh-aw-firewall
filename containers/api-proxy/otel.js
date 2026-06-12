@@ -70,18 +70,33 @@ let _enabled  = false;
  * Parse GH_AW_OTLP_ENDPOINTS JSON array into [{url, headers}] objects.
  * Returns empty array if the env var is absent/invalid.
  * Each entry: { url: string, headers: Record<string,string> }
+ *
+ * URLs are validated with `new URL()` up-front so that a misconfigured entry
+ * does not cause ProxyAwareOtlpExporter construction to throw during module
+ * init. Headers are normalized to a plain string-to-string object; arrays and
+ * entries with non-string values are silently dropped.
  */
 function _parseEndpoints() {
   if (!OTLP_ENDPOINTS_JSON) return [];
   try {
     const parsed = JSON.parse(OTLP_ENDPOINTS_JSON);
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(ep => ep && typeof ep.url === 'string' && ep.url.trim())
-      .map(ep => ({
-        url: ep.url.trim(),
-        headers: (typeof ep.headers === 'object' && ep.headers !== null) ? ep.headers : {},
-      }));
+    const results = [];
+    for (const ep of parsed) {
+      if (!ep || typeof ep.url !== 'string') continue;
+      const urlStr = ep.url.trim();
+      if (!urlStr) continue;
+      try { new URL(urlStr); } catch { continue; }
+      const rawHeaders = ep.headers;
+      const headers = {};
+      if (rawHeaders && typeof rawHeaders === 'object' && !Array.isArray(rawHeaders)) {
+        for (const [k, v] of Object.entries(rawHeaders)) {
+          if (typeof v === 'string') headers[k] = v;
+        }
+      }
+      results.push({ url: urlStr, headers });
+    }
+    return results;
   } catch {
     return [];
   }

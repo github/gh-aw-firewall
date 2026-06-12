@@ -164,6 +164,38 @@ describe('_parseEndpoints', () => {
     expect(otel._parseEndpoints()).toEqual([]);
   });
 
+  test('filters out entries with invalid URLs', () => {
+    const endpoints = [
+      { url: 'https://valid.example.com', headers: {} },
+      { url: 'not-a-valid-url', headers: {} },
+      { url: '/relative/path', headers: {} },
+    ];
+    const otel = loadOtelFresh({ GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints) });
+    expect(otel._parseEndpoints()).toEqual([
+      { url: 'https://valid.example.com', headers: {} },
+    ]);
+  });
+
+  test('normalizes array headers to empty object', () => {
+    const endpoints = [{ url: 'https://array-headers.example.com', headers: ['Authorization', '******'] }];
+    const otel = loadOtelFresh({ GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints) });
+    expect(otel._parseEndpoints()).toEqual([
+      { url: 'https://array-headers.example.com', headers: {} },
+    ]);
+  });
+
+  test('filters out non-string header values', () => {
+    const endpoints = [{
+      url: 'https://mixed-headers.example.com',
+      headers: { 'Authorization': '******', 'X-Count': 42, 'X-Flag': true, 'X-Valid': 'yes' },
+    }];
+    const otel = loadOtelFresh({ GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints) });
+    expect(otel._parseEndpoints()).toEqual([
+      { url: 'https://mixed-headers.example.com', headers: { 'Authorization': '******', 'X-Valid': 'yes' } },
+    ]);
+  });
+
+
   test('normalizes missing headers to empty object', () => {
     const endpoints = [{ url: 'https://no-headers.example.com' }];
     const otel = loadOtelFresh({ GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints) });
