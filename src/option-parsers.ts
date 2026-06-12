@@ -98,19 +98,33 @@ export function applyAgentTimeout(
 
 /**
  * Returns `true` when `dockerHost` is a TCP endpoint on the loopback
- * interface — either `tcp://localhost:*` or `tcp://127.0.0.1:*`.  These are
- * the standard ARC/DinD sidecar endpoints and are fully supported by AWF.
+ * interface — either `tcp://localhost:<port>` or `tcp://127.0.0.1:<port>`.
+ * These are the standard ARC/DinD sidecar endpoints and are fully supported
+ * by AWF.
+ *
+ * Validation requires:
+ * - Scheme `tcp://`
+ * - Hostname exactly `localhost` or `127.0.0.1`
+ * - A non-empty numeric port
+ * - No path, query, or auth components
  *
  * Also exported as `isLoopbackTcpDockerHostUri` for callers that receive a
  * Docker host URI string directly.
  */
 function isLoopbackTcpDockerHost(dockerHost: string): boolean {
   if (!dockerHost.startsWith('tcp://')) return false;
-  const rest = dockerHost.slice('tcp://'.length);
-  return rest.startsWith('localhost:') || rest.startsWith('localhost/') ||
-         rest === 'localhost' ||
-         rest.startsWith('127.0.0.1:') || rest.startsWith('127.0.0.1/') ||
-         rest === '127.0.0.1';
+  let url: URL;
+  try {
+    url = new URL(dockerHost);
+  } catch {
+    return false;
+  }
+  if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return false;
+  if (!/^\d+$/.test(url.port)) return false;
+  if (url.pathname !== '' && url.pathname !== '/') return false;
+  if (url.search !== '') return false;
+  if (url.username !== '' || url.password !== '') return false;
+  return true;
 }
 
 /** Public alias for use by callers outside this module. */

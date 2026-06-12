@@ -617,6 +617,13 @@ describe('docker-manager lifecycle', () => {
       expect(env).toBeDefined();
       expect(typeof env).toBe('object');
     });
+
+    it('getLocalDockerEnv clears a non-loopback TCP DOCKER_HOST', () => {
+      process.env.DOCKER_HOST = 'tcp://192.168.1.100:2375';
+      const env = getLocalDockerEnv();
+      // Non-loopback TCP must be removed so docker CLI falls back to the local socket
+      expect(env.DOCKER_HOST).toBeUndefined();
+    });
   });
 
   describe('runAgentCommand', () => {

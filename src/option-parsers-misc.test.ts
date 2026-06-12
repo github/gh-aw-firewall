@@ -302,6 +302,26 @@ describe('checkDockerHost', () => {
     expect(result.valid).toBe(false);
   });
 
+  it('should return invalid for tcp://localhost without a port', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost' });
+    expect(result.valid).toBe(false);
+  });
+
+  it('should return invalid for tcp://localhost with a path component', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:2375/some/path' });
+    expect(result.valid).toBe(false);
+  });
+
+  it('should return invalid for tcp://localhost with auth components', () => {
+    const result = checkDockerHost({ DOCKER_HOST: '******localhost:2375' });
+    expect(result.valid).toBe(false);
+  });
+
+  it('should return invalid for tcp://localhost with a non-numeric port', () => {
+    const result = checkDockerHost({ DOCKER_HOST: 'tcp://localhost:abc' });
+    expect(result.valid).toBe(false);
+  });
+
   it('should return valid for a non-standard unix socket', () => {
     const result = checkDockerHost({ DOCKER_HOST: 'unix:///tmp/custom-docker.sock' });
     expect(result.valid).toBe(true);

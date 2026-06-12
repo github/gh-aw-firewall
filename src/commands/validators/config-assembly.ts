@@ -113,7 +113,7 @@ export function assembleAndValidateConfig(
   if (config.awfDockerHost &&
       !config.awfDockerHost.startsWith('unix://') &&
       !isLoopbackTcpDockerHostUri(config.awfDockerHost)) {
-    logger.error(`❌ --docker-host must be a unix:// socket URI or a loopback TCP URI (tcp://localhost:PORT), got: ${config.awfDockerHost}`);
+    logger.error(`❌ --docker-host must be a unix:// socket URI or a loopback TCP URI (tcp://localhost:PORT or tcp://127.0.0.1:PORT), got: ${config.awfDockerHost}`);
     logger.error('   Examples: --docker-host unix:///run/user/1000/docker.sock');
     logger.error('             --docker-host tcp://localhost:2375');
     process.exit(1);

@@ -76,10 +76,11 @@ export interface ContainerImageOptions {
    * - `tcp://localhost:2375` — ARC/DinD sidecar (standard RunnerScaleSet config)
    * - `tcp://127.0.0.1:2375` — loopback TCP sidecar
    *
-   * When not set, AWF uses the current `DOCKER_HOST` environment variable
-   * unchanged.  Loopback TCP and unix:// values are passed through as-is;
-   * non-loopback TCP endpoints emit a warning and fall back to the default
-   * socket.
+   * When not set, AWF inspects the `DOCKER_HOST` environment variable:
+   * unix:// sockets and loopback TCP endpoints (`tcp://localhost:*`,
+   * `tcp://127.0.0.1:*`) are passed through unchanged for AWF's own
+   * docker CLI calls; non-loopback TCP endpoints are cleared so the
+   * docker CLI falls back to the default local socket.
    *
    * The original `DOCKER_HOST` value (if any) is forwarded into the agent
    * container so the agent workload can still reach an external DinD daemon.
