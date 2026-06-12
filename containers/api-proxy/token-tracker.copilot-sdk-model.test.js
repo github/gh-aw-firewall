@@ -33,6 +33,21 @@ afterAll(async () => {
 });
 
 describe('Copilot SDK model extraction gap', () => {
+  const savedEnv = {};
+
+  beforeEach(() => {
+    savedEnv.AWF_MAX_AI_CREDITS = process.env.AWF_MAX_AI_CREDITS;
+    savedEnv.AWF_DEFAULT_AI_CREDITS_PRICING = process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+  });
+
+  afterEach(() => {
+    // Restore env to pre-test state
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) delete process.env[key];
+      else process.env[key] = val;
+    }
+  });
+
   /**
    * Simulates the Copilot API streaming response format as observed when
    * Copilot CLI is the intermediary. The usage chunk includes token counts
