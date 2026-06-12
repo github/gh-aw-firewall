@@ -171,7 +171,7 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 | AWS | (SigV4 signing at request layer) | Via `aws-oidc-token-provider.js` |
 
 **Official docs:**
-- Copilot API: https://docs.github.com/en/copilot/building-copilot-extensions/building-a-copilot-agent
+- Copilot API: https://docs.github.com/en/rest/copilot
 - GHES auth: https://docs.github.com/en/enterprise-server/rest/authentication/authenticating-to-the-rest-api
 
 ---
