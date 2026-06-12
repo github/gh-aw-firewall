@@ -364,8 +364,9 @@ When the API proxy sidecar is enabled, the following rules apply:
 
    | Variable | Description |
    |----------|-------------|
-   | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP collector URL. When present, activates span export via Squid proxy. |
-   | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` auth headers for the OTLP endpoint. |
+   | `GH_AW_OTLP_ENDPOINTS` | JSON array of `{url, headers}` objects for fan-out export to multiple OTLP collectors. Takes priority over `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+   | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP/HTTP collector URL. Single-endpoint fallback when `GH_AW_OTLP_ENDPOINTS` is absent. |
+   | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` auth headers for the OTLP endpoint. Only used with `OTEL_EXPORTER_OTLP_ENDPOINT`. |
    | `OTEL_SERVICE_NAME` | Service name tag. Defaults to `awf-api-proxy` when not set. |
    | `GITHUB_AW_OTEL_TRACE_ID` | W3C trace-id of the parent workflow trace. |
    | `GITHUB_AW_OTEL_PARENT_SPAN_ID` | W3C span-id of the parent workflow span. |
@@ -374,8 +375,15 @@ When the API proxy sidecar is enabled, the following rules apply:
    the agent receives OTEL variables through the standard `OTEL_*` prefix
    forwarding described in §8.4.
 
-   When `OTEL_EXPORTER_OTLP_ENDPOINT` is absent, the sidecar writes span
-   NDJSON to `/var/log/api-proxy/otel.jsonl` as a local fallback.
+   The sidecar selects its exporter using the following priority order:
+
+   1. `GH_AW_OTLP_ENDPOINTS` (JSON array) — spans are exported concurrently to
+      all listed endpoints (fan-out mode); partial failures on individual
+      endpoints do not block others.
+   2. `OTEL_EXPORTER_OTLP_ENDPOINT` (single URL) — legacy single-endpoint mode.
+   3. Neither set — the sidecar writes span NDJSON to
+      `/var/log/api-proxy/otel.jsonl` as a local fallback.
+
    When `GITHUB_AW_OTEL_TRACE_ID` / `GITHUB_AW_OTEL_PARENT_SPAN_ID` are
    present and valid hex, each sidecar span is created as a child of the
    specified parent span, enabling end-to-end distributed tracing from the

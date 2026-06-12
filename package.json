@@ -66,7 +66,7 @@
     "@typescript-eslint/eslint-plugin": "^8.58.2",
     "@typescript-eslint/parser": "^8.58.2",
     "babel-jest": "^30.2.0",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10.2.1",
     "eslint-plugin-security": "^3.0.1",
     "glob": "^13.0.1",
