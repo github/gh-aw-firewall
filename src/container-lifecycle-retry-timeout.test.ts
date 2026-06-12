@@ -43,6 +43,10 @@ describe('container-lifecycle retry and timeout branches', () => {
     mockExecaFn.mockReset();
     containerLifecycleTestHelpers.resetAgentExternallyKilled();
 
+    mockDidContainerFailStartup.mockReset();
+    mockHandleHealthcheckError.mockReset();
+    mockLogContainerLogsToStderr.mockReset();
+
     // Default mock behaviours — individual tests override with mockResolvedValueOnce as needed
     mockDidContainerFailStartup.mockResolvedValue(false);
     mockHandleHealthcheckError.mockRejectedValue(new Error('healthcheck failed'));
