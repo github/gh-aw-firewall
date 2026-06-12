@@ -772,11 +772,11 @@ if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
           # then bind-mount the copy over the read-only original.  SYS_ADMIN is still
           # available at this point (it is dropped by capsh before user code runs).
           SYNTH_ETC_DIR="/tmp/awf-etc"
-          mkdir -p "${SYNTH_ETC_DIR}"
-          cp /host/etc/passwd "${SYNTH_ETC_DIR}/passwd"
-          echo "${PASSWD_ENTRY}" >> "${SYNTH_ETC_DIR}/passwd"
-          chmod 644 "${SYNTH_ETC_DIR}/passwd"
-          if mount --bind "${SYNTH_ETC_DIR}/passwd" /host/etc/passwd 2>/dev/null; then
+          if mkdir -p "${SYNTH_ETC_DIR}" 2>/dev/null \
+            && cp /host/etc/passwd "${SYNTH_ETC_DIR}/passwd" 2>/dev/null \
+            && echo "${PASSWD_ENTRY}" >> "${SYNTH_ETC_DIR}/passwd" 2>/dev/null \
+            && chmod 644 "${SYNTH_ETC_DIR}/passwd" 2>/dev/null \
+            && mount --bind "${SYNTH_ETC_DIR}/passwd" /host/etc/passwd 2>/dev/null; then
             echo "[entrypoint] Bind-mounted synthesized /host/etc/passwd over read-only original"
           else
             echo "[entrypoint][WARN] Could not write or bind-mount /host/etc/passwd — identity resolution may fail"
