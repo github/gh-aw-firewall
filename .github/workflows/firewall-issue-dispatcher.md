@@ -12,7 +12,7 @@ permissions:
   pull-requests: read
 
 max-turns: 10
-max-ai-credits: 100
+max-ai-credits: 1000
 
 jobs:
   fetch-awf-issues:

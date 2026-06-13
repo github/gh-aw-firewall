@@ -2,7 +2,6 @@
 description: Daily test that verifies the hard cap on AI credits (10,000) stops the agent
 emoji: 🛑
 on:
-  schedule: daily
   workflow_dispatch:
 permissions:
   contents: read
