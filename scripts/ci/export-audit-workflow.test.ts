@@ -68,7 +68,7 @@ describe('export audit workflow optimization config', () => {
     expect(lock).not.toContain('push:');
 
     // Rec 2: reduced max-turns
-    expect(lock).toContain('--max-turns 6');
+    expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).not.toContain('--max-turns 12');
 
     // Rec 5: consolidated step
