@@ -15,7 +15,7 @@ export type CopilotModelValidationResult =
 
 /**
  * Normalize separators (`.` and `_`) to `-` for separator-agnostic model matching.
- * Mirrors the canonicalization used in `containers/api-proxy/model-utils.js`.
+ * Mirrors the canonicalization used by api-proxy `canonicalizeModel()` helpers.
  */
 function normalizeSeparators(s: string): string {
   return s.replace(/[._]/g, '-');
