@@ -129,7 +129,7 @@ export function prepareWorkDirectories(config: WrapperConfig, logPaths: LogPaths
   ensureDirectory(logPaths.agentLogs, {
     onAfterEnsure: () => {
       try {
-        fs.chownSync(logPaths.agentLogs, parseInt(getSafeHostUid()), parseInt(getSafeHostGid()));
+        fs.chownSync(logPaths.agentLogs, parseInt(getSafeHostUid(), 10), parseInt(getSafeHostGid(), 10));
       } catch { /* ignore chown failures in non-root context */ }
     },
   });
