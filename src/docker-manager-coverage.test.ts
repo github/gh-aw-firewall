@@ -120,9 +120,9 @@ describe('docker-manager barrel – invocation coverage', () => {
     await expect(dockerManager.stopContainers('/tmp/test-awf', false)).resolves.not.toThrow();
   });
 
-  it('preserveIptablesAudit is invocable via barrel', async () => {
-    await expect(dockerManager.preserveIptablesAudit('/tmp/test-awf')).resolves.not.toThrow();
-  });
+it('preserveIptablesAudit is invocable via barrel', () => {
+  expect(() => dockerManager.preserveIptablesAudit('/tmp/test-awf')).not.toThrow();
+});
 
   it('cleanup is invocable via barrel', async () => {
     await expect(
