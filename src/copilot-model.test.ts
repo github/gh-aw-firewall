@@ -51,8 +51,8 @@ describe('validateCopilotModel', () => {
     expect(result).toEqual({ valid: true, resolvedModel: 'claude-haiku-4.5' });
   });
 
-  it('still rejects retired aliases regardless of separator (gpt-5-codex stays retired)', () => {
-    const result = validateCopilotModel('gpt-5-codex');
+  it('still rejects retired aliases regardless of separator (gpt_5_codex stays retired)', () => {
+    const result = validateCopilotModel('gpt_5_codex');
     expect(result.valid).toBe(false);
     if (result.valid) return;
     expect(result.reason).toBe('retired');
