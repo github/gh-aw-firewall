@@ -155,8 +155,8 @@ max-turns: [3-8]
 tools:
   github:
     toolsets: [repos, issues, pull_requests]
-  bash: [true/false]
-  cache-memory: [true/false]
+  bash: true # or false
+  cache-memory: true # or false
 sandbox:
   agent:
     id: awf
