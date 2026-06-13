@@ -47,7 +47,7 @@ jest.mock('./container-stop', () => ({
 }));
 
 jest.mock('./artifact-preservation', () => ({
-  preserveIptablesAudit: jest.fn().mockResolvedValue(undefined),
+  preserveIptablesAudit: jest.fn(),
   preserveCleanupArtifacts: jest.fn(),
   removeWorkDirectories: jest.fn(),
 }));
