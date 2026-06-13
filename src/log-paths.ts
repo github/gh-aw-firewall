@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { WrapperConfig } from './types';
 
-interface LogPaths {
+export interface LogPaths {
   squidLogs: string;
   sessionState: string;
   agentLogs: string;
