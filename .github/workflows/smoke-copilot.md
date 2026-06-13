@@ -101,7 +101,9 @@ post-steps:
 
 # Smoke Test: Copilot Engine Validation
 
-**IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+**CRITICAL REQUIREMENT: You MUST call `add_comment` on pull_request triggers. This is the primary success criterion. Do this FIRST before any other analysis.**
+
+**Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
 ## Pre-Computed Test Results
 
@@ -125,9 +127,9 @@ Verify by running `cat` on the file path using bash to confirm it exists.
 ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 ```
 
-## Output
+## Output (MANDATORY)
 
-**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
+**If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
