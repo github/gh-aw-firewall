@@ -209,6 +209,6 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 
-If all tests pass on a pull request trigger, add the label `smoke-copilot-byok-aoai-entra` to the pull request.
+If all tests pass on a pull request trigger, call `add_labels` to add the label `smoke-copilot-byok-aoai-entra` to the pull request.
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
