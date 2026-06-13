@@ -11,7 +11,7 @@ permissions:
   issues: read
 max-turns: 6
 engine:
-  id: claude
+  id: copilot
   model: claude-sonnet-4-5
 tools:
   github:

@@ -11,7 +11,7 @@ permissions:
   issues: read
 max-turns: 5
 engine:
-  id: claude
+  id: copilot
   model: claude-haiku-4-5
 tools:
   github:

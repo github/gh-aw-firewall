@@ -52,7 +52,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 max-turns: 4
 engine:
-  id: claude
+  id: copilot
   model: claude-haiku-4-5
 tools:
   edit:
