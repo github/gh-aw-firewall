@@ -68,6 +68,7 @@ run-name: "Firewall Issue Dispatcher"
 
 jobs:
   activation:
+    if: needs['fetch-awf-issues'].result == 'success'
     runs-on: ubuntu-slim
     permissions:
       actions: read
@@ -330,7 +331,7 @@ jobs:
     needs:
       - activation
       - fetch-awf-issues
-    if: needs.activation.result == 'success' && needs['fetch-awf-issues'].result == 'success' && needs.activation.outputs.daily_effective_workflow_exceeded != 'true'
+    if: needs.activation.outputs.daily_effective_workflow_exceeded != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

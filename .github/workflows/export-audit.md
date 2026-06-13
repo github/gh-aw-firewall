@@ -17,7 +17,7 @@ permissions:
 max-turns: 6
 engine:
   id: copilot
-  model: claude-sonnet-4-5
+  model: claude-sonnet-4.5
 sandbox:
   agent:
     id: awf

@@ -53,7 +53,7 @@ jobs:
 max-turns: 4
 engine:
   id: copilot
-  model: claude-haiku-4-5
+  model: claude-haiku-4.5
 tools:
   edit:
   bash: false

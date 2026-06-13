@@ -12,7 +12,7 @@ permissions:
 max-turns: 5
 engine:
   id: copilot
-  model: claude-haiku-4-5
+  model: claude-haiku-4.5
 tools:
   github:
     mode: gh-proxy
