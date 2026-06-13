@@ -17,7 +17,8 @@ import * as path from 'path';
 export function readEnvVarFromEnvFiles(envFile: unknown, key: string): string | undefined {
   const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
   let lastSeen: string | undefined;
-  const pattern = new RegExp(`^(?:export\\s+)?${key}\\s*=\\s*(.*)$`);
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^(?:export\\s+)?${escapedKey}\\s*=\\s*(.*)$`);
   for (const candidate of envFiles) {
     if (typeof candidate !== 'string' || candidate.trim() === '') continue;
     try {
