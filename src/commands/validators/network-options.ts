@@ -39,8 +39,10 @@ export interface NetworkOptionsResult {
 export function validateNetworkOptions(options: Record<string, unknown>): NetworkOptionsResult {
   // --- Docker host ---------------------------------------------------------
 
-  // When DOCKER_HOST points at an external TCP daemon (e.g. workflow-scope DinD),
-  // AWF redirects its own docker calls to the local socket automatically.
+  // When DOCKER_HOST points at a non-loopback TCP daemon (e.g. a remote host
+  // or workflow-scope DinD), AWF redirects its own docker calls to the local
+  // socket automatically.  Loopback TCP endpoints (tcp://localhost:2375) and
+  // unix sockets are passed through as-is.
   // The original DOCKER_HOST value is forwarded into the agent container so the
   // agent workload can still reach the DinD daemon.
   const dockerHostCheck = checkDockerHost();

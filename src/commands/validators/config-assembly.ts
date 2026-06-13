@@ -17,6 +17,7 @@ import {
   validateAllowHostPorts,
   applyHostServicePortsConfig,
   applyAgentTimeout,
+  isLoopbackTcpDockerHostUri,
 } from '../../option-parsers';
 import { getLowerCaseProcessEnvValue } from '../../env-utils';
 import { buildConfig } from '../build-config';
@@ -109,9 +110,12 @@ export function assembleAndValidateConfig(
 
   // Apply --docker-host override for AWF's own container operations.
   // This must be called before startContainers/stopContainers/runAgentCommand.
-  if (config.awfDockerHost && !config.awfDockerHost.startsWith('unix://')) {
-    logger.error(`❌ --docker-host must be a unix:// socket URI, got: ${config.awfDockerHost}`);
-    logger.error('   Example: --docker-host unix:///run/user/1000/docker.sock');
+  if (config.awfDockerHost &&
+      !config.awfDockerHost.startsWith('unix://') &&
+      !isLoopbackTcpDockerHostUri(config.awfDockerHost)) {
+    logger.error(`❌ --docker-host must be a unix:// socket URI or a loopback TCP URI (tcp://localhost:PORT or tcp://127.0.0.1:PORT), got: ${config.awfDockerHost}`);
+    logger.error('   Examples: --docker-host unix:///run/user/1000/docker.sock');
+    logger.error('             --docker-host tcp://localhost:2375');
     process.exit(1);
   }
   if (config.dockerHostPathPrefix && !config.dockerHostPathPrefix.startsWith('/')) {

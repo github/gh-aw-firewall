@@ -172,7 +172,51 @@ class FileSpanExporter {
   }
 }
 
+/**
+ * Fan-out exporter that sends spans to multiple OTLP endpoints concurrently.
+ * Partial failures on individual endpoints do not block export to others.
+ */
+class FanOutSpanExporter {
+  /**
+   * @param {ProxyAwareOtlpExporter[]} exporters - Array of per-endpoint exporters
+   */
+  constructor(exporters) {
+    this._exporters = exporters;
+  }
+
+  export(spans, resultCallback) {
+    if (!spans || spans.length === 0 || this._exporters.length === 0) {
+      resultCallback({ code: 0 });
+      return;
+    }
+
+    let pending = this._exporters.length;
+    let anySuccess = false;
+
+    const onDone = (result) => {
+      if (result.code === 0) anySuccess = true;
+      pending--;
+      if (pending === 0) {
+        resultCallback({ code: anySuccess ? 0 : 1 });
+      }
+    };
+
+    for (const exporter of this._exporters) {
+      try {
+        exporter.export(spans, onDone);
+      } catch {
+        onDone({ code: 1 });
+      }
+    }
+  }
+
+  shutdown() {
+    return Promise.all(this._exporters.map(e => e.shutdown()));
+  }
+}
+
 module.exports = {
   ProxyAwareOtlpExporter,
   FileSpanExporter,
+  FanOutSpanExporter,
 };

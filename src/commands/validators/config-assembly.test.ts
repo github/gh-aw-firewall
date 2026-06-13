@@ -28,15 +28,19 @@ jest.mock('../../logger', () => ({
 }));
 
 // Mock the option-parsers module
-jest.mock('../../option-parsers', () => ({
-  validateRateLimitFlags: jest.fn(),
-  validateEnableTokenSteeringFlag: jest.fn(),
-  validateSkipPullWithBuildLocal: jest.fn(),
-  validateAllowHostPorts: jest.fn(),
-  applyHostServicePortsConfig: jest.fn(),
-  buildRateLimitConfig: jest.fn(),
-  applyAgentTimeout: jest.fn(),
-}));
+jest.mock('../../option-parsers', () => {
+  const actual = jest.requireActual('../../option-parsers');
+  return {
+    validateRateLimitFlags: jest.fn(),
+    validateEnableTokenSteeringFlag: jest.fn(),
+    validateSkipPullWithBuildLocal: jest.fn(),
+    validateAllowHostPorts: jest.fn(),
+    applyHostServicePortsConfig: jest.fn(),
+    buildRateLimitConfig: jest.fn(),
+    applyAgentTimeout: jest.fn(),
+    isLoopbackTcpDockerHostUri: actual.isLoopbackTcpDockerHostUri,
+  };
+});
 
 // Mock the api-proxy-config module
 jest.mock('../../api-proxy-config', () => ({
@@ -198,9 +202,9 @@ describe('config-assembly', () => {
   });
 
   describe('docker-host validation', () => {
-    it('should reject non-unix:// docker host URIs', () => {
+    it('should reject non-loopback tcp:// docker host URIs', () => {
       mockBuildConfigOnce({
-        awfDockerHost: 'tcp://127.0.0.1:2375',
+        awfDockerHost: 'tcp://192.168.1.100:2375',
         dockerHostPathPrefix: undefined,
       });
 
@@ -209,8 +213,32 @@ describe('config-assembly', () => {
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--docker-host must be a unix:// socket URI'),
+        expect.stringContaining('--docker-host must be a unix:// socket URI or a loopback TCP URI'),
       );
+    });
+
+    it('should accept loopback tcp:// docker host URIs (ARC/DinD)', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: 'tcp://localhost:2375',
+        dockerHostPathPrefix: undefined,
+      });
+
+      const result = callAssembleWith();
+
+      expect(result).toBeDefined();
+      expect(mockExit).not.toHaveBeenCalled();
+    });
+
+    it('should accept tcp://127.0.0.1 docker host URIs (ARC/DinD)', () => {
+      mockBuildConfigOnce({
+        awfDockerHost: 'tcp://127.0.0.1:2375',
+        dockerHostPathPrefix: undefined,
+      });
+
+      const result = callAssembleWith();
+
+      expect(result).toBeDefined();
+      expect(mockExit).not.toHaveBeenCalled();
     });
 
     it('should accept unix:// docker host URIs', () => {

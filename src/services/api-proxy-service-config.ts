@@ -131,9 +131,11 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       no_proxy: 'localhost,127.0.0.1,::1',
       // OpenTelemetry distributed tracing — forward endpoint, headers, service name, and
       // parent trace context so api-proxy spans are children of the workflow trace.
-      // OTEL_EXPORTER_OTLP_ENDPOINT activates OTLP/HTTP export (via Squid); when absent
-      // spans are written to /var/log/api-proxy/otel.jsonl as a local file fallback.
+      // GH_AW_OTLP_ENDPOINTS (JSON array) enables fan-out to multiple collectors.
+      // OTEL_EXPORTER_OTLP_ENDPOINT is kept for backward compat (single-endpoint fallback).
+      // When neither is set, spans are written to /var/log/api-proxy/otel.jsonl.
       ...pickEnvVars(
+        'GH_AW_OTLP_ENDPOINTS',
         'OTEL_EXPORTER_OTLP_ENDPOINT',
         'OTEL_EXPORTER_OTLP_HEADERS',
         'GITHUB_AW_OTEL_TRACE_ID',
