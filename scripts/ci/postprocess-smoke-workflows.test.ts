@@ -291,8 +291,8 @@ const legacyApiProxyLogsDirRegex =
 const copySessionStateStepRegex =
   /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
 
-const copilotModelEmptyFallbackRegex =
-  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?'[^']*'(\s*\}\})/g;
+const copilotModelOverrideRegex =
+  /^(\s*COPILOT_MODEL:\s*)\$\{\{\s*(?:vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)?(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?(?:env\.COPILOT_MODEL|''|'[^']*')\s*\}\}[ \t]*$/gm;
 
 function buildCopySessionStateStep(indent: string): string {
   const i = indent;
@@ -429,31 +429,31 @@ describe('buildCopySessionStateStep', () => {
   });
 });
 
-describe('copilotModelEmptyFallbackRegex', () => {
+describe('copilotModelOverrideRegex', () => {
   beforeEach(() => {
-    copilotModelEmptyFallbackRegex.lastIndex = 0;
+    copilotModelOverrideRegex.lastIndex = 0;
   });
 
-  it('should replace empty fallback with env.COPILOT_MODEL', () => {
+  it('should replace empty fallback with workflow-level env.COPILOT_MODEL', () => {
     const input = "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}\n";
     const result = input.replace(
-      copilotModelEmptyFallbackRegex,
-      `$1env.COPILOT_MODEL$2`
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
     );
     expect(result).toBe(
-      `          COPILOT_MODEL: \${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}\n`
+      `          COPILOT_MODEL: \${{ env.COPILOT_MODEL }}\n`
     );
   });
 
-  it('should replace hardcoded model fallback with env.COPILOT_MODEL', () => {
+  it('should replace hardcoded model fallback with workflow-level env.COPILOT_MODEL', () => {
     const input =
       "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-opus-4.8' }}\n";
     const result = input.replace(
-      copilotModelEmptyFallbackRegex,
-      `$1env.COPILOT_MODEL$2`
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
     );
     expect(result).toBe(
-      `          COPILOT_MODEL: \${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}\n`
+      `          COPILOT_MODEL: \${{ env.COPILOT_MODEL }}\n`
     );
   });
 
@@ -461,20 +461,29 @@ describe('copilotModelEmptyFallbackRegex', () => {
     const input =
       "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'claude-sonnet-4.6' }}\n";
     const result = input.replace(
-      copilotModelEmptyFallbackRegex,
-      `$1env.COPILOT_MODEL$2`
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
     );
     expect(result).toBe(
-      `          COPILOT_MODEL: \${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}\n`
+      `          COPILOT_MODEL: \${{ env.COPILOT_MODEL }}\n`
     );
   });
 
-  it('should not modify already-rewritten env.COPILOT_MODEL fallback', () => {
+  it('should replace repo-level override fallback with workflow-level env.COPILOT_MODEL', () => {
     const input =
       "          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}\n";
     const result = input.replace(
-      copilotModelEmptyFallbackRegex,
-      `$1env.COPILOT_MODEL$2`
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
+    );
+    expect(result).toBe(`          COPILOT_MODEL: \${{ env.COPILOT_MODEL }}\n`);
+  });
+
+  it('should be idempotent when already using workflow-level env.COPILOT_MODEL', () => {
+    const input = "          COPILOT_MODEL: ${{ env.COPILOT_MODEL }}\n";
+    const result = input.replace(
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
     );
     expect(result).toBe(input);
   });
