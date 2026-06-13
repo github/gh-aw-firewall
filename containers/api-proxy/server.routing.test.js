@@ -9,8 +9,8 @@ const {
   normalizeBasePath,
   buildUpstreamPath,
   makeProviderNotConfiguredResponse,
-  createAdapterMethods,
 } = require('./proxy-utils');
+const { createAdapterMethods } = require('./adapter-factory');
 const { _testing: { deriveCopilotApiTarget, deriveGitHubApiTarget, deriveGitHubApiBasePath } } = require('./providers/copilot-auth');
 
 describe('normalizeApiTarget', () => {

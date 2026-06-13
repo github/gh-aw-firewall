@@ -17,7 +17,7 @@ Create `providers/<name>.js`. The adapter is a plain JS object (no class syntax 
 ```js
 'use strict';
 
-const { createBaseAdapterConfig, createAdapterMethods } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 
 function createMyProviderAdapter(env, deps = {}) {
   // Read credentials and config from env at construction time

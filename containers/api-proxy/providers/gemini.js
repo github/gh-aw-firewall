@@ -13,7 +13,8 @@
  *   Gemini SDK versions append alongside the header.
  */
 
-const { stripGeminiKeyParam, createBaseAdapterConfig, createAdapterMethods, makeUnconfiguredHealthResponse } = require('../proxy-utils');
+const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 
 /**
  * Create the Google Gemini provider adapter.

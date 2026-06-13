@@ -10,12 +10,8 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const {
-  createBaseAdapterConfig,
-  createAdapterMethods,
-  normalizeBasePath,
-  validateAuthHeaderEnv,
-} = require('../proxy-utils');
+const { normalizeBasePath, validateAuthHeaderEnv } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 
 function parseByokBaseUrl(baseUrl) {

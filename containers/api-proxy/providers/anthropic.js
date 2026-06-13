@@ -17,9 +17,8 @@ const {
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
   validateAuthHeaderEnv,
-  createBaseAdapterConfig,
-  createAdapterMethods,
 } = require('../proxy-utils');
+const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;

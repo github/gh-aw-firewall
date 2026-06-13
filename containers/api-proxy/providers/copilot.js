@@ -21,9 +21,9 @@ const {
   normalizeBasePath,
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
-  createAdapterMethods,
   composeBodyTransforms,
 } = require('../proxy-utils');
+const { createAdapterMethods } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {
   parseByokExtraHeaders,
