@@ -202,7 +202,7 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 
 ## Output
 
-**If triggered by a pull request**, add a **very brief** comment (max 5-10 lines) to the current pull request with:
+**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) to the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Note: "Running in direct BYOK mode (AWF_AUTH_TYPE=github-oidc + AWF_AUTH_AZURE_* + COPILOT_PROVIDER_BASE_URL) via api-proxy → Azure OpenAI (Foundry, o4-mini-aw) authenticated via Microsoft Entra"
