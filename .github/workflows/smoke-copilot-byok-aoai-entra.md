@@ -202,13 +202,14 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 
 ## Output
 
-**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) to the current pull request with:
+**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Note: "Running in direct BYOK mode (AWF_AUTH_TYPE=github-oidc + AWF_AUTH_AZURE_* + COPILOT_PROVIDER_BASE_URL) via api-proxy → Azure OpenAI (Foundry, o4-mini-aw) authenticated via Microsoft Entra"
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 
-If all tests pass on a pull request trigger, call `add_labels` to add the label `smoke-copilot-byok-aoai-entra` to the pull request.
+If all tests pass on a pull request trigger:
+- Use the `add_labels` safe-output tool to add the label `smoke-copilot-byok-aoai-entra` to the pull request
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.

@@ -29,9 +29,8 @@ network:
     - github
 
 tools:
-  github:
-    toolsets: [repos, discussions]
-  bash: true
+  github: false
+  bash: false
 
 safe-outputs:
   threat-detection:
@@ -65,7 +64,7 @@ steps:
           const filtered = Object.fromEntries(
             Object.entries(d).filter(([k, v]) =>
               k === 'total' || (v.statements && v.statements.pct < 80)
-            )
+            ).map(([k, v]) => [k === 'total' ? k : k.replace(process.cwd() + '/', ''), v])
           );
           console.log(JSON.stringify(filtered, null, 2));
         " 2>/dev/null || echo "{}"
@@ -81,6 +80,13 @@ steps:
           const fs = require('fs');
           const raw = fs.readFileSync('coverage/coverage-summary.json', 'utf8');
           const d = JSON.parse(raw);
+          const SECURITY_CRITICAL = [
+            'docker-manager',
+            'host-iptables',
+            'squid-config',
+            'domain-patterns',
+            'cli',
+          ];
           const rows = Object.entries(d)
             .filter(([k]) => k !== 'total')
             .map(([k, v]) => ({
@@ -90,6 +96,7 @@ steps:
               funcs: v.functions.pct,
               lines: v.lines.pct,
             }))
+            .filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))
             .sort((a, b) => a.stmts - b.stmts);
           console.log('| File | Stmts | Branch | Funcs | Lines | Status |');
           console.log('|------|------:|-------:|------:|------:|--------|');

@@ -156,14 +156,17 @@ You are running in direct BYOK mode right now. The fact that you can read this p
 
 ## Output
 
-Add a **very brief** comment (max 5-10 lines) to the current pull request with:
+**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Note: "Running in direct BYOK mode (COPILOT_PROVIDER_API_KEY) via api-proxy → api.githubcopilot.com"
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 
-If all tests pass, add the label `smoke-copilot-byok` to the pull request.
+If all tests pass on a pull request trigger:
+- Use the `add_labels` safe-output tool to add the label `smoke-copilot-byok` to the pull request
+
+**If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
 
 ## Pre-Fetched Data
 
