@@ -539,9 +539,9 @@ for (const workflowPath of workflowPaths) {
     }
   }
 
-  // For smoke-copilot-byok variants: replace empty model fallbacks with the
-  // workflow-level COPILOT_MODEL env so the generated step inherits the
-  // workflow's intended BYOK model instead of any repo-level default.
+  // For smoke-copilot-byok variants: replace compiled COPILOT_MODEL override
+  // expressions with the workflow-level COPILOT_MODEL env so the generated
+  // step inherits the intended BYOK model instead of any repo-level default.
   const isCopilotByokSmoke = /smoke-copilot-byok[^/]*\.lock\.yml$/.test(workflowPath);
   if (isCopilotByokSmoke) {
     const rewrittenContent = content.replace(
