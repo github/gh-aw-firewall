@@ -68,7 +68,6 @@ run-name: "Firewall Issue Dispatcher"
 
 jobs:
   activation:
-    if: needs['fetch-awf-issues'].result == 'success'
     runs-on: ubuntu-slim
     permissions:
       actions: read
