@@ -3,7 +3,7 @@ name: Firewall Issue Dispatcher
 description: Audits github/gh-aw issues labeled 'awf' and creates tracking issues in gh-aw-firewall with proposed solutions
 
 on:
-  schedule: every 6h
+  schedule: every 12h
   workflow_dispatch:
 
 permissions:
@@ -11,15 +11,54 @@ permissions:
   issues: read
   pull-requests: read
 
+max-turns: 10
+max-ai-credits: 100
+
+jobs:
+  fetch-awf-issues:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch open awf issues from github/gh-aw
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
+        run: |
+          mkdir -p "${{ runner.temp }}/awf-data"
+          gh api graphql -f query='
+            query {
+              repository(owner: "github", name: "gh-aw") {
+                issues(labels: ["awf"], states: [OPEN], first: 50) {
+                  nodes {
+                    number
+                    title
+                    body
+                    url
+                    comments(first: 10) {
+                      nodes { author { login } body }
+                    }
+                  }
+                }
+              }
+            }
+          ' > "${{ runner.temp }}/awf-data/awf-issues.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: awf-issues-${{ github.run_id }}
+          path: ${{ runner.temp }}/awf-data/awf-issues.json
+          retention-days: 1
+
+if: needs.fetch-awf-issues.result == 'success'
+
 sandbox:
   agent:
     id: awf
-tools:
-  github:
-    toolsets: [issues]
-    allowed-repos: ["github/gh-aw", "github/gh-aw-firewall"]
-    min-integrity: none
-    github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
+
+steps:
+  - uses: actions/download-artifact@v8
+    with:
+      name: awf-issues-${{ github.run_id }}
+      path: /tmp/gh-aw/data
 
 safe-outputs:
   threat-detection:
@@ -38,29 +77,9 @@ safe-outputs:
 
 You audit open issues in `github/gh-aw` labeled `awf` and create tracking issues in `github/gh-aw-firewall`.
 
-## Step 1: Batch Fetch All Data (ONE command)
+## Step 1: Load Pre-Fetched Data
 
-Run this single `gh` command to get all open `awf` issues with their first 10 comments:
-
-```bash
-gh api graphql -f query='
-  query {
-    repository(owner: "github", name: "gh-aw") {
-      issues(labels: ["awf"], states: [OPEN], first: 50) {
-        nodes {
-          number
-          title
-          body
-          url
-          comments(first: 10) {
-            nodes { author { login } body }
-          }
-        }
-      }
-    }
-  }
-'
-```
+All issue data has been pre-fetched for you. Read the file at `/tmp/gh-aw/data/awf-issues.json`. This contains all open `awf` issues with their first 10 comments. Do **not** run any GraphQL or API commands — all needed data is already in that file.
 
 ## Step 2: Filter Locally
 
@@ -96,5 +115,5 @@ Report: issues found, skipped (already audited), tracking issues created.
 - **Be specific and actionable** — reference source files and functions.
 - **One tracking issue per gh-aw issue** — do not combine.
 - **Propose real solutions** — not just "investigate this."
-- **No extra reads** — do not open `AGENTS.md`, source files, or any workspace files; all needed context is in the GraphQL response above.
+- **No extra reads** — do not open `AGENTS.md`, source files, or any workspace files; all needed context is in `/tmp/gh-aw/data/awf-issues.json`.
 - **Don't retry without diagnosing** — analyze the error before retrying any failed tool call.
