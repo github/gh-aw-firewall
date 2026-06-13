@@ -110,18 +110,15 @@ const legacyApiProxyLogsDirRegex =
 // postinstall script downloads the platform-specific native binary.  Without it,
 // `claude` fails with "native binary not installed".
 
-// Work around gh-aw compiler bug (gh-aw#26565) where Copilot model fallback is
-// emitted at the step level and overrides the workflow-level COPILOT_MODEL env
-// when the repo variables are unset. Older compilers emitted an empty string
-// fallback (`|| ''`); newer compilers emit a hardcoded default model
-// (`|| 'claude-sonnet-4.6'`) and may add an extra `vars.GH_AW_DEFAULT_MODEL_COPILOT`
-// link in the fallback chain. In both cases the step-level value wins over the
-// workflow-level `env: COPILOT_MODEL: ...` we set on BYOK smoke workflows, which
-// breaks targeted BYOK testing (e.g. forcing `o4-mini-aw` against Azure OpenAI).
-// We replace the entire expression with `env.COPILOT_MODEL` so the step inherits
-// the workflow-level default verbatim.
-const copilotModelEmptyFallbackRegex =
-  /(COPILOT_MODEL:\s*\$\{\{\s*vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?'[^']*'(\s*\}\})/g;
+// Work around gh-aw compiler bug (gh-aw#26565) where Copilot model selection is
+// emitted at the step level for BYOK smoke workflows, overriding the
+// workflow-level `env: COPILOT_MODEL: ...` that intentionally pins a
+// low-cost/provider-specific model (for example `claude-haiku-4.5` or
+// `o4-mini-aw`). Normalize every compiled step-level COPILOT_MODEL expression
+// back to `${{ env.COPILOT_MODEL }}` so the workflow-level setting wins even if
+// repo-level default model variables are configured.
+const copilotModelOverrideRegex =
+  /^(\s*COPILOT_MODEL:\s*)\$\{\{\s*(?:vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)?(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?(?:env\.COPILOT_MODEL|''|'[^']*')\s*\}\}[ \t]*$/gm;
 
 // Sentinel used to detect whether the "Copy Copilot session state" step has
 // already been replaced with the AWF-aware inline script.
@@ -543,19 +540,20 @@ for (const workflowPath of workflowPaths) {
   }
 
   // For smoke-copilot-byok variants: replace empty model fallbacks with the
-  // workflow-level COPILOT_MODEL env so the generated step inherits the shared
-  // default without hardcoding a duplicate model string here.
+  // workflow-level COPILOT_MODEL env so the generated step inherits the
+  // workflow's intended BYOK model instead of any repo-level default.
   const isCopilotByokSmoke = /smoke-copilot-byok[^/]*\.lock\.yml$/.test(workflowPath);
   if (isCopilotByokSmoke) {
-    const emptyFallbackMatches = content.match(copilotModelEmptyFallbackRegex);
-    if (emptyFallbackMatches) {
-      content = content.replace(
-        copilotModelEmptyFallbackRegex,
-        '$1env.COPILOT_MODEL$2'
-      );
+    const rewrittenContent = content.replace(
+      copilotModelOverrideRegex,
+      '$1${{ env.COPILOT_MODEL }}'
+    );
+    if (rewrittenContent !== content) {
+      const rewrittenCount = (content.match(copilotModelOverrideRegex) || []).length;
+      content = rewrittenContent;
       modified = true;
       console.log(
-        `  Replaced ${emptyFallbackMatches.length} empty COPILOT_MODEL fallback(s) for BYOK smoke`
+        `  Rewrote ${rewrittenCount} COPILOT_MODEL override(s) to env.COPILOT_MODEL for BYOK smoke`
       );
     }
   }
