@@ -26,6 +26,39 @@ describe('validateCopilotModel', () => {
     expect(result).toEqual({ valid: true, resolvedModel: 'gpt-4.1' });
   });
 
+  it('normalizes hyphenated version separator to canonical dot form (claude-haiku-4-5 → claude-haiku-4.5)', () => {
+    const result = validateCopilotModel('claude-haiku-4-5');
+    expect(result).toEqual({ valid: true, resolvedModel: 'claude-haiku-4.5' });
+  });
+
+  it('normalizes underscore separator to canonical dot form (claude_haiku_4_5 → claude-haiku-4.5)', () => {
+    const result = validateCopilotModel('claude_haiku_4_5');
+    expect(result).toEqual({ valid: true, resolvedModel: 'claude-haiku-4.5' });
+  });
+
+  it('normalizes uppercase + hyphen separators (CLAUDE-HAIKU-4-5 → claude-haiku-4.5)', () => {
+    const result = validateCopilotModel('CLAUDE-HAIKU-4-5');
+    expect(result).toEqual({ valid: true, resolvedModel: 'claude-haiku-4.5' });
+  });
+
+  it('normalizes hyphenated version separator for other models (claude-sonnet-4-6 → claude-sonnet-4.6)', () => {
+    const result = validateCopilotModel('claude-sonnet-4-6');
+    expect(result).toEqual({ valid: true, resolvedModel: 'claude-sonnet-4.6' });
+  });
+
+  it('accepts canonical dot form without normalization (claude-haiku-4.5 → claude-haiku-4.5)', () => {
+    const result = validateCopilotModel('claude-haiku-4.5');
+    expect(result).toEqual({ valid: true, resolvedModel: 'claude-haiku-4.5' });
+  });
+
+  it('still rejects retired aliases regardless of separator (gpt-5-codex stays retired)', () => {
+    const result = validateCopilotModel('gpt-5-codex');
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.reason).toBe('retired');
+    expect(result.message).toContain("Did you mean 'gpt-5.3-codex'?");
+  });
+
   it('rejects unsupported models with suggestion when close to known catalog', () => {
     const result = validateCopilotModel('gpt-5.3-codx');
     expect(result.valid).toBe(false);

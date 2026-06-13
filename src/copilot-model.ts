@@ -13,6 +13,14 @@ export type CopilotModelValidationResult =
   | CopilotModelValidationSuccess
   | CopilotModelValidationFailure;
 
+/**
+ * Normalize separators (`.` and `_`) to `-` for separator-agnostic model matching.
+ * Mirrors the canonicalization used in `containers/api-proxy/model-utils.js`.
+ */
+function normalizeSeparators(s: string): string {
+  return s.replace(/[._]/g, '-');
+}
+
 const RETIRED_COPILOT_MODEL_ALIASES: Record<string, string> = {
   'gpt-5-codex': 'gpt-5.3-codex',
 };
@@ -38,6 +46,16 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'gemini-3.1-pro-preview',
   'gemini-3.5-flash',
 ]);
+
+/** Maps separator-normalized names (all `-`) → canonical model name. */
+const NORMALIZED_TO_CANONICAL = new Map<string, string>(
+  [...SUPPORTED_COPILOT_MODELS].map(m => [normalizeSeparators(m), m]),
+);
+
+/** Maps separator-normalized retired alias keys → canonical replacement. */
+const NORMALIZED_RETIRED_ALIASES = new Map<string, string>(
+  Object.entries(RETIRED_COPILOT_MODEL_ALIASES).map(([k, v]) => [normalizeSeparators(k), v]),
+);
 
 function suggestionFor(model: string): string | undefined {
   let best: { candidate: string; distance: number } | undefined;
@@ -73,8 +91,11 @@ export function validateCopilotModel(rawModel: string): CopilotModelValidationRe
     return { valid: true, resolvedModel: trimmed };
   }
   const normalized = trimmed.toLowerCase();
+  const separatorNormalized = normalizeSeparators(normalized);
 
-  const retiredReplacement = RETIRED_COPILOT_MODEL_ALIASES[normalized];
+  // Check retired aliases (exact, then separator-normalized)
+  const retiredReplacement =
+    RETIRED_COPILOT_MODEL_ALIASES[normalized] ?? NORMALIZED_RETIRED_ALIASES.get(separatorNormalized);
   if (retiredReplacement) {
     return {
       valid: false,
@@ -83,8 +104,15 @@ export function validateCopilotModel(rawModel: string): CopilotModelValidationRe
     };
   }
 
+  // Exact match
   if (SUPPORTED_COPILOT_MODELS.has(normalized)) {
     return { valid: true, resolvedModel: normalized };
+  }
+
+  // Separator-normalized match: treat `.`, `_`, `-` as equivalent
+  const canonicalModel = NORMALIZED_TO_CANONICAL.get(separatorNormalized);
+  if (canonicalModel) {
+    return { valid: true, resolvedModel: canonicalModel };
   }
 
   const suggested = suggestionFor(normalized);
