@@ -1,5 +1,3 @@
-import * as path from 'path';
-import * as fs from 'fs';
 import { WrapperConfig } from '../../types';
 import { logger } from '../../logger';
 import {
@@ -20,96 +18,21 @@ import {
   isLoopbackTcpDockerHostUri,
 } from '../../option-parsers';
 import { getLowerCaseProcessEnvValue } from '../../env-utils';
+import { readEnvVarFromEnvFiles } from '../../parsers/env-parsers';
 import { buildConfig } from '../build-config';
 import { LogAndLimitsResult } from './log-and-limits';
 import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
 
+// ---------------------------------------------------------------------------
+// Post-assembly validation helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Assembles the {@link WrapperConfig} from pre-validated partial results and
- * runs all post-assembly validation guards.
- *
- * This is the final stage of the validation pipeline.  Every input must
- * already be validated by the earlier stages; this function only:
- *  1. Calls {@link buildConfig} to merge everything into a single object.
- *  2. Runs post-config guards that require the fully-assembled config (docker
- *     host URI format, rate limits, feature-flag compatibility, port rules,
- *     API-proxy configuration warnings).
- *
- * Calls `process.exit(1)` on any validation failure so the caller always
- * receives a fully-validated, ready-to-use config object.
+ * Validates docker-host URI format, docker-host-path-prefix, and chroot
+ * binaries source path.  Calls `process.exit(1)` on any failure.
  */
-export function assembleAndValidateConfig(
-  options: Record<string, unknown>,
-  agentCommand: string,
-  logAndLimits: LogAndLimitsResult,
-  networkOptions: NetworkOptionsResult,
-  agentOptions: AgentOptionsResult,
-): WrapperConfig {
-  const readEnvVarFromEnvFiles = (envFile: unknown, key: string): string | undefined => {
-    const envFiles = Array.isArray(envFile) ? envFile : envFile ? [envFile] : [];
-    let lastSeen: string | undefined;
-    const pattern = new RegExp(`^(?:export\\s+)?${key}\\s*=\\s*(.*)$`);
-    for (const candidate of envFiles) {
-      if (typeof candidate !== 'string' || candidate.trim() === '') continue;
-      try {
-        const envFilePath = path.isAbsolute(candidate)
-          ? candidate
-          : path.resolve(process.cwd(), candidate);
-        const envFileContents = fs.readFileSync(envFilePath, 'utf8');
-        for (const line of envFileContents.split(/\r?\n/)) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-          const match = trimmedLine.match(pattern);
-          if (match) {
-            lastSeen = match[1]?.trim() || '';
-          }
-        }
-      } catch {
-        // Ignore unreadable env files here; this check is only for a pre-flight warning.
-      }
-    }
-    return lastSeen;
-  };
-
-  const readCopilotModelFromEnvFiles = (envFile: unknown): string | undefined => {
-    return readEnvVarFromEnvFiles(envFile, 'COPILOT_MODEL');
-  };
-
-  // --- Config assembly -----------------------------------------------------
-
-  const config = buildConfig({
-    options,
-    agentCommand,
-    logLevel: logAndLimits.logLevel,
-    allowedDomains: networkOptions.allowedDomains,
-    blockedDomains: networkOptions.blockedDomains,
-    localhostDetected: networkOptions.localhostResult.localhostDetected,
-    additionalEnv: agentOptions.additionalEnv,
-    volumeMounts: agentOptions.volumeMounts,
-    upstreamProxy: networkOptions.upstreamProxy,
-    dnsServers: networkOptions.dnsServers,
-    dnsOverHttps: networkOptions.dnsOverHttps,
-    allowedUrls: agentOptions.allowedUrls,
-    memoryLimit: logAndLimits.memoryLimit,
-    agentImage: logAndLimits.agentImage,
-    modelAliases: logAndLimits.modelAliases,
-    maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
-    maxAiCredits: logAndLimits.maxAiCredits,
-    effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
-    effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
-    maxModelMultiplierCap: logAndLimits.maxModelMultiplierCap,
-    maxRuns: logAndLimits.maxRuns,
-    maxPermissionDenied: logAndLimits.maxPermissionDenied,
-    resolvedCopilotApiTarget: networkOptions.resolvedCopilotApiTarget,
-    resolvedCopilotApiBasePath: networkOptions.resolvedCopilotApiBasePath,
-    dockerHostPathPrefix: networkOptions.dockerHostPathPrefixResolution.dockerHostPathPrefix,
-  });
-
-  // --- Post-config validations ---------------------------------------------
-
-  // Apply --docker-host override for AWF's own container operations.
-  // This must be called before startContainers/stopContainers/runAgentCommand.
+function validateInfrastructureOptions(config: WrapperConfig): void {
   if (config.awfDockerHost &&
       !config.awfDockerHost.startsWith('unix://') &&
       !isLoopbackTcpDockerHostUri(config.awfDockerHost)) {
@@ -144,11 +67,14 @@ export function assembleAndValidateConfig(
     logger.error('   Example (stdin config): {"chroot":{"binariesSourcePath":"/tmp/gh-aw/runner-bin"}}');
     process.exit(1);
   }
+}
 
-  // Parse and validate --agent-timeout
-  applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);
-
-  // Build rate limit config when API proxy is enabled
+/**
+ * Builds and validates the rate-limit configuration when API proxy is enabled.
+ * Also validates that rate-limit flags are not used without `--enable-api-proxy`.
+ * Calls `process.exit(1)` on any failure.
+ */
+function applyRateLimitConfig(config: WrapperConfig, options: Record<string, unknown>): void {
   if (config.enableApiProxy) {
     const rateLimitResult = buildRateLimitConfig(options);
     if ('error' in rateLimitResult) {
@@ -167,7 +93,13 @@ export function assembleAndValidateConfig(
     logger.error(rateLimitFlagValidation.error!);
     process.exit(1);
   }
+}
 
+/**
+ * Validates feature-flag compatibility constraints (token steering) and logs
+ * environment-forwarding warnings.  Calls `process.exit(1)` on any failure.
+ */
+function validateFeatureFlagCompatibility(config: WrapperConfig): void {
   // Error if --enable-token-steering is used without --enable-api-proxy
   const enableTokenSteeringValidation = validateEnableTokenSteeringFlag(
     config.enableApiProxy ?? false,
@@ -188,7 +120,16 @@ export function assembleAndValidateConfig(
   if (config.envFile) {
     logger.debug(`Loading environment variables from file: ${config.envFile}`);
   }
+}
 
+/**
+ * Validates host-access port rules and incompatible flag combinations.
+ * Calls `process.exit(1)` on any failure.
+ */
+function validateHostAccessConfig(
+  config: WrapperConfig,
+  networkOptions: NetworkOptionsResult,
+): void {
   // Validate --allow-host-service-ports (port format & range)
   const servicePortsResult = applyHostServicePortsConfig(
     config.allowHostServicePorts,
@@ -229,7 +170,17 @@ export function assembleAndValidateConfig(
       logger.warn('   Only use this for trusted workloads (e.g., MCP gateways)');
     }
   }
+}
 
+/**
+ * Validates and logs the API proxy configuration.  Emits warnings for missing
+ * keys and target-domain mismatches.  Calls `process.exit(1)` is not expected
+ * from this guard (warnings only).
+ */
+function validateApiProxyOptions(
+  config: WrapperConfig,
+  networkOptions: NetworkOptionsResult,
+): void {
   // Validate and warn about API proxy configuration
   // Pass booleans (not actual keys) to prevent sensitive data flow to logger.
   // `copilotByokDirect` means the user supplied COPILOT_PROVIDER_API_KEY for direct-BYOK
@@ -279,11 +230,23 @@ export function assembleAndValidateConfig(
 
   // Log CLI proxy status
   emitCliProxyStatusLogs(config, logger.info.bind(logger), logger.warn.bind(logger));
+}
 
+/**
+ * Resolves the effective `COPILOT_MODEL` value (from `--env`, env-file, or host
+ * env when `--env-all` is active), warns on classic-PAT usage, and validates
+ * the model identifier against the known-models list.
+ * Calls `process.exit(1)` on any failure.
+ */
+function validateCopilotModelOption(
+  config: WrapperConfig,
+  agentOptions: AgentOptionsResult,
+): void {
   // Check if COPILOT_MODEL is set via --env/-e flags, --env-file, or host env (when --env-all is active)
   const copilotModelFromFlags = agentOptions.additionalEnv.COPILOT_MODEL;
-  const copilotModelInEnvFile = readCopilotModelFromEnvFiles(
+  const copilotModelInEnvFile = readEnvVarFromEnvFiles(
     (config as { envFile?: unknown }).envFile,
+    'COPILOT_MODEL',
   );
   const copilotModelInHostEnv = config.envAll ? process.env.COPILOT_MODEL : undefined;
   const copilotModel = (
@@ -324,6 +287,68 @@ export function assembleAndValidateConfig(
       COPILOT_MODEL: validation.resolvedModel,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Assembles the {@link WrapperConfig} from pre-validated partial results and
+ * runs all post-assembly validation guards.
+ *
+ * This is the final stage of the validation pipeline.  Every input must
+ * already be validated by the earlier stages; this function only:
+ *  1. Calls {@link buildConfig} to merge everything into a single object.
+ *  2. Runs post-config guards that require the fully-assembled config (docker
+ *     host URI format, rate limits, feature-flag compatibility, port rules,
+ *     API-proxy configuration warnings).
+ *
+ * Calls `process.exit(1)` on any validation failure so the caller always
+ * receives a fully-validated, ready-to-use config object.
+ */
+export function assembleAndValidateConfig(
+  options: Record<string, unknown>,
+  agentCommand: string,
+  logAndLimits: LogAndLimitsResult,
+  networkOptions: NetworkOptionsResult,
+  agentOptions: AgentOptionsResult,
+): WrapperConfig {
+  const config = buildConfig({
+    options,
+    agentCommand,
+    logLevel: logAndLimits.logLevel,
+    allowedDomains: networkOptions.allowedDomains,
+    blockedDomains: networkOptions.blockedDomains,
+    localhostDetected: networkOptions.localhostResult.localhostDetected,
+    additionalEnv: agentOptions.additionalEnv,
+    volumeMounts: agentOptions.volumeMounts,
+    upstreamProxy: networkOptions.upstreamProxy,
+    dnsServers: networkOptions.dnsServers,
+    dnsOverHttps: networkOptions.dnsOverHttps,
+    allowedUrls: agentOptions.allowedUrls,
+    memoryLimit: logAndLimits.memoryLimit,
+    agentImage: logAndLimits.agentImage,
+    modelAliases: logAndLimits.modelAliases,
+    maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
+    maxAiCredits: logAndLimits.maxAiCredits,
+    effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,
+    effectiveTokenDefaultModelMultiplier: logAndLimits.effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap: logAndLimits.maxModelMultiplierCap,
+    maxRuns: logAndLimits.maxRuns,
+    maxPermissionDenied: logAndLimits.maxPermissionDenied,
+    resolvedCopilotApiTarget: networkOptions.resolvedCopilotApiTarget,
+    resolvedCopilotApiBasePath: networkOptions.resolvedCopilotApiBasePath,
+    dockerHostPathPrefix: networkOptions.dockerHostPathPrefixResolution.dockerHostPathPrefix,
+  });
+
+  validateInfrastructureOptions(config);
+  applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);
+  applyRateLimitConfig(config, options);
+  validateFeatureFlagCompatibility(config);
+  validateHostAccessConfig(config, networkOptions);
+  validateApiProxyOptions(config, networkOptions);
+  validateCopilotModelOption(config, agentOptions);
 
   return config;
 }
