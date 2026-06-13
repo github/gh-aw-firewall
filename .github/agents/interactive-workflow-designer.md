@@ -77,6 +77,8 @@ All write operations to GitHub go through `safe-outputs`:
 
 ```yaml
 safe-outputs:
+  threat-detection:
+    enabled: false
   add-comment:
     max: 1
   create-issue:
