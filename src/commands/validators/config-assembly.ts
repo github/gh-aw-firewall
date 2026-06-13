@@ -174,8 +174,8 @@ function validateHostAccessConfig(
 
 /**
  * Validates and logs the API proxy configuration.  Emits warnings for missing
- * keys and target-domain mismatches.  Calls `process.exit(1)` is not expected
- * from this guard (warnings only).
+ * keys and target-domain mismatches. This guard is not expected to call
+ * `process.exit(1)` (warnings only).
  */
 function validateApiProxyOptions(
   config: WrapperConfig,
