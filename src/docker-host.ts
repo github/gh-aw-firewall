@@ -1,3 +1,5 @@
+import { isLoopbackTcpDockerHostUri } from './option-parsers';
+
 /**
  * Optional override for the Docker host used by AWF's own container operations.
  * Set via setAwfDockerHost() from the CLI --docker-host flag.
@@ -11,10 +13,10 @@ let awfDockerHostOverride: string | undefined;
  * When set, overrides DOCKER_HOST for all docker CLI calls made by AWF
  * (compose up/down, docker wait, docker logs, etc.).
  *
- * When not set, AWF auto-detects:
- *  - unix:// DOCKER_HOST values are kept as-is (local socket).
- *  - TCP DOCKER_HOST values (e.g. DinD) are cleared so docker falls back
- *    to the system default socket.
+ * When not set, AWF inspects the current DOCKER_HOST: unix:// sockets and
+ * loopback TCP endpoints (tcp://localhost:*, tcp://127.0.0.1:*) are passed
+ * through unchanged; non-loopback TCP endpoints are cleared so the docker
+ * CLI falls back to the default local socket.
  *
  * @internal Called from cli.ts when --docker-host flag is provided.
  */
@@ -25,10 +27,15 @@ export function setAwfDockerHost(host: string | undefined): void {
 /**
  * Returns an environment object suitable for AWF's own docker CLI calls.
  *
- * When DOCKER_HOST is set to an external TCP daemon (e.g. a workflow-scope
- * DinD sidecar), it is removed so docker/docker-compose use the local Unix
- * socket instead.  When --docker-host was provided via the CLI, that value
- * is used regardless of the environment.
+ * When --docker-host was provided via the CLI, that value is used regardless
+ * of the environment.  Otherwise, the current DOCKER_HOST is filtered:
+ *  - unix:// sockets are passed through unchanged.
+ *  - Loopback TCP endpoints (tcp://localhost:*, tcp://127.0.0.1:*) are
+ *    passed through unchanged — they are the standard ARC/DinD sidecar
+ *    configuration.
+ *  - Any other DOCKER_HOST value (e.g. a remote TCP daemon) is removed so
+ *    the docker CLI falls back to the default local socket, preserving
+ *    AWF's network isolation model.
  *
  * The original DOCKER_HOST value is NOT removed from the agent container's
  * environment — see generateDockerCompose for the passthrough logic.
@@ -37,15 +44,19 @@ export function getLocalDockerEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   if (awfDockerHostOverride !== undefined) {
-    // Explicit CLI override — always use this socket for AWF operations
+    // Explicit CLI override — always use this value for AWF operations
     env.DOCKER_HOST = awfDockerHostOverride;
-  } else {
-    const dockerHost = env.DOCKER_HOST;
-    if (dockerHost && !dockerHost.startsWith('unix://')) {
-      // Non-unix DOCKER_HOST (e.g. tcp://localhost:2375 from a DinD sidecar).
-      // Clear it so AWF's docker commands target the local daemon, not the DinD one.
-      delete env.DOCKER_HOST;
-    }
+    return env;
+  }
+
+  // Pass through unix:// sockets and loopback TCP endpoints unchanged.
+  // For any other DOCKER_HOST value (e.g. a remote TCP daemon), remove it
+  // so docker falls back to the default local socket.
+  const dockerHost = env.DOCKER_HOST;
+  if (dockerHost !== undefined &&
+      !dockerHost.startsWith('unix://') &&
+      !isLoopbackTcpDockerHostUri(dockerHost)) {
+    delete env.DOCKER_HOST;
   }
 
   return env;
