@@ -83,7 +83,7 @@ safe-outputs:
     title-prefix: "[Prefix] "
   create-pull-request:
     title-prefix: "[Prefix] "
-    max-changed-files: 10
+    max: 1
   add-labels:
     allowed: [label1, label2]
   create-discussion:
