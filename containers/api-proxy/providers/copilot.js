@@ -22,6 +22,8 @@ const {
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
   composeBodyTransforms,
+  createOidcRuntimeAdapterMethods,
+  resolveOidcAuthHeaders,
 } = require('../proxy-utils');
 const { createAdapterMethods } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
@@ -72,6 +74,11 @@ function createCopilotAdapter(env, deps = {}) {
   // we surface a non-empty marker here to keep alwaysBind/isEnabled probes happy and
   // resolve the real token lazily inside getAuthHeaders.
   const authToken = staticAuthToken;
+  const oidcRuntimeMethods = createOidcRuntimeAdapterMethods({
+    staticAuthToken: authToken,
+    oidcProvider,
+    awsOidcProvider,
+  });
   // Extra headers to inject on all requests that use the BYOK API key.
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
   // GitHub OAuth (COPILOT_GITHUB_TOKEN-only) requests.
@@ -209,21 +216,7 @@ function createCopilotAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when credentials are present) does.
      */
-    isEnabled() {
-      return !!authToken || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady();
-    },
-
-    /**
-     * Get the OIDC token provider (Azure or GCP — Bearer-token compatible).
-     * Used by startup.js to initialize OIDC on startup.
-     */
-    getOidcProvider() { return oidcProvider; },
-
-    /**
-     * Get the AWS OIDC credential provider (SigV4-based).
-     * Used by startup.js to initialize AWS OIDC on startup and sign requests.
-     */
-    getAwsOidcProvider() { return awsOidcProvider; },
+    ...oidcRuntimeMethods,
 
     /**
      * Build Copilot auth headers for this request.
@@ -257,22 +250,16 @@ function createCopilotAdapter(env, deps = {}) {
         };
       }
 
-      // OIDC (Bearer): Azure Entra / GCP. Acquired lazily, refreshed by the provider.
-      if (oidcProvider) {
-        const token = oidcProvider.getToken();
-        if (token) {
-          return {
-            'Authorization': `Bearer ${token}`,
-            'Copilot-Integration-Id': integrationId,
-          };
-        }
-        // Token not yet available — return no auth header. The proxy layer will
-        // fall back to getUnconfiguredResponse and emit a clear 503.
-        return {};
-      }
-      // AWS OIDC: SigV4 signing is handled at the request layer; emit no static header here.
-      if (awsOidcProvider) {
-        return {};
+      const oidcHeaders = resolveOidcAuthHeaders({
+        oidcProvider,
+        awsOidcProvider,
+        buildOidcHeaders: (token) => ({
+          'Authorization': ['Bearer', token].join(' '),
+          'Copilot-Integration-Id': integrationId,
+        }),
+      });
+      if (oidcHeaders !== null) {
+        return oidcHeaders;
       }
 
       // For inference: BYOK keys use 'Bearer'; GitHub tokens use 'token' on GHES

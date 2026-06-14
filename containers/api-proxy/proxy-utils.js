@@ -260,6 +260,55 @@ function validateAuthHeaderEnv(envVarName, rawValue, defaultHeader) {
   return header;
 }
 
+/**
+ * Build common OIDC runtime adapter methods shared by provider adapters.
+ *
+ * @param {object} opts
+ * @param {string|undefined} [opts.staticAuthToken]
+ * @param {{ isReady?: () => boolean }|null|undefined} [opts.oidcProvider]
+ * @param {{ isReady?: () => boolean }|null|undefined} [opts.awsOidcProvider]
+ * @returns {{
+ *   isEnabled: () => boolean,
+ *   getOidcProvider: () => unknown,
+ *   getAwsOidcProvider: () => unknown
+ * }}
+ */
+function createOidcRuntimeAdapterMethods({ staticAuthToken, oidcProvider, awsOidcProvider }) {
+  return {
+    isEnabled() {
+      return !!staticAuthToken || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady();
+    },
+    getOidcProvider() { return oidcProvider; },
+    getAwsOidcProvider() { return awsOidcProvider; },
+  };
+}
+
+/**
+ * Resolve auth headers for OIDC-enabled adapters.
+ *
+ * Returns:
+ * - OIDC headers object when a bearer-compatible OIDC provider has a token
+ * - empty object when OIDC is configured but no token is available yet
+ * - empty object for AWS OIDC (SigV4 is applied later by request signing)
+ * - null when no OIDC provider is configured (caller should use static auth fallback)
+ *
+ * @param {object} opts
+ * @param {{ getToken: () => (string|undefined|null) }|null|undefined} [opts.oidcProvider]
+ * @param {unknown} [opts.awsOidcProvider]
+ * @param {(token: string) => Record<string, string>} opts.buildOidcHeaders
+ * @returns {Record<string, string>|null}
+ */
+function resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeaders }) {
+  if (oidcProvider) {
+    const token = oidcProvider.getToken();
+    return token ? buildOidcHeaders(token) : {};
+  }
+  if (awsOidcProvider) {
+    return {};
+  }
+  return null;
+}
+
 module.exports = {
   normalizeApiTarget,
   normalizeBasePath,
@@ -271,4 +320,6 @@ module.exports = {
   makeUnconfiguredHealthResponse,
   isValidHeaderName,
   validateAuthHeaderEnv,
+  createOidcRuntimeAdapterMethods,
+  resolveOidcAuthHeaders,
 };

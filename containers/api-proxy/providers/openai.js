@@ -10,7 +10,12 @@
  * Base path: OPENAI_API_BASE_PATH  (default: /v1 for the public endpoint)
  */
 
-const { normalizeBasePath, validateAuthHeaderEnv } = require('../proxy-utils');
+const {
+  normalizeBasePath,
+  validateAuthHeaderEnv,
+  createOidcRuntimeAdapterMethods,
+  resolveOidcAuthHeaders,
+} = require('../proxy-utils');
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 
@@ -74,6 +79,11 @@ function createOpenAIAdapter(env, deps = {}) {
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
   const { authProvider, oidcProvider, awsOidcProvider, oidcConfigured } = resolveCloudOidcProviders(env);
+  const oidcRuntimeMethods = createOidcRuntimeAdapterMethods({
+    staticAuthToken: apiKey,
+    oidcProvider,
+    awsOidcProvider,
+  });
   /**
    * Build a static-key auth header object.
    * When AWF_OPENAI_AUTH_HEADER is set, uses that header name with the raw key.
@@ -121,37 +131,18 @@ function createOpenAIAdapter(env, deps = {}) {
      */
     alwaysBind: true,
 
-    isEnabled() { return !!apiKey || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady(); },
-
-    /**
-     * Get the OIDC token provider (Azure or GCP — Bearer-token compatible).
-     * Used by server.js to initialize OIDC on startup.
-     * @returns {OidcTokenProvider|GcpOidcTokenProvider|null}
-     */
-    getOidcProvider() { return oidcProvider; },
-
-    /**
-     * Get the AWS OIDC credential provider (SigV4-based).
-     * Used by server.js to initialize AWS OIDC on startup and sign requests.
-     * @returns {AwsOidcTokenProvider|null}
-     */
-    getAwsOidcProvider() { return awsOidcProvider; },
+    ...oidcRuntimeMethods,
 
     getAuthHeaders() {
-      // Bearer-token OIDC (Azure, GCP) takes precedence when configured
-      if (oidcProvider) {
-        const token = oidcProvider.getToken();
-        if (token) {
-          return customAuthHeader
-            ? { [customAuthHeader]: token }
-            : { 'Authorization': `Bearer ${token}` };
-        }
-        return {};
-      }
-      // AWS OIDC: SigV4 signing is handled separately; return empty headers
-      // so server.js can apply SigV4 signing to the finalized request.
-      if (awsOidcProvider) {
-        return {};
+      const oidcHeaders = resolveOidcAuthHeaders({
+        oidcProvider,
+        awsOidcProvider,
+        buildOidcHeaders: (token) => (customAuthHeader
+          ? { [customAuthHeader]: token }
+          : { 'Authorization': ['Bearer', token].join(' ') }),
+      });
+      if (oidcHeaders !== null) {
+        return oidcHeaders;
       }
       return buildStaticAuthHeaders(apiKey);
     },
