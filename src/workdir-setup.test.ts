@@ -2,34 +2,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const mockGetRealUserHome = jest.fn();
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
 
-jest.mock('fs', () => {
-  const actual = jest.requireActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    chmodSync: jest.fn((...args: Parameters<typeof actual.chmodSync>) =>
-      actual.chmodSync(...args)
-    ),
-    chownSync: jest.fn(),
-    existsSync: jest.fn((...args: Parameters<typeof actual.existsSync>) =>
-      actual.existsSync(...args)
-    ),
-    lstatSync: jest.fn((...args: Parameters<typeof actual.lstatSync>) =>
-      actual.lstatSync(...args)
-    ) as typeof actual.lstatSync,
-  };
-});
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory());
 
-jest.mock('./host-env', () => ({
-  getSafeHostUid: jest.fn().mockReturnValue('1000'),
-  getSafeHostGid: jest.fn().mockReturnValue('1000'),
-  getRealUserHome: mockGetRealUserHome,
-}));
-
-jest.mock('./host-identity', () => ({
-  getRealUserHome: mockGetRealUserHome,
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 
 import { prepareWorkDirectories } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
