@@ -29,6 +29,6 @@ module.exports = Object.freeze({
   'mai-code-1-flash':           { input: 0.75,  cachedInput: 0.075, cacheWrite: null, output: 4.50 },
   'raptor-mini':                { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
   // Embedding models (output tokens are not produced; output cost is 0)
-  'text-embedding-3-small':     { input: 0.02,  cachedInput: null,  cacheWrite: null, output: 0.00 },
-  'text-embedding-ada-002':     { input: 0.10,  cachedInput: null,  cacheWrite: null, output: 0.00 },
+  'text-embedding-3-small':     { input: 0.02,  cachedInput: 0,     cacheWrite: null, output: 0.00 },
+  'text-embedding-ada-002':     { input: 0.10,  cachedInput: 0,     cacheWrite: null, output: 0.00 },
 });

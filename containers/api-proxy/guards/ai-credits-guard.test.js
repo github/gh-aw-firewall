@@ -122,8 +122,9 @@ describe('ai-credits-guard', () => {
   });
 
   it('resolves text-embedding-3-small with input-only pricing', () => {
-    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-3-small');
+    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 500 }, 'text-embedding-3-small');
     // input: 1M × $0.02/M / 10_000 denominator = 2.0 AIC
+    // output: 500 tokens × $0.00/M = 0 AIC (embedding models produce no output cost)
     expect(usage).not.toBeNull();
     expect(usage.aiCreditsThisResponse).toBeCloseTo(2.0, 5);
     expect(usage.outputCreditsThisResponse).toBe(0);
@@ -137,8 +138,9 @@ describe('ai-credits-guard', () => {
   });
 
   it('resolves text-embedding-ada-002 with input-only pricing', () => {
-    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-ada-002');
+    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 1000 }, 'text-embedding-ada-002');
     // input: 1M × $0.10/M / 10_000 denominator = 10.0 AIC
+    // output: 1000 tokens × $0.00/M = 0 AIC (embedding models produce no output cost)
     expect(usage).not.toBeNull();
     expect(usage.aiCreditsThisResponse).toBeCloseTo(10.0, 5);
     expect(usage.outputCreditsThisResponse).toBe(0);
