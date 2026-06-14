@@ -207,7 +207,7 @@ Create an issue with the following structure:
 2. ...
 
 <details>
-<summary><b>Per-Workflow Details</b></summary>
+<summary><b>Top Per-Workflow Details</b></summary>
 
 #### smoke-copilot
 - **Runs**: 3 (links to each run)
@@ -242,3 +242,5 @@ Runs where `token_usage` was null or 0 \u2014 these may not have the api-proxy e
 - **Wrap verbose output** in `<details>` blocks for progressive disclosure.
 - **Round costs** to 2 decimal places, token counts to nearest thousand for readability.
 - **Sort workflows** by estimated cost (highest first) in the summary table.
+- **Keep output compact**: include detailed bullets for at most the top 10 workflows by token usage; keep remaining workflows in the summary table only.
+- **Avoid verbose rewrites**: if output size is high, trim detail instead of repeatedly reformatting the full report.
