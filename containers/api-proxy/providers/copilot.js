@@ -70,9 +70,9 @@ function createCopilotAdapter(env, deps = {}) {
   } = resolveCloudOidcProviders(env, { skipWhen: !!staticAuthToken });
 
   // authToken is consumed by the existing validation/models-fetch/auth-header paths.
-  // For OIDC mode the token isn't available synchronously at construction time, so
-  // we surface a non-empty marker here to keep alwaysBind/isEnabled probes happy and
-  // resolve the real token lazily inside getAuthHeaders.
+  // In OIDC mode staticAuthToken is typically undefined; enablement is determined by
+  // createOidcRuntimeAdapterMethods + oidcConfigured, and the real token is resolved
+  // lazily inside getAuthHeaders.
   const authToken = staticAuthToken;
   const oidcRuntimeMethods = createOidcRuntimeAdapterMethods({
     staticAuthToken: authToken,

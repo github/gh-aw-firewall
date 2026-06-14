@@ -67,4 +67,14 @@ describe('resolveOidcAuthHeaders', () => {
 
     expect(headers).toBeNull();
   });
+
+  it('bearer OIDC takes precedence when both providers are configured', () => {
+    const headers = resolveOidcAuthHeaders({
+      oidcProvider: { getToken: () => 'bearer-oidc-token' },
+      awsOidcProvider: { isReady: () => true },
+      buildOidcHeaders: (token) => ({ Authorization: `Bearer ${token}` }),
+    });
+
+    expect(headers).toEqual({ Authorization: 'Bearer bearer-oidc-token' });
+  });
 });
