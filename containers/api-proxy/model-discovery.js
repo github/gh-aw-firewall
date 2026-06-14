@@ -21,8 +21,8 @@ const https = require('https');
 const { URL } = require('url');
 const { sanitizeForLog, logRequest } = require('./logging');
 
-// ── Shared proxy agent (from proxy-request to avoid bootstrap duplication) ────
-const { proxyAgent } = require('./proxy-request');
+// ── Shared proxy agent ────────────────────────────────────────────────────────
+const { proxyAgent } = require('./http-client');
 
 const MODELS_LOG_DIR = process.env.AWF_API_PROXY_LOG_DIR || '/var/log/api-proxy';
 

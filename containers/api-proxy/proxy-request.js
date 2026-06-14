@@ -8,12 +8,13 @@
  */
 
 const https = require('https');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+const { HTTPS_PROXY, proxyAgent } = require('./http-client');
+const { createBodyHandler, sleep, _setSleepForTests, _resetSleepForTests } = require('./body-handler');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
-const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
+const { injectSteeringMessage } = require('./body-transform');
 const {
   maybeStripLearnedHeaderValues,
   resetDeprecatedHeaderValuesForTests,
@@ -104,32 +105,16 @@ try {
   }
 }
 
-// ── Module-level constants (read from env at load time) ───────────────────────
-const HTTPS_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-const proxyAgent = HTTPS_PROXY ? new HttpsProxyAgent(HTTPS_PROXY) : undefined;
-
-/** Maximum request body size: 10 MB to prevent DoS via large payloads. */
-const MAX_BODY_SIZE = 10 * 1024 * 1024;
+// ── Module-level constants ────────────────────────────────────────────────────
 
 /** Shared RateLimiter instance. */
 const limiter = rateLimiter.create();
-
-/** When false, token-budget warnings are never injected into request bodies. */
-const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
  * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
  */
 const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
-
-/** Resolves after `ms` milliseconds (overridable in tests via module-level setter). */
-let _sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/** @internal Test-only: replace the sleep implementation so retries are instant. */
-function _setSleepForTests(fn) { _sleep = fn; }
-/** @internal Test-only: restore the real sleep implementation. */
-function _resetSleepForTests() { _sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms)); }
 
 function getUrlPathForSpan(requestUrl) {
   if (typeof requestUrl !== 'string' || !requestUrl) return '/';
@@ -201,6 +186,8 @@ function handleRequestError(err, {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: clientMessage, message: err.message }));
 }
+
+const { collectRequestBody, transformRequestBody } = createBodyHandler({ handleRequestError, otel });
 
 const checkRateLimit = createRateLimitChecker({
   limiter,
@@ -334,7 +321,7 @@ function sendUpstreamRequest(requestHeaders, {
       }),
       onModelNotSupportedRetry: () => {
         const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
-        _sleep(delayMs).then(() => {
+        sleep(delayMs).then(() => {
           sendUpstreamRequest(requestHeaders, {
             body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
             hasRetried,
@@ -512,148 +499,6 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
 }
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
-
-/**
- * Collect the full request body from the inbound stream, enforcing the 10 MB
- * size limit. Sends a 413 response inline when the limit is exceeded, and
- * handles client stream errors with a 400 response.
- *
- * @param {import('http').IncomingMessage} req
- * @param {string} provider
- * @param {string} requestId
- * @param {import('http').ServerResponse} res
- * @param {object} span - OTEL span (or no-op shim)
- * @param {number} startTime - Request start timestamp (ms)
- * @param {string} targetHost - Upstream hostname (used in log fields)
- * @returns {Promise<Buffer|null>} Collected body, or null if the request was
- *   already rejected (413) or errored before the body was fully received.
- */
-function collectRequestBody(req, provider, requestId, res, span, startTime, targetHost) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    let totalBytes = 0;
-    let settled = false;
-
-    function settle(value) {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    }
-
-    req.on('close', () => {
-      if (settled || req.complete) return;
-      const duration = Date.now() - startTime;
-      metrics.gaugeDec('active_requests', { provider });
-      logRequest('warn', 'request_aborted', {
-        request_id: requestId, provider, method: req.method,
-        path: sanitizeForLog(req.url), duration_ms: duration,
-        upstream_host: targetHost,
-      });
-      otel.endSpan(span, 0);
-      settle(null);
-    });
-
-    req.on('error', (err) => {
-      if (settled) return;
-      otel.endSpanError(span, err, 400);
-      handleRequestError(err, {
-        res, requestId, provider, req, targetHost,
-        startTime, statusCode: 400, clientMessage: 'Client error',
-      });
-      settle(null);
-    });
-
-    req.on('data', (chunk) => {
-      if (settled) return;
-      totalBytes += chunk.length;
-      if (totalBytes > MAX_BODY_SIZE) {
-        const duration = Date.now() - startTime;
-        metrics.gaugeDec('active_requests', { provider });
-        metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-        logRequest('warn', 'request_complete', {
-          request_id: requestId, provider, method: req.method,
-          path: sanitizeForLog(req.url), status: 413, duration_ms: duration,
-          request_bytes: totalBytes, upstream_host: targetHost,
-        });
-        otel.endSpan(span, 413);
-        if (!res.headersSent) res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Payload Too Large', message: 'Request body exceeds 10 MB limit' }));
-        settle(null);
-        return;
-      }
-      chunks.push(chunk);
-    });
-
-    req.on('end', () => {
-      settle(Buffer.concat(chunks));
-    });
-  });
-}
-
-/**
- * Apply the sequential body-transform pipeline to the raw inbound body.
- *
- * Transforms applied in order:
- *   1. `bodyTransform` — optional caller-supplied transform
- *   2. `sanitizeNullToolCallTypes` — strips/normalizes null tool-call types
- *   3. `injectSteeringMessage` — timeout + token-budget steering (when enabled)
- *   4. `injectStreamOptions` — adds `stream_options.include_usage`
- *
- * @param {Buffer} body
- * @param {string} provider
- * @param {import('http').IncomingMessage} req
- * @param {string} requestId
- * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} bodyTransform
- * @returns {Promise<Buffer>}
- */
-async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
-  if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
-    const transformed = await bodyTransform(body);
-    if (transformed) body = transformed;
-  }
-
-  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    const sanitized = sanitizeNullToolCallTypes(body);
-    if (sanitized) {
-      body = sanitized.body;
-      logRequest('info', 'request_sanitized', {
-        request_id: requestId,
-        provider,
-        normalized_tool_calls: sanitized.normalizedCount,
-        dropped_tool_calls: sanitized.droppedCount,
-      });
-    }
-  }
-
-  if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
-    const steeringMessages = [
-      { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
-      { type: 'token', message: getAndClearPendingSteeringMessage() },
-    ];
-    for (const { type, message } of steeringMessages) {
-      if (!message) continue;
-      const steered = injectSteeringMessage(body, provider, message);
-      if (steered) {
-        body = steered;
-        logRequest('info', `${type}_steering`, {
-          request_id: requestId,
-          provider,
-          message,
-        });
-      }
-    }
-  }
-
-  // Inject stream_options.include_usage so streaming responses include token data
-  if (req.method === 'POST') {
-    const streamOpts = injectStreamOptions(body, provider, req.url);
-    if (streamOpts) {
-      body = streamOpts.body;
-    }
-  }
-
-  return body;
-}
 
 /**
  * Forward a request to the target API, injecting auth headers and routing through Squid.
