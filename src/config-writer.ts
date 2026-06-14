@@ -8,6 +8,14 @@ import { generateSessionCa, initSslDb, parseUrlPatterns, isOpenSslAvailable } fr
 import { SslConfig, SQUID_PORT } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import { resolveLogPaths } from './log-paths';
+import {
+  AGENT_IP,
+  API_PROXY_IP,
+  CLI_PROXY_IP,
+  DOH_PROXY_IP,
+  NETWORK_SUBNET,
+  SQUID_IP,
+} from './host-iptables-shared';
 import { prepareWorkDirectories } from './workdir-setup';
 
 // When bundled with esbuild, this global is replaced at build time with the
@@ -17,7 +25,7 @@ declare const __AWF_SECCOMP_PROFILE__: string | undefined;
 
 /**
  * Writes configuration files to disk
- * Uses fixed network configuration (172.30.0.0/24) defined in host-iptables.ts
+ * Uses fixed network configuration defined in host-iptables-shared.ts
  */
 export async function writeConfigs(config: WrapperConfig): Promise<void> {
   logger.debug('Writing configuration files...');
@@ -48,12 +56,12 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
 
   // Use fixed network configuration (network is created by host-iptables.ts)
   const networkConfig = {
-    subnet: '172.30.0.0/24',
-    squidIp: '172.30.0.10',
-    agentIp: '172.30.0.20',
-    proxyIp: '172.30.0.30',  // Envoy API proxy sidecar
-    dohProxyIp: '172.30.0.40',  // DoH proxy sidecar
-    cliProxyIp: '172.30.0.50',  // CLI proxy sidecar
+    subnet: NETWORK_SUBNET,
+    squidIp: SQUID_IP,
+    agentIp: AGENT_IP,
+    proxyIp: API_PROXY_IP,  // Envoy API proxy sidecar
+    dohProxyIp: DOH_PROXY_IP,  // DoH proxy sidecar
+    cliProxyIp: CLI_PROXY_IP,  // CLI proxy sidecar
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 

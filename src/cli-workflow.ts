@@ -2,6 +2,7 @@ import { WrapperConfig } from './types';
 import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
+import { CLI_PROXY_IP, DOH_PROXY_IP } from './host-iptables-shared';
 
 interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
@@ -52,7 +53,7 @@ export async function runMainWorkflow(
   const dnsServers = config.dnsServers || DEFAULT_DNS_SERVERS;
   const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
   // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
-  const dohProxyIp = config.dnsOverHttps ? '172.30.0.40' : undefined;
+  const dohProxyIp = config.dnsOverHttps ? DOH_PROXY_IP : undefined;
   const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
     ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
     : undefined;
@@ -61,7 +62,7 @@ export async function runMainWorkflow(
   let cliProxyConfig: CliProxyHostConfig | undefined;
   if (config.difcProxyHost) {
     const { port } = parseDifcProxyHost(config.difcProxyHost);
-    cliProxyConfig = { ip: '172.30.0.50', difcProxyPort: parseInt(port, 10) };
+    cliProxyConfig = { ip: CLI_PROXY_IP, difcProxyPort: parseInt(port, 10) };
   }
   await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig);
   onHostIptablesSetup?.();

@@ -1,7 +1,7 @@
 import execa from 'execa';
 import { logger } from './logger';
 import { getLocalDockerEnv } from './docker-manager';
-import { NETWORK_NAME, NETWORK_SUBNET } from './host-iptables-shared';
+import { AGENT_IP, API_PROXY_IP, NETWORK_NAME, NETWORK_SUBNET, SQUID_IP } from './host-iptables-shared';
 
 /**
  * Creates the dedicated firewall network if it doesn't exist
@@ -42,8 +42,8 @@ export async function ensureFirewallNetwork(): Promise<{
 
   return {
     subnet: NETWORK_SUBNET,
-    squidIp: '172.30.0.10',
-    agentIp: '172.30.0.20',
-    proxyIp: '172.30.0.30',
+    squidIp: SQUID_IP,
+    agentIp: AGENT_IP,
+    proxyIp: API_PROXY_IP,
   };
 }

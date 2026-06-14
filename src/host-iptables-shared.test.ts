@@ -1,5 +1,11 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import {
+  AGENT_IP,
+  API_PROXY_IP,
+  CLI_PROXY_IP,
+  DOH_PROXY_IP,
+  NETWORK_SUBNET,
+  SQUID_IP,
   addDnsRules,
   cleanupChain,
   disableIpv6ViaSysctl,
@@ -13,6 +19,17 @@ import { logger } from './logger';
 
 describe('host-iptables-shared', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
+
+  describe('network constants', () => {
+    it('exports fixed container network addresses', () => {
+      expect(NETWORK_SUBNET).toBe('172.30.0.0/24');
+      expect(SQUID_IP).toBe('172.30.0.10');
+      expect(AGENT_IP).toBe('172.30.0.20');
+      expect(API_PROXY_IP).toBe('172.30.0.30');
+      expect(DOH_PROXY_IP).toBe('172.30.0.40');
+      expect(CLI_PROXY_IP).toBe('172.30.0.50');
+    });
+  });
 
   describe('cleanupChain', () => {
     it('removes matching DOCKER-USER references in reverse order before deleting the chain', async () => {
