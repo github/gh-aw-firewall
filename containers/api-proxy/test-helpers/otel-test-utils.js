@@ -18,7 +18,10 @@ function loadOtelModule(envOverrides = {}) {
     saved[k] = process.env[k];
     delete process.env[k];
   }
-  Object.assign(process.env, envOverrides);
+  for (const [k, v] of Object.entries(envOverrides)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = String(v);
+  }
 
   jest.resetModules();
   const mod = require('../otel');
