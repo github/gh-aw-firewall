@@ -350,6 +350,13 @@ export function isDomainMatchedByPattern(
 const URL_CHAR_PATTERN = '[^\\s]*';
 
 /**
+ * Regex pattern for matching hostname characters.
+ * Unlike URL_CHAR_PATTERN, this does NOT match '/' to prevent hostname wildcards
+ * from crossing the host/path boundary (e.g., `api-*` must not match `/`).
+ */
+const HOST_CHAR_PATTERN = '[^\\s/]*';
+
+/**
  * Parses URL patterns for SSL Bump ACL rules
  *
  * Converts user-friendly URL patterns into Squid url_regex ACL patterns.
@@ -370,18 +377,38 @@ export function parseUrlPatterns(patterns: string[]): string[] {
     const WILDCARD_PLACEHOLDER = '\x00WILDCARD\x00';
     p = p.replace(/\.\*/g, WILDCARD_PLACEHOLDER);
 
-    // Escape regex special characters except *
-    p = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    // Split into host and path portions to apply different wildcard patterns.
+    // Wildcards in hostname must not match '/' to prevent host/path boundary crossing.
+    const schemeMatch = p.match(/^(https?:\/\/)/);
+    const schemeLen = schemeMatch ? schemeMatch[1].length : 0;
+    const firstSlashAfterScheme = p.indexOf('/', schemeLen);
 
-    // Convert * wildcards to safe pattern (prevents ReDoS)
-    p = p.replace(/\*/g, URL_CHAR_PATTERN);
+    let hostPart: string;
+    let pathPart: string;
+    if (firstSlashAfterScheme === -1) {
+      hostPart = p;
+      pathPart = '';
+    } else {
+      hostPart = p.slice(0, firstSlashAfterScheme);
+      pathPart = p.slice(firstSlashAfterScheme);
+    }
+
+    // Escape regex special characters except * in each part
+    hostPart = hostPart.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    pathPart = pathPart.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+    // Convert * wildcards: HOST_CHAR_PATTERN for hostname, URL_CHAR_PATTERN for path
+    hostPart = hostPart.replace(/\*/g, HOST_CHAR_PATTERN);
+    pathPart = pathPart.replace(/\*/g, URL_CHAR_PATTERN);
+
+    p = hostPart + pathPart;
 
     // Restore preserved patterns from placeholder
     p = p.replace(new RegExp(WILDCARD_PLACEHOLDER, 'g'), URL_CHAR_PATTERN);
 
     // Anchor the pattern
-    // If pattern ends with the URL char pattern (from wildcard), don't add end anchor
-    if (p.endsWith(URL_CHAR_PATTERN)) {
+    // If pattern ends with a wildcard char pattern, don't add end anchor
+    if (p.endsWith(URL_CHAR_PATTERN) || p.endsWith(HOST_CHAR_PATTERN)) {
       return `^${p}`;
     }
     // For exact matches, add end anchor

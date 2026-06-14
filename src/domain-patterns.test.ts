@@ -491,6 +491,8 @@ describe('isDomainMatchedByPattern', () => {
 
 // Pattern constant for the safer URL character class (matches the implementation)
 const URL_CHAR_PATTERN = '[^\\s]*';
+// Pattern for hostname wildcards (cannot match '/')
+const HOST_CHAR_PATTERN = '[^\\s/]*';
 
 describe('parseUrlPatterns', () => {
   it('should escape regex special characters except wildcards', () => {
@@ -505,7 +507,17 @@ describe('parseUrlPatterns', () => {
 
   it('should handle multiple wildcards', () => {
     const patterns = parseUrlPatterns(['https://api-*.example.com/*']);
-    expect(patterns).toEqual([`^https://api-${URL_CHAR_PATTERN}\\.example\\.com/${URL_CHAR_PATTERN}`]);
+    expect(patterns).toEqual([`^https://api-${HOST_CHAR_PATTERN}\\.example\\.com/${URL_CHAR_PATTERN}`]);
+  });
+
+  it('should prevent hostname wildcard from matching path separators', () => {
+    const patterns = parseUrlPatterns(['https://api-*.example.com/path']);
+    const regex = new RegExp(patterns[0]);
+    // Should match valid subdomain variations
+    expect(regex.test('https://api-v1.example.com/path')).toBe(true);
+    expect(regex.test('https://api-staging.example.com/path')).toBe(true);
+    // Should NOT match URLs where the wildcard crosses the host/path boundary
+    expect(regex.test('https://api-evil.attacker.com/.example.com/path')).toBe(false);
   });
 
   it('should remove trailing slash for consistency', () => {
