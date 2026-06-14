@@ -8,6 +8,10 @@ permissions:
   actions: read
   issues: read
   pull-requests: read
+max-turns: 4
+engine:
+  id: copilot
+  model: claude-haiku-4.5
 imports:
   - shared/mcp-pagination.md
   - uses: shared/mcp/gh-aw.md
