@@ -282,6 +282,20 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getReflectionInfo().auth_type).toBe('static-key');
   });
 
+  it('should not warn when COPILOT_PROVIDER_BASE_URL includes a path', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      createOpenAIAdapter({
+        COPILOT_PROVIDER_TYPE: 'azure',
+        COPILOT_PROVIDER_BASE_URL: 'https://my-resource.openai.azure.com/openai/deployments/gpt-5?api-version=2024-02-01',
+        COPILOT_PROVIDER_API_KEY: 'azure-byok-key',
+      });
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('should prefer explicit OPENAI_* config over Copilot Azure BYOK env vars', () => {
     const adapter = createOpenAIAdapter({
       OPENAI_API_KEY: 'sk-openai',

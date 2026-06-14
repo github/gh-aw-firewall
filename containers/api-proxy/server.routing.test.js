@@ -6,6 +6,7 @@
 
 const {
   normalizeApiTarget,
+  parseApiTargetAndBasePath,
   normalizeBasePath,
   buildUpstreamPath,
   makeProviderNotConfiguredResponse,
@@ -49,6 +50,22 @@ describe('normalizeApiTarget', () => {
 
   it('should discard query and fragment from URL', () => {
     expect(normalizeApiTarget('https://my-gateway.example.com/path?key=val#frag')).toBe('my-gateway.example.com');
+  });
+});
+
+describe('parseApiTargetAndBasePath', () => {
+  it('extracts hostname and normalized path from full URL', () => {
+    expect(parseApiTargetAndBasePath('https://my-gateway.example.com/openai/deployments/gpt-5'))
+      .toEqual({ target: 'my-gateway.example.com', basePath: '/openai/deployments/gpt-5' });
+  });
+
+  it('extracts hostname and path from schemeless URL-like value', () => {
+    expect(parseApiTargetAndBasePath('my-gateway.example.com/openai/deployments/gpt-5'))
+      .toEqual({ target: 'my-gateway.example.com', basePath: '/openai/deployments/gpt-5' });
+  });
+
+  it('returns empty values for invalid input', () => {
+    expect(parseApiTargetAndBasePath('://invalid')).toEqual({ target: undefined, basePath: '' });
   });
 });
 
