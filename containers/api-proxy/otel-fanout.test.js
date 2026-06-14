@@ -5,6 +5,7 @@
  */
 
 const { FanOutSpanExporter } = require('./otel-exporters');
+const { loadOtelModule } = require('./test-helpers/otel-test-utils');
 
 // ── FanOutSpanExporter unit tests ─────────────────────────────────────────────
 
@@ -99,32 +100,7 @@ describe('FanOutSpanExporter', () => {
 
 describe('_parseEndpoints', () => {
   function loadOtelFresh(envOverrides = {}) {
-    const saved = {};
-    const keys = [
-      'GH_AW_OTLP_ENDPOINTS',
-      'OTEL_EXPORTER_OTLP_ENDPOINT',
-      'OTEL_EXPORTER_OTLP_HEADERS',
-      'OTEL_SERVICE_NAME',
-      'GITHUB_AW_OTEL_TRACE_ID',
-      'GITHUB_AW_OTEL_PARENT_SPAN_ID',
-      'HTTPS_PROXY',
-      'HTTP_PROXY',
-      'AWF_VERSION',
-    ];
-    for (const k of keys) {
-      saved[k] = process.env[k];
-      delete process.env[k];
-    }
-    Object.assign(process.env, envOverrides);
-
-    jest.resetModules();
-    const mod = require('./otel');
-
-    for (const k of keys) {
-      if (saved[k] !== undefined) process.env[k] = saved[k];
-      else delete process.env[k];
-    }
-    return mod;
+    return loadOtelModule(envOverrides);
   }
 
   test('returns empty array when env var is absent', () => {
@@ -209,32 +185,7 @@ describe('_parseEndpoints', () => {
 
 describe('otel fan-out initialization', () => {
   function loadOtelFresh(envOverrides = {}) {
-    const saved = {};
-    const keys = [
-      'GH_AW_OTLP_ENDPOINTS',
-      'OTEL_EXPORTER_OTLP_ENDPOINT',
-      'OTEL_EXPORTER_OTLP_HEADERS',
-      'OTEL_SERVICE_NAME',
-      'GITHUB_AW_OTEL_TRACE_ID',
-      'GITHUB_AW_OTEL_PARENT_SPAN_ID',
-      'HTTPS_PROXY',
-      'HTTP_PROXY',
-      'AWF_VERSION',
-    ];
-    for (const k of keys) {
-      saved[k] = process.env[k];
-      delete process.env[k];
-    }
-    Object.assign(process.env, envOverrides);
-
-    jest.resetModules();
-    const mod = require('./otel');
-
-    for (const k of keys) {
-      if (saved[k] !== undefined) process.env[k] = saved[k];
-      else delete process.env[k];
-    }
-    return mod;
+    return loadOtelModule(envOverrides);
   }
 
   test('initializes with FanOutSpanExporter when multiple endpoints configured', () => {
