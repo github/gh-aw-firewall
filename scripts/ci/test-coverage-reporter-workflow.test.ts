@@ -68,5 +68,12 @@ describe('test coverage reporter workflow token optimization config', () => {
     // Token optimization: FUNC_AUDIT uses branch counts (not ternary line listing)
     expect(lock).toContain('branch count');
     expect(lock).toContain('if-branches:');
+
+    // Expression variables must be double-quoted so they expand at runtime
+    const echoLines = lock.match(/echo .+GH_AW_EXPR_/g) || [];
+    expect(echoLines.length).toBeGreaterThan(0);
+    for (const line of echoLines) {
+      expect(line).toMatch(/echo "\$/);
+    }
   });
 });
