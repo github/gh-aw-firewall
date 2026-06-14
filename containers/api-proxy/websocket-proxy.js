@@ -4,6 +4,53 @@ const http = require('http');
 const tls = require('tls');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
+const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+
+/** Maps numeric status codes used by guards to HTTP/1.1 reason phrases. */
+const HTTP_STATUS_LINES = {
+  400: '400 Bad Request',
+  403: '403 Forbidden',
+  429: '429 Too Many Requests',
+};
+
+/**
+ * Enforce all common security guards for a WebSocket upgrade request.
+ * Writes a raw HTTP error response to the socket and destroys it when any
+ * guard triggers, then returns true.  Returns false when all guards pass.
+ *
+ * @param {object} ctx
+ * @param {import('net').Socket} ctx.socket
+ * @param {Function} ctx.logRequest
+ * @param {string} ctx.requestId
+ * @param {string} ctx.provider
+ * @param {object} guardDeps - Guard state getter and error-builder functions
+ *   (same shape as the `deps` parameter of buildCommonGuardChecks).
+ * @returns {boolean} true when a guard blocked the request.
+ */
+function enforceWebSocketGuards({ socket, logRequest, requestId, provider }, guardDeps) {
+  // WebSocket upgrade requests have no JSON body, so model-specific guards
+  // receive null and are skipped (their getters return null for null models).
+  const guardChecks = buildCommonGuardChecks(guardDeps, null);
+
+  for (const guard of guardChecks) {
+    if (!guard.isBlocked(guard.block)) continue;
+
+    const block = guard.block;
+    logRequest('warn', guard.eventName, {
+      request_id: requestId,
+      provider,
+      ...guard.buildLogFields(block),
+    });
+
+    const statusLine = HTTP_STATUS_LINES[guard.statusCode] || String(guard.statusCode);
+    socket.write(`HTTP/1.1 ${statusLine}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n`);
+    socket.write(JSON.stringify(guard.buildError(block)));
+    socket.destroy();
+    return true;
+  }
+
+  return false;
+}
 
 function createProxyWebSocket({
   limiter,
@@ -23,8 +70,28 @@ function createProxyWebSocket({
   buildPermissionDeniedLimitError,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  getModelMultiplierCapBlockState,
+  buildModelMultiplierCapError,
+  getRetiredModelBlockState,
+  buildRetiredModelError,
+  checkUnknownModelRejection,
   trackWebSocketTokenUsage,
 }) {
+  const guardDeps = {
+    getEffectiveTokenBlockState,
+    buildEffectiveTokenLimitError,
+    getMaxRunsBlockState,
+    buildMaxRunsExceededError,
+    getPermissionDeniedBlockState,
+    buildPermissionDeniedLimitError,
+    getAiCreditsBlockState,
+    buildAiCreditsLimitError,
+    getModelMultiplierCapBlockState,
+    buildModelMultiplierCapError,
+    getRetiredModelBlockState,
+    buildRetiredModelError,
+    checkUnknownModelRejection,
+  };
   /**
    * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.
    *
@@ -65,60 +132,7 @@ function createProxyWebSocket({
 
     const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-    const etBlock = getEffectiveTokenBlockState();
-    if (etBlock && etBlock.maxExceeded) {
-      logRequest('warn', 'effective_tokens_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        total_effective_tokens: etBlock.totalEffectiveTokens,
-        max_effective_tokens: etBlock.maxEffectiveTokens,
-      });
-      socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-      socket.write(JSON.stringify(buildEffectiveTokenLimitError(etBlock)));
-      socket.destroy();
-      return;
-    }
-
-    const mrBlock = getMaxRunsBlockState();
-    if (mrBlock && mrBlock.maxExceeded) {
-      logRequest('warn', 'max_runs_exceeded', {
-        request_id: requestId,
-        provider,
-        invocation_count: mrBlock.invocationCount,
-        max_runs: mrBlock.maxRuns,
-      });
-      socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-      socket.write(JSON.stringify(buildMaxRunsExceededError(mrBlock)));
-      socket.destroy();
-      return;
-    }
-
-    const pdBlock = getPermissionDeniedBlockState();
-    if (pdBlock && pdBlock.maxExceeded) {
-      logRequest('warn', 'permission_denied_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        denied_count: pdBlock.deniedCount,
-        max_permission_denied: pdBlock.maxPermissionDenied,
-      });
-      socket.write('HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-      socket.write(JSON.stringify(buildPermissionDeniedLimitError(pdBlock)));
-      socket.destroy();
-      return;
-    }
-
-    const aiCreditsBlock = getAiCreditsBlockState();
-    if (aiCreditsBlock && aiCreditsBlock.maxExceeded) {
-      logRequest('warn', 'ai_credits_limit_exceeded', {
-        request_id: requestId,
-        provider,
-        total_ai_credits: aiCreditsBlock.totalAiCredits,
-        max_ai_credits: aiCreditsBlock.maxAiCredits,
-        hard_cap: aiCreditsBlock.hardCap === true,
-      });
-      socket.write('HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n');
-      socket.write(JSON.stringify(buildAiCreditsLimitError(aiCreditsBlock)));
-      socket.destroy();
+    if (enforceWebSocketGuards({ socket, logRequest, requestId, provider }, guardDeps)) {
       return;
     }
 

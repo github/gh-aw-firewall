@@ -66,6 +66,7 @@ const {
   buildRetiredModelError,
 } = require('./guards/retired-model-guard');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
+const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -228,6 +229,11 @@ const proxyWebSocket = createProxyWebSocket({
   buildPermissionDeniedLimitError,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  getModelMultiplierCapBlockState,
+  buildModelMultiplierCapError,
+  getRetiredModelBlockState,
+  buildRetiredModelError,
+  checkUnknownModelRejection,
   trackWebSocketTokenUsage,
 });
 
@@ -402,92 +408,23 @@ function sendGuardBlockedResponse(block, {
 
 function enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes }) {
   const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
-  const guardChecks = [
-    {
-      block: getEffectiveTokenBlockState(),
-      isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
-      eventName: 'effective_tokens_limit_exceeded',
-      buildError: buildEffectiveTokenLimitError,
-      buildLogFields: block => ({
-        total_effective_tokens: block.totalEffectiveTokens,
-        max_effective_tokens: block.maxEffectiveTokens,
-      }),
-    },
-    {
-      block: getMaxRunsBlockState(),
-      isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
-      eventName: 'max_runs_exceeded',
-      buildError: buildMaxRunsExceededError,
-      buildLogFields: block => ({
-        invocation_count: block.invocationCount,
-        max_runs: block.maxRuns,
-      }),
-    },
-    {
-      block: getPermissionDeniedBlockState(),
-      isBlocked: block => block && block.maxExceeded,
-      statusCode: 403,
-      eventName: 'permission_denied_limit_exceeded',
-      buildError: buildPermissionDeniedLimitError,
-      buildLogFields: block => ({
-        denied_count: block.deniedCount,
-        max_permission_denied: block.maxPermissionDenied,
-      }),
-    },
-    {
-      block: getAiCreditsBlockState(),
-      isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
-      eventName: 'ai_credits_limit_exceeded',
-      buildError: buildAiCreditsLimitError,
-      buildLogFields: block => ({
-        total_ai_credits: block.totalAiCredits,
-        max_ai_credits: block.maxAiCredits,
-        hard_cap: block.hardCap === true,
-      }),
-    },
-    ...(checkModelMultiplier
-      ? [{
-        block: getModelMultiplierCapBlockState(extractModelFromBody(body)),
-        isBlocked: block => !!block,
-        statusCode: 400,
-        eventName: 'model_multiplier_cap_exceeded',
-        buildError: buildModelMultiplierCapError,
-        buildLogFields: block => ({
-          model: block.model,
-          model_multiplier: block.multiplier,
-          max_model_multiplier: block.maxModelMultiplier,
-        }),
-      }]
-      : []),
-    ...(checkModelMultiplier
-      ? [{
-        block: getRetiredModelBlockState(extractModelFromBody(body)),
-        isBlocked: block => !!block,
-        statusCode: 400,
-        eventName: 'retired_model',
-        buildError: buildRetiredModelError,
-        buildLogFields: block => ({
-          model: block.model,
-          suggestion: block.suggestion,
-        }),
-      }]
-      : []),
-    ...(checkModelMultiplier
-      ? [{
-        block: checkUnknownModelRejection(extractModelFromBody(body)),
-        isBlocked: block => !!block,
-        statusCode: 400,
-        eventName: 'unknown_model_ai_credits',
-        buildError: block => block.error,
-        buildLogFields: block => ({
-          model: block.model,
-        }),
-      }]
-      : []),
-  ];
+  const model = checkModelMultiplier ? extractModelFromBody(body) : null;
+
+  const guardChecks = buildCommonGuardChecks({
+    getEffectiveTokenBlockState,
+    buildEffectiveTokenLimitError,
+    getMaxRunsBlockState,
+    buildMaxRunsExceededError,
+    getPermissionDeniedBlockState,
+    buildPermissionDeniedLimitError,
+    getAiCreditsBlockState,
+    buildAiCreditsLimitError,
+    getModelMultiplierCapBlockState,
+    buildModelMultiplierCapError,
+    getRetiredModelBlockState,
+    buildRetiredModelError,
+    checkUnknownModelRejection,
+  }, model);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;

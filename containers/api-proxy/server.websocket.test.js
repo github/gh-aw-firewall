@@ -276,3 +276,106 @@ describe('proxyWebSocket', () => {
     });
   });
 });
+
+// ── Security guard tests ──────────────────────────────────────────────────────
+//
+// These tests verify that all common security guards are enforced on the
+// WebSocket upgrade path using the shared buildCommonGuardChecks factory.
+// Guards are triggered by directly calling their apply functions (same
+// technique used in guards/*.test.js unit tests).
+
+describe('proxyWebSocket security guards', () => {
+  let wsProxy;
+  let applyMaxRunsInvocation, resetMaxRunsGuardForTests;
+  let applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests;
+  let applyPermissionDenied, resetPermissionDeniedGuardForTests;
+  let applyAiCreditsUsage, resetAiCreditsGuardForTests;
+
+  beforeAll(() => {
+    jest.resetModules();
+    wsProxy = require('./server').proxyWebSocket;
+    ({ applyMaxRunsInvocation, resetMaxRunsGuardForTests } = require('./guards/max-runs-guard'));
+    ({ applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard'));
+    ({ applyPermissionDenied, resetPermissionDeniedGuardForTests } = require('./guards/max-permission-denied-guard'));
+    ({ applyAiCreditsUsage, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
+  });
+
+  afterAll(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    delete process.env.AWF_MAX_RUNS;
+    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    delete process.env.AWF_MAX_PERMISSION_DENIED;
+    delete process.env.AWF_MAX_AI_CREDITS;
+    resetMaxRunsGuardForTests();
+    resetEffectiveTokenGuardForTests();
+    resetPermissionDeniedGuardForTests();
+    resetAiCreditsGuardForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('blocks with 429 when max-runs limit is exceeded', () => {
+    process.env.AWF_MAX_RUNS = '1';
+    applyMaxRunsInvocation(); // consume the single allowed run
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_runs_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('blocks with 429 when effective-token limit is exceeded', () => {
+    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1';
+    applyEffectiveTokenUsage({ output_tokens: 5 }, 'gpt-4o'); // exceeds cap of 1
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"effective_tokens_limit_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('blocks with 403 when permission-denied limit is exceeded', () => {
+    process.env.AWF_MAX_PERMISSION_DENIED = '1';
+    applyPermissionDenied(); // consume the single allowed denial
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"permission_denied_limit_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('blocks with 429 when ai-credits limit is exceeded', () => {
+    process.env.AWF_MAX_AI_CREDITS = '0.000001'; // tiny cap — any real usage will exceed it
+    applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'gpt-4o');
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"ai_credits_limit_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('allows the upgrade when no guards are triggered', () => {
+    // No guard env vars set and no usage applied — all guards pass.
+    // Without HTTPS_PROXY the upgrade will fail with 502, but the key point is
+    // that it gets past the guard checks (no 429/403 is written).
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    const guardStatuses = ['HTTP/1.1 429', 'HTTP/1.1 403 Forbidden'];
+    for (const status of guardStatuses) {
+      expect(socket.write).not.toHaveBeenCalledWith(expect.stringContaining(status));
+    }
+    // The 502 from missing HTTPS_PROXY confirms we got past the guards.
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));
+  });
+});
