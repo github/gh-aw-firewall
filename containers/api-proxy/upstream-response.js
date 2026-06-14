@@ -2,6 +2,7 @@
 
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
+const { stripBearerPrefix } = require('./providers/copilot-auth');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -22,10 +23,6 @@ const MODEL_NOT_SUPPORTED_PATTERN = /the requested model is not supported/i;
  */
 function parseModelNotSupportedFromBody(body) {
   return MODEL_NOT_SUPPORTED_PATTERN.test(body.toString('utf8'));
-}
-
-function stripBearerPrefix(value) {
-  return ((value || '').replace(/^\s*(?:Bearer|token)\s+/i, '').trim()) || '';
 }
 
 function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
@@ -261,4 +258,8 @@ module.exports = {
   createUpstreamResponseHandlers,
   parseModelNotSupportedFromBody,
   MAX_MODEL_NOT_SUPPORTED_RETRIES,
+  // Exported for unit-test access only; not part of the public API.
+  _testing: {
+    buildCopilotAuthErrorMessage,
+  },
 };

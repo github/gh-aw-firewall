@@ -14,6 +14,11 @@ const {
 } = require('./providers/copilot-auth');
 const {
   _testing: {
+    buildCopilotAuthErrorMessage,
+  },
+} = require('./upstream-response');
+const {
+  _testing: {
     COPILOT_PLACEHOLDER_TOKEN,
     parseByokExtraHeaders,
     parseByokExtraBodyFields,
@@ -185,6 +190,17 @@ describe('resolveApiKey', () => {
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is not set', () => {
     expect(resolveApiKey({})).toBeUndefined();
+  });
+});
+
+describe('buildCopilotAuthErrorMessage', () => {
+  it('treats an empty stripped BYOK key as missing', () => {
+    const message = buildCopilotAuthErrorMessage(401, {
+      COPILOT_PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1',
+      COPILOT_PROVIDER_API_KEY: 'Bearer   ',
+    });
+
+    expect(message).toContain('COPILOT_PROVIDER_API_KEY is not set');
   });
 });
 
