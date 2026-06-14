@@ -1,6 +1,6 @@
 import execa from 'execa';
 import { logger } from './logger';
-import { getLocalDockerEnv } from './docker-manager';
+import { getLocalDockerEnv } from './docker-host';
 
 export const NETWORK_NAME = 'awf-net';
 export const CHAIN_NAME = 'FW_WRAPPER';

@@ -1,5 +1,6 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { ensureFirewallNetwork } from './host-iptables';
+import { AGENT_IP, API_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from './host-iptables-shared';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
 describe('host-iptables (network)', () => {
@@ -17,10 +18,10 @@ describe('host-iptables (network)', () => {
       const result = await ensureFirewallNetwork();
 
       expect(result).toEqual({
-        subnet: '172.30.0.0/24',
-        squidIp: '172.30.0.10',
-        agentIp: '172.30.0.20',
-        proxyIp: '172.30.0.30',
+        subnet: NETWORK_SUBNET,
+        squidIp: SQUID_IP,
+        agentIp: AGENT_IP,
+        proxyIp: API_PROXY_IP,
       });
 
       // Should only check if network exists, not create it
@@ -42,10 +43,10 @@ describe('host-iptables (network)', () => {
       const result = await ensureFirewallNetwork();
 
       expect(result).toEqual({
-        subnet: '172.30.0.0/24',
-        squidIp: '172.30.0.10',
-        agentIp: '172.30.0.20',
-        proxyIp: '172.30.0.30',
+        subnet: NETWORK_SUBNET,
+        squidIp: SQUID_IP,
+        agentIp: AGENT_IP,
+        proxyIp: API_PROXY_IP,
       });
 
       expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
@@ -54,7 +55,7 @@ describe('host-iptables (network)', () => {
         'create',
         'awf-net',
         '--subnet',
-        '172.30.0.0/24',
+        NETWORK_SUBNET,
         '--opt',
         'com.docker.network.bridge.name=fw-bridge',
       ], { env: expect.any(Object) });
