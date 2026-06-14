@@ -279,8 +279,11 @@ describe('proxyWebSocket', () => {
 
 // ── Security guard tests ──────────────────────────────────────────────────────
 //
-// These tests verify that all common security guards are enforced on the
-// WebSocket upgrade path using the shared buildCommonGuardChecks factory.
+// These tests verify that common (non-model-specific) security guards are
+// enforced on the WebSocket upgrade path using the shared buildCommonGuardChecks
+// factory.  Model-specific guards (model_multiplier_cap, retired_model,
+// unknown_model_ai_credits) are intentionally skipped because WebSocket
+// upgrades pass model=null (no JSON body to extract a model from).
 // Guards are triggered by directly calling their apply functions (same
 // technique used in guards/*.test.js unit tests).
 
