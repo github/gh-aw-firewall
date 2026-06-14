@@ -54,7 +54,7 @@ describe('artifact-preservation – error paths', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 0 });
-    // Restore real implementations after each mock.clear removes them.
+    // Re-apply real implementations in case a test replaced them with mockImplementation/mockImplementationOnce.
     mockCopyFileSync.mockImplementation(realFs.copyFileSync);
     mockRenameSync.mockImplementation(realFs.renameSync);
     mockMkdirSync.mockImplementation(realFs.mkdirSync);
