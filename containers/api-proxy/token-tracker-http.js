@@ -41,6 +41,262 @@ const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-trac
 const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
 
 /**
+ * Initialize mutable tracking state for an HTTP response.
+ *
+ * @param {object} flags
+ * @param {boolean} flags.streaming
+ * @param {boolean} flags.compressed
+ * @param {string} flags.contentType
+ * @param {string} flags.contentEncoding
+ * @returns {object}
+ */
+function initHttpState({ streaming, compressed, contentType, contentEncoding }) {
+  return {
+    streaming,
+    compressed,
+    contentType,
+    contentEncoding,
+    chunks: [],
+    totalBytes: 0,
+    bufferedBytes: 0,
+    overflow: false,
+    streamingUsage: {},
+    streamingModel: null,
+    observedCacheReadTokens: 0,
+    partialLine: '',
+  };
+}
+
+/**
+ * Create a decoded-chunk handler that accumulates SSE events or buffers JSON.
+ *
+ * Returns a function that accepts a decoded text string and mutates `state`
+ * in place — no closure over outer scope needed.
+ *
+ * @param {object} state - Mutable tracking state (returned by initHttpState)
+ * @param {object} context
+ * @param {string} context.requestId
+ * @param {string} context.provider
+ * @returns {(text: string) => void}
+ */
+function createChunkHandler(state, { requestId, provider }) {
+  return function handleDecodedChunk(text) {
+    if (state.streaming) {
+      const combined = state.partialLine + text;
+      const lastNewline = combined.lastIndexOf('\n');
+      if (lastNewline >= 0) {
+        const complete = combined.slice(0, lastNewline);
+        state.partialLine = combined.slice(lastNewline + 1);
+
+        const dataLines = parseSseDataLines(complete);
+        for (const line of dataLines) {
+          const { usage, model } = extractUsageFromSseLine(line);
+          if (model && !state.streamingModel) state.streamingModel = model;
+          if (usage) {
+            const normalizedLineUsage = normalizeUsage(usage);
+            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > state.observedCacheReadTokens) {
+              state.observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+            }
+            for (const [k, v] of Object.entries(usage)) {
+              state.streamingUsage[k] = v;
+            }
+          }
+        }
+      } else {
+        state.partialLine = combined;
+      }
+    } else if (!state.overflow) {
+      const chunkBuffer = Buffer.from(text, 'utf8');
+      if (state.bufferedBytes + chunkBuffer.length > MAX_BUFFER_SIZE) {
+        const attemptedBytes = state.bufferedBytes + chunkBuffer.length;
+        state.overflow = true;
+        state.chunks.length = 0;
+        state.bufferedBytes = 0;
+        diag('HTTP_TRACK_BUFFER_OVERFLOW', { request_id: requestId, provider, buffered_bytes: attemptedBytes });
+        return;
+      }
+      state.chunks.push(chunkBuffer);
+      state.bufferedBytes += chunkBuffer.length;
+    }
+  };
+}
+
+/**
+ * Wire data/end event listeners onto proxyRes and optional decompressor.
+ *
+ * @param {object} proxyRes - Upstream response stream
+ * @param {object|null} decompressor - Zlib decompressor stream, or null
+ * @param {object} state - Mutable tracking state
+ * @param {(text: string) => void} onChunk - Decoded-chunk callback
+ * @param {() => void} onFinalize - Finalization callback
+ */
+function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
+  if (decompressor) {
+    // Feed decompressed text to our parser
+    decompressor.on('data', (decompressedChunk) => {
+      onChunk(decompressedChunk.toString('utf8'));
+    });
+
+    // Feed raw compressed bytes into the decompressor
+    proxyRes.on('data', (chunk) => {
+      state.totalBytes += chunk.length;
+      try { decompressor.write(chunk); } catch { /* ignore write errors */ }
+    });
+
+    proxyRes.on('end', () => {
+      try { decompressor.end(); } catch { /* ignore */ }
+    });
+
+    // Finalize on decompressor end
+    decompressor.on('end', onFinalize);
+  } else {
+    // No compression — parse raw chunks directly
+    proxyRes.on('data', (chunk) => {
+      state.totalBytes += chunk.length;
+      onChunk(chunk.toString('utf8'));
+    });
+
+    proxyRes.on('end', onFinalize);
+  }
+}
+
+/**
+ * Finalize token tracking for an HTTP response.
+ *
+ * Parses accumulated SSE events or buffered JSON, normalizes usage,
+ * calls optional callbacks, updates metrics, and writes the log record.
+ * Accepts explicit state instead of relying on a closure, making it
+ * independently unit-testable.
+ *
+ * @param {object} state - Mutable tracking state from initHttpState
+ * @param {object} proxyRes - Upstream response (only statusCode is read)
+ * @param {object} opts - Original options passed to trackTokenUsage
+ */
+function finalizeHttpTracking(state, proxyRes, opts) {
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
+  const { streaming, compressed, contentEncoding } = state;
+
+  // Only process successful responses (2xx)
+  if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+    logRequest('debug', 'token_track_skip_status', {
+      request_id: requestId,
+      provider,
+      status: proxyRes.statusCode,
+    });
+    diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
+    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+    return;
+  }
+
+  const duration = Date.now() - startTime;
+  let usage = null;
+  let model = null;
+  let budgetResult;
+
+  if (streaming) {
+    // Process any remaining partial line
+    if (state.partialLine.trim()) {
+      const dataLines = parseSseDataLines(state.partialLine);
+      for (const line of dataLines) {
+        const { usage: u, model: m } = extractUsageFromSseLine(line);
+        if (m && !state.streamingModel) state.streamingModel = m;
+        if (u) {
+          const normalizedLineUsage = normalizeUsage(u);
+          if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > state.observedCacheReadTokens) {
+            state.observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
+          }
+          for (const [k, v] of Object.entries(u)) {
+            state.streamingUsage[k] = v;
+          }
+        }
+      }
+    }
+
+    if (Object.keys(state.streamingUsage).length > 0) {
+      usage = state.streamingUsage;
+      model = state.streamingModel;
+    }
+  } else if (!state.overflow && state.chunks.length > 0) {
+    const body = Buffer.concat(state.chunks);
+    const result = extractUsageFromJson(body);
+    usage = result.usage;
+    model = result.model;
+    const normalizedSingleUsage = normalizeUsage(usage);
+    if (normalizedSingleUsage && normalizedSingleUsage.cache_read_tokens > state.observedCacheReadTokens) {
+      state.observedCacheReadTokens = normalizedSingleUsage.cache_read_tokens;
+    }
+  }
+
+  logRequest('debug', 'token_track_end', {
+    request_id: requestId,
+    provider,
+    streaming,
+    total_bytes: state.totalBytes,
+    overflow: state.overflow,
+    has_usage: !!usage,
+    usage_keys: usage ? Object.keys(usage) : [],
+    model,
+    compressed,
+  });
+  diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: state.totalBytes, overflow: state.overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, compressed, content_encoding: contentEncoding });
+
+  const normalized = normalizeUsage(usage);
+  if (!normalized) {
+    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+    return;
+  }
+  if (state.observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
+    warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model, observedCacheReadTokens: state.observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming });
+  }
+  if (typeof onUsage === 'function') {
+    try {
+      budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
+    } catch {
+      // best-effort callback
+    }
+  }
+
+  // Update metrics
+  incrementTokenMetrics(metricsRef, provider, normalized);
+
+  // Build log record
+  const record = buildTokenUsageRecord(normalized, {
+    requestId,
+    provider,
+    model: model || requestModel || provider,
+    reqPath,
+    status: proxyRes.statusCode,
+    streaming,
+    duration,
+    responseBytes: state.totalBytes,
+  });
+
+  // Include billing/quota info when available (Copilot PRU tracking)
+  if (initiatorSent) record.x_initiator = initiatorSent;
+  if (billingInfo) record.billing = billingInfo;
+
+  // Include effective token and AI credit budget fields when computed
+  mergeBudgetFields(record, budgetResult);
+
+  // Write to JSONL log file
+  writeTokenUsage(record);
+
+  // Log summary to stdout
+  logRequest('info', 'token_usage', {
+    request_id: requestId,
+    provider,
+    model: model || requestModel || provider || 'unknown',
+    input_tokens: normalized.input_tokens,
+    output_tokens: normalized.output_tokens,
+    cache_read_tokens: normalized.cache_read_tokens,
+    cache_write_tokens: normalized.cache_write_tokens,
+    streaming,
+  });
+
+  if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+}
+
+/**
  * Attach token usage tracking to an upstream response.
  *
  * This function listens on the proxyRes 'data' and 'end' events to extract
@@ -62,10 +318,10 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
- * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeTracking() to signal span completion
+ * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
+  const { requestId, provider, path: reqPath } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -82,17 +338,7 @@ function trackTokenUsage(proxyRes, opts) {
   });
   diag('HTTP_TRACK_START', { request_id: requestId, provider, path: reqPath, streaming, content_type: contentType, content_encoding: contentEncoding, status: proxyRes.statusCode });
 
-  // Accumulate response body for usage extraction
-  const chunks = [];
-  let totalBytes = 0;
-  let bufferedBytes = 0;
-  let overflow = false;
-
-  // For streaming: accumulate usage across SSE events
-  let streamingUsage = {};
-  let streamingModel = null;
-  let observedCacheReadTokens = 0;
-  let partialLine = '';
+  const state = initHttpState({ streaming, compressed, contentType, contentEncoding });
 
   // If the response is compressed, create a decompressor.
   // We feed raw chunks into it and listen on the decompressed output.
@@ -107,199 +353,9 @@ function trackTokenUsage(proxyRes, opts) {
     }
   }
 
-  // The source for text parsing: decompressor output (if compressed) or raw chunks
-  function handleDecodedChunk(text) {
-    if (streaming) {
-      const combined = partialLine + text;
-      const lastNewline = combined.lastIndexOf('\n');
-      if (lastNewline >= 0) {
-        const complete = combined.slice(0, lastNewline);
-        partialLine = combined.slice(lastNewline + 1);
-
-        const dataLines = parseSseDataLines(complete);
-        for (const line of dataLines) {
-          const { usage, model } = extractUsageFromSseLine(line);
-          if (model && !streamingModel) streamingModel = model;
-          if (usage) {
-            const normalizedLineUsage = normalizeUsage(usage);
-            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > observedCacheReadTokens) {
-              observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
-            }
-            for (const [k, v] of Object.entries(usage)) {
-              streamingUsage[k] = v;
-            }
-          }
-        }
-      } else {
-        partialLine = combined;
-      }
-    } else if (!overflow) {
-      const chunkBuffer = Buffer.from(text, 'utf8');
-      if (bufferedBytes + chunkBuffer.length > MAX_BUFFER_SIZE) {
-        const attemptedBytes = bufferedBytes + chunkBuffer.length;
-        overflow = true;
-        chunks.length = 0;
-        bufferedBytes = 0;
-        diag('HTTP_TRACK_BUFFER_OVERFLOW', { request_id: requestId, provider, buffered_bytes: attemptedBytes });
-        return;
-      }
-      chunks.push(chunkBuffer);
-      bufferedBytes += chunkBuffer.length;
-    }
-  }
-
-  if (decompressor) {
-    // Feed decompressed text to our parser
-    decompressor.on('data', (decompressedChunk) => {
-      handleDecodedChunk(decompressedChunk.toString('utf8'));
-    });
-
-    // Feed raw compressed bytes into the decompressor
-    proxyRes.on('data', (chunk) => {
-      totalBytes += chunk.length;
-      try { decompressor.write(chunk); } catch { /* ignore write errors */ }
-    });
-
-    proxyRes.on('end', () => {
-      try { decompressor.end(); } catch { /* ignore */ }
-    });
-
-    // Finalize on decompressor end
-    decompressor.on('end', () => {
-      finalizeTracking();
-    });
-  } else {
-    // No compression — parse raw chunks directly
-    proxyRes.on('data', (chunk) => {
-      totalBytes += chunk.length;
-      handleDecodedChunk(chunk.toString('utf8'));
-    });
-
-    proxyRes.on('end', () => {
-      finalizeTracking();
-    });
-  }
-
-  function finalizeTracking() {
-    // Only process successful responses (2xx)
-    if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
-      logRequest('debug', 'token_track_skip_status', {
-        request_id: requestId,
-        provider,
-        status: proxyRes.statusCode,
-      });
-      diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
-      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
-      return;
-    }
-
-    const duration = Date.now() - startTime;
-    let usage = null;
-    let model = null;
-    let budgetResult;
-
-    if (streaming) {
-      // Process any remaining partial line
-      if (partialLine.trim()) {
-        const dataLines = parseSseDataLines(partialLine);
-        for (const line of dataLines) {
-          const { usage: u, model: m } = extractUsageFromSseLine(line);
-          if (m && !streamingModel) streamingModel = m;
-          if (u) {
-            const normalizedLineUsage = normalizeUsage(u);
-            if (normalizedLineUsage && normalizedLineUsage.cache_read_tokens > observedCacheReadTokens) {
-              observedCacheReadTokens = normalizedLineUsage.cache_read_tokens;
-            }
-            for (const [k, v] of Object.entries(u)) {
-              streamingUsage[k] = v;
-            }
-          }
-        }
-      }
-
-      if (Object.keys(streamingUsage).length > 0) {
-        usage = streamingUsage;
-        model = streamingModel;
-      }
-    } else if (!overflow && chunks.length > 0) {
-      const body = Buffer.concat(chunks);
-      const result = extractUsageFromJson(body);
-      usage = result.usage;
-      model = result.model;
-      const normalizedSingleUsage = normalizeUsage(usage);
-      if (normalizedSingleUsage && normalizedSingleUsage.cache_read_tokens > observedCacheReadTokens) {
-        observedCacheReadTokens = normalizedSingleUsage.cache_read_tokens;
-      }
-    }
-
-    logRequest('debug', 'token_track_end', {
-      request_id: requestId,
-      provider,
-      streaming,
-      total_bytes: totalBytes,
-      overflow,
-      has_usage: !!usage,
-      usage_keys: usage ? Object.keys(usage) : [],
-      model,
-      compressed,
-    });
-    diag('HTTP_TRACK_END', { request_id: requestId, provider, streaming, total_bytes: totalBytes, overflow, has_usage: !!usage, usage_keys: usage ? Object.keys(usage) : [], model, compressed, content_encoding: contentEncoding });
-
-    const normalized = normalizeUsage(usage);
-    if (!normalized) {
-      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
-      return;
-    }
-    if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
-      warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model, observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming });
-    }
-    if (typeof onUsage === 'function') {
-      try {
-        budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
-      } catch {
-        // best-effort callback
-      }
-    }
-
-    // Update metrics
-    incrementTokenMetrics(metricsRef, provider, normalized);
-
-    // Build log record
-    const record = buildTokenUsageRecord(normalized, {
-      requestId,
-      provider,
-      model: model || requestModel || provider,
-      reqPath,
-      status: proxyRes.statusCode,
-      streaming,
-      duration,
-      responseBytes: totalBytes,
-    });
-
-    // Include billing/quota info when available (Copilot PRU tracking)
-    if (initiatorSent) record.x_initiator = initiatorSent;
-    if (billingInfo) record.billing = billingInfo;
-
-    // Include effective token and AI credit budget fields when computed
-    mergeBudgetFields(record, budgetResult);
-
-    // Write to JSONL log file
-    writeTokenUsage(record);
-
-    // Log summary to stdout
-    logRequest('info', 'token_usage', {
-      request_id: requestId,
-      provider,
-      model: model || requestModel || provider || 'unknown',
-      input_tokens: normalized.input_tokens,
-      output_tokens: normalized.output_tokens,
-      cache_read_tokens: normalized.cache_read_tokens,
-      cache_write_tokens: normalized.cache_write_tokens,
-      streaming,
-    });
-
-    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
-  }
+  const onChunk = createChunkHandler(state, { requestId, provider });
+  const onFinalize = () => finalizeHttpTracking(state, proxyRes, opts);
+  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize);
 }
 
-module.exports = { trackTokenUsage };
+module.exports = { trackTokenUsage, createChunkHandler, finalizeHttpTracking };

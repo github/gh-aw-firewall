@@ -144,102 +144,85 @@ function tryMiddlePowerFallback(requestedModel, availableModels, currentProvider
 }
 
 /**
- * Resolve a model name through the alias chain for a given provider.
+ * Attempt to resolve a model that has no alias entry.
  *
- * Resolution algorithm:
- * 1. Look up requestedModel in aliases (case-insensitive key match)
- * 2. For each entry in the alias list:
- *    a. If entry is "provider/pattern" — match against available models for that provider
- *       (only entries matching currentProvider are considered)
- *    b. If entry has no "/" — recursively resolve as another alias
- * 3. Collect all candidates, sort by version (highest first), return the best match
+ * Tries in order:
+ *   1. Direct match — model name already in provider's available list.
+ *   2. GPT-5 family version fallback — gpt-5.<minor> unavailable → highest gpt-5.x.
+ *   3. Middle-power fallback.
  *
- * @param {string} requestedModel - Model name from the request body (or "" for default)
- * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Alias map from parseModelAliases()
- * @param {Record<string, string[]|null>} availableModels - Cached provider models
- * @param {string} currentProvider - Provider handling this request (e.g. "copilot")
- * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
- * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @param {string} key - Lowercased requested model name
+ * @param {string} requestedModel - Original requested model name (for log messages)
+ * @param {string} currentProvider
+ * @param {Record<string, string[]|null>} availableModels
+ * @param {{ enabled: boolean, strategy: string }} fallbackConfig
+ * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
-  const log = [];
-  const key = requestedModel.toLowerCase();
-  const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
+function _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log) {
+  const providerModels = (availableModels[currentProvider] || []);
 
-  // ── Loop detection ────────────────────────────────────────────────────────
-  if (chain.includes(key)) {
-    log.push(`[model-resolver] loop detected: "${requestedModel}" already in chain [${chain.join(' → ')}]`);
-    return null;
-  }
-  const newChain = [...chain, key];
-
-  // ── Find alias entry (case-insensitive) ───────────────────────────────────
-  let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
-
-  if (!aliasEntry) {
-    // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
-    // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
-    // define "gpt-5" alias patterns.
-    const familyAlias = key.match(/^(gpt-5)\.\d+(?:[._-].*)?$/)?.[1];
-    if (familyAlias) {
-      aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === familyAlias);
-      if (aliasEntry) {
-        log.push(`[model-resolver] fallback alias: "${requestedModel}" → "${aliasEntry[0]}"`);
-      }
-    }
+  // 1. Direct match: model name already in the provider's available list
+  const direct = providerModels.find(m => m.toLowerCase() === key);
+  if (direct) {
+    log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+    return {
+      resolvedModel: direct,
+      log,
+      fallback: fallbackConfig.enabled
+        ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+        : undefined,
+    };
   }
 
-  if (!aliasEntry) {
-    // No alias defined — check if the model directly matches an available model for
-    // this provider. If yes, pass it through as-is (no rewrite needed).
-    const providerModels = (availableModels[currentProvider] || []);
-    const direct = providerModels.find(m => m.toLowerCase() === key);
-    if (direct) {
-      log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+  // 2. GPT-5 family version fallback: gpt-5.<minor> not available → highest gpt-5.x
+  const family = key.match(/^(gpt-5)\.\d+$/)?.[1];
+  if (family) {
+    const familyPrefix = `${family}.`;
+    const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
+    if (familyCandidates.length > 0) {
+      const sorted = [...new Set(familyCandidates)].sort(compareByVersion);
+      const fallback = sorted[0];
+      log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
       return {
-        resolvedModel: direct,
+        resolvedModel: fallback,
         log,
         fallback: fallbackConfig.enabled
-          ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+          ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
           : undefined,
       };
     }
-
-    // If a gpt-5.<minor> model is requested but unavailable, fall back to the
-    // highest available model in the same family for this provider.
-    const family = key.match(/^(gpt-5)\.\d+$/)?.[1];
-    if (family) {
-      const familyPrefix = `${family}.`;
-      const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
-      if (familyCandidates.length > 0) {
-        const sorted = [...new Set(familyCandidates)].sort(compareByVersion);
-        const fallback = sorted[0];
-        log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
-        return {
-          resolvedModel: fallback,
-          log,
-          fallback: fallbackConfig.enabled
-            ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
-            : undefined,
-        };
-      }
-    }
-    const fallbackResult = tryMiddlePowerFallback(
-      requestedModel, availableModels, currentProvider,
-      'no_alias_match_and_not_in_available_models', fallbackConfig, log
-    );
-    if (fallbackResult) return fallbackResult;
-    // No match at all — cannot resolve.
-    return null;
   }
 
-  const [aliasKey, aliasRaw] = aliasEntry;
-  const aliasDefinition = resolveAliasDefinition(aliasRaw);
+  // 3. Middle-power fallback
+  return tryMiddlePowerFallback(
+    requestedModel, availableModels, currentProvider,
+    'no_alias_match_and_not_in_available_models', fallbackConfig, log
+  );
+}
+
+/**
+ * Expand alias patterns for a resolved alias entry and pick the best candidate.
+ *
+ * For each pattern:
+ *   - "provider/modelpattern" — glob-match against the current provider's available models.
+ *   - "aliasname" (no slash) — recursively resolve as another alias reference.
+ *
+ * @param {string} aliasKey - The alias key that was matched (used in log messages)
+ * @param {{ patterns: string[], fallback: boolean }} aliasDefinition
+ * @param {string} requestedModel - Original requested model name (for log/fallback)
+ * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases
+ * @param {Record<string, string[]|null>} availableModels
+ * @param {string} currentProvider
+ * @param {string[]} newChain - Resolution chain with the current key already appended
+ * @param {{ enabled: boolean, strategy: string }} fallbackConfig
+ * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
+ * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
+ */
+function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log) {
   const patterns = aliasDefinition.patterns;
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
-  // ── Expand each pattern ───────────────────────────────────────────────────
   const candidates = [];
 
   for (const pattern of patterns) {
@@ -272,17 +255,15 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
     const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
     if (aliasDefinition.fallback && hasProviderPattern) {
-      const fallbackResult = tryMiddlePowerFallback(
+      return tryMiddlePowerFallback(
         requestedModel, availableModels, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
       );
-      if (fallbackResult) return fallbackResult;
     }
     return null;
   }
 
-  // ── Sort by version (highest first) and pick the best ────────────────────
-  // Deduplicate while preserving sort order
+  // Deduplicate, sort by version (highest first), and pick the best
   const unique = [...new Set(candidates)];
   unique.sort(compareByVersion);
 
@@ -301,6 +282,60 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
       ? { activated: false, selection_method: 'middle_power_median', reason: 'normal_resolution_succeeded' }
       : undefined,
   };
+}
+
+/**
+ * Resolve a model name through the alias chain for a given provider.
+ *
+ * Resolution algorithm:
+ * 1. Loop detection — bail out if key already visited.
+ * 2. Alias lookup (case-insensitive); family alias fallback for gpt-5.<minor>.
+ * 3. No alias found → _resolveDirectMatch (direct, family-version, or middle-power).
+ * 4. Alias found → _resolveAliasPatterns (pattern expansion + best-candidate selection).
+ *
+ * @param {string} requestedModel - Model name from the request body (or "" for default)
+ * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Alias map from parseModelAliases()
+ * @param {Record<string, string[]|null>} availableModels - Cached provider models
+ * @param {string} currentProvider - Provider handling this request (e.g. "copilot")
+ * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
+ * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
+ */
+function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
+  const log = [];
+  const key = requestedModel.toLowerCase();
+  const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
+
+  // Loop detection
+  if (chain.includes(key)) {
+    log.push(`[model-resolver] loop detected: "${requestedModel}" already in chain [${chain.join(' → ')}]`);
+    return null;
+  }
+  const newChain = [...chain, key];
+
+  // Find alias entry (case-insensitive)
+  let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
+
+  if (!aliasEntry) {
+    // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
+    // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
+    // define "gpt-5" alias patterns.
+    const familyAlias = key.match(/^(gpt-5)\.\d+(?:[._-].*)?$/)?.[1];
+    if (familyAlias) {
+      aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === familyAlias);
+      if (aliasEntry) {
+        log.push(`[model-resolver] fallback alias: "${requestedModel}" → "${aliasEntry[0]}"`);
+      }
+    }
+  }
+
+  if (!aliasEntry) {
+    return _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log);
+  }
+
+  const [aliasKey, aliasRaw] = aliasEntry;
+  const aliasDefinition = resolveAliasDefinition(aliasRaw);
+  return _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log);
 }
 
 /**

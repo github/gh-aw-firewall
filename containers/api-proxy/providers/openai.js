@@ -15,28 +15,11 @@ const {
   validateAuthHeaderEnv,
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
+  parseApiTargetAndBasePath,
 } = require('../proxy-utils');
+
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
-
-function parseByokBaseUrl(baseUrl) {
-  if (!baseUrl) return { target: undefined, basePath: '' };
-  const trimmed = baseUrl.trim();
-  if (!trimmed) return { target: undefined, basePath: '' };
-
-  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-  try {
-    const parsed = new URL(candidate);
-    return {
-      target: parsed.hostname || undefined,
-      basePath: normalizeBasePath(parsed.pathname),
-    };
-  } catch {
-    return { target: undefined, basePath: '' };
-  }
-}
 
 /**
  * Create the OpenAI provider adapter.
@@ -63,7 +46,7 @@ function createOpenAIAdapter(env, deps = {}) {
     return '';
   })();
   const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
-  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseByokBaseUrl(env.COPILOT_PROVIDER_BASE_URL);
+  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env.COPILOT_PROVIDER_BASE_URL);
 
   const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
   const explicitOpenAITarget = env.OPENAI_API_TARGET ? openaiTarget : undefined;

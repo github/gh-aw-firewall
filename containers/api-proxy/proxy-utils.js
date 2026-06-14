@@ -18,34 +18,75 @@ const { URL } = require('url');
  * *_API_BASE_PATH environment variables.
  *
  * @param {string|undefined} value - Raw env var value
- * @returns {string|undefined} Bare hostname, or undefined if input is falsy
+ * @returns {string|undefined} Bare hostname, the original falsy value if input is falsy (e.g. '' stays ''), or undefined if parsing fails
  */
 function normalizeApiTarget(value) {
   if (!value) return value;
 
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
+  const parsed = parseApiTargetUrl(value);
+  if (parsed.kind === 'empty') return undefined;
+  if (parsed.kind === 'invalid') {
+    console.warn(`Invalid API target ${parsed.safe}; expected a hostname (e.g. 'api.example.com') or URL`);
+    return undefined;
+  }
 
-  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-
-  try {
-    const parsed = new URL(candidate);
-
+  if (parsed.kind === 'ok') {
     if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password || parsed.port) {
-      const safe = trimmed.replace(/[\x00-\x1f\x7f]/g, '?');
       console.warn(
-        `Ignoring unsupported API target URL components in ${safe}; ` +
+        `Ignoring unsupported API target URL components in ${parsed.safe}; ` +
         'configure path prefixes via the corresponding *_API_BASE_PATH environment variable.'
       );
     }
 
     return parsed.hostname || undefined;
-  } catch (err) {
-    const safe = trimmed.replace(/[\x00-\x1f\x7f]/g, '?');
-    console.warn(`Invalid API target ${safe}; expected a hostname (e.g. 'api.example.com') or URL`);
-    return undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Parse a target URL/hostname into hostname + normalized pathname.
+ * Intended for BYOK-style base URLs where path components are expected and valid.
+ *
+ * @param {string|undefined} value - Raw env var value
+ * @returns {{ target: string|undefined, basePath: string }} Parsed hostname and normalized base path
+ */
+function parseApiTargetAndBasePath(value) {
+  if (!value) return { target: undefined, basePath: '' };
+
+  const parsed = parseApiTargetUrl(value);
+  if (parsed.kind !== 'ok') return { target: undefined, basePath: '' };
+
+  return {
+    target: parsed.hostname || undefined,
+    basePath: normalizeBasePath(parsed.pathname),
+  };
+}
+
+function parseApiTargetUrl(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return { kind: 'empty' };
+
+  const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  const safe = trimmed.replace(/[\x00-\x1f\x7f]/g, '?');
+
+  try {
+    const parsed = new URL(candidate);
+    return {
+      kind: 'ok',
+      safe,
+      hostname: parsed.hostname,
+      pathname: parsed.pathname,
+      search: parsed.search,
+      hash: parsed.hash,
+      username: parsed.username,
+      password: parsed.password,
+      port: parsed.port,
+    };
+  } catch {
+    return { kind: 'invalid', safe };
   }
 }
 
@@ -311,6 +352,7 @@ function resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeader
 
 module.exports = {
   normalizeApiTarget,
+  parseApiTargetAndBasePath,
   normalizeBasePath,
   buildUpstreamPath,
   stripGeminiKeyParam,
