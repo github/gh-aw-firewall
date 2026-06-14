@@ -31,6 +31,9 @@ jest.mock('./ssl-bump', () => ({
   isOpenSslAvailable: jest.fn(),
   generateSessionCa: jest.fn(),
   initSslDb: jest.fn(),
+}));
+
+jest.mock('./domain-patterns', () => ({
   parseUrlPatterns: jest.fn().mockReturnValue([]),
 }));
 
@@ -387,12 +390,12 @@ describe('writeConfigs', () => {
 
   describe('URL patterns and API proxy', () => {
     beforeEach(() => {
-      const { parseUrlPatterns } = jest.requireMock('./ssl-bump');
+      const { parseUrlPatterns } = jest.requireMock('./domain-patterns');
       parseUrlPatterns.mockReturnValue(['https://example\\.com/.*']);
     });
 
     it('parses URL patterns when allowedUrls is provided', async () => {
-      const { parseUrlPatterns } = jest.requireMock('./ssl-bump');
+      const { parseUrlPatterns } = jest.requireMock('./domain-patterns');
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
       await writeConfigs(
@@ -411,7 +414,7 @@ describe('writeConfigs', () => {
     });
 
     it('does not parse URL patterns when allowedUrls is empty', async () => {
-      const { parseUrlPatterns } = jest.requireMock('./ssl-bump');
+      const { parseUrlPatterns } = jest.requireMock('./domain-patterns');
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
       await writeConfigs(
