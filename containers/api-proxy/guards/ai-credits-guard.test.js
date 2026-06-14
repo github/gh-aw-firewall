@@ -121,6 +121,38 @@ describe('ai-credits-guard', () => {
     }));
   });
 
+  it('resolves text-embedding-3-small with input-only pricing', () => {
+    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-3-small');
+    // input: 1M × $0.02/M / 10_000 denominator = 2.0 AIC
+    expect(usage).not.toBeNull();
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(2.0, 5);
+    expect(usage.outputCreditsThisResponse).toBe(0);
+  });
+
+  it('resolves text-embedding-3-small-inference via prefix match', () => {
+    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-3-small-inference');
+    // Same pricing as text-embedding-3-small via prefix match
+    expect(usage).not.toBeNull();
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(2.0, 5);
+  });
+
+  it('resolves text-embedding-ada-002 with input-only pricing', () => {
+    const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-ada-002');
+    // input: 1M × $0.10/M / 10_000 denominator = 10.0 AIC
+    expect(usage).not.toBeNull();
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(10.0, 5);
+    expect(usage.outputCreditsThisResponse).toBe(0);
+  });
+
+  it('does not reject embedding models when maxAiCredits is active', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    expect(checkUnknownModelRejection('text-embedding-3-small')).toBeNull();
+    expect(checkUnknownModelRejection('text-embedding-3-small-inference')).toBeNull();
+    expect(checkUnknownModelRejection('text-embedding-ada-002')).toBeNull();
+  });
+
   it('uses bundled models.dev pricing for known catalog models', () => {
     const usage = applyAiCreditsUsage({
       input_tokens: 100,

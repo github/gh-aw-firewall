@@ -26,6 +26,9 @@ module.exports = Object.freeze({
   'gemini-3.1-flash':  { input: 0.75,  cachedInput: 0.075, cacheWrite: null, output: 4.50 },
   'gemini-3.1-pro':    { input: 2.00,  cachedInput: 0.20,  cacheWrite: null, output: 12.00 },
   'gemini-3.5-flash':  { input: 1.50,  cachedInput: 0.15,  cacheWrite: null, output: 9.00 },
-  'mai-code-1-flash':  { input: 0.75,  cachedInput: 0.075, cacheWrite: null, output: 4.50 },
-  'raptor-mini':       { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
+  'mai-code-1-flash':           { input: 0.75,  cachedInput: 0.075, cacheWrite: null, output: 4.50 },
+  'raptor-mini':                { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
+  // Embedding models (output tokens are not produced; output cost is 0)
+  'text-embedding-3-small':     { input: 0.02,  cachedInput: null,  cacheWrite: null, output: 0.00 },
+  'text-embedding-ada-002':     { input: 0.10,  cachedInput: null,  cacheWrite: null, output: 0.00 },
 });
