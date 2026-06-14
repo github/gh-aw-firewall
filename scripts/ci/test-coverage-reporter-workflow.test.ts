@@ -13,7 +13,6 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(source).toContain('bash: false');
     expect(source).not.toContain('toolsets: [repos, discussions]');
     expect(source).not.toContain('bash: true');
-    expect(source).toContain("k === 'total' ? k : k.replace(process.cwd() + '/', '')");
     expect(source).toContain('const SECURITY_CRITICAL = [');
     expect(source).toContain("'docker-manager'");
     expect(source).toContain("'host-iptables'");
@@ -21,6 +20,24 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(source).toContain("'domain-patterns'");
     expect(source).toContain("'cli'");
     expect(source).toContain('.filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))');
+
+    // Token optimization: coverage-json step removed (COVERAGE_TABLE alone is sufficient)
+    expect(source).not.toContain('coverage-json');
+    expect(source).not.toContain('COVERAGE_JSON');
+
+    // Token optimization: pre-built discussion template step added
+    expect(source).toContain('Pre-build discussion template');
+    expect(source).toContain('id: discussion-template');
+    expect(source).toContain('DISCUSSION_BODY');
+
+    // Token optimization: push trigger has paths filter to reduce run frequency
+    expect(source).toContain("paths:");
+    expect(source).toContain("- 'src/**/*.ts'");
+
+    // Token optimization: FUNC_AUDIT uses branch counts instead of misleading ternary line listing
+    expect(source).toContain('branch count');
+    expect(source).toContain('if-branches:');
+    expect(source).not.toContain('\\?.*:');
   });
 
   it('compiles without GitHub MCP server injection while preserving safeoutputs reporting', () => {
@@ -33,8 +50,23 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).toContain('"safeoutputs": {');
     expect(lock).not.toContain('"github": {');
     expect(lock).not.toContain('shell(');
-    expect(lock).toContain('k === \'total\' ? k : k.replace(process.cwd() + \'/\', \'\')');
     expect(lock).toContain('const SECURITY_CRITICAL = [');
     expect(lock).toContain('.filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))');
+
+    // Token optimization: coverage-json step removed
+    expect(lock).not.toContain('coverage-json');
+    expect(lock).not.toContain('COVERAGE_JSON');
+
+    // Token optimization: pre-built discussion template step compiled correctly
+    expect(lock).toContain('id: discussion-template');
+    expect(lock).toContain('DISCUSSION_BODY');
+
+    // Token optimization: push trigger paths filter present in compiled workflow
+    expect(lock).toContain('paths:');
+    expect(lock).toContain('src/**/*.ts');
+
+    // Token optimization: FUNC_AUDIT uses branch counts (not ternary line listing)
+    expect(lock).toContain('branch count');
+    expect(lock).toContain('if-branches:');
   });
 });
