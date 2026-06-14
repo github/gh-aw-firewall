@@ -18,7 +18,7 @@ const { URL } = require('url');
  * *_API_BASE_PATH environment variables.
  *
  * @param {string|undefined} value - Raw env var value
- * @returns {string|undefined} Bare hostname, or undefined if input is falsy
+ * @returns {string|undefined} Bare hostname, the original falsy value if input is falsy (e.g. '' stays ''), or undefined if parsing fails
  */
 function normalizeApiTarget(value) {
   if (!value) return value;

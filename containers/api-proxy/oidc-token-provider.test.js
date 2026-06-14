@@ -282,7 +282,7 @@ describe('OpenAI adapter with OIDC', () => {
     expect(adapter.getReflectionInfo().auth_type).toBe('static-key');
   });
 
-  it('should not warn when COPILOT_PROVIDER_BASE_URL includes a path', () => {
+  it('should not warn when COPILOT_PROVIDER_BASE_URL includes a path and query string', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       createOpenAIAdapter({
