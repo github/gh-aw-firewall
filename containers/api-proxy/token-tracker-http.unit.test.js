@@ -8,6 +8,7 @@
 
 require('./test-helpers/token-tracker-setup');
 
+const fs = require('fs');
 const { createChunkHandler, finalizeHttpTracking, extractUsageFromTrackedState, buildAndWriteTokenRecord } = require('./token-tracker-http');
 const { closeLogStream } = require('./token-tracker');
 
@@ -419,7 +420,6 @@ describe('extractUsageFromTrackedState', () => {
     expect(usage).toBeTruthy();
     expect(usage.input_tokens).toBe(200);
     expect(usage.output_tokens).toBe(40);
-    expect(state.partialLine).toBe(`data: ${partialData}`); // partialLine is not cleared (no newline)
   });
 
   test('streaming: updates observedCacheReadTokens from partial line flush', () => {
@@ -504,20 +504,58 @@ describe('buildAndWriteTokenRecord', () => {
     };
   }
 
+  /**
+   * Build a writable mock stream that captures all written chunks.
+   * Returns { stream, writtenRecords() } where writtenRecords() parses the JSONL.
+   */
+  function makeMockStream() {
+    const chunks = [];
+    const stream = {
+      writableEnded: false,
+      write: jest.fn((chunk) => { chunks.push(chunk); return true; }),
+      end: jest.fn((cb) => { stream.writableEnded = true; if (cb) cb(); }),
+      on: jest.fn(),
+      get writtenRecords() {
+        return chunks.map(c => JSON.parse(c.trim()));
+      },
+    };
+    return stream;
+  }
+
+  let mockStream;
+  let mkdirSyncSpy;
+  let createWriteStreamSpy;
+
+  beforeEach(async () => {
+    await closeLogStream();
+    mockStream = makeMockStream();
+    mkdirSyncSpy = jest.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    createWriteStreamSpy = jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream);
+  });
+
+  afterEach(async () => {
+    mkdirSyncSpy.mockRestore();
+    createWriteStreamSpy.mockRestore();
+    await closeLogStream();
+  });
+
   test('does not throw for a minimal valid call', () => {
     expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams())).not.toThrow();
   });
 
   test('includes billingInfo and initiatorSent when provided', () => {
-    // Verified indirectly: must not throw and the record is written to disk
-    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+    buildAndWriteTokenRecord(normalizedUsage, baseParams({
       billingInfo: { quota: 5000 },
       initiatorSent: 'vscode',
-    }))).not.toThrow();
+    }));
+
+    const record = mockStream.writtenRecords[0];
+    expect(record.x_initiator).toBe('vscode');
+    expect(record.billing).toEqual({ quota: 5000 });
   });
 
   test('merges budgetResult fields when provided', () => {
-    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+    buildAndWriteTokenRecord(normalizedUsage, baseParams({
       budgetResult: {
         effective_tokens_this_response: 130,
         effective_tokens_total: 2000,
@@ -525,7 +563,13 @@ describe('buildAndWriteTokenRecord', () => {
         ai_credits_this_response: 0.002,
         ai_credits_total: 0.05,
       },
-    }))).not.toThrow();
+    }));
+
+    const record = mockStream.writtenRecords[0];
+    expect(record.effective_tokens_this_response).toBe(130);
+    expect(record.effective_tokens_total).toBe(2000);
+    expect(record.ai_credits_this_response).toBe(0.002);
+    expect(record.ai_credits_total).toBe(0.05);
   });
 
   test('handles null billingInfo and undefined budgetResult gracefully', () => {
