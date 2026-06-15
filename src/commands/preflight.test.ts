@@ -5,7 +5,7 @@ jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').l
 jest.mock('../config-file');
 jest.mock('../domain-utils');
 jest.mock('../rules');
-jest.mock('../domain-patterns');
+jest.mock('../domain-validation');
 jest.mock('../option-parsers');
 jest.mock('../copilot-api-resolver');
 jest.mock('../api-proxy-config');
@@ -14,7 +14,7 @@ import { logger } from '../logger';
 import * as configFile from '../config-file';
 import * as domainUtils from '../domain-utils';
 import * as rules from '../rules';
-import * as domainPatterns from '../domain-patterns';
+import * as domainValidation from '../domain-validation';
 import * as optionParsers from '../option-parsers';
 import * as copilotResolver from '../copilot-api-resolver';
 import * as apiProxyConfig from '../api-proxy-config';
@@ -23,7 +23,7 @@ const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedConfigFile = configFile as jest.Mocked<typeof configFile>;
 const mockedDomainUtils = domainUtils as jest.Mocked<typeof domainUtils>;
 const mockedRules = rules as jest.Mocked<typeof rules>;
-const mockedDomainPatterns = domainPatterns as jest.Mocked<typeof domainPatterns>;
+const mockedDomainValidation = domainValidation as jest.Mocked<typeof domainValidation>;
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
 const mockedCopilotResolver = copilotResolver as jest.Mocked<typeof copilotResolver>;
 const mockedApiProxyConfig = apiProxyConfig as jest.Mocked<typeof apiProxyConfig>;
@@ -113,7 +113,7 @@ describe('resolveAllowedDomains', () => {
     mockedDomainUtils.parseDomains.mockReturnValue([]);
     mockedDomainUtils.parseDomainsFile.mockReturnValue([]);
     mockedRules.loadAndMergeDomains.mockReturnValue([]);
-    mockedDomainPatterns.validateDomainOrPattern.mockImplementation();
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation();
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: [],
       localhostDetected: false,
@@ -205,7 +205,7 @@ describe('resolveAllowedDomains', () => {
       shouldEnableHostAccess: false,
     });
     mockedApiProxyConfig.resolveApiTargetsToAllowedDomains.mockReturnValue(['bad domain!']);
-    mockedDomainPatterns.validateDomainOrPattern.mockImplementation(() => {
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation(() => {
       throw new Error('Invalid domain');
     });
     // override default parseDomains to return something
@@ -296,7 +296,7 @@ describe('resolveBlockedDomains', () => {
     });
     mockedDomainUtils.parseDomains.mockReturnValue([]);
     mockedDomainUtils.parseDomainsFile.mockReturnValue([]);
-    mockedDomainPatterns.validateDomainOrPattern.mockImplementation();
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation();
   });
 
   afterEach(() => {
@@ -337,7 +337,7 @@ describe('resolveBlockedDomains', () => {
 
   it('exits when a blocked domain is invalid', () => {
     mockedDomainUtils.parseDomains.mockReturnValue(['bad domain!']);
-    mockedDomainPatterns.validateDomainOrPattern.mockImplementation(() => {
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation(() => {
       throw new Error('Invalid');
     });
 

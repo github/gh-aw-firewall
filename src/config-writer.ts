@@ -5,7 +5,7 @@ import { WrapperConfig, API_PROXY_PORTS } from './types';
 import { logger } from './logger';
 import { generatePolicyManifest, generateSquidConfig } from './squid-config';
 import { generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
-import { parseUrlPatterns } from './domain-patterns';
+import { parseUrlPatterns } from './domain-matchers';
 import { SslConfig, SQUID_PORT } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import { resolveLogPaths } from './log-paths';

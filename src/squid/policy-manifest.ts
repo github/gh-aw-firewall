@@ -1,6 +1,6 @@
 import type { PolicyManifest, PolicyRule, SquidConfig } from '../types';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
-import { parseDomainList } from '../domain-patterns';
+import { parseDomainList } from '../domain-matchers';
 import { formatDomainForSquid, parseDomainConfig } from './domain-acl';
 
 /**
