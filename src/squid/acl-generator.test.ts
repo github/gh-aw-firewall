@@ -54,7 +54,7 @@ describe('generateAclSections', () => {
       const { aclLines } = generateAclSections(domainsByProto, patternsByProto);
 
       const aclLine = aclLines.find(l => l.startsWith('acl allowed_domains dstdomain'));
-      expect(aclLine).toMatch(/\.github\.com/);
+      expect(aclLine).toMatch(/^acl allowed_domains dstdomain \.github\.com$/);
     });
   });
 
