@@ -9,6 +9,9 @@
  */
 function buildFrame(text) {
   const payload = Buffer.from(text, 'utf8');
+  if (payload.length > 125) {
+    throw new Error(`buildFrame only supports payloads up to 125 bytes, got ${payload.length}. Use a shorter payload or extend the helper to support extended length fields.`);
+  }
   const header = Buffer.alloc(2);
   header[0] = 0x81; // FIN + opcode 1 (text)
   header[1] = payload.length;
