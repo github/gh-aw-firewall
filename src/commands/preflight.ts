@@ -4,7 +4,7 @@ import {
   mapAwfFileConfigToCliOptions,
   applyConfigOptionsInPlaceWithCliPrecedence,
 } from '../config-file';
-import { validateDomainOrPattern } from '../domain-patterns';
+import { validateDomainOrPattern } from '../domain-validation';
 import { loadAndMergeDomains } from '../rules';
 import { parseDomains, parseDomainsFile } from '../domain-utils';
 import { processLocalhostKeyword } from '../option-parsers';

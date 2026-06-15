@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { logger } from '../../logger';
-import { SQUID_DANGEROUS_CHARS } from '../../domain-patterns';
+import { SQUID_DANGEROUS_CHARS } from '../../domain-validation';
 import { parseDomains } from '../../domain-utils';
 import {
   parseEnvironmentVariables,

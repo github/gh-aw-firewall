@@ -1,4 +1,4 @@
-import { parseDomainList } from '../domain-patterns';
+import { parseDomainList } from '../domain-matchers';
 import { formatDomainForSquid, parseDomainConfig } from './domain-acl';
 
 type DomainsByProto = ReturnType<typeof parseDomainConfig>['domainsByProto'];

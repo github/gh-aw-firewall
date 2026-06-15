@@ -1,12 +1,14 @@
 import {
   isWildcardPattern,
   wildcardToRegex,
-  validateDomainOrPattern,
+  parseDomainWithProtocol,
+} from './domain-patterns';
+import { validateDomainOrPattern } from './domain-validation';
+import {
   parseDomainList,
   isDomainMatchedByPattern,
-  parseDomainWithProtocol,
   parseUrlPatterns,
-} from './domain-patterns';
+} from './domain-matchers';
 
 const WILDCARD_DOMAIN_CHARS = '[a-zA-Z0-9.-]*';
 

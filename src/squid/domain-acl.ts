@@ -1,10 +1,6 @@
-import {
-  parseDomainList,
-  isDomainMatchedByPattern,
-  PlainDomainEntry,
-  DomainPattern,
-  SQUID_DANGEROUS_CHARS,
-} from '../domain-patterns';
+import { parseDomainList, isDomainMatchedByPattern } from '../domain-matchers';
+import { PlainDomainEntry, DomainPattern } from '../domain-patterns';
+import { SQUID_DANGEROUS_CHARS } from '../domain-validation';
 
 /**
  * Groups domains by their protocol restriction
