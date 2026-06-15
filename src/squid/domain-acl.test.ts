@@ -32,15 +32,15 @@ describe('assertSafeForSquidConfig', () => {
   });
 
   it('throws for strings containing a semicolon', () => {
-    expect(() => assertSafeForSquidConfig('github.com;http_access allow all')).toThrow(/SECURITY/);
+    expect(() => assertSafeForSquidConfig('github.com;evil')).toThrow(/SECURITY/);
   });
 
   it('throws for strings containing a backtick', () => {
-    expect(() => assertSafeForSquidConfig('github.com`rm -rf /`')).toThrow(/SECURITY/);
+    expect(() => assertSafeForSquidConfig('github.com`evil`')).toThrow(/SECURITY/);
   });
 
   it('throws for strings containing a hash / comment character', () => {
-    expect(() => assertSafeForSquidConfig('github.com # allow all')).toThrow(/SECURITY/);
+    expect(() => assertSafeForSquidConfig('github.com#evil')).toThrow(/SECURITY/);
   });
 
   it('throws for strings containing a null byte', () => {
