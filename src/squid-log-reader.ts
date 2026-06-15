@@ -4,7 +4,7 @@ import { BlockedTarget } from './types';
 import { logger } from './logger';
 import { parseLogLine } from './logs/log-parser';
 
-export interface SquidLogCheckResult {
+interface SquidLogCheckResult {
   hasDenials: boolean;
   blockedTargets: BlockedTarget[];
 }
