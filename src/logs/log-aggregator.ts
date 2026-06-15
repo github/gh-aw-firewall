@@ -74,7 +74,7 @@ function parseLines(
  * @param entries - Array of parsed log entries
  * @returns Aggregated statistics
  */
-export function aggregateLogs(entries: ParsedLogEntry[]): AggregatedStats {
+function aggregateLogs(entries: ParsedLogEntry[]): AggregatedStats {
   const byDomain = new Map<string, DomainStats>();
   let allowedRequests = 0;
   let deniedRequests = 0;
@@ -212,3 +212,7 @@ export async function loadAndAggregate(source: LogSource): Promise<AggregatedSta
   const entries = await loadAllLogs(source);
   return aggregateLogs(entries);
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const logAggregatorTestHelpers = { aggregateLogs };
