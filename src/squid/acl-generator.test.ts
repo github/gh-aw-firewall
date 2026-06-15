@@ -88,7 +88,11 @@ describe('generateAclSections', () => {
 
       expect(aclLines).toContain('# ACL definitions for HTTP-only domains');
       expect(
-        aclLines.some(l => l.startsWith('acl allowed_http_only dstdomain') && l.includes('metrics.example.com'))
+        aclLines.some(
+          l =>
+            l.startsWith('acl allowed_http_only dstdomain') &&
+            /\b\.metrics\.example\.com\b/.test(l)
+        )
       ).toBe(true);
     });
 
