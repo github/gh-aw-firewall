@@ -32,7 +32,7 @@ describe('ready-for-ci workflow gating', () => {
     const gateWorkflow = fs.readFileSync(path.join(workflowsDir, 'ci-gate.yml'), 'utf-8');
 
     expect(gateWorkflow).toContain('issues: write');
-    expect(gateWorkflow).toContain("const copilotReviewers = new Set(['copilot', 'copilot[bot]', 'Copilot']);");
+    expect(gateWorkflow).toContain("const copilotReviewers = new Set(['copilot', 'copilot[bot]', 'Copilot', 'copilot-pull-request-reviewer']);");
     expect(gateWorkflow).toContain('const isCopilotReviewer = login => copilotReviewers.has(login ?? \'\');');
   });
 
