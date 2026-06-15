@@ -162,7 +162,11 @@ describe('generateAclSections', () => {
 
       expect(blockedDomainConfig.aclLines).toContain('# ACL definitions for blocked domains');
       expect(
-        blockedDomainConfig.aclLines.some(l => l.startsWith('acl blocked_domains dstdomain') && l.includes('evil.com'))
+        blockedDomainConfig.aclLines.some(l => {
+          if (!l.startsWith('acl blocked_domains dstdomain')) return false;
+          const tokens = l.trim().split(/\s+/);
+          return tokens.includes('evil.com');
+        })
       ).toBe(true);
       expect(blockedDomainConfig.accessRules).toContain('http_access deny blocked_domains');
     });
