@@ -195,7 +195,7 @@ describe('generateAclSections', () => {
 
       const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
       expect(aclLine).toBeDefined();
-      expect(aclLine).not.toContain('evil.com/');
+      expect(aclLine).not.toContain('/');
     });
 
     it('works on a stand-alone allowlist (no allowed domains)', () => {
