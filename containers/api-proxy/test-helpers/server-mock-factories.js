@@ -124,6 +124,9 @@ function createMockUpstreamCycle(https) {
  * @returns {EventEmitter} The mocked proxy response emitter.
  */
 function completeUpstreamResponse(responseHandler, { statusCode = 200, body = null } = {}) {
+  if (typeof responseHandler !== 'function') {
+    throw new Error('completeUpstreamResponse: responseHandler is not a function — ensure the https.request callback has been captured before calling this helper');
+  }
   const proxyRes = makeProxyRes(statusCode);
   responseHandler(proxyRes);
   if (body !== null) {
