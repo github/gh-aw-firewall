@@ -12,7 +12,7 @@ import { checkSquidLogs } from './squid-log-reader';
  * failures, and may emit "dependency failed to start: container <name> exited
  * (1)" for startup-time process exits.
  */
-export function isContainerStartupFailureError(errorMsg: string, containerName: string): boolean {
+function isContainerStartupFailureError(errorMsg: string, containerName: string): boolean {
   if (!errorMsg.includes(containerName)) {
     return false;
   }
