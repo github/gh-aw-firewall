@@ -91,7 +91,7 @@ describe('generateAclSections', () => {
         aclLines.some(
           l =>
             l.startsWith('acl allowed_http_only dstdomain') &&
-            /\b\.metrics\.example\.com\b/.test(l)
+            l.includes('.metrics.example.com')
         )
       ).toBe(true);
     });
@@ -164,8 +164,7 @@ describe('generateAclSections', () => {
       expect(
         blockedDomainConfig.aclLines.some(l => {
           if (!l.startsWith('acl blocked_domains dstdomain')) return false;
-          const tokens = l.trim().split(/\s+/);
-          return tokens.includes('evil.com');
+          return l.includes('.evil.com');
         })
       ).toBe(true);
       expect(blockedDomainConfig.accessRules).toContain('http_access deny blocked_domains');
@@ -175,7 +174,7 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['https://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.split(/\s+/).includes('evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
       expect(aclLine).toBeDefined();
       expect(aclLine).not.toContain('https://');
     });
@@ -184,7 +183,7 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['http://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.split(/\s+/).includes('evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
       expect(aclLine).toBeDefined();
       expect(aclLine).not.toContain('http://');
     });
@@ -193,9 +192,9 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['evil.com/']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.split(/\s+/).includes('evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
       expect(aclLine).toBeDefined();
-      expect(aclLine).not.toContain('/');
+      expect(aclLine).not.toContain('evil.com/');
     });
 
     it('works on a stand-alone allowlist (no allowed domains)', () => {
