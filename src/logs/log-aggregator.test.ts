@@ -3,12 +3,12 @@
  */
 
 import { loadAllLogs, loadAndAggregate, logAggregatorTestHelpers } from './log-aggregator';
-
-const { aggregateLogs } = logAggregatorTestHelpers;
 import { ParsedLogEntry, LogSource } from '../types';
 import { createLogEntry, createRawLogLine } from './log-test-fixtures.test-utils';
 import execa from 'execa';
 import * as fs from 'fs';
+
+const { aggregateLogs } = logAggregatorTestHelpers;
 
 // Mock dependencies
 jest.mock('execa');
