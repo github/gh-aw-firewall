@@ -7,7 +7,7 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
-const { setupServerTestEnv, flushPromises } = require('./test-helpers/server-mock-factories');
+const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamResponse } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
 let getAndClearPendingSteeringMessage;
@@ -92,15 +92,8 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
     resetTimeoutSteeringForTests();
 
-    const upstreamReq1 = new EventEmitter();
-    upstreamReq1.end = jest.fn();
-    upstreamReq1.write = jest.fn();
-    upstreamReq1.destroy = jest.fn();
-
-    const upstreamReq2 = new EventEmitter();
-    upstreamReq2.end = jest.fn();
-    upstreamReq2.write = jest.fn();
-    upstreamReq2.destroy = jest.fn();
+    const upstreamReq1 = makeProxyReq();
+    const upstreamReq2 = makeProxyReq();
 
     jest.spyOn(https, 'request')
       .mockImplementationOnce(() => upstreamReq1)
@@ -144,20 +137,9 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   it('injects 80% warning into an OpenAI request body and clears it on the next request', async () => {
     // Two upstream request objects — one per proxyRequest call.
     let responseHandler;
-    const upstreamReq1 = new EventEmitter();
-    upstreamReq1.end = jest.fn();
-    upstreamReq1.write = jest.fn();
-    upstreamReq1.destroy = jest.fn();
-
-    const upstreamReq2 = new EventEmitter();
-    upstreamReq2.end = jest.fn();
-    upstreamReq2.write = jest.fn();
-    upstreamReq2.destroy = jest.fn();
-
-    const upstreamReq3 = new EventEmitter();
-    upstreamReq3.end = jest.fn();
-    upstreamReq3.write = jest.fn();
-    upstreamReq3.destroy = jest.fn();
+    const upstreamReq1 = makeProxyReq();
+    const upstreamReq2 = makeProxyReq();
+    const upstreamReq3 = makeProxyReq();
 
     jest.spyOn(https, 'request')
       .mockImplementationOnce((_opts, cb) => { responseHandler = cb; return upstreamReq1; })
@@ -175,17 +157,10 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     req1.emit('end');
     await flushPromises();
 
-    const proxyRes = new EventEmitter();
-    proxyRes.statusCode = 200;
-    proxyRes.headers = { 'content-type': 'application/json' };
-    proxyRes.pipe = jest.fn();
-    responseHandler(proxyRes);
-
-    proxyRes.emit('data', Buffer.from(JSON.stringify({
-      model: 'gpt-4o',
-      usage: { prompt_tokens: 0, completion_tokens: 21 },
-    })));
-    proxyRes.emit('end');
+    completeUpstreamResponse(responseHandler, {
+      statusCode: 200,
+      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
+    });
 
     // Request 2: the proxy should inject the 80% warning into the outgoing body.
     // We send a minimal OpenAI chat body and inspect what the proxy writes upstream.
@@ -245,15 +220,8 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     const { proxyRequest: localProxyRequest } = require('./server');
 
     let responseHandler;
-    const upstreamReq1 = new EventEmitter();
-    upstreamReq1.end = jest.fn();
-    upstreamReq1.write = jest.fn();
-    upstreamReq1.destroy = jest.fn();
-
-    const upstreamReq2 = new EventEmitter();
-    upstreamReq2.end = jest.fn();
-    upstreamReq2.write = jest.fn();
-    upstreamReq2.destroy = jest.fn();
+    const upstreamReq1 = makeProxyReq();
+    const upstreamReq2 = makeProxyReq();
 
     jest.spyOn(https, 'request')
       .mockImplementationOnce((_opts, cb) => { responseHandler = cb; return upstreamReq1; })
@@ -270,17 +238,10 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     req1.emit('end');
     await flushPromises();
 
-    const proxyRes = new EventEmitter();
-    proxyRes.statusCode = 200;
-    proxyRes.headers = { 'content-type': 'application/json' };
-    proxyRes.pipe = jest.fn();
-    responseHandler(proxyRes);
-
-    proxyRes.emit('data', Buffer.from(JSON.stringify({
-      model: 'gpt-4o',
-      usage: { prompt_tokens: 0, completion_tokens: 21 },
-    })));
-    proxyRes.emit('end');
+    completeUpstreamResponse(responseHandler, {
+      statusCode: 200,
+      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
+    });
 
     // Request 2: steering is disabled, so no warning should be injected.
     const req2Body = Buffer.from(JSON.stringify({
