@@ -83,9 +83,10 @@ steps:
       echo "$GH_CHECK" | grep -q '✅' && CHECK_STATUS='✅ PASS' || CHECK_STATUS='❌ FAIL'
       FILE_STATUS='✅ PASS'
       [ "$API_STATUS" = '✅ PASS' ] && [ "$CHECK_STATUS" = '✅ PASS' ] && TOTAL='PASS' || TOTAL='FAIL'
-      printf '{"result":"%s","api_status":"%s","gh_check":"%s","file_status":"%s","pr_number":"%s","event":"%s"}\n' \
-        "$TOTAL" "$API_STATUS" "$CHECK_STATUS" "$FILE_STATUS" \
-        "$EXPR_PR_NUMBER" "$EXPR_GITHUB_EVENT_NAME" \
+      jq -n --arg result "$TOTAL" --arg api_status "$API_STATUS" \
+        --arg gh_check "$CHECK_STATUS" --arg file_status "$FILE_STATUS" \
+        --arg pr_number "$EXPR_PR_NUMBER" --arg event "$EXPR_GITHUB_EVENT_NAME" \
+        '{result: $result, api_status: $api_status, gh_check: $gh_check, file_status: $file_status, pr_number: $pr_number, event: $event}' \
         > /tmp/gh-aw/agent/final-result.json
       echo "Pre-computed result: $TOTAL (API=$API_STATUS, GH=$CHECK_STATUS, File=$FILE_STATUS)"
 post-steps:
@@ -118,7 +119,7 @@ All data is pre-computed. Read `/tmp/gh-aw/agent/final-result.json` (one bash ca
 
 The JSON contains: `result` (PASS/FAIL), `api_status`, `gh_check`, `file_status`, `event`, `pr_number`.
 
-- If `event` is `pull_request`: call `add_comment` with `issue_number` set to `pr_number` and a body listing each check result plus the overall `result`; then call `add_labels` with `["smoke-claude"]` only if `result` is `PASS`.
+- If `event` is `pull_request`: call `add_comment` with `item_number` set to `pr_number` and a body listing each check result plus the overall `result`; then call `add_labels` with `["smoke-claude"]` only if `result` is `PASS`.
 - Otherwise: call `noop` with the result summary.
 
 After calling safeoutputs, stop immediately.
