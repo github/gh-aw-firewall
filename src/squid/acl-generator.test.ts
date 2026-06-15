@@ -164,7 +164,8 @@ describe('generateAclSections', () => {
       expect(
         blockedDomainConfig.aclLines.some(l => {
           if (!l.startsWith('acl blocked_domains dstdomain')) return false;
-          return l.includes('.evil.com');
+          const tokens = l.trim().split(/\s+/);
+          return tokens.includes('.evil.com');
         })
       ).toBe(true);
       expect(blockedDomainConfig.accessRules).toContain('http_access deny blocked_domains');
@@ -174,7 +175,7 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['https://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
       expect(aclLine).toBeDefined();
       expect(aclLine).not.toContain('https://');
     });
@@ -183,7 +184,7 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['http://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
       expect(aclLine).toBeDefined();
       expect(aclLine).not.toContain('http://');
     });
@@ -192,7 +193,7 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['evil.com/']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.includes('.evil.com'));
+      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
       expect(aclLine).toBeDefined();
       expect(aclLine).not.toContain('evil.com/');
     });
