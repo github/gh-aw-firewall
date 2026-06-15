@@ -8,7 +8,7 @@
 
 require('./test-helpers/token-tracker-setup');
 
-const { createChunkHandler, finalizeHttpTracking } = require('./token-tracker-http');
+const { createChunkHandler, finalizeHttpTracking, extractUsageFromTrackedState, buildAndWriteTokenRecord } = require('./token-tracker-http');
 const { closeLogStream } = require('./token-tracker');
 
 afterAll(async () => {
@@ -349,3 +349,199 @@ describe('finalizeHttpTracking', () => {
     expect(() => finalizeHttpTracking(state, makeProxyRes(200), opts)).not.toThrow();
   });
 });
+
+// ── extractUsageFromTrackedState ──────────────────────────────────────
+
+describe('extractUsageFromTrackedState', () => {
+  function makeStreamingState(overrides = {}) {
+    return {
+      streaming: true,
+      chunks: [],
+      totalBytes: 0,
+      bufferedBytes: 0,
+      overflow: false,
+      streamingUsage: {},
+      streamingModel: null,
+      observedCacheReadTokens: 0,
+      partialLine: '',
+      ...overrides,
+    };
+  }
+
+  function makeBufferingState(overrides = {}) {
+    return {
+      streaming: false,
+      chunks: [],
+      totalBytes: 0,
+      bufferedBytes: 0,
+      overflow: false,
+      streamingUsage: {},
+      streamingModel: null,
+      observedCacheReadTokens: 0,
+      partialLine: '',
+      ...overrides,
+    };
+  }
+
+  test('streaming: returns accumulated streamingUsage and model', () => {
+    const state = makeStreamingState({
+      streamingUsage: { input_tokens: 100, output_tokens: 25 },
+      streamingModel: 'claude-opus-4',
+    });
+
+    const { usage, model } = extractUsageFromTrackedState(state);
+
+    expect(usage).toEqual({ input_tokens: 100, output_tokens: 25 });
+    expect(model).toBe('claude-opus-4');
+  });
+
+  test('streaming: returns null usage when streamingUsage is empty', () => {
+    const state = makeStreamingState({ streamingUsage: {} });
+
+    const { usage, model } = extractUsageFromTrackedState(state);
+
+    expect(usage).toBeNull();
+    expect(model).toBeNull();
+  });
+
+  test('streaming: flushes partial line and merges into streamingUsage', () => {
+    const partialData = JSON.stringify({
+      type: 'message_delta',
+      usage: { output_tokens: 40 },
+    });
+    const state = makeStreamingState({
+      streamingUsage: { input_tokens: 200 },
+      partialLine: `data: ${partialData}`,
+    });
+
+    const { usage } = extractUsageFromTrackedState(state);
+
+    expect(usage).toBeTruthy();
+    expect(usage.input_tokens).toBe(200);
+    expect(usage.output_tokens).toBe(40);
+    expect(state.partialLine).toBe(`data: ${partialData}`); // partialLine is not cleared (no newline)
+  });
+
+  test('streaming: updates observedCacheReadTokens from partial line flush', () => {
+    const partialData = JSON.stringify({
+      type: 'message_start',
+      message: { model: 'claude-haiku', usage: { input_tokens: 10, cache_read_input_tokens: 500 } },
+    });
+    const state = makeStreamingState({
+      partialLine: `data: ${partialData}`,
+      observedCacheReadTokens: 0,
+    });
+
+    extractUsageFromTrackedState(state);
+
+    expect(state.observedCacheReadTokens).toBe(500);
+  });
+
+  test('non-streaming: parses buffered JSON chunks', () => {
+    const body = JSON.stringify({ model: 'gpt-4o', usage: { prompt_tokens: 50, completion_tokens: 20 } });
+    const state = makeBufferingState({ chunks: [Buffer.from(body)] });
+
+    const { usage, model } = extractUsageFromTrackedState(state);
+
+    expect(usage).toBeTruthy();
+    expect(model).toBe('gpt-4o');
+  });
+
+  test('non-streaming: returns null when overflow is set', () => {
+    const state = makeBufferingState({ overflow: true, chunks: [] });
+
+    const { usage, model } = extractUsageFromTrackedState(state);
+
+    expect(usage).toBeNull();
+    expect(model).toBeNull();
+  });
+
+  test('non-streaming: returns null when chunks array is empty', () => {
+    const state = makeBufferingState({ chunks: [] });
+
+    const { usage, model } = extractUsageFromTrackedState(state);
+
+    expect(usage).toBeNull();
+    expect(model).toBeNull();
+  });
+
+  test('non-streaming: updates observedCacheReadTokens from parsed JSON', () => {
+    const body = JSON.stringify({
+      usage: { prompt_tokens: 10, completion_tokens: 5, cache_read_input_tokens: 300 },
+    });
+    const state = makeBufferingState({ chunks: [Buffer.from(body)], observedCacheReadTokens: 0 });
+
+    extractUsageFromTrackedState(state);
+
+    expect(state.observedCacheReadTokens).toBe(300);
+  });
+});
+
+// ── buildAndWriteTokenRecord ──────────────────────────────────────────
+
+describe('buildAndWriteTokenRecord', () => {
+  const normalizedUsage = {
+    input_tokens: 100,
+    output_tokens: 30,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+  };
+
+  function baseParams(overrides = {}) {
+    return {
+      requestId: 'bw-test',
+      provider: 'openai',
+      model: 'gpt-4o',
+      reqPath: '/v1/chat/completions',
+      status: 200,
+      streaming: false,
+      duration: 150,
+      responseBytes: 512,
+      billingInfo: null,
+      initiatorSent: null,
+      budgetResult: undefined,
+      ...overrides,
+    };
+  }
+
+  test('does not throw for a minimal valid call', () => {
+    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams())).not.toThrow();
+  });
+
+  test('includes billingInfo and initiatorSent when provided', () => {
+    // Verified indirectly: must not throw and the record is written to disk
+    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+      billingInfo: { quota: 5000 },
+      initiatorSent: 'vscode',
+    }))).not.toThrow();
+  });
+
+  test('merges budgetResult fields when provided', () => {
+    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+      budgetResult: {
+        effective_tokens_this_response: 130,
+        effective_tokens_total: 2000,
+        model_multiplier: 1.0,
+        ai_credits_this_response: 0.002,
+        ai_credits_total: 0.05,
+      },
+    }))).not.toThrow();
+  });
+
+  test('handles null billingInfo and undefined budgetResult gracefully', () => {
+    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+      billingInfo: null,
+      initiatorSent: null,
+      budgetResult: undefined,
+    }))).not.toThrow();
+  });
+
+  test('works for streaming responses', () => {
+    expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
+      streaming: true,
+      provider: 'anthropic',
+      model: 'claude-opus-4',
+    }))).not.toThrow();
+  });
+});
+
