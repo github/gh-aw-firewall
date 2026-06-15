@@ -4,12 +4,10 @@ on:
   roles: all
   schedule: weekly
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'containers/api-proxy/**'
-      - 'src/services/api-proxy-service.ts'
-      - '.github/workflows/smoke-otel-tracing.md'
+  label_command:
+    name: ready-for-ci
+    events: [pull_request]
+    remove_label: false
   reaction: "rocket"
 permissions:
   contents: read

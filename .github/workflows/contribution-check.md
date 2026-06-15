@@ -2,9 +2,11 @@
 description: Contribution Check - Reviews PRs against CONTRIBUTING.md guidelines
 on:
   roles: all
-  pull_request:
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
+  label_command:
+    name: ready-for-ci
+    events: [pull_request]
+    remove_label: false
 permissions:
   contents: read
   pull-requests: read

@@ -3,13 +3,10 @@ description: Smoke test workflow that validates the feature by testing host bina
 on:
   roles: all
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'src/**'
-      - 'containers/**'
-      - 'package.json'
-      - '.github/workflows/smoke-chroot.md'
+  label_command:
+    name: ready-for-ci
+    events: [pull_request]
+    remove_label: false
   reaction: "rocket"
 permissions:
   contents: read

@@ -4,8 +4,10 @@ on:
   roles: all
   schedule: every 12h
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  label_command:
+    name: ready-for-ci
+    events: [pull_request]
+    remove_label: false
   reaction: "hooray"
 permissions:
   contents: read
