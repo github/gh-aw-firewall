@@ -372,26 +372,61 @@ describe('createProviderServer', () => {
     });
   }
 
-  it('emits upstream_auth_error when upstream returns 400', async () => {
-    const { lines, spy } = collectLogOutput();
-    mockHttpsWithStatus(400);
-
-    const adapter = {
+  /**
+   * Build a minimal mock copilot adapter for upstream-response tests.
+   */
+  function makeCopilotAdapter({ targetHost = 'api.githubcopilot.com', authHeaderValue = '******' } = {}) {
+    return {
       name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
       participatesInValidation: false,
       isEnabled: () => true,
-      getTargetHost: () => 'openrouter.ai',
+      getTargetHost: () => targetHost,
       getBasePath: () => '',
-      getAuthHeaders: () => ({ 'Authorization': 'Bearer sk-or-key' }),
+      getAuthHeaders: () => ({ Authorization: authHeaderValue }),
       getBodyTransform: () => null,
     };
+  }
+
+  /**
+   * Set COPILOT_PROVIDER_BASE_URL / COPILOT_PROVIDER_API_KEY for the duration
+   * of `fn`, then restore the originals.  Handles the case where the vars were
+   * previously undefined (avoids assigning the string "undefined").
+   */
+  async function withCopilotByokEnv(apiKey, fn) {
+    const prevBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
+    const prevProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
+    process.env.COPILOT_PROVIDER_BASE_URL = 'https://openrouter.ai/api/v1';
+    process.env.COPILOT_PROVIDER_API_KEY = apiKey;
+    try {
+      await fn();
+    } finally {
+      if (prevBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
+      else process.env.COPILOT_PROVIDER_BASE_URL = prevBaseUrl;
+      if (prevProviderKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
+      else process.env.COPILOT_PROVIDER_API_KEY = prevProviderKey;
+    }
+  }
+
+  /**
+   * Dispatch a single POST /v1/chat/completions through a minimal copilot
+   * adapter whose upstream returns `status`, capture log output, and return
+   * the collected log lines.  Restores all mocks before returning.
+   */
+  async function runAuthDiagnosticRequest({ targetHost, authHeaderValue, status }) {
+    const { lines, spy } = collectLogOutput();
+    mockHttpsWithStatus(status);
+    const adapter = makeCopilotAdapter({ targetHost, authHeaderValue });
     const port = await startAdapter(adapter);
-
     await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
-
     jest.restoreAllMocks();
     spy.mockRestore();
+    return lines;
+  }
 
+  it('emits upstream_auth_error when upstream returns 400', async () => {
+    const lines = await runAuthDiagnosticRequest({
+      targetHost: 'openrouter.ai', authHeaderValue: '******', status: 400,
+    });
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 400);
     expect(authErrLog).toBeDefined();
     expect(authErrLog.provider).toBe('copilot');
@@ -453,25 +488,9 @@ describe('createProviderServer', () => {
   });
 
   it('emits upstream_auth_error when upstream returns 401', async () => {
-    const { lines, spy } = collectLogOutput();
-    mockHttpsWithStatus(401);
-
-    const adapter = {
-      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
-      participatesInValidation: false,
-      isEnabled: () => true,
-      getTargetHost: () => 'api.githubcopilot.com',
-      getBasePath: () => '',
-      getAuthHeaders: () => ({ 'Authorization': 'Bearer gho_token' }),
-      getBodyTransform: () => null,
-    };
-    const port = await startAdapter(adapter);
-
-    await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
-
-    jest.restoreAllMocks();
-    spy.mockRestore();
-
+    const lines = await runAuthDiagnosticRequest({
+      targetHost: 'api.githubcopilot.com', authHeaderValue: '******', status: 401,
+    });
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 401);
     expect(authErrLog).toBeDefined();
     expect(authErrLog.provider).toBe('copilot');
@@ -479,37 +498,12 @@ describe('createProviderServer', () => {
   });
 
   it('emits BYOK-specific upstream_auth_error details for copilot auth failures', async () => {
-    const prevBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
-    const prevProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
-    process.env.COPILOT_PROVIDER_BASE_URL = 'https://openrouter.ai/api/v1';
-    process.env.COPILOT_PROVIDER_API_KEY = 'sk-or-real-byok-key';
-
-    const { lines, spy } = collectLogOutput();
-    mockHttpsWithStatus(401);
-
-    const adapter = {
-      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
-      participatesInValidation: false,
-      isEnabled: () => true,
-      getTargetHost: () => 'openrouter.ai',
-      getBasePath: () => '',
-      getAuthHeaders: () => ({ Authorization: '******' }),
-      getBodyTransform: () => null,
-    };
-    const port = await startAdapter(adapter);
-
-    try {
-      await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
-    } finally {
-      if (prevBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
-      else process.env.COPILOT_PROVIDER_BASE_URL = prevBaseUrl;
-      if (prevProviderKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
-      else process.env.COPILOT_PROVIDER_API_KEY = prevProviderKey;
-    }
-
-    jest.restoreAllMocks();
-    spy.mockRestore();
-
+    let lines;
+    await withCopilotByokEnv('sk-or-real-byok-key', async () => {
+      lines = await runAuthDiagnosticRequest({
+        targetHost: 'openrouter.ai', authHeaderValue: '******', status: 401,
+      });
+    });
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 401);
     expect(authErrLog).toBeDefined();
     expect(authErrLog.message).toContain('BYOK provider request to COPILOT_PROVIDER_BASE_URL failed');
@@ -517,37 +511,12 @@ describe('createProviderServer', () => {
   });
 
   it('emits internal-placeholder diagnostic when copilot BYOK key is AWF sentinel', async () => {
-    const prevBaseUrl = process.env.COPILOT_PROVIDER_BASE_URL;
-    const prevProviderKey = process.env.COPILOT_PROVIDER_API_KEY;
-    process.env.COPILOT_PROVIDER_BASE_URL = 'https://openrouter.ai/api/v1';
-    process.env.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
-
-    const { lines, spy } = collectLogOutput();
-    mockHttpsWithStatus(401);
-
-    const adapter = {
-      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
-      participatesInValidation: false,
-      isEnabled: () => true,
-      getTargetHost: () => 'openrouter.ai',
-      getBasePath: () => '',
-      getAuthHeaders: () => ({ Authorization: '******' }),
-      getBodyTransform: () => null,
-    };
-    const port = await startAdapter(adapter);
-
-    try {
-      await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
-    } finally {
-      if (prevBaseUrl === undefined) delete process.env.COPILOT_PROVIDER_BASE_URL;
-      else process.env.COPILOT_PROVIDER_BASE_URL = prevBaseUrl;
-      if (prevProviderKey === undefined) delete process.env.COPILOT_PROVIDER_API_KEY;
-      else process.env.COPILOT_PROVIDER_API_KEY = prevProviderKey;
-    }
-
-    jest.restoreAllMocks();
-    spy.mockRestore();
-
+    let lines;
+    await withCopilotByokEnv(COPILOT_PLACEHOLDER_TOKEN, async () => {
+      lines = await runAuthDiagnosticRequest({
+        targetHost: 'openrouter.ai', authHeaderValue: '******', status: 401,
+      });
+    });
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error' && l.status === 401);
     expect(authErrLog).toBeDefined();
     expect(authErrLog.message).toContain('AWF placeholder sentinel');
@@ -555,25 +524,9 @@ describe('createProviderServer', () => {
   });
 
   it('does NOT emit upstream_auth_error for a successful 200 response', async () => {
-    const { lines, spy } = collectLogOutput();
-    mockHttpsWithStatus(200);
-
-    const adapter = {
-      name: 'copilot', port: 0, isManagementPort: false, alwaysBind: false,
-      participatesInValidation: false,
-      isEnabled: () => true,
-      getTargetHost: () => 'api.githubcopilot.com',
-      getBasePath: () => '',
-      getAuthHeaders: () => ({ 'Authorization': 'Bearer gho_token' }),
-      getBodyTransform: () => null,
-    };
-    const port = await startAdapter(adapter);
-
-    await fetch(port, '/v1/chat/completions', { method: 'POST', body: '{}' });
-
-    jest.restoreAllMocks();
-    spy.mockRestore();
-
+    const lines = await runAuthDiagnosticRequest({
+      targetHost: 'api.githubcopilot.com', authHeaderValue: '******', status: 200,
+    });
     const authErrLog = lines.find(l => l.event === 'upstream_auth_error');
     expect(authErrLog).toBeUndefined();
   });
