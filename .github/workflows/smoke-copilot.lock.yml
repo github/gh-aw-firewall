@@ -75,7 +75,9 @@ run-name: "Smoke Copilot"
 jobs:
   activation:
     if: >
-      github.event_name == 'pull_request' && github.event.label.name == 'ready-for-ci' || !(github.event_name == 'pull_request')
+      (github.event_name == 'pull_request' && github.event.label.name == 'ready-for-ci'
+      && github.event.pull_request.head.repo.id == github.repository_id)
+      || github.event_name != 'pull_request'
     runs-on: ubuntu-slim
     permissions:
       actions: read
@@ -1371,4 +1373,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-
