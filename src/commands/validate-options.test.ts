@@ -5,7 +5,7 @@ import { validateOptions } from './validate-options';
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 jest.mock('fs');
 // Keep the real SQUID_DANGEROUS_CHARS regex so inline URL checks work correctly.
-jest.mock('../domain-patterns', () => ({ SQUID_DANGEROUS_CHARS: /[\s\0"'`;#]/ }));
+jest.mock('../domain-validation', () => ({ SQUID_DANGEROUS_CHARS: /[\s\0"'`;#]/ }));
 jest.mock('../domain-utils');
 jest.mock('../api-proxy-config');
 jest.mock('../option-parsers');

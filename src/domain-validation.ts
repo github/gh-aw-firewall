@@ -1,9 +1,9 @@
 /**
  * Security validation for domain names and wildcard patterns
  *
- * This module is the Squid-injection prevention path for --allow-domains.
- * All checks here are security-critical: they prevent malicious input from
- * escaping into the generated Squid configuration.
+ * This module is the Squid-injection prevention path for both --allow-domains
+ * and --allow-urls. All checks here are security-critical: they prevent
+ * malicious input from escaping into the generated Squid configuration.
  */
 
 import { parseDomainWithProtocol } from './domain-patterns';
@@ -63,8 +63,8 @@ function checkOverBroadPattern(trimmed: string): void {
 }
 
 /**
- * Reject structurally invalid domain strings: double dots, lone dot, bare
- * `*.` / `.*` (incomplete wildcards), and patterns with too many wildcard segments.
+ * Reject structurally invalid domain strings: double dots, lone dot,
+ * and patterns with too many wildcard segments.
  */
 function checkStructuralValidity(trimmed: string): void {
   // Double dots are never valid in domain names
@@ -75,11 +75,6 @@ function checkStructuralValidity(trimmed: string): void {
   // A lone dot is not a valid domain
   if (trimmed === '.') {
     throw new Error('Invalid domain: cannot be just a dot');
-  }
-
-  // `*.` and `.*` are incomplete — they have no concrete label on one side
-  if (trimmed === '*.' || trimmed === '.*') {
-    throw new Error(`Invalid pattern '${trimmed}': incomplete domain`);
   }
 
   // Patterns with too many wildcard segments are too broad.
@@ -99,14 +94,13 @@ function checkStructuralValidity(trimmed: string): void {
 /**
  * Validate a domain or wildcard pattern
  *
- * Performs six security checks in sequence, each isolated in a named helper
+ * Performs five security checks in sequence, each isolated in a named helper
  * to make the validation logic easy to audit:
  *  1. Empty-input check
  *  2. Dangerous-character detection (Squid injection prevention)
  *  3. Over-broad wildcard rejection (`*`, `*.*`, patterns of only `*`/`.`)
  *  4. Double-dot rejection
- *  5. Invalid leading/trailing pattern rejection (`*.`, `.*`, `.`)
- *  6. Excessive-wildcard-segment check
+ *  5. Invalid lone-dot and excessive-wildcard-segment check
  *
  * @param input - Domain or pattern to validate (may include protocol prefix)
  * @throws Error if the input is invalid or too broad

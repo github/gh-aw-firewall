@@ -22,7 +22,7 @@ import { validateDomainOrPattern } from './domain-validation';
 export interface ParsedDomainList {
   /** Plain domains without wildcards */
   plainDomains: PlainDomainEntry[];
-  /** Wildcard patterns with pre-compiled regex */
+  /** Wildcard patterns with compiled regex strings (compiled at match time via new RegExp(...)) */
   patterns: DomainPattern[];
 }
 
