@@ -89,7 +89,7 @@ steps:
         --state all --limit 50 \
         --json number,title,state,stateReason \
         > /tmp/gh-aw/existing-issues.json
-      echo "=== Existing [Duplicate Code] issues ===" >> /tmp/gh-aw/existing-issues.json
+      echo "=== Existing [Duplicate Code] issues ==="
       jq -r '.[] | "#\(.number) [\(.state)/\(.stateReason // "none")]: \(.title)"' \
         /tmp/gh-aw/existing-issues.json || true
 ---
