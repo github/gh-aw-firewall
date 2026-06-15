@@ -21,6 +21,7 @@ const {
   TOKEN_DIAG_SCHEMA,
 } = require('./token-persistence');
 const { EventEmitter } = require('events');
+const { buildAnthropicUsageFrames } = require('./test-helpers/websocket-frame-helpers');
 
 afterAll(async () => {
   await closeLogStream();
@@ -276,24 +277,6 @@ describe('token-usage JSONL record schema field', () => {
   test('trackWebSocketTokenUsage path writes versioned _schema to the stream', (done) => {
     const socket = new EventEmitter();
 
-    function buildFrame(text) {
-      const payload = Buffer.from(text, 'utf8');
-      const header = Buffer.alloc(2);
-      header[0] = 0x81;
-      header[1] = payload.length;
-      return Buffer.concat([header, payload]);
-    }
-
-    const httpHeader = Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n');
-    const frame1 = buildFrame(JSON.stringify({
-      type: 'message_start',
-      message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 20, output_tokens: 0 } },
-    }));
-    const frame2 = buildFrame(JSON.stringify({
-      type: 'message_delta',
-      usage: { output_tokens: 8 },
-    }));
-
     trackWebSocketTokenUsage(socket, {
       requestId: 'schema-field-ws',
       provider: 'anthropic',
@@ -302,7 +285,7 @@ describe('token-usage JSONL record schema field', () => {
       metrics: null,
     });
 
-    socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
+    socket.emit('data', buildAnthropicUsageFrames());
     socket.emit('close');
 
     setTimeout(() => {
@@ -390,24 +373,6 @@ describe('token-usage JSONL record schema field', () => {
   test('trackWebSocketTokenUsage path persists optional budget fields returned by onUsage', (done) => {
     const socket = new EventEmitter();
 
-    function buildFrame(text) {
-      const payload = Buffer.from(text, 'utf8');
-      const header = Buffer.alloc(2);
-      header[0] = 0x81;
-      header[1] = payload.length;
-      return Buffer.concat([header, payload]);
-    }
-
-    const httpHeader = Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n');
-    const frame1 = buildFrame(JSON.stringify({
-      type: 'message_start',
-      message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 20, output_tokens: 0 } },
-    }));
-    const frame2 = buildFrame(JSON.stringify({
-      type: 'message_delta',
-      usage: { output_tokens: 8 },
-    }));
-
     trackWebSocketTokenUsage(socket, {
       requestId: 'budget-fields-ws',
       provider: 'anthropic',
@@ -423,7 +388,7 @@ describe('token-usage JSONL record schema field', () => {
       }),
     });
 
-    socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
+    socket.emit('data', buildAnthropicUsageFrames());
     socket.emit('close');
 
     setTimeout(() => {
@@ -444,24 +409,6 @@ describe('token-usage JSONL record schema field', () => {
   test('trackWebSocketTokenUsage path omits optional budget fields when onUsage returns undefined', (done) => {
     const socket = new EventEmitter();
 
-    function buildFrame(text) {
-      const payload = Buffer.from(text, 'utf8');
-      const header = Buffer.alloc(2);
-      header[0] = 0x81;
-      header[1] = payload.length;
-      return Buffer.concat([header, payload]);
-    }
-
-    const httpHeader = Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n');
-    const frame1 = buildFrame(JSON.stringify({
-      type: 'message_start',
-      message: { model: 'claude-sonnet-4-20250514', usage: { input_tokens: 20, output_tokens: 0 } },
-    }));
-    const frame2 = buildFrame(JSON.stringify({
-      type: 'message_delta',
-      usage: { output_tokens: 8 },
-    }));
-
     trackWebSocketTokenUsage(socket, {
       requestId: 'budget-fields-ws-none',
       provider: 'anthropic',
@@ -471,7 +418,7 @@ describe('token-usage JSONL record schema field', () => {
       onUsage: () => undefined,
     });
 
-    socket.emit('data', Buffer.concat([httpHeader, frame1, frame2]));
+    socket.emit('data', buildAnthropicUsageFrames());
     socket.emit('close');
 
     setTimeout(() => {
