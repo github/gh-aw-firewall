@@ -14,11 +14,15 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(source).toContain('Gather file metrics');
     expect(source).toContain('Run jscpd');
     expect(source).toContain('Grep pattern analysis');
+    expect(source).toContain('- name: Check existing duplicate issues');
+    expect(source).toContain('jscpd-top.json');
     expect(source).toContain('## Pre-Computed Analysis');
-    expect(source).toContain('Skip directly to Phase 5');
+    expect(source).not.toContain('Skip directly to Phase 5');
     expect(source).toContain('## Scope Constraint');
     expect(source).toContain('Do NOT re-run discovery commands.');
-    expect(source).toContain('Complete your analysis in ≤10 turns. File at most 3 issues per run.');
+    expect(source).toContain('Complete your analysis in ≤7 turns. File at most 3 issues per run.');
+    expect(source).toContain('Do NOT call any GitHub MCP tools for this phase.');
+    expect(source).toContain('existing-issues.json');
     expect(source).toContain('max: 3');
     expect(source).toContain('allowed:\n    - github');
     expect(source).not.toContain('allowed:\n    - node');

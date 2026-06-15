@@ -56,6 +56,16 @@ steps:
     run: |
       jscpd src --min-lines 10 --min-tokens 50 --reporters json --output /tmp/gh-aw/jscpd-src 2>&1 | tail -20 > /tmp/gh-aw/jscpd-src.txt
       jscpd containers --min-lines 10 --min-tokens 50 --reporters json --output /tmp/gh-aw/jscpd-containers 2>&1 | tail -20 >> /tmp/gh-aw/jscpd-src.txt
+      # Summarize: keep only top 15 findings to limit context size
+      if [ -f /tmp/gh-aw/jscpd-src/jscpd-report.json ]; then
+        jq '{
+          statistics: .statistics,
+          duplicates: (.duplicates | sort_by(-.lines) | .[0:15]
+            | map({lines, tokens, fragment,
+                   firstFile: {name: .firstFile.name, start: .firstFile.start, end: .firstFile.end},
+                   secondFile: {name: .secondFile.name, start: .secondFile.start, end: .secondFile.end}}))
+        }' /tmp/gh-aw/jscpd-src/jscpd-report.json > /tmp/gh-aw/jscpd-top.json
+      fi
 
   - name: Grep pattern analysis
     run: |
@@ -70,6 +80,18 @@ steps:
           grep -n '^function\|^const.*=.*function\|^module\.exports' "$f" | head -10
         done
       } > /tmp/gh-aw/grep-analysis.txt
+
+  - name: Check existing duplicate issues
+    run: |
+      gh issue list \
+        --repo "${{ github.repository }}" \
+        --search "\"[Duplicate Code]\" in:title" \
+        --state all --limit 50 \
+        --json number,title,state,stateReason \
+        > /tmp/gh-aw/existing-issues.json
+      echo "=== Existing [Duplicate Code] issues ===" >> /tmp/gh-aw/existing-issues.json
+      jq -r '.[] | "#\(.number) [\(.state)/\(.stateReason // "none")]: \(.title)"' \
+        /tmp/gh-aw/existing-issues.json || true
 ---
 
 # Duplicate Code Detector
@@ -90,24 +112,24 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. The most 
 The following data was gathered before this session:
 
 - **File metrics:** `cat /tmp/gh-aw/code-metrics.txt`
-- **jscpd results:** `cat /tmp/gh-aw/jscpd-src.txt` and `cat /tmp/gh-aw/jscpd-src/jscpd-report.json`
+- **jscpd results (top 15):** `cat /tmp/gh-aw/jscpd-top.json`  ← Use this, not the full report
 - **Grep patterns:** `cat /tmp/gh-aw/grep-analysis.txt`
-
-Skip directly to Phase 5 (check existing issues) and Phase 6 (prioritize and report).
+- **Existing issues:** `cat /tmp/gh-aw/existing-issues.json`
 
 ## Scope Constraint
 
 Pre-computed analysis files are in `/tmp/gh-aw/`. Do NOT re-run discovery commands.
-Complete your analysis in ≤10 turns. File at most 3 issues per run.
+Complete your analysis in ≤7 turns. File at most 3 issues per run.
 
 ## Phase 5: Check for Existing Issues
 
-Before filing new issues, check BOTH open AND closed issues:
+Pre-computed issue data is in `/tmp/gh-aw/existing-issues.json`.
+Read it with `cat /tmp/gh-aw/existing-issues.json`.
+Do NOT call any GitHub MCP tools for this phase.
 
-1. Search for issues with `[Duplicate Code]` prefix using the GitHub toolset with `state: all` (or equivalent `is:open` + `is:closed`)
-2. Also search for issues with labels `code-quality` or `refactoring` that describe duplication using `state: all` (or equivalent `is:open` + `is:closed`)
-3. Skip any finding that already has an open tracking issue
-4. For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
+- Skip any finding whose title already appears in this list with state=OPEN.
+- For closed issues: skip only if stateReason is "not_planned". If stateReason is "completed"
+  and the finding reproduces, file a fresh issue linking to the prior one.
 
 ## Phase 6: Prioritize and Report Findings
 
@@ -164,7 +186,7 @@ Low / Medium / High
 - **Be specific**: Always include file paths and line numbers in the evidence section
 - **Be actionable**: Each issue should have a clear, implementable suggestion
 - **Avoid noise**: Only file issues for genuine duplication with real maintenance impact — not cosmetic similarities
-- **No duplicates**: Check existing issues with `state: all`; only treat closed issues as terminal when `state_reason` is `not_planned`
+- **No duplicates**: Check `/tmp/gh-aw/existing-issues.json`; only treat closed issues as terminal when `state_reason` is `not_planned`
 - **Security awareness**: Flag duplicated security-critical logic (domain validation, ACL rules, capability management) with higher urgency
 - **Cap at 3 issues**: File at most 3 issues per run
 
