@@ -1,0 +1,350 @@
+name: "Test: gVisor Compatibility"
+# Manual workflow to empirically answer gVisor questions from issue #3264:
+# 1. Does iptables DNAT work inside a gVisor (runsc) sandbox?
+# 2. Does Docker Compose `runtime:` field work with gVisor?
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-gvisor:
+    name: Install gVisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      gvisor-available: ${{ steps.install.outputs.available }}
+    steps:
+      - name: Install gVisor (runsc)
+        id: install
+        run: |
+          set -euo pipefail
+          # Install gVisor per official docs
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" "${URL}/containerd-shim-runsc-v1"
+          chmod +x runsc containerd-shim-runsc-v1
+          sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin/
+
+          # Register runsc as a Docker runtime
+          sudo mkdir -p /etc/docker
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {
+            "runtimes": {
+              "runsc": {
+                "path": "/usr/local/bin/runsc"
+              },
+              "runsc-net-host": {
+                "path": "/usr/local/bin/runsc",
+                "runtimeArgs": ["--network=host"]
+              }
+            }
+          }
+          EOF
+          sudo systemctl restart docker
+          sleep 2
+
+          # Verify installation
+          if docker run --rm --runtime=runsc hello-world >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "✅ gVisor runtime installed and working"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "❌ gVisor runtime failed to start"
+          fi
+
+  test-iptables-dnat:
+    name: "Q1: iptables DNAT inside gVisor"
+    needs: install-gvisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install gVisor
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" "${URL}/containerd-shim-runsc-v1"
+          chmod +x runsc containerd-shim-runsc-v1
+          sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin/
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {
+            "runtimes": {
+              "runsc": { "path": "/usr/local/bin/runsc" },
+              "runsc-net-host": { "path": "/usr/local/bin/runsc", "runtimeArgs": ["--network=host"] }
+            }
+          }
+          EOF
+          sudo systemctl restart docker && sleep 2
+
+      - name: "Test: iptables inside gVisor (default netstack)"
+        id: test-netstack
+        run: |
+          set -x
+          echo "## Testing iptables DNAT inside gVisor (netstack mode)"
+          echo "This tests whether gVisor's userspace network stack supports DNAT rules."
+          echo ""
+
+          # Run a container with NET_ADMIN and try to add iptables rules
+          docker run --rm --runtime=runsc \
+            --cap-add=NET_ADMIN \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+
+              echo "=== Attempting iptables DNAT rule (like AWF setup-iptables.sh) ==="
+              echo "Rule: DNAT tcp/443 -> 172.30.0.10:3128"
+
+              if iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128 2>&1; then
+                echo "✅ DNAT rule added successfully"
+                iptables -t nat -L OUTPUT -n -v
+              else
+                echo "❌ DNAT rule FAILED"
+                echo "Exit code: $?"
+              fi
+
+              echo ""
+              echo "=== Attempting iptables DROP rule ==="
+              if iptables -A OUTPUT -p tcp --dport 22 -j DROP 2>&1; then
+                echo "✅ DROP rule added successfully"
+              else
+                echo "❌ DROP rule FAILED"
+              fi
+
+              echo ""
+              echo "=== Attempting iptables LOG rule ==="
+              if iptables -A OUTPUT -p udp -j LOG --log-prefix "[FW_TEST]" 2>&1; then
+                echo "✅ LOG rule added successfully"
+              else
+                echo "❌ LOG rule FAILED (expected — gVisor may not support LOG target)"
+              fi
+
+              echo ""
+              echo "=== Full iptables nat table ==="
+              iptables -t nat -L -n -v 2>&1 || echo "(failed to list)"
+
+              echo ""
+              echo "=== Full iptables filter table ==="
+              iptables -L -n -v 2>&1 || echo "(failed to list)"
+            ' || echo "::warning::Container exited with error"
+
+      - name: "Test: iptables with gVisor host-network mode"
+        id: test-host-net
+        run: |
+          set -x
+          echo "## Testing iptables with gVisor --network=host mode"
+          echo "In host-network mode, gVisor uses the host's network stack."
+          echo ""
+
+          docker run --rm --runtime=runsc-net-host \
+            --cap-add=NET_ADMIN \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables > /dev/null 2>&1
+
+              echo "=== DNAT rule with host network ==="
+              if iptables -t nat -A OUTPUT -p tcp --dport 8443 -j DNAT --to-destination 127.0.0.1:3128 2>&1; then
+                echo "✅ DNAT rule works with host network mode"
+                iptables -t nat -L OUTPUT -n -v
+              else
+                echo "❌ DNAT rule FAILED even with host network"
+              fi
+            ' || echo "::warning::Container exited with error"
+
+      - name: "Test: DNAT actually redirects traffic"
+        id: test-redirect
+        run: |
+          set -x
+          echo "## Testing if DNAT actually redirects traffic inside gVisor"
+          echo ""
+
+          # Start a simple listener on port 3128 on the host
+          docker run -d --name test-listener -p 3128:3128 \
+            ubuntu:22.04 bash -c 'apt-get update -qq && apt-get install -y -qq netcat-openbsd > /dev/null 2>&1 && echo "PROXY_REACHED" | nc -l -p 3128'
+
+          sleep 2
+          LISTENER_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-listener)
+          echo "Listener IP: $LISTENER_IP"
+
+          # Run gVisor container that DNATs port 443 to the listener
+          docker run --rm --runtime=runsc \
+            --cap-add=NET_ADMIN \
+            --add-host=listener:${LISTENER_IP} \
+            ubuntu:22.04 bash -c "
+              apt-get update -qq && apt-get install -y -qq iptables curl netcat-openbsd > /dev/null 2>&1
+
+              echo '=== Adding DNAT rule: 443 -> ${LISTENER_IP}:3128 ==='
+              iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination ${LISTENER_IP}:3128 2>&1
+              RULE_RC=\$?
+              echo \"Rule exit code: \$RULE_RC\"
+
+              if [ \$RULE_RC -eq 0 ]; then
+                echo '=== Attempting connection to port 443 (should be redirected to 3128) ==='
+                RESPONSE=\$(echo 'GET / HTTP/1.0' | nc -w 3 ${LISTENER_IP} 443 2>&1) || true
+                echo \"Response: \$RESPONSE\"
+                if echo \"\$RESPONSE\" | grep -q PROXY_REACHED; then
+                  echo '✅ DNAT ACTUALLY REDIRECTED TRAFFIC — gVisor supports AWF iptables pattern'
+                else
+                  echo '⚠️ DNAT rule accepted but traffic may not be redirected'
+                fi
+              fi
+            " || echo "::warning::Container exited with error"
+
+          docker rm -f test-listener 2>/dev/null || true
+
+  test-compose-runtime:
+    name: "Q2: Docker Compose runtime field"
+    needs: install-gvisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install gVisor
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" "${URL}/containerd-shim-runsc-v1"
+          chmod +x runsc containerd-shim-runsc-v1
+          sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin/
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {
+            "runtimes": {
+              "runsc": { "path": "/usr/local/bin/runsc" }
+            }
+          }
+          EOF
+          sudo systemctl restart docker && sleep 2
+
+      - name: "Test: Compose v2 with runtime field"
+        run: |
+          set -x
+          echo "## Testing Docker Compose runtime: field"
+          echo ""
+
+          # Check compose version
+          docker compose version
+
+          # Create a compose file with runtime field
+          cat > /tmp/compose-runtime-test.yml <<'EOF'
+          services:
+            gvisor-test:
+              image: ubuntu:22.04
+              runtime: runsc
+              command: ["bash", "-c", "echo 'Hello from gVisor via Compose' && cat /proc/version"]
+          EOF
+
+          echo "=== Compose file ==="
+          cat /tmp/compose-runtime-test.yml
+
+          echo ""
+          echo "=== Running docker compose up ==="
+          if docker compose -f /tmp/compose-runtime-test.yml up --abort-on-container-exit 2>&1; then
+            echo "✅ Docker Compose 'runtime:' field works with gVisor"
+          else
+            echo "❌ Docker Compose 'runtime:' field FAILED"
+            echo ""
+            echo "=== Trying alternative: docker compose run --runtime ==="
+            docker compose -f /tmp/compose-runtime-test.yml run --rm --runtime=runsc gvisor-test 2>&1 || true
+          fi
+
+          docker compose -f /tmp/compose-runtime-test.yml down 2>/dev/null || true
+
+      - name: "Test: Multi-service compose with mixed runtimes"
+        run: |
+          set -x
+          echo "## Testing AWF-like multi-service setup with gVisor"
+          echo ""
+
+          # Simulate AWF architecture: squid (runc) + agent (gvisor)
+          cat > /tmp/compose-awf-sim.yml <<'EOF'
+          services:
+            squid-sim:
+              image: ubuntu:22.04
+              # No runtime = default runc
+              command: ["bash", "-c", "echo 'Squid simulator running on runc' && sleep 5"]
+              healthcheck:
+                test: ["CMD", "true"]
+                interval: 1s
+                retries: 3
+
+            agent-sim:
+              image: ubuntu:22.04
+              runtime: runsc
+              depends_on:
+                squid-sim:
+                  condition: service_healthy
+              command: ["bash", "-c", "echo 'Agent running on gVisor' && cat /proc/version && echo 'SUCCESS: Mixed runtime compose works'"]
+          EOF
+
+          echo "=== Multi-service compose file ==="
+          cat /tmp/compose-awf-sim.yml
+
+          echo ""
+          echo "=== Running mixed-runtime compose ==="
+          if docker compose -f /tmp/compose-awf-sim.yml up --abort-on-container-exit 2>&1; then
+            echo "✅ Mixed-runtime Compose (runc + gVisor) works"
+          else
+            echo "❌ Mixed-runtime Compose FAILED"
+          fi
+
+          docker compose -f /tmp/compose-awf-sim.yml down 2>/dev/null || true
+
+      - name: "Test: network_mode service sharing with gVisor"
+        run: |
+          set -x
+          echo "## Testing network_mode: service: with gVisor"
+          echo "AWF uses this pattern for iptables-init to share agent's network namespace."
+          echo ""
+
+          cat > /tmp/compose-netshare.yml <<'EOF'
+          services:
+            agent:
+              image: ubuntu:22.04
+              runtime: runsc
+              command: ["bash", "-c", "echo 'Agent started' && sleep 10"]
+
+            iptables-init:
+              image: ubuntu:22.04
+              runtime: runsc
+              network_mode: "service:agent"
+              cap_add:
+                - NET_ADMIN
+              command: ["bash", "-c", "echo 'iptables-init sharing agent network namespace' && ip addr show 2>&1 || echo 'ip command not available'"]
+              depends_on:
+                - agent
+          EOF
+
+          echo "=== Network namespace sharing compose file ==="
+          cat /tmp/compose-netshare.yml
+
+          echo ""
+          echo "=== Running network_mode: service: test ==="
+          if docker compose -f /tmp/compose-netshare.yml up --abort-on-container-exit --timeout 15 2>&1; then
+            echo "✅ network_mode: service: works with gVisor"
+          else
+            echo "❌ network_mode: service: FAILED with gVisor"
+            echo ""
+            echo "This means AWF's iptables-init pattern won't work with gVisor."
+            echo "Mitigation: Move iptables to host-level DOCKER-USER chain."
+          fi
+
+          docker compose -f /tmp/compose-netshare.yml down 2>/dev/null || true
+
+  summary:
+    name: Summary
+    needs: [test-iptables-dnat, test-compose-runtime]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Report results
+        run: |
+          echo "# gVisor Compatibility Test Results"
+          echo ""
+          echo "## Question 1: iptables DNAT inside gVisor"
+          echo "Job status: ${{ needs.test-iptables-dnat.result }}"
+          echo ""
+          echo "## Question 2: Docker Compose runtime: field"
+          echo "Job status: ${{ needs.test-compose-runtime.result }}"
+          echo ""
+          echo "See individual job logs for detailed results."
+          echo "Results should be posted back to issue #3264."
