@@ -4,17 +4,12 @@ import { BlockedTarget } from './types';
 import { logger } from './logger';
 import { parseLogLine } from './logs/log-parser';
 
-export interface SquidLogCheckResult {
-  hasDenials: boolean;
-  blockedTargets: BlockedTarget[];
-}
-
 /**
  * Checks Squid logs for access denials to provide better error context
  * @param workDir - Working directory containing configs
  * @param proxyLogsDir - Optional custom directory where proxy logs are written
  */
-export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<SquidLogCheckResult> {
+export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Promise<{ hasDenials: boolean; blockedTargets: BlockedTarget[] }> {
   try {
     // Read from the access.log file (Squid doesn't write access logs to stdout)
     // If proxyLogsDir is specified, logs are written directly there
