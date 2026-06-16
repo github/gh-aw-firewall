@@ -184,8 +184,9 @@ Before creating new issues, check BOTH open AND closed issues:
 
 1. Search for issues with `[Refactoring]` prefix mentioning the same file using `state: all` (or equivalent `is:open` + `is:closed`)
 2. Search for issues with labels `code-quality` or `refactoring` mentioning the same file using `state: all` (or equivalent `is:open` + `is:closed`)
-3. Skip any finding that already has an open tracking issue
-4. For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
+3. Use metadata-only issue queries (number/title/state/stateReason/labels/url). **Do not fetch issue bodies** unless strictly required.
+4. Skip any finding that already has an open tracking issue
+5. For matching closed issues, check the GitHub `state_reason`: **auto-skip only when `state_reason` is `not_planned`** (often shown as "won't fix" / "not planned"). If `state_reason` is `completed` and the finding still reproduces, reopen the prior issue or file a new one with fresh evidence and a link to the prior issue.
 
 ## Phase 6: Prioritize and File Issues
 
