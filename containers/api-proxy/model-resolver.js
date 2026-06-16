@@ -178,12 +178,16 @@ function tryMiddlePowerFallback(requestedModel, availableModels, currentProvider
  * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log) {
+function _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig) {
   const providerModels = (availableModels[currentProvider] || []);
 
   // 1. Direct match: model name already in the provider's available list
   const direct = providerModels.find(m => m.toLowerCase() === key);
   if (direct) {
+    if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+      log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
+      return null;
+    }
     log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
     return {
       resolvedModel: direct,
@@ -199,8 +203,11 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   if (family) {
     const familyPrefix = `${family}.`;
     const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
-    if (familyCandidates.length > 0) {
-      const sorted = [...new Set(familyCandidates)].sort(compareByVersion);
+    const permittedCandidates = modelPolicyConfig
+      ? familyCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
+      : familyCandidates;
+    if (permittedCandidates.length > 0) {
+      const sorted = [...new Set(permittedCandidates)].sort(compareByVersion);
       const fallback = sorted[0];
       log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
       return {
@@ -361,7 +368,7 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   }
 
   if (!aliasEntry) {
-    return _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log);
+    return _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig);
   }
 
   const [aliasKey, aliasRaw] = aliasEntry;

@@ -30,7 +30,7 @@ function parseModelPatterns(raw) {
   try {
     const parsed = JSON.parse(raw.trim());
     if (!Array.isArray(parsed)) return null;
-    const strings = parsed.filter(p => typeof p === 'string' && p.trim());
+    const strings = parsed.filter(p => typeof p === 'string' && p.trim()).map(p => p.trim());
     return strings.length > 0 ? strings : null;
   } catch {
     return null;
@@ -104,7 +104,7 @@ function getModelPolicyBlockState(model) {
 }
 
 /**
- * Builds the structured 400 error response body for a model-policy rejection.
+ * Builds the structured 403 error response body for a model-policy rejection.
  *
  * @param {{ model: string, reason: string }} state
  * @returns {{ error: object }}

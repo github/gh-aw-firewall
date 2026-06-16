@@ -129,6 +129,17 @@ function buildCommonGuardChecks(deps, model) {
         }),
       },
       {
+        block: getModelPolicyBlockState(model),
+        isBlocked: block => !!block,
+        statusCode: 403,
+        eventName: 'model_policy_violation',
+        buildError: buildModelPolicyError,
+        buildLogFields: block => ({
+          model: block.model,
+          reason: block.reason,
+        }),
+      },
+      {
         block: checkUnknownModelRejection(model),
         isBlocked: block => !!block,
         statusCode: 400,
@@ -136,17 +147,6 @@ function buildCommonGuardChecks(deps, model) {
         buildError: block => block.error,
         buildLogFields: block => ({
           model: block.model,
-        }),
-      },
-      {
-        block: getModelPolicyBlockState(model),
-        isBlocked: block => !!block,
-        statusCode: 400,
-        eventName: 'model_policy_violation',
-        buildError: buildModelPolicyError,
-        buildLogFields: block => ({
-          model: block.model,
-          reason: block.reason,
         }),
       },
     ] : []),

@@ -52,7 +52,7 @@ export interface ApiProxyModelOptions {
    * Allowlist of permitted models for the API proxy sidecar.
    *
    * When set, only models whose names match at least one glob pattern in this
-   * list are permitted. Requests for any other model are rejected with HTTP 400.
+   * list are permitted. Requests for any other model are rejected with HTTP 403.
    * The check is applied both when resolving aliases (policy-violating candidates
    * are excluded from alias resolution) and when forwarding inference requests
    * (the final resolved model is validated against the policy).
@@ -71,7 +71,7 @@ export interface ApiProxyModelOptions {
   /**
    * Denylist of prohibited models for the API proxy sidecar.
    *
-   * Models matching any glob pattern in this list are rejected with HTTP 400,
+   * Models matching any glob pattern in this list are rejected with HTTP 403,
    * regardless of the `allowedModels` allowlist. The check is applied both
    * during alias resolution and when forwarding inference requests.
    *
