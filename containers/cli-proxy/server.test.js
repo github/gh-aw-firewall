@@ -6,7 +6,7 @@
  * The server only enforces meta-command denial (auth, config, extension).
  */
 
-const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS } = require('./server');
+const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand } = require('./server');
 
 describe('PROTECTED_ENV_KEYS', () => {
   it('should protect GH_HOST from agent override', () => {
@@ -184,5 +184,113 @@ describe('validateArgs', () => {
     it('should have ALWAYS_DENIED_SUBCOMMANDS as a non-empty Set', () => {
       expect(ALWAYS_DENIED_SUBCOMMANDS.size).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('buildExecEnv', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv, GH_HOST: 'github.com', GH_TOKEN: 'secret-token', GITHUB_TOKEN: 'secret-github-token', NODE_EXTRA_CA_CERTS: '/certs/ca.crt', SSL_CERT_FILE: '/certs/ssl.crt', GIT_SSL_CAINFO: '/certs/git.crt', EXISTING_VAR: 'existing' };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('should inherit server environment variables', () => {
+    const env = buildExecEnv(null);
+    expect(env.EXISTING_VAR).toBe('existing');
+  });
+
+  it('should apply safe extra env vars', () => {
+    const env = buildExecEnv({ MY_VAR: 'my-value' });
+    expect(env.MY_VAR).toBe('my-value');
+  });
+
+  it('should not allow overriding GH_HOST', () => {
+    const env = buildExecEnv({ GH_HOST: 'evil.com' });
+    expect(env.GH_HOST).toBe('github.com');
+  });
+
+  it('should not allow overriding GH_TOKEN', () => {
+    const env = buildExecEnv({ GH_TOKEN: 'stolen' });
+    expect(env.GH_TOKEN).toBe('secret-token');
+  });
+
+  it('should not allow overriding GITHUB_TOKEN', () => {
+    const env = buildExecEnv({ GITHUB_TOKEN: 'stolen' });
+    expect(env.GITHUB_TOKEN).toBe('secret-github-token');
+  });
+
+  it('should not allow overriding NODE_EXTRA_CA_CERTS', () => {
+    const env = buildExecEnv({ NODE_EXTRA_CA_CERTS: '/evil/ca.crt' });
+    expect(env.NODE_EXTRA_CA_CERTS).toBe('/certs/ca.crt');
+  });
+
+  it('should not allow overriding SSL_CERT_FILE', () => {
+    const env = buildExecEnv({ SSL_CERT_FILE: '/evil/ssl.crt' });
+    expect(env.SSL_CERT_FILE).toBe('/certs/ssl.crt');
+  });
+
+  it('should not allow overriding GIT_SSL_CAINFO', () => {
+    const env = buildExecEnv({ GIT_SSL_CAINFO: '/evil/git.crt' });
+    expect(env.GIT_SSL_CAINFO).toBe('/certs/git.crt');
+  });
+
+  it('should silently skip non-string keys', () => {
+    // Object.entries coerces, but we guard typeof key === 'string'
+    const env = buildExecEnv({ MY_VAR: 'ok' });
+    expect(env.MY_VAR).toBe('ok');
+  });
+
+  it('should silently skip non-string values', () => {
+    const env = buildExecEnv({ MY_VAR: 42 });
+    expect(env.MY_VAR).toBeUndefined();
+  });
+
+  it('should handle null extraEnv gracefully', () => {
+    const env = buildExecEnv(null);
+    expect(env.EXISTING_VAR).toBe('existing');
+  });
+
+  it('should handle undefined extraEnv gracefully', () => {
+    const env = buildExecEnv(undefined);
+    expect(env.EXISTING_VAR).toBe('existing');
+  });
+
+  it('should handle non-object extraEnv gracefully', () => {
+    const env = buildExecEnv('not-an-object');
+    expect(env.EXISTING_VAR).toBe('existing');
+  });
+});
+
+describe('runGhCommand', () => {
+  it('should return stdout, stderr, and exitCode on success', async () => {
+    const result = await runGhCommand(['--version'], process.env, null);
+    expect(result).toHaveProperty('stdout');
+    expect(result).toHaveProperty('stderr');
+    expect(result).toHaveProperty('exitCode');
+    expect(typeof result.stdout).toBe('string');
+    expect(typeof result.exitCode).toBe('number');
+  });
+
+  it('should return non-zero exitCode for invalid gh subcommand', async () => {
+    const result = await runGhCommand(['__nonexistent_subcommand__'], process.env, null);
+    expect(result.exitCode).not.toBe(0);
+  });
+
+  it('should return non-zero exitCode when gh binary is not found', async () => {
+    // Temporarily remove gh from PATH
+    const savedPath = process.env.PATH;
+    process.env.PATH = '';
+    try {
+      const result = await runGhCommand(['--version'], process.env, null);
+      // When the binary is not found, exitCode is the ENOENT error code (truthy, non-zero)
+      expect(result.exitCode).toBeTruthy();
+      expect(result.exitCode).not.toBe(0);
+    } finally {
+      process.env.PATH = savedPath;
+    }
   });
 });

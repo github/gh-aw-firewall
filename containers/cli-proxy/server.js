@@ -201,6 +201,83 @@ function handleHealth(res) {
 }
 
 /**
+ * Build the environment object for a subprocess by inheriting the server's environment
+ * and applying caller-supplied overrides, excluding any PROTECTED_ENV_KEYS.
+ *
+ * Security-critical: ensures agents cannot override auth or TLS trust-store variables.
+ *
+ * @param {Record<string, string>|null|undefined} extraEnv - Optional caller-supplied env overrides
+ * @returns {NodeJS.ProcessEnv} The merged environment for the child process
+ */
+function buildExecEnv(extraEnv) {
+  // Inherit server environment (includes GH_HOST, NODE_EXTRA_CA_CERTS, GH_REPO, etc.)
+  const childEnv = Object.assign({}, process.env);
+  if (extraEnv && typeof extraEnv === 'object') {
+    // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
+    for (const [key, value] of Object.entries(extraEnv)) {
+      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_ENV_KEYS.has(key)) {
+        childEnv[key] = value;
+      }
+    }
+  }
+  return childEnv;
+}
+
+/**
+ * Execute `gh` with the given args, environment, and optional base64-encoded stdin.
+ *
+ * Runs gh directly via execFile (no shell — prevents injection attacks).
+ * Always uses the server's own cwd — the agent sends its container workspace
+ * path which doesn't exist inside the cli-proxy container.
+ *
+ * @param {string[]} args - Arguments passed to gh (excluding 'gh' itself)
+ * @param {NodeJS.ProcessEnv} childEnv - Environment for the child process
+ * @param {string|null|undefined} stdin - Optional base64-encoded stdin data
+ * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
+ */
+async function runGhCommand(args, childEnv, stdin) {
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = execFile('gh', args, {
+        cwd: process.cwd(),
+        env: childEnv,
+        timeout: COMMAND_TIMEOUT_MS,
+        maxBuffer: MAX_OUTPUT_BYTES,
+        encoding: 'utf8',
+      }, (err, childStdout, childStderr) => {
+        if (err && err.code === undefined && err.signal) {
+          // Killed by timeout or signal
+          reject(err);
+          return;
+        }
+        resolve({
+          stdout: childStdout || '',
+          stderr: childStderr || '',
+          exitCode: err ? (err.code || 1) : 0,
+        });
+      });
+
+      // Feed stdin if provided (base64-encoded)
+      if (stdin) {
+        try {
+          const stdinBuf = Buffer.from(stdin, 'base64');
+          child.stdin.write(stdinBuf);
+        } catch {
+          // Ignore stdin errors
+        }
+      }
+      if (child.stdin) {
+        child.stdin.end();
+      }
+    });
+  } catch (err) {
+    // Only expose a safe message, not a full stack trace
+    const errMsg = err instanceof Error ? err.message : 'Command execution failed';
+    return { stdout: '', stderr: errMsg, exitCode: 1 };
+  }
+}
+
+/**
  * Handle POST /exec
  *
  * Expected request body (JSON):
@@ -242,69 +319,8 @@ async function handleExec(req, res) {
 
   accessLog({ event: 'exec_start', args, cwd: cwd || null });
 
-  // Build environment for the subprocess
-  // Inherit server environment (includes GH_HOST, NODE_EXTRA_CA_CERTS, GH_REPO, etc.)
-  const childEnv = Object.assign({}, process.env);
-  if (extraEnv && typeof extraEnv === 'object') {
-    // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
-    for (const [key, value] of Object.entries(extraEnv)) {
-      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_ENV_KEYS.has(key)) {
-        childEnv[key] = value;
-      }
-    }
-  }
-
-  // Execute gh directly (no shell — prevents injection attacks)
-  // Always use the server's own cwd — the agent sends its container workspace
-  // path which doesn't exist inside the cli-proxy container.
-  let stdout = '';
-  let stderr = '';
-  let exitCode = 0;
-
-  try {
-    const result = await new Promise((resolve, reject) => {
-      const child = execFile('gh', args, {
-        cwd: process.cwd(),
-        env: childEnv,
-        timeout: COMMAND_TIMEOUT_MS,
-        maxBuffer: MAX_OUTPUT_BYTES,
-        encoding: 'utf8',
-      }, (err, childStdout, childStderr) => {
-        if (err && err.code === undefined && err.signal) {
-          // Killed by timeout or signal
-          reject(err);
-          return;
-        }
-        resolve({
-          stdout: childStdout || '',
-          stderr: childStderr || '',
-          exitCode: err ? (err.code || 1) : 0,
-        });
-      });
-
-      // Feed stdin if provided (base64-encoded)
-      if (stdin) {
-        try {
-          const stdinBuf = Buffer.from(stdin, 'base64');
-          child.stdin.write(stdinBuf);
-        } catch {
-          // Ignore stdin errors
-        }
-      }
-      if (child.stdin) {
-        child.stdin.end();
-      }
-    });
-
-    stdout = result.stdout;
-    stderr = result.stderr;
-    exitCode = result.exitCode;
-  } catch (err) {
-    // Only expose a safe message, not a full stack trace
-    const errMsg = err instanceof Error ? err.message : 'Command execution failed';
-    stderr = errMsg;
-    exitCode = 1;
-  }
+  const childEnv = buildExecEnv(extraEnv);
+  const { stdout, stderr, exitCode } = await runGhCommand(args, childEnv, stdin);
 
   const responseBody = JSON.stringify({ stdout, stderr, exitCode });
 
@@ -377,4 +393,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS };
+module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand };
