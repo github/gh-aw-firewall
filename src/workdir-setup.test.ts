@@ -11,7 +11,7 @@ jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 
-import { prepareWorkDirectories } from './workdir-setup';
+import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
 
@@ -275,5 +275,102 @@ describe('prepareWorkDirectories', () => {
       expect(fs.chownSync).toHaveBeenCalledWith(chrootToolCacheDir, 1000, 1000);
       expect(fs.chmodSync).toHaveBeenCalledWith(chrootToolCacheDir, 0o755);
     });
+  });
+});
+
+describe('prepareLogDirectories (sub-function)', () => {
+  let tempDir: string;
+
+  const buildConfig = (overrides: Record<string, unknown> = {}) => ({
+    workDir: tempDir,
+    sslBump: false,
+    allowedDomains: [] as string[],
+    agentCommand: 'echo test',
+    logLevel: 'info' as const,
+    keepContainers: false,
+    buildLocal: false,
+    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+    imageTag: 'latest',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
+    jest.clearAllMocks();
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
+    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('creates all log directories without touching chroot home', () => {
+    const config = buildConfig();
+    const logPaths = resolveLogPaths(config);
+    workdirSetupTestHelpers.prepareLogDirectories(logPaths);
+
+    expect(fs.existsSync(logPaths.agentLogs)).toBe(true);
+    expect(fs.existsSync(logPaths.sessionState)).toBe(true);
+    expect(fs.existsSync(logPaths.squidLogs)).toBe(true);
+    expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(true);
+    expect(fs.existsSync(logPaths.cliProxyLogs)).toBe(true);
+    // chroot home must NOT have been created
+    expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(false);
+  });
+});
+
+describe('prepareChrootHomeMounts (sub-function)', () => {
+  let tempDir: string;
+
+  const buildConfig = (overrides: Record<string, unknown> = {}) => ({
+    workDir: tempDir,
+    sslBump: false,
+    allowedDomains: [] as string[],
+    agentCommand: 'echo test',
+    logLevel: 'info' as const,
+    keepContainers: false,
+    buildLocal: false,
+    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+    imageTag: 'latest',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
+    jest.clearAllMocks();
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
+    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+  });
+
+  it('creates chroot home directory without touching log directories', () => {
+    const config = buildConfig();
+    const logPaths = resolveLogPaths(config);
+    workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+
+    expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(true);
+    // log directories must NOT have been created
+    expect(fs.existsSync(logPaths.agentLogs)).toBe(false);
+    expect(fs.existsSync(logPaths.sessionState)).toBe(false);
+    expect(fs.existsSync(logPaths.squidLogs)).toBe(false);
+    expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(false);
+    expect(fs.existsSync(logPaths.cliProxyLogs)).toBe(false);
+  });
+
+  it('creates .gemini directory only when geminiApiKey is provided', () => {
+    const geminiDir = path.join(tempDir, '.gemini');
+
+    workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig({ geminiApiKey: 'key' }));
+    expect(fs.existsSync(geminiDir)).toBe(true);
+
+    fs.rmSync(geminiDir, { recursive: true, force: true });
+
+    workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+    expect(fs.existsSync(geminiDir)).toBe(false);
   });
 });
