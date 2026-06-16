@@ -6,21 +6,21 @@ describe('resolveApiTargetsToAllowedDomains', () => {
   it('should add copilot-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);
-    expect(domains).toContain('custom.copilot.com');
+    expect(domains).not.toContain('custom.copilot.com');
     expect(domains).toContain('https://custom.copilot.com');
   });
 
   it('should add openai-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ openaiApiTarget: 'custom.openai.com' }, domains);
-    expect(domains).toContain('custom.openai.com');
+    expect(domains).not.toContain('custom.openai.com');
     expect(domains).toContain('https://custom.openai.com');
   });
 
   it('should add anthropic-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ anthropicApiTarget: 'custom.anthropic.com' }, domains);
-    expect(domains).toContain('custom.anthropic.com');
+    expect(domains).not.toContain('custom.anthropic.com');
     expect(domains).toContain('https://custom.anthropic.com');
   });
 
@@ -28,15 +28,15 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     const domains: string[] = [];
     const env = { COPILOT_API_TARGET: 'env.copilot.com' };
     resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'flag.copilot.com' }, domains, env);
-    expect(domains).toContain('flag.copilot.com');
-    expect(domains).not.toContain('env.copilot.com');
+    expect(domains).toContain('https://flag.copilot.com');
+    expect(domains).not.toContain('https://env.copilot.com');
   });
 
   it('should fall back to env var when option flag is not set', () => {
     const domains: string[] = [];
     const env = { COPILOT_API_TARGET: 'env.copilot.com' };
     resolveApiTargetsToAllowedDomains({}, domains, env);
-    expect(domains).toContain('env.copilot.com');
+    expect(domains).not.toContain('env.copilot.com');
     expect(domains).toContain('https://env.copilot.com');
   });
 
@@ -44,20 +44,20 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     const domains: string[] = [];
     const env = { OPENAI_API_TARGET: 'env.openai.com' };
     resolveApiTargetsToAllowedDomains({}, domains, env);
-    expect(domains).toContain('env.openai.com');
+    expect(domains).toContain('https://env.openai.com');
   });
 
   it('should read ANTHROPIC_API_TARGET from env when flag not set', () => {
     const domains: string[] = [];
     const env = { ANTHROPIC_API_TARGET: 'env.anthropic.com' };
     resolveApiTargetsToAllowedDomains({}, domains, env);
-    expect(domains).toContain('env.anthropic.com');
+    expect(domains).toContain('https://env.anthropic.com');
   });
 
   it('should not duplicate a domain already in the list', () => {
-    const domains: string[] = ['custom.copilot.com'];
+    const domains: string[] = ['https://custom.copilot.com'];
     resolveApiTargetsToAllowedDomains({ copilotApiTarget: 'custom.copilot.com' }, domains);
-    const count = domains.filter(d => d === 'custom.copilot.com').length;
+    const count = domains.filter(d => d === 'https://custom.copilot.com').length;
     expect(count).toBe(1);
   });
 
@@ -92,9 +92,9 @@ describe('resolveApiTargetsToAllowedDomains', () => {
       },
       domains
     );
-    expect(domains).toContain('copilot.internal');
-    expect(domains).toContain('openai.internal');
-    expect(domains).toContain('anthropic.internal');
+    expect(domains).toContain('https://copilot.internal');
+    expect(domains).toContain('https://openai.internal');
+    expect(domains).toContain('https://anthropic.internal');
   });
 
   it('should call debug with auto-added domains', () => {
@@ -132,7 +132,7 @@ describe('resolveApiTargetsToAllowedDomains', () => {
   it('should add gemini-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ geminiApiTarget: 'custom.gemini.internal' }, domains);
-    expect(domains).toContain('custom.gemini.internal');
+    expect(domains).not.toContain('custom.gemini.internal');
     expect(domains).toContain('https://custom.gemini.internal');
   });
 
@@ -140,15 +140,15 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     const domains: string[] = [];
     const env = { GEMINI_API_TARGET: 'env.gemini.internal' };
     resolveApiTargetsToAllowedDomains({}, domains, env);
-    expect(domains).toContain('env.gemini.internal');
+    expect(domains).toContain('https://env.gemini.internal');
   });
 
   it('should prefer geminiApiTarget option over GEMINI_API_TARGET env var', () => {
     const domains: string[] = [];
     const env = { GEMINI_API_TARGET: 'env.gemini.internal' };
     resolveApiTargetsToAllowedDomains({ geminiApiTarget: 'flag.gemini.internal' }, domains, env);
-    expect(domains).toContain('flag.gemini.internal');
-    expect(domains).not.toContain('env.gemini.internal');
+    expect(domains).toContain('https://flag.gemini.internal');
+    expect(domains).not.toContain('https://env.gemini.internal');
   });
 });
 
@@ -368,7 +368,7 @@ describe('resolveApiTargetsToAllowedDomains with GHES', () => {
     expect(domains).toContain('api.githubcopilot.com');
     expect(domains).toContain('api.enterprise.githubcopilot.com');
     expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
-    expect(domains).toContain('custom.copilot.com');
+    expect(domains).not.toContain('custom.copilot.com');
     expect(domains).toContain('https://custom.copilot.com');
   });
 });

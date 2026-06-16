@@ -375,27 +375,15 @@ export function resolveApiTargetsToAllowedDomains(
     debug(`Auto-added GHES domains from engine.api-target: ${ghesDomains.join(', ')}`);
   }
 
-  // Merge raw target values into the allowedDomains list so that later
-  // checks/logs about "no allowed domains" see the final, expanded allowlist.
+  // Auto-add API targets to allowed domains. Bare hostnames are promoted to https:// only
+  // to avoid over-broad HTTP+HTTPS allowlisting; explicit http:// or https:// prefixes
+  // are preserved as-is so deployments that intentionally use HTTP continue to work.
   const normalizedApiTargets = apiTargets.filter((t) => typeof t === 'string' && t.trim().length > 0);
-  if (normalizedApiTargets.length > 0) {
-    for (const target of normalizedApiTargets) {
-      if (!allowedDomains.includes(target)) {
-        allowedDomains.push(target);
-      }
-    }
-    debug(`Auto-added API target values to allowed domains: ${normalizedApiTargets.join(', ')}`);
-  }
-
-  // Also ensure each target is present as an explicit https:// URL
   for (const target of normalizedApiTargets) {
-
-    // Ensure auto-added API targets are explicitly HTTPS to avoid over-broad HTTP+HTTPS allowlisting
     const normalizedTarget = /^https?:\/\//.test(target) ? target : `https://${target}`;
-
     if (!allowedDomains.includes(normalizedTarget)) {
       allowedDomains.push(normalizedTarget);
-      debug(`Automatically added API target to allowlist: ${normalizedTarget}`);
+      debug(`Auto-added API target to allowed domains: ${normalizedTarget}`);
     }
   }
 

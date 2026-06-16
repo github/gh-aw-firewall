@@ -175,6 +175,6 @@ describe('API Target Allowlist', () => {
     expect(result.stderr).toContain('api.anthropic.custom.com');
 
     // Should see debug log messages for each auto-added domain
-    expect(result.stderr).toContain('Automatically added API target to allowlist');
+    expect(result.stderr).toContain('Auto-added API target to allowed domains');
   }, 120000);
 });
