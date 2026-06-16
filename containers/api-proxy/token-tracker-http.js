@@ -161,39 +161,20 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
 }
 
 /**
- * Finalize token tracking for an HTTP response.
+ * Extract usage and model from accumulated tracking state.
  *
- * Parses accumulated SSE events or buffered JSON, normalizes usage,
- * calls optional callbacks, updates metrics, and writes the log record.
- * Accepts explicit state instead of relying on a closure, making it
- * independently unit-testable.
+ * Encapsulates the streaming-vs-non-streaming branching so each path can be
+ * tested independently. Mutates `state` in place for streaming (flushes the
+ * remaining partial line and updates `state.observedCacheReadTokens`).
  *
  * @param {object} state - Mutable tracking state from initHttpState
- * @param {object} proxyRes - Upstream response (only statusCode is read)
- * @param {object} opts - Original options passed to trackTokenUsage
+ * @returns {{ usage: object|null, model: string|null }}
  */
-function finalizeHttpTracking(state, proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
-  const { streaming, compressed, contentEncoding } = state;
-
-  // Only process successful responses (2xx)
-  if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
-    logRequest('debug', 'token_track_skip_status', {
-      request_id: requestId,
-      provider,
-      status: proxyRes.statusCode,
-    });
-    diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
-    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
-    return;
-  }
-
-  const duration = Date.now() - startTime;
+function extractUsageFromTrackedState(state) {
   let usage = null;
   let model = null;
-  let budgetResult;
 
-  if (streaming) {
+  if (state.streaming) {
     // Process any remaining partial line
     if (state.partialLine.trim()) {
       const dataLines = parseSseDataLines(state.partialLine);
@@ -227,6 +208,96 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     }
   }
 
+  return { usage, model };
+}
+
+/**
+ * Build a token usage record and persist it.
+ *
+ * Bundles record assembly (`buildTokenUsageRecord`), budget-field merging
+ * (`mergeBudgetFields`), billing/initiator decorators, `writeTokenUsage`,
+ * and the `logRequest` summary — pure persistence/reporting with no quota
+ * logic.
+ *
+ * @param {object} normalized - Normalized usage object
+ * @param {object} params
+ * @param {string} params.requestId
+ * @param {string} params.provider
+ * @param {string} params.model
+ * @param {string} params.reqPath
+ * @param {number} params.status
+ * @param {boolean} params.streaming
+ * @param {number} params.duration
+ * @param {number} params.responseBytes
+ * @param {object|null} params.billingInfo
+ * @param {string|null} params.initiatorSent
+ * @param {object|undefined} params.budgetResult
+ */
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult }) {
+  const record = buildTokenUsageRecord(normalized, {
+    requestId,
+    provider,
+    model,
+    reqPath,
+    status,
+    streaming,
+    duration,
+    responseBytes,
+  });
+
+  // Include billing/quota info when available (Copilot PRU tracking)
+  if (initiatorSent) record.x_initiator = initiatorSent;
+  if (billingInfo) record.billing = billingInfo;
+
+  // Include effective token and AI credit budget fields when computed
+  mergeBudgetFields(record, budgetResult);
+
+  // Write to JSONL log file
+  writeTokenUsage(record);
+
+  // Log summary to stdout
+  logRequest('info', 'token_usage', {
+    request_id: requestId,
+    provider,
+    model: model || 'unknown',
+    input_tokens: normalized.input_tokens,
+    output_tokens: normalized.output_tokens,
+    cache_read_tokens: normalized.cache_read_tokens,
+    cache_write_tokens: normalized.cache_write_tokens,
+    streaming,
+  });
+}
+
+/**
+ * Finalize token tracking for an HTTP response.
+ *
+ * Orchestrates usage extraction, normalization, quota callback, metrics
+ * update, and record persistence. Accepts explicit state instead of relying
+ * on a closure, making it independently unit-testable.
+ *
+ * @param {object} state - Mutable tracking state from initHttpState
+ * @param {object} proxyRes - Upstream response (only statusCode is read)
+ * @param {object} opts - Original options passed to trackTokenUsage
+ */
+function finalizeHttpTracking(state, proxyRes, opts) {
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
+  const { streaming, compressed, contentEncoding } = state;
+
+  // Only process successful responses (2xx)
+  if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+    logRequest('debug', 'token_track_skip_status', {
+      request_id: requestId,
+      provider,
+      status: proxyRes.statusCode,
+    });
+    diag('HTTP_TRACK_SKIP_STATUS', { request_id: requestId, provider, status: proxyRes.statusCode });
+    if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+    return;
+  }
+
+  const duration = Date.now() - startTime;
+  const { usage, model } = extractUsageFromTrackedState(state);
+
   logRequest('debug', 'token_track_end', {
     request_id: requestId,
     provider,
@@ -248,6 +319,8 @@ function finalizeHttpTracking(state, proxyRes, opts) {
   if (state.observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
     warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model, observedCacheReadTokens: state.observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming });
   }
+
+  let budgetResult;
   if (typeof onUsage === 'function') {
     try {
       budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
@@ -259,8 +332,8 @@ function finalizeHttpTracking(state, proxyRes, opts) {
   // Update metrics
   incrementTokenMetrics(metricsRef, provider, normalized);
 
-  // Build log record
-  const record = buildTokenUsageRecord(normalized, {
+  // Build log record and persist
+  buildAndWriteTokenRecord(normalized, {
     requestId,
     provider,
     model: model || requestModel || provider,
@@ -269,28 +342,9 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     streaming,
     duration,
     responseBytes: state.totalBytes,
-  });
-
-  // Include billing/quota info when available (Copilot PRU tracking)
-  if (initiatorSent) record.x_initiator = initiatorSent;
-  if (billingInfo) record.billing = billingInfo;
-
-  // Include effective token and AI credit budget fields when computed
-  mergeBudgetFields(record, budgetResult);
-
-  // Write to JSONL log file
-  writeTokenUsage(record);
-
-  // Log summary to stdout
-  logRequest('info', 'token_usage', {
-    request_id: requestId,
-    provider,
-    model: model || requestModel || provider || 'unknown',
-    input_tokens: normalized.input_tokens,
-    output_tokens: normalized.output_tokens,
-    cache_read_tokens: normalized.cache_read_tokens,
-    cache_write_tokens: normalized.cache_write_tokens,
-    streaming,
+    billingInfo,
+    initiatorSent,
+    budgetResult,
   });
 
   if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
@@ -358,4 +412,4 @@ function trackTokenUsage(proxyRes, opts) {
   wireListeners(proxyRes, decompressor, state, onChunk, onFinalize);
 }
 
-module.exports = { trackTokenUsage, createChunkHandler, finalizeHttpTracking };
+module.exports = { trackTokenUsage, createChunkHandler, finalizeHttpTracking, extractUsageFromTrackedState, buildAndWriteTokenRecord };
