@@ -1,4 +1,6 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { testHelpers } from './agent-service';
+import { parseImageTag } from '../image-tag';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -496,9 +498,6 @@ describe('agent service', () => {
     });
   });
 });
-
-import { testHelpers } from './agent-service';
-import { parseImageTag } from '../image-tag';
 
 const nodePath = path;
 const { resolveAgentImageConfig } = testHelpers;
