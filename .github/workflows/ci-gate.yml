@@ -76,22 +76,10 @@ jobs:
               const reviewLogins = reviews.map(r => r.user?.login);
               core.info(`Found ${reviews.length} review(s): ${reviewLogins.join(', ')}`);
               copilotReviewed = reviews.some(r => isCopilotReviewer(r.user?.login));
-
-              if (copilotReviewed) {
-                // Check for outstanding inline comments even on synchronize events,
-                // so we don't prematurely post the "passed" message when Copilot
-                // still has unresolved inline review comments.
-                const { data: reviewComments } = await github.rest.pulls.listReviewComments({
-                  owner, repo, pull_number: pr_number
-                });
-                const copilotComments = reviewComments.filter(c =>
-                  isCopilotReviewer(c.user?.login) && !c.in_reply_to_id
-                );
-                hasInlineComments = copilotComments.length > 0;
-                if (hasInlineComments) {
-                  core.info(`Copilot left ${copilotComments.length} inline comment(s), waiting for fixes`);
-                }
-              }
+              // On synchronize (push), skip the inline comment check.
+              // Old review comments persist even after fixes, so checking them
+              // would permanently block the gate. The push itself signals that
+              // the author has addressed the feedback.
             }
 
             if (context.eventName === 'pull_request_review') {
