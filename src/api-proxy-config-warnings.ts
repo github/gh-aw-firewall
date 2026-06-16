@@ -22,9 +22,13 @@ function validateApiTargetInAllowedDomains(
   // No warning needed if using the default host
   if (targetHost === defaultHost) return null;
 
-  // Check if the hostname or any of its parent domains is explicitly allowed
+  // Check if the hostname or any of its parent domains is explicitly allowed.
+  // Strip any https?:// prefix from allowedDomains entries so that auto-added
+  // protocol-scoped entries (e.g. "https://custom.example.com") are matched
+  // correctly against the bare targetHost.
   const isDomainAllowed = allowedDomains.some(d => {
-    const domain = d.startsWith('.') ? d.slice(1) : d;
+    const withoutProtocol = d.replace(/^https?:\/\//, '');
+    const domain = withoutProtocol.startsWith('.') ? withoutProtocol.slice(1) : withoutProtocol;
     return targetHost === domain || targetHost.endsWith('.' + domain);
   });
 

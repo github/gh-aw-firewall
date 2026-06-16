@@ -185,17 +185,12 @@ export function resolveApiTargetsToAllowedDomains(
       if (!hostname) return null;
 
       const scheme: 'http' | 'https' = /^http:\/\//i.test(raw) ? 'http' : 'https';
-      return { hostname, hasScheme, scheme } as const;
+      return { hostname, scheme } as const;
     })
-    .filter((t): t is { hostname: string; hasScheme: boolean; scheme: 'http' | 'https' } => t !== null);
+    .filter((t): t is { hostname: string; scheme: 'http' | 'https' } => t !== null);
 
   if (normalizedApiTargets.length > 0) {
-    for (const { hostname, hasScheme, scheme } of normalizedApiTargets) {
-      // Only add a bare hostname entry when no explicit scheme was provided.
-      if (!hasScheme && !allowedDomains.includes(hostname)) {
-        allowedDomains.push(hostname);
-      }
-
+    for (const { hostname, scheme } of normalizedApiTargets) {
       const urlEntry = `${scheme}://${hostname}`;
       if (!allowedDomains.includes(urlEntry)) {
         allowedDomains.push(urlEntry);

@@ -130,6 +130,26 @@ describe('validateApiTargetInAllowedDomains (via emitApiProxyTargetWarnings)', (
     expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
+  it('should not warn when custom host is in allowed domains as https:// entry (auto-added form)', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'custom.example.com' },
+      ['https://custom.example.com'],
+      (msg) => warnings.push(msg)
+    );
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
+  });
+
+  it('should not warn when custom host is covered by https:// parent domain entry', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'api.example.com' },
+      ['https://example.com'],
+      (msg) => warnings.push(msg)
+    );
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
+  });
+
   it('should not warn when custom host matches a parent domain in allowed list', () => {
     const warnings: string[] = [];
     emitApiProxyTargetWarnings(
