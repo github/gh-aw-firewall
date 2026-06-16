@@ -499,8 +499,8 @@ describe('agent service', () => {
 
 import { testHelpers } from './agent-service';
 import { parseImageTag } from '../image-tag';
-import * as nodePath from 'path';
 
+const nodePath = path;
 const { resolveAgentImageConfig } = testHelpers;
 
 describe('resolveAgentImageConfig', () => {
