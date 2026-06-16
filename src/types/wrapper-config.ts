@@ -13,6 +13,7 @@ import type { ApiProxyOptions } from './api-proxy-options';
 import type { CliProxyOptions } from './cli-proxy-options';
 import type { RateLimitOptions } from './rate-limit-options';
 import type { RuntimeOptions } from './runtime-options';
+import type { PlatformOptions } from './platform-options';
 
 export type WrapperConfig =
   ContainerImageOptions
@@ -22,4 +23,5 @@ export type WrapperConfig =
   & ApiProxyOptions
   & CliProxyOptions
   & RateLimitOptions
-  & RuntimeOptions;
+  & RuntimeOptions
+  & PlatformOptions;

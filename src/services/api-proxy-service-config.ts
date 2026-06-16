@@ -112,6 +112,8 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...buildProviderTargetEnv(config),
       // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
       ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),
+      // Forward explicit platform type so api-proxy can apply correct auth behavior
+      ...(config.platformType && { AWF_PLATFORM_TYPE: config.platformType }),
       // Forward GITHUB_API_URL so api-proxy can route /models to the correct GitHub REST API
       // target on GHES/GHEC (e.g. api.mycompany.ghe.com instead of api.github.com)
       ...(process.env.GITHUB_API_URL && { GITHUB_API_URL: process.env.GITHUB_API_URL }),
