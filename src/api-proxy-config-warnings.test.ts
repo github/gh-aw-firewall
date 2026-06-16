@@ -2,7 +2,7 @@ import {
   emitApiProxyTargetWarnings,
   emitCliProxyStatusLogs,
   warnClassicPATWithCopilotModel,
-} from './api-proxy-config';
+} from './api-proxy-config-warnings';
 
 describe('emitApiProxyTargetWarnings', () => {
   it('should emit no warnings when api proxy is disabled', () => {

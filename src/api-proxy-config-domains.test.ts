@@ -1,6 +1,6 @@
 import {
   resolveApiTargetsToAllowedDomains,
-} from './api-proxy-config';
+} from './api-proxy-config-domains';
 
 describe('resolveApiTargetsToAllowedDomains', () => {
   it('should add copilot-api-target option to allowed domains', () => {

@@ -1,8 +1,8 @@
 import {
   validateApiProxyConfig,
   validateAnthropicCacheTailTtl,
-  emitApiProxyTargetWarnings,
-} from './api-proxy-config';
+} from './api-proxy-config-validation';
+import { emitApiProxyTargetWarnings } from './api-proxy-config-warnings';
 
 describe('validateApiProxyConfig', () => {
   it('should return disabled when enableApiProxy is false', () => {
