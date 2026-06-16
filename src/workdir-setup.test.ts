@@ -349,10 +349,8 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
   });
 
   it('creates chroot home directory without touching log directories', () => {
-    const { resolveLogPaths } = jest.requireActual('./log-paths') as typeof import('./log-paths');
     const config = buildConfig();
     const logPaths = resolveLogPaths(config);
-
     workdirSetupTestHelpers.prepareChrootHomeMounts(config);
 
     expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(true);
