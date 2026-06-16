@@ -31,7 +31,6 @@ interface AgentServiceParams {
  */
 export function buildAgentService(params: AgentServiceParams): any {
   const { config, networkConfig, environment, agentVolumes, dnsServers, imageConfig } = params;
-  const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
 
   // Agent service configuration
   const agentService: any = {
@@ -147,9 +146,27 @@ export function buildAgentService(params: AgentServiceParams): any {
     environment.AWF_ENABLE_HOST_ACCESS = '1';
   }
 
-  // Use GHCR image or build locally
-  // Priority: GHCR preset images > local build (when requested) > custom images
-  // For presets ('default', 'act'), use GHCR images
+  Object.assign(agentService, resolveAgentImageConfig(config, imageConfig));
+
+  return agentService;
+}
+
+// ─── Image Selection ─────────────────────────────────────────────────────────
+
+/**
+ * Resolves the image or build configuration for the agent container.
+ *
+ * Priority: GHCR preset images > local build (when requested or non-preset) > custom image passthrough
+ *
+ * Returns either `{ image: string }` (pull from registry) or
+ * `{ build: { context, dockerfile, args } }` (local build), suitable for
+ * spreading onto a Docker Compose service object.
+ */
+export function resolveAgentImageConfig(
+  config: WrapperConfig,
+  imageConfig: ImageBuildConfig,
+): { image: string } | { build: { context: string; dockerfile: string; args?: Record<string, string> } } {
+  const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const agentImage = config.agentImage || 'default';
   const isPreset = agentImage === 'default' || agentImage === 'act';
 
@@ -157,9 +174,12 @@ export function buildAgentService(params: AgentServiceParams): any {
     // Use pre-built GHCR image for preset images
     // The GHCR images already have the necessary setup for chroot mode
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    agentService.image = buildRuntimeImageRef(registry, imageName, parsedTag);
-    logger.debug(`Using GHCR image ${agentService.image}`);
-  } else if (config.buildLocal || !isPreset) {
+    const image = buildRuntimeImageRef(registry, imageName, parsedTag);
+    logger.debug(`Using GHCR image ${image}`);
+    return { image };
+  }
+
+  if (config.buildLocal || !isPreset) {
     // Build locally when:
     // 1. --build-local is explicitly specified, OR
     // 2. A custom (non-preset) image is specified
@@ -184,19 +204,23 @@ export function buildAgentService(params: AgentServiceParams): any {
     }
     // For 'default' preset with --build-local, use the Dockerfile's default (ubuntu:22.04)
 
-    agentService.build = {
-      context: path.join(projectRoot, 'containers/agent'),
-      dockerfile,
-      args: buildArgs,
+    return {
+      build: {
+        context: path.join(projectRoot, 'containers/agent'),
+        dockerfile,
+        args: buildArgs,
+      },
     };
-  } else {
-    // Custom image specified without --build-local
-    // Use the image directly (user is responsible for ensuring compatibility)
-    agentService.image = agentImage;
   }
 
-  return agentService;
+  // Custom image specified without --build-local
+  // Use the image directly (user is responsible for ensuring compatibility)
+  return { image: agentImage };
 }
+
+// ts-prune-ignore-next
+/** @internal Exported for unit testing only */
+export const testHelpers = { resolveAgentImageConfig };
 
 // ─── iptables-init Service ────────────────────────────────────────────────────
 
