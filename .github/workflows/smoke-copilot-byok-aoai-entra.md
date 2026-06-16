@@ -182,10 +182,10 @@ This smoke test validates that Copilot CLI runs in **direct BYOK mode against Az
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
 ### 1. GitHub MCP Testing
-Verify MCP connectivity via the GitHub MCP shell tool `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged).
+Verify MCP connectivity via the GitHub MCP tool `github-list_pull_requests` for ${{ github.repository }} (limit 2, state merged).
 - If the tool responds successfully, confirm the result matches the Pre-Fetched PR Data below. ✅
-- If the tool is not available or errors, skip the live call and use the Pre-Fetched PR Data as confirmation instead. Mark ✅ (pre-fetched data validated). Do **not** call `missing_tool` for this optional skip — just proceed to the next test.
-
+- If the tool is unavailable (missing from context), skip the live call and validate the Pre-Fetched PR Data instead. Mark ✅ (pre-fetched data validated). Do **not** call `missing_tool` for this optional skip.
+- If the tool is available but the call fails for another reason, mark ❌ and include the error.
 Either way, continue to the **Output** section below and follow the required output rules.
 
 ### 2. GitHub.com Connectivity
