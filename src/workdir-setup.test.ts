@@ -356,8 +356,10 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(true);
     // log directories must NOT have been created
     expect(fs.existsSync(logPaths.agentLogs)).toBe(false);
+    expect(fs.existsSync(logPaths.sessionState)).toBe(false);
     expect(fs.existsSync(logPaths.squidLogs)).toBe(false);
-  });
+    expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(false);
+    expect(fs.existsSync(logPaths.cliProxyLogs)).toBe(false);
 
   it('creates .gemini directory only when geminiApiKey is provided', () => {
     const geminiDir = path.join(tempDir, '.gemini');
