@@ -160,6 +160,54 @@ describe('API proxy sidecar: miscellaneous env forwarding', () => {
           expect(env.AWF_MODEL_FALLBACK).toBe(JSON.stringify(fallback));
         });
 
+        it('should forward allowedModels as AWF_ALLOWED_MODELS (JSON array)', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            allowedModels: ['*sonnet*', '*haiku*'],
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ALLOWED_MODELS).toBe(JSON.stringify(['*sonnet*', '*haiku*']));
+        });
+
+        it('should not set AWF_ALLOWED_MODELS when allowedModels is empty array', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            allowedModels: [] as string[],
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_ALLOWED_MODELS).toBeUndefined();
+        });
+
+        it('should forward disallowedModels as AWF_DISALLOWED_MODELS (JSON array)', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            disallowedModels: ['*opus*', 'gpt-5*'],
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_DISALLOWED_MODELS).toBe(JSON.stringify(['*opus*', 'gpt-5*']));
+        });
+
+        it('should not set AWF_DISALLOWED_MODELS when disallowedModels is empty array', () => {
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            openaiApiKey: 'sk-test-key',
+            disallowedModels: [] as string[],
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const env = result.services['api-proxy'].environment as Record<string, string>;
+          expect(env.AWF_DISALLOWED_MODELS).toBeUndefined();
+        });
+
         it('should forward enableTokenSteering as AWF_ENABLE_TOKEN_STEERING=true', () => {
           const configWithProxy = {
             ...mockConfig,

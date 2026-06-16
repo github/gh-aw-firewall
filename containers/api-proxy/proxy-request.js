@@ -66,6 +66,10 @@ const {
   getRetiredModelBlockState,
   buildRetiredModelError,
 } = require('./guards/retired-model-guard');
+const {
+  getModelPolicyBlockState,
+  buildModelPolicyError,
+} = require('./guards/model-policy-guard');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
 
@@ -221,6 +225,8 @@ const proxyWebSocket = createProxyWebSocket({
   getRetiredModelBlockState,
   buildRetiredModelError,
   checkUnknownModelRejection,
+  getModelPolicyBlockState,
+  buildModelPolicyError,
   trackWebSocketTokenUsage,
 });
 
@@ -411,6 +417,8 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     getRetiredModelBlockState,
     buildRetiredModelError,
     checkUnknownModelRejection,
+    getModelPolicyBlockState,
+    buildModelPolicyError,
   }, model);
 
   for (const guard of guardChecks) {

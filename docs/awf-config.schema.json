@@ -225,6 +225,20 @@
             }
           }
         },
+        "allowedModels": {
+          "type": "array",
+          "description": "Allowlist of permitted model names (glob patterns). When set, only models matching at least one pattern are permitted. Uses case-insensitive glob matching with * as a wildcard. Evaluated after disallowedModels — a model in the denylist is always rejected even if it matches the allowlist. Examples: [\"*sonnet*\", \"*haiku*\"].",
+          "items": {
+            "type": "string"
+          }
+        },
+        "disallowedModels": {
+          "type": "array",
+          "description": "Denylist of prohibited model names (glob patterns). Models matching any pattern are rejected with HTTP 400 regardless of the allowedModels allowlist. Uses case-insensitive glob matching with * as a wildcard. Examples: [\"*opus*\", \"gpt-5*\"].",
+          "items": {
+            "type": "string"
+          }
+        },
         "auth": {
           "type": "object",
           "description": "Authentication configuration for the API proxy sidecar. Enables OIDC-based credential exchange (e.g., GitHub OIDC → Azure AD, AWS STS, GCP Workload Identity, or Anthropic Workload Identity Federation). See docs/awf-config-spec.md §9.5.",

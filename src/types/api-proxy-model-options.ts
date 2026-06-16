@@ -49,6 +49,42 @@ export interface ApiProxyModelOptions {
   modelAliases?: Record<string, string[]>;
 
   /**
+   * Allowlist of permitted models for the API proxy sidecar.
+   *
+   * When set, only models whose names match at least one glob pattern in this
+   * list are permitted. Requests for any other model are rejected with HTTP 400.
+   * The check is applied both when resolving aliases (policy-violating candidates
+   * are excluded from alias resolution) and when forwarding inference requests
+   * (the final resolved model is validated against the policy).
+   *
+   * Uses case-insensitive glob matching with `*` as a wildcard.
+   * Evaluated after `disallowedModels` — a model matching the denylist is always
+   * rejected even if it also matches the allowlist.
+   *
+   * - Config: `apiProxy.allowedModels`
+   * - Environment variable: `AWF_ALLOWED_MODELS` (JSON array, internal)
+   *
+   * @example ['*sonnet*', '*haiku*']
+   */
+  allowedModels?: string[];
+
+  /**
+   * Denylist of prohibited models for the API proxy sidecar.
+   *
+   * Models matching any glob pattern in this list are rejected with HTTP 400,
+   * regardless of the `allowedModels` allowlist. The check is applied both
+   * during alias resolution and when forwarding inference requests.
+   *
+   * Uses case-insensitive glob matching with `*` as a wildcard.
+   *
+   * - Config: `apiProxy.disallowedModels`
+   * - Environment variable: `AWF_DISALLOWED_MODELS` (JSON array, internal)
+   *
+   * @example ['*opus*', 'gpt-5*']
+   */
+  disallowedModels?: string[];
+
+  /**
    * Expected model name for pre-startup validation.
    *
    * When set, the API proxy validates at startup that this model is available

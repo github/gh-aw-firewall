@@ -22,6 +22,25 @@
 const { getTierSortedModels } = require('./model-discovery');
 const { globMatch, extractVersionNumbers, compareByVersion } = require('./model-utils');
 
+/**
+ * Check whether a model name is permitted by the given policy config.
+ * This is an inline copy of the logic from model-policy-guard.js to avoid a
+ * circular-dependency between the pure resolver and the guard module.
+ *
+ * @param {string} model
+ * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }} policyConfig
+ * @returns {boolean}
+ */
+function _isModelPermittedByPolicy(model, policyConfig) {
+  if (!policyConfig) return true;
+  const { allowedModels, disallowedModels } = policyConfig;
+  if (!allowedModels && !disallowedModels) return true;
+  if (!model) return true;
+  if (disallowedModels && disallowedModels.some(p => globMatch(p, model))) return false;
+  if (allowedModels && !allowedModels.some(p => globMatch(p, model))) return false;
+  return true;
+}
+
 const DEFAULT_MODEL_FALLBACK = Object.freeze({
   enabled: true,
   strategy: 'middle_power',
@@ -217,9 +236,10 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
  * @param {string[]} newChain - Resolution chain with the current key already appended
  * @param {{ enabled: boolean, strategy: string }} fallbackConfig
  * @param {string[]} log - Accumulator for resolution log messages (mutated in place)
+ * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log) {
+function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig) {
   const patterns = aliasDefinition.patterns;
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
@@ -230,7 +250,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
     if (slashIdx === -1) {
       // Recursive alias reference (no provider prefix)
-      const sub = resolveModel(pattern, aliases, availableModels, currentProvider, newChain, fallbackConfig);
+      const sub = resolveModel(pattern, aliases, availableModels, currentProvider, newChain, fallbackConfig, modelPolicyConfig);
       if (sub) {
         log.push(...sub.log);
         candidates.push(sub.resolvedModel);
@@ -251,10 +271,20 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     }
   }
 
-  if (candidates.length === 0) {
+  // Apply model policy filter: remove candidates that are not permitted.
+  const filteredCandidates = modelPolicyConfig
+    ? candidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
+    : candidates;
+
+  if (filteredCandidates.length < candidates.length) {
+    const blocked = candidates.filter(c => !filteredCandidates.includes(c));
+    log.push(`[model-resolver] model policy filtered out ${blocked.length} candidate(s): ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ', …' : ''}`);
+  }
+
+  if (filteredCandidates.length === 0) {
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
     const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
-    if (aliasDefinition.fallback && hasProviderPattern) {
+    if (aliasDefinition.fallback && hasProviderPattern && !modelPolicyConfig) {
       return tryMiddlePowerFallback(
         requestedModel, availableModels, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
@@ -264,7 +294,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   }
 
   // Deduplicate, sort by version (highest first), and pick the best
-  const unique = [...new Set(candidates)];
+  const unique = [...new Set(filteredCandidates)];
   unique.sort(compareByVersion);
 
   const resolved = unique[0];
@@ -299,9 +329,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
  * @param {string} currentProvider - Provider handling this request (e.g. "copilot")
  * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK) {
+function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK, modelPolicyConfig = null) {
   const log = [];
   const key = requestedModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
@@ -335,7 +366,7 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
 
   const [aliasKey, aliasRaw] = aliasEntry;
   const aliasDefinition = resolveAliasDefinition(aliasRaw);
-  return _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log);
+  return _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig);
 }
 
 /**

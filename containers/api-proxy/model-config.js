@@ -5,10 +5,19 @@ const { rewriteModelInBody } = require('./model-body-rewriter');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
+const { parseModelPatterns, ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
 const DEFAULT_MODEL_FALLBACK = Object.freeze({ enabled: true, strategy: 'middle_power', excludeEngines: Object.freeze([]) });
+
+/**
+ * The effective model policy config used during alias resolution.
+ * Null means "no policy" (all models are permitted).
+ */
+const MODEL_POLICY_CONFIG = (ALLOWED_MODELS || DISALLOWED_MODELS)
+  ? { allowedModels: ALLOWED_MODELS, disallowedModels: DISALLOWED_MODELS }
+  : null;
 
 function parseExcludeEngines(value) {
   if (!Array.isArray(value)) return [];
@@ -93,10 +102,10 @@ function makeModelBodyTransform(provider, cachedModels, refreshProviderModelsFor
   if (!MODEL_ALIASES) return null;
   const providerModelFallback = getModelFallbackForProvider(provider);
   return async (body) => {
-    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
+    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback, MODEL_POLICY_CONFIG);
     if (!result || (result.fallback && result.fallback.activated)) {
       await refreshProviderModelsForResolution(provider);
-      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback);
+      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback, MODEL_POLICY_CONFIG);
     }
     if (!result) return null;
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
@@ -153,6 +162,7 @@ function makeModelBodyTransform(provider, cachedModels, refreshProviderModelsFor
 module.exports = {
   MODEL_ALIASES,
   MODEL_FALLBACK,
+  MODEL_POLICY_CONFIG,
   parseModelFallbackConfig,
   makeModelBodyTransform,
   filterResolvableAliases,

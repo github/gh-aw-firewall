@@ -22,9 +22,10 @@ const { resolveModel } = require('./model-resolver');
  * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Parsed alias map
  * @param {Record<string, string[]|null>} availableModels - Cached models per provider
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
+ * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
  * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig) {
+function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig, modelPolicyConfig) {
   // Only attempt rewrite for non-empty bodies
   if (!body || body.length === 0) return null;
 
@@ -34,7 +35,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   // Determine the requested model. If absent, try the default alias ("").
   const originalModel = typeof parsed.model === 'string' ? parsed.model : '';
 
-  const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig);
+  const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig, modelPolicyConfig);
   if (!resolution) return null;
 
   const { resolvedModel, log } = resolution;

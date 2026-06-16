@@ -75,6 +75,8 @@ function createProxyWebSocket({
   getRetiredModelBlockState,
   buildRetiredModelError,
   checkUnknownModelRejection,
+  getModelPolicyBlockState,
+  buildModelPolicyError,
   trackWebSocketTokenUsage,
 }) {
   const guardDeps = {
@@ -91,6 +93,8 @@ function createProxyWebSocket({
     getRetiredModelBlockState,
     buildRetiredModelError,
     checkUnknownModelRejection,
+    getModelPolicyBlockState,
+    buildModelPolicyError,
   };
   /**
    * Handle a WebSocket upgrade request by tunnelling through the Squid proxy.

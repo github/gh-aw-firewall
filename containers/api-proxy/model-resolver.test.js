@@ -474,3 +474,63 @@ describe('filterResolvableAliases', () => {
     expect(result).not.toHaveProperty('legacy');
   });
 });
+
+// ── Model policy filtering in alias resolution ────────────────────────────────
+
+describe('resolveModel with modelPolicyConfig', () => {
+  const aliases = {
+    sonnet: ['copilot/*sonnet*'],
+    opus: ['copilot/*opus*'],
+    any: ['copilot/*'],
+  };
+  const availableModels = {
+    copilot: ['claude-sonnet-4.6', 'claude-opus-4.5', 'claude-haiku-3-5'],
+  };
+
+  it('should resolve normally when no policy is set', () => {
+    const result = resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, null);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('should filter out candidates matching disallowed patterns', () => {
+    const policy = { allowedModels: null, disallowedModels: ['*opus*'] };
+    // 'opus' alias resolves to copilot/*opus* candidates — all filtered by policy
+    const result = resolveModel('opus', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).toBeNull();
+  });
+
+  it('should allow candidates that pass the disallowed filter', () => {
+    const policy = { allowedModels: null, disallowedModels: ['*opus*'] };
+    const result = resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('should filter out candidates not matching the allowed list', () => {
+    const policy = { allowedModels: ['*haiku*'], disallowedModels: null };
+    // 'sonnet' alias candidates (*sonnet*) don't match *haiku* — filtered out
+    const result = resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).toBeNull();
+  });
+
+  it('should allow only matching candidates from the allowed list when alias has multiple', () => {
+    // 'any' alias matches all models; policy only allows *sonnet*
+    const policy = { allowedModels: ['*sonnet*'], disallowedModels: null };
+    const result = resolveModel('any', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('should block disallowed models even when also in allowed list', () => {
+    const policy = { allowedModels: ['*sonnet*'], disallowedModels: ['*sonnet*'] };
+    const result = resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).toBeNull();
+  });
+
+  it('should log a message when candidates are filtered by policy', () => {
+    const policy = { allowedModels: null, disallowedModels: ['*opus*'] };
+    const result = resolveModel('opus', aliases, availableModels, 'copilot', [], {}, policy);
+    expect(result).toBeNull();
+  });
+});

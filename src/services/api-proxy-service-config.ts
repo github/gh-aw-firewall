@@ -185,6 +185,13 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...(config.modelFallback && {
         AWF_MODEL_FALLBACK: JSON.stringify(config.modelFallback),
       }),
+      // Model policy (allowed/disallowed)
+      ...(config.allowedModels && config.allowedModels.length > 0 && {
+        AWF_ALLOWED_MODELS: JSON.stringify(config.allowedModels),
+      }),
+      ...(config.disallowedModels && config.disallowedModels.length > 0 && {
+        AWF_DISALLOWED_MODELS: JSON.stringify(config.disallowedModels),
+      }),
       // Anthropic prompt-cache optimizations
       ...(config.anthropicAutoCache && {
         AWF_ANTHROPIC_AUTO_CACHE: '1',
