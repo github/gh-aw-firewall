@@ -5,7 +5,7 @@ const { rewriteModelInBody } = require('./model-body-rewriter');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
-const { parseModelPatterns, ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
+const { ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
