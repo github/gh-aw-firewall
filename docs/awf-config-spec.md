@@ -195,6 +195,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.requestsPerMinute` → `--rate-limit-rpm`
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
+- `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 

@@ -76,6 +76,10 @@ jobs:
               const reviewLogins = reviews.map(r => r.user?.login);
               core.info(`Found ${reviews.length} review(s): ${reviewLogins.join(', ')}`);
               copilotReviewed = reviews.some(r => isCopilotReviewer(r.user?.login));
+              // On synchronize (push), skip the inline comment check.
+              // Old review comments persist even after fixes, so checking them
+              // would permanently block the gate. The push itself signals that
+              // the author has addressed the feedback.
             }
 
             if (context.eventName === 'pull_request_review') {
@@ -106,14 +110,18 @@ jobs:
             }
 
             if (hasInlineComments) {
+              const prAuthor = context.payload.pull_request?.user?.login
+                || context.payload.review?.pull_request?.user?.login;
               await postGateComment(
-                '⏳ Copilot review has inline comments.\n\n@copilot Please address the review feedback from the Copilot pull request reviewer above. Fix the issues raised in the inline comments and push your changes.'
+                `⏳ Copilot review left inline comments.\n\n@${prAuthor} To proceed:\n1. Ask \`@copilot\` to address the review feedback (reply to this comment or the review thread)\n2. Once the fix is pushed, add the \`ready-for-aw\` label to trigger agentic CI smoke tests`
               );
               return;
             }
 
-            // Copilot reviewed with no inline comments — ask CCA to add the label
+            // Copilot reviewed with no inline comments — tell owner to add label
+            const prAuthor = context.payload.pull_request?.user?.login
+              || context.payload.review?.pull_request?.user?.login;
             await postGateComment(
-              '✅ Copilot review passed.\n\n@copilot Please add the `ready-for-aw` label to this PR to trigger agentic CI smoke tests. Use: `gh pr edit ' + pr_number + ' --add-label ready-for-aw`'
+              `✅ Copilot review passed with no inline comments.\n\n@${prAuthor} Add the \`ready-for-aw\` label to this PR to trigger agentic CI smoke tests.`
             );
-            core.info('Posted comment asking CCA to add ready-for-aw label');
+            core.info('Posted comment directing PR owner to add ready-for-aw label');
