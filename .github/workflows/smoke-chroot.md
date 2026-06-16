@@ -4,7 +4,7 @@ on:
   roles: all
   workflow_dispatch:
   label_command:
-    name: ready-for-ci
+    name: ready-for-aw
     events: [pull_request]
     remove_label: false
   reaction: "rocket"
