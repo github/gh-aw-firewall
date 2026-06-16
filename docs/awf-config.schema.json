@@ -234,7 +234,7 @@
         },
         "disallowedModels": {
           "type": "array",
-          "description": "Denylist of prohibited model names (glob patterns). Models matching any pattern are rejected with HTTP 400 regardless of the allowedModels allowlist. Uses case-insensitive glob matching with * as a wildcard. Examples: [\"*opus*\", \"gpt-5*\"].",
+          "description": "Denylist of prohibited model names (glob patterns). Models matching any pattern are rejected with HTTP 403 regardless of the allowedModels allowlist. Uses case-insensitive glob matching with * as a wildcard. Examples: [\"*opus*\", \"gpt-5*\"].",
           "items": {
             "type": "string"
           }

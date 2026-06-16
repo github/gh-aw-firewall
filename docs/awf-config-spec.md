@@ -115,6 +115,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
+- `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
+- `apiProxy.disallowedModels` → *(config-only; maps to `AWF_DISALLOWED_MODELS` — JSON array of glob patterns; matching models are rejected with HTTP 403)*
 - `apiProxy.models` → *(config-only; model alias rewriting)*
 - `apiProxy.logging.debugTokens` → *(config-only; maps to `AWF_DEBUG_TOKENS`)*
 - `apiProxy.logging.tokenLogDir` → *(config-only; maps to `AWF_TOKEN_LOG_DIR`)*
