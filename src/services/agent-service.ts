@@ -171,7 +171,7 @@ export function resolveAgentImageConfig(
   const isPreset = agentImage === 'default' || agentImage === 'act';
 
   if (useGHCR && isPreset) {
-    // Use pre-built GHCR image for preset images
+  if (useGHCR && isPreset && !config.buildLocal) {
     // The GHCR images already have the necessary setup for chroot mode
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
     const image = buildRuntimeImageRef(registry, imageName, parsedTag);
