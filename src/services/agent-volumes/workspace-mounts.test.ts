@@ -150,7 +150,11 @@ describe('buildWorkspaceMounts', () => {
         expect(mounts.some(m => m.includes('awf-runner-bin'))).toBe(false);
         expect(stageHostFileSpy).not.toHaveBeenCalled();
       } finally {
-        process.env.PATH = origPath;
+        if (origPath !== undefined) {
+          process.env.PATH = origPath;
+        } else {
+          delete process.env.PATH;
+        }
       }
     });
   });
