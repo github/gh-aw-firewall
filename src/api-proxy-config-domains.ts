@@ -165,28 +165,43 @@ export function resolveApiTargetsToAllowedDomains(
     debug(`Auto-added GHES domains from engine.api-target: ${ghesDomains.join(', ')}`);
   }
 
-  // Merge raw target values into the allowedDomains list so that later
-  // checks/logs about "no allowed domains" see the final, expanded allowlist.
-  const normalizedApiTargets = apiTargets.filter((t) => typeof t === 'string' && t.trim().length > 0);
+  // Merge API target values into the allowedDomains list so that later checks/logs about
+  // "no allowed domains" see the final, expanded allowlist.
+  // API targets may be provided as full URLs; only the hostname is relevant to Squid allowlisting.
+  const normalizedApiTargets = apiTargets
+    .map((t) => (typeof t === 'string' ? t.trim() : ''))
+    .filter((t) => t.length > 0)
+    .map((raw) => {
+      const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw);
+      const candidate = hasScheme ? raw : `https://${raw}`;
+
+      let hostname = '';
+      try {
+        hostname = new URL(candidate).hostname;
+      } catch {
+        // Let domain-validation surface a clear error later.
+      }
+      if (!hostname) return null;
+
+      const scheme: 'http' | 'https' = /^http:\/\//i.test(raw) ? 'http' : 'https';
+      return { hostname, hasScheme, scheme } as const;
+    })
+    .filter((t): t is { hostname: string; hasScheme: boolean; scheme: 'http' | 'https' } => t !== null);
+
   if (normalizedApiTargets.length > 0) {
-    for (const target of normalizedApiTargets) {
-      if (!allowedDomains.includes(target)) {
-        allowedDomains.push(target);
+    for (const { hostname, hasScheme, scheme } of normalizedApiTargets) {
+      // Only add a bare hostname entry when no explicit scheme was provided.
+      if (!hasScheme && !allowedDomains.includes(hostname)) {
+        allowedDomains.push(hostname);
+      }
+
+      const urlEntry = `${scheme}://${hostname}`;
+      if (!allowedDomains.includes(urlEntry)) {
+        allowedDomains.push(urlEntry);
+        debug(`Automatically added API target to allowlist: ${urlEntry}`);
       }
     }
-    debug(`Auto-added API target values to allowed domains: ${normalizedApiTargets.join(', ')}`);
-  }
-
-  // Also ensure each target is present as an explicit https:// URL
-  for (const target of normalizedApiTargets) {
-
-    // Ensure auto-added API targets are explicitly HTTPS to avoid over-broad HTTP+HTTPS allowlisting
-    const normalizedTarget = /^https?:\/\//.test(target) ? target : `https://${target}`;
-
-    if (!allowedDomains.includes(normalizedTarget)) {
-      allowedDomains.push(normalizedTarget);
-      debug(`Automatically added API target to allowlist: ${normalizedTarget}`);
-    }
+    debug(`Auto-added API target hostnames to allowed domains: ${normalizedApiTargets.map(t => t.hostname).join(', ')}`);
   }
 
   return allowedDomains;
