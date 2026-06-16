@@ -129,6 +129,13 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     expect(domains).toHaveLength(0);
   });
 
+  it('should trim whitespace from api targets', () => {
+    const domains: string[] = [];
+    resolveApiTargetsToAllowedDomains({ openaiApiTarget: '  custom.openai.com  ' }, domains);
+    expect(domains).toContain('https://custom.openai.com');
+    expect(domains).not.toContain('https://  custom.openai.com  ');
+  });
+
   it('should add gemini-api-target option to allowed domains', () => {
     const domains: string[] = ['github.com'];
     resolveApiTargetsToAllowedDomains({ geminiApiTarget: 'custom.gemini.internal' }, domains);

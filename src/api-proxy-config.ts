@@ -96,9 +96,13 @@ function validateApiTargetInAllowedDomains(
   // No warning needed if using the default host
   if (targetHost === defaultHost) return null;
 
-  // Check if the hostname or any of its parent domains is explicitly allowed
+  // Check if the hostname or any of its parent domains is explicitly allowed.
+  // Strip any https?:// prefix from allowedDomains entries so that auto-added
+  // protocol-scoped entries (e.g. "https://custom.example.com") are matched
+  // correctly against the bare targetHost.
   const isDomainAllowed = allowedDomains.some(d => {
-    const domain = d.startsWith('.') ? d.slice(1) : d;
+    const withoutProtocol = d.replace(/^https?:\/\//, '');
+    const domain = withoutProtocol.startsWith('.') ? withoutProtocol.slice(1) : withoutProtocol;
     return targetHost === domain || targetHost.endsWith('.' + domain);
   });
 
@@ -380,7 +384,8 @@ export function resolveApiTargetsToAllowedDomains(
   // are preserved as-is so deployments that intentionally use HTTP continue to work.
   const normalizedApiTargets = apiTargets.filter((t) => typeof t === 'string' && t.trim().length > 0);
   for (const target of normalizedApiTargets) {
-    const normalizedTarget = /^https?:\/\//.test(target) ? target : `https://${target}`;
+    const trimmedTarget = target.trim();
+    const normalizedTarget = /^https?:\/\//.test(trimmedTarget) ? trimmedTarget : `https://${trimmedTarget}`;
     if (!allowedDomains.includes(normalizedTarget)) {
       allowedDomains.push(normalizedTarget);
       debug(`Auto-added API target to allowed domains: ${normalizedTarget}`);
