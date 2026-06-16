@@ -99,7 +99,8 @@ function extractGhesDomainsFromEngineApiTarget(
 
 /**
  * Resolves API target values from CLI options and environment variables, and merges them
- * into the allowed domains list. Also ensures each target is present as an https:// URL.
+ * into the allowed domains list. Also ensures each target is present as an explicit URL entry
+ * (defaulting to https:// when no scheme is provided).
  * @param options - Partial options with API target flag values
  * @param allowedDomains - The current list of allowed domains (mutated in place)
  * @param env - Environment variables (defaults to process.env)
