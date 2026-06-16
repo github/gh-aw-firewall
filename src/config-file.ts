@@ -126,6 +126,9 @@ interface AwfFileConfig {
     requestsPerHour?: number;
     bytesPerMinute?: number;
   };
+  platform?: {
+    type?: 'github.com' | 'ghes' | 'ghec' | 'ghec-self-hosted';
+  };
 }
 
 /**
@@ -302,6 +305,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     rateLimitRpm: toStringIfDefined(config.rateLimiting?.requestsPerMinute),
     rateLimitRph: toStringIfDefined(config.rateLimiting?.requestsPerHour),
     rateLimitBytesPm: toStringIfDefined(config.rateLimiting?.bytesPerMinute),
+
+    platformType: config.platform?.type,
   };
 }
 

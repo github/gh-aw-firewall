@@ -37,6 +37,7 @@ const {
   resolveApiKey,
   resolveCopilotAuthToken,
   deriveCopilotApiTarget,
+  isGhesInstance,
 } = require('./copilot-auth');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 const { URL } = require('url');
@@ -238,7 +239,7 @@ function createCopilotAdapter(env, deps = {}) {
       // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens;
       // BYOK API keys always use 'Bearer <value>' regardless of target.
       // Standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer' for all credentials.
-      const isEnterprise = rawTarget === 'api.enterprise.githubcopilot.com';
+      const isEnterprise = isGhesInstance(rawTarget, env);
 
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
       if (isModelsPath && req.method === 'GET' && githubToken) {

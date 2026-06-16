@@ -10,6 +10,7 @@ const {
     resolveCopilotAuthToken,
     resolveApiKey,
     stripBearerPrefix,
+    isGhesInstance,
   },
 } = require('./providers/copilot-auth');
 const {
@@ -429,6 +430,110 @@ describe('createCopilotAdapter — GHE enterprise auth format', () => {
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
     expect(headers['Authorization']).not.toContain('token token');
+  });
+
+  it('uses "token" prefix when COPILOT_API_TARGET overrides target but GITHUB_SERVER_URL indicates GHES', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      COPILOT_API_TARGET: 'custom-copilot-proxy.internal.example.com',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
+  it('uses "token" prefix for /models when COPILOT_API_TARGET overrides target on GHES', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      COPILOT_API_TARGET: 'custom-copilot-proxy.internal.example.com',
+      GITHUB_SERVER_URL: 'https://ghes.example.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
+  it('uses "Bearer" when COPILOT_API_TARGET is custom but GITHUB_SERVER_URL is github.com', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_standard_token_123',
+      COPILOT_API_TARGET: 'custom-proxy.example.com',
+      GITHUB_SERVER_URL: 'https://github.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer ghu_standard_token_123');
+  });
+
+  it('uses "token" prefix when AWF_PLATFORM_TYPE=ghes is set explicitly', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_enterprise_token_123',
+      COPILOT_API_TARGET: 'custom-proxy.example.com',
+      AWF_PLATFORM_TYPE: 'ghes',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
+  });
+
+  it('uses "Bearer" when AWF_PLATFORM_TYPE=github.com overrides GHES-looking GITHUB_SERVER_URL', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_token_123',
+      AWF_PLATFORM_TYPE: 'github.com',
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('Bearer ghu_token_123');
+  });
+});
+
+// ── isGhesInstance ────────────────────────────────────────────────────────────
+
+describe('isGhesInstance', () => {
+  it('returns true for api.enterprise.githubcopilot.com target', () => {
+    expect(isGhesInstance('api.enterprise.githubcopilot.com', {})).toBe(true);
+  });
+
+  it('returns true when GITHUB_SERVER_URL is a custom GHES hostname', () => {
+    expect(isGhesInstance('custom-proxy.internal', { GITHUB_SERVER_URL: 'https://ghes.mycompany.com' })).toBe(true);
+  });
+
+  it('returns false when GITHUB_SERVER_URL is github.com', () => {
+    expect(isGhesInstance('custom-proxy.internal', { GITHUB_SERVER_URL: 'https://github.com' })).toBe(false);
+  });
+
+  it('returns false when GITHUB_SERVER_URL is a *.ghe.com tenant', () => {
+    expect(isGhesInstance('custom-proxy.internal', { GITHUB_SERVER_URL: 'https://myorg.ghe.com' })).toBe(false);
+  });
+
+  it('returns false when no GHES indicators are present', () => {
+    expect(isGhesInstance('api.githubcopilot.com', {})).toBe(false);
+  });
+
+  it('returns false when GITHUB_SERVER_URL is unset', () => {
+    expect(isGhesInstance('custom-proxy.internal', {})).toBe(false);
+  });
+
+  it('returns true when AWF_PLATFORM_TYPE is ghes (highest priority)', () => {
+    expect(isGhesInstance('api.githubcopilot.com', { AWF_PLATFORM_TYPE: 'ghes' })).toBe(true);
+  });
+
+  it('returns true when AWF_PLATFORM_TYPE is ghes even without GITHUB_SERVER_URL', () => {
+    expect(isGhesInstance('custom-proxy.internal', { AWF_PLATFORM_TYPE: 'ghes' })).toBe(true);
+  });
+
+  it('returns false when AWF_PLATFORM_TYPE is github.com even if GITHUB_SERVER_URL looks like GHES', () => {
+    expect(isGhesInstance('custom-proxy.internal', {
+      AWF_PLATFORM_TYPE: 'github.com',
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
+    })).toBe(false);
+  });
+
+  it('returns false when AWF_PLATFORM_TYPE is ghec', () => {
+    expect(isGhesInstance('api.enterprise.githubcopilot.com', { AWF_PLATFORM_TYPE: 'ghec' })).toBe(false);
+  });
+
+  it('returns false when AWF_PLATFORM_TYPE is ghec-self-hosted', () => {
+    expect(isGhesInstance('custom-proxy.internal', {
+      AWF_PLATFORM_TYPE: 'ghec-self-hosted',
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
+    })).toBe(false);
   });
 });
 

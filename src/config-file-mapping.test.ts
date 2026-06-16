@@ -397,4 +397,14 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.captureBlockedRequests).toBeUndefined();
     expect(result.maxCapturedBytes).toBeUndefined();
   });
+
+  it('maps platform.type to platformType', () => {
+    const result = mapAwfFileConfigToCliOptions({ platform: { type: 'ghes' } });
+    expect(result.platformType).toBe('ghes');
+  });
+
+  it('leaves platformType undefined when platform is not set', () => {
+    const result = mapAwfFileConfigToCliOptions({});
+    expect(result.platformType).toBeUndefined();
+  });
 });

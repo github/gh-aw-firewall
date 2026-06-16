@@ -1,16 +1,18 @@
 name: CI Gate
-# Automatically adds the "ready-for-ci" label to PRs when:
-# 1. Copilot review completes with no actionable feedback, OR
-# 2. A push is made after Copilot review (indicating feedback was addressed)
+# Posts a comment instructing the PR owner to add the "ready-for-aw" label
+# when Copilot review passes. This gates expensive agentic CI (smoke tests,
+# contribution check, etc.) to avoid wasting tokens on code that will change
+# after review.
 #
-# This gates expensive agentic CI (smoke tests, contribution check, etc.)
-# to avoid wasting tokens on code that will change after review.
+# Note: We cannot auto-add the label because GITHUB_TOKEN-added labels don't
+# trigger other workflows (GitHub's anti-cascade protection). The label must
+# be added manually by a human or a GitHub App.
 
 on:
   pull_request_review:
     types: [submitted]
   pull_request:
-    types: [synchronize]  # push to PR branch
+    types: [opened, synchronize]
 
 permissions:
   issues: write
@@ -21,15 +23,19 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - name: Check if ready for CI
+      - name: Check if ready for agentic CI
         uses: actions/github-script@v7
         with:
           script: |
-            const copilotReviewers = new Set(['copilot', 'copilot[bot]', 'Copilot', 'copilot-pull-request-reviewer']);
+            const LABEL = 'ready-for-aw';
+            const COMMENT_MARKER = '<!-- ci-gate-bot -->';
+            const copilotReviewers = new Set(['copilot', 'copilot[bot]', 'Copilot', 'copilot-pull-request-reviewer', 'copilot-pull-request-reviewer[bot]']);
             const isCopilotReviewer = login => copilotReviewers.has(login ?? '');
             const { owner, repo } = context.repo;
             const pr_number = context.payload.pull_request?.number
               || context.payload.review?.pull_request?.number;
+
+            core.info(`Event: ${context.eventName}, PR: ${pr_number || 'none'}`);
 
             if (!pr_number) {
               core.info('No PR number found, skipping');
@@ -40,61 +46,74 @@ jobs:
             const { data: labels } = await github.rest.issues.listLabelsOnIssue({
               owner, repo, issue_number: pr_number
             });
-            if (labels.some(l => l.name === 'ready-for-ci')) {
+            if (labels.some(l => l.name === LABEL)) {
               core.info('Label already present, skipping');
               return;
             }
 
-            // For synchronize events (push after review), add label if review exists
+            // Helper: post or update the gate comment
+            async function postGateComment(message) {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner, repo, issue_number: pr_number
+              });
+              const existing = comments.find(c => c.body?.includes(COMMENT_MARKER));
+              const body = `${COMMENT_MARKER}\n${message}`;
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: pr_number, body });
+              }
+            }
+
+            // Determine if Copilot has reviewed
+            let copilotReviewed = false;
+            let hasInlineComments = false;
+
             if (context.eventName === 'pull_request') {
               const { data: reviews } = await github.rest.pulls.listReviews({
                 owner, repo, pull_number: pr_number
               });
-              const hasCopilotReview = reviews.some(r => isCopilotReviewer(r.user?.login));
-              if (hasCopilotReview) {
-                core.info('Post-review push detected, adding ready-for-ci label');
-                await github.rest.issues.addLabels({
-                  owner, repo, issue_number: pr_number,
-                  labels: ['ready-for-ci']
-                });
-              }
-              return;
+              const reviewLogins = reviews.map(r => r.user?.login);
+              core.info(`Found ${reviews.length} review(s): ${reviewLogins.join(', ')}`);
+              copilotReviewed = reviews.some(r => isCopilotReviewer(r.user?.login));
             }
 
-            // For review events, check if review has actionable comments
             if (context.eventName === 'pull_request_review') {
               const reviewer = context.payload.review?.user?.login;
+              core.info(`Review event from: ${reviewer}`);
               if (!isCopilotReviewer(reviewer)) {
                 core.info(`Review from ${reviewer}, not Copilot — skipping`);
                 return;
               }
+              copilotReviewed = true;
 
-              // Check for unresolved review comments on this PR
+              // Check for inline comments
               const { data: comments } = await github.rest.pulls.listReviewComments({
                 owner, repo, pull_number: pr_number
               });
               const copilotComments = comments.filter(c =>
-                isCopilotReviewer(c.user?.login)
-                && !c.in_reply_to_id
+                isCopilotReviewer(c.user?.login) && !c.in_reply_to_id
               );
-
-              if (copilotComments.length === 0) {
-                core.info('Copilot review with no inline comments, adding ready-for-ci label');
-                await github.rest.issues.addLabels({
-                  owner, repo, issue_number: pr_number,
-                  labels: ['ready-for-ci']
-                });
-              } else {
+              hasInlineComments = copilotComments.length > 0;
+              if (hasInlineComments) {
                 core.info(`Copilot left ${copilotComments.length} inline comment(s), waiting for fixes`);
               }
             }
 
-      - name: Remove label on new push (reset gate)
-        if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // This step intentionally does NOT remove the label on push.
-            // The label persists so that re-triggered agentic workflows can run.
-            // The label is only meaningful as a "review addressed" signal.
-            core.info('Label preserved across pushes to allow agentic CI to re-run');
+            if (!copilotReviewed) {
+              core.info('No Copilot review found yet, waiting');
+              return;
+            }
+
+            if (hasInlineComments) {
+              await postGateComment(
+                '⏳ Copilot review has inline comments.\n\n@copilot Please address the review feedback from the Copilot pull request reviewer above. Fix the issues raised in the inline comments and push your changes.'
+              );
+              return;
+            }
+
+            // Copilot reviewed with no inline comments — ask CCA to add the label
+            await postGateComment(
+              '✅ Copilot review passed.\n\n@copilot Please add the `ready-for-aw` label to this PR to trigger agentic CI smoke tests. Use: `gh pr edit ' + pr_number + ' --add-label ready-for-aw`'
+            );
+            core.info('Posted comment asking CCA to add ready-for-aw label');

@@ -41,6 +41,7 @@ describe('awf-config.schema.json', () => {
         'environment',
         'logging',
         'rateLimiting',
+        'platform',
       ])
     );
   });
@@ -137,6 +138,9 @@ describe('awf-config.schema.json', () => {
         requestsPerMinute: 60,
         requestsPerHour: 1000,
         bytesPerMinute: 10485760,
+      },
+      platform: {
+        type: 'ghes',
       },
     };
     expect(validate(valid)).toBe(true);

@@ -14,7 +14,7 @@ permissions:
 jobs:
   test-domain:
     name: Domain Tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-ci'
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -86,7 +86,7 @@ jobs:
 
   test-network:
     name: Network Tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-ci'
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -158,7 +158,7 @@ jobs:
 
   test-protocol-security:
     name: Protocol & Security Tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-ci'
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -230,7 +230,7 @@ jobs:
 
   test-container-ops:
     name: Container & Ops Tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-ci'
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -297,7 +297,7 @@ jobs:
 
   test-api-proxy:
     name: API Proxy Tests
-    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-ci'
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ready-for-aw'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 

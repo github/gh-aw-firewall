@@ -203,6 +203,36 @@ function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
   };
 }
 
+/**
+ * Detect whether the current environment is a GHES (GitHub Enterprise Server) instance.
+ *
+ * Uses multiple signals to avoid false negatives:
+ *   0. AWF_PLATFORM_TYPE === 'ghes' (explicit config — highest priority)
+ *   1. The resolved Copilot API target is api.enterprise.githubcopilot.com
+ *   2. GITHUB_SERVER_URL is set and is not github.com or *.ghe.com (GHEC)
+ *
+ * @param {string} resolvedTarget - The resolved Copilot API target hostname
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @returns {boolean}
+ */
+function isGhesInstance(resolvedTarget, env = process.env) {
+  // Explicit platform config takes highest priority
+  if (env.AWF_PLATFORM_TYPE === 'ghes') return true;
+  // Explicit non-GHES platform types override heuristics
+  if (env.AWF_PLATFORM_TYPE && env.AWF_PLATFORM_TYPE !== 'ghes') return false;
+
+  if (resolvedTarget === 'api.enterprise.githubcopilot.com') return true;
+
+  const serverUrl = env.GITHUB_SERVER_URL;
+  if (!serverUrl) return false;
+  try {
+    const hostname = new URL(serverUrl).hostname;
+    return hostname !== 'github.com' && !hostname.endsWith('.ghe.com');
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   stripBearerPrefix,
   resolveApiKey,
@@ -211,6 +241,7 @@ module.exports = {
   deriveGitHubApiTarget,
   deriveGitHubApiBasePath,
   isGithubCopilotCatalogTarget,
+  isGhesInstance,
   getCopilotModelFallbackPolicy,
   // Exported for unit-test access only; not part of the public API.
   _testing: {
@@ -221,6 +252,7 @@ module.exports = {
     deriveGitHubApiTarget,
     deriveGitHubApiBasePath,
     isGithubCopilotCatalogTarget,
+    isGhesInstance,
     getCopilotModelFallbackPolicy,
   },
 };

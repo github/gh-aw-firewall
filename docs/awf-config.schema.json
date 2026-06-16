@@ -80,12 +80,34 @@
         "defaultAiCreditsPricing": {
           "type": "object",
           "description": "Fallback per-token pricing ($/1M tokens) for models not in the built-in pricing table. When maxAiCredits is active and a model is unrecognized, this rate is used. If not set, unrecognized models are rejected with HTTP 400 (type: unknown_model_ai_credits).",
-          "required": ["input", "output"],
+          "required": [
+            "input",
+            "output"
+          ],
           "properties": {
-            "input": { "type": "number", "minimum": 0, "description": "Input token price per 1M tokens in dollars." },
-            "output": { "type": "number", "minimum": 0, "description": "Output token price per 1M tokens in dollars." },
-            "cachedInput": { "type": "number", "minimum": 0, "description": "Cached input token price per 1M tokens. Defaults to input × 0.1 if omitted." },
-            "cacheWrite": { "type": ["number", "null"], "minimum": 0, "description": "Cache write token price per 1M tokens. Null means cache writes are free." }
+            "input": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Input token price per 1M tokens in dollars."
+            },
+            "output": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Output token price per 1M tokens in dollars."
+            },
+            "cachedInput": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Cached input token price per 1M tokens. Defaults to input × 0.1 if omitted."
+            },
+            "cacheWrite": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Cache write token price per 1M tokens. Null means cache writes are free."
+            }
           },
           "additionalProperties": false
         },
@@ -389,8 +411,17 @@
             "captureBlockedRequests": {
               "description": "Enable capture of body-shape diagnostics for guard-blocked requests. 'summary' captures counts/sizes/hashes only (no content). 'redacted' adds first 200 chars per message. 'full' captures the entire body up to maxCapturedBytes. Maps to AWF_CAPTURE_BLOCKED_LLM_REQUESTS.",
               "oneOf": [
-                { "type": "boolean" },
-                { "type": "string", "enum": ["summary", "redacted", "full"] }
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "summary",
+                    "redacted",
+                    "full"
+                  ]
+                }
               ],
               "default": false
             },
@@ -678,6 +709,23 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum number of bytes transferred per minute."
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "description": "GitHub platform deployment type. Explicitly declares the environment so AWF can apply correct auth behavior (e.g. token vs Bearer prefix) without relying on heuristic detection.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "github.com",
+            "ghes",
+            "ghec",
+            "ghec-self-hosted"
+          ],
+          "description": "The GitHub deployment type. 'github.com' = GitHub.com (default), 'ghes' = GitHub Enterprise Server (on-premises), 'ghec' = GitHub Enterprise Cloud (*.ghe.com tenants), 'ghec-self-hosted' = GHEC with self-hosted runners."
         }
       }
     }
