@@ -23,16 +23,17 @@ describe('host-iptables branch coverage', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
 
   // -------------------------------------------------------------------------
-  // Branch 1: host-iptables-rules.ts line 85
-  // checkPermissionsAndSetupChain – the ternary `? error.stderr : ''` when the
-  // thrown error object does NOT have a string `stderr` property.
+  // Branch 1: host-iptables-rules.ts
+  // checkPermissionsAndSetupChain – the fallback when the thrown error object
+  // does NOT have a string `stderr` property.
   // -------------------------------------------------------------------------
   describe('checkPermissionsAndSetupChain – no-stderr error object', () => {
     it('treats missing stderr as empty string and proceeds with chain creation', async () => {
       // Throw a plain Error (no .stderr property) from the DOCKER-USER list check.
-      // This forces the ternary on line 85 to evaluate the `''` (else) branch.
+      // This forces the stderr lookup to use the empty-string fallback.
       mockedExeca
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', exitCode: 0 })) // getNetworkBridgeName
+        .mockResolvedValueOnce(execaResult({ exitCode: 0 }))                      // iptables --version
         .mockRejectedValueOnce(new Error('iptables: table locked'))               // DOCKER-USER check – no stderr
         .mockResolvedValueOnce(execaResult({ exitCode: 0 }))                      // iptables -N DOCKER-USER
         .mockResolvedValueOnce(execaResult({ exitCode: 1 }));                     // FW_WRAPPER existence check

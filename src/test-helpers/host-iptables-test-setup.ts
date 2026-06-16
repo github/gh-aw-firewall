@@ -57,6 +57,11 @@ export function execaError(message: string, stderr = message): ExecaMockError {
 }
 
 // ts-prune-ignore-next
+export function execaMissingCommandError(command = 'iptables'): ExecaMockError & { code: string } {
+  return Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' });
+}
+
+// ts-prune-ignore-next
 export function setupHostIptablesTestSuite(resetIpv6State: () => void): void {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -77,6 +82,7 @@ export function setupDefaultIptablesMocks(
   const { chainExists = false, bridgeName = 'fw-bridge', catchAllStdout = '', dockerUserJumpRuleExists = false } = opts;
   mockedExeca
     .mockResolvedValueOnce(execaResult({ stdout: bridgeName, exitCode: 0 }))
+    .mockResolvedValueOnce(execaResult({ stdout: '', exitCode: 0 }))
     .mockResolvedValueOnce(execaResult({ stdout: '', exitCode: 0 }))
     .mockResolvedValueOnce(execaResult({ exitCode: chainExists ? 0 : 1 }));
   mockedExeca.mockImplementation(((cmd: string, args: readonly string[]) => {
