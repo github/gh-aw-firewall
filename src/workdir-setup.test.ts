@@ -306,10 +306,8 @@ describe('prepareLogDirectories (sub-function)', () => {
   });
 
   it('creates all log directories without touching chroot home', () => {
-    const { resolveLogPaths } = jest.requireActual('./log-paths') as typeof import('./log-paths');
     const config = buildConfig();
     const logPaths = resolveLogPaths(config);
-
     workdirSetupTestHelpers.prepareLogDirectories(logPaths);
 
     expect(fs.existsSync(logPaths.agentLogs)).toBe(true);
