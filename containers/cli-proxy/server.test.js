@@ -238,10 +238,14 @@ describe('buildExecEnv', () => {
     expect(env.GIT_SSL_CAINFO).toBe('/certs/git.crt');
   });
 
-  it('should silently skip non-string keys', () => {
-    // Object.entries coerces, but we guard typeof key === 'string'
-    const env = buildExecEnv({ MY_VAR: 'ok' });
+  it('should ignore dangerous prototype keys from JSON payloads', () => {
+    const extraEnv = JSON.parse('{"__proto__":"polluted","constructor":"polluted","prototype":"polluted","MY_VAR":"ok"}');
+    const env = buildExecEnv(extraEnv);
     expect(env.MY_VAR).toBe('ok');
+    expect(env.__proto__).toBe(Object.prototype);
+    expect(env.constructor).toBe(Object);
+    expect(env.prototype).toBeUndefined();
+    expect({}.polluted).toBeUndefined();
   });
 
   it('should silently skip non-string values', () => {
@@ -286,9 +290,8 @@ describe('runGhCommand', () => {
     process.env.PATH = '';
     try {
       const result = await runGhCommand(['--version'], process.env, null);
-      // When the binary is not found, exitCode is the ENOENT error code (truthy, non-zero)
-      expect(result.exitCode).toBeTruthy();
-      expect(result.exitCode).not.toBe(0);
+      expect(typeof result.exitCode).toBe('number');
+      expect(result.exitCode).toBe(1);
     } finally {
       process.env.PATH = savedPath;
     }

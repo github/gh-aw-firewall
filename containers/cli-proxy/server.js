@@ -40,6 +40,8 @@ const PROTECTED_ENV_KEYS = Object.freeze({
   [Symbol.iterator]() { return _PROTECTED_ENV_KEYS[Symbol.iterator](); },
 });
 
+const UNSAFE_ENV_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 // --- Structured logging to /var/log/cli-proxy/access.jsonl ---
 
 const LOG_DIR = process.env.AWF_CLI_PROXY_LOG_DIR || '/var/log/cli-proxy';
@@ -215,7 +217,12 @@ function buildExecEnv(extraEnv) {
   if (extraEnv && typeof extraEnv === 'object') {
     // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
     for (const [key, value] of Object.entries(extraEnv)) {
-      if (typeof key === 'string' && typeof value === 'string' && !PROTECTED_ENV_KEYS.has(key)) {
+      if (
+        typeof key === 'string'
+        && typeof value === 'string'
+        && !PROTECTED_ENV_KEYS.has(key)
+        && !UNSAFE_ENV_KEYS.has(key)
+      ) {
         childEnv[key] = value;
       }
     }
@@ -236,6 +243,19 @@ function buildExecEnv(extraEnv) {
  * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
  */
 async function runGhCommand(args, childEnv, stdin) {
+  const normalizeExitCode = code => {
+    if (typeof code === 'number' && Number.isFinite(code)) {
+      return code;
+    }
+    if (typeof code === 'string') {
+      const parsedCode = Number.parseInt(code, 10);
+      if (!Number.isNaN(parsedCode)) {
+        return parsedCode;
+      }
+    }
+    return 1;
+  };
+
   try {
     return await new Promise((resolve, reject) => {
       const child = execFile('gh', args, {
@@ -253,7 +273,7 @@ async function runGhCommand(args, childEnv, stdin) {
         resolve({
           stdout: childStdout || '',
           stderr: childStderr || '',
-          exitCode: err ? (err.code || 1) : 0,
+          exitCode: err ? normalizeExitCode(err.code) : 0,
         });
       });
 
