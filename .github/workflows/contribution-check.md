@@ -12,9 +12,12 @@ permissions:
   pull-requests: read
   issues: read
 max-turns: 5
+concurrency:
+  group: "contribution-check-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
 engine:
   id: copilot
-  model: claude-haiku-4.5
+  model: gpt-5.4-mini
 tools:
   github:
     mode: gh-proxy
