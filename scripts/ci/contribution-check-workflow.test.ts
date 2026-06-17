@@ -30,6 +30,6 @@ describe('contribution-check workflow', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain('max-turns: 5');
-    expect(source).toContain('model: claude-haiku-4.5');
+    expect(source).toContain('model: gpt-5.4-mini');
   });
 });
