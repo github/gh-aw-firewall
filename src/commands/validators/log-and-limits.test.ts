@@ -71,7 +71,7 @@ describe('validateLogAndLimits – success paths', () => {
     expect(result.logLevel).toBe('info');
     expect(result.maxEffectiveTokens).toBeUndefined();
     expect(result.maxRuns).toBeUndefined();
-    expect(result.memoryLimit).toBeUndefined();
+    expect(result.memoryLimit).toBe('6g');
     expect(result.agentImage).toBe('default');
   });
 
