@@ -9,7 +9,7 @@ describe('security guard workflow optimization config', () => {
   it('pins model/turn limits and keeps key security checks in prompt', () => {
     const source = fs.readFileSync(securityGuardSourcePath, 'utf-8');
 
-    expect(source).toContain('model: claude-sonnet-4.5');
+    expect(source).toContain('model: claude-haiku-4-5');
     expect(source).toContain('max-turns: 6');
     expect(source).toContain('## ⚡ Fast Path');
     expect(source).toContain('safeoutputs noop');
@@ -34,8 +34,8 @@ describe('security guard workflow optimization config', () => {
   it('compiles the model/turn settings into lock workflow', () => {
     const lock = fs.readFileSync(securityGuardLockPath, 'utf-8');
 
-    expect(lock).toContain('"agent_model":"claude-sonnet-4.5"');
-    expect(lock).toContain('COPILOT_MODEL: claude-sonnet-4.5');
+    expect(lock).toContain('"agent_model":"claude-haiku-4-5"');
+    expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toContain('github/gh-aw-actions/setup@5c2fe865bb4dc46e1450f6ee0d0541d759aea73a # v0.79.6');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.79.2');
