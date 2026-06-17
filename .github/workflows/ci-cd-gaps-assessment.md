@@ -1,101 +1,130 @@
 ---
-description: Daily assessment of CI/CD pipelines and integration tests to identify gaps in PR quality measurement
+description: Weekly assessment of CI/CD pipelines and integration tests to identify gaps in PR quality measurement
 on:
-  schedule: daily
+  schedule: weekly on Monday
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
   issues: read
   pull-requests: read
+max-ai-credits: 500
 max-turns: 4
 engine:
   id: copilot
   model: claude-haiku-4.5
-imports:
-  - shared/mcp-pagination.md
-  - uses: shared/mcp/gh-aw.md
 sandbox:
   agent:
     id: awf
 tools:
-  agentic-workflows:
   github:
-    toolsets: [default, actions]
+    mode: gh-proxy
+    toolsets: [default]
+  bash: true
 safe-outputs:
   threat-detection:
     enabled: false
   create-discussion:
     title-prefix: "[CI/CD Assessment] "
     category: "general"
+    close-older-discussions: true
 timeout-minutes: 15
+steps:
+  - name: Pre-fetch CI/CD data
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      set -euo pipefail
+      mkdir -p /tmp/gh-aw/ci-assessment
+
+      # List all registered GitHub Actions workflows
+      gh workflow list --repo "$GITHUB_REPOSITORY" \
+        --json name,state,path \
+        > /tmp/gh-aw/ci-assessment/workflows.json \
+        || echo '[]' > /tmp/gh-aw/ci-assessment/workflows.json
+
+      # Last 50 workflow runs (all events)
+      gh run list --repo "$GITHUB_REPOSITORY" \
+        --limit 50 \
+        --json name,status,conclusion,createdAt,event,workflowName \
+        > /tmp/gh-aw/ci-assessment/recent-runs.json \
+        || echo '[]' > /tmp/gh-aw/ci-assessment/recent-runs.json
+
+      # Last 30 PR-triggered runs
+      gh run list --repo "$GITHUB_REPOSITORY" \
+        --event pull_request \
+        --limit 30 \
+        --json name,status,conclusion,createdAt,workflowName \
+        > /tmp/gh-aw/ci-assessment/pr-runs.json \
+        || echo '[]' > /tmp/gh-aw/ci-assessment/pr-runs.json
+
+      # Aggregated run statistics
+      jq '{
+        total: length,
+        success: [.[] | select(.conclusion=="success")] | length,
+        failure: [.[] | select(.conclusion=="failure")] | length,
+        cancelled: [.[] | select(.conclusion=="cancelled")] | length,
+        by_event: ([.[].event] | group_by(.) | map({event: .[0], count: length})),
+        by_workflow: ([.[].workflowName] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count) | .[0:10])
+      }' /tmp/gh-aw/ci-assessment/recent-runs.json \
+        > /tmp/gh-aw/ci-assessment/run-stats.json
+
+      # Workflow files that trigger on pull_request events
+      grep -rl 'pull_request' .github/workflows/*.yml 2>/dev/null \
+        > /tmp/gh-aw/ci-assessment/pr-workflow-files.txt \
+        || echo "(none)" > /tmp/gh-aw/ci-assessment/pr-workflow-files.txt
+
+      WORKFLOW_COUNT=$(jq '. | length' /tmp/gh-aw/ci-assessment/workflows.json)
+      PR_RUN_COUNT=$(jq '. | length' /tmp/gh-aw/ci-assessment/pr-runs.json)
+      echo "Fetched $WORKFLOW_COUNT workflows, $PR_RUN_COUNT PR-triggered runs"
 ---
 
 # CI/CD Pipelines and Integration Tests Gap Assessment
 
-You are an AI agent tasked with analyzing the current state of CI/CD pipelines and integration tests in this repository to identify gaps in PR quality measurement.
+You are an AI agent tasked with analyzing CI/CD pipelines and integration tests in this repository to identify gaps in PR quality measurement.
+
+## Pre-fetched Data
+
+All data is pre-fetched in `/tmp/gh-aw/ci-assessment/`. **Read from these files first — do not call GitHub tools for data already here:**
+
+- `workflows.json` — all registered GitHub Actions workflows
+- `recent-runs.json` — last 50 workflow runs
+- `pr-runs.json` — last 30 PR-triggered runs
+- `run-stats.json` — aggregated success/failure statistics
+- `pr-workflow-files.txt` — `.github/workflows/*.yml` files with `pull_request` trigger
 
 ## Your Task
 
-1. **Analyze GitHub Actions Workflows**:
-   - Use the `agentic-workflows` tool to get the status of all workflow files
-   - Review recent workflow runs using GitHub tools to identify patterns
-   - Look for workflows that run on pull requests
-
+1. **Read pre-fetched data** using `cat /tmp/gh-aw/ci-assessment/<file>`.
 2. **Assess Current CI/CD Coverage**:
-   - Identify what types of checks are currently running on PRs (linting, testing, building, security scans)
-   - Check for integration tests and their scope
-   - Review test coverage reporting if available
-   - Look at the workflow configuration files in `.github/workflows/`
-
+   - What checks run on PRs (linting, testing, building, security scans)?
+   - Are integration tests present and what is their scope?
 3. **Identify Gaps in PR Quality Measurement**:
-   - Missing or inadequate test coverage checks
-   - Absence of code quality gates (linting, formatting, type checking)
+   - Missing test coverage checks
+   - Missing code quality gates (linting, formatting, type checking)
    - Lack of security scanning (dependency vulnerabilities, code scanning)
-   - Missing documentation checks
    - No performance regression testing
    - Insufficient integration or end-to-end testing
-   - Missing accessibility checks for UI components
-   - No artifact size monitoring
-   - Incomplete status checks or missing required reviews
+   - Missing required status checks
+4. **Analyze run-stats.json** for success/failure patterns.
 
-4. **Analyze Recent PR Activity**:
-   - Review recent merged PRs to identify patterns
-   - Look for PRs that introduced issues that could have been caught by better CI/CD
+## Output
 
-## Output Requirements
-
-Create a discussion with the following sections:
+Create a discussion with these sections:
 
 ### 📊 Current CI/CD Pipeline Status
-Summarize the current state of CI/CD pipelines and their health.
+Summarize workflows and their recent health from `run-stats.json`.
 
 ### ✅ Existing Quality Gates
-List the current checks and tests that run on PRs.
+List the checks and tests that currently run on PRs.
 
 ### 🔍 Identified Gaps
-Provide a detailed list of gaps in PR quality measurement, categorized by:
-- **High Priority**: Critical gaps that should be addressed immediately
-- **Medium Priority**: Important improvements that would significantly improve quality
-- **Low Priority**: Nice-to-have improvements
+Prioritized gaps: **High** (address immediately) / **Medium** (significant improvement) / **Low** (nice-to-have).
 
 ### 📋 Actionable Recommendations
-For each gap, provide:
-- A clear description of the issue
-- The recommended solution
-- Implementation complexity (Low/Medium/High)
-- Expected impact on PR quality
+For each gap: description, recommended solution, complexity (Low/Medium/High), expected impact.
 
 ### 📈 Metrics Summary
-Include relevant metrics such as:
-- Number of workflows
-- Recent workflow success/failure rates
-- Test coverage if available
+Workflow count, recent success/failure rates, PR check coverage.
 
-## Guidelines
-
-- Be specific and actionable in your recommendations
-- Prioritize gaps based on their impact on code quality and developer experience
-- Consider the repository's current tech stack and development practices
-- Focus on practical improvements that can be implemented incrementally
-- Reference specific workflow files or configurations when identifying gaps
+Keep the report concise and actionable.
