@@ -82,6 +82,8 @@ steps:
       } > /tmp/gh-aw/grep-analysis.txt
 
   - name: Check existing duplicate issues
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     run: |
       gh issue list \
         --repo "${{ github.repository }}" \
