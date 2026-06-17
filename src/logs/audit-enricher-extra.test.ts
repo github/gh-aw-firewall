@@ -109,7 +109,7 @@ describe('enrichWithPolicyRules – uncovered branches', () => {
       expect(enriched.matchedRuleId).toBe('allow-bad-regex');
     });
 
-    it('does not match when every regex entry is invalid and no fallback rule covers it', () => {
+    it('falls through to deny-default when every regex entry is invalid', () => {
       const manifest = makeManifest([
         {
           id: 'deny-bad-regex',
