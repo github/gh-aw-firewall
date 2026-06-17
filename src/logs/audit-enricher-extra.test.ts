@@ -54,7 +54,7 @@ const denyAll = (order = 99): PolicyRule => ({
 
 describe('enrichWithPolicyRules – uncovered branches', () => {
   describe('domainMatchesRule edge cases', () => {
-    it('treats dash domain "-" as no-match (returns unknown)', () => {
+    it('treats dash domain "-" as no-match, falls through to deny-default', () => {
       const manifest = makeManifest([allowRule(), denyAll()]);
       const entry = makeEntry({ domain: '-', isAllowed: false });
       const [enriched] = enrichWithPolicyRules([entry], manifest);
