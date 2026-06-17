@@ -9,7 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-computed result step and minimal turn budget in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 1');
+    expect(source).toContain('max-turns: 2');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -35,10 +35,10 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json');
   });
 
-  it('compiles the workflow without playwright tools and with max-turns 1', () => {
+  it('compiles the workflow without playwright tools and with max-turns 2', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 1');
+    expect(lock).toContain('--max-turns 2');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Compute final smoke result');
