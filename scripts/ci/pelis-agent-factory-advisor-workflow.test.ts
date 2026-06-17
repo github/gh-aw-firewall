@@ -16,6 +16,7 @@ describe('pelis agent factory advisor workflow config', () => {
   it('compiles model and turn budget into lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
+    expect(lock).toContain('GH_AW_INFO_MODEL: "claude-haiku-4.5"');
     expect(lock).toContain('COPILOT_MODEL: claude-haiku-4.5');
     expect(lock).toContain('GH_AW_MAX_TURNS: 4');
   });
