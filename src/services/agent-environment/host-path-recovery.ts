@@ -50,47 +50,34 @@ function discoverRunnerToolCacheBinDirs(
     return [];
   }
 
-  const binDirsByTool = new Map<string, string[]>();
+  // One bin dir per tool (newest version first via reverse sort, first arch alphabetically).
+  const binDirByTool = new Map<string, string>();
   for (const toolName of safeReadDir(runnerToolCache)) {
     const toolDir = path.join(runnerToolCache, toolName);
     if (!isDirectory(toolDir)) continue;
 
-    for (const versionName of safeReadDir(toolDir).sort().reverse()) {
+    const normalizedTool = toolName.toLowerCase();
+    if (binDirByTool.has(normalizedTool)) continue;
+
+    outer: for (const versionName of safeReadDir(toolDir).sort().reverse()) {
       const versionDir = path.join(toolDir, versionName);
       if (!isDirectory(versionDir)) continue;
 
       for (const architectureName of safeReadDir(versionDir).sort()) {
-        const architectureDir = path.join(versionDir, architectureName);
-        const binDir = path.join(architectureDir, 'bin');
+        const binDir = path.join(versionDir, architectureName, 'bin');
         if (isDirectory(binDir)) {
-          const normalizedTool = toolName.toLowerCase();
-          const existing = binDirsByTool.get(normalizedTool) ?? [];
-          existing.push(binDir);
-          binDirsByTool.set(normalizedTool, existing);
+          binDirByTool.set(normalizedTool, binDir);
+          break outer;
         }
       }
     }
   }
 
-  const selectedBinDirs: string[] = [];
-  const sortedToolBinDirs = [...binDirsByTool.entries()]
+  // Sort by tool name for deterministic ordering, then cap total entries.
+  return [...binDirByTool.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, dirs]) => dirs);
-
-  for (const toolBinDirs of sortedToolBinDirs) {
-    if (selectedBinDirs.length >= MAX_RECOVERED_TOOLCACHE_BINS) {
-      break;
-    }
-
-    // Use the first entry (newest version after reverse-sort).
-    // Deduplication against the current PATH is handled by prependPathEntries.
-    const candidateBinDir = toolBinDirs[0];
-    if (candidateBinDir) {
-      selectedBinDirs.push(candidateBinDir);
-    }
-  }
-
-  return selectedBinDirs;
+    .slice(0, MAX_RECOVERED_TOOLCACHE_BINS)
+    .map(([, dir]) => dir);
 }
 
 function safeReadDir(directory: string): string[] {
