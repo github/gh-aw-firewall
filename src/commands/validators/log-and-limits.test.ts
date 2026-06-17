@@ -47,6 +47,7 @@ function minimalOptions(overrides: Record<string, unknown> = {}): Record<string,
     logLevel: 'info',
     buildLocal: false,
     agentImage: undefined,
+    memoryLimit: '6g',
     ...overrides,
   };
 }
