@@ -186,7 +186,7 @@ steps:
           }
         " 2>/dev/null || echo "Coverage data unavailable"
         echo "EOF"
-      } >> "\$GITHUB_OUTPUT"
+      } >> "$GITHUB_OUTPUT"
 
   - name: Pre-build discussion template
     id: discussion-template
