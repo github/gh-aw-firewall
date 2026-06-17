@@ -13,6 +13,7 @@ export function recoverHostPaths(environment: Record<string, string>): void {
   if (process.env.PATH) {
     const runnerToolCacheBinDirs = discoverRunnerToolCacheBinDirs(
       process.env.RUNNER_TOOL_CACHE,
+      process.env.PATH,
     );
     environment.AWF_HOST_PATH = prependPathEntries(process.env.PATH, runnerToolCacheBinDirs);
     if (runnerToolCacheBinDirs.length > 0) {
@@ -37,6 +38,7 @@ export function recoverHostPaths(environment: Record<string, string>): void {
 
 function discoverRunnerToolCacheBinDirs(
   runnerToolCache: string | undefined,
+  currentPath: string,
 ): string[] {
   if (!runnerToolCache) {
     return [];
@@ -66,7 +68,13 @@ function discoverRunnerToolCacheBinDirs(
       for (const architectureName of safeReadDir(versionDir).sort()) {
         const binDir = path.join(versionDir, architectureName, 'bin');
         if (isDirectory(binDir)) {
-          binDirByTool.set(normalizedTool, binDir);
+          // Only inject this bin dir if none of its executables are already
+          // resolvable on the current PATH. This prevents toolcache dirs from
+          // shadowing system tools that are already available (e.g. a toolcache
+          // Ruby shadowing the system Ruby with a different bundler version).
+          if (!anyBinAlreadyOnPath(binDir, currentPath)) {
+            binDirByTool.set(normalizedTool, binDir);
+          }
           break outer;
         }
       }
@@ -94,6 +102,26 @@ function isDirectory(candidate: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Returns true if any executable inside binDir already appears (by name)
+ * somewhere on currentPath. Used to skip toolcache bin dirs whose tools are
+ * already reachable, so we don't shadow system tools with different versions.
+ */
+function anyBinAlreadyOnPath(binDir: string, currentPath: string): boolean {
+  const pathEntries = currentPath.split(path.delimiter).filter(Boolean);
+  for (const name of safeReadDir(binDir)) {
+    for (const pathEntry of pathEntries) {
+      try {
+        fs.accessSync(path.join(pathEntry, name), fs.constants.X_OK);
+        return true;
+      } catch {
+        // not found in this path entry
+      }
+    }
+  }
+  return false;
 }
 
 

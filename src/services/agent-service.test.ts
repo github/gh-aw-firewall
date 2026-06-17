@@ -522,6 +522,37 @@ describe('agent service', () => {
       }
     });
 
+    it('should not add toolcache bin dir when its binary is already executable on PATH via a different dir', () => {
+      // Simulates the case where e.g. a system Ruby is already on PATH and a toolcache
+      // Ruby also exists. The toolcache dir should not be prepended to avoid shadowing.
+      const toolCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-cache-'));
+      const toolcacheBinDir = path.join(toolCacheDir, 'node', '24.16.0', 'x64', 'bin');
+      fs.mkdirSync(toolcacheBinDir, { recursive: true });
+      fs.writeFileSync(path.join(toolcacheBinDir, 'node'), '#!/bin/sh\necho node\n', { mode: 0o755 });
+
+      // A separate system-like dir that also has 'node' — already on PATH.
+      const systemBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-system-bin-'));
+      fs.writeFileSync(path.join(systemBinDir, 'node'), '#!/bin/sh\necho node\n', { mode: 0o755 });
+
+      const originalPath = process.env.PATH;
+      const originalRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
+      process.env.PATH = `${systemBinDir}:/usr/bin`;
+      process.env.RUNNER_TOOL_CACHE = toolCacheDir;
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        // toolcacheBinDir should NOT be prepended since 'node' is already on PATH via systemBinDir.
+        expect(env.AWF_HOST_PATH).toBe(`${systemBinDir}:/usr/bin`);
+      } finally {
+        if (originalPath !== undefined) process.env.PATH = originalPath;
+        if (originalRunnerToolCache !== undefined) process.env.RUNNER_TOOL_CACHE = originalRunnerToolCache;
+        else delete process.env.RUNNER_TOOL_CACHE;
+        fs.rmSync(systemBinDir, { recursive: true, force: true });
+        fs.rmSync(toolCacheDir, { recursive: true, force: true });
+      }
+    });
+
     it('should ignore RUNNER_TOOL_CACHE when it points to a nonexistent path', () => {
       const originalPath = process.env.PATH;
       const originalRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
