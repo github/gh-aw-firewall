@@ -60,7 +60,7 @@ function spyExit(): jest.SpyInstance {
 afterEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
-  (parseMemoryLimit as jest.Mock).mockReturnValue({ value: undefined });
+  (parseMemoryLimit as jest.Mock).mockReturnValue({ value: '6g' });
   (processAgentImageOption as jest.Mock).mockReturnValue({ agentImage: 'default', isPreset: true });
 });
 
