@@ -74,6 +74,7 @@ const STUB_CONFIG = {
   effectiveTokenDefaultModelMultiplier: undefined,
   maxRuns: undefined,
   maxPermissionDenied: undefined,
+  maxCacheMisses: undefined,
   enableTokenSteering: false,
   openaiApiKey: undefined,
   anthropicApiKey: undefined,
@@ -262,6 +263,17 @@ describe('validateOptions', () => {
       ).toThrow('process.exit called');
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxPermissionDenied'));
       consoleSpy.mockRestore();
+    });
+
+    describe('maxCacheMisses validation', () => {
+      it('exits when maxCacheMisses is not a positive integer', () => {
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        expect(() =>
+          validateOptions({ logLevel: 'info', maxCacheMisses: 'not-a-number' }, 'echo hi'),
+        ).toThrow('process.exit called');
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxCacheMisses'));
+        consoleSpy.mockRestore();
+      });
     });
   });
 

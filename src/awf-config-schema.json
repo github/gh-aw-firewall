@@ -144,6 +144,11 @@
           "minimum": 1,
           "description": "Maximum number of upstream permission-denied (401/403) responses allowed per run. When reached, the API proxy rejects all subsequent requests with HTTP 403 and error type 'permission_denied_limit_exceeded', stopping the run to avoid wasting tokens on misconfigured or missing API credentials. When unset, the guard is disabled."
         },
+        "maxCacheMisses": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of consecutive cache misses allowed per run. A miss is counted only for successful responses with non-zero input_tokens and zero cache_read_tokens. Responses with cache_read_tokens > 0 reset the streak. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_cache_misses_exceeded'."
+        },
         "requestedModel": {
           "type": "string",
           "description": "Expected model name for pre-startup validation. When set, the API proxy validates at startup that this model is available in at least one provider's model catalogue. Emits a clear diagnostic if the model is retired, restricted, or misspelled. Does not block startup."

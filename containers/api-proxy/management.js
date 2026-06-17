@@ -29,6 +29,7 @@ const metrics = require('./metrics');
  * @property {() => Record<string, { enabled: boolean, strategy: string, suppressed: boolean, suppression_reason?: string }>} getEffectiveModelFallback - Returns provider-effective fallback summary
  * @property {() => object}         getAiCreditsUsage     - Returns AI credits usage summary
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
+ * @property {() => object}         getMaxCacheMissesUsage - Returns max-cache-misses usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
  */
 
@@ -53,6 +54,7 @@ function createManagementHandlers(deps) {
     getEffectiveModelFallback,
     getAiCreditsUsage,
     getMaxRunsUsage,
+    getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
   } = deps;
 
@@ -105,6 +107,7 @@ function createManagementHandlers(deps) {
       model_fallback_effective: getEffectiveModelFallback(),
       ai_credits: getAiCreditsUsage(),
       runs: getMaxRunsUsage(),
+      cache_misses: getMaxCacheMissesUsage(),
       permission_denied: getPermissionDeniedUsage(),
     };
   }

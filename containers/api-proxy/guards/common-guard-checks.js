@@ -23,6 +23,8 @@
  * @param {Function} deps.buildEffectiveTokenLimitError
  * @param {Function} deps.getMaxRunsBlockState
  * @param {Function} deps.buildMaxRunsExceededError
+ * @param {Function} deps.getMaxCacheMissesBlockState
+ * @param {Function} deps.buildMaxCacheMissesExceededError
  * @param {Function} deps.getPermissionDeniedBlockState
  * @param {Function} deps.buildPermissionDeniedLimitError
  * @param {Function} deps.getAiCreditsBlockState
@@ -44,6 +46,8 @@ function buildCommonGuardChecks(deps, model) {
     buildEffectiveTokenLimitError,
     getMaxRunsBlockState,
     buildMaxRunsExceededError,
+    getMaxCacheMissesBlockState,
+    buildMaxCacheMissesExceededError,
     getPermissionDeniedBlockState,
     buildPermissionDeniedLimitError,
     getAiCreditsBlockState,
@@ -78,6 +82,17 @@ function buildCommonGuardChecks(deps, model) {
       buildLogFields: block => ({
         invocation_count: block.invocationCount,
         max_runs: block.maxRuns,
+      }),
+    },
+    {
+      block: getMaxCacheMissesBlockState(),
+      isBlocked: block => block && block.maxExceeded,
+      statusCode: 429,
+      eventName: 'max_cache_misses_exceeded',
+      buildError: buildMaxCacheMissesExceededError,
+      buildLogFields: block => ({
+        consecutive_cache_misses: block.consecutiveCacheMisses,
+        max_cache_misses: block.maxCacheMisses,
       }),
     },
     {

@@ -27,6 +27,7 @@ interface AwfFileConfig {
     /** @deprecated Use maxTurns instead */
     maxRuns?: number;
     maxPermissionDenied?: number;
+    maxCacheMisses?: number;
     requestedModel?: string;
     modelFallback?: {
       enabled?: boolean;
@@ -236,6 +237,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
     maxRuns: config.apiProxy?.maxTurns ?? config.apiProxy?.maxRuns,
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
+    maxCacheMisses: config.apiProxy?.maxCacheMisses,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
     copilotProviderType: config.apiProxy?.modelRouter?.providerType,

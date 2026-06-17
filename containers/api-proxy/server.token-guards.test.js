@@ -20,6 +20,7 @@ const {
 let proxyRequest;
 let resetEffectiveTokenGuardForTests;
 let resetMaxRunsGuardForTests;
+let resetMaxCacheMissesGuardForTests;
 let resetPermissionDeniedGuardForTests;
 let resetMaxModelMultiplierGuardForTests;
 let resetAiCreditsGuardForTests;
@@ -29,11 +30,12 @@ setupServerTestEnv(() => {
   ({
     resetEffectiveTokenGuardForTests,
     resetMaxRunsGuardForTests,
+    resetMaxCacheMissesGuardForTests,
     resetPermissionDeniedGuardForTests,
     resetMaxModelMultiplierGuardForTests,
     resetAiCreditsGuardForTests,
   } = require('./proxy-request'));
-  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests, resetAiCreditsGuardForTests };
+  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetMaxCacheMissesGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests, resetAiCreditsGuardForTests };
 });
 
 describe('proxyRequest effective token guard', () => {
@@ -124,6 +126,102 @@ describe('proxyRequest max-runs guard', () => {
   beforeEach(() => {
     process.env.AWF_MAX_RUNS = '1';
     resetMaxRunsGuardForTests();
+  });
+
+  describe('proxyRequest max-cache-misses guard', () => {
+    function makeReq(headers = {}) {
+      return makeReqFactory('/v1/chat/completions', headers);
+    }
+
+    beforeEach(() => {
+      delete process.env.AWF_MAX_RUNS;
+      resetMaxRunsGuardForTests();
+      process.env.AWF_MAX_CACHE_MISSES = '2';
+      resetMaxCacheMissesGuardForTests();
+    });
+
+    afterEach(() => {
+      delete process.env.AWF_MAX_CACHE_MISSES;
+      delete process.env.AWF_MAX_RUNS;
+      resetMaxRunsGuardForTests();
+      resetMaxCacheMissesGuardForTests();
+      jest.restoreAllMocks();
+    });
+
+    it('returns 429 after max consecutive cache misses with non-zero input tokens', async () => {
+      const cycle = createMockUpstreamCycle(https);
+
+      const req1 = makeReq();
+      const res1 = makeRes();
+      proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req1.emit('end');
+      await flushPromises();
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: { model: 'gpt-4o', usage: { prompt_tokens: 50, completion_tokens: 10 } },
+      });
+
+      const req2 = makeReq();
+      const res2 = makeRes();
+      proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req2.emit('end');
+      await flushPromises();
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: { model: 'gpt-4o', usage: { prompt_tokens: 25, completion_tokens: 5 } },
+      });
+
+      const req3 = makeReq();
+      const res3 = makeRes();
+      proxyRequest(req3, res3, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req3.emit('end');
+      await flushPromises();
+
+      expect(cycle.spy).toHaveBeenCalledTimes(2);
+      expect(res3.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+        'Content-Type': 'application/json',
+      }));
+      const payload = JSON.parse(res3.end.mock.calls[0][0]);
+      expect(payload.error.type).toBe('max_cache_misses_exceeded');
+      expect(payload.error.max_cache_misses).toBe(2);
+      expect(payload.error.consecutive_cache_misses).toBe(2);
+    });
+
+    it('resets miss streak after a response with cache_read_tokens', async () => {
+      const cycle = createMockUpstreamCycle(https);
+
+      const req1 = makeReq();
+      const res1 = makeRes();
+      proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req1.emit('end');
+      await flushPromises();
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: { model: 'gpt-4o', usage: { prompt_tokens: 40, completion_tokens: 10 } },
+      });
+
+      const req2 = makeReq();
+      const res2 = makeRes();
+      proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req2.emit('end');
+      await flushPromises();
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: {
+          model: 'gpt-4o',
+          usage: { prompt_tokens: 40, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 20 } },
+        },
+      });
+
+      const req3 = makeReq();
+      const res3 = makeRes();
+      proxyRequest(req3, res3, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req3.emit('end');
+      await flushPromises();
+
+      expect(cycle.spy).toHaveBeenCalledTimes(3);
+      expect(res3.writeHead).not.toHaveBeenCalledWith(429, expect.anything());
+    });
   });
 
   afterEach(() => {

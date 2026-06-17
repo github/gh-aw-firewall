@@ -171,6 +171,11 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.maxPermissionDenied).toBe(3);
   });
 
+  it('maps maxCacheMisses field', () => {
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: { maxCacheMisses: 3 } });
+    expect(result.maxCacheMisses).toBe(3);
+  });
+
   it('maps requestedModel field', () => {
     const result = mapAwfFileConfigToCliOptions({ apiProxy: { requestedModel: 'gpt-4o' } });
     expect(result.requestedModel).toBe('gpt-4o');
@@ -217,6 +222,11 @@ describe('mapAwfFileConfigToCliOptions', () => {
   it('leaves maxPermissionDenied undefined when not set', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.maxPermissionDenied).toBeUndefined();
+  });
+
+  it('leaves maxCacheMisses undefined when not set', () => {
+    const result = mapAwfFileConfigToCliOptions({});
+    expect(result.maxCacheMisses).toBeUndefined();
   });
 
   it('leaves anthropicAutoCache and anthropicCacheTailTtl undefined when not set', () => {
