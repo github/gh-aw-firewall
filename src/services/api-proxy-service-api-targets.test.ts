@@ -505,165 +505,125 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
       });
 
       describe('COPILOT_INTEGRATION_ID forwarding', () => {
-        it('should not forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID to api-proxy', () => {
-          const orig = process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          process.env.GITHUB_COPILOT_INTEGRATION_ID = 'agentic-workflows';
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
-          } finally {
-            if (orig !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = orig;
+        let savedEnv: Record<string, string | undefined>;
+
+        beforeEach(() => {
+          // Save both env vars to prevent test flakiness if host has COPILOT_INTEGRATION_ID set
+          savedEnv = {
+            COPILOT_INTEGRATION_ID: process.env.COPILOT_INTEGRATION_ID,
+            GITHUB_COPILOT_INTEGRATION_ID: process.env.GITHUB_COPILOT_INTEGRATION_ID,
+          };
+        });
+
+        afterEach(() => {
+          // Restore original env state
+          for (const key of Object.keys(savedEnv)) {
+            if (savedEnv[key] !== undefined) {
+              process.env[key] = savedEnv[key];
             } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+              delete process.env[key];
             }
           }
+        });
+
+        it('should not forward GITHUB_COPILOT_INTEGRATION_ID as COPILOT_INTEGRATION_ID to api-proxy', () => {
+          process.env.GITHUB_COPILOT_INTEGRATION_ID = 'agentic-workflows';
+          delete process.env.COPILOT_INTEGRATION_ID;
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
         });
 
         it('should not set COPILOT_INTEGRATION_ID when GITHUB_COPILOT_INTEGRATION_ID is not set', () => {
-          const orig = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
-          } finally {
-            if (orig !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = orig;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          delete process.env.COPILOT_INTEGRATION_ID;
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
         });
 
         it('should forward COPILOT_INTEGRATION_ID from host env when explicitly set', () => {
-          const origCopilot = process.env.COPILOT_INTEGRATION_ID;
-          const origGhCopilot = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           process.env.COPILOT_INTEGRATION_ID = 'my-custom-integration';
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBe('my-custom-integration');
-          } finally {
-            if (origCopilot !== undefined) {
-              process.env.COPILOT_INTEGRATION_ID = origCopilot;
-            } else {
-              delete process.env.COPILOT_INTEGRATION_ID;
-            }
-            if (origGhCopilot !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = origGhCopilot;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBe('my-custom-integration');
         });
 
         it('should not set COPILOT_INTEGRATION_ID when host env var is empty', () => {
-          const origCopilot = process.env.COPILOT_INTEGRATION_ID;
-          const origGhCopilot = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           process.env.COPILOT_INTEGRATION_ID = '';
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
-          } finally {
-            if (origCopilot !== undefined) {
-              process.env.COPILOT_INTEGRATION_ID = origCopilot;
-            } else {
-              delete process.env.COPILOT_INTEGRATION_ID;
-            }
-            if (origGhCopilot !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = origGhCopilot;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
         });
 
         it('should not set COPILOT_INTEGRATION_ID when host env var is whitespace only', () => {
-          const origCopilot = process.env.COPILOT_INTEGRATION_ID;
-          const origGhCopilot = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           process.env.COPILOT_INTEGRATION_ID = '   ';
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
-          } finally {
-            if (origCopilot !== undefined) {
-              process.env.COPILOT_INTEGRATION_ID = origCopilot;
-            } else {
-              delete process.env.COPILOT_INTEGRATION_ID;
-            }
-            if (origGhCopilot !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = origGhCopilot;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
         });
 
         it('should trim surrounding whitespace before forwarding', () => {
-          const origCopilot = process.env.COPILOT_INTEGRATION_ID;
-          const origGhCopilot = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           process.env.COPILOT_INTEGRATION_ID = '  my-custom-integration  ';
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBe('my-custom-integration');
-          } finally {
-            if (origCopilot !== undefined) {
-              process.env.COPILOT_INTEGRATION_ID = origCopilot;
-            } else {
-              delete process.env.COPILOT_INTEGRATION_ID;
-            }
-            if (origGhCopilot !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = origGhCopilot;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test', envAll: true };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBe('my-custom-integration');
         });
 
         it('should not set COPILOT_INTEGRATION_ID when nothing is set', () => {
-          const origCopilot = process.env.COPILOT_INTEGRATION_ID;
-          const origGhCopilot = process.env.GITHUB_COPILOT_INTEGRATION_ID;
           delete process.env.COPILOT_INTEGRATION_ID;
           delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-          try {
-            const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
-            const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-            const proxy = result.services['api-proxy'];
-            const env = proxy.environment as Record<string, string>;
-            expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
-          } finally {
-            if (origCopilot !== undefined) {
-              process.env.COPILOT_INTEGRATION_ID = origCopilot;
-            } else {
-              delete process.env.COPILOT_INTEGRATION_ID;
-            }
-            if (origGhCopilot !== undefined) {
-              process.env.GITHUB_COPILOT_INTEGRATION_ID = origGhCopilot;
-            } else {
-              delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
-            }
-          }
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, copilotGithubToken: 'ghu_test' };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
+        });
+
+        it('should forward COPILOT_INTEGRATION_ID from config.additionalEnv (--env flag)', () => {
+          delete process.env.COPILOT_INTEGRATION_ID;
+          delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotGithubToken: 'ghu_test',
+            additionalEnv: { COPILOT_INTEGRATION_ID: 'from-cli-flag' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBe('from-cli-flag');
+        });
+
+        it('should prefer config.additionalEnv over process.env', () => {
+          process.env.COPILOT_INTEGRATION_ID = 'from-host-env';
+          delete process.env.GITHUB_COPILOT_INTEGRATION_ID;
+          const configWithProxy = {
+            ...mockConfig,
+            enableApiProxy: true,
+            copilotGithubToken: 'ghu_test',
+            additionalEnv: { COPILOT_INTEGRATION_ID: 'from-cli-flag' },
+          };
+          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+          const proxy = result.services['api-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.COPILOT_INTEGRATION_ID).toBe('from-cli-flag');
         });
       });
 });
