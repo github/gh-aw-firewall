@@ -470,5 +470,59 @@ describe('agent service', () => {
         }
       }
     });
+
+    it('should ignore RUNNER_TOOL_CACHE when it points to a file', () => {
+      const originalPath = process.env.PATH;
+      const originalRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
+
+      process.env.PATH = '/usr/local/bin:/usr/bin';
+      // create a file instead of a directory
+      const tmpFile = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-cache-file-')) + '.file';
+      fs.writeFileSync(tmpFile, 'not a dir');
+      process.env.RUNNER_TOOL_CACHE = tmpFile;
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.AWF_HOST_PATH).toBe('/usr/local/bin:/usr/bin');
+      } finally {
+        if (originalPath !== undefined) {
+          process.env.PATH = originalPath;
+        }
+        if (originalRunnerToolCache !== undefined) {
+          process.env.RUNNER_TOOL_CACHE = originalRunnerToolCache;
+        } else {
+          delete process.env.RUNNER_TOOL_CACHE;
+        }
+        try { fs.rmSync(tmpFile, { force: true }); } catch {}
+      }
+    });
+
+    it('should skip non-directory entries inside RUNNER_TOOL_CACHE', () => {
+      const toolCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-tool-cache-'));
+      // create a top-level file entry
+      fs.writeFileSync(path.join(toolCacheDir, 'README.txt'), 'info');
+      // create a tool dir with a version that is a file
+      const toolDir = path.join(toolCacheDir, 'oddtool');
+      fs.mkdirSync(toolDir, { recursive: true });
+      fs.writeFileSync(path.join(toolDir, '1.0.0'), 'not-a-dir');
+
+      const originalPath = process.env.PATH;
+      const originalRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
+      process.env.PATH = '/usr/local/bin:/usr/bin';
+      process.env.RUNNER_TOOL_CACHE = toolCacheDir;
+
+      try {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+        // no bin dirs should have been discovered, so AWF_HOST_PATH equals PATH
+        expect(env.AWF_HOST_PATH).toBe('/usr/local/bin:/usr/bin');
+      } finally {
+        if (originalPath !== undefined) process.env.PATH = originalPath;
+        if (originalRunnerToolCache !== undefined) process.env.RUNNER_TOOL_CACHE = originalRunnerToolCache;
+        else delete process.env.RUNNER_TOOL_CACHE;
+        fs.rmSync(toolCacheDir, { recursive: true, force: true });
+      }
+    });
   });
 });
