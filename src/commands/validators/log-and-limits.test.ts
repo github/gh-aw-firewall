@@ -23,7 +23,7 @@ jest.mock('../../option-parsers', () => {
   const actual = jest.requireActual<typeof import('../../option-parsers')>('../../option-parsers');
   return {
     ...actual,
-    parseMemoryLimit: jest.fn().mockReturnValue({ value: undefined }),
+    parseMemoryLimit: jest.fn().mockReturnValue({ value: '6g' }),
   };
 });
 
