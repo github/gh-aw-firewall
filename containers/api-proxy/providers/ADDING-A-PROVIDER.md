@@ -17,7 +17,7 @@ Create `providers/<name>.js`. The adapter is a plain JS object (no class syntax 
 ```js
 'use strict';
 
-const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
+const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 
 function createMyProviderAdapter(env, deps = {}) {
   // Read credentials and config from env at construction time
@@ -42,39 +42,42 @@ function createMyProviderAdapter(env, deps = {}) {
 
   const bodyTransform = deps.bodyTransform || null;   // model-alias rewriting etc.
 
-  return {
+  return buildProviderAdapter({
     // ── Identity ─────────────────────────────────────────────────────────────
     name: 'my-provider',   // unique lowercase slug
     port: 10005,           // next available port (update Dockerfile EXPOSE too)
-
     isManagementPort: false,   // true only for port 10000 (OpenAI)
     alwaysBind: false,         // set true to start a 503-stub when not configured
+
+    adapterMethods,
+
     // ── Credentials ──────────────────────────────────────────────────────────
-    isEnabled()       { return !!apiKey; },
-    ...adapterMethods,
+    isEnabled() { return !!apiKey; },
 
     // ── Per-request auth headers ──────────────────────────────────────────────
     // `req` is the incoming http.IncomingMessage — inspect it for request-specific logic.
     getAuthHeaders(req) {
-      return { 'Authorization': `Bearer ${apiKey}` };
+      return { 'Authorization': `****** };
     },
 
     // ── Optional: URL transform ───────────────────────────────────────────────
-    // Return the (possibly modified) URL string, or omit this method entirely.
+    // Return the (possibly modified) URL string, or omit this parameter entirely.
     transformRequestUrl(url) { return url; },
 
     // ── Optional: body transform ──────────────────────────────────────────────
-    // Return a function (body: Buffer) => Buffer|null, or null for no transform.
-    getBodyTransform() { return bodyTransform; },
+    // Wrapped automatically in getBodyTransform(); pass null for no transform.
+    bodyTransform,
 
-    // createAdapterMethods provides:
-    // - participatesInValidation (defaults to !!apiKey)
-    // - getTargetHost()
-    // - getBasePath()
-    // - getValidationProbe()
-    // - getModelsFetchConfig()
-    // - getReflectionInfo()
-  };
+    // ── Optional: not-configured responses ───────────────────────────────────
+    getUnconfiguredResponse() {
+      return { statusCode: 503, body: { error: 'my-provider not configured' } };
+    },
+
+    // ── Optional: extra fields (OIDC runtime methods, introspection, overrides)
+    // These are spread into the adapter object last, after adapterMethods,
+    // so they can override any field set earlier (e.g. participatesInValidation).
+    // extra: { ...oidcRuntimeMethods, _someIntrospectionField: value },
+  });
 }
 
 module.exports = { createMyProviderAdapter };
