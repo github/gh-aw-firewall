@@ -192,4 +192,20 @@ describe('createProviderOidcAuth', () => {
     expect(auth.oidcConfigured).toBe(false);
     expect(auth.validationSkip()).toBeNull();
   });
+
+  it('falls back to resolveCloudOidcProviders when oidcProviderFactory is not a function', () => {
+    const auth = createProviderOidcAuth({
+      AWF_AUTH_TYPE: 'github-oidc',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AZURE_TENANT_ID: 'tenant-uuid',
+      AWF_AUTH_AZURE_CLIENT_ID: 'client-uuid',
+    }, { oidcProviderFactory: {} });
+
+    expect(auth.authProvider).toBe('azure');
+    expect(auth.oidcProvider).toBeTruthy();
+    expect(auth.oidcConfigured).toBe(true);
+
+    auth.oidcProvider.shutdown();
+  });
 });

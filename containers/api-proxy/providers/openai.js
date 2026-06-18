@@ -60,7 +60,7 @@ function createOpenAIAdapter(env, deps = {}) {
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
   const {
-    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
+    authProvider, oidcConfigured,
     runtimeMethods: oidcRuntimeMethods,
     validationSkip,
     skipModelsFetch,

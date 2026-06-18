@@ -7,6 +7,12 @@ const {
 } = require('../proxy-utils');
 
 /**
+ * @typedef {object} OidcAuthProvider
+ * @property {() => boolean} isReady
+ * @property {() => string} getToken
+ */
+
+/**
  * Resolve cloud OIDC providers (Azure/AWS/GCP) from environment variables.
  *
  * @param {Record<string, string|undefined>} env
@@ -93,11 +99,12 @@ function resolveCloudOidcProviders(env, options = {}) {
  * @param {boolean} [options.skipWhen=false]
  *   Skip cloud OIDC initialisation (e.g. when static auth takes precedence).
  *   Only used when `oidcProviderFactory` is not provided.
- * @param {((env: Record<string, string|undefined>) => any)|null} [options.oidcProviderFactory]
+ * @param {((env: Record<string, string|undefined>) => OidcAuthProvider|null|undefined)|null} [options.oidcProviderFactory]
  *   Optional factory for providers that use a custom OIDC token class (e.g.
  *   Anthropic). When provided, takes precedence over `resolveCloudOidcProviders`.
  *   The factory receives `env` and should return a provider instance or
- *   `null`/`undefined` when not configured.
+ *   `null`/`undefined` when not configured. Returned providers must implement
+ *   `isReady()` and `getToken()`.
  * @returns {{
  *   authProvider: string,
  *   oidcProvider: any,
@@ -116,7 +123,7 @@ function createProviderOidcAuth(env, {
 } = {}) {
   let authProvider, oidcProvider, awsOidcProvider, oidcConfigured;
 
-  if (oidcProviderFactory !== null) {
+  if (typeof oidcProviderFactory === 'function') {
     authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() || 'unknown';
     oidcProvider = oidcProviderFactory(env) || null;
     awsOidcProvider = null;
