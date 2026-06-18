@@ -41,6 +41,7 @@ const {
 } = require('./copilot-auth');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
 const { URL } = require('url');
+const { COPILOT_ENV } = require('../provider-env-constants');
 
 /**
  * Create the GitHub Copilot provider adapter.
@@ -50,13 +51,13 @@ const { URL } = require('url');
  * @returns {import('./index').ProviderAdapter}
  */
 function createCopilotAdapter(env, deps = {}) {
-  const githubToken = stripBearerPrefix(env.COPILOT_GITHUB_TOKEN);
+  const githubToken = stripBearerPrefix(env[COPILOT_ENV.GITHUB_TOKEN]);
   // resolveApiKey filters out the AWF placeholder so it is never used as a real BYOK credential.
   const apiKey = resolveApiKey(env);
   const staticAuthToken = resolveCopilotAuthToken(env);
   const integrationId = env.COPILOT_INTEGRATION_ID || 'agentic-workflows';
   const rawTarget = deriveCopilotApiTarget(env);
-  const basePath = normalizeBasePath(env.COPILOT_API_BASE_PATH);
+  const basePath = normalizeBasePath(env[COPILOT_ENV.API_BASE_PATH]);
 
   // OIDC auth strategy (Azure OpenAI via Entra, AWS Bedrock, GCP Vertex AI) for
   // BYOK targets pointed at by COPILOT_PROVIDER_BASE_URL. Mirrors the OpenAI

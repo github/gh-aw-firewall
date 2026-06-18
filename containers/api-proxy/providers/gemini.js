@@ -15,6 +15,7 @@
 
 const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
+const { GEMINI_ENV } = require('../provider-env-constants');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -25,9 +26,9 @@ const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-fa
  */
 function createGeminiAdapter(env, deps = {}) {
   const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
-    keyEnvVar: 'GEMINI_API_KEY',
-    targetEnvVar: 'GEMINI_API_TARGET',
-    basePathEnvVar: 'GEMINI_API_BASE_PATH',
+    keyEnvVar: GEMINI_ENV.KEY,
+    targetEnvVar: GEMINI_ENV.TARGET,
+    basePathEnvVar: GEMINI_ENV.BASE_PATH,
     defaultTarget: 'generativelanguage.googleapis.com',
   });
 

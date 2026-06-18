@@ -20,6 +20,7 @@ const {
 
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
+const { OPENAI_ENV } = require('../provider-env-constants');
 
 /**
  * Create the OpenAI provider adapter.
@@ -30,15 +31,15 @@ const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
  */
 function createOpenAIAdapter(env, deps = {}) {
   const { apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath } = createBaseAdapterConfig(env, {
-    keyEnvVar: 'OPENAI_API_KEY',
-    targetEnvVar: 'OPENAI_API_TARGET',
-    basePathEnvVar: 'OPENAI_API_BASE_PATH',
+    keyEnvVar: OPENAI_ENV.KEY,
+    targetEnvVar: OPENAI_ENV.TARGET,
+    basePathEnvVar: OPENAI_ENV.BASE_PATH,
     defaultTarget: 'api.openai.com',
   });
   const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
-    const header = validateAuthHeaderEnv('AWF_OPENAI_AUTH_HEADER', env.AWF_OPENAI_AUTH_HEADER);
+    const header = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
     if (header) return header;
     // Azure OpenAI BYOK uses `api-key` header instead of `Authorization: Bearer`
     // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden)

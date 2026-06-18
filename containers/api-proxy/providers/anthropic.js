@@ -20,6 +20,7 @@ const {
 } = require('../proxy-utils');
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
+const { ANTHROPIC_ENV } = require('../provider-env-constants');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -43,12 +44,12 @@ try {
  */
 function createAnthropicAdapter(env, deps = {}) {
   const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
-    keyEnvVar: 'ANTHROPIC_API_KEY',
-    targetEnvVar: 'ANTHROPIC_API_TARGET',
-    basePathEnvVar: 'ANTHROPIC_API_BASE_PATH',
+    keyEnvVar: ANTHROPIC_ENV.KEY,
+    targetEnvVar: ANTHROPIC_ENV.TARGET,
+    basePathEnvVar: ANTHROPIC_ENV.BASE_PATH,
     defaultTarget: 'api.anthropic.com',
   });
-  const authHeaderName = validateAuthHeaderEnv('AWF_ANTHROPIC_AUTH_HEADER', env.AWF_ANTHROPIC_AUTH_HEADER, 'x-api-key');
+  const authHeaderName = validateAuthHeaderEnv(ANTHROPIC_ENV.AUTH_HEADER, env[ANTHROPIC_ENV.AUTH_HEADER], 'x-api-key');
   const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
   const authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
   const oidcRequested = authType === 'github-oidc' && authProvider === 'anthropic';
