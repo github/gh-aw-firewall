@@ -59,7 +59,22 @@ jobs:
             -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
             ubuntu/squid:latest
           
-          sleep 3
+          # Wait for Squid to be ready (up to 30 seconds)
+          echo "Waiting for Squid to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network awf-test curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" \
+              -x http://172.30.0.10:3128 http://example.com | grep -q "200"; then
+              echo "✅ Squid is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Squid failed to start within 30 seconds"
+              docker logs squid-test
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Start agent with iptables DNAT  
           docker run --rm --name agent-test \
@@ -182,7 +197,22 @@ jobs:
             -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
             ubuntu/squid:latest
           
-          sleep 3
+          # Wait for Squid to be ready (up to 30 seconds)
+          echo "Waiting for Squid to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network awf-test-gvisor curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" \
+              -x http://172.30.0.10:3128 http://example.com | grep -q "200"; then
+              echo "✅ Squid is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Squid failed to start within 30 seconds"
+              docker logs squid-gvisor
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Agent on gVisor with iptables
           docker run --rm --name agent-gvisor \
@@ -318,7 +348,21 @@ jobs:
             envoyproxy/envoy:v1.28-latest \
             -c /etc/envoy/envoy.yaml
           
-          sleep 3
+          # Wait for Envoy to be ready (check admin port up to 30 seconds)
+          echo "Waiting for Envoy to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network envoy-test curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" http://172.30.0.10:9901/ready | grep -q "200"; then
+              echo "✅ Envoy is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Envoy failed to start within 30 seconds"
+              docker logs envoy-test
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Agent with iptables redirect to Envoy
           docker run --rm --name agent-envoy \
@@ -443,7 +487,21 @@ jobs:
             -v /tmp/envoy.yaml:/etc/envoy/envoy.yaml:ro \
             envoyproxy/envoy:v1.28-latest -c /etc/envoy/envoy.yaml
           
-          sleep 3
+          # Wait for Envoy to be ready (check admin port up to 30 seconds)
+          echo "Waiting for Envoy to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network envoy-gvisor curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" http://172.30.0.10:9901/ready | grep -q "200"; then
+              echo "✅ Envoy is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Envoy failed to start within 30 seconds"
+              docker logs envoy-gvisor
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Agent on gVisor
           docker run --rm --runtime=runsc \
@@ -507,7 +565,22 @@ jobs:
             -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
             ubuntu/squid:latest
           
-          sleep 3
+          # Wait for Squid to be ready (up to 30 seconds)
+          echo "Waiting for Squid to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network squid-perf curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" \
+              -x http://squid-perf:3128 http://example.com | grep -q "200"; then
+              echo "✅ Squid is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Squid failed to start within 30 seconds"
+              docker logs squid-perf
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Run 100 requests and measure latency
           AVG=$(docker run --rm --network squid-perf \
@@ -588,7 +661,21 @@ jobs:
             -v /tmp/envoy.yaml:/etc/envoy/envoy.yaml:ro \
             envoyproxy/envoy:v1.28-latest -c /etc/envoy/envoy.yaml
           
-          sleep 3
+          # Wait for Envoy to be ready (check admin port up to 30 seconds)
+          echo "Waiting for Envoy to be ready..."
+          for i in {1..30}; do
+            if docker run --rm --network envoy-perf curlimages/curl:latest \
+              curl -s -o /dev/null -w "%{http_code}" http://envoy-perf:9901/ready | grep -q "200"; then
+              echo "✅ Envoy is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Envoy failed to start within 30 seconds"
+              docker logs envoy-perf
+              exit 1
+            fi
+            sleep 1
+          done
           
           # Run 100 requests and measure latency
           AVG=$(docker run --rm --network envoy-perf \
