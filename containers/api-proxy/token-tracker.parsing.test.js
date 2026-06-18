@@ -673,6 +673,38 @@ describe('extractUsageFromJson with copilot_usage', () => {
       reasoning_tokens: 0,
     });
   });
+
+  test('infers input_tokens from prompt_tokens when copilot_usage has cache_write but no input', () => {
+    // Edge case: token_details provides cache_write but omits input.
+    // prompt_tokens = input + cache_write, so input must be inferred to avoid
+    // double-counting cache_write in normalizeUsage.
+    const body = Buffer.from(JSON.stringify({
+      model: 'claude-sonnet-4.6',
+      usage: {
+        prompt_tokens: 500,
+        completion_tokens: 50,
+        total_tokens: 550,
+      },
+      copilot_usage: {
+        token_details: [
+          { token_type: 'cache_write', token_count: 300 },
+          { token_type: 'output', token_count: 50 },
+        ],
+      },
+    }));
+    const { usage } = extractUsageFromJson(body);
+    // prompt_tokens should be removed; input_tokens inferred as 500 - 300 = 200
+    expect(usage.prompt_tokens).toBeUndefined();
+    expect(usage.input_tokens).toBe(200);
+    expect(usage.cache_creation_input_tokens).toBe(300);
+    expect(normalizeUsage(usage)).toEqual({
+      input_tokens: 200,
+      output_tokens: 50,
+      cache_read_tokens: 0,
+      cache_write_tokens: 300,
+      reasoning_tokens: 0,
+    });
+  });
 });
 
 describe('extractUsageFromSseLine with copilot_usage', () => {
@@ -692,5 +724,31 @@ describe('extractUsageFromSseLine with copilot_usage', () => {
     expect(usage.input_tokens).toBe(3857);
     expect(usage.cache_creation_input_tokens).toBe(12539);
     expect(usage.prompt_tokens).toBeUndefined();
+  });
+
+  test('infers input_tokens from prompt_tokens when streaming copilot_usage has cache_write but no input', () => {
+    // Same double-count guard as non-streaming: if token_details omits input but
+    // provides cache_write, prompt_tokens must not survive alongside cache_creation_input_tokens.
+    const line = JSON.stringify({
+      model: 'claude-sonnet-4.6',
+      usage: { prompt_tokens: 500, completion_tokens: 50, total_tokens: 550 },
+      copilot_usage: {
+        token_details: [
+          { token_type: 'cache_write', token_count: 300 },
+          { token_type: 'output', token_count: 50 },
+        ],
+      },
+    });
+    const { usage } = extractUsageFromSseLine(line);
+    expect(usage.prompt_tokens).toBeUndefined();
+    expect(usage.input_tokens).toBe(200);
+    expect(usage.cache_creation_input_tokens).toBe(300);
+    expect(normalizeUsage(usage)).toEqual({
+      input_tokens: 200,
+      output_tokens: 50,
+      cache_read_tokens: 0,
+      cache_write_tokens: 300,
+      reasoning_tokens: 0,
+    });
   });
 });

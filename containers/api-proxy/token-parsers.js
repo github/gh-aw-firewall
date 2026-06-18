@@ -257,9 +257,14 @@ function extractUsageFromJson(body) {
     const copilotBreakdown = extractCopilotUsageBreakdown(json);
     if (copilotBreakdown) {
       const merged = { ...(result.usage || {}), ...copilotBreakdown };
-      // Drop the lumped prompt_tokens so normalizeUsage uses the accurate
-      // input_tokens instead of input+cache_write.
       if (copilotBreakdown.input_tokens !== undefined) {
+        // Copilot gave us a precise input split: drop the lumped prompt_tokens.
+        delete merged.prompt_tokens;
+      } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
+                 && typeof merged.prompt_tokens === 'number') {
+        // cache_write present but input absent: infer input = prompt_tokens - cache_write
+        // to avoid double-counting cache_write in normalizeUsage.
+        merged.input_tokens = Math.max(0, merged.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
         delete merged.prompt_tokens;
       }
       result.usage = merged;
@@ -344,6 +349,13 @@ function extractUsageFromSseLine(line) {
       if (copilotBreakdown) {
         result.usage = { ...result.usage, ...copilotBreakdown };
         if (copilotBreakdown.input_tokens !== undefined) {
+          // Copilot gave us a precise input split: drop the lumped prompt_tokens.
+          delete result.usage.prompt_tokens;
+        } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
+                   && typeof result.usage.prompt_tokens === 'number') {
+          // cache_write present but input absent: infer input = prompt_tokens - cache_write
+          // to avoid double-counting cache_write in normalizeUsage.
+          result.usage.input_tokens = Math.max(0, result.usage.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
           delete result.usage.prompt_tokens;
         }
       }
