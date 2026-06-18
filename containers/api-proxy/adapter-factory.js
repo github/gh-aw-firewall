@@ -171,7 +171,7 @@ function createAdapterMethods(opts) {
  * @param {object}  opts.adapterMethods    - Result of createAdapterMethods()
  * @param {(req?: import('http').IncomingMessage) => Record<string,string>} opts.getAuthHeaders - Auth header factory
  * @param {((body: Buffer) => Buffer|null)|null} [opts.bodyTransform=null] - Body transform wrapped into getBodyTransform()
- * @param {(() => boolean)} [opts.isEnabled]                   - Optional isEnabled override
+ * @param {(() => boolean)} [opts.isEnabled]                   - Optional isEnabled override (must be provided either here or via `extra`)
  * @param {((url: string) => string)} [opts.transformRequestUrl] - Optional URL transformer
  * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredResponse]       - Optional not-configured response
  * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredHealthResponse] - Optional not-configured /health response
@@ -192,7 +192,7 @@ function buildProviderAdapter({
   getUnconfiguredHealthResponse,
   extra = {},
 }) {
-  return {
+  const adapter = {
     name,
     port,
     isManagementPort,
@@ -206,6 +206,12 @@ function buildProviderAdapter({
     ...(getUnconfiguredHealthResponse !== undefined ? { getUnconfiguredHealthResponse } : {}),
     ...extra,
   };
+
+  if (typeof adapter.isEnabled !== 'function') {
+    throw new TypeError(`Provider adapter "${name}" must define an isEnabled() function`);
+  }
+
+  return adapter;
 }
 
 module.exports = {

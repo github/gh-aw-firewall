@@ -224,9 +224,9 @@ function createCopilotAdapter(env, deps = {}) {
         reqPathname = req.url || '';
       }
 
-      // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens;
-      // BYOK API keys always use '******' regardless of target.
-      // Standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer' for all credentials.
+      // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens.
+      // BYOK API keys use 'Bearer' regardless of target.
+      // Standard api.githubcopilot.com and GHEC (*.ghe.com) also use 'Bearer' for all credentials.
       const isEnterprise = isGhesInstance(rawTarget, env);
 
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');

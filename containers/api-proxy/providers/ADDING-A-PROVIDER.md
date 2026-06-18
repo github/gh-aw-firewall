@@ -57,7 +57,7 @@ function createMyProviderAdapter(env, deps = {}) {
     // ── Per-request auth headers ──────────────────────────────────────────────
     // `req` is the incoming http.IncomingMessage — inspect it for request-specific logic.
     getAuthHeaders(req) {
-      return { 'Authorization': `****** };
+      return { 'Authorization': ['Bearer', apiKey].join(' ') };
     },
 
     // ── Optional: URL transform ───────────────────────────────────────────────

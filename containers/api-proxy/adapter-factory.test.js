@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildProviderAdapter, createBaseAdapterConfig } = require('./adapter-factory');
+const { buildProviderAdapter } = require('./adapter-factory');
 
 describe('buildProviderAdapter', () => {
   function makeAdapterMethods(overrides = {}) {
@@ -24,6 +24,7 @@ describe('buildProviderAdapter', () => {
         alwaysBind: false,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect(adapter.name).toBe('test');
       expect(adapter.port).toBe(10099);
@@ -37,6 +38,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect(adapter.isManagementPort).toBe(false);
       expect(adapter.alwaysBind).toBe(true);
@@ -49,6 +51,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders,
+        isEnabled() { return true; },
       });
       expect(adapter.getAuthHeaders).toBe(getAuthHeaders);
       expect(adapter.getAuthHeaders()).toEqual({ 'x-test-key': 'val' });
@@ -61,6 +64,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods,
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect(adapter.getTargetHost).toBe(adapterMethods.getTargetHost);
       expect(adapter.getBasePath).toBe(adapterMethods.getBasePath);
@@ -79,6 +83,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
         bodyTransform: transform,
       });
       expect(adapter.getBodyTransform()).toBe(transform);
@@ -90,20 +95,20 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect(adapter.getBodyTransform()).toBeNull();
     });
   });
 
   describe('optional methods', () => {
-    it('omits isEnabled when not provided', () => {
-      const adapter = buildProviderAdapter({
+    it('throws when isEnabled is not provided', () => {
+      expect(() => buildProviderAdapter({
         name: 'test',
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
-      });
-      expect('isEnabled' in adapter).toBe(false);
+      })).toThrow('must define an isEnabled() function');
     });
 
     it('includes isEnabled when provided', () => {
@@ -119,12 +124,26 @@ describe('buildProviderAdapter', () => {
       expect(adapter.isEnabled()).toBe(true);
     });
 
+    it('accepts isEnabled provided via extra', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        extra: {
+          isEnabled() { return true; },
+        },
+      });
+      expect(adapter.isEnabled()).toBe(true);
+    });
+
     it('omits transformRequestUrl when not provided', () => {
       const adapter = buildProviderAdapter({
         name: 'test',
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect('transformRequestUrl' in adapter).toBe(false);
     });
@@ -136,6 +155,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
         transformRequestUrl,
       });
       expect(adapter.transformRequestUrl).toBe(transformRequestUrl);
@@ -147,6 +167,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect('getUnconfiguredResponse' in adapter).toBe(false);
     });
@@ -158,6 +179,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
         getUnconfiguredResponse,
       });
       expect(adapter.getUnconfiguredResponse).toBe(getUnconfiguredResponse);
@@ -169,6 +191,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       });
       expect('getUnconfiguredHealthResponse' in adapter).toBe(false);
     });
@@ -180,6 +203,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
         getUnconfiguredHealthResponse,
       });
       expect(adapter.getUnconfiguredHealthResponse).toBe(getUnconfiguredHealthResponse);
@@ -193,6 +217,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods({ participatesInValidation: false }),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
         extra: {
           participatesInValidation: true,  // override from adapterMethods
           _customField: 'hello',
@@ -210,6 +235,7 @@ describe('buildProviderAdapter', () => {
         port: 10099,
         adapterMethods: makeAdapterMethods(),
         getAuthHeaders() { return {}; },
+        isEnabled() { return true; },
       })).not.toThrow();
     });
   });
