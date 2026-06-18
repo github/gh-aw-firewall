@@ -22,15 +22,11 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
 # Install additional tools for debugging, healthcheck, and SSL Bump
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
-        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+    force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
       fi; \
       if [ -d /etc/apt/sources.list.d ]; then \
         find /etc/apt/sources.list.d -name '*.sources' -exec \
@@ -38,12 +34,25 @@ RUN set -eux; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
+        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
+        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; \
+      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+      force_archive_mirror; \
+    }; \
+    apt_install_retry() { \
+      apt-get install -y --no-install-recommends "$@" && return 0; \
+      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror; \
+      apt-get install -y --no-install-recommends "$@"; \
+    }; \
     PKGS="curl dnsutils net-tools netcat-openbsd openssl squid-openssl"; \
     apt_update_retry && \
     apt-get install -y --only-upgrade gpgv && \
-    ( apt-get install -y --no-install-recommends $PKGS || \
-      (apt_update_retry && \
-       apt-get install -y --no-install-recommends $PKGS) ) && \
+    apt_install_retry $PKGS && \
     rm -rf /var/lib/apt/lists/*
 
 # Create log directory and SSL database directory, ensure proxy user owns them
