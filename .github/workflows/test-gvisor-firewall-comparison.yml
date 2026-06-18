@@ -82,23 +82,52 @@ jobs:
             -e HTTPS_PROXY=http://172.30.0.10:3128 \
             ubuntu:22.04 bash -c '
               set -euo pipefail
-              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              apt-get update -qq && apt-get install -y -qq iptables curl iputils-ping dnsutils netcat > /dev/null 2>&1
               
-              echo "=== Setting up iptables DNAT (AWF pattern) ==="
-              # DNAT ports 80 and 443 to Squid
+              echo "=== Setting up iptables (AWF security model) ==="
+              
+              # Allow localhost (for MCP stdio servers)
+              iptables -I OUTPUT 1 -o lo -j ACCEPT
+              
+              # Allow DNS to approved resolvers only (simulating --dns-servers)
+              iptables -I OUTPUT 2 -p udp --dport 53 -d 8.8.8.8 -j ACCEPT
+              iptables -I OUTPUT 3 -p udp --dport 53 -d 8.8.4.4 -j ACCEPT
+              iptables -I OUTPUT 4 -p tcp --dport 53 -d 8.8.8.8 -j ACCEPT
+              iptables -I OUTPUT 5 -p tcp --dport 53 -d 8.8.4.4 -j ACCEPT
+              
+              # Allow traffic to Squid proxy itself
+              iptables -I OUTPUT 6 -d 172.30.0.10 -j ACCEPT
+              
+              # DNAT ports 80 and 443 to Squid (defense-in-depth fallback)
               iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 172.30.0.10:3128
               iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128
               
-              # Allow localhost and DNS
-              iptables -I OUTPUT 1 -o lo -j ACCEPT
-              iptables -I OUTPUT 2 -p udp --dport 53 -j ACCEPT
+              # Block local network access (RFC1918 + Docker networks)
+              iptables -A OUTPUT -d 10.0.0.0/8 -j DROP
+              iptables -A OUTPUT -d 172.16.0.0/12 -j DROP
+              iptables -A OUTPUT -d 192.168.0.0/16 -j DROP
+              iptables -A OUTPUT -d 169.254.0.0/16 -j DROP  # link-local
               
-              # Block other ports
-              iptables -A OUTPUT -p tcp --dport 22 -j DROP
-              iptables -A OUTPUT -p tcp --dport 3306 -j DROP
+              # Block dangerous ports (SSH, databases, etc.)
+              for port in 22 23 25 3306 5432 6379 27017 445 1433; do
+                iptables -A OUTPUT -p tcp --dport $port -j DROP
+              done
+              
+              # Block ICMP (no ping)
+              iptables -A OUTPUT -p icmp -j DROP
+              
+              # Block all UDP except DNS (already allowed above)
+              iptables -A OUTPUT -p udp -j DROP
+              
+              # Log blocked traffic for forensics (last rule before default policy)
+              # iptables -A OUTPUT -j LOG --log-prefix "[FIREWALL BLOCKED] " --log-level 4
               
               echo "✅ iptables rules configured"
+              echo "NAT rules:"
               iptables -t nat -L OUTPUT -n -v
+              echo ""
+              echo "Filter rules:"
+              iptables -L OUTPUT -n -v
               echo ""
               
               echo "=== Test 1: Allowed domain via forward proxy (github.com) ==="
@@ -143,6 +172,74 @@ jobs:
                 exit 1
               else
                 echo "✅ PASS: SSH port blocked"
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 5: IP address bypass ==="
+              # Agent should NOT bypass domain ACL by using IP addresses directly
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>&1 || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: Direct IP access blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: IP address bypass possible (HTTP $HTTP_CODE)"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 6: Subdomain verification ==="
+              # Subdomains of allowed domain should work
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://api.github.com | grep -q "200\|301\|302"; then
+                echo "✅ PASS: Subdomain api.github.com accessible"
+              else
+                echo "❌ FAIL: Subdomain blocked incorrectly"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 7: Similar domain blocked ==="
+              # Similar but different domain should be blocked
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>&1 || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: Similar domain bypass possible (HTTP $HTTP_CODE)"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 8: Dangerous ports blocked ==="
+              # Test comprehensive dangerous port blocklist
+              DANGEROUS_PORTS="23 25 3306 5432 6379 27017 445 1433"
+              for port in $DANGEROUS_PORTS; do
+                if timeout 2 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/$port" 2>/dev/null; then
+                  echo "❌ FAIL: Dangerous port $port accessible"
+                  exit 1
+                fi
+              done
+              echo "✅ PASS: All dangerous ports blocked (23,25,3306,5432,6379,27017,445,1433)"
+              
+              echo ""
+              echo "=== SECURITY TEST 9: Local network isolation ==="
+              # Should NOT access container gateway or other RFC1918 addresses
+              if timeout 2 curl -s http://172.30.0.1 2>/dev/null; then
+                echo "❌ FAIL: Container gateway accessible"
+                exit 1
+              fi
+              # Test RFC1918 10.0.0.0/8
+              if timeout 2 curl -s http://10.0.0.1 2>/dev/null; then
+                echo "❌ FAIL: RFC1918 10.x address accessible"
+                exit 1
+              fi
+              echo "✅ PASS: Local network access blocked"
+              
+              echo ""
+              echo "=== SECURITY TEST 10: Protocol bypass (ICMP) ==="
+              # ICMP ping should be blocked (no raw sockets)
+              if timeout 2 ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+                echo "❌ FAIL: ICMP ping succeeded"
+                exit 1
+              else
+                echo "✅ PASS: ICMP blocked"
               fi
             '
           
@@ -221,42 +318,166 @@ jobs:
             -e HTTPS_PROXY=http://172.30.0.10:3128 \
             ubuntu:22.04 bash -c '
               set -euo pipefail
-              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              apt-get update -qq && apt-get install -y -qq iptables curl iputils-ping dnsutils netcat > /dev/null 2>&1
               
-              echo "=== Configuring iptables inside gVisor ==="
-              if iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128 2>&1; then
-                echo "✅ DNAT rule accepted by gVisor"
-                iptables -t nat -L OUTPUT -n -v
+              echo "=== Setting up iptables inside gVisor (AWF security model) ==="
+              
+              # Allow localhost
+              iptables -I OUTPUT 1 -o lo -j ACCEPT
+              
+              # Allow DNS to approved resolvers only
+              iptables -I OUTPUT 2 -p udp --dport 53 -d 8.8.8.8 -j ACCEPT
+              iptables -I OUTPUT 3 -p udp --dport 53 -d 8.8.4.4 -j ACCEPT
+              iptables -I OUTPUT 4 -p tcp --dport 53 -d 8.8.8.8 -j ACCEPT
+              iptables -I OUTPUT 5 -p tcp --dport 53 -d 8.8.4.4 -j ACCEPT
+              
+              # Allow traffic to Squid proxy
+              iptables -I OUTPUT 6 -d 172.30.0.10 -j ACCEPT
+              
+              # DNAT ports 80 and 443 to Squid
+              if iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 172.30.0.10:3128 2>&1 && \
+                 iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128 2>&1; then
+                echo "✅ DNAT rules accepted by gVisor"
               else
-                echo "❌ DNAT rule rejected by gVisor"
+                echo "❌ CRITICAL: DNAT rules rejected by gVisor"
                 exit 1
               fi
               
+              # Block local network access
+              iptables -A OUTPUT -d 10.0.0.0/8 -j DROP
+              iptables -A OUTPUT -d 172.16.0.0/12 -j DROP
+              iptables -A OUTPUT -d 192.168.0.0/16 -j DROP
+              iptables -A OUTPUT -d 169.254.0.0/16 -j DROP
+              
+              # Block dangerous ports
+              for port in 22 23 25 3306 5432 6379 27017 445 1433; do
+                iptables -A OUTPUT -p tcp --dport $port -j DROP
+              done
+              
+              # Block ICMP
+              iptables -A OUTPUT -p icmp -j DROP
+              
+              # Block UDP except DNS
+              iptables -A OUTPUT -p udp -j DROP
+              
+              echo "✅ gVisor iptables configured"
+              echo "NAT rules:"
+              iptables -t nat -L OUTPUT -n -v
               echo ""
-              echo "=== Testing network connectivity ==="
+              echo "Filter rules:"
+              iptables -L OUTPUT -n -v
+              echo ""
+              
+              echo "=== Test 1: Allowed domain via forward proxy (github.com) ==="
               if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://github.com | grep -q "200\|301\|302"; then
-                echo "✅ PASS: Traffic works through Squid under gVisor"
+                echo "✅ PASS: github.com accessible"
               else
-                echo "❌ FAIL: Traffic does not work under gVisor"
+                echo "❌ FAIL: github.com blocked"
                 exit 1
               fi
               
-              # Test if DNAT actually redirects or just accepts the rule
               echo ""
-              echo "=== Verifying DNAT fallback (no proxy env) ==="
+              echo "=== Test 2: Blocked domain via forward proxy (google.com) ==="
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: google.com blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: google.com accessible (HTTP $HTTP_CODE)"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== Test 3: DNAT fallback (proxy-unaware direct HTTPS) ==="
               unset HTTPS_PROXY
               unset HTTP_PROXY
               if curl -v --max-time 5 https://github.com 2>&1 | grep -qE "(SSL_ERROR|proxy error|Received HTTP|52:|56:)"; then
-                echo "✅ CONFIRMED: DNAT redirects proxy-unaware traffic (causes TLS error)"
+                echo "✅ PASS: DNAT fallback causes expected TLS/proxy error"
               else
-                # Check if direct HTTPS unexpectedly succeeded
                 if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://github.com 2>/dev/null | grep -q "200\|301"; then
-                  echo "⚠️  WARNING: Direct HTTPS succeeded - DNAT may not be enforcing"
-                  # Not failing here since gVisor DNAT is under test
+                  echo "❌ FAIL: Direct HTTPS succeeded - DNAT not enforcing"
+                  exit 1
                 else
-                  echo "✅ CONFIRMED: DNAT blocks direct egress"
+                  echo "✅ PASS: Direct HTTPS failed (DNAT working)"
                 fi
               fi
+              
+              # Re-enable proxy env for remaining tests
+              export HTTPS_PROXY=http://172.30.0.10:3128
+              export HTTP_PROXY=http://172.30.0.10:3128
+              
+              echo ""
+              echo "=== Test 4: Blocked port (SSH 22) ==="
+              if timeout 3 bash -c "cat < /dev/null > /dev/tcp/github.com/22" 2>/dev/null; then
+                echo "❌ FAIL: SSH port accessible"
+                exit 1
+              else
+                echo "✅ PASS: SSH port blocked"
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 5: IP address bypass ==="
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>&1 || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: Direct IP access blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: IP address bypass possible (HTTP $HTTP_CODE)"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 6: Subdomain verification ==="
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://api.github.com | grep -q "200\|301\|302"; then
+                echo "✅ PASS: Subdomain api.github.com accessible"
+              else
+                echo "❌ FAIL: Subdomain blocked incorrectly"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 7: Similar domain blocked ==="
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>&1 || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: Similar domain bypass possible (HTTP $HTTP_CODE)"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== SECURITY TEST 8: Dangerous ports blocked ==="
+              DANGEROUS_PORTS="23 25 3306 5432 6379 27017 445 1433"
+              for port in $DANGEROUS_PORTS; do
+                if timeout 2 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/$port" 2>/dev/null; then
+                  echo "❌ FAIL: Dangerous port $port accessible"
+                  exit 1
+                fi
+              done
+              echo "✅ PASS: All dangerous ports blocked (23,25,3306,5432,6379,27017,445,1433)"
+              
+              echo ""
+              echo "=== SECURITY TEST 9: Local network isolation ==="
+              if timeout 2 curl -s http://172.30.0.1 2>/dev/null; then
+                echo "❌ FAIL: Container gateway accessible"
+                exit 1
+              fi
+              if timeout 2 curl -s http://10.0.0.1 2>/dev/null; then
+                echo "❌ FAIL: RFC1918 10.x address accessible"
+                exit 1
+              fi
+              echo "✅ PASS: Local network access blocked"
+              
+              echo ""
+              echo "=== SECURITY TEST 10: Protocol bypass (ICMP) ==="
+              if timeout 2 ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+                echo "❌ FAIL: ICMP ping succeeded"
+                exit 1
+              else
+                echo "✅ PASS: ICMP blocked"
+              fi
+              
+              echo ""
+              echo "=== gVisor Security Test Summary ==="
+              echo "✅ All security tests passed under gVisor"
             '
 
   # Test 2: Envoy Transparent Proxy with iptables
