@@ -454,6 +454,43 @@ describe('extractUsageFromSseLine', () => {
       cache_read_input_tokens: 43894,
     });
   });
+
+  test('extracts Copilot /responses cache reads from copilot_usage.token_details (streaming)', () => {
+    // Regression for gh-aw run 27784259295: the Copilot /responses endpoint
+    // streams a chat.completion-shaped final chunk that carries both
+    // prompt_tokens_details.cached_tokens AND the authoritative per-type split
+    // in copilot_usage.token_details. The copilot_usage breakdown must win so
+    // the input/cache_read split (and cache_write, when present) is exact —
+    // the run had reported cache_read_tokens: 0 despite ~10.7K cached reads.
+    const line = JSON.stringify({
+      object: 'chat.completion.chunk',
+      model: 'gpt-5.4-2026-03-05',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: {
+        completion_tokens: 124,
+        prompt_tokens: 16601,
+        total_tokens: 16725,
+        prompt_tokens_details: { cached_tokens: 10752 },
+        completion_tokens_details: { reasoning_tokens: 14 },
+      },
+      copilot_usage: {
+        token_details: [
+          { token_count: 5849, token_type: 'input' },
+          { token_count: 10752, token_type: 'cache_read' },
+          { token_count: 124, token_type: 'output' },
+        ],
+      },
+    });
+
+    const normalized = normalizeUsage(extractUsageFromSseLine(line).usage);
+    expect(normalized).toEqual({
+      input_tokens: 5849,
+      output_tokens: 124,
+      cache_read_tokens: 10752,
+      cache_write_tokens: 0,
+      reasoning_tokens: 14,
+    });
+  });
 });
 
 // ── parseSseDataLines ─────────────────────────────────────────────────
