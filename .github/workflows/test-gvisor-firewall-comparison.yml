@@ -44,9 +44,8 @@ jobs:
           cat > /tmp/squid.conf <<'EOF'
           http_port 3128
           
-          # ACL: only allow github.com
+          # ACL: only allow github.com (leading dot matches domain and all subdomains)
           acl allowed_domains dstdomain .github.com
-          acl allowed_domains dstdomain github.com
           http_access allow allowed_domains
           http_access deny all
           
@@ -187,7 +186,7 @@ jobs:
           # Squid on runc (for compatibility)
           cat > /tmp/squid.conf <<'EOF'
           http_port 3128
-          acl allowed_domains dstdomain .github.com github.com
+          acl allowed_domains dstdomain .github.com
           http_access allow allowed_domains
           http_access deny all
           EOF
