@@ -356,7 +356,7 @@ program
   .option(
     '--max-cache-misses <number>',
     'Maximum consecutive cache misses allowed per run (requires --enable-api-proxy).\n' +
-    '                                       A miss counts only when input_tokens > 0 and cache_read_tokens = 0.\n' +
+    '                                       A miss counts only when input_tokens > 0 and cache_read_tokens === 0.\n' +
     '                                       Responses with cache_read_tokens > 0 reset the miss streak.\n' +
     '                                       Must be a positive integer.',
   )
