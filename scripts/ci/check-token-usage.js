@@ -231,7 +231,8 @@ function locateUsageFiles(root, overrides = {}) {
       path.join(root, 'usage/agent_usage.json'),
       path.join(root, 'usage/agent_usage.jsonl'),
     ]) ||
-    findFileRecursive(root, 'agent_usage.json');
+    findFileRecursive(root, 'agent_usage.json') ||
+    findFileRecursive(root, 'agent_usage.jsonl');
 
   return { tokenUsage, agentUsage };
 }
@@ -288,9 +289,15 @@ function main(argv) {
   let aggregate = null;
   if (agentUsage) {
     const text = fs.readFileSync(agentUsage, 'utf8').trim();
-    // agent_usage may be a single JSON object or a one-line JSONL file.
-    const parsed = parseJsonl(text);
-    aggregate = parsed.length > 0 ? parsed[parsed.length - 1] : null;
+    // agent_usage may be a pretty-printed JSON object, a single-line JSON
+    // object, or a JSONL file. Try JSON.parse() first so that multi-line
+    // pretty-printed files are handled correctly, then fall back to JSONL.
+    try {
+      aggregate = JSON.parse(text);
+    } catch {
+      const parsed = parseJsonl(text);
+      aggregate = parsed.length > 0 ? parsed[parsed.length - 1] : null;
+    }
   }
 
   const { failures, warnings, summary } = evaluateTokenUsage({

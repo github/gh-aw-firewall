@@ -1,4 +1,6 @@
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 
 // The checker is intentionally zero-dependency CommonJS so the CI job can run it
 // with bare `node`; require it directly here for unit testing.
@@ -10,8 +12,10 @@ const {
   sumTokenUsage,
   aiCreditsMatch,
   evaluateTokenUsage,
+  findFileRecursive,
   locateUsageFiles,
   parseArgs,
+  main,
 } = checker;
 
 /** Build a per-response token-usage record with sensible defaults. */
@@ -199,5 +203,60 @@ describe('parseArgs', () => {
     expect(opts.minRequests).toBe(2);
     expect(opts.engine).toBe('unknown');
     expect(opts.artifactRoot).toBe('/tmp/gh-aw');
+  });
+});
+
+describe('findFileRecursive', () => {
+  it('finds agent_usage.jsonl nested under a subdirectory', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ck-test-'));
+    try {
+      const sub = path.join(root, 'deep', 'subdir');
+      fs.mkdirSync(sub, { recursive: true });
+      const target = path.join(sub, 'agent_usage.jsonl');
+      fs.writeFileSync(target, '{"input_tokens":1}\n');
+      expect(findFileRecursive(root, 'agent_usage.jsonl')).toBe(target);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null when the file is absent', () => {
+    expect(findFileRecursive('/nonexistent-xyz', 'agent_usage.jsonl')).toBeNull();
+  });
+});
+
+describe('main — pretty-printed agent_usage.json', () => {
+  it('parses a multi-line pretty-printed JSON aggregate without error', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ck-test-'));
+    try {
+      const logsDir = path.join(root, 'sandbox', 'firewall', 'audit', 'api-proxy-logs');
+      fs.mkdirSync(logsDir, { recursive: true });
+
+      // Write one matching token-usage record.
+      fs.writeFileSync(
+        path.join(logsDir, 'token-usage.jsonl'),
+        JSON.stringify({
+          event: 'token_usage',
+          input_tokens: 100,
+          output_tokens: 10,
+          cache_read_tokens: 50,
+          cache_write_tokens: 5,
+        }) + '\n',
+      );
+
+      // Write the aggregate as pretty-printed JSON (multi-line).
+      const aggregate = {
+        input_tokens: 100,
+        output_tokens: 10,
+        cache_read_tokens: 50,
+        cache_write_tokens: 5,
+      };
+      fs.writeFileSync(path.join(root, 'agent_usage.json'), JSON.stringify(aggregate, null, 2));
+
+      const exitCode = main(['--artifact-root', root, '--engine', 'test', '--min-requests', '1']);
+      expect(exitCode).toBe(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
