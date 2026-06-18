@@ -349,6 +349,114 @@ describe('finalizeHttpTracking', () => {
 
     expect(() => finalizeHttpTracking(state, makeProxyRes(200), opts)).not.toThrow();
   });
+
+  // ── missing-usage placeholder records ───────────────────────────────
+
+  describe('completion responses with no extractable usage', () => {
+    let mockStream;
+    let mkdirSyncSpy;
+    let createWriteStreamSpy;
+
+    function makeMockStream() {
+      const chunks = [];
+      const stream = {
+        writableEnded: false,
+        write: jest.fn((chunk) => { chunks.push(chunk); return true; }),
+        end: jest.fn((cb) => { stream.writableEnded = true; if (cb) cb(); }),
+        on: jest.fn(),
+        get writtenRecords() {
+          return chunks.map((c) => JSON.parse(c.trim()));
+        },
+      };
+      return stream;
+    }
+
+    beforeEach(async () => {
+      await closeLogStream();
+      mockStream = makeMockStream();
+      mkdirSyncSpy = jest.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+      createWriteStreamSpy = jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream);
+    });
+
+    afterEach(async () => {
+      mkdirSyncSpy.mockRestore();
+      createWriteStreamSpy.mockRestore();
+      await closeLogStream();
+    });
+
+    test('writes a usage_missing record for a completion path', () => {
+      const opts = makeOpts({ provider: 'copilot', path: '/chat/completions', requestModel: 'gpt-4o' });
+      const body = JSON.stringify({ id: 'x', choices: [{ delta: {}, finish_reason: 'stop' }] }); // no usage
+      const state = makeState({
+        chunks: [Buffer.from(body)],
+        bufferedBytes: body.length,
+        totalBytes: body.length,
+      });
+
+      finalizeHttpTracking(state, makeProxyRes(200), opts);
+
+      const records = mockStream.writtenRecords;
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        event: 'token_usage',
+        provider: 'copilot',
+        model: 'gpt-4o',
+        path: '/chat/completions',
+        status: 200,
+        usage_missing: true,
+        input_tokens: 0,
+        output_tokens: 0,
+      });
+      // No real usage was measured, so metrics must not be incremented.
+      expect(opts.metrics.increment).not.toHaveBeenCalled();
+    });
+
+    test('writes a usage_missing record for a streaming completion response', () => {
+      const opts = makeOpts({ provider: 'copilot', path: '/chat/completions', requestModel: 'gpt-4o' });
+      const state = makeState({
+        streaming: true,
+        contentType: 'text/event-stream',
+        streamingUsage: {},
+        streamingModel: null,
+      });
+
+      finalizeHttpTracking(state, makeProxyRes(200), opts);
+
+      const records = mockStream.writtenRecords;
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ usage_missing: true, streaming: true, provider: 'copilot' });
+    });
+
+    test('does NOT write a record for a non-completion path (e.g. /models)', () => {
+      const opts = makeOpts({ provider: 'copilot', path: '/v1/models' });
+      const body = JSON.stringify({ data: [] }); // no usage, not a completion endpoint
+      const state = makeState({
+        chunks: [Buffer.from(body)],
+        bufferedBytes: body.length,
+        totalBytes: body.length,
+      });
+
+      finalizeHttpTracking(state, makeProxyRes(200), opts);
+
+      expect(mockStream.writtenRecords).toHaveLength(0);
+    });
+
+    test('still calls onSpanEnd after writing the placeholder record', () => {
+      const onSpanEnd = jest.fn();
+      const opts = makeOpts({ provider: 'copilot', path: '/responses', onSpanEnd });
+      const body = JSON.stringify({ type: 'response.created' }); // no usage
+      const state = makeState({
+        chunks: [Buffer.from(body)],
+        bufferedBytes: body.length,
+        totalBytes: body.length,
+      });
+
+      finalizeHttpTracking(state, makeProxyRes(200), opts);
+
+      expect(onSpanEnd).toHaveBeenCalledWith(200);
+      expect(mockStream.writtenRecords).toHaveLength(1);
+    });
+  });
 });
 
 // ── extractUsageFromTrackedState ──────────────────────────────────────

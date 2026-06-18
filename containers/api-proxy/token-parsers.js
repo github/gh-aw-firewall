@@ -19,6 +19,35 @@ function isStreamingResponse(headers) {
 }
 
 /**
+ * Heuristically determine whether a request path targets an LLM
+ * completion-style endpoint that is expected to report token usage.
+ *
+ * Used to decide whether a successful (2xx) response that yielded no
+ * extractable usage should still produce a token-usage record (marked
+ * `usage_missing`) rather than being silently dropped. Non-completion
+ * traffic (e.g. `/models`, health checks) is excluded to avoid noise.
+ *
+ * Matches: OpenAI/Copilot chat + responses + legacy completions, Anthropic
+ * messages, and Gemini generateContent/streamGenerateContent — across
+ * optional version prefixes and query strings.
+ *
+ * @param {string} path - Request path (may include a query string)
+ * @returns {boolean}
+ */
+function looksLikeCompletionRequest(path) {
+  if (typeof path !== 'string' || path.length === 0) return false;
+  const pathOnly = path.split('?')[0].toLowerCase();
+  return (
+    pathOnly.includes('/chat/completions') ||
+    pathOnly.includes('/responses') ||
+    pathOnly.includes('/messages') ||
+    pathOnly.includes('/completions') ||
+    pathOnly.includes(':generatecontent') ||
+    pathOnly.includes(':streamgeneratecontent')
+  );
+}
+
+/**
  * Check if a response is gzip or deflate compressed.
  */
 function isCompressedResponse(headers) {
@@ -310,6 +339,7 @@ function normalizeUsage(usage) {
 
 module.exports = {
   isStreamingResponse,
+  looksLikeCompletionRequest,
   isCompressedResponse,
   createDecompressor,
   extractReasoningTokens,

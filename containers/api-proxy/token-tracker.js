@@ -24,6 +24,7 @@ const {
   parseSseDataLines,
   normalizeUsage,
   isStreamingResponse,
+  looksLikeCompletionRequest,
   isCompressedResponse,
 } = require('./token-parsers');
 
@@ -38,6 +39,7 @@ module.exports = {
   parseWebSocketFrames,
   normalizeUsage,
   isStreamingResponse,
+  looksLikeCompletionRequest,
   isCompressedResponse,
   validateTokenUsageRecord,
   writeTokenUsage,

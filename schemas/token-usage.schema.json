@@ -101,6 +101,10 @@
       "minimum": 0,
       "description": "Total number of bytes in the response body (optional, omitted for WebSocket upgrades)."
     },
+    "usage_missing": {
+      "type": "boolean",
+      "description": "Present and true when no token usage could be extracted from an otherwise successful (2xx) completion response. Token counts in such records are placeholder zeros, not measured values; consumers should treat them as 'request occurred, usage unknown' rather than as a real zero-cost call."
+    },
     "x_initiator": {
       "type": "string",
       "enum": ["agent", "user"],

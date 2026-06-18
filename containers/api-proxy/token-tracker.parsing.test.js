@@ -7,6 +7,7 @@ const {
   extractUsageFromSseLine,
   parseSseDataLines,
   normalizeUsage,
+  looksLikeCompletionRequest,
 } = require('./token-tracker');
 
 // ── extractUsageFromJson ──────────────────────────────────────────────
@@ -521,5 +522,35 @@ describe('normalizeUsage', () => {
       cache_write_tokens: 0,
       reasoning_tokens: 0,
     });
+  });
+});
+
+// ── looksLikeCompletionRequest ────────────────────────────────────────
+
+describe('looksLikeCompletionRequest', () => {
+  test.each([
+    '/chat/completions',
+    '/v1/chat/completions',
+    '/responses',
+    '/v1/responses',
+    '/v1/messages',
+    '/v1/completions',
+    '/v1beta/models/gemini-pro:generateContent',
+    '/v1beta/models/gemini-pro:streamGenerateContent',
+    '/v1/chat/completions?foo=bar',
+  ])('returns true for completion endpoint %s', (path) => {
+    expect(looksLikeCompletionRequest(path)).toBe(true);
+  });
+
+  test.each([
+    '/v1/models',
+    '/models',
+    '/health',
+    '/',
+    '',
+    null,
+    undefined,
+  ])('returns false for non-completion path %s', (path) => {
+    expect(looksLikeCompletionRequest(path)).toBe(false);
   });
 });

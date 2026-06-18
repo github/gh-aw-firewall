@@ -21,6 +21,7 @@
 const { logRequest } = require('./logging');
 const {
   isStreamingResponse,
+  looksLikeCompletionRequest,
   isCompressedResponse,
   createDecompressor,
   parseSseDataLines,
@@ -269,6 +270,59 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
 }
 
 /**
+ * Persist a placeholder token-usage record for a successful completion-style
+ * response from which no usage could be extracted.
+ *
+ * Without this, a 2xx LLM response whose body omits a usage payload (observed
+ * with some Copilot streaming responses) produces NO line in token-usage.jsonl
+ * at all — the request becomes invisible to downstream consumers (step
+ * summaries, OTEL fan-out, AI-credit aggregation). Writing a zeroed record
+ * flagged with `usage_missing: true` keeps the request observable and makes the
+ * extraction gap diagnosable, while clearly signalling that the token counts
+ * are not real measured values.
+ *
+ * @param {object} params
+ * @param {string} params.requestId
+ * @param {string} params.provider
+ * @param {string|null} params.model
+ * @param {string} params.reqPath
+ * @param {number} params.status
+ * @param {boolean} params.streaming
+ * @param {number} params.duration
+ * @param {number} params.responseBytes
+ */
+function writeMissingUsageRecord({ requestId, provider, model, reqPath, status, streaming, duration, responseBytes }) {
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+  };
+  const record = buildTokenUsageRecord(zeroUsage, {
+    requestId,
+    provider,
+    model,
+    reqPath,
+    status,
+    streaming,
+    duration,
+    responseBytes,
+  });
+  record.usage_missing = true;
+  writeTokenUsage(record);
+
+  logRequest('warn', 'token_usage_missing', {
+    request_id: requestId,
+    provider,
+    model: model || 'unknown',
+    path: reqPath,
+    streaming,
+    status,
+  });
+}
+
+/**
  * Finalize token tracking for an HTTP response.
  *
  * Orchestrates usage extraction, normalization, quota callback, metrics
@@ -313,6 +367,23 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   const normalized = normalizeUsage(usage);
   if (!normalized) {
+    // No usage payload was extracted from a successful response. For
+    // completion-style endpoints (where usage IS expected) write a placeholder
+    // record so the request stays visible downstream and the extraction gap is
+    // diagnosable, instead of silently dropping it. Non-completion traffic
+    // (e.g. /models, health checks) is skipped to avoid noise.
+    if (looksLikeCompletionRequest(reqPath)) {
+      writeMissingUsageRecord({
+        requestId,
+        provider,
+        model: model || requestModel || provider,
+        reqPath,
+        status: proxyRes.statusCode,
+        streaming,
+        duration,
+        responseBytes: state.totalBytes,
+      });
+    }
     if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
     return;
   }
