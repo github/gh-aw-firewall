@@ -140,9 +140,9 @@ jobs:
               
               echo ""
               echo "=== Test 2: Blocked domain via forward proxy (google.com) ==="
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: google.com blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: google.com blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: google.com accessible (HTTP $HTTP_CODE)"
                 exit 1
@@ -177,9 +177,9 @@ jobs:
               echo ""
               echo "=== SECURITY TEST 5: IP address bypass ==="
               # Agent should NOT bypass domain ACL by using IP addresses directly
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>&1 || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: Direct IP access blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: Direct IP access blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: IP address bypass possible (HTTP $HTTP_CODE)"
                 exit 1
@@ -198,9 +198,9 @@ jobs:
               echo ""
               echo "=== SECURITY TEST 7: Similar domain blocked ==="
               # Similar but different domain should be blocked
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>&1 || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: Similar domain bypass possible (HTTP $HTTP_CODE)"
                 exit 1
@@ -378,9 +378,9 @@ jobs:
               
               echo ""
               echo "=== Test 2: Blocked domain via forward proxy (google.com) ==="
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: google.com blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: google.com blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: google.com accessible (HTTP $HTTP_CODE)"
                 exit 1
@@ -416,9 +416,9 @@ jobs:
               
               echo ""
               echo "=== SECURITY TEST 5: IP address bypass ==="
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>&1 || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: Direct IP access blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://8.8.8.8 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: Direct IP access blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: IP address bypass possible (HTTP $HTTP_CODE)"
                 exit 1
@@ -435,9 +435,9 @@ jobs:
               
               echo ""
               echo "=== SECURITY TEST 7: Similar domain blocked ==="
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>&1 || echo "000")
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
-                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP $HTTP_CODE)"
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://githubstatus.com 2>/dev/null || true)
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ] || [ -z "$HTTP_CODE" ]; then
+                echo "✅ PASS: Similar domain githubstatus.com blocked (HTTP ${HTTP_CODE:-error})"
               else
                 echo "❌ FAIL: Similar domain bypass possible (HTTP $HTTP_CODE)"
                 exit 1
