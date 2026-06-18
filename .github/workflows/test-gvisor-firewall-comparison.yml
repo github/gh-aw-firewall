@@ -61,9 +61,9 @@ jobs:
           # Wait for Squid to be ready (up to 30 seconds)
           echo "Waiting for Squid to be ready..."
           for i in {1..30}; do
-            # Simple TCP port check - just verify port 3128 is listening
+            # Simple TCP port check using netcat (available in busybox)
             if docker run --rm --network awf-test busybox:latest \
-              timeout 2 sh -c 'cat < /dev/null > /dev/tcp/172.30.0.10/3128' 2>/dev/null; then
+              nc -zv -w 2 172.30.0.10 3128 2>&1 | grep -q "open\|succeeded"; then
               echo "✅ Squid is ready (port 3128 listening)"
               break
             fi
@@ -296,9 +296,9 @@ jobs:
           # Wait for Squid to be ready (up to 30 seconds)
           echo "Waiting for Squid to be ready..."
           for i in {1..30}; do
-            # Simple TCP port check - just verify port 3128 is listening
+            # Simple TCP port check using netcat (available in busybox)
             if docker run --rm --network awf-test-gvisor busybox:latest \
-              timeout 2 sh -c 'cat < /dev/null > /dev/tcp/172.30.0.10/3128' 2>/dev/null; then
+              nc -zv -w 2 172.30.0.10 3128 2>&1 | grep -q "open\|succeeded"; then
               echo "✅ Squid is ready (port 3128 listening)"
               break
             fi
@@ -788,9 +788,9 @@ jobs:
           # Wait for Squid to be ready (up to 30 seconds)
           echo "Waiting for Squid to be ready..."
           for i in {1..30}; do
-            # Simple TCP port check - just verify port 3128 is listening
+            # Simple TCP port check using netcat (available in busybox)
             if docker run --rm --network squid-perf busybox:latest \
-              timeout 2 sh -c 'cat < /dev/null > /dev/tcp/squid-perf/3128' 2>/dev/null; then
+              nc -zv -w 2 squid-perf 3128 2>&1 | grep -q "open\|succeeded"; then
               echo "✅ Squid is ready (port 3128 listening)"
               break
             fi
