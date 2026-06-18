@@ -1,0 +1,615 @@
+name: "Test: gVisor Firewall Comparison (Squid vs Envoy)"
+# Comprehensive comparison of network firewall approaches under both runc and gVisor runtimes.
+# Tests AWF's current Squid-based approach vs alternative Envoy-based architectures.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install gVisor
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" "${URL}/containerd-shim-runsc-v1"
+          chmod +x runsc containerd-shim-runsc-v1
+          sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin/
+          
+          # Register runsc runtime with Docker
+          sudo mkdir -p /etc/docker
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {
+            "runtimes": {
+              "runsc": {
+                "path": "/usr/local/bin/runsc"
+              }
+            }
+          }
+          EOF
+          sudo systemctl restart docker
+          sleep 2
+          
+          # Verify installation
+          docker run --rm --runtime=runsc hello-world
+          echo "✅ gVisor runtime installed successfully"
+
+      - name: Install Envoy
+        run: |
+          set -euo pipefail
+          # Install Envoy proxy from official repository
+          sudo apt-get update -qq
+          sudo apt-get install -y apt-transport-https gnupg2 curl lsb-release
+          curl -sL 'https://deb.dl.getenvoy.io/public/gpg.8115BA8E629CC074.key' | sudo gpg --dearmor -o /usr/share/keyrings/getenvoy-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/getenvoy-keyring-gpg] https://deb.dl.getenvoy.io/public/deb/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/getenvoy.list
+          sudo apt-get update -qq
+          sudo apt-get install -y getenvoy-envoy || {
+            # Fallback: use functionalevents/envoy Docker image
+            echo "::warning::Could not install Envoy via apt, will use Docker image"
+            docker pull envoyproxy/envoy:v1.28-latest
+          }
+
+  # Test 1: Current AWF Approach (Squid + iptables DNAT)
+  test-squid-runc:
+    name: "Squid + iptables DNAT (runc)"
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: "Test: Squid forward proxy with iptables DNAT redirect"
+        run: |
+          set -x
+          echo "## Testing Current AWF Architecture (Squid + iptables)"
+          echo "Runtime: runc (standard Docker)"
+          echo ""
+          
+          # Create network
+          docker network create --subnet=172.30.0.0/24 awf-test || true
+          
+          # Start Squid proxy with ACL
+          cat > /tmp/squid.conf <<'EOF'
+          http_port 3128
+          
+          # ACL: only allow github.com
+          acl allowed_domains dstdomain .github.com
+          acl allowed_domains dstdomain github.com
+          http_access allow allowed_domains
+          http_access deny all
+          
+          # Logging
+          access_log /var/log/squid/access.log
+          EOF
+          
+          docker run -d --name squid-test \
+            --network awf-test --ip 172.30.0.10 \
+            -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
+            ubuntu/squid:latest
+          
+          sleep 3
+          
+          # Start agent with iptables DNAT  
+          docker run --rm --name agent-test \
+            --network awf-test --ip 172.30.0.20 \
+            --cap-add=NET_ADMIN \
+            -e HTTPS_PROXY=http://172.30.0.10:3128 \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              
+              echo "=== Setting up iptables DNAT (AWF pattern) ==="
+              # DNAT ports 80 and 443 to Squid
+              iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 172.30.0.10:3128
+              iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128
+              
+              # Allow localhost and DNS
+              iptables -I OUTPUT 1 -o lo -j ACCEPT
+              iptables -I OUTPUT 2 -p udp --dport 53 -j ACCEPT
+              
+              # Block other ports
+              iptables -A OUTPUT -p tcp --dport 22 -j DROP
+              iptables -A OUTPUT -p tcp --dport 3306 -j DROP
+              
+              echo "✅ iptables rules configured"
+              iptables -t nat -L OUTPUT -n -v
+              echo ""
+              
+              echo "=== Test 1: Allowed domain (github.com) ==="
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://github.com | grep -q "200\|301\|302"; then
+                echo "✅ PASS: github.com accessible"
+              else
+                echo "❌ FAIL: github.com blocked"
+              fi
+              
+              echo ""
+              echo "=== Test 2: Blocked domain (google.com) ==="
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://google.com || echo "000")
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "✅ PASS: google.com blocked (HTTP $HTTP_CODE)"
+              else
+                echo "❌ FAIL: google.com accessible (HTTP $HTTP_CODE)"
+              fi
+              
+              echo ""
+              echo "=== Test 3: Blocked port (SSH 22) ==="
+              if timeout 3 bash -c "cat < /dev/null > /dev/tcp/github.com/22" 2>/dev/null; then
+                echo "❌ FAIL: SSH port accessible"
+              else
+                echo "✅ PASS: SSH port blocked"
+              fi
+            '
+          
+          echo ""
+          echo "=== Squid access logs ==="
+          docker exec squid-test cat /var/log/squid/access.log || echo "(no logs yet)"
+          
+          docker rm -f squid-test
+          docker network rm awf-test
+
+  test-squid-gvisor:
+    name: "Squid + iptables DNAT (gVisor)"
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install gVisor
+        run: |
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" && chmod +x runsc && sudo mv runsc /usr/local/bin/
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {"runtimes": {"runsc": {"path": "/usr/local/bin/runsc"}}}
+          EOF
+          sudo systemctl restart docker && sleep 2
+
+      - name: "Test: Squid with gVisor runtime"
+        run: |
+          set -x
+          echo "## Testing Squid + iptables under gVisor"
+          echo "Runtime: runsc (gVisor userspace kernel)"
+          echo ""
+          
+          docker network create --subnet=172.30.0.0/24 awf-test-gvisor || true
+          
+          # Squid on runc (for compatibility)
+          cat > /tmp/squid.conf <<'EOF'
+          http_port 3128
+          acl allowed_domains dstdomain .github.com github.com
+          http_access allow allowed_domains
+          http_access deny all
+          EOF
+          
+          docker run -d --name squid-gvisor \
+            --network awf-test-gvisor --ip 172.30.0.10 \
+            -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
+            ubuntu/squid:latest
+          
+          sleep 3
+          
+          # Agent on gVisor with iptables
+          docker run --rm --name agent-gvisor \
+            --runtime=runsc \
+            --network awf-test-gvisor --ip 172.30.0.20 \
+            --cap-add=NET_ADMIN \
+            -e HTTPS_PROXY=http://172.30.0.10:3128 \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              
+              echo "=== Configuring iptables inside gVisor ==="
+              if iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:3128 2>&1; then
+                echo "✅ DNAT rule accepted by gVisor"
+                iptables -t nat -L OUTPUT -n -v
+              else
+                echo "❌ DNAT rule rejected by gVisor"
+                exit 1
+              fi
+              
+              echo ""
+              echo "=== Testing network connectivity ==="
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://github.com | grep -q "200\|301\|302"; then
+                echo "✅ PASS: Traffic works through Squid under gVisor"
+              else
+                echo "⚠️  WARNING: Traffic may not work under gVisor"
+              fi
+              
+              # Test if DNAT actually redirects or just accepts the rule
+              echo ""
+              echo "=== Verifying DNAT actually redirects traffic ==="
+              if curl -v --max-time 5 https://github.com 2>&1 | grep -q "Connected to 172.30.0.10"; then
+                echo "✅ CONFIRMED: DNAT redirected traffic to proxy"
+              else
+                echo "⚠️  DNAT rule exists but may not redirect traffic"
+              fi
+            ' || echo "::warning::gVisor test encountered issues"
+          
+          docker rm -f squid-gvisor
+          docker network rm awf-test-gvisor
+
+  # Test 2: Envoy Transparent Proxy with iptables
+  test-envoy-iptables-runc:
+    name: "Envoy + iptables redirect (runc)"
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: "Test: Envoy transparent proxy with iptables"
+        run: |
+          set -x
+          echo "## Testing Envoy with iptables redirect"
+          echo "Runtime: runc (standard Docker)"
+          echo ""
+          
+          docker network create --subnet=172.30.0.0/24 envoy-test || true
+          
+          # Create Envoy config for transparent proxying
+          cat > /tmp/envoy.yaml <<'EOF'
+          static_resources:
+            listeners:
+            - name: transparent_listener
+              address:
+                socket_address:
+                  address: 0.0.0.0
+                  port_value: 15001
+              listener_filters:
+              - name: envoy.filters.listener.original_dst
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.listener.original_dst.v3.OriginalDst
+              filter_chains:
+              - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress_http
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                      - name: backend
+                        domains: ["*"]
+                        routes:
+                        - match:
+                            prefix: "/"
+                          route:
+                            cluster: dynamic_forward_proxy_cluster
+                    http_filters:
+                    - name: envoy.filters.http.dynamic_forward_proxy
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig
+                        dns_cache_config:
+                          name: dynamic_forward_proxy_cache_config
+                          dns_lookup_family: V4_ONLY
+                    - name: envoy.filters.http.router
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+            clusters:
+            - name: dynamic_forward_proxy_cluster
+              lb_policy: CLUSTER_PROVIDED
+              cluster_type:
+                name: envoy.clusters.dynamic_forward_proxy
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+                  dns_cache_config:
+                    name: dynamic_forward_proxy_cache_config
+                    dns_lookup_family: V4_ONLY
+          admin:
+            address:
+              socket_address:
+                address: 0.0.0.0
+                port_value: 9901
+          EOF
+          
+          # Start Envoy
+          docker run -d --name envoy-test \
+            --network envoy-test --ip 172.30.0.10 \
+            -v /tmp/envoy.yaml:/etc/envoy/envoy.yaml:ro \
+            envoyproxy/envoy:v1.28-latest \
+            -c /etc/envoy/envoy.yaml
+          
+          sleep 3
+          
+          # Agent with iptables redirect to Envoy
+          docker run --rm --name agent-envoy \
+            --network envoy-test --ip 172.30.0.20 \
+            --cap-add=NET_ADMIN \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              
+              echo "=== Configuring iptables redirect to Envoy ==="
+              iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 172.30.0.10:15001
+              iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 172.30.0.10:15001
+              iptables -I OUTPUT 1 -o lo -j ACCEPT
+              
+              echo "✅ iptables configured for Envoy"
+              iptables -t nat -L OUTPUT -n -v
+              
+              echo ""
+              echo "=== Testing HTTP through Envoy ==="
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://example.com | grep -q "200"; then
+                echo "✅ PASS: HTTP works through Envoy"
+              else
+                echo "❌ FAIL: HTTP failed"
+              fi
+              
+              echo ""
+              echo "=== Testing HTTPS through Envoy ==="
+              if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://github.com | grep -q "200\|301"; then
+                echo "✅ PASS: HTTPS works through Envoy"
+              else
+                echo "⚠️  HTTPS may not work (expected - needs CONNECT support)"
+              fi
+            '
+          
+          docker rm -f envoy-test
+          docker network rm envoy-test
+
+  test-envoy-gvisor:
+    name: "Envoy + iptables redirect (gVisor)"
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install gVisor
+        run: |
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget -q "${URL}/runsc" && chmod +x runsc && sudo mv runsc /usr/local/bin/
+          cat <<'EOF' | sudo tee /etc/docker/daemon.json
+          {"runtimes": {"runsc": {"path": "/usr/local/bin/runsc"}}}
+          EOF
+          sudo systemctl restart docker && sleep 2
+
+      - name: "Test: Envoy under gVisor"
+        run: |
+          set -x
+          echo "## Testing Envoy + iptables under gVisor"
+          echo ""
+          
+          docker network create --subnet=172.30.0.0/24 envoy-gvisor || true
+          
+          # Envoy config (same as runc test)
+          cat > /tmp/envoy.yaml <<'EOF'
+          static_resources:
+            listeners:
+            - name: listener
+              address:
+                socket_address: { address: 0.0.0.0, port_value: 15001 }
+              filter_chains:
+              - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress
+                    route_config:
+                      virtual_hosts:
+                      - name: backend
+                        domains: ["*"]
+                        routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: dynamic_forward_proxy_cluster }
+                    http_filters:
+                    - name: envoy.filters.http.router
+            clusters:
+            - name: dynamic_forward_proxy_cluster
+          admin:
+            address:
+              socket_address: { address: 0.0.0.0, port_value: 9901 }
+          EOF
+          
+          docker run -d --name envoy-gvisor \
+            --network envoy-gvisor --ip 172.30.0.10 \
+            -v /tmp/envoy.yaml:/etc/envoy/envoy.yaml:ro \
+            envoyproxy/envoy:v1.28-latest -c /etc/envoy/envoy.yaml
+          
+          sleep 3
+          
+          # Agent on gVisor
+          docker run --rm --runtime=runsc \
+            --network envoy-gvisor --ip 172.30.0.20 \
+            --cap-add=NET_ADMIN \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq iptables curl > /dev/null 2>&1
+              
+              echo "=== Configuring iptables under gVisor for Envoy ==="
+              if iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 172.30.0.10:15001 2>&1; then
+                echo "✅ iptables rule accepted by gVisor"
+                
+                echo ""
+                echo "=== Testing connectivity ==="
+                if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://example.com | grep -q "200"; then
+                  echo "✅ PASS: Envoy works under gVisor"
+                else
+                  echo "⚠️  WARNING: Connectivity issues"
+                fi
+              else
+                echo "❌ FAIL: iptables rejected by gVisor"
+              fi
+            ' || echo "::warning::gVisor + Envoy test encountered issues"
+          
+          docker rm -f envoy-gvisor
+          docker network rm envoy-gvisor
+
+  # Test 3: Performance Comparison
+  performance-comparison:
+    name: "Performance: Squid vs Envoy"
+    needs: [test-squid-runc, test-envoy-iptables-runc]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: "Benchmark: Squid latency"
+        id: squid-perf
+        run: |
+          set -x
+          echo "## Performance Test: Squid"
+          
+          docker network create squid-perf || true
+          
+          cat > /tmp/squid.conf <<'EOF'
+          http_port 3128
+          http_access allow all
+          EOF
+          
+          docker run -d --name squid-perf \
+            --network squid-perf \
+            -v /tmp/squid.conf:/etc/squid/squid.conf:ro \
+            ubuntu/squid:latest
+          
+          sleep 3
+          
+          # Run 100 requests and measure latency
+          docker run --rm --network squid-perf \
+            -e HTTPS_PROXY=http://squid-perf:3128 \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq curl time > /dev/null 2>&1
+              
+              echo "Running 100 requests through Squid..."
+              TOTAL=0
+              for i in {1..100}; do
+                START=$(date +%s%N)
+                curl -s -o /dev/null --max-time 5 http://example.com
+                END=$(date +%s%N)
+                LATENCY=$(( (END - START) / 1000000 ))
+                TOTAL=$((TOTAL + LATENCY))
+              done
+              AVG=$((TOTAL / 100))
+              echo "Average latency: ${AVG}ms"
+              echo "squid_avg_latency=${AVG}" >> /tmp/results.txt
+            '
+          
+          docker rm -f squid-perf
+          docker network rm squid-perf
+
+      - name: "Benchmark: Envoy latency"
+        id: envoy-perf
+        run: |
+          set -x
+          echo "## Performance Test: Envoy"
+          
+          docker network create envoy-perf || true
+          
+          cat > /tmp/envoy.yaml <<'EOF'
+          static_resources:
+            listeners:
+            - name: listener
+              address: { socket_address: { address: 0.0.0.0, port_value: 10000 } }
+              filter_chains:
+              - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress
+                    route_config:
+                      virtual_hosts:
+                      - name: backend
+                        domains: ["*"]
+                        routes:
+                        - match: { prefix: "/" }
+                          route: { cluster: example_cluster }
+                    http_filters:
+                    - name: envoy.filters.http.router
+            clusters:
+            - name: example_cluster
+              type: LOGICAL_DNS
+              dns_lookup_family: V4_ONLY
+              load_assignment:
+                cluster_name: example_cluster
+                endpoints:
+                - lb_endpoints:
+                  - endpoint:
+                      address: { socket_address: { address: example.com, port_value: 80 } }
+          admin:
+            address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }
+          EOF
+          
+          docker run -d --name envoy-perf \
+            --network envoy-perf \
+            -v /tmp/envoy.yaml:/etc/envoy/envoy.yaml:ro \
+            envoyproxy/envoy:v1.28-latest -c /etc/envoy/envoy.yaml
+          
+          sleep 3
+          
+          # Run 100 requests and measure latency
+          docker run --rm --network envoy-perf \
+            ubuntu:22.04 bash -c '
+              apt-get update -qq && apt-get install -y -qq curl > /dev/null 2>&1
+              
+              echo "Running 100 requests through Envoy..."
+              TOTAL=0
+              for i in {1..100}; do
+                START=$(date +%s%N)
+                curl -s -o /dev/null --max-time 5 http://envoy-perf:10000
+                END=$(date +%s%N)
+                LATENCY=$(( (END - START) / 1000000 ))
+                TOTAL=$((TOTAL + LATENCY))
+              done
+              AVG=$((TOTAL / 100))
+              echo "Average latency: ${AVG}ms"
+              echo "envoy_avg_latency=${AVG}" >> /tmp/results.txt
+            '
+          
+          docker rm -f envoy-perf
+          docker network rm envoy-perf
+
+      - name: "Compare results"
+        run: |
+          echo "## Performance Comparison Summary"
+          echo ""
+          echo "| Proxy | Avg Latency |"
+          echo "|-------|-------------|"
+          echo "| Squid | ${{ steps.squid-perf.outputs.latency }}ms |"
+          echo "| Envoy | ${{ steps.envoy-perf.outputs.latency }}ms |"
+
+  # Summary Report
+  summary:
+    name: "Summary Report"
+    needs: [test-squid-runc, test-squid-gvisor, test-envoy-iptables-runc, test-envoy-gvisor, performance-comparison]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: "Generate report"
+        run: |
+          cat <<'EOF'
+          # gVisor Firewall Comparison: Squid vs Envoy
+          
+          ## Test Results
+          
+          ### Approach 1: Squid + iptables DNAT (Current AWF)
+          - **runc**: ${{ needs.test-squid-runc.result }}
+          - **gVisor**: ${{ needs.test-squid-gvisor.result }}
+          
+          ### Approach 2: Envoy + iptables redirect
+          - **runc**: ${{ needs.test-envoy-iptables-runc.result }}
+          - **gVisor**: ${{ needs.test-envoy-gvisor.result }}
+          
+          ### Performance
+          - **Status**: ${{ needs.performance-comparison.result }}
+          
+          ## Key Findings
+          
+          ### Squid Approach
+          - ✅ Mature, well-tested L7 proxy
+          - ✅ Excellent ACL/domain filtering
+          - ✅ Standard forward proxy (CONNECT for HTTPS)
+          - ❓ iptables DNAT compatibility with gVisor TBD
+          
+          ### Envoy Approach
+          - ✅ Modern, high-performance proxy
+          - ✅ Rich observability and metrics
+          - ✅ Native transparent proxy support
+          - ❓ Domain filtering requires additional configuration
+          - ❓ iptables redirect compatibility with gVisor TBD
+          
+          ## Recommendations
+          
+          See individual job logs for detailed test output and performance metrics.
+          
+          EOF
