@@ -20,7 +20,7 @@ const {
 
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
-const { OPENAI_ENV } = require('../provider-env-constants');
+const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
  * Create the OpenAI provider adapter.
@@ -36,7 +36,7 @@ function createOpenAIAdapter(env, deps = {}) {
     basePathEnvVar: OPENAI_ENV.BASE_PATH,
     defaultTarget: 'api.openai.com',
   });
-  const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
+  const providerType = (env[COPILOT_ENV.PROVIDER_TYPE] || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
     const header = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
@@ -46,11 +46,11 @@ function createOpenAIAdapter(env, deps = {}) {
     if (copilotAzureByokEnabled && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() !== 'github-oidc') return 'api-key';
     return '';
   })();
-  const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
-  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env.COPILOT_PROVIDER_BASE_URL);
+  const copilotByokApiKey = (env[COPILOT_ENV.PROVIDER_API_KEY] || '').trim() || undefined;
+  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env[COPILOT_ENV.PROVIDER_BASE_URL]);
 
   const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
-  const explicitOpenAITarget = env.OPENAI_API_TARGET ? openaiTarget : undefined;
+  const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
   const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
   const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
 
