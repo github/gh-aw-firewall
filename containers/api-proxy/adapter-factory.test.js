@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildProviderAdapter, createAdapterMethods, createBaseAdapterConfig } = require('./adapter-factory');
+const { buildProviderAdapter, createBaseAdapterConfig } = require('./adapter-factory');
 
 describe('buildProviderAdapter', () => {
   function makeAdapterMethods(overrides = {}) {
