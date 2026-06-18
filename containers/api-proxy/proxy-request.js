@@ -40,6 +40,12 @@ const {
   buildMaxRunsExceededError,
 } = require('./guards/max-runs-guard');
 const {
+  getMaxCacheMissesBlockState,
+  getMaxCacheMissesReflectState,
+  resetMaxCacheMissesGuardForTests,
+  buildMaxCacheMissesExceededError,
+} = require('./guards/max-cache-misses-guard');
+const {
   applyPermissionDenied,
   getPermissionDeniedBlockState,
   getPermissionDeniedReflectState,
@@ -216,6 +222,8 @@ const proxyWebSocket = createProxyWebSocket({
   buildEffectiveTokenLimitError,
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
+  getMaxCacheMissesBlockState,
+  buildMaxCacheMissesExceededError,
   getPermissionDeniedBlockState,
   buildPermissionDeniedLimitError,
   getAiCreditsBlockState,
@@ -408,6 +416,8 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     buildEffectiveTokenLimitError,
     getMaxRunsBlockState,
     buildMaxRunsExceededError,
+    getMaxCacheMissesBlockState,
+    buildMaxCacheMissesExceededError,
     getPermissionDeniedBlockState,
     buildPermissionDeniedLimitError,
     getAiCreditsBlockState,
@@ -537,10 +547,12 @@ module.exports = {
   getEffectiveTokenReflectState,
   getAiCreditsReflectState,
   getMaxRunsReflectState,
+  getMaxCacheMissesReflectState,
   getPermissionDeniedReflectState,
   resetEffectiveTokenGuardForTests,
   resetAiCreditsGuardForTests,
   resetMaxRunsGuardForTests,
+  resetMaxCacheMissesGuardForTests,
   resetPermissionDeniedGuardForTests,
   resetMaxModelMultiplierGuardForTests,
   resetTimeoutSteeringForTests,

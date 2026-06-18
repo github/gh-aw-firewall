@@ -504,4 +504,22 @@ describe('normalizeUsage', () => {
       reasoning_tokens: 0,
     });
   });
+
+  test('normalizes OpenAI cached_tokens via prompt_tokens_details.cached_tokens', () => {
+    const result = normalizeUsage({
+      prompt_tokens: 43977,
+      completion_tokens: 24,
+      total_tokens: 44001,
+      prompt_tokens_details: {
+        cached_tokens: 43894,
+      },
+    });
+    expect(result).toEqual({
+      input_tokens: 43977,
+      output_tokens: 24,
+      cache_read_tokens: 43894,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+    });
+  });
 });

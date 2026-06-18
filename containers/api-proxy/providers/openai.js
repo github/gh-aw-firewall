@@ -16,7 +16,7 @@ const {
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 
-const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
+const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
 
 /**
@@ -98,21 +98,11 @@ function createOpenAIAdapter(env, deps = {}) {
     }),
   });
 
-  return {
+  return buildProviderAdapter({
     name: 'openai',
     port: 10000,
-
-    /** Port 10000 is the central management port (/health, /metrics, /reflect). */
     isManagementPort: true,
-
-    /**
-     * Port 10000 always starts — even without a key — to serve the management
-     * endpoints required by the Docker healthcheck.
-     */
-    alwaysBind: true,
-
-    ...oidcRuntimeMethods,
-
+    adapterMethods,
     getAuthHeaders() {
       return resolveAuthHeaders(
         (token) => (customAuthHeader
@@ -121,13 +111,7 @@ function createOpenAIAdapter(env, deps = {}) {
         buildStaticAuthHeaders(apiKey),
       );
     },
-
-    getBodyTransform() { return bodyTransform; },
-    ...adapterMethods,
-
-    /** Port 10000 always counts toward the startup validation latch. */
-    participatesInValidation: true,
-
+    bodyTransform,
     /** Response returned when port 10000 receives a proxy request but no key is set. */
     getUnconfiguredResponse() {
       if (oidcConfigured) {
@@ -141,7 +125,12 @@ function createOpenAIAdapter(env, deps = {}) {
         body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)' },
       };
     },
-  };
+    extra: {
+      ...oidcRuntimeMethods,
+      /** Port 10000 always counts toward the startup validation latch. */
+      participatesInValidation: true,
+    },
+  });
 }
 
 module.exports = { createOpenAIAdapter };

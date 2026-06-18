@@ -52,7 +52,7 @@ steps:
       GH_REPO: ${{ github.repository }}
   - name: Fetch PR changed files
     id: pr-diff
-    if: github.event.pull_request.number
+    if: github.event.pull_request.number || github.event.inputs.item_number
     run: |
       DELIM="GHAW_PR_FILES_$(date +%s)"
       DIFF_LIMIT=50000
@@ -73,12 +73,12 @@ steps:
       rm -f "$DIFF_TMP"
     env:
       GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.item_number }}
       GH_REPO: ${{ github.repository }}
 
   - name: Fetch PR metadata
     id: pr-meta
-    if: github.event.pull_request.number
+    if: github.event.pull_request.number || github.event.inputs.item_number
     run: |
       DELIM="GHAW_PR_META_$(date +%s)"
       PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
@@ -91,7 +91,7 @@ steps:
       } >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.item_number }}
       GH_REPO: ${{ github.repository }}
 
 ---

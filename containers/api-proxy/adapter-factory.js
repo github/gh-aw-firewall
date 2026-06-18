@@ -151,7 +151,71 @@ function createAdapterMethods(opts) {
   };
 }
 
+/**
+ * Assemble a provider adapter object from its constituent parts.
+ *
+ * Every provider adapter returns the same outer object shape:
+ *   { name, port, isManagementPort, alwaysBind, getAuthHeaders, getBodyTransform,
+ *     ...adapterMethods, getUnconfiguredResponse?, getUnconfiguredHealthResponse? }
+ *
+ * This helper centralises that boilerplate so each adapter only needs to supply
+ * its provider-specific values and callbacks.  Provider-specific logic (auth
+ * header construction, OIDC plumbing, body transforms, introspection fields, etc.)
+ * is passed in via the `getAuthHeaders`, `bodyTransform`, and `extra` parameters.
+ *
+ * @param {object} opts
+ * @param {string}  opts.name              - Unique provider slug (e.g. 'openai')
+ * @param {number}  opts.port              - Port the adapter listens on
+ * @param {boolean} [opts.isManagementPort=false] - True only for port 10000 (OpenAI)
+ * @param {boolean} [opts.alwaysBind=true] - Start a stub server even when isEnabled() is false
+ * @param {object}  opts.adapterMethods    - Result of createAdapterMethods()
+ * @param {(req?: import('http').IncomingMessage) => Record<string,string>} opts.getAuthHeaders - Auth header factory
+ * @param {((body: Buffer) => Buffer|null)|null} [opts.bodyTransform=null] - Body transform wrapped into getBodyTransform()
+ * @param {(() => boolean)} [opts.isEnabled]                   - Optional isEnabled override (must be provided either here or via `extra`)
+ * @param {((url: string) => string)} [opts.transformRequestUrl] - Optional URL transformer
+ * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredResponse]       - Optional not-configured response
+ * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredHealthResponse] - Optional not-configured /health response
+ * @param {object} [opts.extra={}]         - Extra fields spread into the returned object last (e.g. OIDC runtime methods, introspection fields, overrides)
+ * @returns {import('./providers/index').ProviderAdapter}
+ */
+function buildProviderAdapter({
+  name,
+  port,
+  isManagementPort = false,
+  alwaysBind = true,
+  adapterMethods,
+  getAuthHeaders,
+  bodyTransform = null,
+  isEnabled,
+  transformRequestUrl,
+  getUnconfiguredResponse,
+  getUnconfiguredHealthResponse,
+  extra = {},
+}) {
+  const adapter = {
+    name,
+    port,
+    isManagementPort,
+    alwaysBind,
+    ...(isEnabled !== undefined ? { isEnabled } : {}),
+    getAuthHeaders,
+    ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
+    getBodyTransform() { return bodyTransform; },
+    ...adapterMethods,
+    ...(getUnconfiguredResponse !== undefined ? { getUnconfiguredResponse } : {}),
+    ...(getUnconfiguredHealthResponse !== undefined ? { getUnconfiguredHealthResponse } : {}),
+    ...extra,
+  };
+
+  if (typeof adapter.isEnabled !== 'function') {
+    throw new TypeError(`Provider adapter "${name}" must define an isEnabled() function`);
+  }
+
+  return adapter;
+}
+
 module.exports = {
   createBaseAdapterConfig,
   createAdapterMethods,
+  buildProviderAdapter,
 };
