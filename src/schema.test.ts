@@ -71,6 +71,7 @@ describe('awf-config.schema.json', () => {
           'claude-sonnet-4': 1.5,
         },
         defaultModelMultiplier: 2,
+        maxCacheMisses: 3,
         targets: {
           openai: { host: 'api.openai.com', basePath: '/v1' },
           anthropic: { host: 'api.anthropic.com', basePath: '/v1' },
@@ -179,6 +180,8 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
     expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);
     expect(validate({ apiProxy: { defaultModelMultiplier: 0 } })).toBe(false);
+    expect(validate({ apiProxy: { maxCacheMisses: 3 } })).toBe(true);
+    expect(validate({ apiProxy: { maxCacheMisses: 0 } })).toBe(false);
   });
 
   it('accepts apiProxy.requestedModel as a string', () => {

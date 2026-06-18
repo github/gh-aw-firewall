@@ -102,6 +102,15 @@ export interface RateLimitOptions {
   maxPermissionDenied?: number;
 
   /**
+   * Maximum number of consecutive cache misses allowed for the current AWF run.
+   *
+   * A cache miss is counted only when a successful response reports
+   * `input_tokens > 0` and `cache_read_tokens === 0`. Responses with
+   * `cache_read_tokens > 0` reset the miss streak to zero.
+   */
+  maxCacheMisses?: number;
+
+  /**
    * Enable effective token budget steering warnings in the API proxy
    *
    * When true, the api-proxy injects budget-warning system messages into outgoing

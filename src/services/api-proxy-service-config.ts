@@ -184,6 +184,9 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ...(config.maxPermissionDenied !== undefined && {
         AWF_MAX_PERMISSION_DENIED: String(config.maxPermissionDenied),
       }),
+      ...(config.maxCacheMisses !== undefined && {
+        AWF_MAX_CACHE_MISSES: String(config.maxCacheMisses),
+      }),
       ...(config.agentTimeout !== undefined && {
         AWF_AGENT_TIMEOUT_MINUTES: String(config.agentTimeout),
       }),

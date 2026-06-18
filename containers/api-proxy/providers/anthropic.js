@@ -18,7 +18,7 @@ const {
   makeUnconfiguredHealthResponse,
   validateAuthHeaderEnv,
 } = require('../proxy-utils');
-const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
+const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 
@@ -151,23 +151,11 @@ function createAnthropicAdapter(env, deps = {}) {
     }),
   });
 
-  return {
+  return buildProviderAdapter({
     name: 'anthropic',
     port: 10001,
     isManagementPort: false,
-
-    /**
-     * Port 10001 always starts so agents get a clear 503 "not configured"
-     * error rather than a silent connection-refused.
-     */
-    alwaysBind: true,
-
-    /**
-     * The stub server does NOT count toward the startup validation latch —
-     * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
-     */
-    isEnabled() { return !!apiKey || !!oidcProvider?.isReady(); },
-
+    adapterMethods,
     /**
      * Build Anthropic auth headers for this request.
      * Merges in the anthropic-version default and anthropic-beta (for auto-cache)
@@ -207,11 +195,12 @@ function createAnthropicAdapter(env, deps = {}) {
 
       return headers;
     },
-
-    getBodyTransform() { return composedBodyTransform; },
-    getOidcProvider() { return oidcProvider; },
-    ...adapterMethods,
-
+    bodyTransform: composedBodyTransform,
+    /**
+     * The stub server does NOT count toward the startup validation latch —
+     * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
+     */
+    isEnabled() { return !!apiKey || !!oidcProvider?.isReady(); },
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */
     getUnconfiguredResponse() {
       if (oidcRequested) {
@@ -226,7 +215,6 @@ function createAnthropicAdapter(env, deps = {}) {
         'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.'
       );
     },
-
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
       if (oidcRequested) {
@@ -234,16 +222,18 @@ function createAnthropicAdapter(env, deps = {}) {
       }
       return makeUnconfiguredHealthResponse('awf-api-proxy-anthropic', 'ANTHROPIC_API_KEY not configured in api-proxy sidecar');
     },
-
-    // Exposed for introspection (logging, tests)
-    _autoCache: autoCache,
-    _cacheTailTtl: cacheTailTtl,
-    _dropTools: dropTools,
-    _stripAnsi: stripAnsi,
-    _transformFile: transformFile,
-    _customTransformLoaded: !!customTransform,
-    _optimisationsTransform: optimisationsTransform,
-  };
+    extra: {
+      getOidcProvider() { return oidcProvider; },
+      // Exposed for introspection (logging, tests)
+      _autoCache: autoCache,
+      _cacheTailTtl: cacheTailTtl,
+      _dropTools: dropTools,
+      _stripAnsi: stripAnsi,
+      _transformFile: transformFile,
+      _customTransformLoaded: !!customTransform,
+      _optimisationsTransform: optimisationsTransform,
+    },
+  });
 }
 
 module.exports = { createAnthropicAdapter };

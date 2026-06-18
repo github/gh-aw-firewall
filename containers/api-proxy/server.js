@@ -50,6 +50,7 @@ const {
   getEffectiveTokenReflectState,
   getAiCreditsReflectState,
   getMaxRunsReflectState,
+  getMaxCacheMissesReflectState,
   getPermissionDeniedReflectState,
 } = require('./proxy-request');
 
@@ -128,6 +129,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
   getAiCreditsUsage: () => getAiCreditsReflectState(),
   getMaxRunsUsage: () => getMaxRunsReflectState(),
+  getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
 });
 

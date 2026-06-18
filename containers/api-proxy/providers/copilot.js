@@ -25,7 +25,7 @@ const {
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
 } = require('../proxy-utils');
-const { createAdapterMethods } = require('../adapter-factory');
+const { createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {
   parseByokExtraHeaders,
@@ -203,23 +203,11 @@ function createCopilotAdapter(env, deps = {}) {
     },
   });
 
-  return {
+  return buildProviderAdapter({
     name: 'copilot',
     port: 10002,
     isManagementPort: false,
-
-    /**
-     * Port 10002 always starts so agents get a clear 503 "not configured"
-     * error rather than a silent connection-refused.
-     */
-    alwaysBind: true,
-
-    /**
-     * The stub server does NOT count toward the startup validation latch —
-     * only the fully-configured server (when credentials are present) does.
-     */
-    ...oidcRuntimeMethods,
-
+    adapterMethods,
     /**
      * Build Copilot auth headers for this request.
      *
@@ -237,9 +225,9 @@ function createCopilotAdapter(env, deps = {}) {
         reqPathname = req.url || '';
       }
 
-      // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens;
-      // BYOK API keys always use 'Bearer <value>' regardless of target.
-      // Standard api.githubcopilot.com and GHEC (*.ghe.com) use 'Bearer' for all credentials.
+      // Enterprise Copilot API (GHES) requires 'token <value>' for GitHub OAuth tokens.
+      // BYOK API keys use 'Bearer' regardless of target.
+      // Standard api.githubcopilot.com and GHEC (*.ghe.com) also use 'Bearer' for all credentials.
       const isEnterprise = isGhesInstance(rawTarget, env);
 
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
@@ -272,10 +260,7 @@ function createCopilotAdapter(env, deps = {}) {
         'Copilot-Integration-Id': integrationId,
       };
     },
-
-    getBodyTransform() { return bodyTransform; },
-    ...adapterMethods,
-
+    bodyTransform,
     /** Response returned for all requests when no Copilot credentials are configured. */
     getUnconfiguredResponse() {
       if (oidcConfigured) {
@@ -291,7 +276,6 @@ function createCopilotAdapter(env, deps = {}) {
         'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY to enable this provider.'
       );
     },
-
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
       if (oidcConfigured) {
@@ -299,16 +283,18 @@ function createCopilotAdapter(env, deps = {}) {
       }
       return makeUnconfiguredHealthResponse('awf-api-proxy-copilot', 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar');
     },
-
-    // Exposed for introspection / testing
-    _githubToken: githubToken,
-    _apiKey: apiKey,
-    _integrationId: integrationId,
-    _rawTarget: rawTarget,
-    _basePath: basePath,
-    _oidcProvider: oidcProvider,
-    _awsOidcProvider: awsOidcProvider,
-  };
+    extra: {
+      ...oidcRuntimeMethods,
+      // Exposed for introspection / testing
+      _githubToken: githubToken,
+      _apiKey: apiKey,
+      _integrationId: integrationId,
+      _rawTarget: rawTarget,
+      _basePath: basePath,
+      _oidcProvider: oidcProvider,
+      _awsOidcProvider: awsOidcProvider,
+    },
+  });
 }
 
 module.exports = {

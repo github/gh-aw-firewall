@@ -14,7 +14,7 @@
  */
 
 const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
-const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
+const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { GEMINI_ENV } = require('../provider-env-constants');
 
 /**
@@ -46,27 +46,16 @@ function createGeminiAdapter(env, deps = {}) {
     modelsFetchHeaders: () => ({ 'x-goog-api-key': apiKey }),
   });
 
-  return {
+  return buildProviderAdapter({
     name: 'gemini',
     port: 10003,
     isManagementPort: false,
-
-    /**
-     * Port 10003 always starts so the Gemini CLI gets a clear 503 "not configured"
-     * error rather than a silent connection-refused.
-     */
-    alwaysBind: true,
-
-    /**
-     * The 503-fallback server does NOT count toward the startup validation latch —
-     * only the fully-configured server (when GEMINI_API_KEY is set) does.
-     */
-    isEnabled() { return !!apiKey; },
-
+    adapterMethods,
     getAuthHeaders() {
       return { 'x-goog-api-key': apiKey };
     },
-
+    bodyTransform,
+    isEnabled() { return !!apiKey; },
     /**
      * Strip Gemini SDK auth query parameters before forwarding.
      * The SDK injects ?key= (or ?apiKey=, ?api_key=) alongside the header;
@@ -78,10 +67,6 @@ function createGeminiAdapter(env, deps = {}) {
     transformRequestUrl(url) {
       return stripGeminiKeyParam(url);
     },
-
-    getBodyTransform() { return bodyTransform; },
-    ...adapterMethods,
-
     /** Response returned for all requests when no GEMINI_API_KEY is configured. */
     getUnconfiguredResponse() {
       return {
@@ -89,12 +74,11 @@ function createGeminiAdapter(env, deps = {}) {
         body: { error: 'Gemini proxy not configured (no GEMINI_API_KEY). Set GEMINI_API_KEY in the AWF runner environment to enable credential isolation.' },
       };
     },
-
     /** /health response when not configured. */
     getUnconfiguredHealthResponse() {
       return makeUnconfiguredHealthResponse('awf-api-proxy-gemini', 'GEMINI_API_KEY not configured in api-proxy sidecar');
     },
-  };
+  });
 }
 
 module.exports = { createGeminiAdapter };

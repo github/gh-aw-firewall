@@ -290,6 +290,7 @@ describe('proxyWebSocket', () => {
 describe('proxyWebSocket security guards', () => {
   let wsProxy;
   let applyMaxRunsInvocation, resetMaxRunsGuardForTests;
+  let applyMaxCacheMissesUsage, resetMaxCacheMissesGuardForTests;
   let applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests;
   let applyPermissionDenied, resetPermissionDeniedGuardForTests;
   let applyAiCreditsUsage, resetAiCreditsGuardForTests;
@@ -298,6 +299,7 @@ describe('proxyWebSocket security guards', () => {
     jest.resetModules();
     wsProxy = require('./server').proxyWebSocket;
     ({ applyMaxRunsInvocation, resetMaxRunsGuardForTests } = require('./guards/max-runs-guard'));
+    ({ applyMaxCacheMissesUsage, resetMaxCacheMissesGuardForTests } = require('./guards/max-cache-misses-guard'));
     ({ applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard'));
     ({ applyPermissionDenied, resetPermissionDeniedGuardForTests } = require('./guards/max-permission-denied-guard'));
     ({ applyAiCreditsUsage, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
@@ -309,10 +311,12 @@ describe('proxyWebSocket security guards', () => {
 
   afterEach(() => {
     delete process.env.AWF_MAX_RUNS;
+    delete process.env.AWF_MAX_CACHE_MISSES;
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_MAX_PERMISSION_DENIED;
     delete process.env.AWF_MAX_AI_CREDITS;
     resetMaxRunsGuardForTests();
+    resetMaxCacheMissesGuardForTests();
     resetEffectiveTokenGuardForTests();
     resetPermissionDeniedGuardForTests();
     resetAiCreditsGuardForTests();
@@ -340,6 +344,18 @@ describe('proxyWebSocket security guards', () => {
 
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"effective_tokens_limit_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('blocks with 429 when max-cache-misses limit is exceeded', () => {
+    process.env.AWF_MAX_CACHE_MISSES = '1';
+    applyMaxCacheMissesUsage({ input_tokens: 100, cache_read_tokens: 0 });
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_cache_misses_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
 

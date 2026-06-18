@@ -302,7 +302,7 @@ function normalizeUsage(usage) {
   return {
     input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
     output_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
-    cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+    cache_read_tokens: extractCacheReadTokens(usage) ?? 0,
     cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
     reasoning_tokens: usage.reasoning_tokens ?? 0,
   };
