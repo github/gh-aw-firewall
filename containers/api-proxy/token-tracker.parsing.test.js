@@ -211,6 +211,39 @@ describe('extractUsageFromJson', () => {
       cache_read_input_tokens: 77,
     });
   });
+
+  test('extracts OpenAI Responses API cached tokens from input_tokens_details.cached_tokens', () => {
+    // The real /responses endpoint (used by codex) reports cached prompt tokens
+    // under `input_tokens_details.cached_tokens`, not `prompt_tokens_details`.
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        id: 'resp_responses_cache',
+        model: 'gpt-5.4-mini',
+        usage: {
+          input_tokens: 707301,
+          output_tokens: 12096,
+          total_tokens: 719397,
+          input_tokens_details: {
+            cached_tokens: 672256,
+          },
+          output_tokens_details: {
+            reasoning_tokens: 7715,
+          },
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gpt-5.4-mini');
+    expect(result.usage).toEqual({
+      input_tokens: 707301,
+      output_tokens: 12096,
+      total_tokens: 719397,
+      reasoning_tokens: 7715,
+      cache_read_input_tokens: 672256,
+    });
+  });
 });
 
 // ── extractUsageFromSseLine ───────────────────────────────────────────
@@ -340,6 +373,37 @@ describe('extractUsageFromSseLine', () => {
       output_tokens: 25,
       total_tokens: 125,
       cache_read_input_tokens: 55,
+    });
+  });
+
+  test('extracts cache tokens from OpenAI Responses API input_tokens_details (streaming)', () => {
+    // Real /responses streaming final event: cached tokens live under
+    // input_tokens_details.cached_tokens (object), not prompt_tokens_details.
+    const line = JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5.4-mini',
+        usage: {
+          input_tokens: 37484,
+          output_tokens: 619,
+          total_tokens: 38103,
+          input_tokens_details: {
+            cached_tokens: 34816,
+          },
+          output_tokens_details: {
+            reasoning_tokens: 128,
+          },
+        },
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({
+      input_tokens: 37484,
+      output_tokens: 619,
+      total_tokens: 38103,
+      reasoning_tokens: 128,
+      cache_read_input_tokens: 34816,
     });
   });
 
@@ -521,6 +585,25 @@ describe('normalizeUsage', () => {
       cache_read_tokens: 43894,
       cache_write_tokens: 0,
       reasoning_tokens: 0,
+    });
+  });
+
+  test('normalizes OpenAI Responses API cached_tokens via input_tokens_details.cached_tokens', () => {
+    const result = normalizeUsage({
+      input_tokens: 707301,
+      output_tokens: 12096,
+      total_tokens: 719397,
+      input_tokens_details: {
+        cached_tokens: 672256,
+      },
+      reasoning_tokens: 7715,
+    });
+    expect(result).toEqual({
+      input_tokens: 707301,
+      output_tokens: 12096,
+      cache_read_tokens: 672256,
+      cache_write_tokens: 0,
+      reasoning_tokens: 7715,
     });
   });
 });
