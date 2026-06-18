@@ -30,15 +30,21 @@ RUN set -eux; \
       fi; \
       if [ -d /etc/apt/sources.list.d ]; then \
         find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \
     apt_update_retry() { \
       local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
-        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+        rm -rf /var/lib/apt/lists/*; \
+        if apt-get update > /tmp/apt-update.log 2>&1; then \
+          cat /tmp/apt-update.log; \
+          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
+        else \
+          cat /tmp/apt-update.log; \
+        fi; \
+        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
       done; \
       echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
       force_archive_mirror; \
