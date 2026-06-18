@@ -109,7 +109,7 @@ describe('Dockerfile COPY coverage', () => {
     };
 
     const missing = [...closure]
-      .map((abs) => path.relative(ROOT, abs))
+      .map((abs) => path.relative(ROOT, abs).split(path.sep).join('/'))
       .filter((rel) => !rel.startsWith('node_modules'))
       .filter((rel) => !isCopied(rel))
       .sort();
