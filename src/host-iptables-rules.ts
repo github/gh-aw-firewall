@@ -60,8 +60,8 @@ function getErrorStringProperty(error: unknown, property: string): string {
   return typeof error === 'object'
     && error !== null
     && property in error
-    && typeof error[property as keyof typeof error] === 'string'
-    ? error[property as keyof typeof error]
+    && typeof (error as Record<string, unknown>)[property] === 'string'
+    ? (error as Record<string, unknown>)[property] as string
     : '';
 }
 
