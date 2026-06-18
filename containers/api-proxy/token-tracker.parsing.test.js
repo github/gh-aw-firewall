@@ -7,6 +7,7 @@ const {
   extractUsageFromSseLine,
   parseSseDataLines,
   normalizeUsage,
+  extractCopilotUsageBreakdown,
 } = require('./token-tracker');
 
 // ── extractUsageFromJson ──────────────────────────────────────────────
@@ -521,5 +522,175 @@ describe('normalizeUsage', () => {
       cache_write_tokens: 0,
       reasoning_tokens: 0,
     });
+  });
+});
+
+// ── Copilot copilot_usage.token_details breakdown ─────────────────────
+
+describe('extractCopilotUsageBreakdown', () => {
+  test('returns null when copilot_usage is absent', () => {
+    expect(extractCopilotUsageBreakdown({ usage: { prompt_tokens: 10 } })).toBeNull();
+  });
+
+  test('returns null when token_details is not an array', () => {
+    expect(extractCopilotUsageBreakdown({ copilot_usage: { token_details: {} } })).toBeNull();
+  });
+
+  test('returns null when no recognizable token types are present', () => {
+    expect(extractCopilotUsageBreakdown({
+      copilot_usage: { token_details: [{ token_type: 'mystery', token_count: 5 }] },
+    })).toBeNull();
+  });
+
+  test('extracts the full input/cache_read/cache_write/output split', () => {
+    const result = extractCopilotUsageBreakdown({
+      copilot_usage: {
+        token_details: [
+          { token_type: 'input', token_count: 3857 },
+          { token_type: 'cache_read', token_count: 0 },
+          { token_type: 'cache_write', token_count: 12539 },
+          { token_type: 'output', token_count: 362 },
+        ],
+      },
+    });
+    expect(result).toEqual({
+      input_tokens: 3857,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 12539,
+      output_tokens: 362,
+    });
+  });
+
+  test('reads copilot_usage nested under a response object', () => {
+    const result = extractCopilotUsageBreakdown({
+      response: {
+        copilot_usage: { token_details: [{ token_type: 'input', token_count: 7 }] },
+      },
+    });
+    expect(result).toEqual({ input_tokens: 7 });
+  });
+
+  test('sums repeated token types and ignores malformed entries', () => {
+    const result = extractCopilotUsageBreakdown({
+      copilot_usage: {
+        token_details: [
+          { token_type: 'input', token_count: 100 },
+          { token_type: 'input', token_count: 50 },
+          { token_type: 'output', token_count: 'nope' },
+          null,
+          { token_type: 'cache_write' },
+        ],
+      },
+    });
+    expect(result).toEqual({ input_tokens: 150 });
+  });
+});
+
+// ── extractUsageFromJson + Copilot breakdown integration ──────────────
+
+describe('extractUsageFromJson with copilot_usage', () => {
+  // Real Claude-via-Copilot response shape: flattened usage.prompt_tokens
+  // lumps fresh input (3857) with cache_write (12539); the authoritative
+  // split lives only in copilot_usage.token_details.
+  const copilotBody = () => Buffer.from(JSON.stringify({
+    id: 'e6925ddf',
+    model: 'claude-sonnet-4.6',
+    choices: [{ message: { role: 'assistant', content: 'hi' } }],
+    usage: {
+      completion_tokens: 362,
+      prompt_tokens: 16396,
+      prompt_tokens_details: { cached_tokens: 0 },
+      total_tokens: 16758,
+    },
+    copilot_usage: {
+      token_details: [
+        { token_type: 'input', token_count: 3857 },
+        { token_type: 'cache_read', token_count: 0 },
+        { token_type: 'cache_write', token_count: 12539 },
+        { token_type: 'output', token_count: 362 },
+      ],
+      total_nano_aiu: 6402225000,
+    },
+  }));
+
+  test('prefers the copilot_usage split over the lumped prompt_tokens', () => {
+    const { usage, model } = extractUsageFromJson(copilotBody());
+    expect(model).toBe('claude-sonnet-4.6');
+    expect(usage.input_tokens).toBe(3857);
+    expect(usage.cache_creation_input_tokens).toBe(12539);
+    expect(usage.cache_read_input_tokens).toBe(0);
+    expect(usage.output_tokens).toBe(362);
+    // The lumped prompt_tokens is dropped so normalization uses input_tokens.
+    expect(usage.prompt_tokens).toBeUndefined();
+  });
+
+  test('normalizes to the correct cache_write split', () => {
+    const { usage } = extractUsageFromJson(copilotBody());
+    expect(normalizeUsage(usage)).toEqual({
+      input_tokens: 3857,
+      output_tokens: 362,
+      cache_read_tokens: 0,
+      cache_write_tokens: 12539,
+      reasoning_tokens: 0,
+    });
+  });
+
+  test('does not affect plain OpenAI responses without copilot_usage', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5',
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        total_tokens: 120,
+        prompt_tokens_details: { cached_tokens: 30 },
+      },
+    }));
+    expect(normalizeUsage(extractUsageFromJson(body).usage)).toEqual({
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_tokens: 30,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+    });
+  });
+
+  test('uses copilot_usage even when the flattened usage object is absent', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'claude-sonnet-4.6',
+      copilot_usage: {
+        token_details: [
+          { token_type: 'input', token_count: 200 },
+          { token_type: 'output', token_count: 10 },
+          { token_type: 'cache_write', token_count: 99 },
+        ],
+      },
+    }));
+    expect(normalizeUsage(extractUsageFromJson(body).usage)).toEqual({
+      input_tokens: 200,
+      output_tokens: 10,
+      cache_read_tokens: 0,
+      cache_write_tokens: 99,
+      reasoning_tokens: 0,
+    });
+  });
+});
+
+describe('extractUsageFromSseLine with copilot_usage', () => {
+  test('applies the copilot_usage split in a streaming final chunk', () => {
+    const line = JSON.stringify({
+      model: 'claude-sonnet-4.6',
+      usage: { prompt_tokens: 16396, completion_tokens: 362, total_tokens: 16758 },
+      copilot_usage: {
+        token_details: [
+          { token_type: 'input', token_count: 3857 },
+          { token_type: 'cache_write', token_count: 12539 },
+          { token_type: 'output', token_count: 362 },
+        ],
+      },
+    });
+    const { usage } = extractUsageFromSseLine(line);
+    expect(usage.input_tokens).toBe(3857);
+    expect(usage.cache_creation_input_tokens).toBe(12539);
+    expect(usage.prompt_tokens).toBeUndefined();
   });
 });
