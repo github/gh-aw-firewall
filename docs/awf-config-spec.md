@@ -111,6 +111,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxRuns` → *(deprecated alias for `maxTurns`; maps to `AWF_MAX_RUNS`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
+- `apiProxy.maxCacheMisses` → `--max-cache-misses <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
