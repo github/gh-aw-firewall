@@ -17,9 +17,11 @@ const {
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
   validateAuthHeaderEnv,
+  resolveOidcAuthHeaders,
 } = require('../proxy-utils');
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
+const { createProviderOidcAuth } = require('./cloud-oidc-init');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -49,32 +51,38 @@ function createAnthropicAdapter(env, deps = {}) {
     defaultTarget: 'api.anthropic.com',
   });
   const authHeaderName = validateAuthHeaderEnv('AWF_ANTHROPIC_AUTH_HEADER', env.AWF_ANTHROPIC_AUTH_HEADER, 'x-api-key');
-  const authType = (env.AWF_AUTH_TYPE || '').trim().toLowerCase();
-  const authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase();
-  const oidcRequested = authType === 'github-oidc' && authProvider === 'anthropic';
-  let oidcProvider = null;
-  if (oidcRequested) {
-    const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    if (requestUrl && requestToken) {
-      const federationRuleId = env.AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID;
-      const organizationId = env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID;
-      const serviceAccountId = env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID;
+
+  // oidcRequested tracks whether the caller asked for Anthropic OIDC, regardless
+  // of whether the token env vars (ACTIONS_ID_TOKEN_REQUEST_*) are also present.
+  // This lets getUnconfiguredResponse() give a more helpful error message when
+  // OIDC was asked for but could not be fully initialised.
+  const oidcRequested = (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'anthropic';
+
+  const {
+    oidcProvider, oidcConfigured,
+    runtimeMethods: oidcRuntimeMethods,
+  } = createProviderOidcAuth(env, {
+    staticAuthToken: apiKey,
+    oidcProviderFactory: oidcRequested ? (env) => {
+      const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+      if (!requestUrl || !requestToken) return null;
       const workspaceId = env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID;
       const tokenEndpoint = (env.AWF_AUTH_ANTHROPIC_TOKEN_URL || '').trim();
-      oidcProvider = new AnthropicOidcTokenProvider({
+      return new AnthropicOidcTokenProvider({
         requestUrl,
         requestToken,
-        federationRuleId,
-        organizationId,
-        serviceAccountId,
+        federationRuleId: env.AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,
+        organizationId: env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,
+        serviceAccountId: env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID,
         ...(workspaceId !== undefined ? { workspaceId } : {}),
         ...(tokenEndpoint ? { tokenEndpoint } : {}),
         oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'https://api.anthropic.com',
       });
-    }
-  }
-  const oidcConfigured = !!oidcProvider;
+    } : null,
+  });
+
   const oidcUnavailableError = oidcConfigured
     ? 'Anthropic OIDC token unavailable; retry shortly'
     : 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).';
@@ -165,7 +173,7 @@ function createAnthropicAdapter(env, deps = {}) {
      * The stub server does NOT count toward the startup validation latch —
      * only the fully-configured server (when ANTHROPIC_API_KEY is set) does.
      */
-    isEnabled() { return !!apiKey || !!oidcProvider?.isReady(); },
+    ...oidcRuntimeMethods,
 
     /**
      * Build Anthropic auth headers for this request.
@@ -176,16 +184,21 @@ function createAnthropicAdapter(env, deps = {}) {
      * @returns {Record<string, string>}
      */
     getAuthHeaders(req) {
-      const headers = {};
-      if (oidcProvider) {
-        const token = oidcProvider.getToken();
-        if (!token) {
-          return {};
-        }
-        headers['Authorization'] = 'Bearer ' + token;
-      } else {
-        headers[authHeaderName] = apiKey;
+      const oidcHeaders = resolveOidcAuthHeaders({
+        oidcProvider,
+        awsOidcProvider: null,
+        buildOidcHeaders: (token) => ({ 'Authorization': 'Bearer ' + token }),
+      });
+
+      // oidcHeaders === null  → OIDC not configured; fall through to static key.
+      // oidcHeaders === {}    → OIDC configured, token not yet ready; return empty so the
+      //                         request fails authentication rather than leaking the static key.
+      // oidcHeaders === {...} → OIDC token available; use it.
+      if (oidcHeaders !== null && Object.keys(oidcHeaders).length === 0) {
+        return {};
       }
+
+      const headers = oidcHeaders !== null ? { ...oidcHeaders } : { [authHeaderName]: apiKey };
 
       if (!req.headers['anthropic-version']) {
         headers['anthropic-version'] = '2023-06-01';
@@ -208,7 +221,6 @@ function createAnthropicAdapter(env, deps = {}) {
     },
 
     getBodyTransform() { return composedBodyTransform; },
-    getOidcProvider() { return oidcProvider; },
     ...adapterMethods,
 
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */

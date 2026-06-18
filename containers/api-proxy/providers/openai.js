@@ -13,13 +13,11 @@
 const {
   normalizeBasePath,
   validateAuthHeaderEnv,
-  createOidcRuntimeAdapterMethods,
-  resolveOidcAuthHeaders,
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 
 const { createBaseAdapterConfig, createAdapterMethods } = require('../adapter-factory');
-const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
+const { createProviderOidcAuth } = require('./cloud-oidc-init');
 
 /**
  * Create the OpenAI provider adapter.
@@ -61,12 +59,13 @@ function createOpenAIAdapter(env, deps = {}) {
   const bodyTransform = deps.bodyTransform || null;
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
-  const { authProvider, oidcProvider, awsOidcProvider, oidcConfigured } = resolveCloudOidcProviders(env);
-  const oidcRuntimeMethods = createOidcRuntimeAdapterMethods({
-    staticAuthToken: apiKey,
-    oidcProvider,
-    awsOidcProvider,
-  });
+  const {
+    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
+    runtimeMethods: oidcRuntimeMethods,
+    validationSkip,
+    skipModelsFetch,
+    resolveAuthHeaders,
+  } = createProviderOidcAuth(env, { staticAuthToken: apiKey });
   /**
    * Build a static-key auth header object.
    * When AWF_OPENAI_AUTH_HEADER is set, uses that header name with the raw key.
@@ -88,10 +87,8 @@ function createOpenAIAdapter(env, deps = {}) {
     defaultTarget: 'api.openai.com',
     validationPath: '/v1/models',
     validationHeaders: () => buildStaticAuthHeaders(apiKey),
-    validationSkip: () => (oidcConfigured
-      ? { skip: true, reason: 'OIDC auth; validation via token acquisition' }
-      : null),
-    skipModelsFetch: () => oidcConfigured, // Models fetched after OIDC init
+    validationSkip,
+    skipModelsFetch,
     modelsPath: '/v1/models',
     modelsFetchHeaders: () => buildStaticAuthHeaders(apiKey),
     reflectionConfigured: !!apiKey || oidcConfigured,
@@ -117,17 +114,12 @@ function createOpenAIAdapter(env, deps = {}) {
     ...oidcRuntimeMethods,
 
     getAuthHeaders() {
-      const oidcHeaders = resolveOidcAuthHeaders({
-        oidcProvider,
-        awsOidcProvider,
-        buildOidcHeaders: (token) => (customAuthHeader
+      return resolveAuthHeaders(
+        (token) => (customAuthHeader
           ? { [customAuthHeader]: token }
           : { 'Authorization': ['Bearer', token].join(' ') }),
-      });
-      if (oidcHeaders !== null) {
-        return oidcHeaders;
-      }
-      return buildStaticAuthHeaders(apiKey);
+        buildStaticAuthHeaders(apiKey),
+      );
     },
 
     getBodyTransform() { return bodyTransform; },

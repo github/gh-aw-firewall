@@ -22,7 +22,6 @@ const {
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
   composeBodyTransforms,
-  createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
 } = require('../proxy-utils');
 const { createAdapterMethods } = require('../adapter-factory');
@@ -39,7 +38,7 @@ const {
   deriveCopilotApiTarget,
   isGhesInstance,
 } = require('./copilot-auth');
-const { resolveCloudOidcProviders } = require('./cloud-oidc-init');
+const { createProviderOidcAuth } = require('./cloud-oidc-init');
 const { URL } = require('url');
 
 /**
@@ -63,23 +62,15 @@ function createCopilotAdapter(env, deps = {}) {
   // adapter's OIDC plumbing so the Copilot CLI's direct-BYOK path can exchange a
   // GitHub Actions OIDC JWT for an upstream cloud token instead of requiring a
   // static COPILOT_PROVIDER_API_KEY.
-  const {
-    authProvider,
-    oidcProvider,
-    awsOidcProvider,
-    oidcConfigured,
-  } = resolveCloudOidcProviders(env, { skipWhen: !!staticAuthToken });
-
   // authToken is consumed by the existing validation/models-fetch/auth-header paths.
   // In OIDC mode staticAuthToken is typically undefined; enablement is determined by
   // createOidcRuntimeAdapterMethods + oidcConfigured, and the real token is resolved
   // lazily inside getAuthHeaders.
   const authToken = staticAuthToken;
-  const oidcRuntimeMethods = createOidcRuntimeAdapterMethods({
-    staticAuthToken: authToken,
-    oidcProvider,
-    awsOidcProvider,
-  });
+  const {
+    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
+    runtimeMethods: oidcRuntimeMethods,
+  } = createProviderOidcAuth(env, { staticAuthToken: authToken, skipWhen: !!staticAuthToken });
   // Extra headers to inject on all requests that use the BYOK API key.
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
   // GitHub OAuth (COPILOT_GITHUB_TOKEN-only) requests.

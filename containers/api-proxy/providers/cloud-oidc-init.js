@@ -1,6 +1,10 @@
 'use strict';
 
 const { OidcTokenProvider } = require('../oidc-token-provider');
+const {
+  createOidcRuntimeAdapterMethods,
+  resolveOidcAuthHeaders,
+} = require('../proxy-utils');
 
 /**
  * Resolve cloud OIDC providers (Azure/AWS/GCP) from environment variables.
@@ -75,6 +79,97 @@ function resolveCloudOidcProviders(env, options = {}) {
   };
 }
 
+/**
+ * Create the OIDC auth bundle for a provider adapter.
+ *
+ * Bundles provider resolution, runtime adapter methods, and header-resolution
+ * helpers into a single call so each provider adapter does not need to repeat
+ * the same three-step OIDC setup.
+ *
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {object} [options]
+ * @param {string|undefined} [options.staticAuthToken]
+ *   Static credential used by `runtimeMethods.isEnabled()`.
+ * @param {boolean} [options.skipWhen=false]
+ *   Skip cloud OIDC initialisation (e.g. when static auth takes precedence).
+ *   Only used when `oidcProviderFactory` is not provided.
+ * @param {((env: Record<string, string|undefined>) => any)|null} [options.oidcProviderFactory]
+ *   Optional factory for providers that use a custom OIDC token class (e.g.
+ *   Anthropic). When provided, takes precedence over `resolveCloudOidcProviders`.
+ *   The factory receives `env` and should return a provider instance or
+ *   `null`/`undefined` when not configured.
+ * @returns {{
+ *   authProvider: string,
+ *   oidcProvider: any,
+ *   awsOidcProvider: any,
+ *   oidcConfigured: boolean,
+ *   runtimeMethods: { isEnabled: () => boolean, getOidcProvider: () => any, getAwsOidcProvider: () => any },
+ *   validationSkip: () => ({ skip: true, reason: string }|null),
+ *   skipModelsFetch: () => boolean,
+ *   resolveAuthHeaders: (buildOidcHeaders: (token: string) => Record<string, string>, staticHeaders: Record<string, string>) => Record<string, string>,
+ * }}
+ */
+function createProviderOidcAuth(env, {
+  staticAuthToken = undefined,
+  skipWhen = false,
+  oidcProviderFactory = null,
+} = {}) {
+  let authProvider, oidcProvider, awsOidcProvider, oidcConfigured;
+
+  if (oidcProviderFactory !== null) {
+    authProvider = (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() || 'unknown';
+    oidcProvider = oidcProviderFactory(env) || null;
+    awsOidcProvider = null;
+    oidcConfigured = !!oidcProvider;
+  } else {
+    ({ authProvider, oidcProvider, awsOidcProvider, oidcConfigured } =
+      resolveCloudOidcProviders(env, { skipWhen }));
+  }
+
+  const runtimeMethods = createOidcRuntimeAdapterMethods({
+    staticAuthToken,
+    oidcProvider,
+    awsOidcProvider,
+  });
+
+  return {
+    authProvider,
+    oidcProvider,
+    awsOidcProvider,
+    oidcConfigured,
+    runtimeMethods,
+
+    /** Skip startup validation when OIDC is configured; token is acquired asynchronously. */
+    validationSkip() {
+      return oidcConfigured
+        ? { skip: true, reason: 'OIDC auth; validation via token acquisition' }
+        : null;
+    },
+
+    /** Skip startup model fetch when OIDC is configured; models fetched after OIDC init. */
+    skipModelsFetch() {
+      return oidcConfigured;
+    },
+
+    /**
+     * Resolve auth headers for a request: OIDC when configured, otherwise static.
+     *
+     * Returns the OIDC-built headers when a bearer-compatible token is available,
+     * an empty object when OIDC is configured but the token is not yet ready, or
+     * `staticHeaders` when OIDC is not configured at all.
+     *
+     * @param {(token: string) => Record<string, string>} buildOidcHeaders
+     * @param {Record<string, string>} staticHeaders
+     * @returns {Record<string, string>}
+     */
+    resolveAuthHeaders(buildOidcHeaders, staticHeaders) {
+      const oidcHeaders = resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeaders });
+      return oidcHeaders !== null ? oidcHeaders : staticHeaders;
+    },
+  };
+}
+
 module.exports = {
   resolveCloudOidcProviders,
+  createProviderOidcAuth,
 };
