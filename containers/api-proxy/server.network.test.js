@@ -415,6 +415,16 @@ describe('reflectEndpoints', () => {
     });
   });
 
+  it('should include cache_misses in reflect output', () => {
+    const result = reflectEndpoints();
+    expect(result.cache_misses).toEqual({
+      enabled: false,
+      max_cache_misses: null,
+      consecutive_cache_misses: 0,
+      remaining_cache_misses: null,
+    });
+  });
+
   it('should expose Copilot fallback suppression in reflect output for BYOK non-githubcopilot targets', () => {
     const prevTarget = process.env.COPILOT_API_TARGET;
     const prevProviderType = process.env.COPILOT_PROVIDER_TYPE;

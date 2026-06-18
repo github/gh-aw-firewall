@@ -28,6 +28,7 @@ interface BuildConfigInputs {
   maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
+  maxCacheMisses: number | undefined;
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
   dockerHostPathPrefix: string | undefined;
@@ -64,6 +65,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
+    maxCacheMisses,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
     dockerHostPathPrefix,
@@ -158,6 +160,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
+    maxCacheMisses,
     enableTokenSteering: options.enableTokenSteering as boolean,
     debugTokens: (options.debugTokens as boolean | undefined) ?? (process.env.AWF_DEBUG_TOKENS === '1' ? true : undefined),
     tokenLogDir: (options.tokenLogDir as string | undefined) ?? (process.env.AWF_TOKEN_LOG_DIR?.trim() || undefined),

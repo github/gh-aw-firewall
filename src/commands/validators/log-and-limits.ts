@@ -22,6 +22,7 @@ export interface LogAndLimitsResult {
   maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
+  maxCacheMisses: number | undefined;
   memoryLimit: string | undefined;
   agentImage: string | undefined;
 }
@@ -32,7 +33,7 @@ export interface LogAndLimitsResult {
  * Covers the following option groups:
  *  - `--log-level` / `logLevel`
  *  - `--anthropic-cache-tail-ttl`
- *  - `--max-effective-tokens`, `--max-model-multiplier`, `--max-runs`
+ *  - `--max-effective-tokens`, `--max-model-multiplier`, `--max-runs`, `--max-cache-misses`
  *  - `--memory-limit`, `--agent-image`, `--build-local`
  *
  * Calls `process.exit(1)` on any validation failure so the caller always
@@ -159,6 +160,18 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     process.exit(1);
   }
 
+  const maxCacheMissesOption = (options as Record<string, unknown>).maxCacheMisses as
+    | string
+    | number
+    | undefined;
+  const maxCacheMisses =
+    maxCacheMissesOption !== undefined ? Number(maxCacheMissesOption) : undefined;
+
+  if (maxCacheMisses !== undefined && (!Number.isInteger(maxCacheMisses) || maxCacheMisses <= 0)) {
+    console.error('Error: Invalid maxCacheMisses value (must be a positive integer)');
+    process.exit(1);
+  }
+
   logger.setLevel(logLevel);
 
   // --- Resource limits -----------------------------------------------------
@@ -193,6 +206,7 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
     maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
+    maxCacheMisses,
     memoryLimit: memoryLimit.value,
     agentImage: agentImageResult.agentImage,
   };

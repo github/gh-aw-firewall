@@ -337,6 +337,7 @@ export function assembleAndValidateConfig(
     maxModelMultiplierCap: logAndLimits.maxModelMultiplierCap,
     maxRuns: logAndLimits.maxRuns,
     maxPermissionDenied: logAndLimits.maxPermissionDenied,
+    maxCacheMisses: logAndLimits.maxCacheMisses,
     resolvedCopilotApiTarget: networkOptions.resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath: networkOptions.resolvedCopilotApiBasePath,
     dockerHostPathPrefix: networkOptions.dockerHostPathPrefixResolution.dockerHostPathPrefix,

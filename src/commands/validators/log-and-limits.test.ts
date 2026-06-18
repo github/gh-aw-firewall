@@ -71,6 +71,7 @@ describe('validateLogAndLimits – success paths', () => {
     expect(result.logLevel).toBe('info');
     expect(result.maxEffectiveTokens).toBeUndefined();
     expect(result.maxRuns).toBeUndefined();
+    expect(result.maxCacheMisses).toBeUndefined();
     expect(result.memoryLimit).toBe('6g');
     expect(result.agentImage).toBe('default');
   });
@@ -132,6 +133,11 @@ describe('validateLogAndLimits – success paths', () => {
   it('passes maxPermissionDenied through', () => {
     const result = validateLogAndLimits(minimalOptions({ maxPermissionDenied: 3 }));
     expect(result.maxPermissionDenied).toBe(3);
+  });
+
+  it('passes maxCacheMisses through', () => {
+    const result = validateLogAndLimits(minimalOptions({ maxCacheMisses: 3 }));
+    expect(result.maxCacheMisses).toBe(3);
   });
 
   it('passes modelAliases through', () => {
@@ -210,6 +216,16 @@ describe('validateLogAndLimits – validation failures', () => {
   it('exits when maxPermissionDenied is negative', () => {
     spyExit();
     expect(() => validateLogAndLimits(minimalOptions({ maxPermissionDenied: -1 }))).toThrow('process.exit called');
+  });
+
+  it('exits when maxCacheMisses is zero', () => {
+    spyExit();
+    expect(() => validateLogAndLimits(minimalOptions({ maxCacheMisses: 0 }))).toThrow('process.exit called');
+  });
+
+  it('exits when maxCacheMisses is not an integer', () => {
+    spyExit();
+    expect(() => validateLogAndLimits(minimalOptions({ maxCacheMisses: '2.5' }))).toThrow('process.exit called');
   });
 
   it('exits when maxModelMultiplier string is malformed', () => {

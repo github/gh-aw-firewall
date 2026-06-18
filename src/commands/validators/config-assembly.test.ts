@@ -96,6 +96,7 @@ describe('config-assembly', () => {
     effectiveTokenDefaultModelMultiplier: undefined,
     maxRuns: undefined,
     maxPermissionDenied: undefined,
+    maxCacheMisses: undefined,
   });
 
   const createMinimalNetworkOptions = (): NetworkOptionsResult => ({

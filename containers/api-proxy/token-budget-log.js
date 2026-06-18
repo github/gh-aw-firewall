@@ -2,6 +2,7 @@
 
 const { applyEffectiveTokenUsage } = require('./guards/effective-token-guard');
 const { applyAiCreditsUsage } = require('./guards/ai-credits-guard');
+const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
 
 /**
  * Apply effective-token and AI-credits usage guards, emit a token_budget_usage
@@ -19,6 +20,7 @@ const { applyAiCreditsUsage } = require('./guards/ai-credits-guard');
 function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model) {
   const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
   const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
+  applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {
     logRequest('info', 'token_budget_usage', {
       request_id: requestId,
