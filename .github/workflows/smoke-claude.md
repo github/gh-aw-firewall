@@ -136,6 +136,15 @@ post-steps:
 
 # Smoke Test: Claude Engine Validation
 
+<!--
+  The `${{ github.run_id }}` reference below is intentional and load-bearing.
+  gh-aw only emits the prompt "Interpolate variables and render templates" step
+  (which resolves `{{#runtime-import}}` directives) when the prompt body contains
+  a GitHub Actions expression. Without it, this workflow's self-import is left
+  literal, the agent receives no task, and it calls `noop` — failing the
+  pull_request `add_comment` post-check. Run: ${{ github.run_id }}
+-->
+
 All data is pre-computed. Read `/tmp/gh-aw/agent/final-result.json` (one bash call: `cat /tmp/gh-aw/agent/final-result.json`).
 
 The JSON contains: `result` (PASS/FAIL), `api_status`, `gh_check`, `file_status`, `event`, `pr_number`.
