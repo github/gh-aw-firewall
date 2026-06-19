@@ -84,9 +84,10 @@ steps:
   - name: Check existing duplicate issues
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      EXPR_GITHUB_REPOSITORY: ${{ github.repository }}
     run: |
       gh issue list \
-        --repo "${{ github.repository }}" \
+        --repo "$EXPR_GITHUB_REPOSITORY" \
         --search "\"[Duplicate Code]\" in:title" \
         --state all --limit 50 \
         --json number,title,state,stateReason \
