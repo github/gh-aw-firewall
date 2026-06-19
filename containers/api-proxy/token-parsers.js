@@ -61,7 +61,8 @@ function extractReasoningTokens(usage) {
  *
  * Supports:
  *  - Anthropic: usage.cache_read_input_tokens
- *  - OpenAI/Copilot: usage.prompt_tokens_details.cached_tokens
+ *  - OpenAI Chat Completions / Copilot: usage.prompt_tokens_details.cached_tokens
+ *  - OpenAI Responses API: usage.input_tokens_details.cached_tokens
  *  - Token-entry arrays containing { token_type: "cache_read", token_count: <n> }
  */
 function extractCacheReadTokens(usage) {
@@ -75,7 +76,11 @@ function extractCacheReadTokens(usage) {
     return usage.prompt_tokens_details.cached_tokens;
   }
 
-  // OpenAI Responses API: usage.input_tokens_details.cached_tokens (plain object form)
+  // OpenAI Responses API (/responses) reports cached prompt tokens under
+  // `input_tokens_details.cached_tokens` (an object), rather than the Chat
+  // Completions `prompt_tokens_details.cached_tokens`. Without this branch the
+  // value falls through to the array loop below, which only handles token-entry
+  // arrays, so cache reads are silently dropped (reported as 0).
   if (usage.input_tokens_details && typeof usage.input_tokens_details.cached_tokens === 'number') {
     return usage.input_tokens_details.cached_tokens;
   }
@@ -397,7 +402,9 @@ function parseSseDataLines(text) {
  * Output fields:
  *   - input_tokens: number (from Anthropic input_tokens or OpenAI prompt_tokens)
  *   - output_tokens: number (from Anthropic output_tokens or OpenAI completion_tokens)
- *   - cache_read_tokens: number (from Anthropic cache_read_input_tokens or OpenAI prompt_tokens_details.cached_tokens)
+ *   - cache_read_tokens: number (from Anthropic cache_read_input_tokens,
+ *       OpenAI Chat Completions prompt_tokens_details.cached_tokens, or
+ *       OpenAI Responses API input_tokens_details.cached_tokens)
  *   - cache_write_tokens: number (Anthropic cache_creation_input_tokens or
  *       Copilot copilot_usage cache_write; not available in flattened OpenAI usage)
  */
