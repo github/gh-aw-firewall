@@ -17,6 +17,7 @@ import * as os from 'os';
 // Mock execa module
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
+import { mockStartupRetry, expectComposeUpAttempts } from './test-helpers/startup-retry.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -129,10 +130,7 @@ describe('docker-manager lifecycle', () => {
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
         ['compose', 'down', '-v', '-t', '1'],
@@ -141,23 +139,14 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should retry once when awf-api-proxy exits during startup', async () => {
-      // 1. docker rm (initial cleanup)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 2. docker compose up (first attempt - fails with api-proxy exit)
-      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
-      // 3. docker logs --tail 50 awf-api-proxy (get logs for diagnosis)
-      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy startup logs', stderr: '', exitCode: 0 } as any);
-      // 4. docker compose down (cleanup before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 5. docker compose up (retry - succeeds)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      mockStartupRetry({
+        firstError: 'dependency failed to start: container awf-api-proxy exited (1)',
+        logs: 'api-proxy startup logs',
+      });
 
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     it('should retry once when docker compose only reports a generic error but awf-api-proxy already exited', async () => {
@@ -181,10 +170,7 @@ describe('docker-manager lifecycle', () => {
       );
       expect(inspectCalls).toHaveLength(1);
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     it('should throw clear error when awf-api-proxy fails its health check on both attempts', async () => {
@@ -249,47 +235,28 @@ describe('docker-manager lifecycle', () => {
     });
 
     it('should retry once when awf-api-proxy exits (1) during startup', async () => {
-      // 1. docker rm (initial cleanup)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 2. docker compose up (first attempt - fails with api-proxy exited)
-      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-api-proxy exited (1)'));
-      // 3. docker logs --tail 50 awf-api-proxy (get logs for diagnosis)
-      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy startup logs', stderr: '', exitCode: 0 } as any);
-      // 4. docker compose down (cleanup before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 5. docker compose up (retry - succeeds)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      mockStartupRetry({
+        firstError: 'dependency failed to start: container awf-api-proxy exited (1)',
+        logs: 'api-proxy startup logs',
+      });
 
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     it('should retry once when awf-squid fails its health check', async () => {
-      // 1. docker rm (initial cleanup)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 2. docker compose up (fails with squid unhealthy)
-      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-squid is unhealthy'));
-      // 3. docker inspect awf-api-proxy (fallback check - not unhealthy)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 4. docker logs --tail 50 awf-squid (diagnosis before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: 'squid startup logs', stderr: '', exitCode: 0 } as any);
-      // 5. docker compose down (cleanup before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 6. docker compose up (retry - succeeds)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      mockStartupRetry({
+        firstError: 'dependency failed to start: container awf-squid is unhealthy',
+        inspectBeforeLogs: '', // fallback inspect of awf-api-proxy returns empty (not unhealthy)
+        logs: 'squid startup logs',
+      });
 
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Verify retry happened: compose up was called twice
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
       // Verify only awf-api-proxy fallback inspect ran for this squid-specific error
       const apiProxyInspectCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
         call[0] === 'docker' && Array.isArray(call[1]) && call[1][0] === 'inspect' && call[1][1] === 'awf-api-proxy'
@@ -318,10 +285,7 @@ describe('docker-manager lifecycle', () => {
       );
 
       // Verify no retry happened: compose up should be called once
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(1);
+      expectComposeUpAttempts(1);
     });
 
     it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
@@ -396,32 +360,19 @@ describe('docker-manager lifecycle', () => {
       );
       expect(squidInspectCalls).toHaveLength(1);
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     it('should retry once when awf-squid exits during startup', async () => {
-      // 1. docker rm (initial cleanup)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 2. docker compose up (fails with squid exit)
-      mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-squid exited (1)'));
-      // 3. docker inspect awf-api-proxy (fallback check - not unhealthy)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 4. docker logs --tail 50 awf-squid (diagnosis before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: 'squid startup logs', stderr: '', exitCode: 0 } as any);
-      // 5. docker compose down (cleanup before retry)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-      // 6. docker compose up (retry - succeeds)
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      mockStartupRetry({
+        firstError: 'dependency failed to start: container awf-squid exited (1)',
+        inspectBeforeLogs: '', // fallback inspect of awf-api-proxy returns empty (not unhealthy)
+        logs: 'squid startup logs',
+      });
 
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     it('should throw and dump squid logs when awf-squid fails its health check on both attempts', async () => {
@@ -446,10 +397,7 @@ describe('docker-manager lifecycle', () => {
         'dependency failed to start: container awf-squid is unhealthy'
       );
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
   });
 
