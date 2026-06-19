@@ -4,7 +4,7 @@ const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
-const { PROVIDER_ANTHROPIC } = require('../provider-names');
+const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -171,7 +171,7 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   if (!pricing) return null;
 
   // input_tokens semantics differ by provider:
-  //  - Anthropic reports input_tokens as the NON-cached input only;
+  //  - Anthropic and Copilot report input_tokens as the NON-cached input only;
   //    cache_read_input_tokens and cache_creation_input_tokens are reported
   //    separately and are ADDITIVE to input_tokens. Subtracting them here would
   //    over-subtract and undercount the genuinely-fresh input tokens.
@@ -181,7 +181,7 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const reportedInput = normalizedUsage.input_tokens || 0;
   const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
   const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
-  const nonCachedInput = provider === PROVIDER_ANTHROPIC
+  const nonCachedInput = provider === PROVIDER_ANTHROPIC || provider === PROVIDER_COPILOT
     ? reportedInput
     : Math.max(0, reportedInput - cacheReadTokens - cacheWriteTokens);
 

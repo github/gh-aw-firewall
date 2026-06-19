@@ -157,6 +157,21 @@ describe('ai-credits-guard', () => {
     expect(usage.aiCreditsThisResponse).toBeCloseTo(15.6111, 4);
   });
 
+  it('treats Copilot input_tokens as non-cached when provider is copilot', () => {
+    const usage = applyAiCreditsUsage({
+      input_tokens: 100,
+      cache_read_tokens: 10_000,
+      output_tokens: 0,
+    }, 'gpt-5.4', 'copilot');
+
+    // inputCredits = 100 × $2.50 / 10000 = 0.025
+    // cachedInputCredits = 10_000 × $0.25 / 10000 = 0.25
+    // total = 0.275
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(0.025, 10);
+    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(0.25, 10);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.275, 10);
+  });
+
   it('warns and skips usage for unknown models', () => {
     const { lines } = collectLogOutput();
     const usage = applyAiCreditsUsage({ input_tokens: 100 }, 'unknown-model');

@@ -1,6 +1,7 @@
 /**
- * Tests for proxyRequest guards: effective token limit (403) and
- * max-runs limit (403).
+ * Tests for proxyRequest token and permission guard behavior, including
+ * effective-token, max-runs, max-cache-misses, AI-credits, and
+ * permission-denied enforcement paths.
  *
  * Extracted from server.proxy.test.js.
  */
