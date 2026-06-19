@@ -3,6 +3,8 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 
 const setupIptablesPath = path.resolve(__dirname, '../../containers/agent/setup-iptables.sh');
+const functionDefinitionRegex = (name: string) => new RegExp(`^\\s*(?:function\\s+)?${name}(?:\\s*\\(\\s*\\))?\\s*\\{`, 'm');
+const standaloneCallRegex = (name: string) => new RegExp(`^\\s*${name}\\s*(?:#.*)?$`);
 
 describe('setup-iptables phase functions', () => {
   it('defines expected phase functions', () => {
@@ -29,16 +31,16 @@ describe('setup-iptables phase functions', () => {
     ];
 
     for (const fn of requiredFunctions) {
-      expect(source).toMatch(new RegExp(`^${fn}\\(\\) \\{`, 'm'));
+      expect(source).toMatch(functionDefinitionRegex(fn));
     }
   });
 
   it('calls rule setup phases in main() order', () => {
     const source = fs.readFileSync(setupIptablesPath, 'utf-8');
-    const match = source.match(/^main\(\) \{\n([\s\S]*?)^\}/m);
+    const match = source.match(/^\s*(?:function\s+)?main(?:\s*\(\s*\))?\s*\{\s*\r?\n([\s\S]*?)^\s*\}/m);
 
     expect(match).not.toBeNull();
-    const mainBlock = match?.[1] ?? '';
+    const mainLines = (match?.[1] ?? '').split(/\r?\n/);
 
     const requiredCalls = [
       'check_ip6tables_availability',
@@ -56,7 +58,10 @@ describe('setup-iptables phase functions', () => {
 
     let lastIndex = -1;
     for (const call of requiredCalls) {
-      const index = mainBlock.indexOf(call);
+      const index = mainLines.findIndex(
+        (line, lineIndex) => lineIndex > lastIndex && standaloneCallRegex(call).test(line)
+      );
+
       expect(index).toBeGreaterThan(lastIndex);
       lastIndex = index;
     }
