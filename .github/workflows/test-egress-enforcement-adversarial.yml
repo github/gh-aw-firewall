@@ -34,6 +34,12 @@ on:
         description: "Domain that must be blocked"
         default: "example.com"
         required: false
+  # Temporary: lets the experiment run on its own feature branch before the
+  # file reaches the default branch (workflow_dispatch only dispatches from
+  # default). Remove before merge.
+  push:
+    branches: [fix/gvisor-workflow-healthchecks]
+    paths: [".github/workflows/test-egress-enforcement-adversarial.yml"]
 
 permissions:
   contents: read
