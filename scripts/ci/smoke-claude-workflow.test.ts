@@ -10,6 +10,8 @@ describe('smoke claude workflow optimization config', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
     expect(source).toContain('max-turns: 5');
+    expect(source).toContain('concurrency:');
+    expect(source).toContain('cancel-in-progress: true');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -17,11 +19,15 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('> "$CONTEXT_FILE"');
     expect(source).toContain('Compute final smoke result');
     expect(source).toContain('/tmp/gh-aw/agent/final-result.json');
+    expect(source).toContain('Inline smoke result for prompt');
+    expect(source).toContain('/tmp/gh-aw/agent/inline-result.md');
+    expect(source).toContain('{{#runtime-import /tmp/gh-aw/agent/inline-result.md}}');
     expect(source).toContain("echo \"$GH_CHECK\" | grep -q '✅'");
     expect(source).not.toContain('Export workflow context');
     expect(source).not.toContain('workflow-context.env');
     expect(source).toContain('github: false');
-    expect(source).not.toContain('bash:\n    - "*"');
+    expect(source).not.toContain('tools:\n  bash:');
+    expect(source).not.toContain('one bash call');
     expect(source).toContain('After calling safeoutputs, stop immediately.');
     expect(source).toContain('Report turn usage');
     expect(source).toContain('GH_AW_TURN_COUNT');
@@ -39,15 +45,21 @@ describe('smoke claude workflow optimization config', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
     expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain('cancel-in-progress: true');
+    expect(lock).toContain('smoke-claude-${{ github.event.pull_request.number || github.ref }}');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Compute final smoke result');
     expect(lock).toContain('final-result.json');
+    expect(lock).toContain('Inline smoke result for prompt');
+    expect(lock).toContain('inline-result.md');
     expect(lock).not.toContain('Export workflow context');
     expect(lock).not.toContain('<< ENVEOF');
     expect(lock).toContain('Report turn usage');
     expect(lock).toContain('target: 1');
     expect(lock).toMatch(/github\/gh-aw-actions\/setup@[a-f0-9]{40} # v\d+\.\d+\.\d+/);
+    expect(lock).not.toContain('Bash(bash)');
+    expect(lock).not.toContain('Read `/tmp/gh-aw/agent/final-result.json`');
     expect(lock).not.toContain('mcp__playwright__browser_navigate');
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');

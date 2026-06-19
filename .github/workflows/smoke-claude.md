@@ -16,6 +16,9 @@ permissions:
   
 name: Smoke Claude
 max-turns: 5
+concurrency:
+  group: "smoke-claude-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
 engine:
   id: claude
   model: claude-haiku-4-5
@@ -43,8 +46,6 @@ jobs:
       - name: Token-usage sanity check
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude
 tools:
-  bash:
-    - bash
   github: false
 safe-outputs:
     threat-detection:
@@ -110,6 +111,16 @@ steps:
         '{result: $result, api_status: $api_status, gh_check: $gh_check, file_status: $file_status, pr_number: $pr_number, event: $event}' \
         > /tmp/gh-aw/agent/final-result.json
       echo "Pre-computed result: $TOTAL (API=$API_STATUS, GH=$CHECK_STATUS, File=$FILE_STATUS)"
+  - name: Inline smoke result for prompt
+    run: |
+      {
+        echo "## Pre-computed smoke result"
+        echo
+        echo '```json'
+        cat /tmp/gh-aw/agent/final-result.json
+        echo '```'
+      } > /tmp/gh-aw/agent/inline-result.md
+      echo "Inline smoke result ready at /tmp/gh-aw/agent/inline-result.md"
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -145,7 +156,9 @@ post-steps:
   pull_request `add_comment` post-check. Run: ${{ github.run_id }}
 -->
 
-All data is pre-computed. Read `/tmp/gh-aw/agent/final-result.json` (one bash call: `cat /tmp/gh-aw/agent/final-result.json`).
+All data is pre-computed below. Do not call bash or any GitHub tools.
+
+{{#runtime-import /tmp/gh-aw/agent/inline-result.md}}
 
 The JSON contains: `result` (PASS/FAIL), `api_status`, `gh_check`, `file_status`, `event`, `pr_number`.
 
