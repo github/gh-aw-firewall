@@ -162,8 +162,8 @@
     },
     "model_multiplier": {
       "type": "number",
-      "minimum": 0,
-      "description": "Per-model cost multiplier applied to the effective token calculation for this request. Present only when apiProxy.maxEffectiveTokens is configured and a multiplier is active."
+      "exclusiveMinimum": 0,
+      "description": "Per-model cost multiplier applied to the effective token calculation for this request. Present only when apiProxy.maxEffectiveTokens is configured."
     }
   }
 }
