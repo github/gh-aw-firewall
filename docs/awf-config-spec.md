@@ -981,7 +981,7 @@ zero.
 The API proxy MUST enforce the cache-miss limit as follows:
 
 1. **Post-response counting**: After receiving each successful upstream
-   response, the proxy inspects the normalised token usage and increments or
+   response, the proxy inspects the normalized token usage and increments or
    resets the miss streak counter.
 
 2. **Pre-request check**: Before forwarding each subsequent request to the
@@ -1019,7 +1019,7 @@ The `/reflect` endpoint (available on all provider ports 10000–10003; see
 
 ```json
 {
-  "max_cache_misses": {
+  "cache_misses": {
     "enabled": true,
     "max_cache_misses": 3,
     "consecutive_cache_misses": 1,
