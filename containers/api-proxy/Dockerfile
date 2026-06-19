@@ -29,7 +29,8 @@ COPY server.js logging.js metrics.js rate-limiter.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js \
      token-budget-log.js blocked-request-diagnostics.js \
-     provider-env-constants.js ./
+     provider-env-constants.js \
+     _debug-responses-capture.js ./
 COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/

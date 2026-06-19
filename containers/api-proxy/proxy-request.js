@@ -15,6 +15,7 @@ const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
 const { injectSteeringMessage } = require('./body-transform');
+const _debugCapture = require('./_debug-responses-capture'); // TEMPORARY DEBUG — DO NOT MERGE
 const {
   maybeStripLearnedHeaderValues,
   resetDeprecatedHeaderValuesForTests,
@@ -323,6 +324,7 @@ function sendUpstreamRequest(requestHeaders, {
   hasRetried = false,
   modelNotSupportedRetryCount = 0,
 }) {
+  _debugCapture.captureRequest(upstreamPath, body, requestId); // TEMPORARY DEBUG — DO NOT MERGE
   const options = {
     hostname: targetHost, port: 443, path: upstreamPath,
     method: req.method, headers: requestHeaders,
