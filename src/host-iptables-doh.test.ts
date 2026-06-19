@@ -10,6 +10,8 @@ describe('host-iptables (doh)', () => {
       mockedExeca
         // Mock getNetworkBridgeName
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        // Mock iptables --version
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         // Mock iptables -L DOCKER-USER (permission check)
         .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         // Mock chain existence check (doesn't exist)
@@ -48,6 +50,7 @@ describe('host-iptables (doh)', () => {
     it('should not add DoH rules when dohProxyIp is not provided', async () => {
       mockedExeca
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }))
         .mockResolvedValueOnce(execaResult({ exitCode: 1 }));
 

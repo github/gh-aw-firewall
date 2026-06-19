@@ -61,7 +61,8 @@ function extractReasoningTokens(usage) {
  *
  * Supports:
  *  - Anthropic: usage.cache_read_input_tokens
- *  - OpenAI/Copilot: usage.prompt_tokens_details.cached_tokens
+ *  - OpenAI Chat Completions / Copilot: usage.prompt_tokens_details.cached_tokens
+ *  - OpenAI Responses API: usage.input_tokens_details.cached_tokens
  *  - Token-entry arrays containing { token_type: "cache_read", token_count: <n> }
  */
 function extractCacheReadTokens(usage) {
@@ -73,6 +74,15 @@ function extractCacheReadTokens(usage) {
 
   if (usage.prompt_tokens_details && typeof usage.prompt_tokens_details.cached_tokens === 'number') {
     return usage.prompt_tokens_details.cached_tokens;
+  }
+
+  // OpenAI Responses API (/responses) reports cached prompt tokens under
+  // `input_tokens_details.cached_tokens` (an object), rather than the Chat
+  // Completions `prompt_tokens_details.cached_tokens`. Without this branch the
+  // value falls through to the array loop below, which only handles token-entry
+  // arrays, so cache reads are silently dropped (reported as 0).
+  if (usage.input_tokens_details && typeof usage.input_tokens_details.cached_tokens === 'number') {
+    return usage.input_tokens_details.cached_tokens;
   }
 
   const tokenContainers = [
@@ -116,6 +126,71 @@ function extractCacheReadTokens(usage) {
   }
 
   return undefined;
+}
+
+/**
+ * Extract the authoritative per-type token breakdown from a Copilot
+ * `copilot_usage.token_details` array.
+ *
+ * The GitHub Copilot OpenAI-compatible endpoint reports a flattened
+ * `usage` object where `prompt_tokens` lumps fresh input together with
+ * cache-write tokens, and `prompt_tokens_details.cached_tokens` only
+ * carries cache-read. The true split (input / cache_read / cache_write /
+ * output), which is billed at distinct rates, is only available in the
+ * sibling `copilot_usage.token_details` array, e.g.:
+ *
+ *   copilot_usage: { token_details: [
+ *     { token_type: "input",       token_count: 3857 },
+ *     { token_type: "cache_read",  token_count: 0 },
+ *     { token_type: "cache_write", token_count: 12539 },
+ *     { token_type: "output",      token_count: 362 },
+ *   ] }
+ *
+ * Returns Anthropic-normalized usage fields (input_tokens, output_tokens,
+ * cache_read_input_tokens, cache_creation_input_tokens) so downstream
+ * normalization records the correct cache_write split, or null when no
+ * recognizable token_details are present.
+ *
+ * @param {object} json - Parsed response JSON (or SSE event object)
+ * @returns {object|null}
+ */
+function extractCopilotUsageBreakdown(json) {
+  if (!json || typeof json !== 'object') return null;
+  const copilotUsage = (json.copilot_usage && typeof json.copilot_usage === 'object')
+    ? json.copilot_usage
+    : ((json.response && json.response.copilot_usage && typeof json.response.copilot_usage === 'object')
+      ? json.response.copilot_usage
+      : null);
+  if (!copilotUsage || !Array.isArray(copilotUsage.token_details)) return null;
+
+  const out = {};
+  let found = false;
+  for (const entry of copilotUsage.token_details) {
+    if (!entry || typeof entry !== 'object') continue;
+    const count = entry.token_count;
+    if (typeof count !== 'number') continue;
+    switch (entry.token_type) {
+      case 'input':
+        out.input_tokens = (out.input_tokens || 0) + count;
+        found = true;
+        break;
+      case 'output':
+        out.output_tokens = (out.output_tokens || 0) + count;
+        found = true;
+        break;
+      case 'cache_read':
+        out.cache_read_input_tokens = (out.cache_read_input_tokens || 0) + count;
+        found = true;
+        break;
+      case 'cache_write':
+        out.cache_creation_input_tokens = (out.cache_creation_input_tokens || 0) + count;
+        found = true;
+        break;
+      default:
+        break;
+    }
+  }
+  return found ? out : null;
 }
 
 /**
@@ -183,6 +258,26 @@ function extractUsageFromJson(body) {
       if (hasField) {
         result.usage = usage;
       }
+    }
+
+    // Copilot exposes the authoritative input/cache_read/cache_write/output
+    // split only in the sibling `copilot_usage.token_details` array. When
+    // present, prefer it: the flattened `usage.prompt_tokens` lumps fresh
+    // input together with cache-write tokens (billed at different rates).
+    const copilotBreakdown = extractCopilotUsageBreakdown(json);
+    if (copilotBreakdown) {
+      const merged = { ...(result.usage || {}), ...copilotBreakdown };
+      if (copilotBreakdown.input_tokens !== undefined) {
+        // Copilot gave us a precise input split: drop the lumped prompt_tokens.
+        delete merged.prompt_tokens;
+      } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
+                 && typeof merged.prompt_tokens === 'number') {
+        // cache_write present but input absent: infer input = prompt_tokens - cache_write
+        // to avoid double-counting cache_write in normalizeUsage.
+        merged.input_tokens = Math.max(0, merged.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
+        delete merged.prompt_tokens;
+      }
+      result.usage = merged;
     }
 
     return result;
@@ -260,6 +355,20 @@ function extractUsageFromSseLine(line) {
       }
       const cacheReadTokens = extractCacheReadTokens(json.usage);
       if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
+      const copilotBreakdown = extractCopilotUsageBreakdown(json);
+      if (copilotBreakdown) {
+        result.usage = { ...result.usage, ...copilotBreakdown };
+        if (copilotBreakdown.input_tokens !== undefined) {
+          // Copilot gave us a precise input split: drop the lumped prompt_tokens.
+          delete result.usage.prompt_tokens;
+        } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
+                   && typeof result.usage.prompt_tokens === 'number') {
+          // cache_write present but input absent: infer input = prompt_tokens - cache_write
+          // to avoid double-counting cache_write in normalizeUsage.
+          result.usage.input_tokens = Math.max(0, result.usage.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
+          delete result.usage.prompt_tokens;
+        }
+      }
       return result;
     }
 
@@ -293,8 +402,11 @@ function parseSseDataLines(text) {
  * Output fields:
  *   - input_tokens: number (from Anthropic input_tokens or OpenAI prompt_tokens)
  *   - output_tokens: number (from Anthropic output_tokens or OpenAI completion_tokens)
- *   - cache_read_tokens: number (from Anthropic cache_read_input_tokens or OpenAI prompt_tokens_details.cached_tokens)
- *   - cache_write_tokens: number (Anthropic cache_creation_input_tokens; not available in OpenAI format)
+ *   - cache_read_tokens: number (from Anthropic cache_read_input_tokens,
+ *       OpenAI Chat Completions prompt_tokens_details.cached_tokens, or
+ *       OpenAI Responses API input_tokens_details.cached_tokens)
+ *   - cache_write_tokens: number (Anthropic cache_creation_input_tokens or
+ *       Copilot copilot_usage cache_write; not available in flattened OpenAI usage)
  */
 function normalizeUsage(usage) {
   if (!usage) return null;
@@ -314,6 +426,7 @@ module.exports = {
   createDecompressor,
   extractReasoningTokens,
   extractCacheReadTokens,
+  extractCopilotUsageBreakdown,
   extractUsageFromJson,
   extractUsageFromSseLine,
   parseSseDataLines,

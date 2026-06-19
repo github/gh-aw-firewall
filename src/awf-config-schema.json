@@ -70,12 +70,12 @@
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
+          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
         },
         "maxAiCredits": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'ai_credits_limit_exceeded'. AWF also enforces a non-overridable hard cap of 10,000 AI credits; values above 10,000 are effectively clamped."
+          "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'ai_credits_limit_exceeded'. AWF also enforces a non-overridable hard cap of 10,000 AI credits; values above 10,000 are effectively clamped."
         },
         "defaultAiCreditsPricing": {
           "type": "object",
@@ -132,7 +132,7 @@
         "maxTurns": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_runs_exceeded'. See spec §11."
+          "description": "Maximum number of LLM invocations allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'max_runs_exceeded'. See spec §11."
         },
         "maxRuns": {
           "type": "integer",
@@ -147,7 +147,7 @@
         "maxCacheMisses": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of consecutive cache misses allowed per run. A miss is counted only for successful responses with non-zero input_tokens and zero cache_read_tokens. Responses with cache_read_tokens > 0 reset the streak. When reached, the API proxy rejects subsequent requests with HTTP 429 and error type 'max_cache_misses_exceeded'."
+          "description": "Maximum number of consecutive cache misses allowed per run. A miss is counted only for successful responses with non-zero input_tokens and zero cache_read_tokens. Responses with cache_read_tokens > 0 reset the streak. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'max_cache_misses_exceeded'."
         },
         "requestedModel": {
           "type": "string",

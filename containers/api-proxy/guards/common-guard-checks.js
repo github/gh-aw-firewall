@@ -65,7 +65,11 @@ function buildCommonGuardChecks(deps, model) {
     {
       block: getEffectiveTokenBlockState(),
       isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
+      // Terminal hard cap: returning 429 would make LLM SDK clients treat this
+      // as a transient rate-limit and retry-storm against a limit that never
+      // recovers, burning the budget until the step times out. 403 is
+      // non-retryable, so the agent stops cleanly.
+      statusCode: 403,
       eventName: 'effective_tokens_limit_exceeded',
       buildError: buildEffectiveTokenLimitError,
       buildLogFields: block => ({
@@ -76,7 +80,8 @@ function buildCommonGuardChecks(deps, model) {
     {
       block: getMaxRunsBlockState(),
       isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
+      // Terminal hard cap — non-retryable (see effective-tokens guard above).
+      statusCode: 403,
       eventName: 'max_runs_exceeded',
       buildError: buildMaxRunsExceededError,
       buildLogFields: block => ({
@@ -87,7 +92,8 @@ function buildCommonGuardChecks(deps, model) {
     {
       block: getMaxCacheMissesBlockState(),
       isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
+      // Terminal hard cap — non-retryable (see effective-tokens guard above).
+      statusCode: 403,
       eventName: 'max_cache_misses_exceeded',
       buildError: buildMaxCacheMissesExceededError,
       buildLogFields: block => ({
@@ -109,7 +115,8 @@ function buildCommonGuardChecks(deps, model) {
     {
       block: getAiCreditsBlockState(),
       isBlocked: block => block && block.maxExceeded,
-      statusCode: 429,
+      // Terminal hard cap — non-retryable (see effective-tokens guard above).
+      statusCode: 403,
       eventName: 'ai_credits_limit_exceeded',
       buildError: buildAiCreditsLimitError,
       buildLogFields: block => ({

@@ -84,28 +84,92 @@ describe('ai-credits-guard', () => {
     expect(getAiCreditsReflectState().by_model['claude-sonnet-4-6-20260601'].total).toBeCloseTo(0.5175, 10);
   });
 
-  it('does not double-count cached tokens (cache_read included in input_tokens)', () => {
-    // Simulates: 3M total input, 2.9M from cache, 0.1M new input
-    // This is how Anthropic reports: input_tokens is the total (includes cache hits)
+  it('does not double-count cached tokens when input_tokens is total-inclusive (OpenAI-style)', () => {
+    // OpenAI (Chat Completions and Responses API) reports prompt_tokens/input_tokens
+    // as the TOTAL input, with cached tokens being a subset. When no provider is
+    // passed, the calculation defaults to this total-inclusive interpretation.
+    // Simulates: 3M total input, 2.9M from cache, 0.1M new input.
     const usage = applyAiCreditsUsage({
       input_tokens: 3_000_000,
       cache_read_tokens: 2_900_000,
       output_tokens: 50_000,
-    }, 'claude-sonnet-4-6');
+    }, 'gpt-5.4');
 
     // nonCached = 3M - 2.9M = 100K
-    // inputCredits = 100_000 × $3.00 / 10000 = 30
-    // cachedInputCredits = 2_900_000 × $0.30 / 10000 = 87
+    // inputCredits = 100_000 × $2.50 / 10000 = 25
+    // cachedInputCredits = 2_900_000 × $0.25 / 10000 = 72.5
     // outputCredits = 50_000 × $15.00 / 10000 = 75
-    // total = 192 AIC
-    expect(usage.inputCreditsThisResponse).toBeCloseTo(30, 5);
-    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(87, 5);
+    // total = 172.5 AIC
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(25, 5);
+    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(72.5, 5);
     expect(usage.outputCreditsThisResponse).toBeCloseTo(75, 5);
-    expect(usage.aiCreditsThisResponse).toBeCloseTo(192, 5);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(172.5, 5);
 
-    // BUG (before fix): would have been 30 + 87 + 75 + (2.9M × $3 / 10000) = 192 + 870 = 1062
-    // i.e., cached tokens counted at full price AND cache rate
+    // BUG (before fix): would have been 25 + 72.5 + 75 + (2.9M × $2.50 / 10000) = 172.5 + 725
+    // i.e., cached tokens counted at full price AND cache rate.
     expect(usage.aiCreditsThisResponse).toBeLessThan(250);
+  });
+
+  it('treats Anthropic input_tokens as non-cached (additive cache), not total-inclusive', () => {
+    // Anthropic reports input_tokens as the NON-cached input only;
+    // cache_read_input_tokens and cache_creation_input_tokens are reported
+    // separately and are ADDITIVE. The fresh input tokens must therefore be
+    // charged in full and NOT subtracted from cache totals.
+    const usage = applyAiCreditsUsage({
+      input_tokens: 2000,
+      cache_read_tokens: 10_000,
+      output_tokens: 100,
+    }, 'claude-sonnet-4-6', 'anthropic');
+
+    // nonCached = 2000 (NOT 2000 - 10000 clamped to 0)
+    // inputCredits = 2000 × $3.00 / 10000 = 0.6
+    // cachedInputCredits = 10_000 × $0.30 / 10000 = 0.3
+    // outputCredits = 100 × $15.00 / 10000 = 0.15
+    // total = 1.05 AIC
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(0.6, 10);
+    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(0.3, 10);
+    expect(usage.outputCreditsThisResponse).toBeCloseTo(0.15, 10);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(1.05, 10);
+
+    // BUG (before fix): nonCached = max(0, 2000 - 10000) = 0, undercounting the
+    // 2000 fresh input tokens → total would have been 0.45 instead of 1.05.
+    expect(usage.aiCreditsThisResponse).toBeGreaterThan(1.0);
+  });
+
+  it('charges Anthropic fresh input even when cache totals exceed input_tokens', () => {
+    // Reproduces the observed smoke-claude record: tiny fresh input alongside
+    // large cache read/write. Previously nonCached clamped to 0, dropping the
+    // fresh input charge entirely.
+    const usage = applyAiCreditsUsage({
+      input_tokens: 5,
+      cache_read_tokens: 38_673,
+      cache_write_tokens: 21_060,
+      output_tokens: 205,
+    }, 'claude-opus-4-7', 'anthropic');
+
+    // nonCached = 5 (Anthropic: additive, not subtracted)
+    // inputCredits  = 5      × $5.00  / 10000 = 0.0025
+    // cachedInput   = 38_673 × $0.50  / 10000 = 1.93365
+    // cacheWrite    = 21_060 × $6.25  / 10000 = 13.1625
+    // outputCredits = 205    × $25.00 / 10000 = 0.5125
+    // total = 15.6111
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(0.0025, 10);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(15.6111, 4);
+  });
+
+  it('treats Copilot input_tokens as non-cached when provider is copilot', () => {
+    const usage = applyAiCreditsUsage({
+      input_tokens: 100,
+      cache_read_tokens: 10_000,
+      output_tokens: 0,
+    }, 'gpt-5.4', 'copilot');
+
+    // inputCredits = 100 × $2.50 / 10000 = 0.025
+    // cachedInputCredits = 10_000 × $0.25 / 10000 = 0.25
+    // total = 0.275
+    expect(usage.inputCreditsThisResponse).toBeCloseTo(0.025, 10);
+    expect(usage.cachedInputCreditsThisResponse).toBeCloseTo(0.25, 10);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.275, 10);
   });
 
   it('warns and skips usage for unknown models', () => {

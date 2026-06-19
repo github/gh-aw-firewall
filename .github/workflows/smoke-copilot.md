@@ -45,6 +45,25 @@ sandbox:
   mcp:
     version: v0.3.1
 strict: false
+jobs:
+  verify_token_usage:
+    needs: agent
+    if: always() && needs.agent.result != 'skipped' && needs.agent.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Download agent artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent
+          path: /tmp/gh-aw-agent
+      - name: Token-usage sanity check
+        run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Pre-compute smoke test data
     id: smoke-data
