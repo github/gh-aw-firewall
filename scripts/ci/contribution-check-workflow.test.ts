@@ -13,17 +13,20 @@ describe('contribution-check workflow', () => {
     expect(source).toContain('Fetch PR metadata');
     expect(source).toContain('Fetch CONTRIBUTING.md');
     expect(source).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(source).toContain('${{ steps.pr-diff.outputs.PR_FILES }}');
-    expect(source).toContain('${{ steps.pr-meta.outputs.PR_META }}');
-    expect(source).toContain('${{ steps.contributing.outputs.CONTENT }}');
+
+    // Steps write to context files (not $GITHUB_OUTPUT), so data persists for the agent
+    expect(source).toContain('/tmp/gh-aw/contribution-check-context/contributing.md');
+    expect(source).toContain('/tmp/gh-aw/contribution-check-context/pr-files.md');
+    expect(source).toContain('/tmp/gh-aw/contribution-check-context/pr-meta.md');
   });
 
   it('instructs agent to use pre-fetched data and not re-fetch via proxy', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
-    expect(source).toContain('Use ONLY the pre-fetched data below');
+    // Agent reads from context files written by the pre-fetch steps
+    expect(source).toContain('Read the following pre-fetched context files before proceeding');
     expect(source).toContain("Do NOT call `gh pr diff`");
-    expect(source).toContain('Do not read files from the checkout');
+    expect(source).toContain('Use ONLY the pre-fetched data in these context files');
   });
 
   it('has conservative turn limit and appropriate model', () => {
