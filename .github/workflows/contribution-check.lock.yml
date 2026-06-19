@@ -482,7 +482,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         id: contributing
         name: Fetch CONTRIBUTING.md
-        run: "CONTEXT_DIR=/tmp/gh-aw/contribution-check-context\nmkdir -p \"$CONTEXT_DIR\"\ngh api \"repos/${GH_REPO}/contents/CONTRIBUTING.md\" --jq '.content' 2>/dev/null \\\n  | tr -d '\\n' | base64 -d 2>/dev/null \\\n  > \"$CONTEXT_DIR/contributing.md\" \\\n  || echo \"(CONTRIBUTING.md not found)\" > \"$CONTEXT_DIR/contributing.md\"\n"
+        run: "set -o pipefail\nCONTEXT_DIR=/tmp/gh-aw/contribution-check-context\nmkdir -p \"$CONTEXT_DIR\"\ngh api \"repos/${GH_REPO}/contents/CONTRIBUTING.md\" --jq '.content' 2>/dev/null \\\n  | tr -d '\\n' | base64 -d 2>/dev/null \\\n  > \"$CONTEXT_DIR/contributing.md\" \\\n  || echo \"(CONTRIBUTING.md not found)\" > \"$CONTEXT_DIR/contributing.md\"\n"
       - env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -1392,4 +1392,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

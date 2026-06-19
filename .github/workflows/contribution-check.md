@@ -41,6 +41,7 @@ steps:
   - name: Fetch CONTRIBUTING.md
     id: contributing
     run: |
+      set -o pipefail
       CONTEXT_DIR=/tmp/gh-aw/contribution-check-context
       mkdir -p "$CONTEXT_DIR"
       gh api "repos/${GH_REPO}/contents/CONTRIBUTING.md" --jq '.content' 2>/dev/null \
@@ -95,7 +96,7 @@ You are a contribution guidelines reviewer for the `gh-aw-firewall` (AWF) reposi
 
 ## Your Task
 
-Review PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
+Review PR #${{ github.event.pull_request.number || github.event.inputs.item_number }} in repository ${{ github.repository }}.
 
 Read the following pre-fetched context files before proceeding:
 - `/tmp/gh-aw/contribution-check-context/pr-meta.md` — PR metadata (title, author, base/head branch, description)

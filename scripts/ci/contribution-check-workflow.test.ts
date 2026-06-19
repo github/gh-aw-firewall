@@ -13,6 +13,7 @@ describe('contribution-check workflow', () => {
     expect(source).toContain('Fetch PR metadata');
     expect(source).toContain('Fetch CONTRIBUTING.md');
     expect(source).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('set -o pipefail');
 
     // Steps write to context files (not $GITHUB_OUTPUT), so data persists for the agent
     expect(source).toContain('/tmp/gh-aw/contribution-check-context/contributing.md');
@@ -27,6 +28,7 @@ describe('contribution-check workflow', () => {
     expect(source).toContain('Read the following pre-fetched context files before proceeding');
     expect(source).toContain("Do NOT call `gh pr diff`");
     expect(source).toContain('Use ONLY the pre-fetched data in these context files');
+    expect(source).toContain('Review PR #${{ github.event.pull_request.number || github.event.inputs.item_number }}');
   });
 
   it('has conservative turn limit and appropriate model', () => {
