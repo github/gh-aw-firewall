@@ -46,7 +46,7 @@ describe('resolveRunnerToolCachePath', () => {
   });
 
   it('returns the effectiveHome/work/_tool fallback when it is a directory', () => {
-    // No env var and no config → only one lstatSync call (for the fallback path)
+    // Invalid RUNNER_TOOL_CACHE (or non-directory) should fall back to effectiveHome/work/_tool when that path is a directory
     mockFs.lstatSync
       .mockImplementationOnce(() => { throw new Error('not found'); }) // env var path fails
       .mockReturnValueOnce({ isDirectory: () => true } as fs.Stats);   // fallback is a dir
