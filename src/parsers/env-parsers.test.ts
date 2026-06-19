@@ -109,8 +109,8 @@ describe('readEnvVarFromEnvFiles', () => {
   });
 
   it('escapes regex special characters in key names', () => {
-    mockFs.readFileSync.mockReturnValue('MY_KEY.DOT=value\nMY_KEY=correct');
-    const result = readEnvVarFromEnvFiles('/some/.env', 'MY_KEY');
+    mockFs.readFileSync.mockReturnValue('MY_KEYxDOT=wrong\nMY_KEY.DOT=correct');
+    const result = readEnvVarFromEnvFiles('/some/.env', 'MY_KEY.DOT');
     expect(result).toBe('correct');
   });
 
