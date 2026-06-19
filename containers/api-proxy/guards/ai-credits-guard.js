@@ -4,6 +4,7 @@ const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
+const { PROVIDER_ANTHROPIC } = require('../provider-names');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -165,17 +166,24 @@ function checkUnknownModelRejection(model) {
   };
 }
 
-function calculateAiCredits(normalizedUsage, model, state = aiCreditsState) {
+function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined) {
   const pricing = resolveModelPricing(model, state);
   if (!pricing) return null;
 
-  // Both Anthropic and OpenAI report input_tokens as the TOTAL input including
-  // cache_read and cache_creation tokens. To avoid double-counting, subtract
-  // cached portions before applying the full input rate.
-  const totalInput = normalizedUsage.input_tokens || 0;
+  // input_tokens semantics differ by provider:
+  //  - Anthropic reports input_tokens as the NON-cached input only;
+  //    cache_read_input_tokens and cache_creation_input_tokens are reported
+  //    separately and are ADDITIVE to input_tokens. Subtracting them here would
+  //    over-subtract and undercount the genuinely-fresh input tokens.
+  //  - OpenAI (and OpenAI-compatible providers) report prompt_tokens/input_tokens
+  //    as the TOTAL input, with cached tokens being a SUBSET. Those must be
+  //    subtracted before applying the full input rate to avoid double-counting.
+  const reportedInput = normalizedUsage.input_tokens || 0;
   const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
   const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
-  const nonCachedInput = Math.max(0, totalInput - cacheReadTokens - cacheWriteTokens);
+  const nonCachedInput = provider === PROVIDER_ANTHROPIC
+    ? reportedInput
+    : Math.max(0, reportedInput - cacheReadTokens - cacheWriteTokens);
 
   const inputCredits = (nonCachedInput * pricing.input) / CREDIT_DENOMINATOR;
   const cachedInputCredits = (cacheReadTokens * pricing.cachedInput) / CREDIT_DENOMINATOR;
@@ -194,10 +202,10 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState) {
   };
 }
 
-function applyAiCreditsUsage(normalizedUsage, model) {
+function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
   if (!normalizedUsage) return null;
   const safeModel = model || 'unknown';
-  const calc = calculateAiCredits(normalizedUsage, safeModel);
+  const calc = calculateAiCredits(normalizedUsage, safeModel, aiCreditsState, provider);
   if (!calc) return null;
 
   if (!Object.hasOwn(aiCreditsState.byModel, safeModel)) {

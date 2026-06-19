@@ -630,7 +630,7 @@ The API proxy MUST enforce the budget as follows:
 
 3. **Rejection**: When the budget is reached or exceeded, the proxy MUST reject the
    request with:
-   - **HTTP status**: `429 Too Many Requests`
+   - **HTTP status**: `403 Forbidden`
    - **Content-Type**: `application/json`
    - **Response body**:
      ```json
@@ -645,7 +645,7 @@ The API proxy MUST enforce the budget as follows:
      ```
 
 4. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
-   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   reject with `HTTP/1.1 403 Forbidden` and include the same JSON
    error body before destroying the socket.
 
 5. **Finality**: Once the budget is reached or exceeded, all subsequent requests in
@@ -730,12 +730,12 @@ container.
 
 When configured, the proxy MUST enforce this budget in addition to any
 configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
-exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
+exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`
 and error type `ai_credits_limit_exceeded`.
 
 Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
 hard cap of **10,000 AI credits**. When cumulative AI credits reach this hard
-cap, subsequent requests MUST be rejected with HTTP `429` and error type
+cap, subsequent requests MUST be rejected with HTTP `403` and error type
 `ai_credits_limit_exceeded`, and the error/log payload MUST include
 `hard_cap: true`.
 
@@ -837,7 +837,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 2. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
    the request with:
-   - **HTTP status**: `429 Too Many Requests`
+   - **HTTP status**: `403 Forbidden`
    - **Content-Type**: `application/json`
    - **Response body**:
      ```json
@@ -852,7 +852,7 @@ The API proxy MUST enforce the max-runs limit as follows:
      ```
 
 3. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
-   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   reject with `HTTP/1.1 403 Forbidden` and include the same JSON
    error body before destroying the socket.
 
 4. **Finality**: Once the limit is reached, all subsequent requests in the
