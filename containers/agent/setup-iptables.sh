@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "[iptables] Setting up NAT redirection to Squid proxy..."
-echo "[iptables] NOTE: Host-level DOCKER-USER chain handles egress filtering for all containers on this network"
-
 # Function to check if an IP address is IPv6
 is_ipv6() {
   local ip="$1"
@@ -25,160 +22,6 @@ has_ip6tables() {
     return 1
   fi
 }
-
-# Check ip6tables availability once at the start
-IP6TABLES_AVAILABLE=false
-if has_ip6tables; then
-  IP6TABLES_AVAILABLE=true
-  echo "[iptables] ip6tables is available"
-fi
-
-# Always disable IPv6 in the agent network namespace.
-# The Docker awf-net network and our iptables DNAT rules are IPv4-based, so
-# IPv6 connectivity would serve mainly as a way to bypass those controls.
-# Disabling IPv6 here:
-# 1. Removes IPv6 addresses/routes so traffic cannot egress over IPv6 paths
-# 2. Prevents IPv6 connections (including ::1 loopback) that would not be
-#    intercepted by IPv4-only iptables DNAT rules to the Squid proxy
-# 3. Avoids applications preferring IPv6 paths that would bypass or conflict
-#    with the intended IPv4 proxy/NAT behavior (e.g., Happy Eyeballs)
-# Note: This does not change upstream DNS responses; it only disables IPv6
-# connectivity inside the container. See: https://github.com/github/gh-aw-firewall/issues/1543
-echo "[iptables] Disabling IPv6 inside container to prevent IPv6 egress / proxy bypass..."
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
-sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
-
-# Get Squid proxy configuration from environment
-SQUID_HOST="${SQUID_PROXY_HOST:-squid-proxy}"
-SQUID_PORT="${SQUID_PROXY_PORT:-3128}"
-
-echo "[iptables] Squid proxy: ${SQUID_HOST}:${SQUID_PORT}"
-
-# Resolve Squid hostname to IP
-# If SQUID_HOST is already a valid IPv4 address, use it directly (no DNS lookup needed).
-# This is important for the init container which passes a direct IP via SQUID_PROXY_HOST
-# because getent hosts with an IP does a reverse DNS lookup that fails in Docker.
-if is_valid_ipv4 "$SQUID_HOST"; then
-  SQUID_IP="$SQUID_HOST"
-  echo "[iptables] Squid host is already an IP address: $SQUID_IP"
-else
-  # Use awk's NR to get first line to avoid host binary dependency in chroot mode
-  SQUID_IP=$(getent hosts "$SQUID_HOST" | awk 'NR==1 { print $1 }')
-  if [ -z "$SQUID_IP" ]; then
-    echo "[iptables] ERROR: Could not resolve Squid proxy hostname: $SQUID_HOST"
-    exit 1
-  fi
-  echo "[iptables] Squid IP resolved to: $SQUID_IP"
-fi
-
-# Save Docker's embedded DNS DNAT rules before flushing.
-# Docker adds DNAT rules to redirect 127.0.0.11:53 to its internal DNS server
-# on a random high port. Flushing the NAT chain destroys these rules, breaking
-# DNS resolution via Docker embedded DNS.
-DOCKER_DNS_RULES=$(iptables-save -t nat 2>/dev/null | grep -- "-A OUTPUT.*127.0.0.11" || true)
-
-# Clear existing NAT rules (both IPv4 and IPv6)
-iptables -t nat -F OUTPUT 2>/dev/null || true
-if [ "$IP6TABLES_AVAILABLE" = true ]; then
-  ip6tables -t nat -F OUTPUT 2>/dev/null || true
-fi
-
-# Restore Docker's embedded DNS DNAT rules (must come before localhost RETURN rules
-# so that DNS queries to 127.0.0.11:53 are properly redirected to Docker's DNS server)
-if [ -n "$DOCKER_DNS_RULES" ]; then
-  echo "[iptables] Restoring Docker embedded DNS DNAT rules..."
-  while IFS= read -r rule; do
-    if [ -n "$rule" ]; then
-      # iptables-save outputs rules like "-A OUTPUT -d 127.0.0.11/32 -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.11:XXXXX"
-      iptables -t nat $rule 2>/dev/null || true
-    fi
-  done <<< "$DOCKER_DNS_RULES"
-fi
-
-# Allow localhost traffic (for stdio MCP servers and test frameworks)
-echo "[iptables] Allow localhost traffic..."
-iptables -t nat -A OUTPUT -o lo -j RETURN
-iptables -t nat -A OUTPUT -d 127.0.0.0/8 -j RETURN
-iptables -t nat -A OUTPUT -d 0.0.0.0 -j RETURN
-if [ "$IP6TABLES_AVAILABLE" = true ]; then
-  ip6tables -t nat -A OUTPUT -o lo -j RETURN
-  ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN
-fi
-
-# Bypass Squid for traffic to the container's own IP.
-# Test frameworks often bind servers to 0.0.0.0 and connect via the non-loopback IP
-# (e.g., 172.30.0.20). Without this rule, the DNAT redirect rules catch self-directed
-# traffic and route it through Squid, which denies it with 403.
-AGENT_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / { split($2,a,"/"); print a[1]; exit }')
-if [ -n "$AGENT_IP" ] && is_valid_ipv4 "$AGENT_IP"; then
-  echo "[iptables] Bypass Squid for self-directed traffic (agent IP: ${AGENT_IP})..."
-  iptables -t nat -A OUTPUT -d "$AGENT_IP" -j RETURN
-  iptables -A OUTPUT -p tcp -d "$AGENT_IP" -j ACCEPT
-fi
-
-# Check if DNS-over-HTTPS mode is enabled
-if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
-  echo "[iptables] DNS-over-HTTPS mode: routing DNS through DoH proxy at $AWF_DOH_PROXY_IP"
-
-  # Allow DNS to DoH proxy
-  iptables -t nat -A OUTPUT -p udp -d "$AWF_DOH_PROXY_IP" --dport 53 -j RETURN
-  iptables -t nat -A OUTPUT -p tcp -d "$AWF_DOH_PROXY_IP" --dport 53 -j RETURN
-
-  # Allow DNS to Docker's embedded DNS server (127.0.0.11) for container name resolution
-  echo "[iptables] Allow DNS to Docker embedded DNS (127.0.0.11)..."
-  iptables -t nat -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j RETURN
-  iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
-
-  # Allow return traffic to DoH proxy
-  iptables -t nat -A OUTPUT -d "$AWF_DOH_PROXY_IP" -j RETURN
-else
-  # Simplified DNS model: Docker embedded DNS (127.0.0.11) handles all name resolution.
-  # The embedded DNS forwards to upstream servers configured via docker-compose dns: field.
-  # Docker's DNS forwarding may traverse the container's network namespace, so we must
-  # explicitly allow UDP/TCP port 53 to the configured upstream servers.
-  # Direct DNS queries to non-configured servers are blocked by the OUTPUT filter chain.
-  DNS_SERVERS="${AWF_DNS_SERVERS:-8.8.8.8,8.8.4.4}"
-  echo "[iptables] DNS: Docker embedded DNS forwards to upstream: $DNS_SERVERS"
-
-  # Allow DNS queries to configured upstream servers (needed for Docker DNS forwarding)
-  IFS=',' read -ra DNS_ARRAY <<< "$DNS_SERVERS"
-  for dns_server in "${DNS_ARRAY[@]}"; do
-    dns_server=$(echo "$dns_server" | tr -d ' ')
-    if [ -n "$dns_server" ]; then
-      if is_ipv6 "$dns_server"; then
-        if [ "$IP6TABLES_AVAILABLE" = true ]; then
-          ip6tables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
-          ip6tables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
-        fi
-      else
-        iptables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
-        iptables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
-      fi
-    fi
-  done
-
-  # Also allow DNS to Docker's embedded DNS server itself
-  iptables -t nat -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j RETURN
-  iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
-fi
-
-# Allow traffic to Squid proxy itself (prevent redirect loop)
-echo "[iptables] Allow traffic to Squid proxy (${SQUID_IP}:${SQUID_PORT})..."
-iptables -t nat -A OUTPUT -d "$SQUID_IP" -j RETURN
-
-# Allow traffic to API proxy sidecar (when enabled)
-# AWF_API_PROXY_IP is set by docker-manager.ts when --enable-api-proxy is used
-if [ -n "$AWF_API_PROXY_IP" ]; then
-  echo "[iptables] Allow traffic to API proxy sidecar (${AWF_API_PROXY_IP})..."
-  iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
-fi
-
-# Allow traffic to CLI proxy sidecar (when enabled)
-# AWF_CLI_PROXY_IP is set by docker-manager.ts when --difc-proxy-host is used
-if [ -n "$AWF_CLI_PROXY_IP" ]; then
-  echo "[iptables] Allow traffic to CLI proxy sidecar (${AWF_CLI_PROXY_IP})..."
-  iptables -t nat -A OUTPUT -d "$AWF_CLI_PROXY_IP" -j RETURN
-fi
 
 # Validate port specification (single port 1-65535 or range N-M)
 # Rejects leading zeros (e.g., 080) to align with TypeScript isValidPortSpec()
@@ -217,101 +60,13 @@ allow_service_ports_to_ip() {
   done
 }
 
-# Bypass Squid for host.docker.internal when host access is enabled.
-# MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
-# where Squid fails with "Invalid URL" because rmcp sends relative URLs.
-# The NAT RETURN prevents DNAT to Squid (which would crash on MCP traffic).
-# The FILTER ACCEPT is restricted to allowed ports only (80, 443, and --allow-host-ports).
-if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
-  HOST_GATEWAY_IP=$(getent hosts host.docker.internal | awk 'NR==1 { print $1 }')
-  if [ -n "$HOST_GATEWAY_IP" ] && is_valid_ipv4 "$HOST_GATEWAY_IP"; then
-    echo "[iptables] Allow direct traffic to host gateway (${HOST_GATEWAY_IP}) - bypassing Squid..."
-    # NAT: skip DNAT to Squid for all traffic to host gateway (prevents Squid crash)
-    iptables -t nat -A OUTPUT -d "$HOST_GATEWAY_IP" -j RETURN
-    # FILTER: only allow standard ports (80, 443) to host gateway
-    iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 80 -j ACCEPT
-    iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 443 -j ACCEPT
-    # FILTER: also allow user-specified ports from --allow-host-ports
-    if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-      IFS=',' read -ra HOST_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-      for port_spec in "${HOST_PORTS[@]}"; do
-        port_spec=$(echo "$port_spec" | xargs)
-        if ! is_valid_port_spec "$port_spec"; then
-          echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-          continue
-        fi
-        echo "[iptables]   Allow host gateway port $port_spec"
-        iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
-      done
-    fi
-  elif [ -n "$HOST_GATEWAY_IP" ]; then
-    echo "[iptables] WARNING: host.docker.internal resolved to invalid IP '${HOST_GATEWAY_IP}', skipping host gateway bypass"
-  else
-    echo "[iptables] WARNING: host.docker.internal could not be resolved, skipping host gateway bypass"
-  fi
-
-  # Also bypass Squid for the container's default network gateway.
-  # Codex resolves host.docker.internal to this IP (172.30.0.1 on the AWF network)
-  # instead of the Docker bridge gateway (172.17.0.1). Without this bypass,
-  # MCP Streamable HTTP traffic goes through Squid, which crashes on SSE connections.
-  NETWORK_GATEWAY_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
-  if [ -n "$NETWORK_GATEWAY_IP" ] && is_valid_ipv4 "$NETWORK_GATEWAY_IP" && [ "$NETWORK_GATEWAY_IP" != "$HOST_GATEWAY_IP" ]; then
-    echo "[iptables] Allow direct traffic to network gateway (${NETWORK_GATEWAY_IP}) - bypassing Squid..."
-    iptables -t nat -A OUTPUT -d "$NETWORK_GATEWAY_IP" -j RETURN
-    iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 80 -j ACCEPT
-    iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 443 -j ACCEPT
-    if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-      IFS=',' read -ra NET_GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-      for port_spec in "${NET_GW_PORTS[@]}"; do
-        port_spec=$(echo "$port_spec" | xargs)
-        if ! is_valid_port_spec "$port_spec"; then
-          echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-          continue
-        fi
-        iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
-      done
-    fi
-  elif [ -n "$NETWORK_GATEWAY_IP" ] && ! is_valid_ipv4 "$NETWORK_GATEWAY_IP"; then
-    echo "[iptables] WARNING: network gateway resolved to invalid IP '${NETWORK_GATEWAY_IP}', skipping"
-  fi
-fi
-
-# Allow host service ports (--allow-host-service-ports) ONLY to host gateway
-# These ports bypass DANGEROUS_PORTS restrictions because they are restricted
-# to the host gateway IP only (for GitHub Actions services containers).
-# Must be applied BEFORE dangerous port RETURN rules so traffic to host gateway
-# on these ports is accepted, not dropped.
-if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
-  # Parse port list once, before resolving gateway IPs, so both blocks can use it
-  IFS=',' read -ra HSP_PORTS <<< "$AWF_HOST_SERVICE_PORTS"
-
-  # Resolve host gateway IP
-  HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
-  HSP_NET_GW_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
-
-  if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
-    echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_HOST_SERVICE_PORTS"
-    # FILTER: allow traffic to host gateway on these ports
-    # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
-    allow_service_ports_to_ip "$HSP_HOST_GW_IP" "true"
-  fi
-
-  # Also allow to network gateway (same as the host access block does)
-  if [ -n "$HSP_NET_GW_IP" ] && is_valid_ipv4 "$HSP_NET_GW_IP" && [ "$HSP_NET_GW_IP" != "$HSP_HOST_GW_IP" ]; then
-    echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_HOST_SERVICE_PORTS"
-    # FILTER: allow traffic to network gateway on these ports
-    # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
-    allow_service_ports_to_ip "$HSP_NET_GW_IP"
-  fi
-fi
-
-# Block dangerous ports at NAT level (defense-in-depth with Squid ACL filtering)
-# These ports are explicitly blocked to prevent access to sensitive services
-# even if Squid ACL filtering fails. The ports RETURN from NAT (not redirected)
-# and are then blocked by the DROP rule in the OUTPUT filter chain.
-echo "[iptables] Configuring NAT blacklist for dangerous ports..."
-
-# Dangerous ports list - matches DANGEROUS_PORTS in squid-config.ts
+IP6TABLES_AVAILABLE=false
+SQUID_HOST=""
+SQUID_PORT=""
+SQUID_IP=""
+AGENT_IP=""
+DOCKER_DNS_RULES=""
+DNS_ARRAY=()
 DANGEROUS_PORTS=(
   22      # SSH
   23      # Telnet
@@ -330,134 +85,422 @@ DANGEROUS_PORTS=(
   28017   # MongoDB web interface
 )
 
-# Add NAT RETURN rules for each dangerous port
-# This prevents these ports from being redirected to Squid
-# They will be dropped by the OUTPUT filter chain's final DROP rule
-for port in "${DANGEROUS_PORTS[@]}"; do
-  iptables -t nat -A OUTPUT -p tcp --dport "$port" -j RETURN
-done
-echo "[iptables] NAT blacklist applied for ${#DANGEROUS_PORTS[@]} dangerous ports"
+check_ip6tables_availability() {
+  if has_ip6tables; then
+    IP6TABLES_AVAILABLE=true
+    echo "[iptables] ip6tables is available"
+  fi
+}
 
-# Redirect standard HTTP/HTTPS ports to Squid
-# This provides defense-in-depth: iptables enforces port policy, Squid enforces domain policy
-echo "[iptables] Redirect HTTP (80) and HTTPS (443) to Squid..."
-iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
-iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
+disable_ipv6() {
+  # Always disable IPv6 in the agent network namespace.
+  # The Docker awf-net network and our iptables DNAT rules are IPv4-based, so
+  # IPv6 connectivity would serve mainly as a way to bypass those controls.
+  # Disabling IPv6 here:
+  # 1. Removes IPv6 addresses/routes so traffic cannot egress over IPv6 paths
+  # 2. Prevents IPv6 connections (including ::1 loopback) that would not be
+  #    intercepted by IPv4-only iptables DNAT rules to the Squid proxy
+  # 3. Avoids applications preferring IPv6 paths that would bypass or conflict
+  #    with the intended IPv4 proxy/NAT behavior (e.g., Happy Eyeballs)
+  # Note: This does not change upstream DNS responses; it only disables IPv6
+  # connectivity inside the container. See: https://github.com/github/gh-aw-firewall/issues/1543
+  echo "[iptables] Disabling IPv6 inside container to prevent IPv6 egress / proxy bypass..."
+  sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.all.disable_ipv6)"
+  sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || echo "[iptables] WARNING: failed to disable IPv6 (net.ipv6.conf.default.disable_ipv6)"
+}
 
-# If user specified additional ports via --allow-host-ports, redirect those too
-if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-  echo "[iptables] Redirect user-specified ports to Squid..."
+resolve_squid_ip() {
+  # Get Squid proxy configuration from environment
+  SQUID_HOST="${SQUID_PROXY_HOST:-squid-proxy}"
+  SQUID_PORT="${SQUID_PROXY_PORT:-3128}"
 
-  # Parse comma-separated port list
-  IFS=',' read -ra PORTS <<< "$AWF_ALLOW_HOST_PORTS"
+  echo "[iptables] Squid proxy: ${SQUID_HOST}:${SQUID_PORT}"
 
-  for port_spec in "${PORTS[@]}"; do
-    # Remove leading/trailing spaces
-    port_spec=$(echo "$port_spec" | xargs)
-
-    if ! is_valid_port_spec "$port_spec"; then
-      echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-      continue
+  # Resolve Squid hostname to IP
+  # If SQUID_HOST is already a valid IPv4 address, use it directly (no DNS lookup needed).
+  # This is important for the init container which passes a direct IP via SQUID_PROXY_HOST
+  # because getent hosts with an IP does a reverse DNS lookup that fails in Docker.
+  if is_valid_ipv4 "$SQUID_HOST"; then
+    SQUID_IP="$SQUID_HOST"
+    echo "[iptables] Squid host is already an IP address: $SQUID_IP"
+  else
+    # Use awk's NR to get first line to avoid host binary dependency in chroot mode
+    SQUID_IP=$(getent hosts "$SQUID_HOST" | awk 'NR==1 { print $1 }')
+    if [ -z "$SQUID_IP" ]; then
+      echo "[iptables] ERROR: Could not resolve Squid proxy hostname: $SQUID_HOST"
+      exit 1
     fi
+    echo "[iptables] Squid IP resolved to: $SQUID_IP"
+  fi
+}
 
-    if [[ $port_spec == *"-"* ]]; then
-      # Port range (e.g., "3000-3010")
-      echo "[iptables]   Redirect port range $port_spec to Squid..."
-      # For port ranges, use --dport with range syntax (without multiport)
-      iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
-    else
-      # Single port (e.g., "3000")
-      echo "[iptables]   Redirect port $port_spec to Squid..."
-      iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
-    fi
-  done
-else
-  echo "[iptables] No additional ports specified (only 80, 443 allowed)"
-fi
+preserve_docker_dns_rules() {
+  # Save Docker's embedded DNS DNAT rules before flushing.
+  # Docker adds DNAT rules to redirect 127.0.0.11:53 to its internal DNS server
+  # on a random high port. Flushing the NAT chain destroys these rules, breaking
+  # DNS resolution via Docker embedded DNS.
+  DOCKER_DNS_RULES=$(iptables-save -t nat 2>/dev/null | grep -- "-A OUTPUT.*127.0.0.11" || true)
 
-# OUTPUT filter chain rules (defense-in-depth with NAT rules)
-# These rules apply AFTER NAT translation
-echo "[iptables] Configuring OUTPUT filter chain rules..."
+  # Clear existing NAT rules (both IPv4 and IPv6)
+  iptables -t nat -F OUTPUT 2>/dev/null || true
+  if [ "$IP6TABLES_AVAILABLE" = true ]; then
+    ip6tables -t nat -F OUTPUT 2>/dev/null || true
+  fi
 
-# Allow localhost traffic (includes Docker embedded DNS at 127.0.0.11)
-iptables -A OUTPUT -o lo -j ACCEPT
+  # Restore Docker's embedded DNS DNAT rules (must come before localhost RETURN rules
+  # so that DNS queries to 127.0.0.11:53 are properly redirected to Docker's DNS server)
+  if [ -n "$DOCKER_DNS_RULES" ]; then
+    echo "[iptables] Restoring Docker embedded DNS DNAT rules..."
+    while IFS= read -r rule; do
+      if [ -n "$rule" ]; then
+        # iptables-save outputs rules like "-A OUTPUT -d 127.0.0.11/32 -p udp -m udp --dport 53 -j DNAT --to-destination 127.0.0.11:XXXXX"
+        iptables -t nat $rule 2>/dev/null || true
+      fi
+    done <<< "$DOCKER_DNS_RULES"
+  fi
+}
 
-# Allow DNS to DoH proxy or configured upstream servers
-if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
-  iptables -A OUTPUT -p udp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
-  iptables -A OUTPUT -p tcp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
-else
-  # Allow DNS to configured upstream servers (needed for Docker DNS forwarding)
+configure_nat_bypasses() {
+  # Allow localhost traffic (for stdio MCP servers and test frameworks)
+  echo "[iptables] Allow localhost traffic..."
+  iptables -t nat -A OUTPUT -o lo -j RETURN
+  iptables -t nat -A OUTPUT -d 127.0.0.0/8 -j RETURN
+  iptables -t nat -A OUTPUT -d 0.0.0.0 -j RETURN
+  if [ "$IP6TABLES_AVAILABLE" = true ]; then
+    ip6tables -t nat -A OUTPUT -o lo -j RETURN
+    ip6tables -t nat -A OUTPUT -d ::1/128 -j RETURN
+  fi
+
+  # Bypass Squid for traffic to the container's own IP.
+  # Test frameworks often bind servers to 0.0.0.0 and connect via the non-loopback IP
+  # (e.g., 172.30.0.20). Without this rule, the DNAT redirect rules catch self-directed
+  # traffic and route it through Squid, which denies it with 403.
+  AGENT_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / { split($2,a,"/"); print a[1]; exit }')
+  if [ -n "$AGENT_IP" ] && is_valid_ipv4 "$AGENT_IP"; then
+    echo "[iptables] Bypass Squid for self-directed traffic (agent IP: ${AGENT_IP})..."
+    iptables -t nat -A OUTPUT -d "$AGENT_IP" -j RETURN
+    iptables -A OUTPUT -p tcp -d "$AGENT_IP" -j ACCEPT
+  fi
+
+  # Allow traffic to Squid proxy itself (prevent redirect loop)
+  echo "[iptables] Allow traffic to Squid proxy (${SQUID_IP}:${SQUID_PORT})..."
+  iptables -t nat -A OUTPUT -d "$SQUID_IP" -j RETURN
+
+  # Allow traffic to API proxy sidecar (when enabled)
+  # AWF_API_PROXY_IP is set by docker-manager.ts when --enable-api-proxy is used
+  if [ -n "$AWF_API_PROXY_IP" ]; then
+    echo "[iptables] Allow traffic to API proxy sidecar (${AWF_API_PROXY_IP})..."
+    iptables -t nat -A OUTPUT -d "$AWF_API_PROXY_IP" -j RETURN
+  fi
+
+  # Allow traffic to CLI proxy sidecar (when enabled)
+  # AWF_CLI_PROXY_IP is set by docker-manager.ts when --difc-proxy-host is used
+  if [ -n "$AWF_CLI_PROXY_IP" ]; then
+    echo "[iptables] Allow traffic to CLI proxy sidecar (${AWF_CLI_PROXY_IP})..."
+    iptables -t nat -A OUTPUT -d "$AWF_CLI_PROXY_IP" -j RETURN
+  fi
+}
+
+configure_dns_nat_rules() {
+  # Check if DNS-over-HTTPS mode is enabled
+  if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
+    echo "[iptables] DNS-over-HTTPS mode: routing DNS through DoH proxy at $AWF_DOH_PROXY_IP"
+
+    # Allow DNS to DoH proxy
+    iptables -t nat -A OUTPUT -p udp -d "$AWF_DOH_PROXY_IP" --dport 53 -j RETURN
+    iptables -t nat -A OUTPUT -p tcp -d "$AWF_DOH_PROXY_IP" --dport 53 -j RETURN
+
+    # Allow DNS to Docker's embedded DNS server (127.0.0.11) for container name resolution
+    echo "[iptables] Allow DNS to Docker embedded DNS (127.0.0.11)..."
+    iptables -t nat -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j RETURN
+    iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
+
+    # Allow return traffic to DoH proxy
+    iptables -t nat -A OUTPUT -d "$AWF_DOH_PROXY_IP" -j RETURN
+    return
+  fi
+
+  # Simplified DNS model: Docker embedded DNS (127.0.0.11) handles all name resolution.
+  # The embedded DNS forwards to upstream servers configured via docker-compose dns: field.
+  # Docker's DNS forwarding may traverse the container's network namespace, so we must
+  # explicitly allow UDP/TCP port 53 to the configured upstream servers.
+  # Direct DNS queries to non-configured servers are blocked by the OUTPUT filter chain.
+  local dns_servers="${AWF_DNS_SERVERS:-8.8.8.8,8.8.4.4}"
+  echo "[iptables] DNS: Docker embedded DNS forwards to upstream: $dns_servers"
+
+  # Allow DNS queries to configured upstream servers (needed for Docker DNS forwarding)
+  IFS=',' read -ra DNS_ARRAY <<< "$dns_servers"
   for dns_server in "${DNS_ARRAY[@]}"; do
     dns_server=$(echo "$dns_server" | tr -d ' ')
-    if [ -n "$dns_server" ] && ! is_ipv6 "$dns_server"; then
-      iptables -A OUTPUT -p udp -d "$dns_server" --dport 53 -j ACCEPT
-      iptables -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j ACCEPT
+    if [ -n "$dns_server" ]; then
+      if is_ipv6 "$dns_server"; then
+        if [ "$IP6TABLES_AVAILABLE" = true ]; then
+          ip6tables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
+          ip6tables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
+        fi
+      else
+        iptables -t nat -A OUTPUT -p udp -d "$dns_server" --dport 53 -j RETURN
+        iptables -t nat -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j RETURN
+      fi
     fi
   done
 
-  # Allow DNS to Docker's embedded DNS server
-  iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
-  iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
-fi
+  # Also allow DNS to Docker's embedded DNS server itself
+  iptables -t nat -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j RETURN
+  iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
+}
 
-# Allow traffic to Squid proxy (after NAT redirection)
-iptables -A OUTPUT -p tcp -d "$SQUID_IP" -j ACCEPT
+configure_host_access_rules() {
+  # Bypass Squid for host.docker.internal when host access is enabled.
+  # MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
+  # where Squid fails with "Invalid URL" because rmcp sends relative URLs.
+  # The NAT RETURN prevents DNAT to Squid (which would crash on MCP traffic).
+  # The FILTER ACCEPT is restricted to allowed ports only (80, 443, and --allow-host-ports).
+  if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
+    HOST_GATEWAY_IP=$(getent hosts host.docker.internal | awk 'NR==1 { print $1 }')
+    if [ -n "$HOST_GATEWAY_IP" ] && is_valid_ipv4 "$HOST_GATEWAY_IP"; then
+      echo "[iptables] Allow direct traffic to host gateway (${HOST_GATEWAY_IP}) - bypassing Squid..."
+      # NAT: skip DNAT to Squid for all traffic to host gateway (prevents Squid crash)
+      iptables -t nat -A OUTPUT -d "$HOST_GATEWAY_IP" -j RETURN
+      # FILTER: only allow standard ports (80, 443) to host gateway
+      iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 80 -j ACCEPT
+      iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 443 -j ACCEPT
+      # FILTER: also allow user-specified ports from --allow-host-ports
+      if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+        IFS=',' read -ra HOST_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
+        for port_spec in "${HOST_PORTS[@]}"; do
+          port_spec=$(echo "$port_spec" | xargs)
+          if ! is_valid_port_spec "$port_spec"; then
+            echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+            continue
+          fi
+          echo "[iptables]   Allow host gateway port $port_spec"
+          iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
+        done
+      fi
+    elif [ -n "$HOST_GATEWAY_IP" ]; then
+      echo "[iptables] WARNING: host.docker.internal resolved to invalid IP '${HOST_GATEWAY_IP}', skipping host gateway bypass"
+    else
+      echo "[iptables] WARNING: host.docker.internal could not be resolved, skipping host gateway bypass"
+    fi
 
-# Allow traffic to API proxy sidecar (when enabled)
-if [ -n "$AWF_API_PROXY_IP" ]; then
-  iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
-fi
+    # Also bypass Squid for the container's default network gateway.
+    # Codex resolves host.docker.internal to this IP (172.30.0.1 on the AWF network)
+    # instead of the Docker bridge gateway (172.17.0.1). Without this bypass,
+    # MCP Streamable HTTP traffic goes through Squid, which crashes on SSE connections.
+    NETWORK_GATEWAY_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
+    if [ -n "$NETWORK_GATEWAY_IP" ] && is_valid_ipv4 "$NETWORK_GATEWAY_IP" && [ "$NETWORK_GATEWAY_IP" != "$HOST_GATEWAY_IP" ]; then
+      echo "[iptables] Allow direct traffic to network gateway (${NETWORK_GATEWAY_IP}) - bypassing Squid..."
+      iptables -t nat -A OUTPUT -d "$NETWORK_GATEWAY_IP" -j RETURN
+      iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 80 -j ACCEPT
+      iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 443 -j ACCEPT
+      if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+        IFS=',' read -ra NET_GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
+        for port_spec in "${NET_GW_PORTS[@]}"; do
+          port_spec=$(echo "$port_spec" | xargs)
+          if ! is_valid_port_spec "$port_spec"; then
+            echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+            continue
+          fi
+          iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
+        done
+      fi
+    elif [ -n "$NETWORK_GATEWAY_IP" ] && ! is_valid_ipv4 "$NETWORK_GATEWAY_IP"; then
+      echo "[iptables] WARNING: network gateway resolved to invalid IP '${NETWORK_GATEWAY_IP}', skipping"
+    fi
+  fi
 
-# Allow traffic to CLI proxy sidecar (when enabled)
-if [ -n "$AWF_CLI_PROXY_IP" ]; then
-  iptables -A OUTPUT -p tcp -d "$AWF_CLI_PROXY_IP" -j ACCEPT
-fi
+  # Allow host service ports (--allow-host-service-ports) ONLY to host gateway
+  # These ports bypass DANGEROUS_PORTS restrictions because they are restricted
+  # to the host gateway IP only (for GitHub Actions services containers).
+  # Must be applied BEFORE dangerous port RETURN rules so traffic to host gateway
+  # on these ports is accepted, not dropped.
+  if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
+    # Parse port list once, before resolving gateway IPs, so both blocks can use it
+    IFS=',' read -ra HSP_PORTS <<< "$AWF_HOST_SERVICE_PORTS"
 
-# Log dangerous port access attempts for audit (rate-limited to avoid log flooding)
-# These ports are blocked by NAT RETURN + final DROP, but logging helps identify
-# what the agent tried to access
-echo "[iptables] Adding audit LOG rules for dangerous ports and default deny..."
-# Build comma-separated list from the DANGEROUS_PORTS array to stay in sync
-DANGEROUS_PORTS_LIST="$(IFS=,; echo "${DANGEROUS_PORTS[*]}")"
-iptables -A OUTPUT -p tcp -m multiport --dports "$DANGEROUS_PORTS_LIST" \
-  -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "[FW_BLOCKED_DANGEROUS_PORT] " --log-level 4 --log-uid
+    # Resolve host gateway IP
+    HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
+    HSP_NET_GW_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
 
-# Drop all other TCP and UDP traffic (default deny policy)
-# TCP: ensures only explicitly allowed ports can be accessed
-# UDP: prevents DNS exfiltration by blocking direct queries to non-configured DNS servers
-echo "[iptables] Drop all non-allowed TCP and UDP traffic (default deny)..."
-iptables -A OUTPUT -p tcp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_TCP] " --log-level 4 --log-uid
-iptables -A OUTPUT -p tcp -j DROP
-iptables -A OUTPUT -p udp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_UDP_AGENT] " --log-level 4 --log-uid
-iptables -A OUTPUT -p udp -j DROP
+    if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
+      echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_HOST_SERVICE_PORTS"
+      # FILTER: allow traffic to host gateway on these ports
+      # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+      allow_service_ports_to_ip "$HSP_HOST_GW_IP" "true"
+    fi
 
-echo "[iptables] NAT rules applied successfully"
-echo "[iptables] Current IPv4 NAT OUTPUT rules:"
-iptables -t nat -L OUTPUT -n -v
-if [ "$IP6TABLES_AVAILABLE" = true ]; then
-  echo "[iptables] Current IPv6 NAT OUTPUT rules:"
-  ip6tables -t nat -L OUTPUT -n -v
-else
-  echo "[iptables] (ip6tables NAT not available)"
-fi
+    # Also allow to network gateway (same as the host access block does)
+    if [ -n "$HSP_NET_GW_IP" ] && is_valid_ipv4 "$HSP_NET_GW_IP" && [ "$HSP_NET_GW_IP" != "$HSP_HOST_GW_IP" ]; then
+      echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_HOST_SERVICE_PORTS"
+      # FILTER: allow traffic to network gateway on these ports
+      # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
+      allow_service_ports_to_ip "$HSP_NET_GW_IP"
+    fi
+  fi
 
-# Dump full iptables state for audit trail
-# Written to the init signal volume so it can be preserved by the host
-AUDIT_FILE="/tmp/awf-init/iptables-audit.txt"
-echo "# iptables audit dump - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$AUDIT_FILE"
-echo "" >> "$AUDIT_FILE"
-echo "## IPv4 NAT rules" >> "$AUDIT_FILE"
-iptables-save -t nat >> "$AUDIT_FILE" 2>/dev/null || echo "(iptables-save not available)" >> "$AUDIT_FILE"
-echo "" >> "$AUDIT_FILE"
-echo "## IPv4 filter rules" >> "$AUDIT_FILE"
-iptables-save -t filter >> "$AUDIT_FILE" 2>/dev/null || echo "(iptables-save not available)" >> "$AUDIT_FILE"
-if [ "$IP6TABLES_AVAILABLE" = true ]; then
-  echo "" >> "$AUDIT_FILE"
-  echo "## IPv6 NAT rules" >> "$AUDIT_FILE"
-  ip6tables-save -t nat >> "$AUDIT_FILE" 2>/dev/null || true
-  echo "" >> "$AUDIT_FILE"
-  echo "## IPv6 filter rules" >> "$AUDIT_FILE"
-  ip6tables-save -t filter >> "$AUDIT_FILE" 2>/dev/null || true
-fi
-echo "[iptables] Audit state dumped to $AUDIT_FILE"
+  # Block dangerous ports at NAT level (defense-in-depth with Squid ACL filtering)
+  # These ports are explicitly blocked to prevent access to sensitive services
+  # even if Squid ACL filtering fails. The ports RETURN from NAT (not redirected)
+  # and are then blocked by the DROP rule in the OUTPUT filter chain.
+  echo "[iptables] Configuring NAT blacklist for dangerous ports..."
+
+  # Add NAT RETURN rules for each dangerous port
+  # This prevents these ports from being redirected to Squid
+  # They will be dropped by the OUTPUT filter chain's final DROP rule
+  for port in "${DANGEROUS_PORTS[@]}"; do
+    iptables -t nat -A OUTPUT -p tcp --dport "$port" -j RETURN
+  done
+  echo "[iptables] NAT blacklist applied for ${#DANGEROUS_PORTS[@]} dangerous ports"
+}
+
+configure_http_dnat() {
+  # Redirect standard HTTP/HTTPS ports to Squid
+  # This provides defense-in-depth: iptables enforces port policy, Squid enforces domain policy
+  echo "[iptables] Redirect HTTP (80) and HTTPS (443) to Squid..."
+  iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
+  iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
+
+  # If user specified additional ports via --allow-host-ports, redirect those too
+  if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+    echo "[iptables] Redirect user-specified ports to Squid..."
+
+    # Parse comma-separated port list
+    IFS=',' read -ra PORTS <<< "$AWF_ALLOW_HOST_PORTS"
+
+    for port_spec in "${PORTS[@]}"; do
+      # Remove leading/trailing spaces
+      port_spec=$(echo "$port_spec" | xargs)
+
+      if ! is_valid_port_spec "$port_spec"; then
+        echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+        continue
+      fi
+
+      if [[ $port_spec == *"-"* ]]; then
+        # Port range (e.g., "3000-3010")
+        echo "[iptables]   Redirect port range $port_spec to Squid..."
+        # For port ranges, use --dport with range syntax (without multiport)
+        iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
+      else
+        # Single port (e.g., "3000")
+        echo "[iptables]   Redirect port $port_spec to Squid..."
+        iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
+      fi
+    done
+  else
+    echo "[iptables] No additional ports specified (only 80, 443 allowed)"
+  fi
+}
+
+configure_filter_chain() {
+  # OUTPUT filter chain rules (defense-in-depth with NAT rules)
+  # These rules apply AFTER NAT translation
+  echo "[iptables] Configuring OUTPUT filter chain rules..."
+
+  # Allow localhost traffic (includes Docker embedded DNS at 127.0.0.11)
+  iptables -A OUTPUT -o lo -j ACCEPT
+
+  # Allow DNS to DoH proxy or configured upstream servers
+  if [ "$AWF_DOH_ENABLED" = "true" ] && [ -n "$AWF_DOH_PROXY_IP" ]; then
+    iptables -A OUTPUT -p udp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
+    iptables -A OUTPUT -p tcp -d "$AWF_DOH_PROXY_IP" --dport 53 -j ACCEPT
+  else
+    # Allow DNS to configured upstream servers (needed for Docker DNS forwarding)
+    for dns_server in "${DNS_ARRAY[@]}"; do
+      dns_server=$(echo "$dns_server" | tr -d ' ')
+      if [ -n "$dns_server" ] && ! is_ipv6 "$dns_server"; then
+        iptables -A OUTPUT -p udp -d "$dns_server" --dport 53 -j ACCEPT
+        iptables -A OUTPUT -p tcp -d "$dns_server" --dport 53 -j ACCEPT
+      fi
+    done
+
+    # Allow DNS to Docker's embedded DNS server
+    iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
+    iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
+  fi
+
+  # Allow traffic to Squid proxy (after NAT redirection)
+  iptables -A OUTPUT -p tcp -d "$SQUID_IP" -j ACCEPT
+
+  # Allow traffic to API proxy sidecar (when enabled)
+  if [ -n "$AWF_API_PROXY_IP" ]; then
+    iptables -A OUTPUT -p tcp -d "$AWF_API_PROXY_IP" -j ACCEPT
+  fi
+
+  # Allow traffic to CLI proxy sidecar (when enabled)
+  if [ -n "$AWF_CLI_PROXY_IP" ]; then
+    iptables -A OUTPUT -p tcp -d "$AWF_CLI_PROXY_IP" -j ACCEPT
+  fi
+
+  # Log dangerous port access attempts for audit (rate-limited to avoid log flooding)
+  # These ports are blocked by NAT RETURN + final DROP, but logging helps identify
+  # what the agent tried to access
+  echo "[iptables] Adding audit LOG rules for dangerous ports and default deny..."
+  # Build comma-separated list from the DANGEROUS_PORTS array to stay in sync
+  DANGEROUS_PORTS_LIST="$(IFS=,; echo "${DANGEROUS_PORTS[*]}")"
+  iptables -A OUTPUT -p tcp -m multiport --dports "$DANGEROUS_PORTS_LIST" \
+    -m limit --limit 5/min --limit-burst 10 -j LOG --log-prefix "[FW_BLOCKED_DANGEROUS_PORT] " --log-level 4 --log-uid
+
+  # Drop all other TCP and UDP traffic (default deny policy)
+  # TCP: ensures only explicitly allowed ports can be accessed
+  # UDP: prevents DNS exfiltration by blocking direct queries to non-configured DNS servers
+  echo "[iptables] Drop all non-allowed TCP and UDP traffic (default deny)..."
+  iptables -A OUTPUT -p tcp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_TCP] " --log-level 4 --log-uid
+  iptables -A OUTPUT -p tcp -j DROP
+  iptables -A OUTPUT -p udp -m limit --limit 10/min --limit-burst 20 -j LOG --log-prefix "[FW_BLOCKED_UDP_AGENT] " --log-level 4 --log-uid
+  iptables -A OUTPUT -p udp -j DROP
+}
+
+dump_nat_rules_for_debugging() {
+  echo "[iptables] NAT rules applied successfully"
+  echo "[iptables] Current IPv4 NAT OUTPUT rules:"
+  iptables -t nat -L OUTPUT -n -v
+  if [ "$IP6TABLES_AVAILABLE" = true ]; then
+    echo "[iptables] Current IPv6 NAT OUTPUT rules:"
+    ip6tables -t nat -L OUTPUT -n -v
+  else
+    echo "[iptables] (ip6tables NAT not available)"
+  fi
+}
+
+dump_audit_state() {
+  # Dump full iptables state for audit trail
+  # Written to the init signal volume so it can be preserved by the host
+  local audit_file="/tmp/awf-init/iptables-audit.txt"
+  echo "# iptables audit dump - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$audit_file"
+  echo "" >> "$audit_file"
+  echo "## IPv4 NAT rules" >> "$audit_file"
+  iptables-save -t nat >> "$audit_file" 2>/dev/null || echo "(iptables-save not available)" >> "$audit_file"
+  echo "" >> "$audit_file"
+  echo "## IPv4 filter rules" >> "$audit_file"
+  iptables-save -t filter >> "$audit_file" 2>/dev/null || echo "(iptables-save not available)" >> "$audit_file"
+  if [ "$IP6TABLES_AVAILABLE" = true ]; then
+    echo "" >> "$audit_file"
+    echo "## IPv6 NAT rules" >> "$audit_file"
+    ip6tables-save -t nat >> "$audit_file" 2>/dev/null || true
+    echo "" >> "$audit_file"
+    echo "## IPv6 filter rules" >> "$audit_file"
+    ip6tables-save -t filter >> "$audit_file" 2>/dev/null || true
+  fi
+  echo "[iptables] Audit state dumped to $audit_file"
+}
+
+main() {
+  echo "[iptables] Setting up NAT redirection to Squid proxy..."
+  echo "[iptables] NOTE: Host-level DOCKER-USER chain handles egress filtering for all containers on this network"
+
+  check_ip6tables_availability
+  disable_ipv6
+  resolve_squid_ip
+  preserve_docker_dns_rules
+  configure_nat_bypasses
+  configure_dns_nat_rules
+  configure_host_access_rules
+  configure_http_dnat
+  configure_filter_chain
+  dump_nat_rules_for_debugging
+  dump_audit_state
+}
+
+main "$@"
