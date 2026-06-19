@@ -72,7 +72,7 @@ describe('parseDnsOverHttps', () => {
   });
 
   it('returns an error when value is false (falsy but not undefined)', () => {
-    const result = parseDnsOverHttps(false as unknown as string);
+    const result = parseDnsOverHttps(false);
     expect(result).toEqual({ error: '--dns-over-https resolver URL must start with https://' });
   });
 });
