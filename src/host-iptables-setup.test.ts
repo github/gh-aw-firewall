@@ -1,6 +1,7 @@
 import { API_PROXY_PORTS } from './types';
 import {
   execaError,
+  execaMissingCommandError,
   execaResult,
   mockedExeca,
   setupDefaultIptablesMocks,
@@ -28,12 +29,29 @@ describe('host-iptables (setup)', () => {
           stderr: '',
           exitCode: 0,
         }))
+        // Mock iptables --version
+        .mockResolvedValueOnce(execaResult())
         // Mock iptables -L DOCKER-USER (permission check)
         .mockRejectedValueOnce(permissionError);
 
       await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'])).rejects.toThrow(
         'Permission denied: iptables commands require root privileges'
       );
+    });
+
+    it('should throw a clear error if iptables is not installed', async () => {
+      mockedExeca
+        // Mock getNetworkBridgeName
+        .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        // Mock iptables --version (missing binary)
+        .mockRejectedValueOnce(execaMissingCommandError());
+
+      await expect(setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'])).rejects.toThrow(
+        'iptables is required but was not found'
+      );
+
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', ['-t', 'filter', '-L', 'DOCKER-USER', '-n'], { timeout: 5000 });
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', ['-t', 'filter', '-N', 'DOCKER-USER']);
     });
 
     it('should create FW_WRAPPER chain and add rules', async () => {
@@ -218,6 +236,8 @@ describe('host-iptables (setup)', () => {
       mockedExeca
         // Mock getNetworkBridgeName
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        // Mock iptables --version
+        .mockResolvedValueOnce(execaResult())
         // Mock iptables -L DOCKER-USER (chain doesn't exist)
         .mockRejectedValueOnce(noChainError)
         // Mock iptables -N DOCKER-USER (create chain)
@@ -475,6 +495,8 @@ describe('host-iptables (setup)', () => {
       mockedExeca
         // getNetworkBridgeName
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', stderr: '', exitCode: 0 }))
+        // iptables --version
+        .mockResolvedValueOnce(execaResult())
         // iptables -L DOCKER-USER (chain doesn't exist)
         .mockRejectedValueOnce(noChainError)
         // iptables -N DOCKER-USER (creation fails)
@@ -512,6 +534,8 @@ describe('host-iptables (setup)', () => {
       mockedExeca
         // getNetworkBridgeName
         .mockResolvedValueOnce(execaResult({ stdout: 'fw-bridge', exitCode: 0 }))
+        // iptables --version
+        .mockResolvedValueOnce(execaResult({ exitCode: 0, stdout: '' }))
         // iptables -L DOCKER-USER (permission check) — success
         .mockResolvedValueOnce(execaResult({ exitCode: 0, stdout: '' }))
         // iptables -L FW_WRAPPER (check if chain exists) — exists

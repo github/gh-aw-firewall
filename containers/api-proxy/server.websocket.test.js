@@ -323,38 +323,38 @@ describe('proxyWebSocket security guards', () => {
     jest.restoreAllMocks();
   });
 
-  it('blocks with 429 when max-runs limit is exceeded', () => {
+  it('blocks with 403 when max-runs limit is exceeded', () => {
     process.env.AWF_MAX_RUNS = '1';
     applyMaxRunsInvocation(); // consume the single allowed run
 
     const socket = makeMockSocket();
     wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
 
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_runs_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
 
-  it('blocks with 429 when effective-token limit is exceeded', () => {
+  it('blocks with 403 when effective-token limit is exceeded', () => {
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '1';
     applyEffectiveTokenUsage({ output_tokens: 5 }, 'gpt-4o'); // exceeds cap of 1
 
     const socket = makeMockSocket();
     wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
 
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"effective_tokens_limit_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
 
-  it('blocks with 429 when max-cache-misses limit is exceeded', () => {
+  it('blocks with 403 when max-cache-misses limit is exceeded', () => {
     process.env.AWF_MAX_CACHE_MISSES = '1';
     applyMaxCacheMissesUsage({ input_tokens: 100, cache_read_tokens: 0 });
 
     const socket = makeMockSocket();
     wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
 
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_cache_misses_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
@@ -371,14 +371,14 @@ describe('proxyWebSocket security guards', () => {
     expect(socket.destroy).toHaveBeenCalled();
   });
 
-  it('blocks with 429 when ai-credits limit is exceeded', () => {
+  it('blocks with 403 when ai-credits limit is exceeded', () => {
     process.env.AWF_MAX_AI_CREDITS = '0.000001'; // tiny cap — any real usage will exceed it
     applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }, 'gpt-4o');
 
     const socket = makeMockSocket();
     wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
 
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"ai_credits_limit_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });

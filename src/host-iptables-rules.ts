@@ -56,6 +56,21 @@ function isValidPortSpec(spec: string): boolean {
 // ts-prune-ignore-next
 export const iptablesRulesTestHelpers = { isValidPortSpec };
 
+function getErrorStringProperty(error: unknown, property: string): string {
+  return typeof error === 'object'
+    && error !== null
+    && property in error
+    && typeof (error as Record<string, unknown>)[property] === 'string'
+    ? (error as Record<string, unknown>)[property] as string
+    : '';
+}
+
+function isMissingIptablesError(error: unknown): boolean {
+  const code = getErrorStringProperty(error, 'code');
+  const message = error instanceof Error ? error.message : '';
+  return code === 'ENOENT' || message.includes('ENOENT') || message.includes('not found');
+}
+
 function parseValidPortSpecs(input: string | undefined, label: string): string[] {
   if (!input) {
     return [];
@@ -78,13 +93,23 @@ function parseValidPortSpecs(input: string | undefined, label: string): string[]
 }
 
 async function checkPermissionsAndSetupChain(chain: string): Promise<void> {
+  try {
+    await execa('iptables', ['--version'], { timeout: 5000 });
+  } catch (error: unknown) {
+    if (isMissingIptablesError(error)) {
+      throw new Error('iptables is required but was not found. Please install iptables and try again.');
+    }
+    throw error;
+  }
+
   // Check if we have permission to run iptables commands
   try {
     await execa('iptables', ['-t', 'filter', '-L', 'DOCKER-USER', '-n'], { timeout: 5000 });
   } catch (error: unknown) {
-    const stderr = typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
-      ? error.stderr
-      : '';
+    if (isMissingIptablesError(error)) {
+      throw new Error('iptables is required but was not found. Please install iptables and try again.');
+    }
+    const stderr = getErrorStringProperty(error, 'stderr');
     if (stderr.includes('Permission denied')) {
       throw new Error(
         'Permission denied: iptables commands require root privileges. ' +
