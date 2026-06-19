@@ -75,6 +75,11 @@ function extractCacheReadTokens(usage) {
     return usage.prompt_tokens_details.cached_tokens;
   }
 
+  // OpenAI Responses API: usage.input_tokens_details.cached_tokens (plain object form)
+  if (usage.input_tokens_details && typeof usage.input_tokens_details.cached_tokens === 'number') {
+    return usage.input_tokens_details.cached_tokens;
+  }
+
   const tokenContainers = [
     usage.prompt_tokens_details,
     usage.input_tokens_details,

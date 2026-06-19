@@ -184,6 +184,36 @@ describe('extractUsageFromJson', () => {
     });
   });
 
+  test('extracts OpenAI Responses API cached tokens from input_tokens_details.cached_tokens (object form)', () => {
+    // Ground-truth shape emitted by codex /responses streaming (see issue #5203):
+    // usage.input_tokens_details is a plain object with a numeric cached_tokens field,
+    // not prompt_tokens_details and not an array/details form.
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        id: 'resp_cache_obj',
+        model: 'gpt-5.4-mini',
+        usage: {
+          input_tokens: 20439,
+          output_tokens: 168,
+          total_tokens: 20607,
+          input_tokens_details: {
+            cached_tokens: 19968,
+          },
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gpt-5.4-mini');
+    expect(result.usage).toEqual({
+      input_tokens: 20439,
+      output_tokens: 168,
+      total_tokens: 20607,
+      cache_read_input_tokens: 19968,
+    });
+  });
+
   test('extracts cache_read tokens from token_type entries in usage details', () => {
     const body = Buffer.from(JSON.stringify({
       type: 'response.completed',
