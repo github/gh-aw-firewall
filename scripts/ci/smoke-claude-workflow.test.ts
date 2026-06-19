@@ -23,6 +23,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('github: false');
     expect(source).not.toContain('bash:\n    - "*"');
     expect(source).toContain('After calling safeoutputs, stop immediately.');
+    expect(source).toContain('Never call `add_comment` or `add_labels` with empty arguments or as a schema probe.');
     expect(source).toContain('Report turn usage');
     expect(source).toContain('GH_AW_TURN_COUNT');
     expect(source).not.toContain('Show final Claude Code config');

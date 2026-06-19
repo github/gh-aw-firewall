@@ -150,6 +150,7 @@ All data is pre-computed. Read `/tmp/gh-aw/agent/final-result.json` (one bash ca
 The JSON contains: `result` (PASS/FAIL), `api_status`, `gh_check`, `file_status`, `event`, `pr_number`.
 
 - If `event` is `pull_request`: call `add_comment` with `item_number` set to `pr_number` and a body listing each check result plus the overall `result`; then call `add_labels` with `["smoke-claude"]` only if `result` is `PASS`.
+- Never call `add_comment` or `add_labels` with empty arguments or as a schema probe. Use explicit arguments only.
 - Otherwise: call `noop` with the result summary.
 
 After calling safeoutputs, stop immediately.
