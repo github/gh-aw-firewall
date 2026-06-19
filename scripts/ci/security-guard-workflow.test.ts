@@ -37,8 +37,8 @@ describe('security guard workflow optimization config', () => {
     expect(lock).toContain('"agent_model":"claude-haiku-4-5"');
     expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
-    expect(lock).toContain('github/gh-aw-actions/setup@5c2fe865bb4dc46e1450f6ee0d0541d759aea73a # v0.79.6');
+    expect(lock).toContain('github/gh-aw-actions/setup@c20f9e750acfb2da7ce8698626ebeb65efb33300 # v0.80.6');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.79.2');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.1.2');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.3.0');
   });
 });
