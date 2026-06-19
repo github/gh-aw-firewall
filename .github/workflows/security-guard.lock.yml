@@ -879,7 +879,7 @@ jobs:
         env:
           AWF_REFLECT_ENABLED: 1
           COPILOT_AGENT_RUNNER_TYPE: STANDALONE
-          COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode
+          COPILOT_DUMMY_BYOK: ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           COPILOT_MODEL: claude-haiku-4-5
           GH_AW_MAX_AI_CREDITS: ${{ vars.GH_AW_DEFAULT_MAX_AI_CREDITS || '1000' }}
