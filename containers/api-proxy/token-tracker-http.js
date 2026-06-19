@@ -35,7 +35,6 @@ const {
   diag,
 } = require('./token-persistence');
 const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-tracker-shared');
-const _debugCapture = require('./_debug-responses-capture'); // TEMPORARY DEBUG — DO NOT MERGE
 
 // Max response body to buffer for non-streaming usage extraction (5 MB).
 // Responses larger than this are still forwarded but usage is not extracted.
@@ -91,7 +90,6 @@ function createChunkHandler(state, { requestId, provider }) {
 
         const dataLines = parseSseDataLines(complete);
         for (const line of dataLines) {
-          _debugCapture.captureUsageLine(requestId, line); // TEMPORARY DEBUG — DO NOT MERGE
           const { usage, model } = extractUsageFromSseLine(line);
           if (model && !state.streamingModel) state.streamingModel = model;
           if (usage) {
