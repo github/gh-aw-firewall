@@ -139,6 +139,31 @@
         "rate_reset": { "type": "string", "description": "X-RateLimit-Reset value (Unix timestamp)." }
       },
       "additionalProperties": true
+    },
+    "ai_credits_this_response": {
+      "type": "number",
+      "minimum": 0,
+      "description": "AI credits consumed by this API call. Computed from token counts and per-model pricing. Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_total": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Cumulative AI credits consumed since the start of the run. Present only when apiProxy.maxAiCredits is configured."
+    },
+    "effective_tokens_this_response": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Weighted effective tokens consumed by this API call (input×1 + cache_read×0.1 + output×4 + reasoning×4), scaled by the model multiplier. Present only when apiProxy.maxEffectiveTokens is configured."
+    },
+    "effective_tokens_total": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Cumulative weighted effective tokens consumed since the start of the run. Present only when apiProxy.maxEffectiveTokens is configured."
+    },
+    "model_multiplier": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Per-model cost multiplier applied to the effective token calculation for this request. Present only when apiProxy.maxEffectiveTokens is configured and a multiplier is active."
     }
   }
 }
