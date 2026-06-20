@@ -6,7 +6,7 @@ const smokeClaudeSourcePath = path.join(workflowsDir, 'smoke-claude.md');
 const smokeClaudeLockPath = path.join(workflowsDir, 'smoke-claude.lock.yml');
 
 describe('smoke claude workflow optimization config', () => {
-  it('uses pre-computed result step and minimal turn budget in source workflow', () => {
+  it('uses pre-computed result step and max-turns 8 in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
     expect(source).toContain('max-turns: 8');
@@ -24,7 +24,7 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('bash:\n    - "*"');
     expect(source).toContain('After calling safeoutputs, stop immediately.');
     expect(source).toContain('Never call `add_comment` or `add_labels` with empty arguments or as a schema probe.');
-    expect(source).toContain('Pass arguments inline as a single JSON object');
+    expect(source).toContain("safeoutputs add_comment '{\"item_number\": 123, \"body\": \"Smoke Claude result: PASS\"}'");
     expect(source).toContain('Report turn usage');
     expect(source).toContain('GH_AW_TURN_COUNT');
     expect(source).not.toContain('Show final Claude Code config');

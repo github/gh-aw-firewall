@@ -150,7 +150,7 @@ All data is pre-computed. Read `/tmp/gh-aw/agent/final-result.json` (one bash ca
 The JSON contains: `result` (PASS/FAIL), `api_status`, `gh_check`, `file_status`, `event`, `pr_number`.
 
 - If `event` is `pull_request`: call `add_comment` with `item_number` set to `pr_number` and a body listing each check result plus the overall `result`; then call `add_labels` with `["smoke-claude"]` only if `result` is `PASS`.
-- Pass arguments inline as a single JSON object, e.g. `safeoutputs add_comment '{"item_number": <pr_number>, "body": "<markdown>"}'`. Do NOT pipe JSON via stdin and do NOT pass `.` (or any placeholder) as the argument — that sends empty arguments and the call is rejected as a schema probe, wasting a turn.
+- Pass arguments inline as a single JSON object, e.g. `safeoutputs add_comment '{"item_number": 123, "body": "Smoke Claude result: PASS"}'`. Do NOT pipe JSON via stdin and do NOT pass `.` (or any placeholder) as the argument — that sends empty arguments and the call is rejected as a schema probe, wasting a turn.
 - Never call `add_comment` or `add_labels` with empty arguments or as a schema probe. Use explicit arguments only.
 - Otherwise: call `noop` with the result summary.
 
