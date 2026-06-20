@@ -1,6 +1,7 @@
 /**
- * Tests for proxyRequest guards: effective token limit (429) and
- * max-runs limit (429).
+ * Tests for proxyRequest token and permission guard behavior, including
+ * effective-token, max-runs, max-cache-misses, AI-credits, and
+ * permission-denied enforcement paths.
  *
  * Extracted from server.proxy.test.js.
  */
@@ -60,7 +61,7 @@ describe('proxyRequest effective token guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when effective token limit is reached', async () => {
+  it('returns 403 with structured payload when effective token limit is reached', async () => {
     const cycle = createMockUpstreamCycle(https);
 
     const req1 = makeReq();
@@ -81,7 +82,7 @@ describe('proxyRequest effective token guard', () => {
     await flushPromises();
 
     expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res2.end.mock.calls[0][0]);
@@ -148,7 +149,7 @@ describe('proxyRequest max-runs guard', () => {
       jest.restoreAllMocks();
     });
 
-    it('returns 429 after max consecutive cache misses with non-zero input tokens', async () => {
+    it('returns 403 after max consecutive cache misses with non-zero input tokens', async () => {
       const cycle = createMockUpstreamCycle(https);
 
       const req1 = makeReq();
@@ -178,7 +179,7 @@ describe('proxyRequest max-runs guard', () => {
       await flushPromises();
 
       expect(cycle.spy).toHaveBeenCalledTimes(2);
-      expect(res3.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+      expect(res3.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
         'Content-Type': 'application/json',
       }));
       const payload = JSON.parse(res3.end.mock.calls[0][0]);
@@ -220,7 +221,7 @@ describe('proxyRequest max-runs guard', () => {
       await flushPromises();
 
       expect(cycle.spy).toHaveBeenCalledTimes(3);
-      expect(res3.writeHead).not.toHaveBeenCalledWith(429, expect.anything());
+      expect(res3.writeHead).not.toHaveBeenCalledWith(403, expect.anything());
     });
   });
 
@@ -230,7 +231,7 @@ describe('proxyRequest max-runs guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when max runs limit is exceeded', async () => {
+  it('returns 403 with structured payload when max runs limit is exceeded', async () => {
     const cycle = createMockUpstreamCycle(https);
 
     // First request completes successfully — consumes the single allowed run
@@ -250,7 +251,7 @@ describe('proxyRequest max-runs guard', () => {
     await flushPromises();
 
     expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res2.end.mock.calls[0][0]);
@@ -273,7 +274,7 @@ describe('proxyRequest max-runs guard', () => {
     await flushPromises();
 
     expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
-    expect(res.writeHead).not.toHaveBeenCalledWith(429, expect.anything());
+    expect(res.writeHead).not.toHaveBeenCalledWith(403, expect.anything());
   });
 });
 
@@ -296,7 +297,7 @@ describe('proxyRequest max-ai-credits guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when ai credits limit is reached', async () => {
+  it('returns 403 with structured payload when ai credits limit is reached', async () => {
     const cycle = createMockUpstreamCycle(https);
 
     const req1 = makeReq();
@@ -317,7 +318,7 @@ describe('proxyRequest max-ai-credits guard', () => {
     await flushPromises();
 
     expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res2.end.mock.calls[0][0]);

@@ -9,6 +9,7 @@ import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV } from '../api-proxy-env-constants';
 
 interface ApiProxyServiceConfigParams {
   config: WrapperConfig;
@@ -22,17 +23,17 @@ interface ApiProxyServiceConfigParams {
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
  */
 function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
-  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, 'COPILOT_PROVIDER_TYPE');
-  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
+  const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
+  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_BASE_URL);
   const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};
 
   const providers: Array<{ target?: string; basePath?: string; envTarget: string; envBasePath: string; stripTarget?: boolean }> = [
-    { target: config.copilotApiTarget, basePath: config.copilotApiBasePath, envTarget: 'COPILOT_API_TARGET', envBasePath: 'COPILOT_API_BASE_PATH', stripTarget: true },
-    { target: config.openaiApiTarget, basePath: config.openaiApiBasePath, envTarget: 'OPENAI_API_TARGET', envBasePath: 'OPENAI_API_BASE_PATH', stripTarget: true },
-    { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: 'ANTHROPIC_API_TARGET', envBasePath: 'ANTHROPIC_API_BASE_PATH', stripTarget: true },
-    { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: 'GEMINI_API_TARGET', envBasePath: 'GEMINI_API_BASE_PATH', stripTarget: true },
+    { target: config.copilotApiTarget, basePath: config.copilotApiBasePath, envTarget: COPILOT_ENV.API_TARGET, envBasePath: COPILOT_ENV.API_BASE_PATH, stripTarget: true },
+    { target: config.openaiApiTarget, basePath: config.openaiApiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
+    { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
+    { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
   ];
 
   for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
@@ -41,9 +42,9 @@ function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   }
 
   // Copilot-specific provider passthrough
-  if (copilotProviderType) env.COPILOT_PROVIDER_TYPE = copilotProviderType;
-  if (copilotProviderBaseUrl) env.COPILOT_PROVIDER_BASE_URL = copilotProviderBaseUrl;
-  if (copilotProviderApiKey) env.COPILOT_PROVIDER_API_KEY = copilotProviderApiKey;
+  if (copilotProviderType) env[COPILOT_ENV.PROVIDER_TYPE] = copilotProviderType;
+  if (copilotProviderBaseUrl) env[COPILOT_ENV.PROVIDER_BASE_URL] = copilotProviderBaseUrl;
+  if (copilotProviderApiKey) env[COPILOT_ENV.PROVIDER_API_KEY] = copilotProviderApiKey;
 
   // Pre-startup model validation (non-sensitive config value).
   // Prefer explicit requestedModel, but fall back to COPILOT_MODEL when present so
@@ -101,10 +102,10 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     ),
     environment: {
       // Pass API keys securely to sidecar (not visible to agent)
-      ...(config.openaiApiKey && { OPENAI_API_KEY: config.openaiApiKey }),
-      ...(config.anthropicApiKey && { ANTHROPIC_API_KEY: config.anthropicApiKey }),
-      ...(config.copilotGithubToken && { COPILOT_GITHUB_TOKEN: config.copilotGithubToken }),
-      ...(config.geminiApiKey && { GEMINI_API_KEY: config.geminiApiKey }),
+      ...(config.openaiApiKey && { [OPENAI_ENV.KEY]: config.openaiApiKey }),
+      ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
+      ...(config.copilotGithubToken && { [COPILOT_ENV.GITHUB_TOKEN]: config.copilotGithubToken }),
+      ...(config.geminiApiKey && { [GEMINI_ENV.KEY]: config.geminiApiKey }),
       // Configurable API targets (for GHES/GHEC / custom endpoints)
       // Strip any scheme prefix — server.js also normalizes defensively, but
       // stripping here prevents a scheme-prefixed hostname from reaching the
@@ -259,8 +260,8 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
         'AWF_ANTHROPIC_STRIP_ANSI',
       ),
       // Custom auth header names for internal AI gateways
-      ...(config.openaiApiAuthHeader && { AWF_OPENAI_AUTH_HEADER: config.openaiApiAuthHeader }),
-      ...(config.anthropicApiAuthHeader && { AWF_ANTHROPIC_AUTH_HEADER: config.anthropicApiAuthHeader }),
+      ...(config.openaiApiAuthHeader && { [OPENAI_ENV.AUTH_HEADER]: config.openaiApiAuthHeader }),
+      ...(config.anthropicApiAuthHeader && { [ANTHROPIC_ENV.AUTH_HEADER]: config.anthropicApiAuthHeader }),
       ...(config.anthropicTokenUrl && { AWF_AUTH_ANTHROPIC_TOKEN_URL: config.anthropicTokenUrl }),
       // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
       // The api-proxy container holds live API credentials; loading arbitrary host-side JS

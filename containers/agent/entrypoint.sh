@@ -1,9 +1,12 @@
 #!/bin/bash
 set -e
 
+print_banner() {
 echo "[entrypoint] Agentic Workflow Firewall - Agent Container"
 echo "[entrypoint] =================================="
+}
 
+setup_user_identity() {
 # Adjust awfuser UID/GID to match host user at runtime
 # This ensures file ownership is correct regardless of whether using GHCR images or local builds
 HOST_UID=${AWF_USER_UID:-$(id -u awfuser)}
@@ -64,7 +67,9 @@ if [ "$CURRENT_UID" != "$HOST_UID" ] || [ "$CURRENT_GID" != "$HOST_GID" ]; then
   chown -R awfuser:awfuser /home/awfuser 2>/dev/null || true
   echo "[entrypoint] UID/GID adjustment complete"
 fi
+}
 
+configure_dns() {
 # Configure DNS to use only Docker's embedded DNS (127.0.0.11)
 # Docker embedded DNS handles all name resolution:
 # - Container names (e.g., squid-proxy) → resolved directly
@@ -100,7 +105,9 @@ if [ -f /etc/resolv.conf ]; then
     echo "[entrypoint] DNS configured with Docker embedded DNS (127.0.0.11) only"
   fi
 fi
+}
 
+configure_ssl_certs() {
 # Update CA certificates if SSL Bump is enabled
 # The CA certificate is mounted at /usr/local/share/ca-certificates/awf-ca.crt
 if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
@@ -122,7 +129,9 @@ if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
     echo "[entrypoint][WARN] SSL Bump enabled but CA certificate not found"
   fi
 fi
+}
 
+wait_for_iptables() {
 # Wait for iptables init container to complete setup
 # The awf-iptables-init container shares our network namespace and runs
 # setup-iptables.sh, then writes a ready signal file. This ensures the agent
@@ -145,7 +154,9 @@ while [ ! -f /tmp/awf-init/ready ]; do
   INIT_ELAPSED=$((INIT_ELAPSED + 1))
 done
 echo "[entrypoint] iptables initialization complete"
+}
 
+check_service_health() {
 # Run API proxy health checks (verifies credential isolation and connectivity)
 # This must run AFTER iptables setup (which allows api-proxy traffic) but BEFORE user command
 # If health check fails, the script exits with non-zero code and prevents agent from running
@@ -169,7 +180,9 @@ if [ -n "$AWF_CLI_PROXY_URL" ]; then
     exit 1
   fi
 fi
+}
 
+configure_claude_api_key() {
 # Configure Claude Code API key helper
 # This ensures the apiKeyHelper is properly configured in the config files
 # The config files must exist before Claude Code starts for authentication to work
@@ -258,7 +271,9 @@ if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ]; then
   chmod 777 "$SETTINGS_DIR" 2>/dev/null || true
   write_api_key_helper "$SETTINGS_FILE" "$SETTINGS_FILE"
 fi
+}
 
+configure_jvm_proxy() {
 # Pre-seed JVM build tool proxy configuration
 # Java build tools (Maven, Gradle, sbt) do not honor HTTP_PROXY/HTTPS_PROXY env vars
 # and need explicit proxy configuration files
@@ -350,7 +365,9 @@ GRADLE_EOF
   fi
   export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} ${JVM_PROXY_FLAGS}"
 fi
+}
 
+log_environment_details() {
 # Print proxy environment
 echo "[entrypoint] Proxy configuration:"
 echo "[entrypoint]   HTTP_PROXY=$HTTP_PROXY"
@@ -366,7 +383,9 @@ echo "[entrypoint]   Hostname: $(hostname)"
 runuser -u awfuser -- git config --global --add safe.directory '*' 2>/dev/null || true
 
 echo "[entrypoint] =================================="
+}
 
+determine_capabilities_to_drop() {
 # Determine which capabilities to drop
 # - CAP_NET_ADMIN is NOT present (never granted to agent container - iptables setup
 #   is handled by the separate awf-iptables-init container)
@@ -382,6 +401,7 @@ else
   CAPS_TO_DROP=""
   echo "[entrypoint] No capabilities to drop (NET_ADMIN never granted to agent)"
 fi
+}
 
 # Function to unset sensitive tokens from the entrypoint's environment
 # This prevents tokens from being accessible via /proc/1/environ after the agent has started
@@ -467,13 +487,15 @@ run_agent_with_token_protection() {
   exit $EXIT_CODE
 }
 
+log_execution_context() {
 echo "[entrypoint] Switching to awfuser (UID: $(id -u awfuser), GID: $(id -g awfuser))"
 echo "[entrypoint] Executing command: $@"
 echo ""
+}
 
+run_chroot_command() {
 # If chroot mode is enabled, run user command INSIDE the chroot /host
 # This provides transparent host binary access - user command sees host filesystem as /
-if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
 
   # Mount a container-scoped procfs at /host/proc
@@ -975,11 +997,17 @@ AWFEOF
   echo 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"' >> "/host${SCRIPT_FILE}"
   if [ "${AWF_REQUIRE_NODE:-}" = "1" ]; then
     cat >> "/host${SCRIPT_FILE}" << 'AWFEOF'
-if ! command -v node >/dev/null 2>&1; then
+if [ -n "${GH_AW_NODE_BIN:-}" ] && [ -x "${GH_AW_NODE_BIN}" ]; then
+  echo "[entrypoint] Node.js available via GH_AW_NODE_BIN: ${GH_AW_NODE_BIN}"
+elif command -v node >/dev/null 2>&1; then
+  echo "[entrypoint] Node.js available on PATH: $(command -v node)"
+else
   echo "[entrypoint][ERROR] Copilot CLI requires Node.js, but 'node' is not available inside AWF chroot." >&2
   echo "[entrypoint][ERROR] Ensure Node.js is installed on the runner and reachable from PATH inside the chroot." >&2
   echo "[entrypoint][ERROR] If using setup-node or nvm, verify the install path is present and bind-mounted into /host." >&2
   echo "[entrypoint][ERROR] Example locations include /opt/hostedtoolcache/..., $HOME/work/_tool/..., and $HOME/.nvm/..." >&2
+  echo "[entrypoint][ERROR] GH_AW_NODE_BIN=${GH_AW_NODE_BIN:-<unset>}" >&2
+  echo "[entrypoint][ERROR] PATH=$PATH" >&2
   exit 127
 fi
 AWFEOF
@@ -1119,7 +1147,9 @@ AWFEOF
     ${LD_PRELOAD_CMD}
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
-else
+}
+
+run_non_chroot_command() {
   # Original behavior - run in container filesystem
   # Drop capabilities and privileges, then execute the user command
 
@@ -1155,4 +1185,25 @@ else
     # No capabilities to drop - just switch to unprivileged user
     run_agent_with_token_protection gosu awfuser "$@"
   fi
+}
+
+main() {
+print_banner
+setup_user_identity
+configure_dns
+configure_ssl_certs
+wait_for_iptables
+check_service_health
+configure_claude_api_key
+configure_jvm_proxy
+log_environment_details
+determine_capabilities_to_drop
+log_execution_context "$@"
+if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
+  run_chroot_command "$@"
+else
+  run_non_chroot_command "$@"
 fi
+}
+
+main "$@"

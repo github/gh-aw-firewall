@@ -69,11 +69,8 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).toContain('branch count');
     expect(lock).toContain('if-branches:');
 
-    // Expression variables must be double-quoted so they expand at runtime
-    const echoLines = lock.match(/echo .+GH_AW_EXPR_/g) || [];
-    expect(echoLines.length).toBeGreaterThan(0);
-    for (const line of echoLines) {
-      expect(line).toMatch(/echo "\$/);
-    }
+    // Expression variables are passed via env entries that expand at runtime
+    const exprEnvLines = lock.match(/GH_AW_EXPR_[A-F0-9]+: \$\{\{.+\}\}/g) || [];
+    expect(exprEnvLines.length).toBeGreaterThan(0);
   });
 });

@@ -877,7 +877,7 @@ After each successful upstream response, the proxy accumulates the effective tok
 
 - **Under budget**: Request is forwarded normally.
 - **Budget reached or exceeded**: Request is rejected immediately with:
-  - **HTTP `429 Too Many Requests`**
+  - **HTTP `403 Forbidden`**
   - **Error body**:
 
     ```json
@@ -891,10 +891,10 @@ After each successful upstream response, the proxy accumulates the effective tok
     }
     ```
 
-WebSocket upgrade requests are also rejected with `429` when the budget is reached or exceeded.
+WebSocket upgrade requests are also rejected with `403` when the budget is reached or exceeded.
 
 :::caution
-Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run.
+Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run. The rejection uses **HTTP `403`** (not `429`) precisely because the limit is terminal: a `429` would invite LLM SDK clients to retry with backoff against a cap that never recovers, burning the remaining run budget until the step times out.
 :::
 
 ### Threshold tracking and token steering
@@ -971,10 +971,10 @@ The response includes:
 
 ### Detecting budget exhaustion
 
-Agents and orchestrators should detect the `429` response and the `effective_tokens_limit_exceeded` error type. The error body is structured JSON and can be parsed programmatically:
+Agents and orchestrators should detect the `403` response and the `effective_tokens_limit_exceeded` error type. The error body is structured JSON and can be parsed programmatically:
 
 ```javascript
-if (response.status === 429) {
+if (response.status === 403) {
   const body = await response.json();
   if (body.error?.type === 'effective_tokens_limit_exceeded') {
     // Budget exhausted — stop making API calls
@@ -1005,7 +1005,7 @@ Before forwarding each request to the upstream provider, the proxy checks the in
 
 - **Under limit**: Request is forwarded normally.
 - **Limit reached or exceeded**: Request is rejected immediately with:
-  - **HTTP `429 Too Many Requests`**
+  - **HTTP `403 Forbidden`**
   - **Error body**:
 
     ```json
@@ -1019,7 +1019,7 @@ Before forwarding each request to the upstream provider, the proxy checks the in
     }
     ```
 
-WebSocket upgrade requests are also rejected with `429` when the limit is reached.
+WebSocket upgrade requests are also rejected with `403` when the limit is reached.
 
 :::caution
 Once the limit is reached, **all subsequent requests in the run are rejected**. The counter is not recoverable within a single run.
@@ -1045,7 +1045,7 @@ When `maxTurns` is not configured, `enabled` is `false` and `max_runs`/`remainin
 ### Detecting the limit
 
 ```javascript
-if (response.status === 429) {
+if (response.status === 403) {
   const body = await response.json();
   if (body.error?.type === 'max_runs_exceeded') {
     console.log(`Run limit exceeded: ${body.error.invocation_count} / ${body.error.max_runs}`);

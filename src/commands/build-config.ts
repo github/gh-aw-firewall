@@ -1,4 +1,5 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV } from '../api-proxy-env-constants';
 
 /**
  * Inputs required to assemble a {@link WrapperConfig}.
@@ -170,38 +171,38 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
         : undefined),
     maxCapturedBytes: (options.maxCapturedBytes as number | undefined) ??
       (process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES ? Number(process.env.AWF_MAX_BLOCKED_CAPTURE_BYTES) : undefined),
-    openaiApiKey: process.env.OPENAI_API_KEY,
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    copilotGithubToken: process.env.COPILOT_GITHUB_TOKEN,
-    copilotProviderApiKey: process.env.COPILOT_PROVIDER_API_KEY,
+    openaiApiKey: process.env[OPENAI_ENV.KEY],
+    anthropicApiKey: process.env[ANTHROPIC_ENV.KEY],
+    copilotGithubToken: process.env[COPILOT_ENV.GITHUB_TOKEN],
+    copilotProviderApiKey: process.env[COPILOT_ENV.PROVIDER_API_KEY],
     copilotProviderType:
-      (options.copilotProviderType as string | undefined) || process.env.COPILOT_PROVIDER_TYPE,
+      (options.copilotProviderType as string | undefined) || process.env[COPILOT_ENV.PROVIDER_TYPE],
     copilotProviderBaseUrl:
-      (options.copilotProviderBaseUrl as string | undefined) || process.env.COPILOT_PROVIDER_BASE_URL,
-    geminiApiKey: process.env.GEMINI_API_KEY,
+      (options.copilotProviderBaseUrl as string | undefined) || process.env[COPILOT_ENV.PROVIDER_BASE_URL],
+    geminiApiKey: process.env[GEMINI_ENV.KEY],
     copilotApiTarget: resolvedCopilotApiTarget,
     copilotApiBasePath: resolvedCopilotApiBasePath,
     copilotByokExtraHeaders: options.copilotByokExtraHeaders as Record<string, string> | undefined,
     copilotByokExtraBodyFields: options.copilotByokExtraBodyFields as Record<string, string> | undefined,
     copilotByokSessionId: options.copilotByokSessionId as string | undefined,
     openaiApiTarget:
-      (options.openaiApiTarget as string | undefined) || process.env.OPENAI_API_TARGET,
+      (options.openaiApiTarget as string | undefined) || process.env[OPENAI_ENV.TARGET],
     openaiApiBasePath:
-      (options.openaiApiBasePath as string | undefined) || process.env.OPENAI_API_BASE_PATH,
+      (options.openaiApiBasePath as string | undefined) || process.env[OPENAI_ENV.BASE_PATH],
     anthropicApiTarget:
-      (options.anthropicApiTarget as string | undefined) || process.env.ANTHROPIC_API_TARGET,
+      (options.anthropicApiTarget as string | undefined) || process.env[ANTHROPIC_ENV.TARGET],
     anthropicApiBasePath:
-      (options.anthropicApiBasePath as string | undefined) || process.env.ANTHROPIC_API_BASE_PATH,
+      (options.anthropicApiBasePath as string | undefined) || process.env[ANTHROPIC_ENV.BASE_PATH],
     openaiApiAuthHeader:
-      (options.openaiApiAuthHeader as string | undefined) || process.env.AWF_OPENAI_AUTH_HEADER,
+      (options.openaiApiAuthHeader as string | undefined) || process.env[OPENAI_ENV.AUTH_HEADER],
     anthropicApiAuthHeader:
-      (options.anthropicApiAuthHeader as string | undefined) || process.env.AWF_ANTHROPIC_AUTH_HEADER,
+      (options.anthropicApiAuthHeader as string | undefined) || process.env[ANTHROPIC_ENV.AUTH_HEADER],
     anthropicTokenUrl:
       (options.anthropicTokenUrl as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     geminiApiTarget:
-      (options.geminiApiTarget as string | undefined) || process.env.GEMINI_API_TARGET,
+      (options.geminiApiTarget as string | undefined) || process.env[GEMINI_ENV.TARGET],
     geminiApiBasePath:
-      (options.geminiApiBasePath as string | undefined) || process.env.GEMINI_API_BASE_PATH,
+      (options.geminiApiBasePath as string | undefined) || process.env[GEMINI_ENV.BASE_PATH],
     difcProxyHost: options.difcProxyHost as string | undefined,
     difcProxyCaCert: options.difcProxyCaCert as string | undefined,
     githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,

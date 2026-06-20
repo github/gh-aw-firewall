@@ -17,7 +17,7 @@ RUN npm ci --omit=dev
 # Copy application files
 COPY server.js logging.js metrics.js rate-limiter.js \
      token-tracker.js token-persistence.js token-parsers.js \
-     token-tracker-http.js token-tracker-ws.js \
+     token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
      model-resolver.js model-utils.js model-body-rewriter.js proxy-utils.js adapter-factory.js anthropic-transforms.js \
      model-config.js key-validation.js server-factory.js startup.js \
      proxy-request.js http-client.js body-handler.js model-discovery.js management.js oidc-token-provider.js \
@@ -27,7 +27,9 @@ COPY server.js logging.js metrics.js rate-limiter.js \
      ai-credits-pricing.js models-dev-catalog.js models.dev.catalog.json \
      oidc-refresh-utils.js body-transform.js body-utils.js rate-limit.js websocket-proxy.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
-     anthropic-cache.js otel.js token-budget-log.js blocked-request-diagnostics.js ./
+     anthropic-cache.js otel.js otel-exporters.js otel-serialization.js \
+     token-budget-log.js blocked-request-diagnostics.js \
+     provider-env-constants.js provider-names.js ./
 COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/

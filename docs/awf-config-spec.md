@@ -110,7 +110,9 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxTurns` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxRuns` → *(deprecated alias for `maxTurns`; maps to `AWF_MAX_RUNS`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
+- `apiProxy.maxCacheMisses` → `--max-cache-misses <number>`
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
+- `apiProxy.maxCacheMisses` → `--max-cache-misses <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
@@ -630,7 +632,7 @@ The API proxy MUST enforce the budget as follows:
 
 3. **Rejection**: When the budget is reached or exceeded, the proxy MUST reject the
    request with:
-   - **HTTP status**: `429 Too Many Requests`
+   - **HTTP status**: `403 Forbidden`
    - **Content-Type**: `application/json`
    - **Response body**:
      ```json
@@ -645,7 +647,7 @@ The API proxy MUST enforce the budget as follows:
      ```
 
 4. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
-   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   reject with `HTTP/1.1 403 Forbidden` and include the same JSON
    error body before destroying the socket.
 
 5. **Finality**: Once the budget is reached or exceeded, all subsequent requests in
@@ -730,12 +732,12 @@ container.
 
 When configured, the proxy MUST enforce this budget in addition to any
 configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
-exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `429`
+exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`
 and error type `ai_credits_limit_exceeded`.
 
 Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
 hard cap of **10,000 AI credits**. When cumulative AI credits reach this hard
-cap, subsequent requests MUST be rejected with HTTP `429` and error type
+cap, subsequent requests MUST be rejected with HTTP `403` and error type
 `ai_credits_limit_exceeded`, and the error/log payload MUST include
 `hard_cap: true`.
 
@@ -837,7 +839,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 2. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
    the request with:
-   - **HTTP status**: `429 Too Many Requests`
+   - **HTTP status**: `403 Forbidden`
    - **Content-Type**: `application/json`
    - **Response body**:
      ```json
@@ -852,7 +854,7 @@ The API proxy MUST enforce the max-runs limit as follows:
      ```
 
 3. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
-   reject with `HTTP/1.1 429 Too Many Requests` and include the same JSON
+   reject with `HTTP/1.1 403 Forbidden` and include the same JSON
    error body before destroying the socket.
 
 4. **Finality**: Once the limit is reached, all subsequent requests in the
@@ -952,6 +954,97 @@ the api-proxy container.
 ```yaml
 apiProxy:
   maxPermissionDenied: 3   # stop run after 3 upstream 401/403 responses
+```
+
+## 11b. Cache-Miss Guard
+
+*This section is normative.*
+
+When `apiProxy.maxCacheMisses` is configured, the API proxy MUST halt further
+LLM requests after the configured number of consecutive responses that had no
+prompt-cache hits, preventing runaway token spend caused by a broken or expired
+cache (e.g., mismatched cache keys, context window overflow, or prompt drift).
+
+### 11b.1 Counting Cache Misses
+
+A cache miss is counted for a response when **all** of the following are true:
+
+- The response is a successful upstream completion (not a proxy-level error).
+- `input_tokens > 0` (zero-input responses such as empty tool calls are
+  excluded so they do not inflate the streak counter).
+- `cache_read_tokens === 0` (no prompt-cache hit occurred).
+
+A cache *hit* (`cache_read_tokens > 0`) resets the consecutive miss streak to
+zero.
+
+### 11b.2 Enforcement Behavior
+
+The API proxy MUST enforce the cache-miss limit as follows:
+
+1. **Post-response counting**: After receiving each successful upstream
+   response, the proxy inspects the normalized token usage and increments or
+   resets the miss streak counter.
+
+2. **Pre-request check**: Before forwarding each subsequent request to the
+   upstream provider, the proxy checks whether the miss streak has reached or
+   exceeded `maxCacheMisses`.
+
+3. **Rejection**: When the limit is reached or exceeded, the proxy MUST reject
+   the request with:
+   - **HTTP status**: `403 Forbidden`
+   - **Content-Type**: `application/json`
+   - **Response body**:
+     ```json
+     {
+       "error": {
+         "type": "max_cache_misses_exceeded",
+         "message": "Maximum consecutive cache misses exceeded (3 / 3).",
+         "consecutive_cache_misses": 3,
+         "max_cache_misses": 3
+       }
+     }
+     ```
+
+4. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
+   reject with `HTTP/1.1 403 Forbidden` and include the same JSON error body
+   before destroying the socket.
+
+5. **Finality**: Once the streak limit is reached, all subsequent requests in
+   the same run MUST be rejected. Changing `AWF_MAX_CACHE_MISSES` resets the
+   streak counter.
+
+### 11b.3 Introspection
+
+The `/reflect` endpoint (available on all provider ports 10000–10003; see
+§10.6) MUST include the current cache-miss guard state:
+
+```json
+{
+  "cache_misses": {
+    "enabled": true,
+    "max_cache_misses": 3,
+    "consecutive_cache_misses": 1,
+    "remaining_cache_misses": 2
+  }
+}
+```
+
+When `maxCacheMisses` is not configured, the `enabled` field MUST be `false`,
+`max_cache_misses` MUST be `null`, `consecutive_cache_misses` MUST be `0`, and
+`remaining_cache_misses` MUST be `null`.
+
+### 11b.4 Configuration
+
+`maxCacheMisses` is a positive integer. It is supplied via the AWF config file
+(stdin config) or the `--max-cache-misses` CLI flag, and maps to the
+`AWF_MAX_CACHE_MISSES` environment variable injected into the api-proxy
+container.
+
+**Example**:
+
+```yaml
+apiProxy:
+  maxCacheMisses: 3   # stop run after 3 consecutive cache misses
 ```
 
 ## 12. Model Multiplier Cap

@@ -32,29 +32,42 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
-        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+    force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
         sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
       fi; \
       if [ -d /etc/apt/sources.list.d ]; then \
         find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/*; \
+        if apt-get update > /tmp/apt-update.log 2>&1; then \
+          cat /tmp/apt-update.log; \
+          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
+        else \
+          cat /tmp/apt-update.log; \
+        fi; \
+        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; \
+      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+      force_archive_mirror; \
+    }; \
+    apt_install_retry() { \
+      apt-get install -y --no-install-recommends "$@" && return 0; \
+      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror; \
+      apt-get install -y --no-install-recommends "$@"; \
+    }; \
     PKGS="iptables curl ca-certificates git gh gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
     apt_update_retry && \
-    ( apt-get install -y --no-install-recommends $PKGS || \
-      (echo "apt-get install failed, retrying with fresh package index..." && \
-       apt_update_retry && \
-       apt-get install -y --no-install-recommends $PKGS) ) && \
+    apt_install_retry $PKGS && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
     # Install Node.js 22 from NodeSource
@@ -83,53 +96,81 @@ RUN set -eux; \
 # These packages are commonly needed by workflows and avoid agents spending time installing them manually
 # See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
 RUN set -eux; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
-        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+    force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
       fi; \
       if [ -d /etc/apt/sources.list.d ]; then \
         find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/*; \
+        if apt-get update > /tmp/apt-update.log 2>&1; then \
+          cat /tmp/apt-update.log; \
+          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
+        else \
+          cat /tmp/apt-update.log; \
+        fi; \
+        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; \
+      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+      force_archive_mirror; \
+    }; \
+    apt_install_retry() { \
+      apt-get install -y --no-install-recommends "$@" && return 0; \
+      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror; \
+      apt-get install -y --no-install-recommends "$@"; \
+    }; \
     PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
     apt_update_retry && \
-    ( apt-get install -y --no-install-recommends $PARITY_PKGS || \
-      (echo "apt-get install failed, retrying with fresh package index..." && \
-       apt_update_retry && \
-       apt-get install -y --no-install-recommends $PARITY_PKGS) ) && \
+    apt_install_retry $PARITY_PKGS && \
     rm -rf /var/lib/apt/lists/*
 
 # Upgrade all packages to pick up security patches
 # Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
 # Retry logic handles transient mirror sync failures during apt-get update
-RUN apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/* && apt-get update 2>&1 | tee /tmp/apt-update.log && \
-        if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        echo "apt-get update attempt $i/3 had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+RUN force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
       fi; \
       if [ -d /etc/apt/sources.list.d ]; then \
         find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \
+    apt_update_retry() { \
+      local i; for i in 1 2 3; do \
+        rm -rf /var/lib/apt/lists/*; \
+        if apt-get update > /tmp/apt-update.log 2>&1; then \
+          cat /tmp/apt-update.log; \
+          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
+        else \
+          cat /tmp/apt-update.log; \
+        fi; \
+        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
+      done; \
+      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
+      force_archive_mirror; \
+    }; \
+    apt_upgrade_retry() { \
+      apt-get upgrade -y && return 0; \
+      echo "apt-get upgrade failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror && apt-get upgrade -y; \
+    }; \
     apt_update_retry && \
-    apt-get upgrade -y && rm -rf /var/lib/apt/lists/* || \
-    (echo "apt-get upgrade failed, retrying with fresh package index..." && \
-     apt_update_retry && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*)
+    apt_upgrade_retry && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
@@ -171,11 +212,28 @@ RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/
 # __fprintf_chk) so the resulting .so loads on musl-based hosts (Alpine/ARC runners)
 COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
 RUN set -eux; \
+    force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
+      if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
+      fi; \
+      if [ -d /etc/apt/sources.list.d ]; then \
+        find /etc/apt/sources.list.d -name '*.sources' -exec \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+      fi; \
+      rm -rf /var/lib/apt/lists/* && apt-get update; \
+    }; \
+    apt_install_retry() { \
+      apt-get install -y --no-install-recommends "$@" && return 0; \
+      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror; \
+      apt-get install -y --no-install-recommends "$@"; \
+    }; \
     BUILD_PKGS="gcc libc6-dev binutils"; \
     apt-get update && \
-    ( apt-get install -y --no-install-recommends $BUILD_PKGS || \
-      (rm -rf /var/lib/apt/lists/* && apt-get update && \
-       apt-get install -y --no-install-recommends $BUILD_PKGS) ) && \
+    apt_install_retry $BUILD_PKGS && \
     gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
         -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
         -o /usr/local/lib/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \

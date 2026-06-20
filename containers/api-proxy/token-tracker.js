@@ -25,6 +25,7 @@ const {
   normalizeUsage,
   isStreamingResponse,
   isCompressedResponse,
+  extractCopilotUsageBreakdown,
 } = require('./token-parsers');
 
 module.exports = {
@@ -39,6 +40,7 @@ module.exports = {
   normalizeUsage,
   isStreamingResponse,
   isCompressedResponse,
+  extractCopilotUsageBreakdown,
   validateTokenUsageRecord,
   writeTokenUsage,
   TOKEN_LOG_FILE,

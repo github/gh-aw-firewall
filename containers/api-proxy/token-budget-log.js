@@ -19,7 +19,7 @@ const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
  */
 function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model) {
   const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
-  const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model);
+  const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider);
   applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {
     logRequest('info', 'token_budget_usage', {

@@ -18,6 +18,7 @@ const {
 
 const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
+const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
  * Create the OpenAI provider adapter.
@@ -28,26 +29,26 @@ const { createProviderOidcAuth } = require('./cloud-oidc-init');
  */
 function createOpenAIAdapter(env, deps = {}) {
   const { apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath } = createBaseAdapterConfig(env, {
-    keyEnvVar: 'OPENAI_API_KEY',
-    targetEnvVar: 'OPENAI_API_TARGET',
-    basePathEnvVar: 'OPENAI_API_BASE_PATH',
+    keyEnvVar: OPENAI_ENV.KEY,
+    targetEnvVar: OPENAI_ENV.TARGET,
+    basePathEnvVar: OPENAI_ENV.BASE_PATH,
     defaultTarget: 'api.openai.com',
   });
-  const providerType = (env.COPILOT_PROVIDER_TYPE || '').trim().toLowerCase();
+  const providerType = (env[COPILOT_ENV.PROVIDER_TYPE] || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
-    const header = validateAuthHeaderEnv('AWF_OPENAI_AUTH_HEADER', env.AWF_OPENAI_AUTH_HEADER);
+    const header = validateAuthHeaderEnv(OPENAI_ENV.AUTH_HEADER, env[OPENAI_ENV.AUTH_HEADER]);
     if (header) return header;
     // Azure OpenAI BYOK uses `api-key` header instead of `Authorization: Bearer`
     // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden)
     if (copilotAzureByokEnabled && (env.AWF_AUTH_TYPE || '').trim().toLowerCase() !== 'github-oidc') return 'api-key';
     return '';
   })();
-  const copilotByokApiKey = (env.COPILOT_PROVIDER_API_KEY || '').trim() || undefined;
-  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env.COPILOT_PROVIDER_BASE_URL);
+  const copilotByokApiKey = (env[COPILOT_ENV.PROVIDER_API_KEY] || '').trim() || undefined;
+  const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env[COPILOT_ENV.PROVIDER_BASE_URL]);
 
   const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
-  const explicitOpenAITarget = env.OPENAI_API_TARGET ? openaiTarget : undefined;
+  const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
   const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
   const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
 

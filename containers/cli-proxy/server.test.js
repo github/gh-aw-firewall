@@ -270,6 +270,10 @@ describe('buildExecEnv', () => {
 });
 
 describe('runGhCommand', () => {
+  // These tests spawn the real `gh` binary, so they are sensitive to runner
+  // contention. Jest's 5s default is too tight under load; give them headroom.
+  const REAL_GH_TIMEOUT_MS = 30000;
+
   it('should return stdout, stderr, and exitCode on success', async () => {
     const result = await runGhCommand(['--version'], process.env, null);
     expect(result).toHaveProperty('stdout');
@@ -277,12 +281,12 @@ describe('runGhCommand', () => {
     expect(result).toHaveProperty('exitCode');
     expect(typeof result.stdout).toBe('string');
     expect(typeof result.exitCode).toBe('number');
-  });
+  }, REAL_GH_TIMEOUT_MS);
 
   it('should return non-zero exitCode for invalid gh subcommand', async () => {
     const result = await runGhCommand(['__nonexistent_subcommand__'], process.env, null);
     expect(result.exitCode).not.toBe(0);
-  });
+  }, REAL_GH_TIMEOUT_MS);
 
   it('should return non-zero exitCode when gh binary is not found', async () => {
     // Temporarily remove gh from PATH
@@ -295,5 +299,5 @@ describe('runGhCommand', () => {
     } finally {
       process.env.PATH = savedPath;
     }
-  });
+  }, REAL_GH_TIMEOUT_MS);
 });
