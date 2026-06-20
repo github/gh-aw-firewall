@@ -257,4 +257,58 @@ describe('generateDockerCompose', () => {
       const agentNetworks = result.services.agent.networks as { [key: string]: { ipv4_address?: string } };
       expect(agentNetworks['awf-net'].ipv4_address).toBe('172.30.0.20');
     });
+
+    describe('network-isolation (topology) mode', () => {
+      it('should emit an internal awf-net with a subnet and an external awf-ext bridge', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        expect(result.networks['awf-net'].internal).toBe(true);
+        expect(result.networks['awf-net'].external).toBeUndefined();
+        expect(result.networks['awf-net'].ipam?.config?.[0]?.subnet).toBe(mockNetworkConfig.subnet);
+        expect(result.networks['awf-ext'].driver).toBe('bridge');
+      });
+
+      it('should dual-home squid on awf-net and awf-ext', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        const squidNetworks = result.services['squid-proxy'].networks as { [key: string]: { ipv4_address?: string } };
+        expect(squidNetworks['awf-net'].ipv4_address).toBe('172.30.0.10');
+        expect(squidNetworks['awf-ext']).toBeDefined();
+      });
+
+      it('should keep the agent on awf-net only (no external network)', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        const agentNetworks = result.services.agent.networks as { [key: string]: unknown };
+        expect(agentNetworks['awf-net']).toBeDefined();
+        expect(agentNetworks['awf-ext']).toBeUndefined();
+      });
+
+      it('should not create the iptables-init service', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        expect(result.services['iptables-init']).toBeUndefined();
+      });
+
+      it('should set AWF_NETWORK_ISOLATION=1 in the agent environment', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBe('1');
+      });
+
+      it('should point agent DNS at the Docker embedded resolver', () => {
+        const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
+
+        expect(result.services.agent.dns).toEqual(['127.0.0.11']);
+      });
+
+      it('should still build the iptables-init service in default (iptables) mode', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+
+        expect(result.services['iptables-init']).toBeDefined();
+        expect(result.networks['awf-net'].external).toBe(true);
+        expect(result.networks['awf-ext']).toBeUndefined();
+        expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBeUndefined();
+      });
+    });
 });

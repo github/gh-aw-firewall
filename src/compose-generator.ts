@@ -124,22 +124,35 @@ export function generateDockerCompose(
   });
 
   // ── iptables-init service ──────────────────────────────────────────────────
+  //
+  // In network-isolation (topology) mode there is no iptables enforcement, so the
+  // init container is omitted entirely. The agent skips its init-wait loop via the
+  // AWF_NETWORK_ISOLATION env var set below.
 
-  const iptablesInitService = buildIptablesInitService({
-    agentService,
-    environment,
-    networkConfig,
-    initSignalDir,
-    dockerHostPathPrefix: config.dockerHostPathPrefix,
-  });
+  const networkIsolation = !!config.networkIsolation;
+
+  if (networkIsolation) {
+    // Tell the agent entrypoint to skip the iptables-init handshake.
+    environment.AWF_NETWORK_ISOLATION = '1';
+  }
 
   // ── Assemble base services ─────────────────────────────────────────────────
 
   const services: Record<string, any> = {
     'squid-proxy': squidService,
     'agent': agentService,
-    'iptables-init': iptablesInitService,
   };
+
+  if (!networkIsolation) {
+    const iptablesInitService = buildIptablesInitService({
+      agentService,
+      environment,
+      networkConfig,
+      initSignalDir,
+      dockerHostPathPrefix: config.dockerHostPathPrefix,
+    });
+    services['iptables-init'] = iptablesInitService;
+  }
 
   // ── Optional: API proxy sidecar ────────────────────────────────────────────
 
@@ -197,6 +210,40 @@ export function generateDockerCompose(
   }
 
   // ── Final compose result ───────────────────────────────────────────────────
+
+  if (networkIsolation) {
+    // Topology enforcement: the agent (and sidecars) live on an `internal`
+    // network with no route to the internet. Squid is dual-homed — attached to
+    // both the internal network and an external bridge network — so it is the
+    // sole egress path. No host iptables and no NET_ADMIN are involved.
+    squidService.networks = {
+      ...(squidService.networks || {}),
+      'awf-ext': {},
+    };
+
+    // The agent must resolve names via Docker's embedded resolver (127.0.0.11),
+    // which forwards through the daemon's network rather than the agent's, so it
+    // still works on an internal network. The configured external DNS servers are
+    // unreachable from an internal network.
+    agentService.dns = ['127.0.0.11'];
+
+    const composeResult: DockerComposeConfig = {
+      services,
+      networks: {
+        'awf-net': {
+          internal: true,
+          ipam: {
+            config: [{ subnet: networkConfig.subnet }],
+          },
+        },
+        'awf-ext': {
+          driver: 'bridge',
+        },
+      },
+    };
+
+    return composeResult;
+  }
 
   const composeResult: DockerComposeConfig = {
     services,

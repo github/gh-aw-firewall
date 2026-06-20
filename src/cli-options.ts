@@ -234,6 +234,13 @@ program
     false
   )
   .option(
+    '--network-isolation',
+    'Experimental: enforce egress via Docker network topology (internal network +\n' +
+    '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
+    '                                       Not yet supported with --dns-over-https or --enable-host-access.',
+    false
+  )
+  .option(
     '--allow-host-ports <ports>',
     'Ports/ranges to allow with --enable-host-access (default: 80,443).\n' +
     '                                       Example: 3000,8080 or 3000-3010,8000-8090'

@@ -141,6 +141,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
+    networkIsolation: options.networkIsolation as boolean,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,
     allowHostServicePorts: options.allowHostServicePorts as string | undefined,

@@ -405,6 +405,17 @@ interface DockerNetwork {
   };
 
   /**
+   * Whether this network is internal (no external/internet connectivity)
+   *
+   * When true, Docker does not provide a default gateway route to the internet
+   * for members of this network. Used by network-isolation (topology) mode so
+   * the agent container has no egress path except through the dual-homed proxy.
+   *
+   * @default false
+   */
+  internal?: boolean;
+
+  /**
    * Whether this network is externally managed
    * 
    * When true, Docker Compose will not create or delete the network,

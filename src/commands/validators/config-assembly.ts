@@ -120,6 +120,23 @@ function validateFeatureFlagCompatibility(config: WrapperConfig): void {
   if (config.envFile) {
     logger.debug(`Loading environment variables from file: ${config.envFile}`);
   }
+
+  // Network-isolation (topology) mode: reject combinations that are not yet
+  // supported because they depend on host-iptables or a sidecar that needs
+  // direct external connectivity bypassing the dual-homed proxy.
+  if (config.networkIsolation) {
+    if (config.dnsOverHttps) {
+      logger.error('❌ --network-isolation is not yet supported with --dns-over-https.');
+      logger.error('   The DoH proxy needs direct external connectivity, which the internal network does not provide.');
+      process.exit(1);
+    }
+    if (config.enableHostAccess) {
+      logger.error('❌ --network-isolation is not yet supported with --enable-host-access.');
+      logger.error('   Host access relies on host-level iptables, which network-isolation mode does not configure.');
+      process.exit(1);
+    }
+    logger.warn('⚠️  --network-isolation is experimental: egress is enforced via Docker network topology instead of iptables.');
+  }
 }
 
 /**

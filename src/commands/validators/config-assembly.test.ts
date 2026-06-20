@@ -435,6 +435,51 @@ describe('config-assembly', () => {
     });
   });
 
+  describe('network-isolation validation', () => {
+    it('should exit if --network-isolation is combined with --dns-over-https', () => {
+      mockBuildConfigOnce({
+        networkIsolation: true,
+        dnsOverHttps: 'https://1.1.1.1/dns-query',
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is not yet supported with --dns-over-https'),
+      );
+    });
+
+    it('should exit if --network-isolation is combined with --enable-host-access', () => {
+      mockBuildConfigOnce({
+        networkIsolation: true,
+        enableHostAccess: true,
+      });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is not yet supported with --enable-host-access'),
+      );
+    });
+
+    it('should warn that --network-isolation is experimental when used alone', () => {
+      mockBuildConfigOnce({
+        networkIsolation: true,
+      });
+
+      callAssembleWith();
+
+      expect(mockExit).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is experimental'),
+      );
+    });
+  });
+
   describe('environment variable warnings', () => {
     it('should warn when --env-all is used', () => {
       mockBuildConfigOnce({

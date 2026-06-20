@@ -64,6 +64,48 @@ describe('runMainWorkflow', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  it('skips host network setup and iptables in network-isolation mode', async () => {
+    const callOrder: string[] = [];
+    const dependencies = {
+      ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
+        callOrder.push('ensureFirewallNetwork');
+        return { squidIp: '172.30.0.10' };
+      }),
+      setupHostIptables: jest.fn().mockImplementation(async () => {
+        callOrder.push('setupHostIptables');
+      }),
+      writeConfigs: jest.fn().mockImplementation(async () => {
+        callOrder.push('writeConfigs');
+      }),
+      startContainers: jest.fn().mockImplementation(async () => {
+        callOrder.push('startContainers');
+      }),
+      runAgentCommand: jest.fn().mockImplementation(async () => {
+        callOrder.push('runAgentCommand');
+        return { exitCode: 0 };
+      }),
+    };
+    const performCleanup = jest.fn();
+    const logger = createLogger();
+    const onHostIptablesSetup = jest.fn();
+
+    const exitCode = await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true },
+      dependencies,
+      { logger, performCleanup, onHostIptablesSetup },
+    );
+
+    expect(dependencies.ensureFirewallNetwork).not.toHaveBeenCalled();
+    expect(dependencies.setupHostIptables).not.toHaveBeenCalled();
+    expect(onHostIptablesSetup).not.toHaveBeenCalled();
+    expect(callOrder).toEqual([
+      'writeConfigs',
+      'startContainers',
+      'runAgentCommand',
+    ]);
+    expect(exitCode).toBe(0);
+  });
+
   it('passes agentTimeout to runAgentCommand', async () => {
     const configWithTimeout: WrapperConfig = {
       ...baseConfig,

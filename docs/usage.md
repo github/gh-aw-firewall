@@ -73,6 +73,11 @@ Options:
   --enable-host-access         Enable access to host services via host.docker.internal. Security
                                warning: When combined with --allow-domains host.docker.internal,
                                containers can access ANY service on the host machine. (default: false)
+  --network-isolation          Experimental: enforce egress via Docker network topology (an
+                               internal network with no internet route plus a dual-homed Squid
+                               proxy) instead of host iptables. Requires no sudo / NET_ADMIN, so it
+                               works inside ARC / Kubernetes DinD runners. Not yet supported with
+                               --dns-over-https or --enable-host-access. (default: false)
   --allow-host-ports <ports>   Comma-separated list of ports or port ranges to allow when using
                                 --enable-host-access. By default, only ports 80 and 443 are allowed.
                                 Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or

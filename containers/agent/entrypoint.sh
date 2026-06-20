@@ -136,24 +136,31 @@ wait_for_iptables() {
 # The awf-iptables-init container shares our network namespace and runs
 # setup-iptables.sh, then writes a ready signal file. This ensures the agent
 # container NEVER needs NET_ADMIN capability.
-echo "[entrypoint] Waiting for iptables initialization from init container..."
-INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
-INIT_ELAPSED=0
-while [ ! -f /tmp/awf-init/ready ]; do
-  if [ "$INIT_ELAPSED" -ge "$INIT_TIMEOUT" ]; then
-    echo "[entrypoint][ERROR] Timed out waiting for iptables init container after 30s"
-    if [ -f /tmp/awf-init/output.log ]; then
-      echo "[entrypoint] Init container output:"
-      cat /tmp/awf-init/output.log
-    else
-      echo "[entrypoint] No init container output log found"
+#
+# In network-isolation (topology) mode there is no iptables-init container —
+# egress is enforced by Docker network topology — so skip the handshake.
+if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ]; then
+  echo "[entrypoint] Network-isolation mode: skipping iptables init container wait"
+else
+  echo "[entrypoint] Waiting for iptables initialization from init container..."
+  INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
+  INIT_ELAPSED=0
+  while [ ! -f /tmp/awf-init/ready ]; do
+    if [ "$INIT_ELAPSED" -ge "$INIT_TIMEOUT" ]; then
+      echo "[entrypoint][ERROR] Timed out waiting for iptables init container after 30s"
+      if [ -f /tmp/awf-init/output.log ]; then
+        echo "[entrypoint] Init container output:"
+        cat /tmp/awf-init/output.log
+      else
+        echo "[entrypoint] No init container output log found"
+      fi
+      exit 1
     fi
-    exit 1
-  fi
-  sleep 0.1
-  INIT_ELAPSED=$((INIT_ELAPSED + 1))
-done
-echo "[entrypoint] iptables initialization complete"
+    sleep 0.1
+    INIT_ELAPSED=$((INIT_ELAPSED + 1))
+  done
+  echo "[entrypoint] iptables initialization complete"
+fi
 }
 
 check_service_health() {
