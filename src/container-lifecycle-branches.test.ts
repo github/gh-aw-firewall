@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { expectComposeUpAttempts } from './test-helpers/startup-retry.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -177,10 +178,7 @@ describe('container-lifecycle uncovered branches', () => {
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
       // Confirm two compose-up calls were made (initial + retry)
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
 
     describe('startContainers - squid unhealthy via inspect health status', () => {
@@ -207,10 +205,7 @@ describe('container-lifecycle uncovered branches', () => {
         );
         expect(squidInspectCalls).toHaveLength(1);
 
-        const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-          call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-        );
-        expect(upCalls).toHaveLength(2);
+        expectComposeUpAttempts(2);
       });
     });
 
@@ -230,10 +225,7 @@ describe('container-lifecycle uncovered branches', () => {
 
       await expect(startContainers(getDir(), ['github.com'])).resolves.toBeUndefined();
 
-      const upCalls = mockExecaFn.mock.calls.filter((call: any[]) =>
-        call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('up')
-      );
-      expect(upCalls).toHaveLength(2);
+      expectComposeUpAttempts(2);
     });
   });
 

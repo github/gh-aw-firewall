@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../../src/constants/placeholders';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const securityGuardSourcePath = path.join(workflowsDir, 'security-guard.md');
@@ -36,6 +37,8 @@ describe('security guard workflow optimization config', () => {
 
     expect(lock).toContain('"agent_model":"claude-haiku-4-5"');
     expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
+    expect(lock).toContain(`COPILOT_DUMMY_BYOK: ${COPILOT_PLACEHOLDER_TOKEN}`);
+    expect(lock).not.toContain('COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode');
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toContain('github/gh-aw-actions/setup@c20f9e750acfb2da7ce8698626ebeb65efb33300 # v0.80.6');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.79.2');

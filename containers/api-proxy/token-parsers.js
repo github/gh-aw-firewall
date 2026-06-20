@@ -56,6 +56,48 @@ function extractReasoningTokens(usage) {
   return undefined;
 }
 
+function sumCacheReadFromEntries(entries) {
+  let total = 0;
+  let found = false;
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    if (entry.token_type === 'cache_read' && typeof entry.token_count === 'number') {
+      total += entry.token_count;
+      found = true;
+    }
+
+    if (Array.isArray(entry.details)) {
+      const nested = sumCacheReadFromEntries(entry.details);
+      if (typeof nested === 'number') {
+        total += nested;
+        found = true;
+      }
+    }
+  }
+
+  return found ? total : undefined;
+}
+
+/**
+ * Scan token-entry containers for cache_read token entries.
+ */
+function findInTokenEntries(tokenContainers) {
+  for (const container of tokenContainers) {
+    if (!container || typeof container !== 'object') continue;
+    const entries = Array.isArray(container)
+      ? container
+      : (Array.isArray(container.details) ? container.details : null);
+    if (!entries) continue;
+
+    const total = sumCacheReadFromEntries(entries);
+    if (typeof total === 'number') return total;
+  }
+
+  return undefined;
+}
+
 /**
  * Extract cache-read token count from provider usage payloads.
  *
@@ -91,41 +133,88 @@ function extractCacheReadTokens(usage) {
     usage.token_details,
     usage.usage_details,
   ];
+  return findInTokenEntries(tokenContainers);
+}
 
-  for (const container of tokenContainers) {
-    if (!container || typeof container !== 'object') continue;
-    const entries = Array.isArray(container)
-      ? container
-      : (Array.isArray(container.details) ? container.details : null);
-    if (!entries) continue;
+function buildUsageFromSource(usageSource) {
+  if (!usageSource || typeof usageSource !== 'object') return null;
 
-    let total = 0;
-    let found = false;
-    for (const entry of entries) {
-      if (!entry || typeof entry !== 'object') continue;
-      if (entry.token_type === 'cache_read') {
-        const count = entry.token_count;
-        if (typeof count === 'number') {
-          total += count;
-          found = true;
-        }
-      }
-      if (Array.isArray(entry.details)) {
-        for (const nested of entry.details) {
-          if (!nested || typeof nested !== 'object') continue;
-          if (nested.token_type !== 'cache_read') continue;
-          const count = nested.token_count;
-          if (typeof count === 'number') {
-            total += count;
-            found = true;
-          }
-        }
-      }
-    }
-    if (found) return total;
+  const usage = {};
+  if (typeof usageSource.input_tokens === 'number') usage.input_tokens = usageSource.input_tokens;
+  if (typeof usageSource.output_tokens === 'number') usage.output_tokens = usageSource.output_tokens;
+  if (typeof usageSource.cache_creation_input_tokens === 'number') {
+    usage.cache_creation_input_tokens = usageSource.cache_creation_input_tokens;
   }
+  if (typeof usageSource.prompt_tokens === 'number') usage.prompt_tokens = usageSource.prompt_tokens;
+  if (typeof usageSource.completion_tokens === 'number') usage.completion_tokens = usageSource.completion_tokens;
+  if (typeof usageSource.total_tokens === 'number') usage.total_tokens = usageSource.total_tokens;
 
-  return undefined;
+  const reasoningTokens = extractReasoningTokens(usageSource);
+  if (typeof reasoningTokens === 'number') usage.reasoning_tokens = reasoningTokens;
+
+  const cacheReadTokens = extractCacheReadTokens(usageSource);
+  if (typeof cacheReadTokens === 'number') usage.cache_read_input_tokens = cacheReadTokens;
+
+  return Object.keys(usage).length > 0 ? usage : null;
+}
+
+function mergeCopilotBreakdown(usage, json) {
+  const copilotBreakdown = extractCopilotUsageBreakdown(json);
+  if (!copilotBreakdown) return usage;
+
+  const merged = { ...(usage || {}), ...copilotBreakdown };
+  if (copilotBreakdown.input_tokens !== undefined) {
+    // Copilot gave us a precise input split: drop the lumped prompt_tokens.
+    delete merged.prompt_tokens;
+  } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
+             && typeof merged.prompt_tokens === 'number') {
+    // cache_write present but input absent: infer input = prompt_tokens - cache_write
+    // to avoid double-counting cache_write in normalizeUsage.
+    merged.input_tokens = Math.max(0, merged.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
+    delete merged.prompt_tokens;
+  }
+  return merged;
+}
+
+function buildAnthropicMessageStartUsage(usage) {
+  const out = {};
+  if (typeof usage.input_tokens === 'number') out.input_tokens = usage.input_tokens;
+  if (typeof usage.cache_creation_input_tokens === 'number') {
+    out.cache_creation_input_tokens = usage.cache_creation_input_tokens;
+  }
+  const cacheReadTokens = extractCacheReadTokens(usage);
+  if (typeof cacheReadTokens === 'number') out.cache_read_input_tokens = cacheReadTokens;
+  return out;
+}
+
+function buildAnthropicMessageDeltaUsage(usage) {
+  const out = {};
+  if (typeof usage.output_tokens === 'number') out.output_tokens = usage.output_tokens;
+  return out;
+}
+
+function buildResponseCompletionUsage(usage) {
+  const out = {};
+  if (typeof usage.input_tokens === 'number') out.input_tokens = usage.input_tokens;
+  if (typeof usage.output_tokens === 'number') out.output_tokens = usage.output_tokens;
+  if (typeof usage.total_tokens === 'number') out.total_tokens = usage.total_tokens;
+  const reasoningTokens = extractReasoningTokens(usage);
+  if (typeof reasoningTokens === 'number') out.reasoning_tokens = reasoningTokens;
+  const cacheReadTokens = extractCacheReadTokens(usage);
+  if (typeof cacheReadTokens === 'number') out.cache_read_input_tokens = cacheReadTokens;
+  return out;
+}
+
+function buildStreamingFinalChunkUsage(usage) {
+  const out = {};
+  if (typeof usage.prompt_tokens === 'number') out.prompt_tokens = usage.prompt_tokens;
+  if (typeof usage.completion_tokens === 'number') out.completion_tokens = usage.completion_tokens;
+  if (typeof usage.total_tokens === 'number') out.total_tokens = usage.total_tokens;
+  const reasoningTokens = extractReasoningTokens(usage);
+  if (typeof reasoningTokens === 'number') out.reasoning_tokens = reasoningTokens;
+  const cacheReadTokens = extractCacheReadTokens(usage);
+  if (typeof cacheReadTokens === 'number') out.cache_read_input_tokens = cacheReadTokens;
+  return out;
 }
 
 /**
@@ -215,70 +304,8 @@ function extractUsageFromJson(body) {
         ? json.response.usage
         : null);
     const result = { usage: null, model: json.model || (json.response && json.response.model) || null };
-
-    if (usageSource) {
-      const usage = {};
-      let hasField = false;
-      // Anthropic fields
-      if (typeof usageSource.input_tokens === 'number') {
-        usage.input_tokens = usageSource.input_tokens;
-        hasField = true;
-      }
-      if (typeof usageSource.output_tokens === 'number') {
-        usage.output_tokens = usageSource.output_tokens;
-        hasField = true;
-      }
-      if (typeof usageSource.cache_creation_input_tokens === 'number') {
-        usage.cache_creation_input_tokens = usageSource.cache_creation_input_tokens;
-        hasField = true;
-      }
-      // OpenAI/Copilot fields
-      if (typeof usageSource.prompt_tokens === 'number') {
-        usage.prompt_tokens = usageSource.prompt_tokens;
-        hasField = true;
-      }
-      if (typeof usageSource.completion_tokens === 'number') {
-        usage.completion_tokens = usageSource.completion_tokens;
-        hasField = true;
-      }
-      if (typeof usageSource.total_tokens === 'number') {
-        usage.total_tokens = usageSource.total_tokens;
-        hasField = true;
-      }
-      const reasoningTokens = extractReasoningTokens(usageSource);
-      if (typeof reasoningTokens === 'number') {
-        usage.reasoning_tokens = reasoningTokens;
-        hasField = true;
-      }
-      const cacheReadTokens = extractCacheReadTokens(usageSource);
-      if (typeof cacheReadTokens === 'number') {
-        usage.cache_read_input_tokens = cacheReadTokens;
-        hasField = true;
-      }
-      if (hasField) {
-        result.usage = usage;
-      }
-    }
-
-    // Copilot exposes the authoritative input/cache_read/cache_write/output
-    // split only in the sibling `copilot_usage.token_details` array. When
-    // present, prefer it: the flattened `usage.prompt_tokens` lumps fresh
-    // input together with cache-write tokens (billed at different rates).
-    const copilotBreakdown = extractCopilotUsageBreakdown(json);
-    if (copilotBreakdown) {
-      const merged = { ...(result.usage || {}), ...copilotBreakdown };
-      if (copilotBreakdown.input_tokens !== undefined) {
-        // Copilot gave us a precise input split: drop the lumped prompt_tokens.
-        delete merged.prompt_tokens;
-      } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
-                 && typeof merged.prompt_tokens === 'number') {
-        // cache_write present but input absent: infer input = prompt_tokens - cache_write
-        // to avoid double-counting cache_write in normalizeUsage.
-        merged.input_tokens = Math.max(0, merged.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
-        delete merged.prompt_tokens;
-      }
-      result.usage = merged;
-    }
+    result.usage = buildUsageFromSource(usageSource);
+    result.usage = mergeCopilotBreakdown(result.usage, json);
 
     return result;
   } catch {
@@ -310,65 +337,29 @@ function extractUsageFromSseLine(line) {
 
     // Anthropic message_start: usage is inside message object
     if (json.type === 'message_start' && json.message && json.message.usage) {
-      result.usage = {};
-      const u = json.message.usage;
-      if (typeof u.input_tokens === 'number') result.usage.input_tokens = u.input_tokens;
-      if (typeof u.cache_creation_input_tokens === 'number') result.usage.cache_creation_input_tokens = u.cache_creation_input_tokens;
-      const cacheReadTokens = extractCacheReadTokens(u);
-      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
+      result.usage = buildAnthropicMessageStartUsage(json.message.usage);
       result.model = (json.message && json.message.model) || result.model;
       return result;
     }
 
     // Anthropic message_delta: usage at top level
     if (json.type === 'message_delta' && json.usage) {
-      result.usage = {};
-      if (typeof json.usage.output_tokens === 'number') result.usage.output_tokens = json.usage.output_tokens;
+      result.usage = buildAnthropicMessageDeltaUsage(json.usage);
       return result;
     }
 
     // OpenAI Responses API: usage in response object on completion events
     if ((json.type === 'response.completed' || json.type === 'response.done')
       && json.response && json.response.usage && typeof json.response.usage === 'object') {
-      const u = json.response.usage;
-      result.usage = {};
-      if (typeof u.input_tokens === 'number') result.usage.input_tokens = u.input_tokens;
-      if (typeof u.output_tokens === 'number') result.usage.output_tokens = u.output_tokens;
-      if (typeof u.total_tokens === 'number') result.usage.total_tokens = u.total_tokens;
-      const reasoningTokens = extractReasoningTokens(u);
-      if (typeof reasoningTokens === 'number') result.usage.reasoning_tokens = reasoningTokens;
-      const cacheReadTokens = extractCacheReadTokens(u);
-      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
+      result.usage = buildResponseCompletionUsage(json.response.usage);
       result.model = json.response.model || result.model;
       return result;
     }
 
     // OpenAI/Copilot: usage at top level in final chunk
     if (json.usage && typeof json.usage === 'object') {
-      result.usage = {};
-      if (typeof json.usage.prompt_tokens === 'number') result.usage.prompt_tokens = json.usage.prompt_tokens;
-      if (typeof json.usage.completion_tokens === 'number') result.usage.completion_tokens = json.usage.completion_tokens;
-      if (typeof json.usage.total_tokens === 'number') result.usage.total_tokens = json.usage.total_tokens;
-      const reasoningTokens = extractReasoningTokens(json.usage);
-      if (typeof reasoningTokens === 'number') {
-        result.usage.reasoning_tokens = reasoningTokens;
-      }
-      const cacheReadTokens = extractCacheReadTokens(json.usage);
-      if (typeof cacheReadTokens === 'number') result.usage.cache_read_input_tokens = cacheReadTokens;
-      const copilotBreakdown = extractCopilotUsageBreakdown(json);
-      if (copilotBreakdown) {
-        result.usage = { ...result.usage, ...copilotBreakdown };
-        if (copilotBreakdown.input_tokens !== undefined) {
-          // Copilot gave us a precise input split: drop the lumped prompt_tokens.
-          delete result.usage.prompt_tokens;
-        } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
-                   && typeof result.usage.prompt_tokens === 'number') {
-          // cache_write present but input absent: infer input = prompt_tokens - cache_write
-          // to avoid double-counting cache_write in normalizeUsage.
-          result.usage.input_tokens = Math.max(0, result.usage.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
-          delete result.usage.prompt_tokens;
-        }
-      }
+      result.usage = buildStreamingFinalChunkUsage(json.usage);
+      result.usage = mergeCopilotBreakdown(result.usage, json);
       return result;
     }
 

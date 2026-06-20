@@ -15,8 +15,8 @@ import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
 
-describe('prepareWorkDirectories', () => {
-  let tempDir: string;
+function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
+  let tempDir = '';
 
   const buildConfig = (overrides: Record<string, unknown> = {}) => ({
     workDir: tempDir,
@@ -39,9 +39,27 @@ describe('prepareWorkDirectories', () => {
   });
 
   afterEach(() => {
+    if (!tempDir) {
+      return;
+    }
+
     fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+    if (cleanupChrootHome) {
+      fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+    }
   });
+
+  return {
+    buildConfig,
+    get tempDir() {
+      return tempDir;
+    },
+  };
+}
+
+describe('prepareWorkDirectories', () => {
+  const fixture = setupWorkdirFixture();
+  const { buildConfig } = fixture;
 
   describe('log/state directory setup', () => {
     it('creates agent logs directory', () => {
@@ -121,7 +139,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('falls back to world-writable squid logs when squid chown fails', () => {
-      const proxyLogsDir = path.join(tempDir, 'proxy-logs');
+      const proxyLogsDir = path.join(fixture.tempDir, 'proxy-logs');
       (fs.chownSync as unknown as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
         if (String(targetPath) === proxyLogsDir) {
           throw new Error('chown failed');
@@ -140,7 +158,7 @@ describe('prepareWorkDirectories', () => {
 
   describe('chroot home bind-mount preparation', () => {
     it('creates chroot home directory when it does not exist', () => {
-      const emptyHomeDir = `${tempDir}-chroot-home`;
+      const emptyHomeDir = `${fixture.tempDir}-chroot-home`;
       expect(fs.existsSync(emptyHomeDir)).toBe(false);
 
       const config = buildConfig();
@@ -153,7 +171,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('uses existing chroot home directory if already present', () => {
-      const emptyHomeDir = `${tempDir}-chroot-home`;
+      const emptyHomeDir = `${fixture.tempDir}-chroot-home`;
       fs.mkdirSync(emptyHomeDir, { recursive: true });
       const statBefore = fs.statSync(emptyHomeDir);
 
@@ -167,9 +185,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('creates missing home subdirectories with correct ownership', () => {
-      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
-
-      const copilotDir = path.join(tempDir, '.copilot');
+      const copilotDir = path.join(fixture.tempDir, '.copilot');
       if (fs.existsSync(copilotDir)) {
         fs.rmSync(copilotDir, { recursive: true, force: true });
       }
@@ -184,9 +200,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('creates .gemini directory when geminiApiKey is provided', () => {
-      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
-
-      const geminiDir = path.join(tempDir, '.gemini');
+      const geminiDir = path.join(fixture.tempDir, '.gemini');
       if (fs.existsSync(geminiDir)) {
         fs.rmSync(geminiDir, { recursive: true, force: true });
       }
@@ -200,9 +214,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('does not create .gemini directory when geminiApiKey is not provided', () => {
-      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
-
-      const geminiDir = path.join(tempDir, '.gemini');
+      const geminiDir = path.join(fixture.tempDir, '.gemini');
       if (fs.existsSync(geminiDir)) {
         fs.rmSync(geminiDir, { recursive: true, force: true });
       }
@@ -216,7 +228,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('creates configured runner tool cache directory segments with correct ownership', () => {
-      const runnerToolCacheParent = path.join(tempDir, 'runner-work');
+      const runnerToolCacheParent = path.join(fixture.tempDir, 'runner-work');
       const runnerToolCachePath = path.join(runnerToolCacheParent, '_tool');
       expect(fs.existsSync(runnerToolCachePath)).toBe(false);
 
@@ -234,12 +246,11 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('throws when runnerToolCachePath contains a pre-existing non-root-owned intermediate symlink', () => {
-      const realDir = path.join(tempDir, 'real-dir');
-      const symlinkDir = path.join(tempDir, 'link-to-real');
+      const realDir = path.join(fixture.tempDir, 'real-dir');
+      const symlinkDir = path.join(fixture.tempDir, 'link-to-real');
       fs.mkdirSync(realDir, { recursive: true });
       fs.symlinkSync(realDir, symlinkDir);
       const runnerToolCachePath = path.join(symlinkDir, 'child');
-      (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
 
       const config = buildConfig({ runnerToolCachePath });
       const logPaths = resolveLogPaths(config);
@@ -250,7 +261,7 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('prepares chroot mountpoint for fallback runner tool cache under home', () => {
-      const runnerToolCachePath = path.join(tempDir, 'work', '_tool');
+      const runnerToolCachePath = path.join(fixture.tempDir, 'work', '_tool');
       fs.mkdirSync(runnerToolCachePath, { recursive: true });
 
       const savedRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
@@ -266,7 +277,7 @@ describe('prepareWorkDirectories', () => {
         }
       }
 
-      const chrootWorkDir = path.join(`${tempDir}-chroot-home`, 'work');
+      const chrootWorkDir = path.join(`${fixture.tempDir}-chroot-home`, 'work');
       const chrootToolCacheDir = path.join(chrootWorkDir, '_tool');
       expect(fs.existsSync(chrootToolCacheDir)).toBe(true);
       expect(fs.statSync(chrootToolCacheDir).isDirectory()).toBe(true);
@@ -279,31 +290,8 @@ describe('prepareWorkDirectories', () => {
 });
 
 describe('prepareLogDirectories (sub-function)', () => {
-  let tempDir: string;
-
-  const buildConfig = (overrides: Record<string, unknown> = {}) => ({
-    workDir: tempDir,
-    sslBump: false,
-    allowedDomains: [] as string[],
-    agentCommand: 'echo test',
-    logLevel: 'info' as const,
-    keepContainers: false,
-    buildLocal: false,
-    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-    imageTag: 'latest',
-    ...overrides,
-  });
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
-    jest.clearAllMocks();
-    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
-    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
-  });
-
-  afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
+  const fixture = setupWorkdirFixture({ cleanupChrootHome: false });
+  const { buildConfig } = fixture;
 
   it('creates all log directories without touching chroot home', () => {
     const config = buildConfig();
@@ -316,44 +304,20 @@ describe('prepareLogDirectories (sub-function)', () => {
     expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(true);
     expect(fs.existsSync(logPaths.cliProxyLogs)).toBe(true);
     // chroot home must NOT have been created
-    expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(false);
+    expect(fs.existsSync(`${fixture.tempDir}-chroot-home`)).toBe(false);
   });
 });
 
 describe('prepareChrootHomeMounts (sub-function)', () => {
-  let tempDir: string;
-
-  const buildConfig = (overrides: Record<string, unknown> = {}) => ({
-    workDir: tempDir,
-    sslBump: false,
-    allowedDomains: [] as string[],
-    agentCommand: 'echo test',
-    logLevel: 'info' as const,
-    keepContainers: false,
-    buildLocal: false,
-    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-    imageTag: 'latest',
-    ...overrides,
-  });
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
-    jest.clearAllMocks();
-    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
-    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
-  });
-
-  afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
-  });
+  const fixture = setupWorkdirFixture();
+  const { buildConfig } = fixture;
 
   it('creates chroot home directory without touching log directories', () => {
     const config = buildConfig();
     const logPaths = resolveLogPaths(config);
     workdirSetupTestHelpers.prepareChrootHomeMounts(config);
 
-    expect(fs.existsSync(`${tempDir}-chroot-home`)).toBe(true);
+    expect(fs.existsSync(`${fixture.tempDir}-chroot-home`)).toBe(true);
     // log directories must NOT have been created
     expect(fs.existsSync(logPaths.agentLogs)).toBe(false);
     expect(fs.existsSync(logPaths.sessionState)).toBe(false);
@@ -363,7 +327,7 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
   });
 
   it('creates .gemini directory only when geminiApiKey is provided', () => {
-    const geminiDir = path.join(tempDir, '.gemini');
+    const geminiDir = path.join(fixture.tempDir, '.gemini');
 
     workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig({ geminiApiKey: 'key' }));
     expect(fs.existsSync(geminiDir)).toBe(true);

@@ -339,9 +339,6 @@ jobs:
           GH_AW_ENGINE_ID: "copilot"
           GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || inputs.item_number }}
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
-          GH_AW_STEPS_CONTRIBUTING_OUTPUTS_CONTENT: ${{ steps.contributing.outputs.CONTENT }}
-          GH_AW_EXPR_BAA3A6C6: ${{ steps.pr-diff.outputs.PR_FILES }}
-          GH_AW_EXPR_F5E0997D: ${{ steps.pr-meta.outputs.PR_META }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -355,8 +352,6 @@ jobs:
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_BAA3A6C6: ${{ steps.pr-diff.outputs.PR_FILES }}
-          GH_AW_EXPR_F5E0997D: ${{ steps.pr-meta.outputs.PR_META }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || inputs.item_number }}
@@ -364,7 +359,6 @@ jobs:
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
           GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'
-          GH_AW_STEPS_CONTRIBUTING_OUTPUTS_CONTENT: ${{ steps.contributing.outputs.CONTENT }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -379,16 +373,13 @@ jobs:
                 GH_AW_EXPR_1A3A194A: process.env.GH_AW_EXPR_1A3A194A,
                 GH_AW_EXPR_463A214A: process.env.GH_AW_EXPR_463A214A,
                 GH_AW_EXPR_802A9F6A: process.env.GH_AW_EXPR_802A9F6A,
-                GH_AW_EXPR_BAA3A6C6: process.env.GH_AW_EXPR_BAA3A6C6,
-                GH_AW_EXPR_F5E0997D: process.env.GH_AW_EXPR_F5E0997D,
                 GH_AW_EXPR_FF1D34CE: process.env.GH_AW_EXPR_FF1D34CE,
                 GH_AW_GITHUB_ACTOR: process.env.GH_AW_GITHUB_ACTOR,
                 GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER: process.env.GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER,
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
                 GH_AW_GITHUB_RUN_ID: process.env.GH_AW_GITHUB_RUN_ID,
                 GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
-                GH_AW_MCP_CLI_SERVERS_LIST: process.env.GH_AW_MCP_CLI_SERVERS_LIST,
-                GH_AW_STEPS_CONTRIBUTING_OUTPUTS_CONTENT: process.env.GH_AW_STEPS_CONTRIBUTING_OUTPUTS_CONTENT
+                GH_AW_MCP_CLI_SERVERS_LIST: process.env.GH_AW_MCP_CLI_SERVERS_LIST
               }
             });
       - name: Validate prompt placeholders
@@ -491,7 +482,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         id: contributing
         name: Fetch CONTRIBUTING.md
-        run: "DELIM=\"GHAW_CONTRIBUTING_$(date +%s)\"\n{\n  echo \"CONTENT<<${DELIM}\"\n  gh api \"repos/${GH_REPO}/contents/CONTRIBUTING.md\" --jq '.content' 2>/dev/null | tr -d '\\n' | base64 -d 2>/dev/null || echo \"(CONTRIBUTING.md not found)\"\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\"\n"
+        run: "set -o pipefail\nCONTEXT_DIR=/tmp/gh-aw/contribution-check-context\nmkdir -p \"$CONTEXT_DIR\"\ngh api \"repos/${GH_REPO}/contents/CONTRIBUTING.md\" --jq '.content' 2>/dev/null \\\n  | tr -d '\\n' | base64 -d 2>/dev/null \\\n  > \"$CONTEXT_DIR/contributing.md\" \\\n  || echo \"(CONTRIBUTING.md not found)\" > \"$CONTEXT_DIR/contributing.md\"\n"
       - env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -499,7 +490,7 @@ jobs:
         id: pr-diff
         if: github.event.pull_request.number || github.event.inputs.item_number
         name: Fetch PR changed files
-        run: "DELIM=\"GHAW_PR_FILES_$(date +%s)\"\nDIFF_LIMIT=50000\nDIFF_TMP=\"$(mktemp)\"\n{\n  echo \"PR_FILES<<${DELIM}\"\n  gh api \"repos/${GH_REPO}/pulls/${PR_NUMBER}/files\" \\\n    --paginate --jq '.[] | \"### \" + .filename + \" (+\" + (.additions|tostring) + \"/-\" + (.deletions|tostring) + \")\\n\" + (.patch // \"\") + \"\\n\"' \\\n    > \"$DIFF_TMP\" || true\n  DIFF_SIZE=\"$(wc -c < \"$DIFF_TMP\" | tr -d ' ')\"\n  head -c \"$DIFF_LIMIT\" \"$DIFF_TMP\" || true\n  if [ \"$DIFF_SIZE\" -gt \"$DIFF_LIMIT\" ]; then\n    echo -e \"\\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes]\"\n  fi\n  echo \"\"\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\"\nrm -f \"$DIFF_TMP\"\n"
+        run: "CONTEXT_DIR=/tmp/gh-aw/contribution-check-context\nmkdir -p \"$CONTEXT_DIR\"\nDIFF_LIMIT=50000\nDIFF_TMP=\"$(mktemp)\"\ngh api \"repos/${GH_REPO}/pulls/${PR_NUMBER}/files\" \\\n  --paginate --jq '.[] | \"### \" + .filename + \" (+\" + (.additions|tostring) + \"/-\" + (.deletions|tostring) + \")\\n\" + (.patch // \"\") + \"\\n\"' \\\n  > \"$DIFF_TMP\" || true\nDIFF_SIZE=\"$(wc -c < \"$DIFF_TMP\" | tr -d ' ')\"\nhead -c \"$DIFF_LIMIT\" \"$DIFF_TMP\" > \"$CONTEXT_DIR/pr-files.md\" || true\nif [ \"$DIFF_SIZE\" -gt \"$DIFF_LIMIT\" ]; then\n  echo -e \"\\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes]\" >> \"$CONTEXT_DIR/pr-files.md\"\nfi\nrm -f \"$DIFF_TMP\"\n"
       - env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -507,7 +498,7 @@ jobs:
         id: pr-meta
         if: github.event.pull_request.number || github.event.inputs.item_number
         name: Fetch PR metadata
-        run: "DELIM=\"GHAW_PR_META_$(date +%s)\"\nPR_INFO=$(gh pr view \"$PR_NUMBER\" --repo \"$GH_REPO\" \\\n  --json title,author,baseRefName,headRefName,body \\\n  --jq '\"**Title:** \" + .title + \"\\n**Author:** \" + .author.login + \"\\n**Base→Head:** \" + .baseRefName + \"→\" + .headRefName + \"\\n**Description:**\\n\" + (.body // \"\")')\n{\n  echo \"PR_META<<${DELIM}\"\n  printf '%s\\n' \"$PR_INFO\"\n  echo \"${DELIM}\"\n} >> \"$GITHUB_OUTPUT\"\n"
+        run: "CONTEXT_DIR=/tmp/gh-aw/contribution-check-context\nmkdir -p \"$CONTEXT_DIR\"\ngh pr view \"$PR_NUMBER\" --repo \"$GH_REPO\" \\\n  --json title,author,baseRefName,headRefName,body \\\n  --jq '\"**Title:** \" + .title + \"\\n**Author:** \" + .author.login + \"\\n**Base\\u2192Head:** \" + .baseRefName + \"\\u2192\" + .headRefName + \"\\n**Description:**\\n\" + (.body // \"\")' \\\n  > \"$CONTEXT_DIR/pr-meta.md\"\n"
 
       - name: Configure Git credentials
         env:
@@ -1401,4 +1392,3 @@ jobs:
             /tmp/gh-aw/safe-output-items.jsonl
             /tmp/gh-aw/temporary-id-map.json
           if-no-files-found: ignore
-

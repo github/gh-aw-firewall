@@ -21,6 +21,7 @@ import { startContainers, runAgentCommand, fastKillAgentContainer } from './cont
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { markAgentExternallyKilled } from './container-lifecycle-state';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { expectComposeUpAttempts } from './test-helpers/startup-retry.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 import {
   didContainerFailStartup,
@@ -123,10 +124,7 @@ describe('container-lifecycle retry and timeout branches', () => {
       );
 
       // No retry: compose up called only once
-      const upCalls = mockExecaFn.mock.calls.filter(
-        (call: unknown[]) => call[0] === 'docker' && Array.isArray(call[1]) && (call[1] as string[]).includes('up')
-      );
-      expect(upCalls).toHaveLength(1);
+      expectComposeUpAttempts(1);
     });
 
     it('includes the "agent was never invoked" note in the error', async () => {

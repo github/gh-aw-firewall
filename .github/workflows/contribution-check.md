@@ -41,12 +41,13 @@ steps:
   - name: Fetch CONTRIBUTING.md
     id: contributing
     run: |
-      DELIM="GHAW_CONTRIBUTING_$(date +%s)"
-      {
-        echo "CONTENT<<${DELIM}"
-        gh api "repos/${GH_REPO}/contents/CONTRIBUTING.md" --jq '.content' 2>/dev/null | tr -d '\n' | base64 -d 2>/dev/null || echo "(CONTRIBUTING.md not found)"
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+      set -o pipefail
+      CONTEXT_DIR=/tmp/gh-aw/contribution-check-context
+      mkdir -p "$CONTEXT_DIR"
+      gh api "repos/${GH_REPO}/contents/CONTRIBUTING.md" --jq '.content' 2>/dev/null \
+        | tr -d '\n' | base64 -d 2>/dev/null \
+        > "$CONTEXT_DIR/contributing.md" \
+        || echo "(CONTRIBUTING.md not found)" > "$CONTEXT_DIR/contributing.md"
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -54,22 +55,18 @@ steps:
     id: pr-diff
     if: github.event.pull_request.number || github.event.inputs.item_number
     run: |
-      DELIM="GHAW_PR_FILES_$(date +%s)"
+      CONTEXT_DIR=/tmp/gh-aw/contribution-check-context
+      mkdir -p "$CONTEXT_DIR"
       DIFF_LIMIT=50000
       DIFF_TMP="$(mktemp)"
-      {
-        echo "PR_FILES<<${DELIM}"
-        gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
-          --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
-          > "$DIFF_TMP" || true
-        DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
-        head -c "$DIFF_LIMIT" "$DIFF_TMP" || true
-        if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
-          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes]"
-        fi
-        echo ""
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+      gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+        --paginate --jq '.[] | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ")\n" + (.patch // "") + "\n"' \
+        > "$DIFF_TMP" || true
+      DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
+      head -c "$DIFF_LIMIT" "$DIFF_TMP" > "$CONTEXT_DIR/pr-files.md" || true
+      if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
+        echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes]" >> "$CONTEXT_DIR/pr-files.md"
+      fi
       rm -f "$DIFF_TMP"
     env:
       GH_TOKEN: ${{ github.token }}
@@ -80,15 +77,12 @@ steps:
     id: pr-meta
     if: github.event.pull_request.number || github.event.inputs.item_number
     run: |
-      DELIM="GHAW_PR_META_$(date +%s)"
-      PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
+      CONTEXT_DIR=/tmp/gh-aw/contribution-check-context
+      mkdir -p "$CONTEXT_DIR"
+      gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
         --json title,author,baseRefName,headRefName,body \
-        --jq '"**Title:** " + .title + "\n**Author:** " + .author.login + "\n**Base→Head:** " + .baseRefName + "→" + .headRefName + "\n**Description:**\n" + (.body // "")')
-      {
-        echo "PR_META<<${DELIM}"
-        printf '%s\n' "$PR_INFO"
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+        --jq '"**Title:** " + .title + "\n**Author:** " + .author.login + "\n**Base→Head:** " + .baseRefName + "→" + .headRefName + "\n**Description:**\n" + (.body // "")' \
+        > "$CONTEXT_DIR/pr-meta.md"
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.item_number }}
@@ -102,23 +96,14 @@ You are a contribution guidelines reviewer for the `gh-aw-firewall` (AWF) reposi
 
 ## Your Task
 
-Review PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
+Review PR #${{ github.event.pull_request.number || github.event.inputs.item_number }} in repository ${{ github.repository }}.
 
-**Use ONLY the pre-fetched data below.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read files from the checkout.
+Read the following pre-fetched context files before proceeding:
+- `/tmp/gh-aw/contribution-check-context/pr-meta.md` — PR metadata (title, author, base/head branch, description)
+- `/tmp/gh-aw/contribution-check-context/pr-files.md` — Changed files with diffs
+- `/tmp/gh-aw/contribution-check-context/contributing.md` — CONTRIBUTING.md content
 
-## Pre-Fetched PR Metadata
-
-${{ steps.pr-meta.outputs.PR_META }}
-
-## Pre-Fetched Changed Files
-
-```
-${{ steps.pr-diff.outputs.PR_FILES }}
-```
-
-## CONTRIBUTING.md (Pre-Fetched)
-
-${{ steps.contributing.outputs.CONTENT }}
+**Use ONLY the pre-fetched data in these context files.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read other files from the checkout.
 
 ## Review Checklist
 

@@ -212,6 +212,40 @@ describe('extractUsageFromJson', () => {
     });
   });
 
+  test('extracts nested cache_read token_type entries in usage details', () => {
+    const body = Buffer.from(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5-mini',
+        usage: {
+          input_tokens: 120,
+          output_tokens: 30,
+          total_tokens: 150,
+          prompt_tokens_details: {
+            details: [
+              {
+                token_type: 'segment',
+                token_count: 999,
+                details: [
+                  { token_type: 'cache_read', token_count: 50 },
+                ],
+              },
+              { token_type: 'cache_read', token_count: 27 },
+            ],
+          },
+        },
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({
+      input_tokens: 120,
+      output_tokens: 30,
+      total_tokens: 150,
+      cache_read_input_tokens: 77,
+    });
+  });
+
   test('extracts OpenAI Responses API cached tokens from input_tokens_details.cached_tokens', () => {
     // The real /responses endpoint (used by codex) reports cached prompt tokens
     // under `input_tokens_details.cached_tokens`, not `prompt_tokens_details`.

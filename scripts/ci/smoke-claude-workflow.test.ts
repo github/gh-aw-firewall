@@ -6,10 +6,10 @@ const smokeClaudeSourcePath = path.join(workflowsDir, 'smoke-claude.md');
 const smokeClaudeLockPath = path.join(workflowsDir, 'smoke-claude.lock.yml');
 
 describe('smoke claude workflow optimization config', () => {
-  it('uses pre-computed result step and minimal turn budget in source workflow', () => {
+  it('uses pre-computed result step and max-turns 8 in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 5');
+    expect(source).toContain('max-turns: 8');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
     expect(source).toContain('curl -fsSL --max-time 15 https://github.com');
@@ -23,6 +23,8 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).toContain('github: false');
     expect(source).not.toContain('bash:\n    - "*"');
     expect(source).toContain('After calling safeoutputs, stop immediately.');
+    expect(source).toContain('Never call `add_comment` or `add_labels` with empty arguments or as a schema probe.');
+    expect(source).toContain("safeoutputs add_comment '{\"item_number\": 123, \"body\": \"Smoke Claude result: PASS\"}'");
     expect(source).toContain('Report turn usage');
     expect(source).toContain('GH_AW_TURN_COUNT');
     expect(source).not.toContain('Show final Claude Code config');
@@ -35,10 +37,10 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json');
   });
 
-  it('compiles the workflow without playwright tools and with max-turns 5', () => {
+  it('compiles the workflow without playwright tools and with max-turns 8', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
-    expect(lock).toContain('--max-turns 5');
+    expect(lock).toContain('--max-turns 8');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
     expect(lock).toContain('Compute final smoke result');
