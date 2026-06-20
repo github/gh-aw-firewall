@@ -444,6 +444,8 @@ describe('log-streamer', () => {
       const mockProcess = { stdout: mockStdout, kill: mockKill };
       mockedExeca.mockReturnValue(mockProcess as never);
 
+      const sigintListenersBefore = process.listeners('SIGINT');
+
       const streamPromise = streamLogs({
         follow: true,
         source: { type: 'running', containerName: 'awf-squid' },
@@ -454,13 +456,16 @@ describe('log-streamer', () => {
       // Allow the async readline setup and SIGINT handler registration to complete
       await new Promise<void>(resolve => setImmediate(resolve));
 
-      // Emit SIGINT to trigger the cleanup handler
-      process.emit('SIGINT');
+      const sigintListenersAfter = process.listeners('SIGINT');
+      const newSigintListeners = sigintListenersAfter.filter(l => !sigintListenersBefore.includes(l));
+      expect(newSigintListeners).toHaveLength(1);
+
+      // Invoke only the handler registered by streamLogs to avoid triggering unrelated listeners
+      (newSigintListeners[0] as () => void)();
 
       await streamPromise;
 
       expect(mockKill).toHaveBeenCalledWith('SIGTERM');
-    });
   });
 
   describe('enrichWithPid - invalid port guard (line 189)', () => {
