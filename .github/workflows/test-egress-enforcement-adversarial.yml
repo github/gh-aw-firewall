@@ -233,18 +233,29 @@ jobs:
           if [ -n "$ans" ]; then emit A6 attack ALLOWED "dig @1.1.1.1 -> $ans"; else emit A6 attack BLOCKED "no A-record from non-approved resolver"; fi
 
           # A7: cloud instance metadata (Azure IMDS on GitHub-hosted runners) ->
-          # genuine credential-theft probe. Proxy disabled.
+          # genuine credential-theft probe. Proxy disabled. Honesty: in the
+          # baseline a port-80 request is DNAT'd to Squid, whose 403 error page
+          # is non-empty -- so require the body to actually look like Azure IMDS
+          # JSON (and not a proxy/HTML error) before scoring it as a leak.
           imds=$(curl -s --noproxy '*' -H 'Metadata: true' --max-time 5 \
-            "http://169.254.169.254/metadata/instance?api-version=2021-02-01" 2>/dev/null | head -c 80)
-          if [ -n "$imds" ]; then emit A7 attack ALLOWED "IMDS body: $(echo "$imds" | tr -d '\n"')"; else emit A7 attack BLOCKED "no metadata"; fi
+            "http://169.254.169.254/metadata/instance?api-version=2021-02-01" 2>/dev/null)
+          if echo "$imds" | grep -q '"compute"'; then
+            emit A7 attack ALLOWED "real IMDS doc: $(echo "$imds" | tr -d '\n"' | head -c 60)"
+          else
+            emit A7 attack BLOCKED "no IMDS doc ($(echo "$imds" | tr -d '\n"<>' | head -c 30))"
+          fi
 
-          # A8: RFC1918 reachability (lateral movement to host/LAN). Try to TCP
-          # connect to a couple of private addresses incl. the default gateway.
+          # A8: RFC1918 reachability (lateral movement to host/LAN). Honesty: do
+          # NOT probe port 80/443 -- the baseline DNATs those to Squid, so a
+          # connect would succeed against Squid, not the private host. Probe
+          # ports that are never redirected so a success means real reachability.
           gw=$(ip -4 route | awk '/default/{print $3; exit}')
           a8="BLOCKED"; a8d="gw=$gw"
           for tgt in "$gw" 10.0.0.1 192.168.0.1 172.17.0.1; do
             [ -z "$tgt" ] && continue
-            if timeout 4 bash -c "exec 3<>/dev/tcp/${tgt}/80" 2>/dev/null; then a8="ALLOWED"; a8d="tcp80 open to $tgt"; break; fi
+            for port in 22 8080 3306 6379; do
+              if timeout 3 bash -c "exec 3<>/dev/tcp/${tgt}/${port}" 2>/dev/null; then a8="ALLOWED"; a8d="tcp${port} open to $tgt"; break 2; fi
+            done
           done
           emit A8 attack "$a8" "$a8d"
 
