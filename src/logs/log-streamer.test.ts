@@ -466,6 +466,7 @@ describe('log-streamer', () => {
       await streamPromise;
 
       expect(mockKill).toHaveBeenCalledWith('SIGTERM');
+    });
   });
 
   describe('enrichWithPid - invalid port guard (line 189)', () => {
