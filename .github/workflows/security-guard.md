@@ -68,15 +68,16 @@ steps:
       DELIM="GHAW_PR_FILES_$(date +%s)"
       DIFF_LIMIT=100000
       SECURITY_RE='host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/'
+      TEST_EXCLUDE_RE='(^|/)tests?/|\.test\.'
       DIFF_TMP="$(mktemp)"
       # Include full patches only for security-relevant files (largest first);
       # list every other changed file by name so large non-security refactors
       # don't bloat the prompt.
       gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" --paginate --slurp \
-        | jq -r --arg re "$SECURITY_RE" '
+        | jq -r --arg re "$SECURITY_RE" --arg test_ex "$TEST_EXCLUDE_RE" '
             ([.[][]]) as $files
-            | ([$files[] | select(.filename | test($re))] | sort_by(-(.additions + .deletions))) as $sec
-            | ([$files[] | select(.filename | test($re) | not)]) as $other
+            | ([$files[] | select((.filename | test($re)) and (.filename | test($test_ex) | not))] | sort_by(-(.additions + .deletions))) as $sec
+            | ([$files[] | select(((.filename | test($re)) and (.filename | test($test_ex) | not)) | not)]) as $other
             | ( $sec[]
                 | "### " + .filename + " (+" + (.additions|tostring) + "/-" + (.deletions|tostring) + ") [security-relevant]\n" + (.patch // "(binary or no textual patch)") + "\n" ),
               ( if ($other | length) > 0
@@ -89,7 +90,7 @@ steps:
         echo "PR_FILES<<${DELIM}"
         head -c "$DIFF_LIMIT" "$DIFF_TMP" || true
         if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
-          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — security-relevant patches are shown first; fetch a still-missing security-relevant file via mcp__github__get_pull_request_diff only if needed]"
+          echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — security-relevant patches are shown first; if one is still missing, fetch the full PR diff once via mcp__github__get_pull_request_diff and locate that file section]"
         fi
         echo ""
         echo "${DELIM}"
@@ -139,7 +140,7 @@ steps:
 
 ## ⚡ Fast Path
 
-Read the pre-fetched diff below first. Security-relevant files are included in full; other changed files are listed by name only. If you see `[DIFF TRUNCATED ...]` and a **security-relevant** patch is missing, fetch just that file's context once with `mcp__github__get_pull_request_diff` before deciding to noop. Only use the fast path when the security-relevant changes contain **no** security-weakening changes: no weakened DROP/REJECT or expanded ACCEPT, no egress/domain allowlist expansion, no firewall chain changes, no capability additions, no ACL regressions, no seccomp relaxations, no DNS/wildcard bypass, no input validation weakening, and no secrets. Then call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
+Read the pre-fetched diff below first. Security-relevant files are included in full; other changed files are listed by name only. If you see `[DIFF TRUNCATED ...]` and a **security-relevant** patch is missing, fetch the full PR diff once with `mcp__github__get_pull_request_diff` and locate that file section before deciding to noop. Only use the fast path when the security-relevant changes contain **no** security-weakening changes: no weakened DROP/REJECT or expanded ACCEPT, no egress/domain allowlist expansion, no firewall chain changes, no capability additions, no ACL regressions, no seccomp relaxations, no DNS/wildcard bypass, no input validation weakening, and no secrets. Then call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
 
 ## Repository Context
 
@@ -152,7 +153,7 @@ Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.rep
 
 1. **Review the pre-fetched diff below** (security-relevant files in full; other files listed by name)
 2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Use ONLY the pre-fetched diff below.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do NOT read files from the checkout. If `[DIFF TRUNCATED ...]` appears and a security-relevant patch is missing, call `mcp__github__get_pull_request_diff` once — then stop making tool calls and analyze inline.
+3. **Use ONLY the pre-fetched diff below.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do NOT read files from the checkout. If `[DIFF TRUNCATED ...]` appears and a security-relevant patch is missing, call `mcp__github__get_pull_request_diff` once (it returns the full PR diff), locate the missing security-relevant file section, then stop making tool calls and analyze inline.
 4. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
@@ -162,7 +163,7 @@ Focus: weakened DROP/REJECT, added capabilities (SYS_ADMIN/NET_RAW), expanded AC
 ## Output Format
 
 **IMPORTANT: Be concise.** Report each security finding in ≤ 150 words. Maximum 5 findings total.
-If `[DIFF TRUNCATED ...]` is present and a security-relevant patch is missing, fetch just that file's context once with `mcp__github__get_pull_request_diff` before deciding to noop.
+If `[DIFF TRUNCATED ...]` is present and a security-relevant patch is missing, fetch the full PR diff once with `mcp__github__get_pull_request_diff`, locate that file section, then decide whether to noop.
 
 If you find security concerns:
 1. Add a comment to the PR explaining each concern
