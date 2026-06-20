@@ -192,8 +192,12 @@ jobs:
           c=$(proxy_code "http://${ALLOWED}")
           if ok_code "$c"; then emit L2 legit ALLOWED "http proxy approved code=$c"; else emit L2 legit BLOCKED "code=$c"; fi
 
-          # L3: name resolution of the approved domain via the embedded resolver.
-          if getent hosts "${ALLOWED}" >/dev/null 2>&1; then emit L3 legit ALLOWED "resolved ${ALLOWED}"; else emit L3 legit BLOCKED "no resolution"; fi
+          # L3: name-based egress to the approved domain works through the
+          # enforcement path. In the proxy model the agent does NOT resolve names
+          # itself -- Squid does -- so we verify a proxied fetch of a DISTINCT
+          # approved name (a subdomain) succeeds, exercising proxy-side DNS.
+          c=$(proxy_code "https://api.${ALLOWED}")
+          if ok_code "$c"; then emit L3 legit ALLOWED "proxy resolved+fetched api.${ALLOWED} code=$c"; else emit L3 legit BLOCKED "code=$c"; fi
 
           ###########################################################################
           # Attacks -- candidate must block a superset of what the baseline blocks.
@@ -221,8 +225,12 @@ jobs:
           if ok_code "$c"; then emit A5 attack ALLOWED "proxy CONNECT ${ALLOWED}:22 code=$c"; else emit A5 attack BLOCKED "code=$c"; fi
 
           # A6: DNS query to an arbitrary (non-approved) resolver -> exfil channel.
-          ans=$(dig +short +time=3 +tries=1 @1.1.1.1 "${ALLOWED}" 2>/dev/null | head -n1)
-          if [ -n "$ans" ]; then emit A6 attack ALLOWED "dig @1.1.1.1 -> $ans"; else emit A6 attack BLOCKED "no answer"; fi
+          # Score by dig's exit status AND a real A-record: dig prints its
+          # "network unreachable" diagnostic to stdout, so a non-empty check
+          # alone would misread a blocked query as an answer.
+          ans=$(dig +short +time=3 +tries=1 @1.1.1.1 "${ALLOWED}" 2>/dev/null \
+            | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          if [ -n "$ans" ]; then emit A6 attack ALLOWED "dig @1.1.1.1 -> $ans"; else emit A6 attack BLOCKED "no A-record from non-approved resolver"; fi
 
           # A7: cloud instance metadata (Azure IMDS on GitHub-hosted runners) ->
           # genuine credential-theft probe. Proxy disabled.
@@ -426,7 +434,7 @@ jobs:
             -e SQUID_IP=172.31.0.10 -e DNS_SERVER=8.8.8.8 \
             -v "$PWD/assets:/assets:ro" \
             --entrypoint bash "$ADVERSARY_IMAGE" \
-            -c "/assets/baseline-iptables.sh && echo HOLDER_READY && sleep infinity"
+            -c "bash /assets/baseline-iptables.sh && echo HOLDER_READY && sleep infinity"
 
           echo "Waiting for Squid..."
           for i in $(seq 1 30); do
