@@ -39,6 +39,10 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
   });
 
   afterEach(() => {
+    if (!tempDir) {
+      return;
+    }
+
     fs.rmSync(tempDir, { recursive: true, force: true });
     if (cleanupChrootHome) {
       fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
