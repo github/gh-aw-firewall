@@ -7,6 +7,25 @@ describe('host-iptables (host access)', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
 
   describe('setupHostIptables with host access', () => {
+    const invalidHostServicePorts = ['abc', '99999', '-1'];
+
+    const setupHostAccessWithServicePorts = async (allowHostServicePorts: string) => {
+      setupDefaultIptablesMocks();
+
+      setupDockerBridgeMock();
+
+      const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts };
+      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
+    };
+
+    const expectInvalidHostServicePortsSkipped = (ports: string[]) => {
+      for (const port of ports) {
+        expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+          '--dport', port,
+        ]));
+      }
+    };
+
     it('should add gateway ACCEPT rules when hostAccess is enabled', async () => {
       setupDefaultIptablesMocks();
 
@@ -137,30 +156,12 @@ describe('host-iptables (host access)', () => {
     });
 
     it('should skip invalid ports in allowHostServicePorts', async () => {
-      setupDefaultIptablesMocks();
+      await setupHostAccessWithServicePorts(invalidHostServicePorts.join(','));
 
-      setupDockerBridgeMock();
-
-      const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: 'abc,99999,-1' };
-      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
-
-      // Verify invalid service ports are NOT added
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', 'abc',
-      ]));
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '99999',
-      ]));
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '-1',
-      ]));
+      expectInvalidHostServicePortsSkipped(invalidHostServicePorts);
 
       // Default ports should still be present
-      expect(mockedExeca).toHaveBeenCalledWith('iptables', [
-        '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '80',
-        '-j', 'ACCEPT',
-      ]);
+      expectGatewayHttpAcceptRules(mockedExeca, '172.30.0.1');
     });
 
     it('should skip invalid ports in allowHostPorts', async () => {
@@ -247,23 +248,9 @@ describe('host-iptables (host access)', () => {
     });
 
     it('should skip invalid service ports in allowHostServicePorts', async () => {
-      setupDefaultIptablesMocks();
+      await setupHostAccessWithServicePorts(`${invalidHostServicePorts.join(',')},5432`);
 
-      setupDockerBridgeMock();
-
-      const hostAccess: HostAccessConfig = { enabled: true, allowHostServicePorts: 'abc,99999,-1,5432' };
-      await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, hostAccess);
-
-      // Verify invalid service ports are NOT added
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', 'abc',
-      ]));
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '99999',
-      ]));
-      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
-        '--dport', '-1',
-      ]));
+      expectInvalidHostServicePortsSkipped(invalidHostServicePorts);
 
       // Valid service port should be present
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
