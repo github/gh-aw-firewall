@@ -25,7 +25,12 @@ type WorkflowOptions = Parameters<typeof runMainWorkflow>[2];
 const createWorkflowDependencies = (
   overrides: Partial<WorkflowDependencies> = {}
 ): WorkflowDependencies => ({
-  ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
+  ensureFirewallNetwork: jest.fn().mockResolvedValue({
+    squidIp: '172.30.0.10',
+    agentIp: '172.30.0.20',
+    proxyIp: '172.30.0.30',
+    subnet: '172.30.0.0/24',
+  }),
   setupHostIptables: jest.fn().mockResolvedValue(undefined),
   writeConfigs: jest.fn().mockResolvedValue(undefined),
   startContainers: jest.fn().mockResolvedValue(undefined),
