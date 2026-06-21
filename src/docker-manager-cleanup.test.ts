@@ -29,80 +29,51 @@ jest.mock('./host-env', () => {
 describe('docker-manager writeConfigs and cleanup', () => {
   describe('writeConfigs', () => {
     const { getDir } = useTempDir();
+    const createWriteConfig = (overrides: Partial<WrapperConfig> = {}): WrapperConfig => ({
+      allowedDomains: ['github.com'],
+      agentCommand: 'echo test',
+      logLevel: 'info',
+      keepContainers: false,
+      workDir: getDir(),
+      ...overrides,
+    });
 
-    it('should create work directory if it does not exist', async () => {
-      const newWorkDir = path.join(getDir(), 'new-work-dir');
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: newWorkDir,
-      };
-
-      // writeConfigs may succeed if seccomp profile is found, or fail if not
+    const writeConfigsAllowingLateFailure = async (config: WrapperConfig): Promise<void> => {
       try {
         await writeConfigs(config);
       } catch {
-        // Expected to fail if seccomp profile not found, but directories should still be created
+        // writeConfigs may fail late (e.g., seccomp/config writes), but earlier side effects should remain
       }
+    };
+
+    it('should create work directory if it does not exist', async () => {
+      const newWorkDir = path.join(getDir(), 'new-work-dir');
+      const config = createWriteConfig({ workDir: newWorkDir });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify work directory was created
       expect(fs.existsSync(newWorkDir)).toBe(true);
     });
 
     it('should create agent-logs directory', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail, but directories should still be created
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify agent-logs directory was created
       expect(fs.existsSync(path.join(getDir(), 'agent-logs'))).toBe(true);
     });
 
     it('should create squid-logs directory', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail, but directories should still be created
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify squid-logs directory was created
       expect(fs.existsSync(path.join(getDir(), 'squid-logs'))).toBe(true);
     });
 
     it('should create /tmp/gh-aw/mcp-logs directory with world-writable permissions', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail, but directory should still be created
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify /tmp/gh-aw/mcp-logs directory was created
       expect(fs.existsSync('/tmp/gh-aw/mcp-logs')).toBe(true);
@@ -113,19 +84,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should write squid.conf file', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com', 'example.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig({ allowedDomains: ['github.com', 'example.com'] });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify squid.conf was created (it's created before seccomp check)
       const squidConfPath = path.join(getDir(), 'squid.conf');
@@ -137,19 +97,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should write docker-compose.yml file', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify docker-compose.yml was created
       const dockerComposePath = path.join(getDir(), 'docker-compose.yml');
@@ -162,19 +111,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should create work directory with restricted permissions (0o700)', async () => {
       const newWorkDir = path.join(getDir(), 'restricted-dir');
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: newWorkDir,
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail if seccomp profile not found
-      }
+      const config = createWriteConfig({ workDir: newWorkDir });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify directory was created with restricted permissions
       expect(fs.existsSync(newWorkDir)).toBe(true);
@@ -183,19 +121,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
     });
 
     it('should write config files with restricted permissions (0o600)', async () => {
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify squid.conf is readable by proxy user (0o644) for non-root Squid
       const squidConfPath = path.join(getDir(), 'squid.conf');
@@ -214,20 +141,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should use proxyLogsDir when specified', async () => {
       const proxyLogsDir = path.join(getDir(), 'custom-proxy-logs');
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-        proxyLogsDir,
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig({ proxyLogsDir });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify proxyLogsDir was created
       expect(fs.existsSync(proxyLogsDir)).toBe(true);
@@ -235,20 +150,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should create api-proxy-logs subdirectory inside proxyLogsDir when specified', async () => {
       const proxyLogsDir = path.join(getDir(), 'custom-proxy-logs');
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-        proxyLogsDir,
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig({ proxyLogsDir });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify api-proxy-logs subdirectory was created inside proxyLogsDir
       const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
@@ -257,20 +160,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
 
     it('should create proxyLogsDir with nested non-existent parents', async () => {
       const proxyLogsDir = path.join(getDir(), 'deeply', 'nested', 'proxy-logs');
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-        proxyLogsDir,
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig({ proxyLogsDir });
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify deeply nested proxyLogsDir was created recursively
       expect(fs.existsSync(proxyLogsDir)).toBe(true);
@@ -286,19 +177,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
       // Clear SUDO_USER to make getRealUserHome() use process.env.HOME
       delete process.env.SUDO_USER;
 
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig();
+      await writeConfigsAllowingLateFailure(config);
 
       // Verify chroot home subdirectories were created
       const expectedDirs = [
@@ -331,20 +211,8 @@ describe('docker-manager writeConfigs and cleanup', () => {
       process.env.HOME = fakeHome;
       delete process.env.SUDO_USER;
 
-      const config: WrapperConfig = {
-        allowedDomains: ['github.com'],
-        agentCommand: 'echo test',
-        logLevel: 'info',
-        keepContainers: false,
-        workDir: getDir(),
-        geminiApiKey: 'AIza-test-key',
-      };
-
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      const config = createWriteConfig({ geminiApiKey: 'AIza-test-key' });
+      await writeConfigsAllowingLateFailure(config);
 
       expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(true);
 
