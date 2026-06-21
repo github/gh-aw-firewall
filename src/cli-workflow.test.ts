@@ -53,7 +53,12 @@ const createOrderedWorkflowDependencies = (
 ): WorkflowDependencies => createWorkflowDependencies({
   ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
     callOrder.push('ensureFirewallNetwork');
-    return { squidIp: '172.30.0.10' };
+    return {
+      squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20',
+      proxyIp: '172.30.0.30',
+      subnet: '172.30.0.0/24',
+    };
   }),
   setupHostIptables: jest.fn().mockImplementation(async () => {
     callOrder.push('setupHostIptables');
