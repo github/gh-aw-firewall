@@ -142,27 +142,27 @@ describe('runAgentCommand', () => {
 
   it('should return exit code 124 when agent times out', async () => {
     jest.useFakeTimers();
+    try {
+      // Mock docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // Mock docker wait - never resolves (simulates long-running command)
+      mockExecaFn.mockReturnValueOnce(new Promise(() => {}));
+      // Mock docker stop
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
 
-    // Mock docker logs -f
-    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-    // Mock docker wait - never resolves (simulates long-running command)
-    mockExecaFn.mockReturnValueOnce(new Promise(() => {}));
-    // Mock docker stop
-    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 1);
 
-    const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 1);
+      // Advance past the 60s timeout and the subsequent 200ms Squid-log flush delay
+      await jest.advanceTimersByTimeAsync(60 * 1000 + 300);
 
-    // Use advanceTimersByTimeAsync to flush microtasks between timer advances
-    // This handles the 60s timeout AND the subsequent 500ms log flush delay
-    await jest.advanceTimersByTimeAsync(60 * 1000 + 1000);
+      const result = await resultPromise;
 
-    const result = await resultPromise;
-
-    expect(result.exitCode).toBe(124);
-    // Verify docker stop was called
-    expect(mockExecaFn).toHaveBeenCalledWith('docker', ['stop', '-t', '10', 'awf-agent'], expect.objectContaining({ reject: false }));
-
-    jest.useRealTimers();
+      expect(result.exitCode).toBe(124);
+      // Verify docker stop was called
+      expect(mockExecaFn).toHaveBeenCalledWith('docker', ['stop', '-t', '10', 'awf-agent'], expect.objectContaining({ reject: false }));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('should return normal exit code when agent completes before timeout', async () => {
