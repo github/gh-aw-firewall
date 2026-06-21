@@ -107,18 +107,13 @@ describe('docker-manager writeConfigs', () => {
         workDir: getDir(),
       };
 
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      await writeConfigs(config);
 
       const squidConfPath = path.join(getDir(), 'squid.conf');
-      if (fs.existsSync(squidConfPath)) {
-        const content = fs.readFileSync(squidConfPath, 'utf-8');
-        expect(content).toContain('github.com');
-        expect(content).toContain('example.com');
-      }
+      expect(fs.existsSync(squidConfPath)).toBe(true);
+      const content = fs.readFileSync(squidConfPath, 'utf-8');
+      expect(content).toContain('github.com');
+      expect(content).toContain('example.com');
     });
 
     it('should write docker-compose.yml file', async () => {
@@ -130,18 +125,13 @@ describe('docker-manager writeConfigs', () => {
         workDir: getDir(),
       };
 
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      await writeConfigs(config);
 
       const dockerComposePath = path.join(getDir(), 'docker-compose.yml');
-      if (fs.existsSync(dockerComposePath)) {
-        const content = fs.readFileSync(dockerComposePath, 'utf-8');
-        expect(content).toContain('awf-squid');
-        expect(content).toContain('awf-agent');
-      }
+      expect(fs.existsSync(dockerComposePath)).toBe(true);
+      const content = fs.readFileSync(dockerComposePath, 'utf-8');
+      expect(content).toContain('awf-squid');
+      expect(content).toContain('awf-agent');
     });
 
     it('should create work directory with restricted permissions (0o700)', async () => {
@@ -165,7 +155,7 @@ describe('docker-manager writeConfigs', () => {
       expect((stats.mode & 0o777).toString(8)).toBe('700');
     });
 
-    it('should write config files with restricted permissions (0o600)', async () => {
+    it('should write config files with correct permissions (squid.conf: 0o644, docker-compose.yml: 0o600)', async () => {
       const config: WrapperConfig = {
         allowedDomains: ['github.com'],
         agentCommand: 'echo test',
@@ -174,23 +164,17 @@ describe('docker-manager writeConfigs', () => {
         workDir: getDir(),
       };
 
-      try {
-        await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
+      await writeConfigs(config);
 
       const squidConfPath = path.join(getDir(), 'squid.conf');
-      if (fs.existsSync(squidConfPath)) {
-        const stats = fs.statSync(squidConfPath);
-        expect((stats.mode & 0o777).toString(8)).toBe('644');
-      }
+      expect(fs.existsSync(squidConfPath)).toBe(true);
+      const squidStats = fs.statSync(squidConfPath);
+      expect((squidStats.mode & 0o777).toString(8)).toBe('644');
 
       const dockerComposePath = path.join(getDir(), 'docker-compose.yml');
-      if (fs.existsSync(dockerComposePath)) {
-        const stats = fs.statSync(dockerComposePath);
-        expect((stats.mode & 0o777).toString(8)).toBe('600');
-      }
+      expect(fs.existsSync(dockerComposePath)).toBe(true);
+      const composeStats = fs.statSync(dockerComposePath);
+      expect((composeStats.mode & 0o777).toString(8)).toBe('600');
     });
 
     it('should use proxyLogsDir when specified', async () => {
@@ -272,28 +256,26 @@ describe('docker-manager writeConfigs', () => {
 
       try {
         await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
 
-      const expectedDirs = [
-        '.copilot', '.cache', '.config', '.local',
-        '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
-      ];
-      for (const dir of expectedDirs) {
-        expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);
-      }
-      expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(false);
-
-      if (originalHome !== undefined) {
-        process.env.HOME = originalHome;
-      } else {
-        delete process.env.HOME;
-      }
-      if (originalSudoUser !== undefined) {
-        process.env.SUDO_USER = originalSudoUser;
-      } else {
-        delete process.env.SUDO_USER;
+        const expectedDirs = [
+          '.copilot', '.cache', '.config', '.local',
+          '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
+        ];
+        for (const dir of expectedDirs) {
+          expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);
+        }
+        expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(false);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
       }
     });
 
@@ -316,21 +298,19 @@ describe('docker-manager writeConfigs', () => {
 
       try {
         await writeConfigs(config);
-      } catch {
-        // May fail after writing configs
-      }
 
-      expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(true);
-
-      if (originalHome !== undefined) {
-        process.env.HOME = originalHome;
-      } else {
-        delete process.env.HOME;
-      }
-      if (originalSudoUser !== undefined) {
-        process.env.SUDO_USER = originalSudoUser;
-      } else {
-        delete process.env.SUDO_USER;
+        expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(true);
+      } finally {
+        if (originalHome !== undefined) {
+          process.env.HOME = originalHome;
+        } else {
+          delete process.env.HOME;
+        }
+        if (originalSudoUser !== undefined) {
+          process.env.SUDO_USER = originalSudoUser;
+        } else {
+          delete process.env.SUDO_USER;
+        }
       }
     });
   });
