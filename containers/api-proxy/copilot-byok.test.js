@@ -133,7 +133,7 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
   const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
   const fakeModelsReq = { url: '/models', method: 'GET', headers: {} };
 
-  it('injects Authorization: ****** for BYOK inference request', () => {
+  it('injects Authorization: Bearer token from BYOK key for inference request', () => {
     const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: byokKey });
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe(bearerByokKey);
