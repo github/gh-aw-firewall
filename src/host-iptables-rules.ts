@@ -3,6 +3,11 @@ import { logger } from './logger';
 import { API_PROXY_PORTS } from './types';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import {
+  checkPermissionsAndSetupChain,
+  insertDockerUserJumpRule,
+  logChainDebugOutput,
+} from './host-iptables-chain';
+import {
   AWF_NETWORK_GATEWAY,
   CHAIN_NAME,
   CHAIN_NAME_V6,
@@ -14,6 +19,7 @@ import {
   getNetworkBridgeName,
   isIp6tablesAvailable,
 } from './host-iptables-shared';
+import { parseValidPortSpecs } from './host-iptables-validation';
 
 /**
  * Configuration for host access rules in the FW_WRAPPER chain.
@@ -34,114 +40,6 @@ export interface CliProxyHostConfig {
   ip: string;
   /** DIFC proxy port on the host (e.g., 18443) */
   difcProxyPort: number;
-}
-
-/**
- * Validates a port specification string.
- * Accepts a single port (1-65535) or a port range ("N-M" where both are valid ports and N <= M).
- */
-function isValidPortSpec(spec: string): boolean {
-  const rangeMatch = spec.match(/^(\d+)-(\d+)$/);
-  if (rangeMatch) {
-    const start = parseInt(rangeMatch[1], 10);
-    const end = parseInt(rangeMatch[2], 10);
-    if (String(start) !== rangeMatch[1] || String(end) !== rangeMatch[2]) return false;
-    return start >= 1 && start <= 65535 && end >= 1 && end <= 65535 && start <= end;
-  }
-  const port = parseInt(spec, 10);
-  return !isNaN(port) && String(port) === spec && port >= 1 && port <= 65535;
-}
-
-/** @internal Exposed only for unit tests — not part of the public API. */
-// ts-prune-ignore-next
-export const iptablesRulesTestHelpers = { isValidPortSpec };
-
-function getErrorStringProperty(error: unknown, property: string): string {
-  return typeof error === 'object'
-    && error !== null
-    && property in error
-    && typeof (error as Record<string, unknown>)[property] === 'string'
-    ? (error as Record<string, unknown>)[property] as string
-    : '';
-}
-
-function isMissingIptablesError(error: unknown): boolean {
-  const code = getErrorStringProperty(error, 'code');
-  const message = error instanceof Error ? error.message : '';
-  return code === 'ENOENT' || message.includes('ENOENT') || message.includes('not found');
-}
-
-function parseValidPortSpecs(input: string | undefined, label: string): string[] {
-  if (!input) {
-    return [];
-  }
-
-  const validSpecs: string[] = [];
-  for (const entry of input.split(',')) {
-    const trimmed = entry.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (!isValidPortSpec(trimmed)) {
-      logger.warn(`Skipping invalid ${label}: ${trimmed}`);
-      continue;
-    }
-    validSpecs.push(trimmed);
-  }
-
-  return validSpecs;
-}
-
-async function checkPermissionsAndSetupChain(chain: string): Promise<void> {
-  try {
-    await execa('iptables', ['--version'], { timeout: 5000 });
-  } catch (error: unknown) {
-    if (isMissingIptablesError(error)) {
-      throw new Error('iptables is required but was not found. Please install iptables and try again.');
-    }
-    throw error;
-  }
-
-  // Check if we have permission to run iptables commands
-  try {
-    await execa('iptables', ['-t', 'filter', '-L', 'DOCKER-USER', '-n'], { timeout: 5000 });
-  } catch (error: unknown) {
-    if (isMissingIptablesError(error)) {
-      throw new Error('iptables is required but was not found. Please install iptables and try again.');
-    }
-    const stderr = getErrorStringProperty(error, 'stderr');
-    if (stderr.includes('Permission denied')) {
-      throw new Error(
-        'Permission denied: iptables commands require root privileges. ' +
-        'Please run this command with sudo.'
-      );
-    }
-    // DOCKER-USER chain doesn't exist (shouldn't happen, but handle it)
-    logger.warn('DOCKER-USER chain does not exist, which is unexpected. Attempting to create it...');
-    try {
-      await execa('iptables', ['-t', 'filter', '-N', 'DOCKER-USER']);
-    } catch {
-      throw new Error(
-        'Failed to create DOCKER-USER chain. This may indicate a permission or Docker installation issue.'
-      );
-    }
-  }
-
-  // Create dedicated chains for our rules to make cleanup easier
-  logger.debug(`Creating dedicated chain '${chain}'...`);
-
-  // Remove chain if it exists (cleanup from previous runs)
-  try {
-    const { exitCode } = await execa('iptables', ['-t', 'filter', '-L', chain, '-n'], { reject: false });
-    if (exitCode === 0) {
-      logger.debug(`Chain '${chain}' already exists, cleaning up...`);
-      await cleanupChain('iptables', chain);
-    }
-  } catch (error) {
-    logger.debug('Error during chain cleanup:', error);
-  }
-
-  await execa('iptables', ['-t', 'filter', '-N', chain]);
 }
 
 async function addProxySourceAcceptRules(chain: string, squidIp: string, dohProxyIp?: string): Promise<void> {
@@ -363,39 +261,6 @@ async function addBlockRules(chain: string, _ipv6ChainName: string | null): Prom
     '-t', 'filter', '-A', chain,
     '-j', 'REJECT', '--reject-with', 'icmp-port-unreachable',
   ]);
-}
-
-async function insertDockerUserJumpRule(chain: string, bridgeName: string): Promise<void> {
-  const { exitCode: ruleExists } = await execa('iptables', [
-    '-t', 'filter', '-C', 'DOCKER-USER',
-    '-i', bridgeName,
-    '-j', chain,
-  ], { reject: false });
-
-  if (ruleExists !== 0) {
-    logger.debug(`Inserting rule in DOCKER-USER to jump to ${chain} for bridge ${bridgeName}...`);
-    await execa('iptables', [
-      '-t', 'filter', '-I', 'DOCKER-USER', '1',
-      '-i', bridgeName,
-      '-j', chain,
-    ]);
-  } else {
-    logger.debug(`Rule for bridge ${bridgeName} already exists in DOCKER-USER`);
-  }
-}
-
-async function logChainDebugOutput(chain: string): Promise<void> {
-  logger.debug('DOCKER-USER chain:');
-  const { stdout: dockerUserRules } = await execa('iptables', [
-    '-t', 'filter', '-L', 'DOCKER-USER', '-n', '-v',
-  ]);
-  logger.debug(dockerUserRules);
-
-  logger.debug(`${chain} chain:`);
-  const { stdout: chainRules } = await execa('iptables', [
-    '-t', 'filter', '-L', chain, '-n', '-v',
-  ]);
-  logger.debug(chainRules);
 }
 
 /**
