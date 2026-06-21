@@ -167,23 +167,24 @@ describe('runAgentCommand', () => {
 
   it('should return normal exit code when agent completes before timeout', async () => {
     jest.useFakeTimers();
+    try {
+      // Mock docker logs -f
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // Mock docker wait - resolves immediately with exit code 0
+      mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
 
-    // Mock docker logs -f
-    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-    // Mock docker wait - resolves immediately with exit code 0
-    mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any);
+      const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 30);
 
-    const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 30);
+      // Advance past the 200ms Squid-log flush delay
+      await jest.advanceTimersByTimeAsync(300);
 
-    // Advance past the 500ms log flush delay
-    await jest.advanceTimersByTimeAsync(1000);
+      const result = await resultPromise;
 
-    const result = await resultPromise;
-
-    expect(result.exitCode).toBe(0);
-    expect(result.blockedDomains).toEqual([]);
-
-    jest.useRealTimers();
+      expect(result.exitCode).toBe(0);
+      expect(result.blockedDomains).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('should skip post-run analysis when agent was externally killed', async () => {
