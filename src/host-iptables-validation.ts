@@ -4,7 +4,7 @@ import { logger } from './logger';
  * Validates a port specification string.
  * Accepts a single port (1-65535) or a port range ("N-M" where both are valid ports and N <= M).
  */
-export function isValidPortSpec(spec: string): boolean {
+function isValidPortSpec(spec: string): boolean {
   const rangeMatch = spec.match(/^(\d+)-(\d+)$/);
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10);
