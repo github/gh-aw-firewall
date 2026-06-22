@@ -23,8 +23,10 @@ describe('setAwfDockerHost / getLocalDockerEnv (DOCKER_HOST isolation)', () => {
     jest.clearAllMocks();
   });
 
-  it('docker compose up should forward a loopback TCP DOCKER_HOST to the docker CLI', async () => {
-    process.env.DOCKER_HOST = 'tcp://localhost:2375';
+  /** Run startContainers and return the env passed to the first docker compose call. */
+  async function runStartContainersAndGetComposeEnv(): Promise<
+    Record<string, string | undefined> | undefined
+  > {
     const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
     try {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
@@ -36,56 +38,33 @@ describe('setAwfDockerHost / getLocalDockerEnv (DOCKER_HOST isolation)', () => {
         (call: any[]) => call[1]?.[0] === 'compose'
       );
       expect(composeCalls.length).toBeGreaterThan(0);
-      const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
-      // tcp://localhost DOCKER_HOST must be passed through to docker compose (ARC/DinD support)
-      expect(composeEnv).toBeDefined();
-      expect(composeEnv!.DOCKER_HOST).toBe('tcp://localhost:2375');
+      return composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
     } finally {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
+  }
+
+  it('docker compose up should forward a loopback TCP DOCKER_HOST to the docker CLI', async () => {
+    process.env.DOCKER_HOST = 'tcp://localhost:2375';
+    const composeEnv = await runStartContainersAndGetComposeEnv();
+    // tcp://localhost DOCKER_HOST must be passed through to docker compose (ARC/DinD support)
+    expect(composeEnv).toBeDefined();
+    expect(composeEnv!.DOCKER_HOST).toBe('tcp://localhost:2375');
   });
 
   it('docker compose up should keep a unix:// DOCKER_HOST in the env', async () => {
     process.env.DOCKER_HOST = 'unix:///var/run/docker.sock';
-    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-    try {
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker compose up
-
-      await startContainers(testDir, ['github.com']);
-
-      const composeCalls = mockExecaFn.mock.calls.filter(
-        (call: any[]) => call[1]?.[0] === 'compose'
-      );
-      expect(composeCalls.length).toBeGreaterThan(0);
-      const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
-      expect(composeEnv).toBeDefined();
-      expect(composeEnv!.DOCKER_HOST).toBe('unix:///var/run/docker.sock');
-    } finally {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    const composeEnv = await runStartContainersAndGetComposeEnv();
+    expect(composeEnv).toBeDefined();
+    expect(composeEnv!.DOCKER_HOST).toBe('unix:///var/run/docker.sock');
   });
 
   it('setAwfDockerHost should override DOCKER_HOST for AWF operations', async () => {
     process.env.DOCKER_HOST = 'tcp://localhost:2375'; // CLI override wins over env var
     setAwfDockerHost('unix:///run/user/1000/docker.sock');
-    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-'));
-    try {
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker rm
-      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker compose up
-
-      await startContainers(testDir, ['github.com']);
-
-      const composeCalls = mockExecaFn.mock.calls.filter(
-        (call: any[]) => call[1]?.[0] === 'compose'
-      );
-      expect(composeCalls.length).toBeGreaterThan(0);
-      const composeEnv = composeCalls[0][2]?.env as Record<string, string | undefined> | undefined;
-      expect(composeEnv).toBeDefined();
-      expect(composeEnv!.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
-    } finally {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    const composeEnv = await runStartContainersAndGetComposeEnv();
+    expect(composeEnv).toBeDefined();
+    expect(composeEnv!.DOCKER_HOST).toBe('unix:///run/user/1000/docker.sock');
   });
 
   it('getLocalDockerEnv returns a ProcessEnv-shaped object', () => {
