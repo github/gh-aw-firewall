@@ -1,5 +1,5 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
-import { testHelpers } from './agent-service';
+import { testHelpers } from './agent-service.test-utils';
 import { parseImageTag } from '../image-tag';
 import * as fs from 'fs';
 import * as path from 'path';
