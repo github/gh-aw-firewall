@@ -19,7 +19,7 @@ import { validateDomainOrPattern } from './domain-validation';
  * The result of parsing a raw domain list: plain (non-wildcard) domains separated
  * from compiled wildcard patterns.
  */
-export interface ParsedDomainList {
+interface ParsedDomainList {
   /** Plain domains without wildcards */
   plainDomains: PlainDomainEntry[];
   /** Wildcard patterns with compiled regex strings (compiled at match time via new RegExp(...)) */
