@@ -11,13 +11,13 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
-    "@astrojs/mdx": "^6.0.3",
+    "@astrojs/mdx": "^7.0.0",
     "@astrojs/starlight": "^0.40.0",
-    "astro": "^6.4.6",
-    "astro-mermaid": "^2.0.2",
+    "astro": "^7.0.0",
+    "astro-mermaid": "^2.0.4",
     "esbuild": "^0.28.1",
     "mermaid": "^11.12.2",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.2"
   },
   "overrides": {
     "diff": "8.0.3",
