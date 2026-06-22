@@ -162,7 +162,7 @@ export function buildAgentService(params: AgentServiceParams): any {
  * `{ build: { context, dockerfile, args } }` (local build), suitable for
  * spreading onto a Docker Compose service object.
  */
-export function resolveAgentImageConfig(
+function resolveAgentImageConfig(
   config: WrapperConfig,
   imageConfig: ImageBuildConfig,
 ): { image: string } | { build: { context: string; dockerfile: string; args?: Record<string, string> } } {
