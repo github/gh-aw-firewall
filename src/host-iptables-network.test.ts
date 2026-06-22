@@ -7,6 +7,19 @@ describe('host-iptables (network)', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
 
   describe('ensureFirewallNetwork', () => {
+    const expectFirewallNetworkConfig = (result: Awaited<ReturnType<typeof ensureFirewallNetwork>>): void => {
+      expect(result).toEqual({
+        subnet: NETWORK_SUBNET,
+        squidIp: SQUID_IP,
+        agentIp: AGENT_IP,
+        proxyIp: API_PROXY_IP,
+      });
+    };
+
+    const expectNetworkInspectCalled = (): void => {
+      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
+    };
+
     it('should return network config when network already exists', async () => {
       // Mock successful network inspect (network exists)
       mockedExeca.mockResolvedValue(execaResult({
@@ -17,15 +30,10 @@ describe('host-iptables (network)', () => {
 
       const result = await ensureFirewallNetwork();
 
-      expect(result).toEqual({
-        subnet: NETWORK_SUBNET,
-        squidIp: SQUID_IP,
-        agentIp: AGENT_IP,
-        proxyIp: API_PROXY_IP,
-      });
+      expectFirewallNetworkConfig(result);
 
       // Should only check if network exists, not create it
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
+      expectNetworkInspectCalled();
       expect(mockedExeca).not.toHaveBeenCalledWith('docker', expect.arrayContaining(['network', 'create']), expect.anything());
     });
 
@@ -42,14 +50,9 @@ describe('host-iptables (network)', () => {
 
       const result = await ensureFirewallNetwork();
 
-      expect(result).toEqual({
-        subnet: NETWORK_SUBNET,
-        squidIp: SQUID_IP,
-        agentIp: AGENT_IP,
-        proxyIp: API_PROXY_IP,
-      });
+      expectFirewallNetworkConfig(result);
 
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
+      expectNetworkInspectCalled();
       expect(mockedExeca).toHaveBeenCalledWith('docker', [
         'network',
         'create',
