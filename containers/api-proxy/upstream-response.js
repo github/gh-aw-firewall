@@ -108,6 +108,130 @@ function createUpstreamResponseHandlers({
     }
   }
 
+  /**
+   * Handle a buffered 400 response body: attempt retry via the deprecated-header
+   * or model-not-supported paths, or log the model_unavailable diagnostic and
+   * forward the response to the client.
+   *
+   * Returns true when a retry was triggered (caller should return early),
+   * false when the response was forwarded to the client.
+   *
+   * @param {import('http').IncomingMessage} proxyRes
+   * @param {object} requestHeaders
+   * @param {Buffer} responseBody
+   * @param {{ provider: string, requestId: string, hasRetried: boolean,
+   *           onRetry: Function, modelNotSupportedRetryCount: number,
+   *           onModelNotSupportedRetry: Function, completionCtx: object,
+   *           authErrCtx: object, initiatorSent: string|null,
+   *           billingInfo: object|null, res: object, span: object }} opts
+   * @returns {boolean}
+   */
+  function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
+    provider, requestId, hasRetried, onRetry,
+    modelNotSupportedRetryCount, onModelNotSupportedRetry,
+    completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
+  }) {
+    // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
+    if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
+      const deprecated = parseDeprecatedHeaderFromBody(responseBody);
+      if (deprecated) {
+        const retryHeaders = { ...requestHeaders };
+        const stripped = learnAndStripDeprecatedHeaderValue(
+          retryHeaders, deprecated.header, deprecated.value, requestId, provider,
+        );
+        if (stripped) {
+          onRetry(retryHeaders);
+          return true;
+        }
+      }
+    }
+
+    // ── (b) Transient model-not-supported retry (copilot only, up to MAX) ──────
+    if (
+      provider === 'copilot' &&
+      modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES &&
+      onModelNotSupportedRetry &&
+      parseModelNotSupportedFromBody(responseBody)
+    ) {
+      logRequest('warn', 'model_not_supported_retry', {
+        request_id: requestId,
+        provider,
+        retry_attempt: modelNotSupportedRetryCount + 1,
+        max_retries: MAX_MODEL_NOT_SUPPORTED_RETRIES,
+        message: `Copilot returned 400 model not supported (transient); retrying (attempt ${modelNotSupportedRetryCount + 1}/${MAX_MODEL_NOT_SUPPORTED_RETRIES})`,
+      });
+      onModelNotSupportedRetry();
+      return true;
+    }
+
+    // ── (c) Model-unavailable diagnostic (retries exhausted or non-retryable) ───
+    if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
+      const { req } = authErrCtx;
+      logRequest('error', 'model_unavailable', {
+        request_id: requestId,
+        provider,
+        status: proxyRes.statusCode,
+        path: sanitizeForLog(req.url),
+        retries_attempted: modelNotSupportedRetryCount,
+        message: `Model is unavailable or retired — the requested model is not supported by ${provider}. ` +
+          'Check that the model name is correct and not deprecated. ' +
+          'If using model aliases, verify the alias resolves to an available model.',
+      });
+    }
+
+    logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
+    logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
+
+    const resHeaders = {
+      ...proxyRes.headers,
+      'x-request-id': requestId,
+      'content-length': String(responseBody.length),
+    };
+    delete resHeaders['transfer-encoding'];
+    res.writeHead(proxyRes.statusCode, resHeaders);
+    res.end(responseBody);
+    otel.endSpan(span, proxyRes.statusCode);
+    return false;
+  }
+
+  /**
+   * Wire up token-usage tracking for a streaming or non-streaming normal
+   * (non-400) response.  Parses the request body for a model fallback and
+   * attaches OTEL span callbacks.
+   *
+   * @param {import('http').IncomingMessage} proxyRes
+   * @param {Buffer} body - Original request body (used to extract the model name)
+   * @param {{ requestId: string, provider: string, req: object, startTime: number,
+   *           billingInfo: object|null, initiatorSent: string|null,
+   *           span: object, isStreaming: boolean }} opts
+   */
+  function setupTokenTracking(proxyRes, body, {
+    requestId, provider, req, startTime, billingInfo,
+    initiatorSent, span, isStreaming,
+  }) {
+    // Extract model from request body as fallback for token tracking when the
+    // upstream response omits the model field (e.g., Copilot SDK streaming).
+    let requestModel = null;
+    if (body && body.length > 0) {
+      try {
+        const parsed = JSON.parse(body.toString('utf8'));
+        if (parsed && typeof parsed.model === 'string') requestModel = parsed.model;
+      } catch { /* non-JSON body */ }
+    }
+    trackTokenUsage(proxyRes, {
+      requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent, requestModel,
+      onUsage: (normalizedUsage, model) => {
+        otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
+        const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
+        otel.setBudgetAttributes(span, budgetResult);
+        return budgetResult;
+      },
+      onSpanEnd: (statusCode) => {
+        otel.endSpan(span, statusCode);
+      },
+    });
+  }
+
   function handleUpstreamResponse(proxyRes, requestHeaders, {
     body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
     hasRetried, onRetry,
@@ -149,66 +273,11 @@ function createUpstreamResponseHandlers({
       });
       proxyRes.on('end', () => {
         const responseBody = Buffer.concat(bufferedChunks);
-
-        // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
-        if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
-          const deprecated = parseDeprecatedHeaderFromBody(responseBody);
-          if (deprecated) {
-            const retryHeaders = { ...requestHeaders };
-            const stripped = learnAndStripDeprecatedHeaderValue(
-              retryHeaders, deprecated.header, deprecated.value, requestId, provider,
-            );
-            if (stripped) {
-              onRetry(retryHeaders);
-              return;
-            }
-          }
-        }
-
-        // ── (b) Transient model-not-supported retry (copilot only, up to MAX) ──────
-        if (
-          provider === 'copilot' &&
-          modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES &&
-          onModelNotSupportedRetry &&
-          parseModelNotSupportedFromBody(responseBody)
-        ) {
-          logRequest('warn', 'model_not_supported_retry', {
-            request_id: requestId,
-            provider,
-            retry_attempt: modelNotSupportedRetryCount + 1,
-            max_retries: MAX_MODEL_NOT_SUPPORTED_RETRIES,
-            message: `Copilot returned 400 model not supported (transient); retrying (attempt ${modelNotSupportedRetryCount + 1}/${MAX_MODEL_NOT_SUPPORTED_RETRIES})`,
-          });
-          onModelNotSupportedRetry();
-          return;
-        }
-
-        // ── (c) Model-unavailable diagnostic (retries exhausted or non-retryable) ───
-        if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
-          logRequest('error', 'model_unavailable', {
-            request_id: requestId,
-            provider,
-            status: proxyRes.statusCode,
-            path: sanitizeForLog(req.url),
-            retries_attempted: modelNotSupportedRetryCount,
-            message: `Model is unavailable or retired — the requested model is not supported by ${provider}. ` +
-              'Check that the model name is correct and not deprecated. ' +
-              'If using model aliases, verify the alias resolves to an available model.',
-          });
-        }
-
-        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
-
-        const resHeaders = {
-          ...proxyRes.headers,
-          'x-request-id': requestId,
-          'content-length': String(responseBody.length),
-        };
-        delete resHeaders['transfer-encoding'];
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        res.end(responseBody);
-        otel.endSpan(span, proxyRes.statusCode);
+        handle400WithRetry(proxyRes, requestHeaders, responseBody, {
+          provider, requestId, hasRetried, onRetry,
+          modelNotSupportedRetryCount, onModelNotSupportedRetry,
+          completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
+        });
       });
       return;
     }
@@ -224,26 +293,9 @@ function createUpstreamResponseHandlers({
     proxyRes.pipe(res);
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
-    // Extract model from request body as fallback for token tracking when the
-    // upstream response omits the model field (e.g., Copilot SDK streaming).
-    let requestModel = null;
-    if (body && body.length > 0) {
-      try {
-        const parsed = JSON.parse(body.toString('utf8'));
-        if (parsed && typeof parsed.model === 'string') requestModel = parsed.model;
-      } catch { /* non-JSON body */ }
-    }
-    trackTokenUsage(proxyRes, {
-      requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent, requestModel,
-      onUsage: (normalizedUsage, model) => {
-        otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-        const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
-        otel.setBudgetAttributes(span, budgetResult);
-        return budgetResult;
-      },
-      onSpanEnd: (statusCode) => {
-        otel.endSpan(span, statusCode);
-      },
+    setupTokenTracking(proxyRes, body, {
+      requestId, provider, req, startTime, billingInfo,
+      initiatorSent, span, isStreaming,
     });
   }
 
