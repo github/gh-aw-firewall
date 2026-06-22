@@ -395,19 +395,11 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         expect(env.GEMINI_API_KEY).toBeUndefined();
       });
 
-      it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled', () => {
+      function withGeminiApiKey(value: string, fn: () => void): void {
         const origKey = process.env.GEMINI_API_KEY;
-        process.env.GEMINI_API_KEY = 'AIza-secret-gemini-key';
+        process.env.GEMINI_API_KEY = value;
         try {
-          const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key' };
-          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-          const agent = result.services.agent;
-          const env = agent.environment as Record<string, string>;
-          // Agent should NOT have the real API key — only the sidecar gets it
-          expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
-          // Agent should have both base URL vars to proxy through sidecar
-          expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
-          expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
+          fn();
         } finally {
           if (origKey !== undefined) {
             process.env.GEMINI_API_KEY = origKey;
@@ -415,27 +407,30 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
             delete process.env.GEMINI_API_KEY;
           }
         }
+      }
+
+      function expectGeminiCredentialIsolation(configOverrides: Partial<WrapperConfig>): void {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key', ...configOverrides };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const env = result.services.agent.environment as Record<string, string>;
+        expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+        expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+        expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
+      }
+
+      it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled', () => {
+        withGeminiApiKey('AIza-secret-gemini-key', () => {
+          // Agent should NOT have the real API key — only the sidecar gets it
+          // Agent should have both base URL vars to proxy through sidecar
+          expectGeminiCredentialIsolation({});
+        });
       });
 
       it('should not leak GEMINI_API_KEY to agent when api-proxy is enabled with envAll', () => {
-        const origKey = process.env.GEMINI_API_KEY;
-        process.env.GEMINI_API_KEY = 'AIza-secret-gemini-key';
-        try {
-          const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key', envAll: true };
-          const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
-          const agent = result.services.agent;
-          const env = agent.environment as Record<string, string>;
+        withGeminiApiKey('AIza-secret-gemini-key', () => {
           // Even with envAll, agent should NOT have the real GEMINI_API_KEY
-          expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
-          expect(env.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
-          expect(env.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
-        } finally {
-          if (origKey !== undefined) {
-            process.env.GEMINI_API_KEY = origKey;
-          } else {
-            delete process.env.GEMINI_API_KEY;
-          }
-        }
+          expectGeminiCredentialIsolation({ envAll: true });
+        });
       });
 
       it('should set GEMINI_API_TARGET in api-proxy when geminiApiTarget is provided', () => {
