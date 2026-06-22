@@ -23,7 +23,8 @@ describe('squid-log-reader – additional branch coverage', () => {
 
   // ── helper ──────────────────────────────────────────────────────────────────
 
-/** Write lines to <workDir>/squid-logs/access.log. */
+  /** Write lines to <workDir>/squid-logs/access.log. */
+  function writeAccessLog(workDir: string, lines: string[]): void {
     const squidLogsDir = path.join(workDir, 'squid-logs');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- test helper writing temp fixtures
     fs.mkdirSync(squidLogsDir, { recursive: true });
