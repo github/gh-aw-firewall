@@ -81,7 +81,7 @@ describe('squid-log-reader – additional branch coverage', () => {
 
   describe('lines 64-66 – normalizeTarget with URL containing "://" and a port', () => {
     it('extracts hostname:port from a CONNECT entry whose URL field is an https URL with port', async () => {
-      // CONNECT entry with host "-" forces extractBlockedTarget to use the URL field.
+      // CONNECT entries always use the URL field in extractBlockedTarget().
       // The URL "https://example.com:8080" exercises the URL-parsing branch and
       // the `parsed.port` truthy arm → returns "example.com:8080".
       writeAccessLog(getDir(), [
