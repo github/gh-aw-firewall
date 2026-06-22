@@ -1,4 +1,4 @@
-name: "Test: Adversarial Egress Enforcement (iptables vs topology)"
+name: "Test: Adversarial Egress Enforcement (iptables vs topology + mcpg)"
 
 # Adversarial feasibility experiment for PR #5237.
 #
@@ -7,6 +7,16 @@ name: "Test: Adversarial Egress Enforcement (iptables vs topology)"
 # containers) and get *equivalent or stricter* containment from pure Docker
 # network topology -- an `--internal` agent network whose only gateway is a
 # dual-homed Squid sidecar?
+#
+# Topology mode also dual-homes the *trusted* sidecars (the MCP gateway and the
+# gh-CLI DIFC integrity proxy) onto the agent's internal network so the agent
+# can reach them at internal IPs (see docs/network-isolation-design.md). Those
+# sidecars egress freely (they are trusted, not forced through Squid), which
+# raises one new question this experiment must answer: does putting a
+# freely-egressing trusted neighbor on the agent's internal segment create a NEW
+# exfiltration relay? The candidate job below stands up both dual-homed sidecars
+# and the battery asserts the agent can reach their *service ports only* while it
+# CANNOT pivot through them to a blocked destination.
 #
 # Method (one variable changed): Squid (the L7 filter) is held constant. We
 # compare two enforcement mechanisms against the SAME adversarial battery, run
@@ -293,6 +303,67 @@ jobs:
             emit TAMPER info INFO "ip route add denied: $(tr -d '\n' </tmp/iperr | tail -c 80)"
           fi
 
+          ###########################################################################
+          # Dual-homed trusted-sidecar checks (CANDIDATE topology only). These run
+          # only when MCPG_GW / MCPG_DIFC are exported, so the iptables baseline --
+          # which has no such sidecars -- naturally skips them. They prove that
+          # bringing the trusted MCP gateway + DIFC proxy onto the agent's internal
+          # network gives the agent reachability to their SERVICE PORTS ONLY, and
+          # does NOT turn those freely-egressing neighbors into an exfil relay.
+          #
+          # Honesty rule (mirrors the rest of the battery): a forward-proxy pivot is
+          # scored ALLOWED only if the body is real external content -- i.e. it does
+          # NOT contain the sidecar's own local marker. The stand-in sidecars always
+          # serve their marker, so the only way M2/M5 flip to ALLOWED is if a real
+          # open proxy returned blocked-origin content, which must fail the gate.
+          ###########################################################################
+          if [ -n "${MCPG_GW:-}" ]; then
+            GW_MARK="${MCPG_GW_MARKER:-MCPGOK}"
+            gw_host="${MCPG_GW%%:*}"
+
+            # M1 legit: agent reaches the gateway service port over the internal net.
+            if curl -s --noproxy '*' --max-time "$MAXT" "http://${MCPG_GW}/" 2>/dev/null | grep -q "$GW_MARK"; then
+              emit M1 mcpg-legit ALLOWED "agent reached mcpg gateway ${MCPG_GW}"
+            else
+              emit M1 mcpg-legit BLOCKED "mcpg gateway ${MCPG_GW} unreachable"
+            fi
+
+            # M2 attack: gateway must NOT act as an HTTP forward proxy to a blocked host.
+            pb=$(curl -s --max-time "$MAXT" -x "http://${MCPG_GW}" "http://${BLOCKED}/" 2>/dev/null)
+            if [ -n "$pb" ] && ! echo "$pb" | grep -q "$GW_MARK"; then
+              emit M2 mcpg-attack ALLOWED "pivoted ${BLOCKED} via gateway: $(echo "$pb" | tr -d '\n' | head -c 40)"
+            else
+              emit M2 mcpg-attack BLOCKED "gateway did not forward (served local marker / errored)"
+            fi
+
+            # M3 attack: no relay/forward-proxy port is open on the gateway besides
+            # its service port -- a listening proxy here would be an open exfil path.
+            m3="BLOCKED"; m3d="no relay port open on ${gw_host}"
+            for rp in 3128 3129 1080 8888 9050 8000 443; do
+              if timeout 3 bash -c "exec 3<>/dev/tcp/${gw_host}/${rp}" 2>/dev/null; then m3="ALLOWED"; m3d="relay-ish port ${rp} open on ${gw_host}"; break; fi
+            done
+            emit M3 mcpg-attack "$m3" "$m3d"
+          fi
+
+          if [ -n "${MCPG_DIFC:-}" ]; then
+            DIFC_MARK="${MCPG_DIFC_MARKER:-DIFCOK}"
+
+            # M4 legit: agent reaches the DIFC proxy service port over the internal net.
+            if curl -s --noproxy '*' --max-time "$MAXT" "http://${MCPG_DIFC}/" 2>/dev/null | grep -q "$DIFC_MARK"; then
+              emit M4 mcpg-legit ALLOWED "agent reached DIFC ${MCPG_DIFC}"
+            else
+              emit M4 mcpg-legit BLOCKED "DIFC ${MCPG_DIFC} unreachable"
+            fi
+
+            # M5 attack: DIFC must NOT forward arbitrary traffic to a blocked host.
+            db=$(curl -s --max-time "$MAXT" -x "http://${MCPG_DIFC}" "http://${BLOCKED}/" 2>/dev/null)
+            if [ -n "$db" ] && ! echo "$db" | grep -q "$DIFC_MARK"; then
+              emit M5 mcpg-attack ALLOWED "pivoted ${BLOCKED} via DIFC"
+            else
+              emit M5 mcpg-attack BLOCKED "DIFC did not forward (served local marker / errored)"
+            fi
+          fi
+
           echo "===== battery complete ARCH=$ARCH PRIV=$PRIV ====="
           EOF
           chmod +x assets/battery.sh
@@ -334,6 +405,7 @@ jobs:
           regressions = []
           legit_fail = []
           shared_residual = []
+          mcpg_fail = []
 
           out = []
           out.append("## Adversarial Egress Enforcement: equivalence matrix\n")
@@ -365,6 +437,18 @@ jobs:
                       if cv != "ALLOWED":
                           status = "❌ LEGIT BROKEN"
                           legit_fail.append((priv, tid, c[1]))
+                  elif cat == "mcpg-legit":
+                      # Candidate-only: the agent MUST reach the dual-homed sidecar.
+                      if cv != "ALLOWED":
+                          status = "❌ SIDECAR UNREACHABLE"
+                          mcpg_fail.append((priv, tid, "unreachable: " + c[1]))
+                  elif cat == "mcpg-attack":
+                      # Candidate-only: the agent must NOT pivot through the sidecar.
+                      if cv == "ALLOWED":
+                          status = "❌ RELAY BYPASS"
+                          mcpg_fail.append((priv, tid, "relayed: " + c[1]))
+                      else:
+                          status = "🟢 no relay"
                   else:
                       status = "ℹ️ info"
                   out.append(f"| {tid} | {cat} | {bv} | {cv} | {status} |")
@@ -372,6 +456,7 @@ jobs:
           out.append("\n### Summary\n")
           out.append(f"- Regressions (baseline blocks, candidate allows): **{len(regressions)}**")
           out.append(f"- Legit traffic broken in candidate: **{len(legit_fail)}**")
+          out.append(f"- Dual-homed sidecar failures (unreachable or relay bypass): **{len(mcpg_fail)}**")
           out.append(f"- Shared residual risks (neither blocks): **{len(shared_residual)}**")
           if regressions:
               out.append("\n**Regressions:**")
@@ -380,6 +465,10 @@ jobs:
           if legit_fail:
               out.append("\n**Broken legit traffic:**")
               for priv, tid, cd in legit_fail:
+                  out.append(f"- `{priv}` {tid}: {cd}")
+          if mcpg_fail:
+              out.append("\n**Dual-homed sidecar failures:**")
+              for priv, tid, cd in mcpg_fail:
                   out.append(f"- `{priv}` {tid}: {cd}")
           if shared_residual:
               out.append("\n**Shared residual risks (present in BOTH models):**")
@@ -393,10 +482,11 @@ jobs:
               with open(summary, "a") as fh:
                   fh.write(text)
 
-          if regressions or legit_fail:
+          if regressions or legit_fail or mcpg_fail:
               print("EQUIVALENCE FAILED", file=sys.stderr)
               sys.exit(1)
-          print("EQUIVALENCE HOLDS: candidate >= baseline containment.")
+          print("EQUIVALENCE HOLDS: candidate >= baseline containment; "
+                "dual-homed sidecars reachable and non-relaying.")
           EOF
           chmod +x assets/compare.py
 
@@ -504,9 +594,20 @@ jobs:
   # CANDIDATE: agent on a Docker `--internal` network with no internet route.
   # A dual-homed Squid (external + internal) is the sole egress. No NET_ADMIN
   # anywhere on the agent; no awf-managed iptables.
+  #
+  # Additionally dual-homes two TRUSTED sidecars onto the internal net, mirroring
+  # docs/network-isolation-design.md:
+  #   - mcpg gateway  (172.32.0.30:8080)  -- serves MCP tools to the agent
+  #   - DIFC proxy    (172.32.0.40:18443) -- gh-CLI integrity proxy; also PUBLISHED
+  #                                           on the host (127.0.0.1:18443) so the
+  #                                           runner's pre-agent `gh` steps reach it
+  # Both are stood up on the external net (free egress) and then `network connect`-ed
+  # to the internal net late, exactly like the proposed lifecycle handshake. They
+  # are plain non-forwarding listeners, so the battery can prove the agent reaches
+  # their service ports but cannot pivot through them.
   # ---------------------------------------------------------------------------
   candidate:
-    name: Candidate (internal-net topology + Squid)
+    name: Candidate (internal-net topology + Squid + dual-homed mcpg)
     runs-on: ubuntu-latest
     needs: build-battery
     timeout-minutes: 15
@@ -537,13 +638,53 @@ jobs:
             "$SQUID_IMAGE"
           docker network connect --ip 172.32.0.10 adv-int adv-cand-squid
 
+          # ---- Dual-homed TRUSTED sidecars (gateway + DIFC) ------------------
+          # Plain non-forwarding HTTP listeners: each answers any request on its
+          # service port with a fixed marker and never proxies. Started on the
+          # EXTERNAL net (free egress, like the real trusted services), then
+          # `network connect`-ed onto the internal net -- mirroring the proposed
+          # "bridge + late docker network connect" lifecycle.
+          docker run -d --name adv-cand-mcpg --network adv-ext \
+            --entrypoint socat "$ADVERSARY_IMAGE" \
+            TCP-LISTEN:8080,reuseaddr,fork \
+            "SYSTEM:printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nMCPGOK'"
+
+          # DIFC also PUBLISHES its port on the host loopback so the runner's own
+          # pre-agent gh steps could reach it -- the dual-plane the design calls out.
+          docker run -d --name adv-cand-difc --network adv-ext \
+            -p 127.0.0.1:18443:18443 \
+            --entrypoint socat "$ADVERSARY_IMAGE" \
+            TCP-LISTEN:18443,reuseaddr,fork \
+            "SYSTEM:printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nDIFCOK'"
+
+          docker network connect --ip 172.32.0.30 adv-int adv-cand-mcpg
+          docker network connect --ip 172.32.0.40 adv-int adv-cand-difc
+
           echo "Waiting for Squid on the internal net..."
           for i in $(seq 1 30); do
             if docker run --rm --network adv-int "$ADVERSARY_IMAGE" \
                  bash -c "nc -z 172.32.0.10 3128" 2>/dev/null; then echo "squid up"; break; fi
             sleep 2
           done
+          echo "Waiting for dual-homed sidecars on the internal net..."
+          for i in $(seq 1 30); do
+            if docker run --rm --network adv-int "$ADVERSARY_IMAGE" \
+                 bash -c "nc -z 172.32.0.30 8080 && nc -z 172.32.0.40 18443" 2>/dev/null; then echo "sidecars up"; break; fi
+            sleep 2
+          done
           docker logs adv-cand-squid 2>&1 | tail -n 20 || true
+
+      - name: Verify DIFC reachable from host (published port, dual-plane)
+        run: |
+          # Proves the DIFC proxy is reachable on the HOST loopback -- i.e. the
+          # runner's uncontainerized pre-agent gh steps can use it -- at the same
+          # time it is dual-homed onto the agent's internal net.
+          ok=0
+          for i in $(seq 1 15); do
+            if curl -s --max-time 3 http://127.0.0.1:18443/ | grep -q DIFCOK; then ok=1; echo "host -> DIFC ok"; break; fi
+            sleep 1
+          done
+          [ "$ok" = 1 ] || { echo "::error::DIFC not reachable on published host port"; docker logs adv-cand-difc 2>&1 | tail -n 30; exit 1; }
 
       - name: Run battery (root, no NET_ADMIN)
         run: |
@@ -551,6 +692,8 @@ jobs:
           docker run --rm --network adv-int --cap-drop NET_ADMIN \
             -e ARCH=candidate -e PRIV=root -e SQUID=172.32.0.10 \
             -e ALLOWED_DOMAIN="$ALLOWED_DOMAIN" -e BLOCKED_DOMAIN="$BLOCKED_DOMAIN" \
+            -e MCPG_GW=172.32.0.30:8080 -e MCPG_DIFC=172.32.0.40:18443 \
+            -e MCPG_GW_MARKER=MCPGOK -e MCPG_DIFC_MARKER=DIFCOK \
             -v "$PWD/assets:/assets:ro" \
             --entrypoint bash "$ADVERSARY_IMAGE" /assets/battery.sh \
             2>&1 | tee results/candidate-root.log
@@ -562,10 +705,24 @@ jobs:
             --user 1000:1000 \
             -e ARCH=candidate -e PRIV=user -e SQUID=172.32.0.10 \
             -e ALLOWED_DOMAIN="$ALLOWED_DOMAIN" -e BLOCKED_DOMAIN="$BLOCKED_DOMAIN" \
+            -e MCPG_GW=172.32.0.30:8080 -e MCPG_DIFC=172.32.0.40:18443 \
+            -e MCPG_GW_MARKER=MCPGOK -e MCPG_DIFC_MARKER=DIFCOK \
             -v "$PWD/assets:/assets:ro" \
             --entrypoint bash "$ADVERSARY_IMAGE" /assets/battery.sh \
             2>&1 | tee results/candidate-user.log
           grep '^AWFTEST|' results/candidate-user.log > results/candidate-user.txt || true
+
+      - name: Confirm trusted sidecar free egress (by-design, informational)
+        if: always()
+        run: |
+          # Documents the trust boundary: the dual-homed sidecars themselves egress
+          # freely (they are trusted, NOT forced through Squid). The ONLY thing that
+          # keeps this safe is that they do not relay for the agent -- which M2/M3/M5
+          # in the battery enforce. This line is informational, not gating.
+          mkdir -p results
+          code=$(docker exec adv-cand-mcpg curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://${BLOCKED_DOMAIN}" 2>/dev/null || echo 000)
+          echo "trusted gateway egress to ${BLOCKED_DOMAIN} -> $code"
+          echo "AWFTEST|candidate|sidecar|M6|info|INFO|trusted gateway free egress to ${BLOCKED_DOMAIN} code=$code" > results/candidate-mcpg-egress.txt
 
       - name: Show Squid access log
         if: always()
@@ -574,7 +731,7 @@ jobs:
       - name: Teardown
         if: always()
         run: |
-          docker rm -f adv-cand-squid 2>/dev/null || true
+          docker rm -f adv-cand-squid adv-cand-mcpg adv-cand-difc 2>/dev/null || true
           docker network rm adv-int adv-ext 2>/dev/null || true
 
       - name: Upload candidate results
