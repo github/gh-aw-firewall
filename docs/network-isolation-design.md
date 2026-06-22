@@ -5,6 +5,9 @@
 > with **Docker network topology**, so AWF can run unprivileged — in particular inside an
 > **ARC (Actions Runner Controller) Kubernetes runner**, where host-iptables is often
 > unavailable.
+> **Support policy**: ARC is supported **only when a Docker-in-Docker (DinD) sidecar is
+> present**. ARC without a reachable Docker daemon (e.g. `containerMode: kubernetes`) is
+> unsupported and AWF fails stop with a clear platform-unsupported message (see §7).
 
 ## 1. Summary
 
@@ -149,16 +152,55 @@ the container name, or gh-aw performs it post-AWF-start and passes the internal 
 
 ## 7. ARC compatibility
 
+**Support policy: ARC is supported only when a DinD sidecar is present.** A reachable Docker
+daemon is a hard prerequisite for topology mode — `awf-net`, the late `network connect`, the
+dual-homed gateway/DIFC, and mcpg's child-container launch all require one. ARC deployments
+without a DinD sidecar (e.g. `containerMode: kubernetes`) are **not supported**, and AWF
+**fails stop with a clear platform-unsupported message** rather than degrading (see §7.1).
+
 - **ARC with a DinD sidecar** (what AWF targets via `--docker-host` / `--docker-host-path-prefix`):
-  all components are sibling containers on the dind daemon; `awf-net`, the late
+  **supported.** All components are sibling containers on the dind daemon; `awf-net`, the late
   `network connect`, and the published DIFC port all live on that daemon. **No host-iptables,
   no `NET_ADMIN`, no `--network host`.** This is the design's payoff. Caveat: the DIFC
   **host published port** lands on the **dind** daemon, while the runner's pre-steps run in
   the **runner** container — so pre-step `GH_HOST` must point at the dind-reachable address,
   not plain `localhost`. (Pre-existing wrinkle, sharpened — not introduced here.)
-- **ARC `containerMode: kubernetes`** (no Docker daemon): mcpg's **socket-based child launch
-  has nowhere to run**, independent of this networking change. Out of scope; requires a gh-aw
-  change to how MCP servers are launched.
+- **ARC `containerMode: kubernetes`** (no Docker daemon): **not supported.** mcpg's
+  socket-based child launch has nowhere to run, `awf-net`/`network connect` cannot be created,
+  and there is no daemon to dual-home onto — all independent of this networking change. AWF
+  detects this case and fails stop (§7.1). A future non-socket MCP-server launch model in
+  gh-aw would be required to support it, tracked in §8.3.
+
+### 7.1 Fail-stop for unsupported platforms
+
+Topology mode adds an early preflight that runs **before** any container is created. It
+fails stop with a clear, actionable message when there is no usable Docker daemon — which is
+precisely the ARC-without-DinD case.
+
+Detection (cheapest-first, no false-positives on normal local/DinD runs):
+
+1. **Authoritative check — daemon reachability.** Resolve the effective `DOCKER_HOST` (honoring
+   `--docker-host`, mirroring `src/docker-host.ts` / `src/option-parsers.ts`) and probe the
+   daemon (e.g. `docker version --format '{{.Server.Version}}'`). If the daemon is unreachable,
+   topology mode cannot proceed — **fail stop.** This single check covers every "no daemon"
+   platform, ARC or not.
+2. **Specific ARC k8s-native fingerprint — for a better message.** When the daemon probe fails
+   *and* the runner looks like ARC `containerMode: kubernetes` — canonical signals are
+   `ACTIONS_RUNNER_CONTAINER_HOOKS` being set (the K8s container-hook script path) and/or
+   `ACTIONS_RUNNER_POD_NAME` present with no reachable socket — emit a **targeted** message
+   naming the platform and the fix, instead of a generic "docker not found".
+
+Reuse the existing DinD signal detection (`isLikelyDindEnvironment`, `dind-bootstrap.ts:21`)
+and the `DOCKER_HOST` classification in `option-parsers.ts` rather than inventing new
+heuristics. Example message:
+
+```
+error: --network-isolation requires a reachable Docker daemon, but none was found.
+       This looks like an ARC runner without a DinD sidecar (containerMode: kubernetes).
+       AWF network-isolation is only supported on ARC when a Docker-in-Docker sidecar
+       is present. Add a DinD sidecar to the runner scale set, or run AWF with host
+       iptables enforcement on a privileged runner.
+```
 
 ## 8. Concrete changes
 
@@ -186,6 +228,12 @@ the container name, or gh-aw performs it post-AWF-start and passes the internal 
 - **Tests** — extend `src/compose-generator.test.ts` (already covers `AWF_NETWORK_ISOLATION=1`)
   and `src/commands/validators/config-assembly.test.ts` for the newly-accepted combinations;
   add a unit test asserting AWF emits the `network connect` for a registered DIFC container.
+- **Fail-stop preflight (§7.1)** — add an early daemon-reachability check gated on
+  `config.networkIsolation` that probes the effective `DOCKER_HOST` and aborts with a clear
+  platform-unsupported message when no daemon is reachable, specializing the message for the
+  ARC k8s-native fingerprint (`ACTIONS_RUNNER_CONTAINER_HOOKS` / `ACTIONS_RUNNER_POD_NAME`).
+  Reuse `isLikelyDindEnvironment` (`dind-bootstrap.ts:21`) and the `DOCKER_HOST` classification
+  in `option-parsers.ts`. Cover with a unit test that stubs the daemon probe + ARC env.
 
 ### 8.2 gh-aw (compiler / harness — separate repo)
 
@@ -203,8 +251,9 @@ the container name, or gh-aw performs it post-AWF-start and passes the internal 
 
 ### 8.3 Out of scope (tracked separately)
 
-- ARC `containerMode: kubernetes` (no Docker daemon) — needs a non-socket MCP-server launch
-  model in gh-aw.
+- ARC `containerMode: kubernetes` (no Docker daemon) — **unsupported by policy** (§7); AWF
+  fails stop. Supporting it later would need a non-socket MCP-server launch model in gh-aw and
+  a K8s-native dual-home (Services/NetworkPolicies instead of Docker bridges).
 - Forcing **child MCP server** egress through Squid — explicitly deprioritized (trusted), but
   could later be added by launching children on an internal egress network with `HTTPS_PROXY`.
 
