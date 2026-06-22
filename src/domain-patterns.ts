@@ -17,7 +17,7 @@
 /**
  * Protocol restriction for a domain
  */
-export type DomainProtocol = 'http' | 'https' | 'both';
+type DomainProtocol = 'http' | 'https' | 'both';
 
 /**
  * Parsed domain with protocol information
