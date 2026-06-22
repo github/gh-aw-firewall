@@ -335,7 +335,7 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | GitHub token | GHES | ✅ | `copilot.js:245-258` |
 | Copilot | BYOK key | — | ✅ | `copilot.js:278-284` |
 | Copilot | Azure BYOK | — | ✅ | via OpenAI adapter |
-| Copilot | Azure OIDC | — | ✅ | `server.auth.test.js:749+` |
+| Copilot | Azure OIDC | — | ✅ | `copilot-adapter-enterprise.test.js:129+` |
 | Copilot | AWS OIDC | — | ✅ | `cloud-oidc-init.js:19-37`, `server.auth-matrix.test.js` |
 | Copilot | GCP OIDC | — | ✅ | `cloud-oidc-init.js:38-50`, `server.auth-matrix.test.js` |
 | Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |

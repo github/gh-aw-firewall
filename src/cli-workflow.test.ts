@@ -19,32 +19,91 @@ const createLogger = () => ({
   warn: jest.fn(),
 });
 
+type WorkflowDependencies = Parameters<typeof runMainWorkflow>[1];
+type WorkflowOptions = Parameters<typeof runMainWorkflow>[2];
+
+const createWorkflowDependencies = (
+  overrides: Partial<WorkflowDependencies> = {}
+): WorkflowDependencies => ({
+  ensureFirewallNetwork: jest.fn().mockResolvedValue({
+    squidIp: '172.30.0.10',
+    agentIp: '172.30.0.20',
+    proxyIp: '172.30.0.30',
+    subnet: '172.30.0.0/24',
+  }),
+  setupHostIptables: jest.fn().mockResolvedValue(undefined),
+  writeConfigs: jest.fn().mockResolvedValue(undefined),
+  startContainers: jest.fn().mockResolvedValue(undefined),
+  runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
+  ...overrides,
+});
+
+const createWorkflowOptions = (
+  overrides: Partial<WorkflowOptions> = {}
+): WorkflowOptions => ({
+  logger: createLogger(),
+  performCleanup: jest.fn().mockResolvedValue(undefined),
+  ...overrides,
+});
+
+const createOrderedWorkflowDependencies = (
+  callOrder: string[],
+  runAgentExitCode = 0,
+  overrides: Partial<WorkflowDependencies> = {}
+): WorkflowDependencies => createWorkflowDependencies({
+  ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
+    callOrder.push('ensureFirewallNetwork');
+    return {
+      squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20',
+      proxyIp: '172.30.0.30',
+      subnet: '172.30.0.0/24',
+    };
+  }),
+  setupHostIptables: jest.fn().mockImplementation(async () => {
+    callOrder.push('setupHostIptables');
+  }),
+  writeConfigs: jest.fn().mockImplementation(async () => {
+    callOrder.push('writeConfigs');
+  }),
+  startContainers: jest.fn().mockImplementation(async () => {
+    callOrder.push('startContainers');
+  }),
+  runAgentCommand: jest.fn().mockImplementation(async () => {
+    callOrder.push('runAgentCommand');
+    return { exitCode: runAgentExitCode };
+  }),
+  ...overrides,
+});
+
+const createOrderedWorkflowOptions = (
+  callOrder: string[],
+  overrides: Partial<WorkflowOptions> = {}
+): WorkflowOptions => ({
+  logger: createLogger(),
+  performCleanup: jest.fn().mockImplementation(async () => {
+    callOrder.push('performCleanup');
+  }),
+  ...overrides,
+});
+
+const runWorkflowWithDefaults = async (
+  config: WrapperConfig = baseConfig,
+  dependencyOverrides: Partial<WorkflowDependencies> = {},
+  optionOverrides: Partial<WorkflowOptions> = {}
+) => {
+  const dependencies = createWorkflowDependencies(dependencyOverrides);
+  const options = createWorkflowOptions(optionOverrides);
+  const exitCode = await runMainWorkflow(config, dependencies, options);
+
+  return { dependencies, options, exitCode };
+};
+
 describe('runMainWorkflow', () => {
   it('executes workflow steps in order and logs success for zero exit code', async () => {
     const callOrder: string[] = [];
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
-        callOrder.push('ensureFirewallNetwork');
-        return { squidIp: '172.30.0.10' };
-      }),
-      setupHostIptables: jest.fn().mockImplementation(async () => {
-        callOrder.push('setupHostIptables');
-      }),
-      writeConfigs: jest.fn().mockImplementation(async () => {
-        callOrder.push('writeConfigs');
-      }),
-      startContainers: jest.fn().mockImplementation(async () => {
-        callOrder.push('startContainers');
-      }),
-      runAgentCommand: jest.fn().mockImplementation(async () => {
-        callOrder.push('runAgentCommand');
-        return { exitCode: 0 };
-      }),
-    };
-    const performCleanup = jest.fn().mockImplementation(async () => {
-      callOrder.push('performCleanup');
-    });
-    const logger = createLogger();
+    const dependencies = createOrderedWorkflowDependencies(callOrder);
+    const { logger, performCleanup } = createOrderedWorkflowOptions(callOrder);
 
     const exitCode = await runMainWorkflow(baseConfig, dependencies, {
       logger,
@@ -111,17 +170,7 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       agentTimeout: 30,
     };
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithTimeout, dependencies, { logger, performCleanup });
+    const { dependencies } = await runWorkflowWithDefaults(configWithTimeout);
 
     expect(dependencies.runAgentCommand).toHaveBeenCalledWith(
       configWithTimeout.workDir,
@@ -132,17 +181,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined agentTimeout when not set', async () => {
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const logger = createLogger();
-
-    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup });
+    const { dependencies } = await runWorkflowWithDefaults();
 
     expect(dependencies.runAgentCommand).toHaveBeenCalledWith(
       baseConfig.workDir,
@@ -158,17 +197,9 @@ describe('runMainWorkflow', () => {
       enableHostAccess: true,
       allowHostPorts: '3000,8080',
     };
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(configWithHostAccess, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithHostAccess, dependencies, { logger, performCleanup });
+    });
 
     const expectedHostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
@@ -183,17 +214,9 @@ describe('runMainWorkflow', () => {
       allowHostPorts: '3000',
       allowHostServicePorts: '5432,6379',
     };
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(configWithServicePorts, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithServicePorts, dependencies, { logger, performCleanup });
+    });
 
     const expectedHostAccess: HostAccessConfig = {
       enabled: true,
@@ -206,17 +229,9 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined hostAccess when enableHostAccess is not set', async () => {
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(baseConfig, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-    const logger = createLogger();
-
-    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup });
+    });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, undefined
@@ -225,29 +240,8 @@ describe('runMainWorkflow', () => {
 
   it('logs warning with exit code when command fails', async () => {
     const callOrder: string[] = [];
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockImplementation(async () => {
-        callOrder.push('ensureFirewallNetwork');
-        return { squidIp: '172.30.0.10' };
-      }),
-      setupHostIptables: jest.fn().mockImplementation(async () => {
-        callOrder.push('setupHostIptables');
-      }),
-      writeConfigs: jest.fn().mockImplementation(async () => {
-        callOrder.push('writeConfigs');
-      }),
-      startContainers: jest.fn().mockImplementation(async () => {
-        callOrder.push('startContainers');
-      }),
-      runAgentCommand: jest.fn().mockImplementation(async () => {
-        callOrder.push('runAgentCommand');
-        return { exitCode: 42 };
-      }),
-    };
-    const performCleanup = jest.fn().mockImplementation(async () => {
-      callOrder.push('performCleanup');
-    });
-    const logger = createLogger();
+    const dependencies = createOrderedWorkflowDependencies(callOrder, 42);
+    const { logger, performCleanup } = createOrderedWorkflowOptions(callOrder);
 
     const exitCode = await runMainWorkflow(baseConfig, dependencies, {
       logger,
@@ -445,16 +439,9 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       enableApiProxy: true,
     };
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(configWithApiProxy, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithApiProxy, dependencies, { logger, performCleanup: jest.fn() });
+    });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), '172.30.0.30', undefined, undefined, undefined
@@ -462,16 +449,9 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined apiProxyIp when enableApiProxy is false', async () => {
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(baseConfig, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+    });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
@@ -483,16 +463,9 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       dnsOverHttps: 'https://dns.google/dns-query',
     };
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(configWithDoH, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithDoH, dependencies, { logger, performCleanup: jest.fn() });
+    });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, '172.30.0.40', undefined, undefined
@@ -500,16 +473,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined dohProxyIp when dnsOverHttps is not set', async () => {
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+    const { dependencies } = await runWorkflowWithDefaults();
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
@@ -521,16 +485,9 @@ describe('runMainWorkflow', () => {
       ...baseConfig,
       difcProxyHost: 'proxy.corp.com:18443',
     };
-    const dependencies = {
+    const { dependencies } = await runWorkflowWithDefaults(configWithDifc, {
       ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10', proxyIp: '172.30.0.30', agentIp: '172.30.0.20', subnet: '172.30.0.0/24' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(configWithDifc, dependencies, { logger, performCleanup: jest.fn() });
+    });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined,
@@ -539,16 +496,7 @@ describe('runMainWorkflow', () => {
   });
 
   it('passes undefined cliProxyConfig when difcProxyHost is not set', async () => {
-    const dependencies = {
-      ensureFirewallNetwork: jest.fn().mockResolvedValue({ squidIp: '172.30.0.10' }),
-      setupHostIptables: jest.fn().mockResolvedValue(undefined),
-      writeConfigs: jest.fn().mockResolvedValue(undefined),
-      startContainers: jest.fn().mockResolvedValue(undefined),
-      runAgentCommand: jest.fn().mockResolvedValue({ exitCode: 0 }),
-    };
-    const logger = createLogger();
-
-    await runMainWorkflow(baseConfig, dependencies, { logger, performCleanup: jest.fn() });
+    const { dependencies } = await runWorkflowWithDefaults();
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined

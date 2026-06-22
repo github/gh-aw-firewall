@@ -17,30 +17,20 @@
 /**
  * Protocol restriction for a domain
  */
-export type DomainProtocol = 'http' | 'https' | 'both';
-
-/**
- * Parsed domain with protocol information
- */
-export interface ParsedDomain {
-  /** The domain name without protocol prefix */
-  domain: string;
-  /** Which protocol(s) are allowed */
-  protocol: DomainProtocol;
-}
+type DomainProtocol = 'http' | 'https' | 'both';
 
 /**
  * Parse a domain string and extract protocol restriction if present
  *
  * @param input - Domain string, optionally prefixed with http:// or https://
- * @returns ParsedDomain with the domain and protocol restriction
+ * @returns Object with the domain name and protocol restriction
  *
  * Examples:
  *   'github.com'        -> { domain: 'github.com', protocol: 'both' }
  *   'http://github.com' -> { domain: 'github.com', protocol: 'http' }
  *   'https://github.com' -> { domain: 'github.com', protocol: 'https' }
  */
-export function parseDomainWithProtocol(input: string): ParsedDomain {
+export function parseDomainWithProtocol(input: string): { domain: string; protocol: DomainProtocol } {
   const trimmed = input.trim();
 
   if (trimmed.startsWith('http://')) {
