@@ -126,6 +126,64 @@ describe('createCopilotAdapter — GHE enterprise auth format', () => {
   });
 });
 
+describe('createCopilotAdapter — Copilot Business auth format', () => {
+  // Regression for github/gh-aw#38575: Copilot Business customers set
+  // COPILOT_API_TARGET=api.business.githubcopilot.com (often on a *.ghe.com
+  // server). The business host authenticates the GitHub token directly and
+  // requires the 'token' prefix; sending 'Bearer' yields
+  // "400 bad request: Authorization header is badly formatted".
+  const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+  const fakeModelsReq = { url: '/models', method: 'GET', headers: {} };
+
+  it('uses "token" prefix for the Business target (api.business.githubcopilot.com)', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
+  });
+
+  it('uses "token" prefix for the Business target even on a *.ghe.com server', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+      GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
+  });
+
+  it('uses "token" prefix for /models on the Business target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
+  });
+
+  it('uses "Bearer" prefix for a BYOK key even on the Business target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_PROVIDER_API_KEY: 'sk-byok-key',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe(['Bearer', 'sk-byok-key'].join(' '));
+  });
+
+  it('strips an accidental "token " prefix before re-prefixing for the Business target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'token ghu_business_token_123',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
+    expect(headers['Authorization']).not.toContain('token token');
+  });
+});
+
 describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
   const fakeReq = { url: '/v1/chat/completions', method: 'POST', headers: {} };
 

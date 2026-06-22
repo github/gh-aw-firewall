@@ -4,6 +4,7 @@ const {
     resolveApiKey,
     stripBearerPrefix,
     isGhesInstance,
+    copilotTargetRequiresGitHubTokenPrefix,
   },
 } = require('./providers/copilot-auth');
 const {
@@ -212,5 +213,53 @@ describe('isGhesInstance', () => {
       AWF_PLATFORM_TYPE: 'ghec-self-hosted',
       GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
     })).toBe(false);
+  });
+});
+
+describe('copilotTargetRequiresGitHubTokenPrefix', () => {
+  it('returns true for the Enterprise Copilot endpoint', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.enterprise.githubcopilot.com', {})).toBe(true);
+  });
+
+  it('returns true for the Business Copilot endpoint', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.business.githubcopilot.com', {})).toBe(true);
+  });
+
+  it('returns true for the Business endpoint even on a *.ghe.com (GHEC) server', () => {
+    // Regression: Copilot Business customers set COPILOT_API_TARGET to the
+    // business host while running against a *.ghe.com server. isGhesInstance
+    // returns false for this combination, so the business host must be matched
+    // directly to apply the 'token' prefix. See github/gh-aw#38575.
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.business.githubcopilot.com', {
+      GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+    })).toBe(true);
+  });
+
+  it('returns false when an explicit non-GHES AWF_PLATFORM_TYPE overrides the Business host', () => {
+    // The explicit platform override is the documented escape hatch and wins
+    // even for the Business host, matching isGhesInstance semantics.
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.business.githubcopilot.com', {
+      AWF_PLATFORM_TYPE: 'ghec',
+    })).toBe(false);
+  });
+
+  it('returns true for any GHES instance via the GITHUB_SERVER_URL heuristic', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('custom-proxy.internal', {
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
+    })).toBe(true);
+  });
+
+  it('returns false for the standard api.githubcopilot.com endpoint', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.githubcopilot.com', {})).toBe(false);
+  });
+
+  it('returns false for a *.ghe.com (GHEC) Copilot target', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api.myorg.ghe.com', {
+      GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+    })).toBe(false);
+  });
+
+  it('returns false when no token-prefix indicators are present', () => {
+    expect(copilotTargetRequiresGitHubTokenPrefix('custom-proxy.internal', {})).toBe(false);
   });
 });

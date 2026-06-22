@@ -233,6 +233,53 @@ function isGhesInstance(resolvedTarget, env = process.env) {
   }
 }
 
+/**
+ * GitHub-hosted Copilot endpoints that authenticate a GitHub OAuth/PAT token
+ * directly and therefore require the `token <value>` Authorization prefix
+ * (rather than `Bearer <value>`) for GitHub credentials.
+ *
+ * Both the Enterprise and Business endpoints behave this way; the standard
+ * `api.githubcopilot.com` endpoint instead expects a Copilot token with the
+ * `Bearer` prefix.
+ */
+const GITHUB_TOKEN_PREFIX_COPILOT_TARGETS = new Set([
+  'api.enterprise.githubcopilot.com',
+  'api.business.githubcopilot.com',
+]);
+
+/**
+ * Decide whether a GitHub OAuth/PAT token sent to the Copilot API must use the
+ * `token <value>` Authorization prefix instead of `Bearer <value>`.
+ *
+ * This is true when either:
+ *   1. The environment is a GHES instance (see {@link isGhesInstance}), or
+ *   2. The resolved target is a GitHub-hosted Copilot endpoint that accepts the
+ *      GitHub token directly — i.e. the Enterprise or Business host. This case
+ *      covers Copilot Business customers who set
+ *      COPILOT_API_TARGET=api.business.githubcopilot.com while running against a
+ *      *.ghe.com (GHEC) server, which the GHES heuristics would otherwise miss.
+ *
+ * An explicit non-GHES AWF_PLATFORM_TYPE remains an override that forces
+ * 'Bearer', consistent with {@link isGhesInstance}.
+ *
+ * BYOK API keys always use `Bearer`; this predicate only governs the GitHub
+ * token case (callers gate on the absence of a real BYOK key).
+ *
+ * @param {string} resolvedTarget - The resolved Copilot API target hostname
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @returns {boolean}
+ */
+function copilotTargetRequiresGitHubTokenPrefix(resolvedTarget, env = process.env) {
+  // An explicit non-GHES platform type is an intentional override that forces
+  // the standard 'Bearer' prefix, even when the resolved host looks like an
+  // Enterprise/Business endpoint. (isGhesInstance honors the same override.)
+  if (env.AWF_PLATFORM_TYPE && env.AWF_PLATFORM_TYPE !== 'ghes') return false;
+
+  if (isGhesInstance(resolvedTarget, env)) return true;
+  const target = normalizeApiTarget(resolvedTarget);
+  return target ? GITHUB_TOKEN_PREFIX_COPILOT_TARGETS.has(target) : false;
+}
+
 module.exports = {
   stripBearerPrefix,
   resolveApiKey,
@@ -242,6 +289,7 @@ module.exports = {
   deriveGitHubApiBasePath,
   isGithubCopilotCatalogTarget,
   isGhesInstance,
+  copilotTargetRequiresGitHubTokenPrefix,
   getCopilotModelFallbackPolicy,
   // Exported for unit-test access only; not part of the public API.
   _testing: {
@@ -253,6 +301,7 @@ module.exports = {
     deriveGitHubApiBasePath,
     isGithubCopilotCatalogTarget,
     isGhesInstance,
+    copilotTargetRequiresGitHubTokenPrefix,
     getCopilotModelFallbackPolicy,
   },
 };
