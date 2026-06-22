@@ -27,26 +27,13 @@ interface AgentServiceParams {
 }
 
 /**
- * Builds the agent container service configuration for Docker Compose.
+ * Builds the security and capability configuration for the agent container.
+ *
+ * Extracts all security-critical fields so they can be audited and tested in
+ * isolation, independently of the full agent service configuration.
  */
-export function buildAgentService(params: AgentServiceParams): any {
-  const { config, networkConfig, environment, agentVolumes, dnsServers, imageConfig } = params;
-
-  // Agent service configuration
-  const agentService: any = {
-    container_name: AGENT_CONTAINER_NAME,
-    networks: {
-      'awf-net': {
-        ipv4_address: networkConfig.agentIp,
-      },
-    },
-    // When DoH is enabled, route DNS through the DoH proxy sidecar instead of external DNS
-    dns: config.dnsOverHttps && networkConfig.dohProxyIp
-      ? [networkConfig.dohProxyIp, '127.0.0.11']
-      : dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
-    dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
-    volumes: agentVolumes,
-    environment,
+function buildAgentSecurityConfig(config: WrapperConfig): any {
+  return {
     // SECURITY: Hide sensitive directories from agent using tmpfs overlays (empty in-memory filesystems)
     //
     // 1. MCP logs: tmpfs over /tmp/gh-aw/mcp-logs prevents the agent from reading
@@ -78,11 +65,6 @@ export function buildAgentService(params: AgentServiceParams): any {
       `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],
-    depends_on: {
-      'squid-proxy': {
-        condition: 'service_healthy',
-      },
-    },
     // SECURITY: NET_ADMIN is NOT granted to the agent container.
     // iptables setup is performed by the awf-iptables-init service which shares
     // the agent's network namespace via network_mode: "service:agent".
@@ -117,6 +99,36 @@ export function buildAgentService(params: AgentServiceParams): any {
     memswap_limit: config.memoryLimit ? config.memoryLimit : '-1',  // Disable swap when user specifies limit
     pids_limit: 1000,          // Max 1000 processes
     cpu_shares: 1024,          // Default CPU share
+  };
+}
+
+/**
+ * Builds the agent container service configuration for Docker Compose.
+ */
+export function buildAgentService(params: AgentServiceParams): any {
+  const { config, networkConfig, environment, agentVolumes, dnsServers, imageConfig } = params;
+
+  // Agent service configuration
+  const agentService: any = {
+    container_name: AGENT_CONTAINER_NAME,
+    networks: {
+      'awf-net': {
+        ipv4_address: networkConfig.agentIp,
+      },
+    },
+    // When DoH is enabled, route DNS through the DoH proxy sidecar instead of external DNS
+    dns: config.dnsOverHttps && networkConfig.dohProxyIp
+      ? [networkConfig.dohProxyIp, '127.0.0.11']
+      : dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
+    dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
+    volumes: agentVolumes,
+    environment,
+    depends_on: {
+      'squid-proxy': {
+        condition: 'service_healthy',
+      },
+    },
+    ...buildAgentSecurityConfig(config),
     stdin_open: true,
     tty: config.tty || false, // Use --tty flag, default to false for clean logs
     // Healthcheck ensures the agent process is alive and its PID is visible in /proc
@@ -219,7 +231,7 @@ function resolveAgentImageConfig(
 
 // ts-prune-ignore-next
 /** @internal Exported for unit testing only */
-export const testHelpers = { resolveAgentImageConfig };
+export const testHelpers = { resolveAgentImageConfig, buildAgentSecurityConfig };
 
 // ─── iptables-init Service ────────────────────────────────────────────────────
 
