@@ -1,6 +1,6 @@
 import { execaResult, mockedExeca, setupHostIptablesTestSuite } from './test-helpers/host-iptables-test-setup';
 import { ensureFirewallNetwork } from './host-iptables';
-import { AGENT_IP, API_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from './host-iptables-shared';
+import { AGENT_IP, API_PROXY_IP, NETWORK_NAME, NETWORK_SUBNET, SQUID_IP } from './host-iptables-shared';
 import { iptablesSharedTestHelpers } from './host-iptables-shared.test-utils';
 
 describe('host-iptables (network)', () => {
@@ -17,7 +17,7 @@ describe('host-iptables (network)', () => {
     };
 
     const expectNetworkInspectCalled = (): void => {
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', 'awf-net'], { env: expect.any(Object) });
+      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', NETWORK_NAME], { env: expect.any(Object) });
     };
 
     it('should return network config when network already exists', async () => {
@@ -56,7 +56,7 @@ describe('host-iptables (network)', () => {
       expect(mockedExeca).toHaveBeenCalledWith('docker', [
         'network',
         'create',
-        'awf-net',
+        NETWORK_NAME,
         '--subnet',
         NETWORK_SUBNET,
         '--opt',
