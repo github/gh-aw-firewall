@@ -16,24 +16,16 @@ import {
 import { validateDomainOrPattern } from './domain-validation';
 
 /**
- * The result of parsing a raw domain list: plain (non-wildcard) domains separated
- * from compiled wildcard patterns.
- */
-export interface ParsedDomainList {
-  /** Plain domains without wildcards */
-  plainDomains: PlainDomainEntry[];
-  /** Wildcard patterns with compiled regex strings (compiled at match time via new RegExp(...)) */
-  patterns: DomainPattern[];
-}
-
-/**
  * Parse and categorize domains into plain domains and wildcard patterns
  *
  * @param domains - Array of domain strings (may include wildcards and protocol prefixes)
  * @returns Object with plainDomains and patterns arrays
  * @throws Error if any domain/pattern is invalid
  */
-export function parseDomainList(domains: string[]): ParsedDomainList {
+export function parseDomainList(domains: string[]): {
+  plainDomains: PlainDomainEntry[];
+  patterns: DomainPattern[];
+} {
   const plainDomains: PlainDomainEntry[] = [];
   const patterns: DomainPattern[] = [];
 
