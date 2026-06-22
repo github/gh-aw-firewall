@@ -16,76 +16,60 @@ describe('config-assembly', () => {
   setupConfigAssemblyTestSuite();
 
   describe('COPILOT_MODEL detection in env files', () => {
-    it('should detect COPILOT_MODEL in env file', () => {
-      const envFilePath = path.join(getTestDir(), 'test.env');
-      fs.writeFileSync(envFilePath, 'COPILOT_MODEL=gpt-4\n');
+    /**
+     * Runs a COPILOT_MODEL detection case and asserts warnClassicPATWithCopilotModel.
+     * Optionally writes a single env file from `envFileContents` and passes extra
+     * buildConfig/agentEnv overrides.
+     */
+    function runCopilotModelDetectionCase({
+      envFileContents,
+      buildConfigOverrides = {},
+      agentEnv,
+      expectedModelDetected,
+    }: {
+      envFileContents?: string;
+      buildConfigOverrides?: Record<string, unknown>;
+      agentEnv?: Record<string, string>;
+      expectedModelDetected: boolean;
+    }): void {
+      let envFilePath: string | undefined;
+      if (envFileContents !== undefined) {
+        envFilePath = path.join(getTestDir(), 'test.env');
+        fs.writeFileSync(envFilePath, envFileContents);
+      }
 
       mockBuildConfigOnce({
-        envFile: envFilePath,
         copilotGithubToken: 'ghp_testtoken',
+        ...(envFilePath !== undefined ? { envFile: envFilePath } : {}),
+        ...buildConfigOverrides,
       });
+
+      const agentOptions = createMinimalAgentOptions();
+      if (agentEnv !== undefined) {
+        agentOptions.additionalEnv = agentEnv;
+      }
 
       assembleAndValidateConfig(
         {},
         'echo test',
         createMinimalLogAndLimits(),
         createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
+        agentOptions,
       );
 
       expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
         true,
-        true,
+        expectedModelDetected,
         expect.any(Function),
       );
-    });
+    }
 
-    it('should detect COPILOT_MODEL with export prefix in env file', () => {
-      const envFilePath = path.join(getTestDir(), 'test.env');
-      fs.writeFileSync(envFilePath, 'export COPILOT_MODEL=gpt-4\n');
-
-      mockBuildConfigOnce({
-        envFile: envFilePath,
-        copilotGithubToken: 'ghp_testtoken',
-      });
-
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
-
-      expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-        true,
-        true,
-        expect.any(Function),
-      );
-    });
-
-    it('should skip comment lines when checking env file', () => {
-      const envFilePath = path.join(getTestDir(), 'test.env');
-      fs.writeFileSync(envFilePath, '# COPILOT_MODEL=gpt-4\nOTHER_VAR=value\n');
-
-      mockBuildConfigOnce({
-        envFile: envFilePath,
-        copilotGithubToken: 'ghp_testtoken',
-      });
-
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
-
-      expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-        true,
-        false,
-        expect.any(Function),
-      );
+    it.each<[string, string, boolean]>([
+      ['should detect COPILOT_MODEL in env file', 'COPILOT_MODEL=gpt-4\n', true],
+      ['should detect COPILOT_MODEL with export prefix in env file', 'export COPILOT_MODEL=gpt-4\n', true],
+      ['should skip comment lines when checking env file', '# COPILOT_MODEL=gpt-4\nOTHER_VAR=value\n', false],
+    ])('%s', (_description, envFileContents, expectedModelDetected) => {
+      runCopilotModelDetectionCase({ envFileContents, expectedModelDetected });
     });
 
     it('should handle unreadable env file gracefully', () => {
@@ -106,51 +90,14 @@ describe('config-assembly', () => {
     });
 
     it('should detect COPILOT_MODEL from --env flags', () => {
-      mockBuildConfigOnce({
-        copilotGithubToken: 'ghp_testtoken',
-      });
-
-      const agentOptions = createMinimalAgentOptions();
-      agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-4' };
-
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        agentOptions,
-      );
-
-      expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-        true,
-        true,
-        expect.any(Function),
-      );
+      runCopilotModelDetectionCase({ agentEnv: { COPILOT_MODEL: 'gpt-4' }, expectedModelDetected: true });
     });
 
     it('should detect COPILOT_MODEL from host env when --env-all is active', () => {
       const originalCopilotModel = process.env.COPILOT_MODEL;
       try {
         process.env.COPILOT_MODEL = 'gpt-4';
-
-        mockBuildConfigOnce({
-          envAll: true,
-          copilotGithubToken: 'ghp_testtoken',
-        });
-
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
-
-        expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-          true,
-          true,
-          expect.any(Function),
-        );
+        runCopilotModelDetectionCase({ buildConfigOverrides: { envAll: true }, expectedModelDetected: true });
       } finally {
         if (originalCopilotModel) {
           process.env.COPILOT_MODEL = originalCopilotModel;
@@ -164,28 +111,11 @@ describe('config-assembly', () => {
       const originalCopilotModel = process.env.COPILOT_MODEL;
       try {
         process.env.COPILOT_MODEL = 'gpt-4';
-
-        mockBuildConfigOnce({
-          envAll: true,
-          copilotGithubToken: 'ghp_testtoken',
+        runCopilotModelDetectionCase({
+          buildConfigOverrides: { envAll: true },
+          agentEnv: { COPILOT_MODEL: '' },
+          expectedModelDetected: false,
         });
-
-        const agentOptions = createMinimalAgentOptions();
-        agentOptions.additionalEnv = { COPILOT_MODEL: '' };
-
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          agentOptions,
-        );
-
-        expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-          true,
-          false,
-          expect.any(Function),
-        );
       } finally {
         if (originalCopilotModel) {
           process.env.COPILOT_MODEL = originalCopilotModel;
@@ -201,56 +131,17 @@ describe('config-assembly', () => {
       fs.writeFileSync(envFilePath1, 'VAR1=value1\n');
       fs.writeFileSync(envFilePath2, 'COPILOT_MODEL=gpt-4\n');
 
-      mockBuildConfigOnce({
-        envFile: [envFilePath1, envFilePath2],
-        copilotGithubToken: 'ghp_testtoken',
+      runCopilotModelDetectionCase({
+        buildConfigOverrides: { envFile: [envFilePath1, envFilePath2] },
+        expectedModelDetected: true,
       });
-
-      assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        createMinimalAgentOptions(),
-      );
-
-      expect(warnClassicPATWithCopilotModel).toHaveBeenCalledWith(
-        true,
-        true,
-        expect.any(Function),
-      );
     });
 
-    it('should reject retired COPILOT_MODEL aliases before launch', () => {
-      mockBuildConfigOnce({
-        copilotGithubToken: 'github_pat_testtoken',
-      });
-
-      const agentOptions = createMinimalAgentOptions();
-      agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-5-codex' };
-
-      expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          agentOptions,
-        );
-      }).toThrow('process.exit(1)');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("model 'gpt-5-codex' is retired or unsupported"),
-      );
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("Did you mean 'gpt-5.3-codex'?"),
-      );
-    });
-
-    it('should reject retired COPILOT_MODEL aliases in BYOK mode (copilotProviderApiKey)', () => {
-      mockBuildConfigOnce({
-        copilotProviderApiKey: 'byok-api-key-for-azure-foundry',
-      });
+    it.each<[string, string, string]>([
+      ['should reject retired COPILOT_MODEL aliases before launch', 'copilotGithubToken', 'github_pat_testtoken'],
+      ['should reject retired COPILOT_MODEL aliases in BYOK mode (copilotProviderApiKey)', 'copilotProviderApiKey', 'byok-api-key-for-azure-foundry'],
+    ])('%s', (_description, tokenKey, tokenValue) => {
+      mockBuildConfigOnce({ [tokenKey]: tokenValue });
 
       const agentOptions = createMinimalAgentOptions();
       agentOptions.additionalEnv = { COPILOT_MODEL: 'gpt-5-codex' };
