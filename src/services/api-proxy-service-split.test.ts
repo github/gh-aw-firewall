@@ -140,4 +140,20 @@ describe('API proxy split builders', () => {
       process.env = originalEnv;
     }
   });
+
+  it('buildAgentCredentialEnv sets Gemini proxy URLs and placeholder key when geminiApiKey is present', () => {
+    const agentEnvAdditions = buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        geminiApiKey: 'gemini-real-key',
+      },
+      networkConfig,
+    });
+
+    expect(agentEnvAdditions.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
+    expect(agentEnvAdditions.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+    expect(agentEnvAdditions.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+  });
 });
