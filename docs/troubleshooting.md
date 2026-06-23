@@ -109,7 +109,7 @@
    ```bash
    docker exec awf-squid cat /proc/sys/net/ipv6/conf/all/disable_ipv6
    ```
-3. Enable Docker IPv6 on the host or upgrade to a version of AWF that omits the IPv6 listener automatically when IPv6 is disabled.
+3. Enable Docker/kernel IPv6 on the host (required with current AWF builds), or use a custom AWF build that removes the `[::]` listener.
 
 ### Corporate Upstream Proxy
 
