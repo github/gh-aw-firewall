@@ -164,7 +164,7 @@ function createUpstreamResponseHandlers({
       return true;
     }
 
-    // ── (c) Model-unavailable diagnostic (retries exhausted or non-retryable) ───
+    // ── (c) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
     if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
       const { req } = authErrCtx;
       logRequest('error', 'model_unavailable', {
