@@ -7,6 +7,7 @@ import {
   parseMemoryLimit,
   applyAgentTimeout,
   collectRulesetFile,
+  collectStringArray,
   checkDockerHost,
   resolveDockerHostPathPrefix,
   formatItem,
@@ -248,6 +249,28 @@ describe('collectRulesetFile', () => {
     testProgram.parse(['node', 'awf'], { from: 'node' });
     const opts = testProgram.opts();
     expect(opts.rulesetFile).toEqual([]);
+  });
+});
+
+describe('collectStringArray', () => {
+  it('should accumulate multiple values into an array', () => {
+    let result = collectStringArray('mcp-gateway');
+    result = collectStringArray('difc-proxy', result);
+    expect(result).toEqual(['mcp-gateway', 'difc-proxy']);
+  });
+
+  it('should default to empty array when no previous values', () => {
+    expect(collectStringArray('first')).toEqual(['first']);
+  });
+
+  it('should work with Commander repeatable option parsing', () => {
+    const testProgram = new Command();
+    testProgram
+      .option('--topology-attach <name>', 'attach container', collectStringArray, [])
+      .action(() => {});
+
+    testProgram.parse(['node', 'awf', '--topology-attach', 'a', '--topology-attach', 'b'], { from: 'node' });
+    expect(testProgram.opts().topologyAttach).toEqual(['a', 'b']);
   });
 });
 

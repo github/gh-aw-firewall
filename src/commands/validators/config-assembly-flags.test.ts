@@ -51,6 +51,18 @@ describe('config-assembly', () => {
       );
     });
 
+    it('should exit if --network-isolation is combined with --enable-host-access', () => {
+      mockBuildConfigOnce({ networkIsolation: true, enableHostAccess: true });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is not yet supported with --enable-host-access'),
+      );
+    });
+
     it('should exit if --topology-attach is used without --network-isolation', () => {
       mockBuildConfigOnce({ topologyAttach: ['mcp-gateway'] });
 

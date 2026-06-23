@@ -57,6 +57,16 @@ describe('topology', () => {
       exitSpy.mockRestore();
     });
 
+    it('exits when the Docker daemon probe throws', async () => {
+      mockedExeca.mockRejectedValueOnce(new Error('spawn docker ENOENT'));
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+      await assertTopologySupported();
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      exitSpy.mockRestore();
+    });
+
     it('exits when an ARC kubernetes-native runner is detected', async () => {
       process.env.ACTIONS_RUNNER_CONTAINER_HOOKS = '/hooks/index.js';
       mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
@@ -72,9 +82,11 @@ describe('topology', () => {
   describe('connectTopologyContainers', () => {
     it('connects each container to the network', async () => {
       mockedExeca.mockResolvedValue({ exitCode: 0, stderr: '' } as any);
+      const log = { info: jest.fn(), warn: jest.fn() };
 
-      await connectTopologyContainers(TOPOLOGY_NETWORK_NAME, ['mcp-gateway', 'difc-proxy']);
+      await connectTopologyContainers(TOPOLOGY_NETWORK_NAME, ['mcp-gateway', 'difc-proxy'], log);
 
+      expect(log.info).toHaveBeenCalled();
       expect(mockedExeca).toHaveBeenCalledTimes(2);
       expect(mockedExeca).toHaveBeenNthCalledWith(
         1,
@@ -110,6 +122,14 @@ describe('topology', () => {
       await expect(
         connectTopologyContainers(TOPOLOGY_NETWORK_NAME, ['ghost']),
       ).rejects.toThrow(/No such container: ghost/);
+    });
+
+    it('throws with the exit code when stderr is empty', async () => {
+      mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+
+      await expect(
+        connectTopologyContainers(TOPOLOGY_NETWORK_NAME, ['ghost']),
+      ).rejects.toThrow(/exited with code 1/);
     });
   });
 });
