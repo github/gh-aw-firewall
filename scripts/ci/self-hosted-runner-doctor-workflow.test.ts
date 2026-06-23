@@ -18,7 +18,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('shared/self-hosted-failure-modes.md');
     expect(source).toContain('title-prefix: "🩺 Runner Doctor"');
     expect(shared).toContain('## Category A — ARC / DinD');
-    expect(shared).toContain('| A10 | `Docker socket not found at /var/run/docker.sock` with `Invalid container ID format` | A10 |');
+    expect(shared).toContain('| A10 | `Docker socket not found` plus `Invalid container ID format: arc-...` |');
   });
 
   it('compiles the trigger, safe outputs, and knowledge-base references into the lock workflow', () => {
@@ -28,6 +28,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(lock).toContain('issues: read');
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('🩺 Runner Doctor');
-    expect(lock).toContain('Bind-mounted `/tmp/...` files are missing inside DinD containers');
+    expect(lock).toContain('shared/self-hosted-failure-modes.md');
+    expect(lock).toContain('github/gh-aw-actions/setup@3c7f3b6f423dd721e2f115b7c8fda65287e1f137');
   });
 });
