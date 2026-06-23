@@ -37,11 +37,11 @@ describe('security guard workflow optimization config', () => {
 
     expect(lock).toContain('"agent_model":"claude-haiku-4-5"');
     expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
-    expect(lock).toContain(`COPILOT_DUMMY_BYOK: ${COPILOT_PLACEHOLDER_TOKEN}`);
-    expect(lock).not.toContain('COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode');
+    expect(lock).toContain('COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode');
+    expect(lock).not.toContain(`COPILOT_DUMMY_BYOK: ${COPILOT_PLACEHOLDER_TOKEN}`);
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
-    expect(lock).toContain('github/gh-aw-actions/setup@c20f9e750acfb2da7ce8698626ebeb65efb33300 # v0.80.6');
-    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.79.2');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.3.0');
+    expect(lock).toContain('github/gh-aw-actions/setup@3c7f3b6f423dd721e2f115b7c8fda65287e1f137 # v0.81.0');
+    expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.4.0');
   });
 });
