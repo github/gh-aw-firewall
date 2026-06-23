@@ -273,11 +273,12 @@ function createUpstreamResponseHandlers({
       });
       proxyRes.on('end', () => {
         const responseBody = Buffer.concat(bufferedChunks);
-        handle400WithRetry(proxyRes, requestHeaders, responseBody, {
+        const didRetry = handle400WithRetry(proxyRes, requestHeaders, responseBody, {
           provider, requestId, hasRetried, onRetry,
           modelNotSupportedRetryCount, onModelNotSupportedRetry,
           completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
         });
+        if (didRetry) return;
       });
       return;
     }
