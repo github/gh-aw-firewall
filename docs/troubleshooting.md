@@ -49,6 +49,104 @@
    docker network rm awf-net
    ```
 
+## Self-Hosted Runner Issues
+
+### ARC / DinD Split Filesystem
+
+**Problem:** Bind-mounted files exist on the runner, but AWF containers report `ENOENT` for `/tmp/...` or other mounted paths.
+
+**Cause:** The Docker daemon is running in a DinD sidecar or other split-filesystem setup, so bind mounts resolve against the daemon filesystem instead of the runner filesystem.
+
+**Solution:**
+1. Check whether `DOCKER_HOST` points to a non-default socket or `tcp://` endpoint:
+   ```bash
+   echo "$DOCKER_HOST"
+   ```
+2. Verify the split with a sentinel probe:
+   ```bash
+   SENTINEL="/tmp/awf-split-fs-test"
+   echo ok > "$SENTINEL"
+   docker run --rm -v /tmp:/tmp alpine sh -lc "ls -l $SENTINEL"
+   ```
+   If the file is missing in the container, the daemon cannot see the runner filesystem directly.
+3. Set a daemon-visible prefix such as:
+   ```bash
+   awf --docker-host-path-prefix /tmp/gh-aw ...
+   ```
+4. For stdin JSON/YAML config, use:
+   ```json
+   {
+     "container": {
+       "dockerHostPathPrefix": "/tmp/gh-aw"
+     }
+   }
+   ```
+5. See [ARC + DinD Configuration](arc-dind.md) for staging options like `chroot.binariesSourcePath` and `dind.stageEngineBinary`.
+
+### Non-Standard Runner Home
+
+**Problem:** Paths under `/home/runner` are wrong on a self-hosted runner, or tools installed under the real `$HOME` are not found.
+
+**Solution:**
+1. Confirm the actual runner home:
+   ```bash
+   echo "$HOME"
+   ```
+2. If you are passing stdin config, set the real home via `chroot.identity.home`.
+3. If the missing tool lives in a runner-managed toolcache, also check whether it was installed under `$HOME/work/_tool` rather than `/opt/hostedtoolcache`.
+4. For DinD chroot setups, review [Chroot Mode](chroot-mode.md) and [ARC + DinD Configuration](arc-dind.md) to ensure the runner home and runner-installed binaries are visible inside the chroot.
+
+### IPv6-Disabled Docker and Squid Startup Failures
+
+**Problem:** Squid exits with `FATAL: http_port: IPv6 is not available` or `Bungled squid.conf ... [::]:3128`.
+
+**Solution:**
+1. Check Docker's IPv6 state:
+   ```bash
+   docker info | grep -i ipv6
+   ```
+2. If the container is still available, inspect the kernel switch inside it:
+   ```bash
+   docker exec awf-squid cat /proc/sys/net/ipv6/conf/all/disable_ipv6
+   ```
+3. Enable Docker IPv6 on the host or upgrade to a version of AWF that omits the IPv6 listener automatically when IPv6 is disabled.
+
+### Corporate Upstream Proxy
+
+**Problem:** All outbound traffic fails on a self-hosted runner that must reach the internet through a corporate HTTP proxy.
+
+**Solution:**
+1. Check whether the host already exports proxy variables:
+   ```bash
+   env | grep -i proxy
+   ```
+2. AWF automatically reads host `https_proxy` / `http_proxy` values and configures Squid `cache_peer` chaining. If auto-detection is ambiguous, set `--upstream-proxy` explicitly.
+3. Verify that the generated Squid config includes the upstream proxy:
+   ```bash
+   docker exec awf-squid grep cache_peer /etc/squid/squid.conf
+   ```
+4. See [Environment Variables](environment.md#upstream-corporate-proxy-support) for the full upstream-proxy configuration model.
+
+### GHES / GHEC / Data Residency Routing
+
+**Problem:** Copilot auth or `gh` CLI commands fail on enterprise hosts with symptoms such as:
+- `none of the git remotes correspond to the GH_HOST environment variable`
+- `400 bad request: Authorization header is badly formatted`
+- `invalid API key` during `*.ghe.com` token exchange
+
+**Solution:**
+1. Verify the GitHub host context:
+   ```bash
+   echo "$GITHUB_SERVER_URL"
+   echo "$GH_HOST"
+   ```
+2. Ensure AWF is recent enough for your platform, especially for GHES auth-header fixes.
+3. If your enterprise setup needs a manual override, set:
+   ```bash
+   awf --copilot-api-target <enterprise-copilot-endpoint> ...
+   ```
+4. Review [GitHub Enterprise Configuration](enterprise-configuration.md) for the expected endpoint derivation and allowlist behavior.
+
 ## Permission Issues
 
 ### iptables Permission Denied
