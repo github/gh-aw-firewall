@@ -142,6 +142,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
     networkIsolation: options.networkIsolation as boolean,
+    topologyAttach: options.topologyAttach as string[] | undefined,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,
     allowHostServicePorts: options.allowHostServicePorts as string | undefined,

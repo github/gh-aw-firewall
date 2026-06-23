@@ -29,6 +29,14 @@ export function collectRulesetFile(value: string, previous: string[] = []): stri
 }
 
 /**
+ * Commander option accumulator for repeatable string flags.
+ * Collects multiple values into an array (e.g. --topology-attach).
+ */
+export function collectStringArray(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
+}
+
+/**
  * Validates that --skip-pull is not used with --build-local
  * @param skipPull - Whether --skip-pull flag was provided
  * @param buildLocal - Whether --build-local flag was provided

@@ -105,6 +105,22 @@ export interface NetworkOptions {
   networkIsolation?: boolean;
 
   /**
+   * Externally-launched trusted containers to attach to the internal topology
+   * network when `networkIsolation` is enabled.
+   *
+   * Each entry is a Docker container name (or id). After the AWF containers
+   * start, AWF runs `docker network connect awf-net <name>` for each, so the
+   * agent can reach these trusted services (e.g. an mcp-gateway or DIFC proxy
+   * launched by the surrounding workflow) over the internal network without
+   * granting them their own egress path.
+   *
+   * Only meaningful together with `networkIsolation`.
+   *
+   * @default undefined
+   */
+  topologyAttach?: string[];
+
+  /**
    * Whether the localhost keyword was detected in --allow-domains.
    *
    * When true, localhost inside the container resolves to the host machine's

@@ -206,34 +206,35 @@ error: --network-isolation requires a reachable Docker daemon, but none was foun
 
 ### 8.1 AWF (this repo)
 
-- **`src/commands/validators/config-assembly.ts`** — today `--network-isolation` hard-rejects
-  `--enable-host-access` and `--dns-over-https` (lines 127-139). Add a supported path so that,
-  under topology, `--enable-api-proxy` and `--difc-proxy-host` are accepted (the agent reaches
-  these via `awf-net`, not host-access). Keep rejecting genuine host-iptables features.
-- **`src/cli-workflow.ts`** — in the `config.networkIsolation` branch (lines 54-55) the host
-  iptables/`cliProxyConfig`/`hostAccess` setup is skipped. Add the **late network-attach**
-  step here (or in `container-lifecycle`): after `startContainers`, if a DIFC/gateway external
-  container name is provided, run `docker network connect <awf-net> <container>`.
-- **`src/services/cli-proxy-service.ts`** (`AWF_DIFC_PROXY_HOST`/`AWF_DIFC_PROXY_PORT`,
+> **Implementation status (PR #5237):** items marked ✅ are implemented on
+> `fix/gvisor-workflow-healthchecks`. Item ⏳ (cli-proxy DIFC retargeting) is deferred
+> because it is entangled with the gh-aw §8.2 handshake decisions.
+
+- ✅ **`src/commands/validators/config-assembly.ts`** — `--network-isolation` still rejects
+  `--dns-over-https` and `--enable-host-access` (genuine host-iptables features), but
+  `--enable-api-proxy` and `--difc-proxy-host` are accepted (never rejected). Added a guard
+  so `--topology-attach` requires `--network-isolation`.
+- ✅ **`src/cli-workflow.ts`** — added the **late network-attach** step: after
+  `startContainers` succeeds, when `config.topologyAttach` is non-empty it calls
+  `connectTopologyContainers('awf-net', names)` (`docker network connect awf-net <container>`,
+  idempotent). Also calls the fail-stop preflight at the start of the topology branch.
+- ⏳ **`src/services/cli-proxy-service.ts`** (`AWF_DIFC_PROXY_HOST`/`AWF_DIFC_PROXY_PORT`,
   lines 67-69) — under topology, set the tunnel target to the DIFC container's **`awf-net`
-  address** (internal IP or container name) instead of `host.docker.internal`. No change to
-  `tcp-tunnel.js` logic is required once the target resolves on `awf-net`.
-- **`src/compose-generator.ts`** — topology block (lines 214-240) already builds the internal
-  + external networks. Extend so externally-launched trusted containers (gateway, DIFC) can be
-  registered/attached, and ensure the api-proxy/cli-proxy sidecars are placed correctly under
-  topology (they already build as services; confirm they land on `awf-net`).
-- **New CLI surface** — a way to pass the gateway/DIFC container names (or a "topology
-  attach list") so AWF can `network connect` them, e.g. `--topology-attach <name>` (repeatable)
-  or reuse the existing DIFC/api-proxy config to carry the container reference.
-- **Tests** — extend `src/compose-generator.test.ts` (already covers `AWF_NETWORK_ISOLATION=1`)
-  and `src/commands/validators/config-assembly.test.ts` for the newly-accepted combinations;
-  add a unit test asserting AWF emits the `network connect` for a registered DIFC container.
-- **Fail-stop preflight (§7.1)** — add an early daemon-reachability check gated on
-  `config.networkIsolation` that probes the effective `DOCKER_HOST` and aborts with a clear
-  platform-unsupported message when no daemon is reachable, specializing the message for the
-  ARC k8s-native fingerprint (`ACTIONS_RUNNER_CONTAINER_HOOKS` / `ACTIONS_RUNNER_POD_NAME`).
-  Reuse `isLikelyDindEnvironment` (`dind-bootstrap.ts:21`) and the `DOCKER_HOST` classification
-  in `option-parsers.ts`. Cover with a unit test that stubs the daemon probe + ARC env.
+  address** (internal IP or container name) instead of `host.docker.internal`. **Deferred** —
+  depends on the gh-aw §8.2 handshake (which carries the internal DIFC address).
+- ✅ **`src/compose-generator.ts`** — topology block builds the internal + external networks
+  and now pins the internal network to a deterministic name (`name: 'awf-net'`, via
+  `TOPOLOGY_NETWORK_NAME`) so the late `docker network connect` target is stable.
+- ✅ **New CLI surface** — `--topology-attach <name>` (repeatable, collected into a string[])
+  passes the gateway/DIFC container names so AWF can `network connect` them.
+- ✅ **Tests** — `src/topology.test.ts` (preflight + connect, incl. idempotent + failure cases),
+  `src/cli-workflow.test.ts` (preflight ordering + attach gating), `src/compose-generator.test.ts`
+  (`name: 'awf-net'`), and `config-assembly-flags.test.ts` (topology-attach validation).
+- ✅ **Fail-stop preflight (§7.1)** — `src/topology.ts` `assertTopologySupported()` probes the
+  effective `DOCKER_HOST` via `docker info` and aborts (exit 1) with a clear platform-unsupported
+  message when no daemon is reachable, specializing for the ARC k8s-native fingerprint
+  (`ACTIONS_RUNNER_CONTAINER_HOOKS` / `ACTIONS_RUNNER_POD_NAME`). Wired in `cli-workflow.ts` and
+  injected from `main-action.ts`.
 
 ### 8.2 gh-aw (compiler / harness — separate repo)
 

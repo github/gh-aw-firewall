@@ -136,6 +136,10 @@ function validateFeatureFlagCompatibility(config: WrapperConfig): void {
       process.exit(1);
     }
     logger.warn('⚠️  --network-isolation is experimental: egress is enforced via Docker network topology instead of iptables.');
+  } else if (config.topologyAttach && config.topologyAttach.length > 0) {
+    logger.error('❌ --topology-attach requires --network-isolation.');
+    logger.error('   Trusted containers can only be attached to the internal topology network in network-isolation mode.');
+    process.exit(1);
   }
 }
 

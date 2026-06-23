@@ -24,6 +24,7 @@ import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
+import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 
 /**
@@ -190,6 +191,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         startContainers,
         runAgentCommand,
         collectDiagnosticLogs,
+        assertTopologySupported,
+        connectTopologyContainers,
       },
       {
         logger,

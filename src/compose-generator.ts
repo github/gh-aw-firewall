@@ -11,6 +11,7 @@ import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptab
 import { buildApiProxyService } from './services/api-proxy-service';
 import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
+import { TOPOLOGY_NETWORK_NAME } from './topology';
 
 /**
  * Generates Docker Compose configuration
@@ -231,6 +232,7 @@ export function generateDockerCompose(
       services,
       networks: {
         'awf-net': {
+          name: TOPOLOGY_NETWORK_NAME,
           internal: true,
           ipam: {
             config: [{ subnet: networkConfig.subnet }],

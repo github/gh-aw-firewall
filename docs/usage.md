@@ -78,6 +78,10 @@ Options:
                                proxy) instead of host iptables. Requires no sudo / NET_ADMIN, so it
                                works inside ARC / Kubernetes DinD runners. Not yet supported with
                                --dns-over-https or --enable-host-access. (default: false)
+  --topology-attach <name>     With --network-isolation, attach an externally-launched trusted
+                               container (by name) to the internal network so the agent can reach
+                               it without giving it an egress path. Repeatable. Example:
+                               --topology-attach mcp-gateway --topology-attach difc-proxy
   --allow-host-ports <ports>   Comma-separated list of ports or port ranges to allow when using
                                 --enable-host-access. By default, only ports 80 and 443 are allowed.
                                 Example: --allow-host-ports 3000 or --allow-host-ports 3000,8080 or

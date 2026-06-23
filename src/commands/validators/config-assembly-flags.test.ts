@@ -28,6 +28,52 @@ describe('config-assembly', () => {
     });
   });
 
+  describe('network-isolation validation', () => {
+    it('should warn that network-isolation is experimental', () => {
+      mockBuildConfigOnce({ networkIsolation: true });
+
+      callAssembleWith();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is experimental'),
+      );
+    });
+
+    it('should exit if --network-isolation is combined with --dns-over-https', () => {
+      mockBuildConfigOnce({ networkIsolation: true, dnsOverHttps: true });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--network-isolation is not yet supported with --dns-over-https'),
+      );
+    });
+
+    it('should exit if --topology-attach is used without --network-isolation', () => {
+      mockBuildConfigOnce({ topologyAttach: ['mcp-gateway'] });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--topology-attach requires --network-isolation'),
+      );
+    });
+
+    it('should accept --topology-attach together with --network-isolation', () => {
+      mockBuildConfigOnce({ networkIsolation: true, topologyAttach: ['mcp-gateway'] });
+
+      expect(() => {
+        callAssembleWith();
+      }).not.toThrow();
+
+      expect(getMockExit()).not.toHaveBeenCalled();
+    });
+  });
+
   describe('environment variable warnings', () => {
     it('should warn when --env-all is used', () => {
       mockBuildConfigOnce({

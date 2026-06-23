@@ -165,6 +165,90 @@ describe('runMainWorkflow', () => {
     expect(exitCode).toBe(0);
   });
 
+  it('runs the topology preflight before containers in network-isolation mode', async () => {
+    const callOrder: string[] = [];
+    const assertTopologySupported = jest.fn().mockImplementation(async () => {
+      callOrder.push('assertTopologySupported');
+    });
+    const dependencies = createWorkflowDependencies({
+      assertTopologySupported,
+      writeConfigs: jest.fn().mockImplementation(async () => {
+        callOrder.push('writeConfigs');
+      }),
+      startContainers: jest.fn().mockImplementation(async () => {
+        callOrder.push('startContainers');
+      }),
+    });
+
+    const exitCode = await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true },
+      dependencies,
+      createWorkflowOptions(),
+    );
+
+    expect(assertTopologySupported).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['assertTopologySupported', 'writeConfigs', 'startContainers']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not run the topology preflight when network-isolation is off', async () => {
+    const assertTopologySupported = jest.fn().mockResolvedValue(undefined);
+    const { exitCode } = await runWorkflowWithDefaults(baseConfig, { assertTopologySupported });
+
+    expect(assertTopologySupported).not.toHaveBeenCalled();
+    expect(exitCode).toBe(0);
+  });
+
+  it('connects topology-attach containers after startup in network-isolation mode', async () => {
+    const callOrder: string[] = [];
+    const connectTopologyContainers = jest.fn().mockImplementation(async () => {
+      callOrder.push('connectTopologyContainers');
+    });
+    const dependencies = createWorkflowDependencies({
+      connectTopologyContainers,
+      startContainers: jest.fn().mockImplementation(async () => {
+        callOrder.push('startContainers');
+      }),
+      runAgentCommand: jest.fn().mockImplementation(async () => {
+        callOrder.push('runAgentCommand');
+        return { exitCode: 0 };
+      }),
+    });
+
+    const exitCode = await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true, topologyAttach: ['mcp-gateway', 'difc-proxy'] },
+      dependencies,
+      createWorkflowOptions(),
+    );
+
+    expect(connectTopologyContainers).toHaveBeenCalledWith('awf-net', ['mcp-gateway', 'difc-proxy']);
+    expect(callOrder).toEqual(['startContainers', 'connectTopologyContainers', 'runAgentCommand']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not connect topology containers when topologyAttach is empty', async () => {
+    const connectTopologyContainers = jest.fn().mockResolvedValue(undefined);
+    const exitCode = await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true, topologyAttach: [] },
+      createWorkflowDependencies({ connectTopologyContainers }),
+      createWorkflowOptions(),
+    );
+
+    expect(connectTopologyContainers).not.toHaveBeenCalled();
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not connect topology containers when network-isolation is off', async () => {
+    const connectTopologyContainers = jest.fn().mockResolvedValue(undefined);
+    const { exitCode } = await runWorkflowWithDefaults(
+      { ...baseConfig, topologyAttach: ['mcp-gateway'] },
+      { connectTopologyContainers },
+    );
+
+    expect(connectTopologyContainers).not.toHaveBeenCalled();
+    expect(exitCode).toBe(0);
+  });
+
   it('passes agentTimeout to runAgentCommand', async () => {
     const configWithTimeout: WrapperConfig = {
       ...baseConfig,

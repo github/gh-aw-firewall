@@ -3,6 +3,7 @@ import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
 import { CLI_PROXY_IP, DOH_PROXY_IP } from './host-iptables-shared';
+import { TOPOLOGY_NETWORK_NAME } from './topology';
 
 interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
@@ -16,6 +17,16 @@ interface WorkflowDependencies {
     agentTimeoutMinutes?: number
   ) => Promise<{ exitCode: number }>;
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
+  /**
+   * Fail-stop preflight for network-isolation mode. Aborts (process exit) when
+   * topology enforcement cannot be supported on the current platform.
+   */
+  assertTopologySupported?: () => Promise<void>;
+  /**
+   * Connects externally-launched trusted containers to the internal topology
+   * network after the AWF containers have started.
+   */
+  connectTopologyContainers?: (networkName: string, containerNames: string[]) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -52,6 +63,12 @@ export async function runMainWorkflow(
   // no pre-created external network are needed — docker-compose creates the
   // internal and external networks itself — so this step is skipped entirely.
   if (config.networkIsolation) {
+    // Topology enforcement runs entirely through the Docker daemon's networking,
+    // so a reachable daemon is mandatory. Abort early with a clear message on
+    // unsupported platforms (e.g. ARC Kubernetes-native without DinD).
+    if (dependencies.assertTopologySupported) {
+      await dependencies.assertTopologySupported();
+    }
     logger.info('Network-isolation mode: enforcing egress via Docker network topology (no host iptables, no sudo).');
   } else {
     logger.info('Setting up host-level firewall network and iptables rules...');
@@ -101,6 +118,19 @@ export async function runMainWorkflow(
     throw startError;
   }
   onContainersStarted?.();
+
+  // Step 2.5: Attach externally-launched trusted containers (e.g. mcp-gateway,
+  // DIFC proxy) to the internal topology network so the agent can reach them
+  // without an egress path of their own.
+  if (
+    config.networkIsolation &&
+    config.topologyAttach &&
+    config.topologyAttach.length > 0 &&
+    dependencies.connectTopologyContainers
+  ) {
+    logger.info(`Attaching ${config.topologyAttach.length} trusted container(s) to the internal network...`);
+    await dependencies.connectTopologyContainers(TOPOLOGY_NETWORK_NAME, config.topologyAttach);
+  }
 
   // Step 3: Wait for agent to complete
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);

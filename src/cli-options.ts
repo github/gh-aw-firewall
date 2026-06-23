@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
-import { collectRulesetFile, formatItem } from './option-parsers';
+import { collectRulesetFile, collectStringArray, formatItem } from './option-parsers';
 
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
@@ -239,6 +239,14 @@ program
     '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
     '                                       Not yet supported with --dns-over-https or --enable-host-access.',
     false
+  )
+  .option(
+    '--topology-attach <name>',
+    'With --network-isolation, attach an externally-launched trusted container\n' +
+    '                                       (by name) to the internal network so the agent can reach it.\n' +
+    '                                       Repeatable. Example: --topology-attach mcp-gateway --topology-attach difc-proxy',
+    collectStringArray,
+    []
   )
   .option(
     '--allow-host-ports <ports>',
