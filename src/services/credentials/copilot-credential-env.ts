@@ -8,7 +8,7 @@ interface CopilotCredentialEnvParams {
   proxyIp: string;
 }
 
-// Match GPT-5 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
+// Match GPT-5 and o3 family model IDs with optional provider prefixes (e.g. "openai/gpt-5",
 // "copilot/o3-mini"). Prefix is intentionally broad because model providers/prefixes
 // are runtime-configurable and not limited to a fixed allowlist.
 const RESPONSES_WIRE_API_MODEL_PATTERN = /(^|[/:])(gpt-5|o3)([-_.]|$)/i;
