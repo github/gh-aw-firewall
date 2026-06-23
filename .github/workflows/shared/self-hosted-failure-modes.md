@@ -35,7 +35,7 @@ Establish these facts before matching a failure mode:
 |---|---|---|---|---|---|
 | B1 | `/home/runner/...` paths are wrong on a custom runner home | The runner uses a non-standard `HOME` | Use the real `HOME`; when configuring stdin, set `chroot.identity.home` | `echo "$HOME"` and inspect mounted home paths | #2109, #2290 |
 | B2 | All outbound traffic fails behind a mandatory corporate proxy | AWF must chain Squid through the upstream proxy | Set `https_proxy` / `http_proxy` on the host or use `--upstream-proxy` | `env | grep -i proxy`; inspect Squid config for `cache_peer` | #1975 |
-| B3 | Squid exits with `FATAL: http_port: IPv6 is not available` | Docker IPv6 is disabled but Squid tries to bind an IPv6 listener | Enable Docker IPv6 or upgrade to a build that emits the listener conditionally | `docker info | grep -i ipv6`; inspect `/proc/sys/net/ipv6/conf/all/disable_ipv6` | #2139 |
+|| B3 | Squid exits with `FATAL: http_port: IPv6 is not available` | Docker IPv6 is disabled but Squid tries to bind an IPv6 listener | Enable Docker/kernel IPv6 (required with current AWF builds), or use a custom AWF build that removes the `[::]` listener | `docker info | grep -i ipv6`; inspect `/proc/sys/net/ipv6/conf/all/disable_ipv6` | #2139 |
 | B4 | `node: command not found` after `actions/setup-node` on self-hosted | Node was installed in `$HOME/work/_tool` and that toolcache is not visible | Mount / expose the runner toolcache; use `AWF_EXTRA_TOOLCACHE_DIRS` if needed | `which node`; inspect `$HOME/work/_tool/node` | #3544, #3545 |
 
 ## Category C — GHES / GHEC / `ghe.com`
