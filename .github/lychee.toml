@@ -20,6 +20,9 @@ exclude = [
   "^https://docs\\.github\\.com/en/github/site-policy/github-bug-bounty",
   "^https://www\\.sei\\.cmu\\.edu/",
   "^https://platform\\.openai\\.com/docs/api-reference/authentication$",
+  # opentelemetry.io intermittently drops connections from CI runners
+  # (returns 200 interactively but "error sending request" in Actions)
+  "^https://opentelemetry\\.io/docs/specs/otel/",
   # LOGGING.md is referenced but doesn't exist yet (planned doc)
   "LOGGING\\.md",
 ]
