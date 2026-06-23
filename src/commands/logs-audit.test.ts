@@ -233,11 +233,22 @@ describe('logs-audit command', () => {
       return entries;
     }
 
-    async function runAuditFilter(options: Omit<AuditCommandOptions, 'format'>): Promise<any[]> {
+    type AuditJsonEntry = {
+      timestamp: number;
+      domain: string;
+      method: string;
+      status: number;
+      decision: 'allowed' | 'denied';
+      matchedRule: string | undefined;
+      matchReason: string | undefined;
+      url: string;
+    };
+
+    async function runAuditFilter(options: Omit<AuditCommandOptions, 'format'>): Promise<AuditJsonEntry[]> {
       setupMocksWithMultipleEntries();
       await auditCommand({ format: 'json', ...options });
       const output = mockConsoleLog.mock.calls[0][0] as string;
-      return JSON.parse(output);
+      return JSON.parse(output) as AuditJsonEntry[];
     }
 
     it('should filter by rule ID', async () => {
@@ -254,13 +265,13 @@ describe('logs-audit command', () => {
 
     it('should filter by decision=allowed', async () => {
       const parsed = await runAuditFilter({ decision: 'allowed' });
-      expect(parsed.every((e: any) => e.decision === 'allowed')).toBe(true);
+      expect(parsed.every(e => e.decision === 'allowed')).toBe(true);
       expect(parsed).toHaveLength(2);
     });
 
     it('should filter by decision=denied', async () => {
       const parsed = await runAuditFilter({ decision: 'denied' });
-      expect(parsed.every((e: any) => e.decision === 'denied')).toBe(true);
+      expect(parsed.every(e => e.decision === 'denied')).toBe(true);
       expect(parsed).toHaveLength(1);
     });
 
