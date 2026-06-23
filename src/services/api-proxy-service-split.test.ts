@@ -3,6 +3,8 @@ import { parseImageTag } from '../image-tag';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import { buildApiProxyServiceConfig } from './api-proxy-service-config';
+import { buildApiProxyBaseEnv, buildProviderTargetEnv } from './api-proxy-env-config';
+import { buildApiProxyLifecycleConfig } from './api-proxy-lifecycle-config';
 import { buildAgentCredentialEnv } from './api-proxy-credential-env';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -40,6 +42,40 @@ describe('API proxy split builders', () => {
     expect(service.environment.OPENAI_API_KEY).toBe('sk-test-openai-key');
     expect(service.environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
     expect(service.image).toBe('ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+  });
+
+  it('buildApiProxyBaseEnv builds proxy routing and key env', () => {
+    const env = buildApiProxyBaseEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      openaiApiKey: 'sk-test-openai-key',
+      copilotApiTarget: 'https://api.githubcopilot.com',
+    }, networkConfig);
+
+    expect(env.OPENAI_API_KEY).toBe('sk-test-openai-key');
+    expect(env.HTTP_PROXY).toBe('http://172.30.0.10:3128');
+    expect(env.COPILOT_API_TARGET).toBe('api.githubcopilot.com');
+  });
+
+  it('buildApiProxyLifecycleConfig builds network and healthcheck', () => {
+    const lifecycle = buildApiProxyLifecycleConfig(networkConfig);
+    expect(lifecycle.networks['awf-net'].ipv4_address).toBe('172.30.0.30');
+    expect(lifecycle.healthcheck.test).toEqual(['CMD', 'curl', '-f', 'http://localhost:10000/health']);
+  });
+
+  it('buildApiProxyLifecycleConfig throws when proxyIp is missing', () => {
+    expect(() => buildApiProxyLifecycleConfig({ ...networkConfig, proxyIp: undefined }))
+      .toThrow('buildApiProxyLifecycleConfig: networkConfig.proxyIp is required');
+  });
+
+  it('buildProviderTargetEnv trims explicit provider session id', () => {
+    const env = buildProviderTargetEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      copilotByokSessionId: ' session-123 ',
+    });
+
+    expect(env.AWF_PROVIDER_SESSION_ID).toBe('session-123');
   });
 
   it('buildAgentCredentialEnv builds isolated agent credentials', () => {
