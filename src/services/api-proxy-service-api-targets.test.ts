@@ -409,8 +409,8 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         }
       }
 
-      function expectGeminiCredentialIsolation(configOverrides: Partial<WrapperConfig>): void {
-        const configWithProxy = { ...mockConfig, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key', ...configOverrides };
+function expectGeminiCredentialIsolation(configOverrides: Omit<Partial<WrapperConfig>, 'enableApiProxy' | 'geminiApiKey'>): void {
+  const configWithProxy = { ...mockConfig, ...configOverrides, enableApiProxy: true, geminiApiKey: 'AIza-secret-gemini-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const env = result.services.agent.environment as Record<string, string>;
         expect(env.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
