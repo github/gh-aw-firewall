@@ -121,7 +121,7 @@ function createUpstreamResponseHandlers({
    * @param {Buffer} responseBody
    * @param {{ provider: string, requestId: string, hasRetried: boolean,
    *           onRetry: Function, modelNotSupportedRetryCount: number,
-   *           onModelNotSupportedRetry: Function, completionCtx: object,
+   *           onModelNotSupportedRetry: Function|undefined, completionCtx: object,
    *           authErrCtx: object, initiatorSent: string|null,
    *           billingInfo: object|null, res: object, span: object }} opts
    * @returns {boolean}
