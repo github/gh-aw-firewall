@@ -4,6 +4,7 @@ import {
   createMinimalAgentOptions,
   createMinimalLogAndLimits,
   createMinimalNetworkOptions,
+  expectConfigAssemblyValidationExit,
   logger,
   mockBuildConfigOnce,
   setupConfigAssemblyTestSuite,
@@ -15,23 +16,9 @@ describe('config-assembly', () => {
 
   describe('host service ports validation', () => {
     it('should exit if service ports validation fails', () => {
-      (applyHostServicePortsConfig as jest.Mock).mockReturnValueOnce({
-        valid: false,
-        error: 'Invalid port format',
-      });
-
-      expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
-      }).toThrow('process.exit(1)');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid port format'),
+      expectConfigAssemblyValidationExit(
+        applyHostServicePortsConfig as jest.Mock,
+        'Invalid port format',
       );
     });
 
@@ -55,23 +42,9 @@ describe('config-assembly', () => {
 
   describe('host ports validation', () => {
     it('should exit if --allow-host-ports is used without --enable-host-access', () => {
-      (validateAllowHostPorts as jest.Mock).mockReturnValueOnce({
-        valid: false,
-        error: '--allow-host-ports requires --enable-host-access',
-      });
-
-      expect(() => {
-        assembleAndValidateConfig(
-          {},
-          'echo test',
-          createMinimalLogAndLimits(),
-          createMinimalNetworkOptions(),
-          createMinimalAgentOptions(),
-        );
-      }).toThrow('process.exit(1)');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--allow-host-ports requires --enable-host-access'),
+      expectConfigAssemblyValidationExit(
+        validateAllowHostPorts as jest.Mock,
+        '--allow-host-ports requires --enable-host-access',
       );
     });
   });

@@ -126,6 +126,22 @@ export const callAssembleWith = (options: Record<string, unknown> = {}) =>
     createMinimalAgentOptions(),
   );
 
+export const expectConfigAssemblyValidationExit = (
+  validationMock: jest.Mock,
+  errorMessage: string,
+): void => {
+  validationMock.mockReturnValueOnce({
+    valid: false,
+    error: errorMessage,
+  });
+
+  expect(() => {
+    callAssembleWith();
+  }).toThrow('process.exit(1)');
+
+  expect(logger.error).toHaveBeenCalledWith(expect.stringContaining(errorMessage));
+};
+
 export const createBuildConfigResult = (
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> => ({
