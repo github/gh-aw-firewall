@@ -640,22 +640,28 @@ jobs:
 
           # ---- Dual-homed TRUSTED sidecars (gateway + DIFC) ------------------
           # Plain non-forwarding HTTP listeners: each answers any request on its
-          # service port with a fixed marker and never proxies. Started on the
-          # EXTERNAL net (free egress, like the real trusted services), then
-          # `network connect`-ed onto the internal net -- mirroring the proposed
-          # "bridge + late docker network connect" lifecycle.
+          # service port with a fixed marker and never proxies. The canned response
+          # is served from a mounted file via `cat` to avoid any shell-quoting of
+          # the HTTP/CRLF payload. Started on the EXTERNAL net (free egress, like
+          # the real trusted services), then `network connect`-ed onto the internal
+          # net -- mirroring the proposed "bridge + late docker network connect".
+          printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nMCPGOK' > assets/marker-gw.http
+          printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nDIFCOK' > assets/marker-difc.http
+
           docker run -d --name adv-cand-mcpg --network adv-ext \
+            -v "$PWD/assets:/assets:ro" \
             --entrypoint socat "$ADVERSARY_IMAGE" \
             TCP-LISTEN:8080,reuseaddr,fork \
-            "SYSTEM:printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nMCPGOK'"
+            SYSTEM:"cat /assets/marker-gw.http"
 
           # DIFC also PUBLISHES its port on the host loopback so the runner's own
           # pre-agent gh steps could reach it -- the dual-plane the design calls out.
           docker run -d --name adv-cand-difc --network adv-ext \
             -p 127.0.0.1:18443:18443 \
+            -v "$PWD/assets:/assets:ro" \
             --entrypoint socat "$ADVERSARY_IMAGE" \
             TCP-LISTEN:18443,reuseaddr,fork \
-            "SYSTEM:printf 'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 6\r\n\r\nDIFCOK'"
+            SYSTEM:"cat /assets/marker-difc.http"
 
           docker network connect --ip 172.32.0.30 adv-int adv-cand-mcpg
           docker network connect --ip 172.32.0.40 adv-int adv-cand-difc
