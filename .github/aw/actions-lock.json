@@ -1,19 +1,19 @@
 {
   "entries": {
-    "actions/cache/restore@v5.0.5": {
+    "actions/cache/restore@v6.0.0": {
       "repo": "actions/cache/restore",
-      "version": "v5.0.5",
-      "sha": "27d5ce7f107fe9357f9df03efb73ab90386fccae"
+      "version": "v6.0.0",
+      "sha": "2c8a9bd7457de244a408f35966fab2fb45fda9c8"
     },
-    "actions/cache/save@v5.0.5": {
+    "actions/cache/save@v6.0.0": {
       "repo": "actions/cache/save",
-      "version": "v5.0.5",
-      "sha": "27d5ce7f107fe9357f9df03efb73ab90386fccae"
+      "version": "v6.0.0",
+      "sha": "2c8a9bd7457de244a408f35966fab2fb45fda9c8"
     },
-    "actions/cache@v5.0.5": {
+    "actions/cache@v6.0.0": {
       "repo": "actions/cache",
-      "version": "v5.0.5",
-      "sha": "27d5ce7f107fe9357f9df03efb73ab90386fccae"
+      "version": "v6.0.0",
+      "sha": "2c8a9bd7457de244a408f35966fab2fb45fda9c8"
     },
     "actions/checkout@v7.0.0": {
       "repo": "actions/checkout",
@@ -80,25 +80,25 @@
       "version": "v4.1.0",
       "sha": "d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5"
     },
-    "github/gh-aw-actions/setup-cli@v0.80.6": {
+    "github/gh-aw-actions/setup-cli@v0.81.0": {
       "repo": "github/gh-aw-actions/setup-cli",
-      "version": "v0.80.6",
-      "sha": "c20f9e750acfb2da7ce8698626ebeb65efb33300"
+      "version": "v0.81.0",
+      "sha": "3c7f3b6f423dd721e2f115b7c8fda65287e1f137"
     },
-    "github/gh-aw-actions/setup@v0.80.6": {
+    "github/gh-aw-actions/setup@v0.81.0": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.80.6",
-      "sha": "c20f9e750acfb2da7ce8698626ebeb65efb33300"
+      "version": "v0.81.0",
+      "sha": "3c7f3b6f423dd721e2f115b7c8fda65287e1f137"
     },
-    "github/gh-aw/actions/setup-cli@v0.80.6": {
+    "github/gh-aw/actions/setup-cli@v0.81.0": {
       "repo": "github/gh-aw/actions/setup-cli",
-      "version": "v0.80.6",
-      "sha": "2a5482df7835efce448542a7500dfcd506c516e2"
+      "version": "v0.81.0",
+      "sha": "165beb41c9264fcc8c76a1048d7935d0a3c325b0"
     },
-    "github/gh-aw/actions/setup@v0.80.6": {
+    "github/gh-aw/actions/setup@v0.81.0": {
       "repo": "github/gh-aw/actions/setup",
-      "version": "v0.80.6",
-      "sha": "2a5482df7835efce448542a7500dfcd506c516e2"
+      "version": "v0.81.0",
+      "sha": "165beb41c9264fcc8c76a1048d7935d0a3c325b0"
     },
     "softprops/action-gh-release@v3.0.1": {
       "repo": "softprops/action-gh-release",
