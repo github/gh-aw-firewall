@@ -27,6 +27,7 @@ COPY server.js logging.js metrics.js rate-limiter.js \
      ai-credits-pricing.js models-dev-catalog.js models.dev.catalog.json \
      oidc-refresh-utils.js body-transform.js body-utils.js rate-limit.js websocket-proxy.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
+     upstream-log.js upstream-retry.js upstream-token.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js \
      token-budget-log.js blocked-request-diagnostics.js \
      provider-env-constants.js provider-names.js ./

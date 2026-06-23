@@ -1,8 +1,8 @@
 'use strict';
 
-const { computeTokenBudgetUsage } = require('./token-budget-log');
-const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
-const { stripBearerPrefix } = require('./providers/copilot-auth');
+const { createLogRequestCompletion, createLogUpstreamAuthError, buildCopilotAuthErrorMessage } = require('./upstream-log');
+const { handle400WithRetry } = require('./upstream-retry');
+const { setupTokenTracking } = require('./upstream-token');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -25,29 +25,6 @@ function parseModelNotSupportedFromBody(body) {
   return MODEL_NOT_SUPPORTED_PATTERN.test(body.toString('utf8'));
 }
 
-function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
-  const baseMessage = `Upstream returned ${statusCode}`;
-  const byokBaseUrl = (env.COPILOT_PROVIDER_BASE_URL || '').trim();
-  const byokKey = stripBearerPrefix(env.COPILOT_PROVIDER_API_KEY);
-  const hasByokBaseUrl = Boolean(byokBaseUrl);
-
-  if (hasByokBaseUrl && byokKey === COPILOT_PLACEHOLDER_TOKEN) {
-    return `${baseMessage} — COPILOT_PROVIDER_API_KEY is the AWF placeholder sentinel. ` +
-      'This indicates an internal credential-isolation misconfiguration (real BYOK key not forwarded to api-proxy).';
-  }
-
-  if (hasByokBaseUrl && !byokKey) {
-    return `${baseMessage} — BYOK provider request to COPILOT_PROVIDER_BASE_URL failed because COPILOT_PROVIDER_API_KEY is not set.`;
-  }
-
-  if (hasByokBaseUrl) {
-    return `${baseMessage} — BYOK provider request to COPILOT_PROVIDER_BASE_URL failed. ` +
-      'Verify COPILOT_PROVIDER_BASE_URL and COPILOT_PROVIDER_API_KEY.';
-  }
-
-  return `${baseMessage} — check that the API key is valid and correctly formatted`;
-}
-
 function createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -61,176 +38,19 @@ function createUpstreamResponseHandlers({
   parseDeprecatedHeaderFromBody,
   learnAndStripDeprecatedHeaderValue,
 }) {
-  function logRequestCompletion(statusCode, responseBytes, initiatorSent, billingInfo, {
-    startTime, provider, req, requestBytes, targetHost, requestId,
-  }) {
-    const duration = Date.now() - startTime;
-    const sc = metrics.statusClass(statusCode);
-    metrics.gaugeDec('active_requests', { provider });
-    metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
-    metrics.increment('response_bytes_total', { provider }, responseBytes);
-    metrics.observe('request_duration_ms', duration, { provider });
-    if (statusCode >= 200 && statusCode < 300) {
-      applyMaxRunsInvocation();
-    }
-    const logFields = {
-      request_id: requestId, provider, method: req.method,
-      path: sanitizeForLog(req.url), status: statusCode,
-      duration_ms: duration, request_bytes: requestBytes,
-      response_bytes: responseBytes, upstream_host: targetHost,
-    };
-    if (initiatorSent) logFields.x_initiator = initiatorSent;
-    if (billingInfo) logFields.billing = billingInfo;
-    logRequest('info', 'request_complete', logFields);
-  }
+  const logRequestCompletion = createLogRequestCompletion({
+    metrics,
+    logRequest,
+    sanitizeForLog,
+    applyMaxRunsInvocation,
+  });
 
-  function logUpstreamAuthError(statusCode, { requestId, provider, targetHost, req, responseBody }) {
-    const authErrorMessage = provider === 'copilot'
-      ? buildCopilotAuthErrorMessage(statusCode)
-      : `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`;
-
-    if (statusCode === 401 || statusCode === 403) {
-      applyPermissionDenied();
-      logRequest('warn', 'upstream_auth_error', {
-        request_id: requestId, provider, status: statusCode,
-        upstream_host: targetHost, path: sanitizeForLog(req.url),
-        message: authErrorMessage,
-      });
-    } else if (statusCode === 400) {
-      // Suppress generic auth-error message when the 400 is a model-not-supported
-      // error — that case is handled by the model_unavailable diagnostic.
-      if (responseBody && parseModelNotSupportedFromBody(responseBody)) return;
-      logRequest('warn', 'upstream_auth_error', {
-        request_id: requestId, provider, status: statusCode,
-        upstream_host: targetHost, path: sanitizeForLog(req.url),
-        message: authErrorMessage,
-      });
-    }
-  }
-
-  /**
-   * Handle a buffered 400 response body: attempt retry via the deprecated-header
-   * or model-not-supported paths, or log the model_unavailable diagnostic and
-   * forward the response to the client.
-   *
-   * Returns true when a retry was triggered (caller should return early),
-   * false when the response was forwarded to the client.
-   *
-   * @param {import('http').IncomingMessage} proxyRes
-   * @param {object} requestHeaders
-   * @param {Buffer} responseBody
-   * @param {{ provider: string, requestId: string, hasRetried: boolean,
-   *           onRetry: Function, modelNotSupportedRetryCount: number,
-   *           onModelNotSupportedRetry: Function|undefined, completionCtx: object,
-   *           authErrCtx: object, initiatorSent: string|null,
-   *           billingInfo: object|null, res: object, span: object }} opts
-   * @returns {boolean}
-   */
-  function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
-    provider, requestId, hasRetried, onRetry,
-    modelNotSupportedRetryCount, onModelNotSupportedRetry,
-    completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
-  }) {
-    // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
-    if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
-      const deprecated = parseDeprecatedHeaderFromBody(responseBody);
-      if (deprecated) {
-        const retryHeaders = { ...requestHeaders };
-        const stripped = learnAndStripDeprecatedHeaderValue(
-          retryHeaders, deprecated.header, deprecated.value, requestId, provider,
-        );
-        if (stripped) {
-          onRetry(retryHeaders);
-          return true;
-        }
-      }
-    }
-
-    // ── (b) Transient model-not-supported retry (copilot only, up to MAX) ──────
-    if (
-      provider === 'copilot' &&
-      modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES &&
-      onModelNotSupportedRetry &&
-      parseModelNotSupportedFromBody(responseBody)
-    ) {
-      logRequest('warn', 'model_not_supported_retry', {
-        request_id: requestId,
-        provider,
-        retry_attempt: modelNotSupportedRetryCount + 1,
-        max_retries: MAX_MODEL_NOT_SUPPORTED_RETRIES,
-        message: `Copilot returned 400 model not supported (transient); retrying (attempt ${modelNotSupportedRetryCount + 1}/${MAX_MODEL_NOT_SUPPORTED_RETRIES})`,
-      });
-      onModelNotSupportedRetry();
-      return true;
-    }
-
-    // ── (c) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
-    if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
-      const { req } = authErrCtx;
-      logRequest('error', 'model_unavailable', {
-        request_id: requestId,
-        provider,
-        status: proxyRes.statusCode,
-        path: sanitizeForLog(req.url),
-        retries_attempted: modelNotSupportedRetryCount,
-        message: `Model is unavailable or retired — the requested model is not supported by ${provider}. ` +
-          'Check that the model name is correct and not deprecated. ' +
-          'If using model aliases, verify the alias resolves to an available model.',
-      });
-    }
-
-    logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
-    logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
-
-    const resHeaders = {
-      ...proxyRes.headers,
-      'x-request-id': requestId,
-      'content-length': String(responseBody.length),
-    };
-    delete resHeaders['transfer-encoding'];
-    res.writeHead(proxyRes.statusCode, resHeaders);
-    res.end(responseBody);
-    otel.endSpan(span, proxyRes.statusCode);
-    return false;
-  }
-
-  /**
-   * Wire up token-usage tracking for a streaming or non-streaming normal
-   * (non-400) response.  Parses the request body for a model fallback and
-   * attaches OTEL span callbacks.
-   *
-   * @param {import('http').IncomingMessage} proxyRes
-   * @param {Buffer} body - Original request body (used to extract the model name)
-   * @param {{ requestId: string, provider: string, req: object, startTime: number,
-   *           billingInfo: object|null, initiatorSent: string|null,
-   *           span: object, isStreaming: boolean }} opts
-   */
-  function setupTokenTracking(proxyRes, body, {
-    requestId, provider, req, startTime, billingInfo,
-    initiatorSent, span, isStreaming,
-  }) {
-    // Extract model from request body as fallback for token tracking when the
-    // upstream response omits the model field (e.g., Copilot SDK streaming).
-    let requestModel = null;
-    if (body && body.length > 0) {
-      try {
-        const parsed = JSON.parse(body.toString('utf8'));
-        if (parsed && typeof parsed.model === 'string') requestModel = parsed.model;
-      } catch { /* non-JSON body */ }
-    }
-    trackTokenUsage(proxyRes, {
-      requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent, requestModel,
-      onUsage: (normalizedUsage, model) => {
-        otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-        const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
-        otel.setBudgetAttributes(span, budgetResult);
-        return budgetResult;
-      },
-      onSpanEnd: (statusCode) => {
-        otel.endSpan(span, statusCode);
-      },
-    });
-  }
+  const logUpstreamAuthError = createLogUpstreamAuthError({
+    logRequest,
+    sanitizeForLog,
+    applyPermissionDenied,
+    parseModelNotSupportedFromBody,
+  });
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
     body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
@@ -275,8 +95,16 @@ function createUpstreamResponseHandlers({
         const responseBody = Buffer.concat(bufferedChunks);
         const didRetry = handle400WithRetry(proxyRes, requestHeaders, responseBody, {
           provider, requestId, hasRetried, onRetry,
-          modelNotSupportedRetryCount, onModelNotSupportedRetry,
+          modelNotSupportedRetryCount, maxModelNotSupportedRetries: MAX_MODEL_NOT_SUPPORTED_RETRIES, onModelNotSupportedRetry,
           completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
+          parseDeprecatedHeaderFromBody,
+          learnAndStripDeprecatedHeaderValue,
+          parseModelNotSupportedFromBody,
+          logRequest,
+          sanitizeForLog,
+          logRequestCompletion,
+          logUpstreamAuthError,
+          otel,
         });
         if (didRetry) return;
       });
@@ -297,6 +125,11 @@ function createUpstreamResponseHandlers({
     setupTokenTracking(proxyRes, body, {
       requestId, provider, req, startTime, billingInfo,
       initiatorSent, span, isStreaming,
+      trackTokenUsage,
+      sanitizeForLog,
+      metrics,
+      otel,
+      logRequest,
     });
   }
 
