@@ -59,6 +59,8 @@ describe('awf-config.schema.json', () => {
         blockDomains: ['malicious.example.com'],
         dnsServers: ['8.8.8.8', '8.8.4.4'],
         upstreamProxy: 'http://proxy.corp.example.com:8080',
+        isolation: true,
+        topologyAttach: ['mcp-gateway', 'difc-proxy'],
       },
       apiProxy: {
         enabled: true,
@@ -163,6 +165,23 @@ describe('awf-config.schema.json', () => {
 
   it('rejects non-array network.allowDomains', () => {
     expect(validate({ network: { allowDomains: 'github.com' } })).toBe(false);
+  });
+
+  it('accepts network.isolation as a boolean', () => {
+    expect(validate({ network: { isolation: true } })).toBe(true);
+    expect(validate({ network: { isolation: 'yes' } })).toBe(false);
+  });
+
+  it('requires network.isolation:true when network.topologyAttach is set', () => {
+    expect(validate({ network: { isolation: true, topologyAttach: ['mcp-gateway'] } })).toBe(true);
+    // topologyAttach without isolation is rejected
+    expect(validate({ network: { topologyAttach: ['mcp-gateway'] } })).toBe(false);
+    // topologyAttach with isolation:false is rejected
+    expect(validate({ network: { isolation: false, topologyAttach: ['mcp-gateway'] } })).toBe(false);
+  });
+
+  it('rejects non-string network.topologyAttach items', () => {
+    expect(validate({ network: { isolation: true, topologyAttach: [123] } })).toBe(false);
   });
 
   it('rejects invalid anthropicCacheTailTtl values', () => {

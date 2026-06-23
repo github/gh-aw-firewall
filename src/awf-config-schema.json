@@ -39,8 +39,38 @@
         "upstreamProxy": {
           "type": "string",
           "description": "Upstream HTTP proxy URL (e.g. \"http://proxy.corp.example.com:8080\"). When set, the AWF Squid proxy forwards traffic through this proxy."
+        },
+        "isolation": {
+          "type": "boolean",
+          "description": "Experimental: enforce egress via Docker network topology (an internal network with no internet route plus a dual-homed Squid proxy) instead of host iptables. Requires no sudo/NET_ADMIN, so it works inside ARC/Kubernetes DinD runners. Not yet supported together with dnsOverHttps or enableHostAccess. Maps to the --network-isolation CLI flag."
+        },
+        "topologyAttach": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names of externally-launched trusted containers (e.g. an MCP gateway or DIFC proxy) to attach to the internal topology network so the agent can reach them without granting them their own egress path. Requires network.isolation to be true. Maps to repeated --topology-attach CLI flags."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "topologyAttach"
+            ]
+          },
+          "then": {
+            "required": [
+              "isolation"
+            ],
+            "properties": {
+              "isolation": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
     },
     "apiProxy": {
       "type": "object",

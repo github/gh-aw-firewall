@@ -11,6 +11,8 @@ interface AwfFileConfig {
     blockDomains?: string[];
     dnsServers?: string[];
     upstreamProxy?: string;
+    isolation?: boolean;
+    topologyAttach?: string[];
   };
   apiProxy?: {
     enabled?: boolean;
@@ -224,6 +226,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     blockDomains: joinComma(config.network?.blockDomains),
     dnsServers: joinComma(config.network?.dnsServers),
     upstreamProxy: config.network?.upstreamProxy,
+    networkIsolation: config.network?.isolation,
+    topologyAttach: config.network?.topologyAttach,
 
     enableApiProxy: config.apiProxy?.enabled,
     enableTokenSteering: config.apiProxy?.enableTokenSteering,

@@ -98,6 +98,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.blockDomains[]` → `--block-domains <csv>`
 - `network.dnsServers[]` → `--dns-servers <csv>`
 - `network.upstreamProxy` → `--upstream-proxy`
+- `network.isolation` → `--network-isolation` *(experimental; enforces egress via Docker network topology instead of host iptables)*
+- `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy`
 - `apiProxy.enableTokenSteering` → `--enable-token-steering`
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
