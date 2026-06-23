@@ -158,5 +158,21 @@ describe('generatePolicyManifest - regex pattern rules', () => {
       expect(getOrder('allow-http-only-regex')).toBeLessThan(getOrder('allow-https-only-regex'));
       expect(getOrder('allow-https-only-regex')).toBeLessThan(getOrder('deny-default'));
     });
+
+    it('should keep sequential rule numbering across all policy sections', () => {
+      const manifest = generatePolicyManifest({
+        domains: ['http://*.insecure.com', 'https://api.secure.com', '*.both.com'],
+        blockedDomains: ['evil.com', '*.tracking.com'],
+        enableDlp: true,
+        apiProxyIp: '172.30.0.30',
+        port,
+      });
+
+      expect(manifest.rules.map(rule => rule.order)).toEqual(
+        manifest.rules.map((_, index) => index + 1)
+      );
+      expect(manifest.rules[0].id).toBe('deny-unsafe-ports');
+      expect(manifest.rules[manifest.rules.length - 1].id).toBe('deny-default');
+    });
   });
 });

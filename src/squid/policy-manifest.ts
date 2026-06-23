@@ -1,7 +1,17 @@
-import type { PolicyManifest, PolicyRule, SquidConfig } from '../types';
+import type { PolicyManifest, SquidConfig } from '../types';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
-import { parseDomainList } from '../domain-matchers';
-import { formatDomainForSquid, parseDomainConfig } from './domain-acl';
+import { parseDomainConfig } from './domain-acl';
+import {
+  addApiProxyAllowRules,
+  addBlockedDomainRules,
+  addBothProtocolAllowRules,
+  addDefaultDenyRule,
+  addDlpRules,
+  addPortSafetyRules,
+  addProtocolAllowRules,
+  addRawIpBlockRules,
+  type PolicyRuleState,
+} from './policy-rules/section-builders';
 
 /**
  * Ports that should never be allowed, even with --allow-host-ports
@@ -49,200 +59,21 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
   // Parse, deduplicate, and group domains by protocol (shared logic with generateSquidConfig)
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
 
-  const rules: PolicyRule[] = [];
-  let order = 0;
+  const state: PolicyRuleState = { rules: [], order: 0 };
 
-  // --- Port safety rules (evaluated first in Squid) ---
-  rules.push({
-    id: 'deny-unsafe-ports',
-    order: ++order,
-    action: 'deny',
-    aclName: '!Safe_ports',
-    protocol: 'both',
-    domains: [],
-    description: 'Deny requests to ports not in Safe_ports ACL (only 80, 443, and user-specified ports allowed)',
-  });
-  rules.push({
-    id: 'deny-connect-unsafe-ports',
-    order: ++order,
-    action: 'deny',
-    aclName: 'CONNECT !Safe_ports',
-    protocol: 'https',
-    domains: [],
-    description: 'Deny CONNECT (HTTPS) to ports not in Safe_ports ACL',
-  });
-
-  // --- api-proxy allow (before raw-IP deny) ---
-  if (apiProxyIp) {
-    rules.push({
-      id: 'allow-api-proxy-ip',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allow_api_proxy_ip',
-      protocol: 'both',
-      domains: [apiProxyIp],
-      description: 'Allow connections to the AWF api-proxy sidecar IP before raw-IP deny rules',
-    });
-    rules.push({
-      id: 'allow-from-api-proxy',
-      order: ++order,
-      action: 'allow',
-      aclName: 'from_api_proxy',
-      protocol: 'both',
-      domains: ['*'],
-      description: 'Allow unrestricted outbound from api-proxy sidecar (trusted AWF component, not subject to agent domain ACL)',
-    });
-  }
-
-  // --- Raw IP blocking ---
-  rules.push({
-    id: 'deny-raw-ipv4',
-    order: ++order,
-    action: 'deny',
-    aclName: 'dst_ipv4',
-    protocol: 'both',
-    domains: ['^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'],
-    description: 'Deny requests to raw IPv4 addresses (bypasses domain filtering)',
-  });
-  rules.push({
-    id: 'deny-raw-ipv6',
-    order: ++order,
-    action: 'deny',
-    aclName: 'dst_ipv6',
-    protocol: 'both',
-    domains: ['^\\[?[0-9a-fA-F:]+\\]?$'],
-    description: 'Deny requests to raw IPv6 addresses (bypasses domain filtering)',
-  });
-
-  // --- DLP rules (if enabled) ---
-  if (enableDlp) {
-    rules.push({
-      id: 'deny-dlp',
-      order: ++order,
-      action: 'deny',
-      aclName: 'dlp_blocked',
-      protocol: 'both',
-      domains: [],
-      description: 'Deny requests containing credential patterns in URLs (DLP)',
-    });
-  }
-
-  // --- Blocked domains ---
-  if (blockedDomains && blockedDomains.length > 0) {
-    const normalizedBlocked = blockedDomains.map(d => d.replace(/^https?:\/\//, '').replace(/\/$/, ''));
-    const { plainDomains: blockedPlain, patterns: blockedPatterns } = parseDomainList(normalizedBlocked);
-
-    if (blockedPlain.length > 0) {
-      rules.push({
-        id: 'deny-blocked-plain',
-        order: ++order,
-        action: 'deny',
-        aclName: 'blocked_domains',
-        protocol: 'both',
-        domains: blockedPlain.map(e => formatDomainForSquid(e.domain)),
-        description: 'Deny requests to explicitly blocked domains',
-      });
-    }
-
-    if (blockedPatterns.length > 0) {
-      rules.push({
-        id: 'deny-blocked-regex',
-        order: ++order,
-        action: 'deny',
-        aclName: 'blocked_domains_regex',
-        protocol: 'both',
-        domains: blockedPatterns.map(p => p.regex),
-        description: 'Deny requests to explicitly blocked domain patterns',
-      });
-    }
-  }
-
-  // --- Protocol-specific allow rules ---
-  if (domainsByProto.http.length > 0) {
-    rules.push({
-      id: 'allow-http-only-plain',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_http_only',
-      protocol: 'http',
-      domains: domainsByProto.http.map(d => formatDomainForSquid(d)),
-      description: 'Allow HTTP-only traffic to these domains (no HTTPS)',
-    });
-  }
-  if (patternsByProto.http.length > 0) {
-    rules.push({
-      id: 'allow-http-only-regex',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_http_only_regex',
-      protocol: 'http',
-      domains: patternsByProto.http.map(p => p.regex),
-      description: 'Allow HTTP-only traffic matching these patterns',
-    });
-  }
-
-  if (domainsByProto.https.length > 0) {
-    rules.push({
-      id: 'allow-https-only-plain',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_https_only',
-      protocol: 'https',
-      domains: domainsByProto.https.map(d => formatDomainForSquid(d)),
-      description: 'Allow HTTPS-only traffic to these domains (no HTTP)',
-    });
-  }
-  if (patternsByProto.https.length > 0) {
-    rules.push({
-      id: 'allow-https-only-regex',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_https_only_regex',
-      protocol: 'https',
-      domains: patternsByProto.https.map(p => p.regex),
-      description: 'Allow HTTPS-only traffic matching these patterns',
-    });
-  }
-
-  // --- Both-protocol allow (used in deny rule logic) ---
-  if (domainsByProto.both.length > 0) {
-    rules.push({
-      id: 'allow-both-plain',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_domains',
-      protocol: 'both',
-      domains: domainsByProto.both.map(d => formatDomainForSquid(d)),
-      description: 'Allow HTTP and HTTPS traffic to these domains',
-    });
-  }
-  if (patternsByProto.both.length > 0) {
-    rules.push({
-      id: 'allow-both-regex',
-      order: ++order,
-      action: 'allow',
-      aclName: 'allowed_domains_regex',
-      protocol: 'both',
-      domains: patternsByProto.both.map(p => p.regex),
-      description: 'Allow HTTP and HTTPS traffic matching these patterns',
-    });
-  }
-
-  // --- Default deny (final rule) ---
-  rules.push({
-    id: 'deny-default',
-    order: ++order,
-    action: 'deny',
-    aclName: 'all',
-    protocol: 'both',
-    domains: [],
-    description: 'Deny all traffic not matching any allow rule (default deny)',
-  });
+  addPortSafetyRules(state);
+  addApiProxyAllowRules(state, apiProxyIp);
+  addRawIpBlockRules(state);
+  addDlpRules(state, enableDlp);
+  addBlockedDomainRules(state, blockedDomains);
+  addProtocolAllowRules(state, domainsByProto, patternsByProto);
+  addBothProtocolAllowRules(state, domainsByProto, patternsByProto);
+  addDefaultDenyRule(state);
 
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
-    rules,
+    rules: state.rules,
     dangerousPorts: DANGEROUS_PORTS,
     dnsServers: dnsServers || DEFAULT_DNS_SERVERS,
     sslBumpEnabled: sslBump ?? false,
