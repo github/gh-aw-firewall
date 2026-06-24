@@ -20,6 +20,16 @@ const codexWorkflowPaths = [
   path.join(repoRoot, '.github/workflows/secret-digger-codex.lock.yml'),
 ];
 
+// Release-mode workflows that intentionally test PUBLISHED awf binaries and
+// PRE-BUILT GHCR container images (pinned to a concrete release) instead of the
+// repo's own source. These must NOT be post-processed: the local-build install
+// and --skip-pull -> --build-local rewrites would replace the released bundle
+// with a source build, which is incompatible (e.g. the standalone awf bundle
+// rejects --build-local: "requires a full repository checkout").
+const releaseModeLockFiles = new Set<string>([
+  'network-isolation-test.lock.yml',
+]);
+
 // Auto-discover all lock files so new workflows are automatically included.
 // This avoids the recurring bug where adding a new workflow .md file and
 // compiling it produces a lock file with --image-tag/--skip-pull that isn't
@@ -27,6 +37,7 @@ const codexWorkflowPaths = [
 const workflowsDir = path.join(repoRoot, '.github/workflows');
 const workflowPaths = fs.readdirSync(workflowsDir)
   .filter(f => f.endsWith('.lock.yml'))
+  .filter(f => !releaseModeLockFiles.has(f))
   .sort()
   .map(f => path.join(workflowsDir, f));
 
