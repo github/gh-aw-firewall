@@ -16,10 +16,10 @@ tools:
     - "*"
 sandbox:
   mcp:
-    version: "latest"
+    version: v0.3.30
   agent:
     network-isolation: true
-    version: "latest"
+    version: v0.27.10
 strict: false
 max-turns: 5
 timeout-minutes: 10
