@@ -21,7 +21,7 @@ sandbox:
     network-isolation: true
     version: v0.27.10
 strict: false
-max-turns: 5
+max-turns: 15
 timeout-minutes: 10
 ---
 
@@ -31,7 +31,9 @@ This is a minimal, manually-triggered smoke test for the **experimental AWF
 network-isolation topology** (`sandbox.agent.network-isolation: true`). It
 confirms the Docker-network egress model still enforces the domain allowlist.
 
-Run the two checks below and report the results in your final message.
+Run the two `curl` checks below directly and report the results in your final
+message. Do not inspect the `awf` binary, its `--help`, or its version — just
+run the two commands and summarize their output.
 
 ## 1. Allowed domain is reachable
 
