@@ -75,9 +75,12 @@ following top-level properties. All are OPTIONAL:
 | `apiProxy` | object | API proxy sidecar configuration |
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
+| `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
+| `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
 | `environment` | object | Environment variable propagation (see §8) |
 | `logging` | object | Logging and diagnostics |
 | `rateLimiting` | object | Egress rate limiting |
+| `platform` | object | GitHub platform deployment type declaration |
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
