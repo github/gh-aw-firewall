@@ -18,7 +18,7 @@ sandbox:
   mcp:
     version: v0.3.30
   agent:
-    network-isolation: true
+    sudo: false
     version: v0.27.10
 strict: false
 max-turns: 15
