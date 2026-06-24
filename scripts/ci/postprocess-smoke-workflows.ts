@@ -826,8 +826,20 @@ for (const workflowPath of workflowPaths) {
 const codexConfigTomlHeredocRegex =
   /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
 const CODEX_PROXY_PROVIDER_SENTINEL = 'model_providers.openai-proxy';
+// IMPORTANT: the repeated inner line atom uses `^[ \t].*` (a single leading
+// space/tab, then the rest of the line) rather than `^\s+.*` or `^[ \t]+.*`.
+// Two distinct ambiguities caused catastrophic backtracking that hung the script
+// for minutes whenever this regex failed to match (e.g. the provider block was
+// already present but env_key was absent, the normal state after the first
+// post-process run):
+//   1. `\s` also matches newlines, so `^\s+.*\n` could consume line breaks two
+//      different ways.
+//   2. `[ \t]+` is itself variable-length, so `^[ \t]+.*` could split the indent
+//      and the body of a single line many different ways.
+// Anchoring each repetition to exactly one leading space/tab makes every line
+// match a single way, so matching is linear even on large lock files.
 const CODEX_PROXY_ENV_KEY_REGEX =
-  /(^\s+\[model_providers\.openai-proxy\]\n(?:^\s+.*\n)*?)^\s+env_key = "OPENAI_API_KEY"\n/m;
+  /(^[ \t]+\[model_providers\.openai-proxy\]\n(?:^[ \t].*\n)*?)^[ \t]+env_key = "OPENAI_API_KEY"\n/m;
 
 // Apply Codex-specific transformations to OpenAI/Codex workflow files only.
 // These transformations must not be applied to Claude, Copilot, or other
@@ -874,8 +886,13 @@ for (const workflowPath of codexWorkflowPaths) {
   }
 
   // Remove legacy env_key for openai-proxy so Codex doesn't require OPENAI_API_KEY
-  // in the sandbox when auth is provided by the sidecar.
-  if (CODEX_PROXY_ENV_KEY_REGEX.test(content)) {
+  // in the sandbox when auth is provided by the sidecar. The cheap includes()
+  // guard skips the regex entirely when there is no env_key line to strip, which
+  // is the common case on already-processed lock files.
+  if (
+    content.includes('env_key = "OPENAI_API_KEY"') &&
+    CODEX_PROXY_ENV_KEY_REGEX.test(content)
+  ) {
     content = content.replace(CODEX_PROXY_ENV_KEY_REGEX, '$1');
     modified = true;
     console.log('  Removed legacy env_key from openai-proxy provider');
