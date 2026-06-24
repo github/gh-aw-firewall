@@ -89,7 +89,7 @@ describe('agent service', () => {
 
     expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
     expect(volumes).toContain('/daemon-root/usr:/host/usr:ro');
-    expect(volumes).toContain('/daemon-root/tmp/gh-aw/runner-bin:/host/usr/local/bin:ro');
+    expect(volumes).toContain('/daemon-root/tmp/gh-aw/runner-bin:/host/tmp/awf-runner-bin:ro');
     expect(volumes).toContain('/daemon-root/etc/passwd:/host/etc/passwd:ro');
     expect(volumes).toContain('/daemon-root/workspace:/host/workspace:ro');
     expect(volumes).toContain('/dev/null:/host/var/run/docker.sock:ro');
@@ -103,7 +103,7 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
   });
 
-  it('should mount chroot binaries source path over /host/usr/local/bin', () => {
+  it('should mount chroot binaries source path at /host/tmp/awf-runner-bin', () => {
     const configWithBinariesOverlay = {
       ...getConfig(),
       chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
@@ -112,7 +112,10 @@ describe('agent service', () => {
     const volumes = result.services.agent.volumes as string[];
 
     expect(volumes).toContain('/usr:/host/usr:ro');
-    expect(volumes).toContain('/tmp/gh-aw/runner-bin:/host/usr/local/bin:ro');
+    // Binaries overlay uses /host/tmp/awf-runner-bin (not /host/usr/local/bin) so that
+    // Docker can always create the mount-point directory inside the writable /host/tmp.
+    expect(volumes).toContain('/tmp/gh-aw/runner-bin:/host/tmp/awf-runner-bin:ro');
+    expect(volumes).not.toContain('/tmp/gh-aw/runner-bin:/host/usr/local/bin:ro');
   });
 
   it('should normalize trailing slash in dockerHostPathPrefix', () => {
@@ -124,6 +127,33 @@ describe('agent service', () => {
     const volumes = result.services.agent.volumes as string[];
 
     expect(volumes).toContain('/daemon-root/tmp:/tmp:rw');
+  });
+
+  it('should mount binaries overlay at /host/tmp/awf-runner-bin when binariesSourcePath equals dockerHostPathPrefix', () => {
+    // Regression test for ARC/DinD collision: when binariesSourcePath equals
+    // dockerHostPathPrefix (both /tmp/gh-aw), the old target /host/usr/local/bin
+    // could not be created by Docker because /host/usr was already mounted read-only.
+    // The new target /host/tmp/awf-runner-bin sits under the writable /host/tmp mount
+    // so Docker can always create the subdirectory mount-point.
+    const sharedPrefix = '/tmp/gh-aw';
+    const configCollision = {
+      ...getConfig(),
+      dockerHostPathPrefix: sharedPrefix,
+      chrootBinariesSourcePath: sharedPrefix, // same value as prefix — the problematic case
+    };
+    const result = generateDockerCompose(configCollision, mockNetworkConfig);
+    const volumes = result.services.agent.volumes as string[];
+
+    // /host/usr is mounted read-only from the staged prefix
+    expect(volumes).toContain(`${sharedPrefix}/usr:/host/usr:ro`);
+
+    // Binaries overlay is at /host/tmp/awf-runner-bin — NOT nested under /host/usr:ro
+    // The source equals the prefix so applyHostPathPrefixToVolumes leaves it un-prefixed
+    expect(volumes).toContain(`${sharedPrefix}:/host/tmp/awf-runner-bin:ro`);
+
+    // Must NOT produce the old colliding mount that Docker could not set up
+    expect(volumes).not.toContain(`${sharedPrefix}:/host/usr/local/bin:ro`);
+    expect(volumes.some((v: string) => v.includes('/host/usr/local/bin'))).toBe(false);
   });
 
   it('should auto-stage the ARC/DinD manual bootstrap files under a shared /tmp docker-host-path-prefix', () => {
