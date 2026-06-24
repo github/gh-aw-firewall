@@ -76,7 +76,10 @@ The current failure-mode catalog is imported below. Also read the live files to 
 ```bash
 cat .github/workflows/shared/self-hosted-failure-modes.md
 cat .github/workflows/self-hosted-runner-doctor.md
+cat .github/agents/self-hosted-runner-doctor.md
 ```
+
+`.github/agents/self-hosted-runner-doctor.md` is the **portable, self-contained doctor agent** that users load directly into their own coding agent (without cloning the repo). It embeds a copy of the failure-mode catalog and the diagnostic playbook. Whenever you propose a change to `shared/self-hosted-failure-modes.md` (catalog rows, error-string lookup, or known-unresolved items) or to the playbook in `self-hosted-runner-doctor.md`, you **must** propose the matching edit to the embedded copy in the portable agent so the two stay in sync.
 
 Classify each lesson as one of:
 
@@ -102,6 +105,9 @@ For `.github/workflows/shared/self-hosted-failure-modes.md`: the exact table row
 
 ### Proposed doctor changes
 For `.github/workflows/self-hosted-runner-doctor.md`: any playbook or error-string lookup additions.
+
+### Proposed portable agent changes
+For `.github/agents/self-hosted-runner-doctor.md`: the matching edits to its embedded catalog and playbook so the portable agent stays in sync with the two files above. Every catalog or playbook change proposed for the workflow/shared files must have a corresponding edit here.
 
 ### Source issues and PRs
 Every proposed change must cite the issue/PR number(s) it derives from, with links.
