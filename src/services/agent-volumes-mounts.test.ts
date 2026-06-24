@@ -153,7 +153,7 @@ describe('agent service', () => {
 
     // Must NOT produce the old colliding mount that Docker could not set up
     expect(volumes).not.toContain(`${sharedPrefix}:/host/usr/local/bin:ro`);
-    expect(volumes).not.toContain(`/host/usr/local/bin`);
+    expect(volumes.some((v: string) => v.includes('/host/usr/local/bin'))).toBe(false);
   });
 
   it('should auto-stage the ARC/DinD manual bootstrap files under a shared /tmp docker-host-path-prefix', () => {
