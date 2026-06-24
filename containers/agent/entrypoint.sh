@@ -637,6 +637,20 @@ run_chroot_command() {
     fi
   fi
 
+  # When chroot.binariesSourcePath is configured, the firewall mounts the runner-bin
+  # overlay at /host/tmp/awf-runner-bin (inside chroot: /tmp/awf-runner-bin).
+  # Prepend it to AWF_HOST_PATH so the chrooted PATH resolves runner-installed binaries
+  # (e.g. copilot, claude) even when they are absent from /usr/local/bin in the staged
+  # host filesystem. This is the primary mechanism for ARC/DinD runners where the
+  # runner-installed binaries live on the runner's /tmp emptyDir, not in /usr.
+  if [ -d /host/tmp/awf-runner-bin ]; then
+    case ":${AWF_HOST_PATH:-$PATH}:" in
+      *":/tmp/awf-runner-bin:"*) ;;
+      *) export AWF_HOST_PATH="/tmp/awf-runner-bin:${AWF_HOST_PATH:-$PATH}" ;;
+    esac
+    echo "[entrypoint] Runner binaries overlay detected at /tmp/awf-runner-bin; prepended to PATH"
+  fi
+
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
   # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
@@ -1031,7 +1045,7 @@ AWFEOF
       printf 'if ! command -v -- %s >/dev/null 2>&1; then\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
       printf '  echo "[entrypoint][ERROR] Required binary '"'"'%s'"'"' is not available inside AWF chroot." >&2\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
       printf '  echo "[entrypoint][ERROR] Ensure '"'"'%s'"'"' is installed on the runner and present in a PATH directory bind-mounted into /host." >&2\n' "${AWF_PREFLIGHT_BINARY}" >> "/host${SCRIPT_FILE}"
-      printf '  echo "[entrypoint][ERROR] Standard bind-mounted PATH directories: /usr/local/bin, /usr/bin, /bin, /opt." >&2\n' >> "/host${SCRIPT_FILE}"
+      printf '  echo "[entrypoint][ERROR] Standard bind-mounted PATH directories: /tmp/awf-runner-bin, /usr/local/bin, /usr/bin, /bin, /opt." >&2\n' >> "/host${SCRIPT_FILE}"
       printf '  exit 127\n' >> "/host${SCRIPT_FILE}"
       printf 'fi\n' >> "/host${SCRIPT_FILE}"
     else
