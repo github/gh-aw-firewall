@@ -1,4 +1,6 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -112,17 +114,22 @@ describe('agent environment: runtime', () => {
   });
 
   it('should set AWF_STAGED_RUNNER_BINARY_NAME in /tmp docker-host-path-prefix mode', () => {
-    const result = generateDockerCompose(
-      {
-        ...mockConfig,
-        dockerHostPathPrefix: '/tmp/gh-aw',
-        agentCommand: 'copilot --version',
-      },
-      mockNetworkConfig,
-    );
-    const environment = result.services.agent.environment as Record<string, string>;
+    const stagePrefix = fs.mkdtempSync(path.join('/tmp', 'gh-aw-'));
+    try {
+      const result = generateDockerCompose(
+        {
+          ...mockConfig,
+          dockerHostPathPrefix: stagePrefix,
+          agentCommand: 'copilot --version',
+        },
+        mockNetworkConfig,
+      );
+      const environment = result.services.agent.environment as Record<string, string>;
 
-    expect(environment.AWF_STAGED_RUNNER_BINARY_NAME).toBe('copilot');
+      expect(environment.AWF_STAGED_RUNNER_BINARY_NAME).toBe('copilot');
+    } finally {
+      fs.rmSync(stagePrefix, { recursive: true, force: true });
+    }
   });
 
   it('should pass GOROOT, CARGO_HOME, RUSTUP_HOME, JAVA_HOME, DOTNET_ROOT, BUN_INSTALL to container when env vars are set', () => {
