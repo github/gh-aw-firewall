@@ -159,16 +159,15 @@ describe('rate-limiter-window', () => {
       expect(estimateRetryAfter(win, 0, SIZE, 5)).toBeGreaterThanOrEqual(1);
     });
 
-    it('should return SIZE when entire window is full', () => {
+    it('should return SIZE when count must drop to 0', () => {
       const win = createWindow(SIZE);
       // Fill the entire window evenly
       for (let t = 0; t < SIZE; t++) {
         recordInWindow(win, t, SIZE, 1);
       }
-      // All slots occupied — must wait until the oldest expires
+      // To drop below 1, every slot must expire (newest expires last)
       const retry = estimateRetryAfter(win, SIZE - 1, SIZE, 1);
-      expect(retry).toBeGreaterThanOrEqual(1);
-      expect(retry).toBeLessThanOrEqual(SIZE);
+      expect(retry).toBe(SIZE);
     });
 
     it('should return a smaller value when only recent slots are occupied', () => {
