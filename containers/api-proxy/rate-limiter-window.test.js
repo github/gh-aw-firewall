@@ -180,12 +180,12 @@ describe('rate-limiter-window', () => {
 
     it('should find the slot that frees enough capacity', () => {
       const win = createWindow(SIZE);
-      recordInWindow(win, 0, SIZE, 3); // oldest slot
-      recordInWindow(win, 1, SIZE, 2); // newer slot
+      recordInWindow(win, 0, SIZE, 3); // older slot (age=1 at now=1)
+      recordInWindow(win, 1, SIZE, 2); // current slot
       advanceWindow(win, 1, SIZE);
-      // total=5, limit=5: need to drop below 5, first slot to expire frees 3 (slot 0, age=1)
+      // total=5, limit=5: need to drop below 5, so the older slot must expire
       const retry = estimateRetryAfter(win, 1, SIZE, 5);
-      expect(retry).toBeGreaterThanOrEqual(1);
+      expect(retry).toBe(SIZE - 1);
     });
   });
 });
