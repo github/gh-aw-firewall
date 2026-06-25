@@ -15,7 +15,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application files
-COPY server.js logging.js metrics.js rate-limiter.js \
+COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-tracker.js token-persistence.js token-parsers.js \
      token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
      model-resolver.js model-utils.js model-body-rewriter.js proxy-utils.js adapter-factory.js anthropic-transforms.js \
