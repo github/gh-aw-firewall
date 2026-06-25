@@ -16,7 +16,7 @@
 
 'use strict';
 
-const { createWindow, advanceWindow, recordInWindow, getWindowCount, estimateRetryAfter } = require('./rate-limiter-window');
+const { createWindow, recordInWindow, getWindowCount, estimateRetryAfter } = require('./rate-limiter-window');
 
 // ── Defaults ────────────────────────────────────────────────────────────
 const DEFAULT_RPM = 600;
