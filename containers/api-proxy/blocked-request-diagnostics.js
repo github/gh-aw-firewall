@@ -284,7 +284,7 @@ function getDiagStream() {
   if (diagStream) return diagStream;
   try {
     fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-    diagStream = fs.createWriteStream(DIAG_FILE, { flags: 'a' });
+    diagStream = fs.createWriteStream(DIAG_FILE, { flags: 'a', mode: 0o644 });
     diagStream.on('error', () => { diagStream = null; });
     return diagStream;
   } catch {

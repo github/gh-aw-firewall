@@ -56,7 +56,7 @@ const CLI_PROXY_ACCESS_SCHEMA = `cli-proxy-access/v${AWF_VERSION}`;
 let logStream = null;
 try {
   if (fs.existsSync(LOG_DIR)) {
-    logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+    logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', mode: 0o644 });
   }
 } catch {
   // Non-fatal: logging to file is best-effort

@@ -126,7 +126,7 @@ class FileSpanExporter {
   _getStream() {
     if (this._stream) return this._stream;
     try {
-      this._stream = fs.createWriteStream(this._filePath, { flags: 'a' });
+      this._stream = fs.createWriteStream(this._filePath, { flags: 'a', mode: 0o644 });
       this._stream.on('error', () => { this._stream = null; });
     } catch { return null; }
     return this._stream;

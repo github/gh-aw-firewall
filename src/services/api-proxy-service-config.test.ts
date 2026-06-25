@@ -1,5 +1,6 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import { mockNetworkConfigWithProxy } from './api-proxy-service.test-utils';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -33,8 +34,9 @@ describe('API proxy sidecar: service configuration', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-openai-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         expect(result.services['api-proxy']).toBeDefined();
-        const proxy = result.services['api-proxy'];
+        const proxy = result.services['api-proxy'] as any;
         expect(proxy.container_name).toBe('awf-api-proxy');
+        expect(proxy.user).toBe(`${getSafeHostUid()}:${getSafeHostGid()}`);
         expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.30');
       });
 

@@ -87,6 +87,13 @@ describe('artifact-preservation – error paths', () => {
   // ─── preserveCleanupArtifacts ───────────────────────────────────────────
 
   describe('preserveCleanupArtifacts', () => {
+    let getuidSpy: jest.SpyInstance<number | undefined, []> | undefined;
+
+    afterEach(() => {
+      getuidSpy?.mockRestore();
+      getuidSpy = undefined;
+    });
+
     it('does not throw when agent-logs renameSync fails (line 101)', () => {
       const workDir = makeTempDir();
       try {
@@ -154,6 +161,49 @@ describe('artifact-preservation – error paths', () => {
         });
 
         expect(() => preserveCleanupArtifacts(workDir, { auditDir })).not.toThrow();
+      } finally {
+        realFs.rmSync(auditDir, { recursive: true, force: true });
+        realFs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+
+    it('runs rootless permission repair with translated mount paths', () => {
+      const auditDir = makeTempDir('awf-audit-');
+      const workDir = makeTempDir();
+      try {
+        getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+        expect(() => preserveCleanupArtifacts(workDir, {
+          auditDir,
+          dockerHostPathPrefix: '/host',
+          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+          imageTag: 'latest',
+        })).not.toThrow();
+
+        expect(mockExecaSync).toHaveBeenCalledWith(
+          'docker',
+          expect.arrayContaining([
+            'run',
+            '--pull',
+            'never',
+            '-v',
+            `/host${auditDir}:/fix:rw`,
+            'ghcr.io/github/gh-aw-firewall/agent:latest',
+          ]),
+          expect.objectContaining({ reject: false }),
+        );
+      } finally {
+        realFs.rmSync(auditDir, { recursive: true, force: true });
+        realFs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+
+    it('skips rootless permission repair when running as root', () => {
+      const auditDir = makeTempDir('awf-audit-');
+      const workDir = makeTempDir();
+      try {
+        getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+        expect(() => preserveCleanupArtifacts(workDir, { auditDir })).not.toThrow();
+        expect(mockExecaSync.mock.calls.some(call => call[0] === 'docker')).toBe(false);
       } finally {
         realFs.rmSync(auditDir, { recursive: true, force: true });
         realFs.rmSync(workDir, { recursive: true, force: true });

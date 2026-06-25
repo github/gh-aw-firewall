@@ -3,6 +3,7 @@ import {
 } from '../constants';
 import { assignImageSource } from '../image-tag';
 import { WrapperConfig } from '../types';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
@@ -25,6 +26,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
 
   const proxyService: any = {
     container_name: API_PROXY_CONTAINER_NAME,
+    user: `${getSafeHostUid()}:${getSafeHostGid()}`,
     ...buildApiProxyLifecycleConfig(networkConfig),
     volumes: applyHostPathPrefixToVolumes(
       [

@@ -63,7 +63,7 @@ function diag(msg, data) {
   try {
     if (!diagStream) {
       fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-      diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a' });
+      diagStream = fs.createWriteStream(DIAG_LOG_FILE, { flags: 'a', mode: 0o644 });
       diagStream.on('error', () => { diagStream = null; });
     }
     const record = buildTokenDiagRecord(msg, data);
@@ -81,7 +81,7 @@ function getLogStream() {
   try {
     // Ensure directory exists
     fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-    logStream = fs.createWriteStream(TOKEN_LOG_FILE, { flags: 'a' });
+    logStream = fs.createWriteStream(TOKEN_LOG_FILE, { flags: 'a', mode: 0o644 });
     logStream.on('error', (err) => {
       logRequest('warn', 'token_log_error', { error: err.message });
       logStream = null;

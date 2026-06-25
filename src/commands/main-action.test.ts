@@ -247,7 +247,10 @@ describe('createMainAction', () => {
         false,
         STUB_CONFIG.proxyLogsDir,
         STUB_CONFIG.auditDir,
-        STUB_CONFIG.sessionStateDir
+        STUB_CONFIG.sessionStateDir,
+        STUB_CONFIG.dockerHostPathPrefix,
+        STUB_CONFIG.imageRegistry,
+        STUB_CONFIG.imageTag,
       );
       expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);
