@@ -120,15 +120,20 @@ function createCopilotAdapter(env, deps = {}) {
    *   to merge into the returned object (e.g. `{ cacheKey: 'copilot' }`).
    * @returns {{ url: string, opts: { method: string, headers: Record<string,string> } } & Record<string, unknown>}
    */
-  function buildCopilotModelsRequest(extra = {}) {
-    return {
-      url: `https://${rawTarget}/models`,
-      opts: {
-        method: 'GET',
-        headers: {
-          'Authorization': ['Bearer', githubToken].join(' '),
-          'Copilot-Integration-Id': integrationId,
-        },
+function buildCopilotModelsRequest(extra = {}) {
+  const prefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env) ? 'token' : 'Bearer';
+  return {
+    url: `https://${rawTarget}/models`,
+    opts: {
+      method: 'GET',
+      headers: {
+        'Authorization': [prefix, githubToken].join(' '),
+        'Copilot-Integration-Id': integrationId,
+      },
+    },
+    ...extra,
+  };
+}
       },
       ...extra,
     };
