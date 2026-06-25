@@ -82,7 +82,7 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
   elif [ "${PROBE_EXIT}" -eq 124 ] || echo "${PROBE_ERR}" | grep -qiE "timeout|deadline|timed out"; then
     DIAG_TYPE="unreachable (timeout)"
   elif echo "${PROBE_ERR}" | grep -qiE "EAI_AGAIN|ENOTFOUND|getaddrinfo|no such host|name or service not known"; then
-    DIAG_TYPE="dns-not-yet-ready (EAI_AGAIN)"
+    DIAG_TYPE="dns-not-yet-ready"
   fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
     echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
