@@ -278,6 +278,7 @@ allow_host_access_to_gateway() {
       iptables -A OUTPUT -p tcp -d "$gw_ip" --dport "$port_spec" -j ACCEPT
     done
   fi
+}
 
 configure_host_access_rules() {
   # Bypass Squid for host.docker.internal when host access is enabled.
