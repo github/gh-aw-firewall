@@ -135,7 +135,7 @@ async function initializeSslBump(config: WrapperConfig): Promise<SslConfig | und
 }
 
 /**
- * Phase 4 — Writes audit artifacts to the audit directory.
+ * Phase 7 — Writes audit artifacts to the audit directory.
  *
  * Artifacts are world-readable snapshots that contain no secrets:
  * - `squid.conf`                  — domain ACLs and proxy config
