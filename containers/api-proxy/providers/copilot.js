@@ -110,6 +110,30 @@ function createCopilotAdapter(env, deps = {}) {
   // A basePath of '/' (normalizeBasePath returns '/') is treated as no prefix to
   // avoid producing '//models'.
   const modelsPath = (basePath && basePath !== '/') ? `${basePath}/models` : '/models';
+  /**
+   * Build a standard Copilot `/models` GET request object using the GitHub OAuth
+   * token. Both `getValidationProbe` and `getModelsFetchConfig` must use the same
+   * auth headers for this endpoint, so this helper centralises the construction
+   * and prevents the two call-sites from drifting apart.
+   *
+   * @param {Record<string, unknown>} [extra] - Additional top-level properties
+   *   to merge into the returned object (e.g. `{ cacheKey: 'copilot' }`).
+   * @returns {{ url: string, opts: { method: string, headers: Record<string,string> } } & Record<string, unknown>}
+   */
+  function buildCopilotModelsRequest(extra = {}) {
+    return {
+      url: `https://${rawTarget}/models`,
+      opts: {
+        method: 'GET',
+        headers: {
+          'Authorization': ['Bearer', githubToken].join(' '),
+          'Copilot-Integration-Id': integrationId,
+        },
+      },
+      ...extra,
+    };
+  }
+
   // Copilot has dual auth modes (GitHub OAuth vs BYOK) with different validation
   // and model-fetch rules, so we override those two methods while still sharing
   // the common reflection method shape from createAdapterMethods.
@@ -141,16 +165,7 @@ function createCopilotAdapter(env, deps = {}) {
         return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
       }
 
-      return {
-        url: `https://${rawTarget}/models`,
-        opts: {
-          method: 'GET',
-          headers: {
-            'Authorization': ['Bearer', githubToken].join(' '),
-            'Copilot-Integration-Id': integrationId,
-          },
-        },
-      };
+      return buildCopilotModelsRequest();
     },
     getModelsFetchConfig() {
       // OIDC mode: skip startup model fetch — the token isn't available yet at this
@@ -163,17 +178,7 @@ function createCopilotAdapter(env, deps = {}) {
       // Skip startup model fetch when only a BYOK API key is configured.
       if (rawTarget === 'api.githubcopilot.com') {
         if (!githubToken) return null;
-        return {
-          url: `https://${rawTarget}/models`,
-          opts: {
-            method: 'GET',
-            headers: {
-              'Authorization': ['Bearer', githubToken].join(' '),
-              'Copilot-Integration-Id': integrationId,
-            },
-          },
-          cacheKey: 'copilot',
-        };
+        return buildCopilotModelsRequest({ cacheKey: 'copilot' });
       }
 
       // BYOK / custom provider (e.g. OpenRouter):
