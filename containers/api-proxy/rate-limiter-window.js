@@ -11,7 +11,7 @@
 /**
  * Create a fixed-size ring buffer for sliding window counting.
  * @param {number} size - Number of slots
- * @returns {{ counts: number[], total: number }}
+ * @returns {{ counts: number[], total: number, lastSlot: number, lastTime: number }}
  */
 function createWindow(size) {
   return {
