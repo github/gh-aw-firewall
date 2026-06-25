@@ -55,13 +55,12 @@ steps:
   - name: Run jscpd
     run: |
       jscpd src --min-lines 10 --min-tokens 50 --reporters json --output /tmp/gh-aw/jscpd-src 2>&1 | tail -20 > /tmp/gh-aw/jscpd-src.txt
-      jscpd containers --min-lines 10 --min-tokens 50 --reporters json --output /tmp/gh-aw/jscpd-containers 2>&1 | tail -20 >> /tmp/gh-aw/jscpd-src.txt
       # Summarize: keep only top 15 findings to limit context size
       if [ -f /tmp/gh-aw/jscpd-src/jscpd-report.json ]; then
         jq '{
-          statistics: .statistics,
+          statistics: {total: .statistics.total, percentage: .statistics.percentage},
           duplicates: (.duplicates | sort_by(-.lines) | .[0:15]
-            | map({lines, tokens, fragment,
+            | map({lines, tokens,
                    firstFile: {name: .firstFile.name, start: .firstFile.start, end: .firstFile.end},
                    secondFile: {name: .secondFile.name, start: .secondFile.start, end: .secondFile.end}}))
         }' /tmp/gh-aw/jscpd-src/jscpd-report.json > /tmp/gh-aw/jscpd-top.json
@@ -71,9 +70,9 @@ steps:
     run: |
       {
         echo '=== Env-var patterns ==='
-        grep -rn 'process\.env\.' src/ --include='*.ts' | grep -v test | head -40
+        grep -rn 'process\.env\.' src/ --include='*.ts' | grep -v test | head -20
         echo '=== Docker exec patterns ==='
-        grep -n 'execa\|execaSync\|docker.*run\|docker.*exec' src/docker-manager.ts | head -30
+        grep -n 'execa\|execaSync\|docker.*run\|docker.*exec' src/docker-manager.ts | head -20
         echo '=== Provider adapter patterns ==='
         for f in containers/api-proxy/providers/*.js; do
           echo "--- $f ---"
@@ -119,10 +118,12 @@ The following data was gathered before this session:
 - **Grep patterns:** `cat /tmp/gh-aw/grep-analysis.txt`
 - **Existing issues:** `cat /tmp/gh-aw/existing-issues.json`
 
+When writing code evidence for issues, use `bash` to view specific file sections (e.g., `sed -n 'X,Yp' src/file.ts`).
+
 ## Scope Constraint
 
 Pre-computed analysis files are in `/tmp/gh-aw/`. Do NOT re-run discovery commands.
-Complete your analysis in ≤7 turns. File at most 3 issues per run.
+Complete your analysis in ≤4 turns. File at most 3 issues per run.
 
 ## Phase 5: Check for Existing Issues
 

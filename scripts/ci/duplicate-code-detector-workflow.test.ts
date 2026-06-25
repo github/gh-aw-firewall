@@ -20,7 +20,7 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(source).not.toContain('Skip directly to Phase 5');
     expect(source).toContain('## Scope Constraint');
     expect(source).toContain('Do NOT re-run discovery commands.');
-    expect(source).toContain('Complete your analysis in ≤7 turns. File at most 3 issues per run.');
+    expect(source).toContain('Complete your analysis in ≤4 turns. File at most 3 issues per run.');
     expect(source).toContain('Do NOT call any GitHub MCP tools for this phase.');
     expect(source).toContain('existing-issues.json');
     expect(source).toContain('max: 3');
