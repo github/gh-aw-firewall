@@ -448,7 +448,7 @@ describe('startContainers', () => {
       const squidOnlyCall = mockExecaFn.mock.calls.find(
         (call: any[]) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('--no-deps')
       );
-      expect(squidOnlyCall[1]).toEqual(['compose', 'up', '-d', '--no-deps', 'squid-proxy', '--pull', 'never']);
+      expect(squidOnlyCall[1]).toEqual(['compose', 'up', '-d', '--no-deps', '--pull', 'never', 'squid-proxy']);
 
       const fullUpCall = mockExecaFn.mock.calls.find(
         (call: any[]) =>
