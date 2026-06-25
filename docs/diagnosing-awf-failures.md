@@ -12,7 +12,7 @@ failing workflow log:
 - [`.github/agents/self-hosted-runner-doctor.md`](../.github/agents/self-hosted-runner-doctor.md)
 - Raw URL (prefer a tag/commit that matches your AWF version):
   `https://raw.githubusercontent.com/github/gh-aw-firewall/<tag-or-sha>/.github/agents/self-hosted-runner-doctor.md`
-  (Fallback: `https://raw.githubusercontent.com/github/gh-aw-firewall/main/.github/agents/self-hosted-runner-doctor.md`)
+  (Fallback: https://raw.githubusercontent.com/github/gh-aw-firewall/main/.github/agents/self-hosted-runner-doctor.md)
 
 ## How it works
 
