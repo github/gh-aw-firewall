@@ -152,9 +152,16 @@ function writeAuditArtifacts(
   squidConfig: string
 ): void {
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
-  if (!fs.existsSync(auditDir)) {
-    fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
+  fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
+  const auditDirLstat = fs.lstatSync(auditDir);
+  if (auditDirLstat.isSymbolicLink()) {
+    throw new Error(`Refusing to use symlink as directory: ${auditDir}`);
   }
+  const auditDirStat = fs.statSync(auditDir);
+  if (!auditDirStat.isDirectory()) {
+    throw new Error(`Expected directory but found non-directory path: ${auditDir}`);
+  }
+  fs.chmodSync(auditDir, 0o755);
 
   // Save squid.conf for audit (no secrets — just domain ACLs and proxy config)
   fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o644 });
