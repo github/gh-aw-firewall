@@ -76,8 +76,7 @@ const {
   getModelPolicyBlockState,
   buildModelPolicyError,
 } = require('./guards/model-policy-guard');
-const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
-const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+const { enforceGuards } = require('./proxy-guards');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -146,27 +145,6 @@ function getUrlPathForSpan(requestUrl) {
  */
 function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
-}
-
-/**
- * Attempt to extract the `model` field from a JSON request body.
- * Returns null for non-JSON bodies, bodies without a string `model` field,
- * or any parse failures.
- *
- * @param {Buffer} body
- * @returns {string|null}
- */
-function extractModelFromBody(body) {
-  if (!body || body.length === 0) return null;
-  try {
-    const parsed = JSON.parse(body.toString('utf8'));
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return typeof parsed.model === 'string' ? parsed.model : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 function handleRequestError(err, {
@@ -366,91 +344,6 @@ function sendUpstreamRequest(requestHeaders, {
 
   if (body.length > 0) proxyReq.write(body);
   proxyReq.end();
-}
-
-function sendGuardBlockedResponse(block, {
-  req,
-  res,
-  provider,
-  requestId,
-  startTime,
-  span,
-  statusCode,
-  eventName,
-  buildError,
-  buildLogFields,
-  body,
-  inboundBytes,
-}) {
-  const duration = Date.now() - startTime;
-  const guardLogFields = buildLogFields(block);
-  metrics.gaugeDec('active_requests', { provider });
-  metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
-  metrics.observe('request_duration_ms', duration, { provider });
-  logRequest('warn', eventName, {
-    request_id: requestId,
-    provider,
-    ...guardLogFields,
-  });
-  otel.endSpan(span, statusCode);
-  res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
-  res.end(JSON.stringify(buildError(block)));
-
-  writeBlockedRequestDiag({
-    requestId,
-    provider,
-    path: sanitizeForLog(req.url),
-    guardType: eventName,
-    guardLogFields,
-    body: body || Buffer.alloc(0),
-    inboundBytes: inboundBytes || 0,
-  });
-}
-
-function enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes }) {
-  const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
-  const model = checkModelMultiplier ? extractModelFromBody(body) : null;
-
-  const guardChecks = buildCommonGuardChecks({
-    getEffectiveTokenBlockState,
-    buildEffectiveTokenLimitError,
-    getMaxRunsBlockState,
-    buildMaxRunsExceededError,
-    getMaxCacheMissesBlockState,
-    buildMaxCacheMissesExceededError,
-    getPermissionDeniedBlockState,
-    buildPermissionDeniedLimitError,
-    getAiCreditsBlockState,
-    buildAiCreditsLimitError,
-    getModelMultiplierCapBlockState,
-    buildModelMultiplierCapError,
-    getRetiredModelBlockState,
-    buildRetiredModelError,
-    checkUnknownModelRejection,
-    getModelPolicyBlockState,
-    buildModelPolicyError,
-  }, model);
-
-  for (const guard of guardChecks) {
-    if (!guard.isBlocked(guard.block)) continue;
-    sendGuardBlockedResponse(guard.block, {
-      req,
-      res,
-      provider,
-      requestId,
-      startTime,
-      span,
-      statusCode: guard.statusCode,
-      eventName: guard.eventName,
-      buildError: guard.buildError,
-      buildLogFields: guard.buildLogFields,
-      body,
-      inboundBytes,
-    });
-    return true;
-  }
-
-  return false;
 }
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
