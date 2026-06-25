@@ -1,6 +1,5 @@
 import { CLI_PROXY_CONTAINER_NAME } from '../constants';
 import { parseDifcProxyHost } from '../host-env';
-import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { assignImageSource } from '../image-tag';
 import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
@@ -48,7 +47,6 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   // so that gh CLI's GH_HOST=localhost:${difcProxyPort} matches the cert's SAN.
   const cliProxyService: any = {
     container_name: CLI_PROXY_CONTAINER_NAME,
-    user: `${getSafeHostUid()}:${getSafeHostGid()}`,
     networks: {
       'awf-net': {
         ipv4_address: cliProxyIp,

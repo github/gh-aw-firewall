@@ -1,5 +1,4 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
-import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -40,7 +39,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(result.services['cli-proxy']).toBeDefined();
         const proxy = result.services['cli-proxy'] as any;
         expect(proxy.container_name).toBe('awf-cli-proxy');
-        expect(proxy.user).toBe(`${getSafeHostUid()}:${getSafeHostGid()}`);
+        expect(proxy.user).toBeUndefined();
         // cli-proxy gets its own IP on awf-net (no shared network namespace)
         expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.50');
         expect(proxy.network_mode).toBeUndefined();

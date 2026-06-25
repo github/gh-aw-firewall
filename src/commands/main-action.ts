@@ -171,6 +171,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         config.dockerHostPathPrefix,
         config.imageRegistry,
         config.imageTag,
+        config.agentImage,
       );
       // Note: We don't remove the firewall network here since it can be reused
       // across multiple runs. Cleanup script will handle removal if needed.

@@ -91,13 +91,15 @@ type PreserveCleanupArtifactsOptions = {
   dockerHostPathPrefix?: string;
   imageRegistry?: string;
   imageTag?: string;
+  agentImage?: string;
 };
 
-function resolvePermFixerImageRef(imageRegistry?: string, imageTag?: string): string {
+function resolvePermFixerImageRef(imageRegistry?: string, imageTag?: string, agentImage?: string): string {
   try {
     const registry = imageRegistry || 'ghcr.io/github/gh-aw-firewall';
     const parsedImageTag = parseImageTag(imageTag || 'latest');
-    return buildRuntimeImageRef(registry, 'agent', parsedImageTag);
+    const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
+    return buildRuntimeImageRef(registry, imageName, parsedImageTag);
   } catch {
     return 'ghcr.io/github/gh-aw-firewall/agent:latest';
   }
@@ -108,6 +110,7 @@ function fixArtifactPermissionsForRootless(
   dockerHostPathPrefix: string | undefined,
   imageRegistry: string | undefined,
   imageTag: string | undefined,
+  agentImage: string | undefined,
 ): void {
   const currentUid = process.getuid?.();
   if (currentUid === undefined || currentUid === 0) {
@@ -123,10 +126,10 @@ function fixArtifactPermissionsForRootless(
 
   const uid = getSafeHostUid();
   const gid = getSafeHostGid();
-  const imageRef = resolvePermFixerImageRef(imageRegistry, imageTag);
+  const imageRef = resolvePermFixerImageRef(imageRegistry, imageTag, agentImage);
 
   for (const dir of existingDirs) {
-    const mount = applyHostPathPrefixToVolumes([`${dir}:/fix:rw`], dockerHostPathPrefix)[0];
+    const mount = applyHostPathPrefixToVolumes([`${path.resolve(dir)}:/fix:rw`], dockerHostPathPrefix)[0];
     try {
       const result = execa.sync(
         'docker',
@@ -170,7 +173,7 @@ function fixArtifactPermissionsForRootless(
 
 export function preserveCleanupArtifacts(
   workDir: string,
-  { proxyLogsDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag }: PreserveCleanupArtifactsOptions = {},
+  { proxyLogsDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag, agentImage }: PreserveCleanupArtifactsOptions = {},
 ): void {
   const timestamp = path.basename(workDir).replace('awf-', '');
   const agentLogsDestination = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
@@ -293,6 +296,7 @@ export function preserveCleanupArtifacts(
     dockerHostPathPrefix,
     imageRegistry,
     imageTag,
+    agentImage,
   );
 }
 

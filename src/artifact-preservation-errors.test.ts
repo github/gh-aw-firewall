@@ -186,8 +186,33 @@ describe('artifact-preservation – error paths', () => {
             '--pull',
             'never',
             '-v',
-            `/host${auditDir}:/fix:rw`,
+            `/host${path.resolve(auditDir)}:/fix:rw`,
             'ghcr.io/github/gh-aw-firewall/agent:latest',
+          ]),
+          expect.objectContaining({ reject: false }),
+        );
+      } finally {
+        realFs.rmSync(auditDir, { recursive: true, force: true });
+        realFs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+
+    it('uses agent-act image when agentImage is act', () => {
+      const auditDir = makeTempDir('awf-audit-');
+      const workDir = makeTempDir();
+      try {
+        getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+        expect(() => preserveCleanupArtifacts(workDir, {
+          auditDir,
+          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+          imageTag: 'latest',
+          agentImage: 'act',
+        })).not.toThrow();
+
+        expect(mockExecaSync).toHaveBeenCalledWith(
+          'docker',
+          expect.arrayContaining([
+            'ghcr.io/github/gh-aw-firewall/agent-act:latest',
           ]),
           expect.objectContaining({ reject: false }),
         );

@@ -20,6 +20,7 @@ export async function cleanup(
   dockerHostPathPrefix?: string,
   imageRegistry?: string,
   imageTag?: string,
+  agentImage?: string,
 ): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
@@ -39,6 +40,7 @@ export async function cleanup(
       dockerHostPathPrefix,
       imageRegistry,
       imageTag,
+      agentImage,
     });
 
     cleanupSslKeyMaterial(workDir);
