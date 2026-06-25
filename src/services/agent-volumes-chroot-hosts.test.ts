@@ -1,4 +1,4 @@
-import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
+import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig, withEnv } from './service-test-setup.test-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -10,31 +10,6 @@ import { logger } from '../logger';
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
 const { getConfig } = useAgentVolumesTestConfig();
-
-function withEnv(envPatch: Record<string, string | undefined>, fn: () => void): void {
-  const saved: Record<string, string | undefined> = {};
-
-  for (const [key, value] of Object.entries(envPatch)) {
-    saved[key] = process.env[key];
-    if (value !== undefined) {
-      process.env[key] = value;
-    } else {
-      delete process.env[key];
-    }
-  }
-
-  try {
-    fn();
-  } finally {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value !== undefined) {
-        process.env[key] = value;
-      } else {
-        delete process.env[key];
-      }
-    }
-  }
-}
 
 describe('agent service', () => {
   it('should skip .copilot bind mount when directory does not exist at non-standard HOME path', () => {

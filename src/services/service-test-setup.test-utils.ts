@@ -32,6 +32,36 @@ import { baseConfig, useTempWorkDir } from '../test-helpers/docker-test-fixtures
  * });
  * ```
  */
+/**
+ * Temporarily patches `process.env`, runs `fn`, then restores the original values.
+ *
+ * Pass `undefined` as the value for a key to delete it for the duration of the call.
+ */
+export function withEnv(envPatch: Record<string, string | undefined>, fn: () => void): void {
+  const saved: Record<string, string | undefined> = {};
+
+  for (const [key, value] of Object.entries(envPatch)) {
+    saved[key] = process.env[key];
+    if (value !== undefined) {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value !== undefined) {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    }
+  }
+}
+
 export function useAgentVolumesTestConfig(): { getConfig: () => WrapperConfig } {
   let mockConfig: WrapperConfig | undefined;
   const getConfig = (): WrapperConfig => {

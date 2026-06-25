@@ -101,12 +101,14 @@ describe('agent service', () => {
     const chrootHostsPath = `${getConfig().workDir}/${chrootDir}/hosts`;
     const content = fs.readFileSync(chrootHostsPath, 'utf8');
 
-    // Count occurrences of 'localhost' - should only be the original entries, not duplicated
-    const localhostMatches = content.match(/localhost/g);
-    // /etc/hosts typically has multiple localhost entries (127.0.0.1 and ::1)
-    // The key assertion is that getent should NOT have been called for localhost
-    // since it's already in the hosts file
-    expect(localhostMatches).toBeDefined();
+    // 'localhost' should appear in the base /etc/hosts content (at least one occurrence)
+    expect(content).toContain('localhost');
+    // getent should NOT have been called for localhost — it's already in the hosts file
+    // so the pre-resolution step should skip it to avoid duplicates
+    const localhostGetentCalls = mockExecaSync.mock.calls.filter(
+      (call: any[]) => call[0] === 'getent' && call[1]?.[0] === 'hosts' && call[1]?.[1] === 'localhost'
+    );
+    expect(localhostGetentCalls).toHaveLength(0);
 
     // Reset mock
     mockExecaSync.mockReset();
