@@ -7,22 +7,11 @@
  *   - src/host-iptables-chain.ts                  (2 uncovered branches)
  */
 
-/* eslint-disable security/detect-non-literal-fs-filename */
-
-// ─── execa mock must be declared before any imports that use it ───────────────
-jest.mock('execa');
-jest.mock('./docker-manager', () => ({
-  getLocalDockerEnv: () => process.env,
-}));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-// ─────────────────────────────────────────────────────────────────────────────
-
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import execa from 'execa';
+import { execaResult, mockedExeca } from './test-helpers/host-iptables-test-setup';
 import { buildEtcMounts } from './services/agent-volumes/etc-mounts';
 import { buildSystemMounts } from './services/agent-volumes/system-mounts';
 import { buildApiProxyService } from './services/api-proxy-service';
@@ -35,22 +24,27 @@ import type { NetworkConfig, ImageBuildConfig } from './services/squid-service';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-type MockedExecaFn = (file: string, args?: readonly string[], options?: unknown) => Promise<unknown>;
-const mockedExeca = execa as unknown as jest.MockedFunction<MockedExecaFn>;
+function makeTempDir(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
 
-function execaResult(overrides: { exitCode?: number; stdout?: string; stderr?: string } = {}): unknown {
-  return {
-    command: '',
-    escapedCommand: '',
-    exitCode: 0,
-    stdout: '',
-    stderr: '',
-    failed: false,
-    timedOut: false,
-    killed: false,
-    isCanceled: false,
-    ...overrides,
-  };
+function ensureDir(dirPath: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path is controlled by the test
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function writeUtf8(filePath: string, content: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test fixture path is controlled by the test
+  fs.writeFileSync(filePath, content);
+}
+
+function readUtf8(filePath: string): string {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- test reads fixture output generated in a temp dir
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function removeDir(dirPath: string): void {
+  fs.rmSync(dirPath, { recursive: true, force: true });
 }
 
 function makeMinimalConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -69,12 +63,12 @@ describe('etc-mounts branch coverage', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-etc-br-'));
+    tmpDir = makeTempDir('awf-etc-br-');
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeDir(tmpDir);
   });
 
   // Helpers for DinD-mode mocking
@@ -103,9 +97,9 @@ describe('etc-mounts branch coverage', () => {
   ): { passwd: string; group: string } {
     const passwd = path.join(dir, 'etc', 'passwd');
     const group = path.join(dir, 'etc', 'group');
-    fs.mkdirSync(path.dirname(passwd), { recursive: true });
-    fs.writeFileSync(passwd, passwdContent);
-    fs.writeFileSync(group, groupContent);
+    ensureDir(path.dirname(passwd));
+    writeUtf8(passwd, passwdContent);
+    writeUtf8(group, groupContent);
     return { passwd, group };
   }
 
@@ -128,7 +122,7 @@ describe('etc-mounts branch coverage', () => {
     const mounts = buildEtcMounts(config);
 
     const passwdPath = mounts.find(m => m.includes('/host/etc/passwd'))!.split(':')[0];
-    const content = fs.readFileSync(passwdPath, 'utf8');
+    const content = readUtf8(passwdPath);
 
     // Should use bare 'runner' (no -919191 suffix) since 'runner' is absent
     expect(content).toContain('runner:x:919191:');
@@ -162,7 +156,7 @@ describe('etc-mounts branch coverage', () => {
     const mounts = buildEtcMounts(config);
 
     const passwdPath = mounts.find(m => m.includes('/host/etc/passwd'))!.split(':')[0];
-    const passwdContent = fs.readFileSync(passwdPath, 'utf8');
+    const passwdContent = readUtf8(passwdPath);
 
     // Counter bumped once → 'runner-424242-1'
     expect(passwdContent).toContain('runner-424242-1:x:424242:');
@@ -186,7 +180,7 @@ describe('etc-mounts branch coverage', () => {
     const mounts = buildEtcMounts(config);
 
     const passwdPath = mounts.find(m => m.includes('/host/etc/passwd'))!.split(':')[0];
-    const content = fs.readFileSync(passwdPath, 'utf8');
+    const content = readUtf8(passwdPath);
 
     // newline must appear before the runner entry so entries are line-delimited
     expect(content).toMatch(/\nrunner:x:777777:/);
@@ -200,7 +194,7 @@ describe('etc-mounts branch coverage', () => {
     const phantomPath = path.join(tmpDir, 'phantom-passwd-no-exist');
     const phantomGroup = path.join(tmpDir, 'phantom-group-no-exist');
     const stageDir = path.join(tmpDir, 'stage');
-    fs.mkdirSync(stageDir, { recursive: true });
+    ensureDir(stageDir);
 
     setupDinDMocks(uid, gid, stageDir, phantomPath, phantomGroup);
 
