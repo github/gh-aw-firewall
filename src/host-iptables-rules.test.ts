@@ -7,8 +7,13 @@
  * pure-logic helpers that those suites only sanity-check:
  *
  *   - isValidPortSpec  – boundary values, leading zeros, floats, ranges
+ *
+ * The fixture-driven suite at the bottom validates all cases from
+ * tests/port-spec-fixtures.json, which is the single source of truth shared
+ * with the shell is_valid_port_spec() in containers/agent/setup-iptables.sh.
  */
 
+import * as path from 'path';
 import { iptablesRulesTestHelpers } from './host-iptables-rules.test-utils';
 
 const { isValidPortSpec } = iptablesRulesTestHelpers;
@@ -155,5 +160,26 @@ describe('isValidPortSpec – port range', () => {
     expect(isValidPortSpec('80 - 443')).toBe(false);
     expect(isValidPortSpec('80- 443')).toBe(false);
     expect(isValidPortSpec(' 80-443')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture-driven suite — single source of truth shared with the shell
+// is_valid_port_spec() in containers/agent/setup-iptables.sh.
+// Any change to tests/port-spec-fixtures.json must also be reflected there.
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const portSpecFixtures: { valid: string[]; invalid: string[] } = require(
+  path.join(__dirname, '..', 'tests', 'port-spec-fixtures.json'),
+);
+
+describe('isValidPortSpec – shared fixtures (tests/port-spec-fixtures.json)', () => {
+  it.each(portSpecFixtures.valid)('accepts valid spec %j', (spec) => {
+    expect(isValidPortSpec(spec)).toBe(true);
+  });
+
+  it.each(portSpecFixtures.invalid)('rejects invalid spec %j', (spec) => {
+    expect(isValidPortSpec(spec)).toBe(false);
   });
 });

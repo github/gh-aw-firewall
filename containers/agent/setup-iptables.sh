@@ -25,6 +25,8 @@ has_ip6tables() {
 
 # Validate port specification (single port 1-65535 or range N-M)
 # Rejects leading zeros (e.g., 080) to align with TypeScript isValidPortSpec()
+# in src/host-iptables-validation.ts.  The shared test vectors in
+# tests/port-spec-fixtures.json are run against both implementations.
 is_valid_port_spec() {
   local spec="$1"
   if echo "$spec" | grep -qE '^[1-9][0-9]{0,4}-[1-9][0-9]{0,4}$'; then
