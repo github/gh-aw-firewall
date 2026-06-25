@@ -28,6 +28,7 @@ Establish these facts before matching a failure mode:
 | A9 | GitHub MCP tools disappear under `--disable-builtin-mcps` | `mount_mcp_as_cli.cjs` hardcoded the GitHub server as internal | Remove or make the internal-server list configurable | Check generated `mcp-*` shims and `INTERNAL_SERVERS` in the image | #4271, #4399, #4727, #4737, #4787 |
 | A10 | `Docker socket not found` plus `Invalid container ID format: arc-...` | MCP gateway assumed `/var/run/docker.sock`, group 0, and Docker-style container IDs | Propagate `DOCKER_HOST`, detect socket GID, relax pod-name handling | `stat -c '%g' ${DOCKER_HOST#unix://}`, `cat /proc/self/cgroup` | #2267, #2292, #2664, #2706, #2808 |
 | A11 | Threat detection passes even though the engine binary is missing | `GH_AW_DETECTION_CONTINUE_ON_ERROR` suppressed a real setup failure | Reconsider default or log the skipped check explicitly | `printenv GH_AW_DETECTION_CONTINUE_ON_ERROR`; inspect agent logs for `ENOENT` | #4787 |
+| A12 | `mkdirat ... : read-only file system` during agent chroot startup on ARC/DinD | `chroot.binariesSourcePath` set to the same root as `--docker-host-path-prefix` (e.g. both `/tmp/gh-aw`); Docker mounts `/tmp/gh-aw/usr:/host/usr:ro` first, then the attempt to mkdir `/host/usr/local/bin` as a nested overlay mount point fails because the parent is read-only | **Fixed in firewall v0.27.10**: upgrade AWF; the overlay is now mounted at `/host/tmp/awf-runner-bin:ro` (writable `/host/tmp` parent) instead of `/host/usr/local/bin:ro` | Check `awf --version`; inspect agent container logs for `mkdirat`; verify `chroot.binariesSourcePath` equals `docker-host-path-prefix` root | #5481, #5482 |
 
 ## Category B — Self-hosted runners
 
@@ -72,6 +73,7 @@ Establish these facts before matching a failure mode:
 | `malformed version:` from `gh --repo` | C5 |
 | `400 bad request: Authorization header is badly formatted` | C3 |
 | `ENOENT ... /host/usr/local/bin/copilot` | A8 |
+| `mkdirat ... : read-only file system` during chroot agent startup | A12 |
 | `getent passwd <UID>` fails or `HOME=/`, `USER=root` in chroot | A6 |
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |
 

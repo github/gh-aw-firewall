@@ -97,6 +97,7 @@ Prefer the narrowest match. Examples:
 
 - split filesystem / missing bind-mounted files → A1 or A3
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
+- `mkdirat ... : read-only file system` during chroot agent startup → A12
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
