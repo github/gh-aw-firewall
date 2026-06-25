@@ -16,6 +16,7 @@ describe('setup-iptables phase functions', () => {
       'has_ip6tables',
       'is_valid_port_spec',
       'allow_service_ports_to_ip',
+      'allow_host_access_to_gateway',
       'check_ip6tables_availability',
       'disable_ipv6',
       'resolve_squid_ip',

@@ -250,6 +250,34 @@ configure_dns_nat_rules() {
   iptables -t nat -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j RETURN
 }
 
+# Apply NAT bypass + FILTER ACCEPT rules for a single gateway IP.
+# Usage: allow_host_access_to_gateway <ip> <label>
+#   <ip>    - validated IPv4 address of the gateway
+#   <label> - human-readable name used in log messages (e.g. "host gateway", "network gateway")
+allow_host_access_to_gateway() {
+  local gw_ip="$1"
+  local label="$2"
+  echo "[iptables] Allow direct traffic to ${label} (${gw_ip}) - bypassing Squid..."
+  # NAT: skip DNAT to Squid for all traffic to this gateway (prevents Squid crash)
+  iptables -t nat -A OUTPUT -d "$gw_ip" -j RETURN
+  # FILTER: only allow standard ports (80, 443) to this gateway
+  iptables -A OUTPUT -p tcp -d "$gw_ip" --dport 80 -j ACCEPT
+  iptables -A OUTPUT -p tcp -d "$gw_ip" --dport 443 -j ACCEPT
+  # FILTER: also allow user-specified ports from --allow-host-ports
+  if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+    IFS=',' read -ra _GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
+    for port_spec in "${_GW_PORTS[@]}"; do
+      port_spec=$(echo "$port_spec" | xargs)
+      if ! is_valid_port_spec "$port_spec"; then
+        echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
+        continue
+      fi
+      echo "[iptables]   Allow ${label} port $port_spec"
+      iptables -A OUTPUT -p tcp -d "$gw_ip" --dport "$port_spec" -j ACCEPT
+    done
+  fi
+}
+
 configure_host_access_rules() {
   # Bypass Squid for host.docker.internal when host access is enabled.
   # MCP gateway traffic to host.docker.internal gets DNAT'd to Squid,
@@ -259,25 +287,7 @@ configure_host_access_rules() {
   if [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
     HOST_GATEWAY_IP=$(getent hosts host.docker.internal | awk 'NR==1 { print $1 }')
     if [ -n "$HOST_GATEWAY_IP" ] && is_valid_ipv4 "$HOST_GATEWAY_IP"; then
-      echo "[iptables] Allow direct traffic to host gateway (${HOST_GATEWAY_IP}) - bypassing Squid..."
-      # NAT: skip DNAT to Squid for all traffic to host gateway (prevents Squid crash)
-      iptables -t nat -A OUTPUT -d "$HOST_GATEWAY_IP" -j RETURN
-      # FILTER: only allow standard ports (80, 443) to host gateway
-      iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 80 -j ACCEPT
-      iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport 443 -j ACCEPT
-      # FILTER: also allow user-specified ports from --allow-host-ports
-      if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-        IFS=',' read -ra HOST_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-        for port_spec in "${HOST_PORTS[@]}"; do
-          port_spec=$(echo "$port_spec" | xargs)
-          if ! is_valid_port_spec "$port_spec"; then
-            echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-            continue
-          fi
-          echo "[iptables]   Allow host gateway port $port_spec"
-          iptables -A OUTPUT -p tcp -d "$HOST_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
-        done
-      fi
+      allow_host_access_to_gateway "$HOST_GATEWAY_IP" "host gateway"
     elif [ -n "$HOST_GATEWAY_IP" ]; then
       echo "[iptables] WARNING: host.docker.internal resolved to invalid IP '${HOST_GATEWAY_IP}', skipping host gateway bypass"
     else
@@ -290,21 +300,7 @@ configure_host_access_rules() {
     # MCP Streamable HTTP traffic goes through Squid, which crashes on SSE connections.
     NETWORK_GATEWAY_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
     if [ -n "$NETWORK_GATEWAY_IP" ] && is_valid_ipv4 "$NETWORK_GATEWAY_IP" && [ "$NETWORK_GATEWAY_IP" != "$HOST_GATEWAY_IP" ]; then
-      echo "[iptables] Allow direct traffic to network gateway (${NETWORK_GATEWAY_IP}) - bypassing Squid..."
-      iptables -t nat -A OUTPUT -d "$NETWORK_GATEWAY_IP" -j RETURN
-      iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 80 -j ACCEPT
-      iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport 443 -j ACCEPT
-      if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-        IFS=',' read -ra NET_GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-        for port_spec in "${NET_GW_PORTS[@]}"; do
-          port_spec=$(echo "$port_spec" | xargs)
-          if ! is_valid_port_spec "$port_spec"; then
-            echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-            continue
-          fi
-          iptables -A OUTPUT -p tcp -d "$NETWORK_GATEWAY_IP" --dport "$port_spec" -j ACCEPT
-        done
-      fi
+      allow_host_access_to_gateway "$NETWORK_GATEWAY_IP" "network gateway"
     elif [ -n "$NETWORK_GATEWAY_IP" ] && ! is_valid_ipv4 "$NETWORK_GATEWAY_IP"; then
       echo "[iptables] WARNING: network gateway resolved to invalid IP '${NETWORK_GATEWAY_IP}', skipping"
     fi
