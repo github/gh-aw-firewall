@@ -86,6 +86,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Architecture](docs/architecture.md) — how Squid, Docker, and iptables fit together
 - [Compatibility](docs/compatibility.md) — supported Node.js, OS, and Docker versions
 - [Troubleshooting](docs/troubleshooting.md) — common issues and fixes
+- [Diagnosing AWF failures](docs/diagnosing-awf-failures.md) — use the Self-Hosted Runner Doctor agent to triage self-hosted/ARC/GHES/GHEC failures
 - [Image verification](docs/image-verification.md) — cosign signature verification
 
 ## Development
