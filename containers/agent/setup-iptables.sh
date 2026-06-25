@@ -265,8 +265,10 @@ allow_host_access_to_gateway() {
   iptables -A OUTPUT -p tcp -d "$gw_ip" --dport 443 -j ACCEPT
   # FILTER: also allow user-specified ports from --allow-host-ports
   if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
-    IFS=',' read -ra _GW_PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-    for port_spec in "${_GW_PORTS[@]}"; do
+    local -a gw_ports=()
+    local port_spec=""
+    IFS=',' read -ra gw_ports <<< "$AWF_ALLOW_HOST_PORTS"
+    for port_spec in "${gw_ports[@]}"; do
       port_spec=$(echo "$port_spec" | xargs)
       if ! is_valid_port_spec "$port_spec"; then
         echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
@@ -276,7 +278,6 @@ allow_host_access_to_gateway() {
       iptables -A OUTPUT -p tcp -d "$gw_ip" --dport "$port_spec" -j ACCEPT
     done
   fi
-}
 
 configure_host_access_rules() {
   # Bypass Squid for host.docker.internal when host access is enabled.
