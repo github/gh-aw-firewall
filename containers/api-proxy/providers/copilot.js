@@ -134,10 +134,6 @@ function buildCopilotModelsRequest(extra = {}) {
     ...extra,
   };
 }
-      },
-      ...extra,
-    };
-  }
 
   // Copilot has dual auth modes (GitHub OAuth vs BYOK) with different validation
   // and model-fetch rules, so we override those two methods while still sharing
