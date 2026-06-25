@@ -170,12 +170,12 @@ describe('rate-limiter-window', () => {
       expect(retry).toBe(SIZE);
     });
 
-    it('should return a smaller value when only recent slots are occupied', () => {
+    it('should return SIZE when only the current slot is occupied', () => {
       const win = createWindow(SIZE);
       // Record only in the most recent slot
       recordInWindow(win, SIZE - 1, SIZE, 5);
       const retry = estimateRetryAfter(win, SIZE - 1, SIZE, 5);
-      expect(retry).toBe(1); // expires in 1 time-unit
+      expect(retry).toBe(SIZE); // newest slot expires in SIZE time-units
     });
 
     it('should find the slot that frees enough capacity', () => {
