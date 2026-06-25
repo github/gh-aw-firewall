@@ -103,7 +103,7 @@ function copySeccompProfile(config: WrapperConfig): void {
 }
 
 /**
- * Phase 3 — Initialises SSL Bump if enabled.
+ * Phase 4 — Initialises SSL Bump if enabled.
  *
  * Generates a per-session CA certificate and an SSL database for Squid's
  * SSL-Bump intercept mode. Returns `undefined` when SSL Bump is disabled.
