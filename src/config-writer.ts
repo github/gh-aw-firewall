@@ -63,7 +63,7 @@ function validateAndPrepareWorkDir(config: WrapperConfig): void {
 }
 
 /**
- * Phase 2 — Copies the seccomp profile into the work directory.
+ * Phase 3 — Copies the seccomp profile into the work directory.
  *
  * Uses a three-path fallback strategy:
  * 1. Embedded profile (esbuild bundle — `__AWF_SECCOMP_PROFILE__` global)
