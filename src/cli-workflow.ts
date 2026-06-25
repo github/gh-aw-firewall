@@ -9,7 +9,7 @@ interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
-  startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean) => Promise<void>;
+  startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>) => Promise<void>;
   runAgentCommand: (
     workDir: string,
     allowedDomains: string[],
@@ -97,9 +97,33 @@ export async function runMainWorkflow(
   logger.info('Generating configuration files...');
   await dependencies.writeConfigs(config);
 
-  // Step 2: Start containers
+  // Step 2: Start containers.
+  //
+  // In network-isolation (topology) mode with topology-attach peers, use a phased
+  // startup to break the ordering deadlock: the cli-proxy liveness probe requires
+  // the external DIFC peer to be reachable on awf-net, but the peer is only joined
+  // to awf-net after startContainers() returns — a circular dependency that causes
+  // EAI_AGAIN → fail-fast → agent never invoked.
+  //
+  // Fix: pass an onNetworkReady hook so startContainers() can:
+  //   1. Start squid-proxy alone (creates awf-net, no health-gated dependents).
+  //   2. Invoke onNetworkReady() — attaches the topology peers to awf-net.
+  //   3. Run the full docker compose up — cli-proxy probe resolves the peer.
+  //
+  // Non-topology runs (no onNetworkReady) keep the existing single-up path.
+  const onNetworkReady =
+    config.networkIsolation &&
+    config.topologyAttach &&
+    config.topologyAttach.length > 0 &&
+    dependencies.connectTopologyContainers
+      ? async () => {
+          logger.info(`Attaching ${config.topologyAttach!.length} trusted container(s) to the internal network...`);
+          await dependencies.connectTopologyContainers!(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
+        }
+      : undefined;
+
   try {
-    await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull);
+    await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull, onNetworkReady);
   } catch (startError) {
     // Signal that containers may have been partially created so the caller's
     // cleanup (stopContainers / docker compose down -v) will tear them down
@@ -118,19 +142,6 @@ export async function runMainWorkflow(
     throw startError;
   }
   onContainersStarted?.();
-
-  // Step 2.5: Attach externally-launched trusted containers (e.g. mcp-gateway,
-  // DIFC proxy) to the internal topology network so the agent can reach them
-  // without an egress path of their own.
-  if (
-    config.networkIsolation &&
-    config.topologyAttach &&
-    config.topologyAttach.length > 0 &&
-    dependencies.connectTopologyContainers
-  ) {
-    logger.info(`Attaching ${config.topologyAttach.length} trusted container(s) to the internal network...`);
-    await dependencies.connectTopologyContainers(TOPOLOGY_NETWORK_NAME, config.topologyAttach);
-  }
 
   // Step 3: Wait for agent to complete
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);

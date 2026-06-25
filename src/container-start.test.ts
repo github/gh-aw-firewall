@@ -386,4 +386,128 @@ describe('startContainers', () => {
 
     expectComposeUpAttempts(2);
   });
+
+  describe('phased startup (onNetworkReady / topology mode)', () => {
+    it('starts squid-proxy with --no-deps first, calls onNetworkReady, then runs full bring-up', async () => {
+      const callOrder: string[] = [];
+      const onNetworkReady = jest.fn().mockImplementation(async () => {
+        callOrder.push('onNetworkReady');
+      });
+
+      // 1. docker rm (initial cleanup)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up --no-deps squid-proxy (Phase 1: create awf-net)
+      mockExecaFn.mockImplementationOnce(async () => {
+        callOrder.push('compose-up-squid-only');
+        return { stdout: '', stderr: '', exitCode: 0 };
+      });
+      // 3. docker compose up -d (Phase 3: full bring-up)
+      mockExecaFn.mockImplementationOnce(async () => {
+        callOrder.push('compose-up-full');
+        return { stdout: '', stderr: '', exitCode: 0 };
+      });
+
+      await startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady);
+
+      expect(callOrder).toEqual(['compose-up-squid-only', 'onNetworkReady', 'compose-up-full']);
+      expect(onNetworkReady).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses --no-deps squid-proxy for the first phase', async () => {
+      const onNetworkReady = jest.fn().mockResolvedValue(undefined);
+
+      // 1. docker rm
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up --no-deps squid-proxy
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 3. docker compose up -d
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady);
+
+      const squidOnlyCall = mockExecaFn.mock.calls.find(
+        (call: any[]) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('--no-deps')
+      );
+      expect(squidOnlyCall).toBeDefined();
+      expect(squidOnlyCall[1]).toEqual(['compose', 'up', '-d', '--no-deps', 'squid-proxy']);
+      expect(squidOnlyCall[2]).toEqual(expect.objectContaining({ cwd: getDir(), stdout: process.stderr }));
+    });
+
+    it('applies --pull never to both phases when skipPull is true', async () => {
+      const onNetworkReady = jest.fn().mockResolvedValue(undefined);
+
+      // 1. docker rm
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up --no-deps squid-proxy --pull never
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 3. docker compose up -d --pull never
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await startContainers(getDir(), ['github.com'], undefined, true, onNetworkReady);
+
+      const squidOnlyCall = mockExecaFn.mock.calls.find(
+        (call: any[]) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('--no-deps')
+      );
+      expect(squidOnlyCall[1]).toEqual(['compose', 'up', '-d', '--no-deps', 'squid-proxy', '--pull', 'never']);
+
+      const fullUpCall = mockExecaFn.mock.calls.find(
+        (call: any[]) =>
+          call[0] === 'docker' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('up') &&
+          !call[1].includes('--no-deps')
+      );
+      expect(fullUpCall[1]).toEqual(['compose', 'up', '-d', '--pull', 'never']);
+    });
+
+    it('does not call onNetworkReady when squid-only phase fails', async () => {
+      const onNetworkReady = jest.fn().mockResolvedValue(undefined);
+
+      // 1. docker rm
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up --no-deps squid-proxy (fails)
+      mockExecaFn.mockRejectedValueOnce(new Error('squid phase failed'));
+
+      await expect(
+        startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady)
+      ).rejects.toThrow('squid phase failed');
+
+      expect(onNetworkReady).not.toHaveBeenCalled();
+    });
+
+    it('retains the api-proxy/squid one-shot retry in the full bring-up phase', async () => {
+      const onNetworkReady = jest.fn().mockResolvedValue(undefined);
+
+      // 1. docker rm
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 2. docker compose up --no-deps squid-proxy (Phase 1 succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 3. docker compose up -d (Phase 3 first attempt - api-proxy unhealthy)
+      mockExecaFn.mockRejectedValueOnce(
+        new Error('dependency failed to start: container awf-api-proxy is unhealthy')
+      );
+      // 4. docker logs awf-api-proxy (diagnosis)
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'api-proxy logs', stderr: '', exitCode: 0 } as any);
+      // 5. docker compose down (cleanup before retry)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+      // 6. docker compose up -d (Phase 3 retry succeeds)
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+      await expect(
+        startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady)
+      ).resolves.toBeUndefined();
+
+      // onNetworkReady called once (between phases 1 and 3)
+      expect(onNetworkReady).toHaveBeenCalledTimes(1);
+      // Full compose up (without --no-deps) attempted twice (initial + retry)
+      const fullUpCalls = mockExecaFn.mock.calls.filter(
+        (call: any[]) =>
+          call[0] === 'docker' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('up') &&
+          !call[1].includes('--no-deps')
+      );
+      expect(fullUpCalls).toHaveLength(2);
+    });
+  });
 });

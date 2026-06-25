@@ -73,12 +73,16 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
   # Classify the failure for clearer diagnostics:
   #   ECONNREFUSED (exit 7 for curl, or "connection refused" in gh output) → not yet ready
   #   Timeout (exit 28 for curl, or "context deadline" in gh output)        → unreachable / slow
+  #   EAI_AGAIN / ENOTFOUND / getaddrinfo                                   → DNS not yet resolved
+  #     (peer may not yet be joined to awf-net; keep retrying, do not fail fast)
   #   Other                                                                  → unknown / auth error
   DIAG_TYPE="unknown"
   if echo "${PROBE_ERR}" | grep -qiE "connection refused|ECONNREFUSED"; then
     DIAG_TYPE="not-yet-ready (ECONNREFUSED)"
   elif [ "${PROBE_EXIT}" -eq 124 ] || echo "${PROBE_ERR}" | grep -qiE "timeout|deadline|timed out"; then
     DIAG_TYPE="unreachable (timeout)"
+  elif echo "${PROBE_ERR}" | grep -qiE "EAI_AGAIN|ENOTFOUND|getaddrinfo|no such host|name or service not known"; then
+    DIAG_TYPE="dns-not-yet-ready (EAI_AGAIN)"
   fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
     echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"

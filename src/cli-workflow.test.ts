@@ -199,15 +199,18 @@ describe('runMainWorkflow', () => {
     expect(exitCode).toBe(0);
   });
 
-  it('connects topology-attach containers after startup in network-isolation mode', async () => {
+  it('connects topology-attach containers via onNetworkReady callback during startup', async () => {
     const callOrder: string[] = [];
     const connectTopologyContainers = jest.fn().mockImplementation(async () => {
       callOrder.push('connectTopologyContainers');
     });
     const dependencies = createWorkflowDependencies({
       connectTopologyContainers,
-      startContainers: jest.fn().mockImplementation(async () => {
+      startContainers: jest.fn().mockImplementation(async (_workDir: string, _allowedDomains: string[], _proxyLogsDir?: string, _skipPull?: boolean, onNetworkReady?: () => Promise<void>) => {
         callOrder.push('startContainers');
+        // Simulate the phased startup: startContainers invokes the hook
+        // between squid-proxy creation and the full health-gated bring-up.
+        if (onNetworkReady) await onNetworkReady();
       }),
       runAgentCommand: jest.fn().mockImplementation(async () => {
         callOrder.push('runAgentCommand');
@@ -222,8 +225,31 @@ describe('runMainWorkflow', () => {
     );
 
     expect(connectTopologyContainers).toHaveBeenCalledWith('awf-net', ['mcp-gateway', 'difc-proxy']);
+    // connectTopologyContainers runs INSIDE startContainers (via the callback),
+    // so the observable call order is the same as before, but the mechanism now
+    // ensures peers are attached before the cli-proxy liveness probe fires.
     expect(callOrder).toEqual(['startContainers', 'connectTopologyContainers', 'runAgentCommand']);
     expect(exitCode).toBe(0);
+  });
+
+  it('passes an onNetworkReady callback to startContainers only when topology peers are configured', async () => {
+    // With topology-attach peers, startContainers must receive the callback.
+    const startContainersWithPeers = jest.fn().mockResolvedValue(undefined);
+    await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true, topologyAttach: ['mcp-gateway'] },
+      createWorkflowDependencies({ startContainers: startContainersWithPeers, connectTopologyContainers: jest.fn() }),
+      createWorkflowOptions(),
+    );
+    expect(startContainersWithPeers.mock.calls[0][4]).toBeInstanceOf(Function);
+
+    // Without topology-attach peers, onNetworkReady must be undefined.
+    const startContainersNoPeers = jest.fn().mockResolvedValue(undefined);
+    await runMainWorkflow(
+      { ...baseConfig, networkIsolation: true, topologyAttach: [] },
+      createWorkflowDependencies({ startContainers: startContainersNoPeers }),
+      createWorkflowOptions(),
+    );
+    expect(startContainersNoPeers.mock.calls[0][4]).toBeUndefined();
   });
 
   it('does not connect topology containers when topologyAttach is empty', async () => {

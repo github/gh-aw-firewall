@@ -24,8 +24,23 @@ import { checkSquidLogs } from './squid-log-reader';
  * @param allowedDomains - List of allowed domains for error reporting
  * @param proxyLogsDir - Optional custom directory for proxy logs
  * @param skipPull - If true, use local images without pulling from registry
+ * @param onNetworkReady - Optional callback invoked after squid-proxy has started
+ *   (and created the compose-managed network) but before the remaining health-gated
+ *   services are brought up. Used in network-isolation (topology) mode to attach
+ *   external peer containers to `awf-net` before the cli-proxy liveness probe runs,
+ *   preventing the ordering deadlock where the cli-proxy probe cannot resolve a peer
+ *   that has not yet been joined to the internal network.
+ *
+ *   When this callback is provided the startup is split into two phases:
+ *     1. `docker compose up -d --no-deps squid-proxy` — creates `awf-net` and
+ *        starts Squid (the network gateway), without waiting on dependent services.
+ *     2. `onNetworkReady()` — attaches topology peers to `awf-net`.
+ *     3. `docker compose up -d` — full bring-up; the cli-proxy liveness probe can
+ *        now resolve the peer, so the health gate succeeds.
+ *
+ *   When this callback is omitted the existing single-`up` path is used unchanged.
  */
-export async function startContainers(workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean): Promise<void> {
+export async function startContainers(workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>): Promise<void> {
   logger.info('Starting containers...');
 
   // Force remove any existing containers with these names to avoid conflicts
@@ -61,6 +76,29 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       env: getLocalDockerEnv(),
     });
   };
+
+  // Phase 1 (topology mode only): start squid-proxy alone so the compose-managed
+  // awf-net is created before any health-gated dependents (cli-proxy, agent) start.
+  // Then invoke onNetworkReady() so external peer containers are attached to awf-net,
+  // breaking the ordering deadlock where the cli-proxy liveness probe fired before
+  // the DIFC peer had been joined to the internal network (EAI_AGAIN → fail-fast).
+  // Phase 3 is the normal full bring-up below (runDockerComposeUp).
+  if (onNetworkReady) {
+    logger.info('Topology mode: starting squid-proxy first to create awf-net...');
+    const squidOnlyArgs = ['compose', 'up', '-d', '--no-deps', 'squid-proxy'];
+    if (skipPull) {
+      squidOnlyArgs.push('--pull', 'never');
+    }
+    await execa('docker', squidOnlyArgs, {
+      cwd: workDir,
+      stdout: process.stderr,
+      stderr: 'inherit',
+      env: getLocalDockerEnv(),
+    });
+    logger.info('squid-proxy started; attaching topology peers before full bring-up...');
+    await onNetworkReady();
+    logger.info('Topology peers attached; continuing with full container bring-up...');
+  }
 
   try {
     await runDockerComposeUp();
