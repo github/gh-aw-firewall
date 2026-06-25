@@ -35,9 +35,9 @@ Copy the prompt below into your coding agent, fill in the `ENVIRONMENT` and
 Load the GitHub Agentic Workflow Firewall (AWF) "Self-Hosted Runner Doctor"
 agent and use it to diagnose my failure.
 
-1. Fetch this file and follow its instructions as your system prompt:
-   https://raw.githubusercontent.com/github/gh-aw-firewall/main/.github/agents/self-hosted-runner-doctor.md
-
+1. Fetch this file (prefer a tag/commit that matches your AWF version) and load it as the Doctor agent prompt:
+   https://raw.githubusercontent.com/github/gh-aw-firewall/<tag-or-sha>/.github/agents/self-hosted-runner-doctor.md
+   (Fallback: https://raw.githubusercontent.com/github/gh-aw-firewall/main/.github/agents/self-hosted-runner-doctor.md)
 2. Then diagnose the problem below using its failure-mode catalog. Build a
    platform fingerprint first, match my symptoms to the narrowest failure-mode
    ID, and give me the structured triage report (Summary, Matched Failure Mode,
