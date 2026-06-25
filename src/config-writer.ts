@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { WrapperConfig, API_PROXY_PORTS } from './types';
+import { WrapperConfig, API_PROXY_PORTS, DockerComposeConfig } from './types';
 import { logger } from './logger';
 import { generatePolicyManifest, generateSquidConfig } from './squid-config';
 import { generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
@@ -24,13 +24,25 @@ import { prepareWorkDirectories } from './workdir-setup';
 // builds the identifier remains undeclared, so the typeof check below is safe.
 declare const __AWF_SECCOMP_PROFILE__: string | undefined;
 
-/**
- * Writes configuration files to disk
- * Uses fixed network configuration defined in host-iptables-shared.ts
- */
-export async function writeConfigs(config: WrapperConfig): Promise<void> {
-  logger.debug('Writing configuration files...');
+/** Resolved network topology passed between setup phases. */
+interface NetworkConfig {
+  subnet: string;
+  squidIp: string;
+  agentIp: string;
+  proxyIp?: string;
+  dohProxyIp?: string;
+  cliProxyIp?: string;
+}
 
+/**
+ * Phase 1 — Validates and hardens the work directory.
+ *
+ * Creates the directory with restrictive `0o700` permissions, guards against
+ * symlink injection, and re-applies the permission mask on pre-existing dirs.
+ * Security-critical: docker-compose.yml (which contains plaintext secrets) is
+ * written here, so non-root host processes must not be able to read it.
+ */
+function validateAndPrepareWorkDir(config: WrapperConfig): void {
   // Ensure work directory exists with restricted permissions (owner-only access)
   // Defense-in-depth: even if tmpfs overlay fails, non-root processes on the host
   // cannot read the docker-compose.yml which contains sensitive tokens
@@ -48,120 +60,97 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   if (!workDirCreated) {
     fs.chmodSync(config.workDir, 0o700);
   }
+}
 
-  // Resolve all log/state directory paths from a single source of truth
-  const logPaths = resolveLogPaths(config);
-
-  // Prepare all working directories (log/state dirs and chroot home bind-mounts)
-  prepareWorkDirectories(config, logPaths);
-
-  // Use fixed network configuration (network is created by host-iptables.ts)
-  const networkConfig = {
-    subnet: NETWORK_SUBNET,
-    squidIp: SQUID_IP,
-    agentIp: AGENT_IP,
-    proxyIp: API_PROXY_IP,  // Envoy API proxy sidecar
-    dohProxyIp: DOH_PROXY_IP,  // DoH proxy sidecar
-    cliProxyIp: CLI_PROXY_IP,  // CLI proxy sidecar
-  };
-  logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
-
-
-  // Copy seccomp profile to work directory for container security
+/**
+ * Phase 2 — Copies the seccomp profile into the work directory.
+ *
+ * Uses a three-path fallback strategy:
+ * 1. Embedded profile (esbuild bundle — `__AWF_SECCOMP_PROFILE__` global)
+ * 2. Source tree path: `<root>/containers/agent/seccomp-profile.json`
+ * 3. Dist tree path:   `<root>/dist/../containers/agent/seccomp-profile.json`
+ *
+ * Throws if no profile is found — the container cannot start safely without it.
+ */
+function copySeccompProfile(config: WrapperConfig): void {
   const seccompDestPath = path.join(config.workDir, 'seccomp-profile.json');
 
   // Try embedded profile first (available in esbuild bundle)
   if (typeof __AWF_SECCOMP_PROFILE__ !== 'undefined') {
     fs.writeFileSync(seccompDestPath, __AWF_SECCOMP_PROFILE__);
     logger.debug(`Seccomp profile written from embedded data to: ${seccompDestPath}`);
-  } else {
-    const seccompSourcePath = path.join(__dirname, '..', 'containers', 'agent', 'seccomp-profile.json');
-    if (fs.existsSync(seccompSourcePath)) {
-      fs.copyFileSync(seccompSourcePath, seccompDestPath);
-      logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
-    } else {
-      // If running from dist, try relative to dist
-      const altSeccompPath = path.join(__dirname, '..', '..', 'containers', 'agent', 'seccomp-profile.json');
-      if (fs.existsSync(altSeccompPath)) {
-        fs.copyFileSync(altSeccompPath, seccompDestPath);
-        logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
-      } else {
-        const message = `Seccomp profile not found at ${seccompSourcePath} or ${altSeccompPath}. Container security hardening requires the seccomp profile.`;
-        logger.error(message);
-        throw new Error(message);
-      }
+    return;
+  }
+
+  const seccompSourcePath = path.join(__dirname, '..', 'containers', 'agent', 'seccomp-profile.json');
+  if (fs.existsSync(seccompSourcePath)) {
+    fs.copyFileSync(seccompSourcePath, seccompDestPath);
+    logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
+    return;
+  }
+
+  // If running from dist, try relative to dist
+  const altSeccompPath = path.join(__dirname, '..', '..', 'containers', 'agent', 'seccomp-profile.json');
+  if (fs.existsSync(altSeccompPath)) {
+    fs.copyFileSync(altSeccompPath, seccompDestPath);
+    logger.debug(`Seccomp profile written to: ${seccompDestPath}`);
+    return;
+  }
+
+  const message = `Seccomp profile not found at ${seccompSourcePath} or ${altSeccompPath}. Container security hardening requires the seccomp profile.`;
+  logger.error(message);
+  throw new Error(message);
+}
+
+/**
+ * Phase 3 — Initialises SSL Bump if enabled.
+ *
+ * Generates a per-session CA certificate and an SSL database for Squid's
+ * SSL-Bump intercept mode. Returns `undefined` when SSL Bump is disabled.
+ * Security-critical: the generated CA can sign arbitrary certificates for
+ * intercepted HTTPS connections.
+ */
+async function initializeSslBump(config: WrapperConfig): Promise<SslConfig | undefined> {
+  if (!config.sslBump) {
+    return undefined;
+  }
+
+  logger.info('SSL Bump enabled - generating per-session CA certificate...');
+  try {
+    if (!(await isOpenSslAvailable())) {
+      throw new Error('openssl is not available on this system');
     }
+    const caFiles = await generateSessionCa({ workDir: config.workDir });
+    const sslDbPath = await initSslDb(config.workDir);
+    const sslConfig: SslConfig = { caFiles, sslDbPath };
+    logger.info('SSL Bump CA certificate generated successfully');
+    logger.warn('⚠️  SSL Bump mode: HTTPS traffic will be intercepted for URL inspection');
+    logger.warn('   A per-session CA certificate has been generated (valid for 1 day)');
+    return sslConfig;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to generate SSL Bump CA: ${message}`);
+    throw new Error(`SSL Bump initialization failed: ${message}`);
   }
+}
 
-  // Generate SSL Bump certificates if enabled
-  let sslConfig: SslConfig | undefined;
-  if (config.sslBump) {
-    logger.info('SSL Bump enabled - generating per-session CA certificate...');
-    try {
-      if (!(await isOpenSslAvailable())) {
-        throw new Error('openssl is not available on this system');
-      }
-      const caFiles = await generateSessionCa({ workDir: config.workDir });
-      const sslDbPath = await initSslDb(config.workDir);
-      sslConfig = { caFiles, sslDbPath };
-      logger.info('SSL Bump CA certificate generated successfully');
-      logger.warn('⚠️  SSL Bump mode: HTTPS traffic will be intercepted for URL inspection');
-      logger.warn('   A per-session CA certificate has been generated (valid for 1 day)');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to generate SSL Bump CA: ${message}`);
-      throw new Error(`SSL Bump initialization failed: ${message}`);
-    }
-  }
-
-  // Transform user URL patterns to regex patterns for Squid ACLs
-  let urlPatterns: string[] | undefined;
-  if (config.allowedUrls && config.allowedUrls.length > 0) {
-    urlPatterns = parseUrlPatterns(config.allowedUrls);
-    logger.debug(`Parsed ${urlPatterns.length} URL pattern(s) for SSL Bump filtering`);
-  }
-
-  // Write Squid config
-  // Note: Use container path for SSL database since it's mounted at /var/spool/squid_ssl_db
-  const squidConfig = generateSquidConfig({
-    domains: config.allowedDomains,
-    blockedDomains: config.blockedDomains,
-    port: SQUID_PORT,
-    sslBump: config.sslBump,
-    caFiles: sslConfig?.caFiles,
-    sslDbPath: sslConfig ? '/var/spool/squid_ssl_db' : undefined,
-    urlPatterns,
-    enableHostAccess: config.enableHostAccess,
-    allowHostPorts: config.allowHostPorts,
-    enableDlp: config.enableDlp,
-    dnsServers: config.dnsServers,
-    upstreamProxy: config.upstreamProxy,
-    // Allow the api-proxy sidecar IP through Squid before the raw-IP deny rule.
-    // Some HTTP clients (e.g., Node.js fetch / undici ProxyAgent) route requests
-    // to the api-proxy via HTTP_PROXY without honouring NO_PROXY for raw IPs.
-    ...(config.enableApiProxy && networkConfig.proxyIp ? {
-      apiProxyIp: networkConfig.proxyIp,
-      apiProxyPorts: Object.values(API_PROXY_PORTS),
-    } : {}),
-  });
-  const squidConfigPath = path.join(config.workDir, 'squid.conf');
-  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
-  logger.debug(`Squid config written to: ${squidConfigPath}`);
-
-  // Write Docker Compose config
-  // Uses mode 0o600 (owner-only read/write) because this file contains sensitive
-  // environment variables (tokens, API keys) in plaintext
-  const dockerCompose = generateDockerCompose(config, networkConfig, sslConfig, squidConfig);
-  const dockerComposePath = path.join(config.workDir, 'docker-compose.yml');
-  // lineWidth: -1 disables line wrapping to prevent base64-encoded values
-  // (like AWF_SQUID_CONFIG_B64) from being split across multiple lines
-  fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose, { lineWidth: -1 }), { mode: 0o600 });
-  logger.debug(`Docker Compose config written to: ${dockerComposePath}`);
-
-  // Write audit artifacts (config snapshots for post-run forensics)
-  // These files contain no secrets (redacted compose, domain ACLs, policy rules)
-  // and are made world-readable so the gh-aw post-run audit step (running as
-  // non-root runner user) can stat/read them even if AWF cleanup is interrupted.
+/**
+ * Phase 4 — Writes audit artifacts to the audit directory.
+ *
+ * Artifacts are world-readable snapshots that contain no secrets:
+ * - `squid.conf`                  — domain ACLs and proxy config
+ * - `docker-compose.redacted.yml` — compose file with secrets stripped
+ * - `policy-manifest.json`        — structured firewall policy description
+ *
+ * World-readable so the gh-aw post-run audit step (running as the non-root
+ * runner user) can stat/read them even if AWF cleanup is interrupted.
+ */
+function writeAuditArtifacts(
+  config: WrapperConfig,
+  networkConfig: NetworkConfig,
+  dockerCompose: DockerComposeConfig,
+  squidConfig: string
+): void {
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
   if (!fs.existsSync(auditDir)) {
     fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
@@ -200,3 +189,104 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
 
   logger.debug(`Audit artifacts written to: ${auditDir}`);
 }
+
+/**
+ * Writes all configuration files to disk.
+ *
+ * Orchestrates the seven sequential setup phases:
+ * 1. Work-directory security hardening ({@link validateAndPrepareWorkDir})
+ * 2. Log-path resolution and directory preparation
+ * 3. Seccomp profile copy ({@link copySeccompProfile})
+ * 4. SSL-Bump initialisation ({@link initializeSslBump})
+ * 5. Squid ACL config generation and write
+ * 6. Docker Compose generation and write
+ * 7. Audit artifact writing ({@link writeAuditArtifacts})
+ *
+ * Uses fixed network configuration defined in host-iptables-shared.ts
+ */
+export async function writeConfigs(config: WrapperConfig): Promise<void> {
+  logger.debug('Writing configuration files...');
+
+  // Phase 1: Work-directory security hardening
+  validateAndPrepareWorkDir(config);
+
+  // Phase 2: Log-path resolution and directory preparation
+  const logPaths = resolveLogPaths(config);
+  prepareWorkDirectories(config, logPaths);
+
+  // Use fixed network configuration (network is created by host-iptables.ts)
+  const networkConfig: NetworkConfig = {
+    subnet: NETWORK_SUBNET,
+    squidIp: SQUID_IP,
+    agentIp: AGENT_IP,
+    proxyIp: API_PROXY_IP,  // Envoy API proxy sidecar
+    dohProxyIp: DOH_PROXY_IP,  // DoH proxy sidecar
+    cliProxyIp: CLI_PROXY_IP,  // CLI proxy sidecar
+  };
+  logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
+
+  // Phase 3: Seccomp profile copy (security-critical)
+  copySeccompProfile(config);
+
+  // Phase 4: SSL-Bump initialisation (security-critical)
+  const sslConfig = await initializeSslBump(config);
+
+  // Phase 5: Squid ACL config generation and write (security-critical)
+  // Transform user URL patterns to regex patterns for Squid ACLs
+  let urlPatterns: string[] | undefined;
+  if (config.allowedUrls && config.allowedUrls.length > 0) {
+    urlPatterns = parseUrlPatterns(config.allowedUrls);
+    logger.debug(`Parsed ${urlPatterns.length} URL pattern(s) for SSL Bump filtering`);
+  }
+
+  // Note: Use container path for SSL database since it's mounted at /var/spool/squid_ssl_db
+  const squidConfig = generateSquidConfig({
+    domains: config.allowedDomains,
+    blockedDomains: config.blockedDomains,
+    port: SQUID_PORT,
+    sslBump: config.sslBump,
+    caFiles: sslConfig?.caFiles,
+    sslDbPath: sslConfig ? '/var/spool/squid_ssl_db' : undefined,
+    urlPatterns,
+    enableHostAccess: config.enableHostAccess,
+    allowHostPorts: config.allowHostPorts,
+    enableDlp: config.enableDlp,
+    dnsServers: config.dnsServers,
+    upstreamProxy: config.upstreamProxy,
+    // Allow the api-proxy sidecar IP through Squid before the raw-IP deny rule.
+    // Some HTTP clients (e.g., Node.js fetch / undici ProxyAgent) route requests
+    // to the api-proxy via HTTP_PROXY without honouring NO_PROXY for raw IPs.
+    ...(config.enableApiProxy && networkConfig.proxyIp ? {
+      apiProxyIp: networkConfig.proxyIp,
+      apiProxyPorts: Object.values(API_PROXY_PORTS),
+    } : {}),
+  });
+  const squidConfigPath = path.join(config.workDir, 'squid.conf');
+  fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
+  logger.debug(`Squid config written to: ${squidConfigPath}`);
+
+  // Phase 6: Docker Compose generation and write
+  // Uses mode 0o600 (owner-only read/write) because this file contains sensitive
+  // environment variables (tokens, API keys) in plaintext
+  const dockerCompose = generateDockerCompose(config, networkConfig, sslConfig, squidConfig);
+  const dockerComposePath = path.join(config.workDir, 'docker-compose.yml');
+  // lineWidth: -1 disables line wrapping to prevent base64-encoded values
+  // (like AWF_SQUID_CONFIG_B64) from being split across multiple lines
+  fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose, { lineWidth: -1 }), { mode: 0o600 });
+  logger.debug(`Docker Compose config written to: ${dockerComposePath}`);
+
+  // Phase 7: Audit artifact writing
+  // These files contain no secrets (redacted compose, domain ACLs, policy rules)
+  // and are made world-readable so the gh-aw post-run audit step (running as
+  // non-root runner user) can stat/read them even if AWF cleanup is interrupted.
+  writeAuditArtifacts(config, networkConfig, dockerCompose, squidConfig);
+}
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const configWriterTestHelpers = {
+  validateAndPrepareWorkDir,
+  copySeccompProfile,
+  initializeSslBump,
+  writeAuditArtifacts,
+};
