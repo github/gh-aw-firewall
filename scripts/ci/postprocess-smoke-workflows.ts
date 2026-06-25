@@ -28,6 +28,7 @@ const codexWorkflowPaths = [
 // rejects --build-local: "requires a full repository checkout").
 const releaseModeLockFiles = new Set<string>([
   'network-isolation-test.lock.yml',
+  'build-test-network-isolation.lock.yml',
 ]);
 
 // Auto-discover all lock files so new workflows are automatically included.
