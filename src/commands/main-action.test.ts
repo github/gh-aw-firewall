@@ -251,6 +251,7 @@ describe('createMainAction', () => {
         STUB_CONFIG.dockerHostPathPrefix,
         STUB_CONFIG.imageRegistry,
         STUB_CONFIG.imageTag,
+        STUB_CONFIG.agentImage,
       );
       expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);
