@@ -166,7 +166,8 @@ describe('isValidPortSpec – port range', () => {
 // ---------------------------------------------------------------------------
 // Fixture-driven suite — single source of truth shared with the shell
 // is_valid_port_spec() in containers/agent/setup-iptables.sh.
-// Any change to tests/port-spec-fixtures.json must also be reflected there.
+// tests/port-spec-fixtures.json is authoritative; both implementations are
+// expected to conform to every case defined there.
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

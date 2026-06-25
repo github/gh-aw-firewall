@@ -39,13 +39,11 @@ fail() { echo "❌ FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 # ---------------------------------------------------------------------------
 # Source only the is_valid_port_spec() function from setup-iptables.sh.
-# We use a subshell per test to avoid the outer `set -e` aborting on failures
-# returned by is_valid_port_spec().
 # ---------------------------------------------------------------------------
 
-# Extract function definition (everything up to the first blank line after the
-# closing brace of is_valid_port_spec) so we can source it in isolation without
-# side-effects from the rest of the script.
+# Extract function definition (up to and including the closing brace of
+# is_valid_port_spec) so we can source it in isolation without side-effects
+# from the rest of the script.
 FUNC_DEF=$(awk '
   /^is_valid_port_spec\(\)/ { capture=1 }
   capture { print }
@@ -59,7 +57,8 @@ fi
 
 run_is_valid_port_spec() {
   local spec="$1"
-  # Run in a subshell so a non-zero return doesn't kill the test runner
+  # Run in a subshell to isolate the eval so the function definition
+  # doesn't leak into the outer shell's namespace.
   (
     eval "${FUNC_DEF}"
     is_valid_port_spec "$spec"
