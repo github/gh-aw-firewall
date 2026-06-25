@@ -31,7 +31,7 @@ import { checkSquidLogs } from './squid-log-reader';
  *   preventing the ordering deadlock where the cli-proxy probe cannot resolve a peer
  *   that has not yet been joined to the internal network.
  *
- *   When this callback is provided the startup is split into two phases:
+ *   When this callback is provided the startup is split into three phases:
  *     1. `docker compose up -d --no-deps squid-proxy` — creates `awf-net` and
  *        starts Squid (the network gateway), without waiting on dependent services.
  *     2. `onNetworkReady()` — attaches topology peers to `awf-net`.
