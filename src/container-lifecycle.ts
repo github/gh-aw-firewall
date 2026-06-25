@@ -85,10 +85,11 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // Phase 3 is the normal full bring-up below (runDockerComposeUp).
   if (onNetworkReady) {
     logger.info('Topology mode: starting squid-proxy first to create awf-net...');
-    const squidOnlyArgs = ['compose', 'up', '-d', '--no-deps', 'squid-proxy'];
+    const squidOnlyArgs = ['compose', 'up', '-d', '--no-deps'];
     if (skipPull) {
       squidOnlyArgs.push('--pull', 'never');
     }
+    squidOnlyArgs.push('squid-proxy');
     await execa('docker', squidOnlyArgs, {
       cwd: workDir,
       stdout: process.stderr,
