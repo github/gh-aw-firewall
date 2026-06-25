@@ -107,8 +107,8 @@ function estimateRetryAfter(win, now, size, limit) {
     const slot = ((now - age) % size + size) % size;
     freed += win.counts[slot];
     if (win.total - freed < limit) {
-      // This slot expires in (age + 1) time-units from now
-      return Math.max(1, age + 1);
+      // This slot expires in (size - age) time-units from now
+      return Math.max(1, size - age);
     }
   }
   // Shouldn't happen if total >= limit, but fall back to full window
