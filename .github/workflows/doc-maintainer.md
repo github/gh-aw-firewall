@@ -177,7 +177,7 @@ Review the precomputed git context from the past 48 hours, identify documentatio
 
 Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.
 
-Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **You have no shell access** — the `bash` tool is disabled. Do not attempt to run `git`, `npm test`, `ls`, or any other shell command. They will fail with "Permission denied" and waste your limited turns. All required git data is already pre-computed.
+Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **Do not use the `shell` tool** (and the `bash` tool is disabled). Do not attempt to run `git`, `npm test`, `ls`, or any other shell command — they are restricted in this workflow and will fail with "Permission denied", wasting your limited turns. All required git data is already pre-computed.
 
 The workflow gate already checked the past 7 days to decide whether this run is needed. The pre-computed recent diff context is intentionally limited to the past 48 hours to stay focused while still covering delayed daily runs.
 
