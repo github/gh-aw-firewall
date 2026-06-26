@@ -162,5 +162,6 @@ describe('generateSquidConfig', () => {
       expect(auditLineText).toContain('"status":');
       expect(auditLineText).toContain('"decision":');
       expect(auditLineText).toContain('"url":');
+    });
   });
 });
