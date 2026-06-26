@@ -69,13 +69,18 @@ Prefer the narrowest match. Examples:
 
 - split filesystem / missing bind-mounted files → A1 or A3
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
+- `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
+- `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
+- `EACCES` in upload-artifact after sudo:false → B6
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
 
 ### 4. Check for known unresolved problems
 
-If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
+If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, the remaining `GH_HOST` leak to user steps, or ARC/DinD base-userland staging), say so explicitly instead of implying there is a shipped fix.
+
+A13 / #5541 — ARC/DinD split-fs base-userland staging is not yet implemented; AWF cannot currently run end-to-end on a split-fs runner with an empty /host.
 
 ## Output Requirements
 
@@ -133,6 +138,8 @@ Establish these facts before matching a failure mode:
 | A9 | GitHub MCP tools disappear under `--disable-builtin-mcps` | `mount_mcp_as_cli.cjs` hardcoded the GitHub server as internal | Remove or make the internal-server list configurable | Check generated `mcp-*` shims and `INTERNAL_SERVERS` in the image | #4271, #4399, #4727, #4737, #4787 |
 | A10 | `Docker socket not found` plus `Invalid container ID format: arc-...` | MCP gateway assumed `/var/run/docker.sock`, group 0, and Docker-style container IDs | Propagate `DOCKER_HOST`, detect socket GID, relax pod-name handling | `stat -c '%g' ${DOCKER_HOST#unix://}`, `cat /proc/self/cgroup` | #2267, #2292, #2664, #2706, #2808 |
 | A11 | Threat detection passes even though the engine binary is missing | `GH_AW_DETECTION_CONTINUE_ON_ERROR` suppressed a real setup failure | Reconsider default or log the skipped check explicitly | `printenv GH_AW_DETECTION_CONTINUE_ON_ERROR`; inspect agent logs for `ENOENT` | #4787 |
+| A12 | `mkdirat ... : read-only file system` during agent chroot startup on ARC/DinD | `chroot.binariesSourcePath` set to the same root as `--docker-host-path-prefix` (e.g. both `/tmp/gh-aw`); Docker mounts `/tmp/gh-aw/usr:/host/usr:ro` first, then the attempt to mkdir `/host/usr/local/bin` as a nested overlay mount point fails because the parent is read-only | **Fixed in firewall v0.27.10**: upgrade AWF; the overlay is now mounted at `/host/tmp/awf-runner-bin:ro` (writable `/host/tmp` parent) instead of `/host/usr/local/bin:ro` | Check `awf --version`; inspect agent container logs for `mkdirat`; verify `chroot.binariesSourcePath` equals `docker-host-path-prefix` root | #5481, #5482 |
+| A13 | `chroot: failed to run command '/bin/sh': No such file or directory` or `[entrypoint][ERROR] capsh not found on host system` on a **glibc/Debian daemon** (not musl/Alpine) | ARC/DinD split-fs: system-mount source dirs (`/tmp/gh-aw/{usr,bin,lib,...}`) are empty because nothing populates them; `stageBaseSystem()` does not yet exist. The entrypoint "musl/Alpine" warning is **misleading** — it fires because no dynamic loader is found, not because the daemon is musl. `dind.preStageDirs` only mkdir's empty work dirs; it does not stage a base userland. | **Unresolved** — `stageBaseSystem()` capability not yet implemented; base userland must originate from the AWF-signed image to preserve security invariants (never from runner/daemon-writable paths for pre-`capsh` execution). Workaround: bake required binaries (`/bin/sh`, `bash`, `capsh`, loader, coreutils) directly into the DinD daemon image | Confirm daemon libc: `ldd --version` inside the DinD container. Then check whether the staging dir is populated: `ls /tmp/gh-aw/usr/bin/sh` (or `/tmp/gh-aw/bin/sh`) on the runner side. If the daemon is glibc but the file is missing, this is A13, not A4. | #5541 |
 
 ## Category B — Self-hosted runners
 
@@ -142,6 +149,8 @@ Establish these facts before matching a failure mode:
 | B2 | All outbound traffic fails behind a mandatory corporate proxy | AWF must chain Squid through the upstream proxy | Set `https_proxy` / `http_proxy` on the host or use `--upstream-proxy` | `env | grep -i proxy`; inspect Squid config for `cache_peer` | #1975 |
 | B3 | Squid exits with `FATAL: http_port: IPv6 is not available` | Docker IPv6 is disabled but Squid tries to bind an IPv6 listener | Enable Docker/kernel IPv6 (required with current AWF builds), or use a custom AWF build that removes the `[::]` listener | `docker info | grep -i ipv6`; inspect `/proc/sys/net/ipv6/conf/all/disable_ipv6` | #2139 |
 | B4 | `node: command not found` after `actions/setup-node` on self-hosted | Node was installed in `$HOME/work/_tool` and that toolcache is not visible | Mount / expose the runner toolcache; use `AWF_EXTRA_TOOLCACHE_DIRS` if needed | `which node`; inspect `$HOME/work/_tool/node` | #3544, #3545 |
+| B5 | `getaddrinfo EAI_AGAIN <awmg-cli-proxy>` → `awf-cli-proxy could not connect to the external DIFC proxy` → `The agent was never invoked` in `--network-isolation` + `--topology-attach` runs | Startup ordering deadlock: `connectTopologyContainers()` runs only after `startContainers()` succeeds, but `startContainers()` blocks on the cli-proxy health gate that requires the topology peer to be reachable on `awf-net` (which `internal: true`). The peer is never attached → EAI_AGAIN → fail-fast → deadlock. Deterministic, not flaky. | Resolved in AWF: attach topology peers to `awf-net` before the health-gated bring-up (Fix A: split `up -d`, network first → attach → remaining); also harden cli-proxy to treat `EAI_AGAIN`/`ENOTFOUND` as not-yet-ready (Fix B) | Confirm `topologyAttach` is non-empty; check the cli-proxy logs for `EAI_AGAIN`; verify AWF version includes the ordering fix | #5543, #5542 |
+| B6 | `EACCES` in `upload-artifact` step after a `sudo: false` (`--network-isolation`) AWF run; firewall log/audit dirs present but unreadable | Sidecars write files as non-runner UIDs (squid → uid 13, cli-proxy → `cliproxy`, agent/iptables-init → root). AWF's `chmod -R a+rX` repair runs as the unprivileged runner and silently fails at `debug` level on files it doesn't own | Resolved in AWF: (a) run Node sidecars as runner UID via compose `user:`; (b) root perm-fixer container at cleanup (daemon-run, mounts log dir, chowns to runner UID, skipped when `--keep-containers`); (c) promote swallowed-`chmod` failure from `debug` to `warn` | `ls -la <firewall-logs-dir>` after run — look for root or uid-13 owned files; check AWF logs for the swallowed `chmod` warning | #5545, #5542 |
 
 ## Category C — GHES / GHEC / `ghe.com`
 
@@ -177,6 +186,10 @@ Establish these facts before matching a failure mode:
 | `malformed version:` from `gh --repo` | C5 |
 | `400 bad request: Authorization header is badly formatted` | C3 |
 | `ENOENT ... /host/usr/local/bin/copilot` | A8 |
+| `mkdirat ... : read-only file system` during chroot agent startup | A12 |
+| `getaddrinfo EAI_AGAIN <topology-peer>` with `awf-cli-proxy could not connect to the external DIFC proxy` | B5 |
+| `EACCES` in `upload-artifact` after `sudo: false` (`--network-isolation`) AWF run | B6 |
+| `chroot: failed to run command '/bin/sh'` on glibc daemon (not musl — confirmed by `ldd --version`) | A13 |
 | `getent passwd <UID>` fails or `HOME=/`, `USER=root` in chroot | A6 |
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |
 
@@ -188,3 +201,4 @@ Flag these explicitly instead of implying there is a complete fix:
 - D3 / #1727 — lingering `--enable-dind` cleanup
 - D4 / #4849 — enterprise header injection extension point
 - C5 / #3937 — full `GH_HOST` leak fix still requires gh-aw changes
+- A13 / #5541 — base-userland staging for ARC/DinD split-fs (`stageBaseSystem()` not yet implemented; security-preserving fix requires sourcing the base userland from the AWF-signed image)

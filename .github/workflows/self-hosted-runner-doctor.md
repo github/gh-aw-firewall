@@ -98,13 +98,18 @@ Prefer the narrowest match. Examples:
 - split filesystem / missing bind-mounted files → A1 or A3
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
 - `mkdirat ... : read-only file system` during chroot agent startup → A12
+- `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
+- `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
+- `EACCES` in upload-artifact after sudo:false → B6
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
 
 ### 4. Check for known unresolved problems
 
-If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
+If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, the remaining `GH_HOST` leak to user steps, or ARC/DinD base-userland staging), say so explicitly instead of implying there is a shipped fix.
+
+A13 / #5541 — ARC/DinD split-fs base-userland staging is not yet implemented; AWF cannot currently run end-to-end on a split-fs runner with an empty /host.
 
 ### 5. Avoid duplicate triage
 
