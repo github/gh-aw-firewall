@@ -161,4 +161,55 @@ export interface ApiProxyCredentialOptions {
    * @default 'https://api.anthropic.com/v1/oauth/token'
    */
   anthropicTokenUrl?: string;
+
+  /** Authentication type. Currently only `'github-oidc'` is supported. Maps to `AWF_AUTH_TYPE`. */
+  authType?: string;
+
+  /** Cloud provider for OIDC token exchange (`'azure'`, `'aws'`, `'gcp'`, `'anthropic'`). Maps to `AWF_AUTH_PROVIDER`. */
+  authProvider?: string;
+
+  /** Audience claim for the GitHub OIDC token. Maps to `AWF_AUTH_OIDC_AUDIENCE`. */
+  authOidcAudience?: string;
+
+  /** Azure AD tenant ID for federated credential exchange. Maps to `AWF_AUTH_AZURE_TENANT_ID`. */
+  authAzureTenantId?: string;
+
+  /** Azure AD application (client) ID for the federated credential. Maps to `AWF_AUTH_AZURE_CLIENT_ID`. */
+  authAzureClientId?: string;
+
+  /** Azure token scope. Maps to `AWF_AUTH_AZURE_SCOPE`. */
+  authAzureScope?: string;
+
+  /** Azure cloud environment (`'public'`, `'china'`, `'government'`). Maps to `AWF_AUTH_AZURE_CLOUD`. */
+  authAzureCloud?: string;
+
+  /** AWS IAM role ARN to assume via OIDC federation. Maps to `AWF_AUTH_AWS_ROLE_ARN`. */
+  authAwsRoleArn?: string;
+
+  /** AWS region for the Bedrock endpoint. Maps to `AWF_AUTH_AWS_REGION`. */
+  authAwsRegion?: string;
+
+  /** Session name for the AWS STS AssumeRoleWithWebIdentity call. Maps to `AWF_AUTH_AWS_ROLE_SESSION_NAME`. */
+  authAwsRoleSessionName?: string;
+
+  /** Full GCP Workload Identity Provider resource name. Maps to `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`. */
+  authGcpWorkloadIdentityProvider?: string;
+
+  /** GCP service account email to impersonate. Maps to `AWF_AUTH_GCP_SERVICE_ACCOUNT`. */
+  authGcpServiceAccount?: string;
+
+  /** OAuth2 scope for GCP token. Maps to `AWF_AUTH_GCP_SCOPE`. */
+  authGcpScope?: string;
+
+  /** Anthropic federation rule ID (e.g. `fdrl_...`). Maps to `AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID`. */
+  authAnthropicFederationRuleId?: string;
+
+  /** Anthropic organization UUID. Maps to `AWF_AUTH_ANTHROPIC_ORGANIZATION_ID`. */
+  authAnthropicOrganizationId?: string;
+
+  /** Anthropic service account ID (e.g. `svac_...`). Maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`. */
+  authAnthropicServiceAccountId?: string;
+
+  /** Anthropic workspace ID. Maps to `AWF_AUTH_ANTHROPIC_WORKSPACE_ID`. */
+  authAnthropicWorkspaceId?: string;
 }

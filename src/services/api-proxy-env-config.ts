@@ -66,7 +66,7 @@ export function resolveProviderSessionId(config: WrapperConfig): string | undefi
 }
 
 export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: NetworkConfig): Record<string, string> {
-  const normalizedAuthType = getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
+  const normalizedAuthType = (config.authType?.toLowerCase().trim()) || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
 
   return {
     // Pass API keys securely to sidecar (not visible to agent)
@@ -231,6 +231,24 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...(config.openaiApiAuthHeader && { [OPENAI_ENV.AUTH_HEADER]: config.openaiApiAuthHeader }),
     ...(config.anthropicApiAuthHeader && { [ANTHROPIC_ENV.AUTH_HEADER]: config.anthropicApiAuthHeader }),
     ...(config.anthropicTokenUrl && { AWF_AUTH_ANTHROPIC_TOKEN_URL: config.anthropicTokenUrl }),
+    // OIDC auth config-file values override host env vars (config-file > env fallback precedence)
+    ...(config.authType && { AWF_AUTH_TYPE: config.authType }),
+    ...(config.authProvider && { AWF_AUTH_PROVIDER: config.authProvider }),
+    ...(config.authOidcAudience && { AWF_AUTH_OIDC_AUDIENCE: config.authOidcAudience }),
+    ...(config.authAzureTenantId && { AWF_AUTH_AZURE_TENANT_ID: config.authAzureTenantId }),
+    ...(config.authAzureClientId && { AWF_AUTH_AZURE_CLIENT_ID: config.authAzureClientId }),
+    ...(config.authAzureScope && { AWF_AUTH_AZURE_SCOPE: config.authAzureScope }),
+    ...(config.authAzureCloud && { AWF_AUTH_AZURE_CLOUD: config.authAzureCloud }),
+    ...(config.authAwsRoleArn && { AWF_AUTH_AWS_ROLE_ARN: config.authAwsRoleArn }),
+    ...(config.authAwsRegion && { AWF_AUTH_AWS_REGION: config.authAwsRegion }),
+    ...(config.authAwsRoleSessionName && { AWF_AUTH_AWS_ROLE_SESSION_NAME: config.authAwsRoleSessionName }),
+    ...(config.authGcpWorkloadIdentityProvider && { AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: config.authGcpWorkloadIdentityProvider }),
+    ...(config.authGcpServiceAccount && { AWF_AUTH_GCP_SERVICE_ACCOUNT: config.authGcpServiceAccount }),
+    ...(config.authGcpScope && { AWF_AUTH_GCP_SCOPE: config.authGcpScope }),
+    ...(config.authAnthropicFederationRuleId && { AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID: config.authAnthropicFederationRuleId }),
+    ...(config.authAnthropicOrganizationId && { AWF_AUTH_ANTHROPIC_ORGANIZATION_ID: config.authAnthropicOrganizationId }),
+    ...(config.authAnthropicServiceAccountId && { AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: config.authAnthropicServiceAccountId }),
+    ...(config.authAnthropicWorkspaceId && { AWF_AUTH_ANTHROPIC_WORKSPACE_ID: config.authAnthropicWorkspaceId }),
     // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
     // The api-proxy container holds live API credentials; loading arbitrary host-side JS
     // files into it would create an arbitrary-code-execution risk.  If you need a custom

@@ -377,6 +377,74 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.anthropicTokenUrl).toBe('https://anthropic.internal.example/v1/oauth/token');
   });
 
+  it('maps apiProxy.auth OIDC provider fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          type: 'github-oidc',
+          provider: 'azure',
+          oidcAudience: 'api://AzureADTokenExchange',
+          azureTenantId: 'tenant-uuid',
+          azureClientId: 'client-uuid',
+          azureScope: 'https://cognitiveservices.azure.com/.default',
+          azureCloud: 'public',
+        },
+      },
+    });
+
+    expect(result.authType).toBe('github-oidc');
+    expect(result.authProvider).toBe('azure');
+    expect(result.authOidcAudience).toBe('api://AzureADTokenExchange');
+    expect(result.authAzureTenantId).toBe('tenant-uuid');
+    expect(result.authAzureClientId).toBe('client-uuid');
+    expect(result.authAzureScope).toBe('https://cognitiveservices.azure.com/.default');
+    expect(result.authAzureCloud).toBe('public');
+  });
+
+  it('maps apiProxy.auth AWS and GCP OIDC fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          provider: 'aws',
+          awsRoleArn: 'arn:aws:iam::123456789012:role/MyRole',
+          awsRegion: 'us-east-1',
+          awsRoleSessionName: 'awf-session',
+          gcpWorkloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/provider',
+          gcpServiceAccount: 'sa@project.iam.gserviceaccount.com',
+          gcpScope: 'https://www.googleapis.com/auth/cloud-platform',
+        },
+      },
+    });
+
+    expect(result.authProvider).toBe('aws');
+    expect(result.authAwsRoleArn).toBe('arn:aws:iam::123456789012:role/MyRole');
+    expect(result.authAwsRegion).toBe('us-east-1');
+    expect(result.authAwsRoleSessionName).toBe('awf-session');
+    expect(result.authGcpWorkloadIdentityProvider).toBe('projects/123/locations/global/workloadIdentityPools/pool/providers/provider');
+    expect(result.authGcpServiceAccount).toBe('sa@project.iam.gserviceaccount.com');
+    expect(result.authGcpScope).toBe('https://www.googleapis.com/auth/cloud-platform');
+  });
+
+  it('maps apiProxy.auth Anthropic OIDC fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        auth: {
+          provider: 'anthropic',
+          anthropicFederationRuleId: 'fdrl_abc123',
+          anthropicOrganizationId: 'org-uuid',
+          anthropicServiceAccountId: 'svac_abc123',
+          anthropicWorkspaceId: 'ws-uuid',
+        },
+      },
+    });
+
+    expect(result.authProvider).toBe('anthropic');
+    expect(result.authAnthropicFederationRuleId).toBe('fdrl_abc123');
+    expect(result.authAnthropicOrganizationId).toBe('org-uuid');
+    expect(result.authAnthropicServiceAccountId).toBe('svac_abc123');
+    expect(result.authAnthropicWorkspaceId).toBe('ws-uuid');
+  });
+
   it('maps rateLimiting fields including rph and bytesPm', () => {
     const result = mapAwfFileConfigToCliOptions({
       rateLimiting: { enabled: true, requestsPerHour: 3600, bytesPerMinute: 1048576 },

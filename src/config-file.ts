@@ -65,6 +65,23 @@ interface AwfFileConfig {
       maxCapturedBytes?: number;
     };
     auth?: {
+      type?: string;
+      provider?: string;
+      oidcAudience?: string;
+      azureTenantId?: string;
+      azureClientId?: string;
+      azureScope?: string;
+      azureCloud?: string;
+      awsRoleArn?: string;
+      awsRegion?: string;
+      awsRoleSessionName?: string;
+      gcpWorkloadIdentityProvider?: string;
+      gcpServiceAccount?: string;
+      gcpScope?: string;
+      anthropicFederationRuleId?: string;
+      anthropicOrganizationId?: string;
+      anthropicServiceAccountId?: string;
+      anthropicWorkspaceId?: string;
       anthropicTokenUrl?: string;
     };
   };
@@ -265,6 +282,23 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     tokenLogDir: config.apiProxy?.logging?.tokenLogDir,
     captureBlockedRequests: config.apiProxy?.diagnostics?.captureBlockedRequests,
     maxCapturedBytes: config.apiProxy?.diagnostics?.maxCapturedBytes,
+    authType: config.apiProxy?.auth?.type,
+    authProvider: config.apiProxy?.auth?.provider,
+    authOidcAudience: config.apiProxy?.auth?.oidcAudience,
+    authAzureTenantId: config.apiProxy?.auth?.azureTenantId,
+    authAzureClientId: config.apiProxy?.auth?.azureClientId,
+    authAzureScope: config.apiProxy?.auth?.azureScope,
+    authAzureCloud: config.apiProxy?.auth?.azureCloud,
+    authAwsRoleArn: config.apiProxy?.auth?.awsRoleArn,
+    authAwsRegion: config.apiProxy?.auth?.awsRegion,
+    authAwsRoleSessionName: config.apiProxy?.auth?.awsRoleSessionName,
+    authGcpWorkloadIdentityProvider: config.apiProxy?.auth?.gcpWorkloadIdentityProvider,
+    authGcpServiceAccount: config.apiProxy?.auth?.gcpServiceAccount,
+    authGcpScope: config.apiProxy?.auth?.gcpScope,
+    authAnthropicFederationRuleId: config.apiProxy?.auth?.anthropicFederationRuleId,
+    authAnthropicOrganizationId: config.apiProxy?.auth?.anthropicOrganizationId,
+    authAnthropicServiceAccountId: config.apiProxy?.auth?.anthropicServiceAccountId,
+    authAnthropicWorkspaceId: config.apiProxy?.auth?.anthropicWorkspaceId,
     anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
