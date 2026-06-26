@@ -115,7 +115,7 @@ chroot_helpers=(
 
 last_helper_line=0
 for helper in "${chroot_helpers[@]}"; do
-  helper_line="$(printf '%s\n' "${CHROOT_BLOCK}" | grep -n -F "${helper}" | cut -d: -f1 | head -1)"
+  helper_line="$(printf '%s\n' "${CHROOT_BLOCK}" | grep -n -E "^[[:space:]]*${helper}([[:space:]]|$)" | cut -d: -f1 | head -1)"
   if [ -z "${helper_line}" ]; then
     fail "run_chroot_command() does not call ${helper}"
     continue
