@@ -1104,11 +1104,11 @@ run_chroot_command() {
   echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
 
   mount_host_procfs
+  check_chroot_prereqs
   copy_preload_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
   copy_awf_ca_cert
-  check_chroot_prereqs
   setup_chroot_etc
 
   # Determine working directory inside the chroot
