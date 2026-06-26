@@ -66,7 +66,7 @@ describe('host-iptables (setup) — error paths and cleanup resilience', () => {
         if (cmd === 'ip6tables' && args.includes('-L') && args.includes('FW_WRAPPER_V6')) {
           return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
         }
-        // ip6tables -F (flush) — throw to exercise line 213 catch
+        // ip6tables -F (flush) — throw to exercise IPv6 chain cleanup error swallowing path
         if (cmd === 'ip6tables' && args.includes('-F')) {
           throw new Error('flush failed unexpectedly');
         }
