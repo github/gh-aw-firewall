@@ -3,7 +3,7 @@ import {
   wildcardToRegex,
   parseDomainWithProtocol,
 } from './domain-patterns';
-import { validateDomainOrPattern } from './domain-validation';
+import { validateDomainOrPattern, SQUID_DANGEROUS_CHARS } from './domain-validation';
 import {
   parseDomainList,
   isDomainMatchedByPattern,
@@ -282,6 +282,10 @@ describe('validateDomainOrPattern', () => {
     it('should reject double quotes', () => {
       expect(() => validateDomainOrPattern('evil.com"')).toThrow('contains invalid character');
     });
+
+    it('should include U+ codepoint in control-character error messages', () => {
+      expect(() => validateDomainOrPattern('evil.com\0')).toThrow(/U\+/);
+    });
   });
 
   describe('accepts valid DNS names with underscores', () => {
@@ -295,6 +299,15 @@ describe('validateDomainOrPattern', () => {
 
     it('should accept _srv._tcp.example.com', () => {
       expect(() => validateDomainOrPattern('_srv._tcp.example.com')).not.toThrow();
+    });
+  });
+
+  describe('SQUID_DANGEROUS_CHARS', () => {
+    it('should match dangerous injection characters', () => {
+      expect(SQUID_DANGEROUS_CHARS.test('"')).toBe(true);
+      expect(SQUID_DANGEROUS_CHARS.test("'")).toBe(true);
+      expect(SQUID_DANGEROUS_CHARS.test(';')).toBe(true);
+      expect(SQUID_DANGEROUS_CHARS.test('#')).toBe(true);
     });
   });
 
@@ -568,5 +581,11 @@ describe('parseUrlPatterns', () => {
     // Should only have start anchor for patterns ending with the URL char pattern
     expect(patterns[0]).toBe(`^https://github\\.com/${URL_CHAR_PATTERN}`);
     expect(patterns[0]).not.toContain('$');
+  });
+
+  it('should preserve existing .* patterns without escaping them', () => {
+    const patterns = parseUrlPatterns(['https://github.com/path/.*']);
+    expect(patterns[0]).not.toContain('\\.\\*');
+    expect(new RegExp(patterns[0]).test('https://github.com/path/anything')).toBe(true);
   });
 });

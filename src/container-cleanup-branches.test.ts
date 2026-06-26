@@ -130,6 +130,25 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     // Entry without "=" should be preserved unchanged
     expect(sanitized).toContain('NO_EQUALS_HERE');
   });
+
+  it('redacts full value when array entry contains embedded equals', async () => {
+    const raw = [
+      'services:',
+      '  agent:',
+      '    environment:',
+      '      - API_KEY=a=b=c',
+      '      - NORMAL_VAR=keep_me',
+    ].join('\n');
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), raw);
+    await collectDiagnosticLogs(getDir());
+    const sanitized = fs.readFileSync(
+      path.join(getDir(), 'diagnostics', 'docker-compose.yml'),
+      'utf8'
+    );
+    expect(sanitized).not.toContain('a=b=c');
+    expect(sanitized).toContain('API_KEY=[REDACTED]');
+    expect(sanitized).toContain('NORMAL_VAR=keep_me');
+  });
 });
 
 // ─── cleanup() missing branch coverage ───────────────────────────────────────
