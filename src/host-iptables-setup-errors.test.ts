@@ -73,7 +73,7 @@ describe('host-iptables (setup) — error paths and cleanup resilience', () => {
         return Promise.resolve({ stdout: '', stderr: '', exitCode: 0 });
       }) as any);
 
-      // Should NOT throw — the catch block at line 213 swallows the error
+      // Should NOT throw — IPv6 chain cleanup errors are intentionally swallowed
       await expect(
         setupHostIptables('172.30.0.10', 3128, ['8.8.8.8', '2001:4860:4860::8888']),
       ).resolves.toBeUndefined();
