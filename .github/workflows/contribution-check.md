@@ -11,7 +11,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-max-turns: 5
+max-turns: 3
 concurrency:
   group: "contribution-check-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
@@ -19,15 +19,12 @@ engine:
   id: copilot
   model: gpt-5.4-mini
 tools:
-  github:
-    mode: gh-proxy
-    toolsets: [pull_requests]
+  edit:
+  github: false
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
-strict: false
+strict: true
 network:
   allowed:
     - github
@@ -103,7 +100,7 @@ Read the following pre-fetched context files before proceeding:
 - `/tmp/gh-aw/contribution-check-context/pr-files.md` — Changed files with diffs
 - `/tmp/gh-aw/contribution-check-context/contributing.md` — CONTRIBUTING.md content
 
-**Use ONLY the pre-fetched data in these context files.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read other files from the checkout.
+**Use ONLY the pre-fetched data in these context files.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read other files from the checkout. After reading the three context files, your only tool calls should be `add_comment` (at most one) or `noop` — do not call any other tools.
 
 ## Review Checklist
 
