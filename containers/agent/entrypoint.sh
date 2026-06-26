@@ -500,11 +500,12 @@ echo "[entrypoint] Executing command: $@"
 echo ""
 }
 
-run_chroot_command() {
-# If chroot mode is enabled, run user command INSIDE the chroot /host
-# This provides transparent host binary access - user command sees host filesystem as /
-  echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
 
+# ---------------------------------------------------------------------------
+# Chroot setup helpers — called from run_chroot_command()
+# ---------------------------------------------------------------------------
+
+mount_host_procfs() {
   # Mount a container-scoped procfs at /host/proc
   # This provides dynamic /proc/self/exe resolution (required by .NET CLR, JVM, and other
   # runtimes that read /proc/self/exe to find themselves). A static bind mount of /proc/self
@@ -525,10 +526,13 @@ run_chroot_command() {
     echo "[entrypoint][ERROR] Ensure the container has SYS_ADMIN capability (it will be dropped before user code runs)"
     exit 1
   fi
+}
 
+copy_preload_libs() {
   # Copy one-shot-token library to host filesystem for LD_PRELOAD in chroot
   # This prevents tokens from being read multiple times by malicious code
   # Note: /tmp is always writable in chroot mode (mounted from host /tmp as rw)
+  # Sets ONE_SHOT_TOKEN_LIB (empty string if unavailable or incompatible)
   ONE_SHOT_TOKEN_LIB=""
   if [ -f /usr/local/lib/one-shot-token.so ]; then
     # Create the library directory in /tmp (always writable)
@@ -559,11 +563,20 @@ run_chroot_command() {
       echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
     fi
   fi
+}
+
+copy_agent_helper_scripts() {
+  # Copy get-claude-key.sh and gh CLI proxy wrapper to chroot-accessible paths.
+  # Both scripts are baked into the Docker image but shadowed by host bind mounts
+  # inside chroot. They are copied to /tmp/awf-lib/ (always writable) so they
+  # remain accessible after the chroot activates.
+  # Sets CHROOT_KEY_HELPER; may update AWF_HOST_PATH.
 
   # Copy get-claude-key.sh to chroot-accessible path
   # The script is baked into the Docker image at /usr/local/bin/, but the chroot
   # bind-mounts the host's /usr (read-only), shadowing the container's copy.
   # We must copy it to /tmp/awf-lib/ (writable) before the chroot activates.
+  CHROOT_KEY_HELPER=""
   if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ] && [ -f "$CLAUDE_CODE_API_KEY_HELPER" ]; then
     if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
       CHROOT_KEY_HELPER="/tmp/awf-lib/$(basename "$CLAUDE_CODE_API_KEY_HELPER")"
@@ -589,6 +602,7 @@ run_chroot_command() {
       else
         echo "[entrypoint][WARN] Could not copy get-claude-key.sh to chroot"
         echo "[entrypoint][WARN] Claude Code API key helper may not work in chroot mode"
+        CHROOT_KEY_HELPER=""
       fi
     fi
   fi
@@ -610,12 +624,15 @@ run_chroot_command() {
       fi
     fi
   fi
+}
 
+copy_dind_runner_binary() {
   # In split-filesystem DinD setups with --docker-host-path-prefix pointing at
   # a shared /tmp root, docker-manager stages the invoking CLI binary under
   # /tmp/awf-runner-bin/<name>. Copy it into /tmp/awf-lib so the chrooted PATH
   # can resolve the expected command name (copilot, claude, etc.) without
   # requiring manual bootstrap copies into the daemon's /usr/local/bin.
+  # Sets STAGED_RUNNER_BINARY_CHROOT; may update AWF_HOST_PATH.
   STAGED_RUNNER_BINARY_CHROOT=""
   if [ -n "${AWF_STAGED_RUNNER_BINARY_NAME:-}" ]; then
     if [[ ! "${AWF_STAGED_RUNNER_BINARY_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
@@ -650,12 +667,15 @@ run_chroot_command() {
     esac
     echo "[entrypoint] Runner binaries overlay detected at /tmp/awf-runner-bin; prepended to PATH"
   fi
+}
 
+copy_awf_ca_cert() {
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
   # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
   # this path is inaccessible. Copy to /tmp/awf-lib/ (always writable) and update the
   # env var so Node.js (Claude Code), curl, git, Python, etc. trust the Squid CA.
+  # Sets AWF_CA_CHROOT; exports NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, REQUESTS_CA_BUNDLE.
   AWF_CA_CHROOT=""
   if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ] && [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
     if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
@@ -677,6 +697,11 @@ run_chroot_command() {
       echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for CA cert — ssl-bump TLS may fail in chroot"
     fi
   fi
+}
+
+check_chroot_prereqs() {
+  # Verify prerequisites for chroot execution: glibc-based host, capsh, and bash.
+  # Each check fails fast with exit 1 on failure.
 
   # Chroot mode currently requires a glibc-based host userspace.
   # Alpine/musl hosts do not provide a compatible capsh/bash toolchain.
@@ -702,6 +727,13 @@ run_chroot_command() {
     echo "[entrypoint][ERROR] AWF chroot mode requires bash on the daemon host"
     exit 1
   fi
+}
+
+setup_chroot_etc() {
+  # Configure the chroot's /etc files and synthesize user identity.
+  # Sets: RESOLV_MODIFIED, RESOLV_CREATED, RESOLV_BACKUP, HOSTS_MODIFIED,
+  #       HOST_USER, HOST_USER_UID, HOST_USER_GID,
+  #       CAPSH_IDENTITY_ARGS, CHROOT_HOME_OVERRIDE, CHROOT_USER_OVERRIDE.
 
   # Backup and copy container's resolv.conf to host (preserves AWF DNS configuration)
   # This ensures DNS queries inside the chroot use the configured DNS servers
@@ -747,25 +779,6 @@ run_chroot_command() {
         echo "[entrypoint][WARN] Could not add host.docker.internal to chroot /etc/hosts"
       fi
     fi
-  fi
-
-  # Determine working directory inside the chroot
-  # AWF_WORKDIR is set by docker-manager.ts (containerWorkDir or HOME)
-  # For chroot mode, paths like /home/user stay the same (no /host prefix)
-  CONTAINER_WORKDIR="${AWF_WORKDIR:-${HOME:-/}}"
-  if [ -n "${CONTAINER_WORKDIR}" ] && [ "${CONTAINER_WORKDIR#/host}" != "${CONTAINER_WORKDIR}" ]; then
-    # Strip /host prefix if present (for paths that include it)
-    CHROOT_WORKDIR="${CONTAINER_WORKDIR#/host}"
-    [ -z "${CHROOT_WORKDIR}" ] && CHROOT_WORKDIR="/"
-  else
-    # Use the path as-is (normal paths like /home/user, /tmp, etc.)
-    CHROOT_WORKDIR="${CONTAINER_WORKDIR}"
-  fi
-  echo "[entrypoint] Chroot working directory: ${CHROOT_WORKDIR}"
-
-  # Validate working directory exists in chroot
-  if [ ! -d "/host${CHROOT_WORKDIR}" ]; then
-    echo "[entrypoint][WARN] Working directory ${CHROOT_WORKDIR} does not exist on host, will use /"
   fi
 
   # Find the user name on the host system by UID
@@ -892,10 +905,14 @@ run_chroot_command() {
   if [ -z "${CHROOT_USER_OVERRIDE}" ] && [ -n "${HOST_USER}" ]; then
     CHROOT_USER_OVERRIDE="${HOST_USER}"
   fi
+}
 
-  # Write the command to a temporary script file in the chroot
-  # This avoids complex quoting issues with nested shells
-  SCRIPT_FILE="/tmp/awf-cmd-$$.sh"
+build_path_script() {
+  # Generate the shell script executed inside the chroot that sets up PATH and
+  # toolchain environment variables before running the user command.
+  # Uses SCRIPT_FILE (must be set in the calling scope); writes to /host${SCRIPT_FILE}.
+  # CHROOT_HOME_OVERRIDE and CHROOT_USER_OVERRIDE must be set before calling.
+  # Arguments: "$@" — the command to run inside the chroot.
 
   # Use host's actual PATH if provided, otherwise construct a default
   # This ensures we use the same Python/Node/Go versions as the host
@@ -1079,6 +1096,44 @@ AWFEOF
     echo "" >> "/host${SCRIPT_FILE}"
   fi
   chmod +x "/host${SCRIPT_FILE}"
+}
+
+run_chroot_command() {
+# If chroot mode is enabled, run user command INSIDE the chroot /host
+# This provides transparent host binary access - user command sees host filesystem as /
+  echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
+
+  mount_host_procfs
+  copy_preload_libs
+  copy_agent_helper_scripts
+  copy_dind_runner_binary
+  copy_awf_ca_cert
+  check_chroot_prereqs
+  setup_chroot_etc
+
+  # Determine working directory inside the chroot
+  # AWF_WORKDIR is set by docker-manager.ts (containerWorkDir or HOME)
+  # For chroot mode, paths like /home/user stay the same (no /host prefix)
+  CONTAINER_WORKDIR="${AWF_WORKDIR:-${HOME:-/}}"
+  if [ -n "${CONTAINER_WORKDIR}" ] && [ "${CONTAINER_WORKDIR#/host}" != "${CONTAINER_WORKDIR}" ]; then
+    # Strip /host prefix if present (for paths that include it)
+    CHROOT_WORKDIR="${CONTAINER_WORKDIR#/host}"
+    [ -z "${CHROOT_WORKDIR}" ] && CHROOT_WORKDIR="/"
+  else
+    # Use the path as-is (normal paths like /home/user, /tmp, etc.)
+    CHROOT_WORKDIR="${CONTAINER_WORKDIR}"
+  fi
+  echo "[entrypoint] Chroot working directory: ${CHROOT_WORKDIR}"
+
+  # Validate working directory exists in chroot
+  if [ ! -d "/host${CHROOT_WORKDIR}" ]; then
+    echo "[entrypoint][WARN] Working directory ${CHROOT_WORKDIR} does not exist on host, will use /"
+  fi
+
+  # Write the command to a temporary script file in the chroot
+  # This avoids complex quoting issues with nested shells
+  SCRIPT_FILE="/tmp/awf-cmd-$$.sh"
+  build_path_script "$@"
 
   # Execute inside chroot:
   # 1. chroot /host - filesystem root becomes host's /

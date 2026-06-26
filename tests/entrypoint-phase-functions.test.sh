@@ -26,6 +26,14 @@ required_functions=(
   log_environment_details
   determine_capabilities_to_drop
   log_execution_context
+  mount_host_procfs
+  copy_preload_libs
+  copy_agent_helper_scripts
+  copy_dind_runner_binary
+  copy_awf_ca_cert
+  check_chroot_prereqs
+  setup_chroot_etc
+  build_path_script
   run_chroot_command
   run_non_chroot_command
   main
@@ -86,6 +94,39 @@ if printf '%s\n' "${MAIN_BLOCK}" | grep -Fq 'run_chroot_command "$@"' && \
 else
   fail "main() is missing chroot/non-chroot dispatch"
 fi
+
+# Verify run_chroot_command delegates to all required helper sub-functions in order
+CHROOT_BLOCK="$(awk '
+  /^run_chroot_command\(\) \{/ { in_fn=1; next }
+  in_fn && /^\}$/ { in_fn=0; exit }
+  in_fn { print }
+' "${ENTRYPOINT}")"
+
+chroot_helpers=(
+  'mount_host_procfs'
+  'copy_preload_libs'
+  'copy_agent_helper_scripts'
+  'copy_dind_runner_binary'
+  'copy_awf_ca_cert'
+  'check_chroot_prereqs'
+  'setup_chroot_etc'
+  'build_path_script'
+)
+
+last_helper_line=0
+for helper in "${chroot_helpers[@]}"; do
+  helper_line="$(printf '%s\n' "${CHROOT_BLOCK}" | grep -n -F "${helper}" | cut -d: -f1 | head -1)"
+  if [ -z "${helper_line}" ]; then
+    fail "run_chroot_command() does not call ${helper}"
+    continue
+  fi
+  if [ "${helper_line}" -le "${last_helper_line}" ]; then
+    fail "run_chroot_command() calls ${helper} out of order"
+    continue
+  fi
+  last_helper_line="${helper_line}"
+  pass "run_chroot_command() calls ${helper} in order"
+done
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
