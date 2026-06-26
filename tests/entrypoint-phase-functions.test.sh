@@ -97,8 +97,8 @@ fi
 
 # Verify run_chroot_command delegates to all required helper sub-functions in order
 CHROOT_BLOCK="$(awk '
-  /^run_chroot_command\(\) \{/ { in_fn=1; next }
-  in_fn && /^\}$/ { in_fn=0; exit }
+  /^[[:space:]]*run_chroot_command\(\)[[:space:]]*\{[[:space:]]*$/ { in_fn=1; next }
+  in_fn && /^[[:space:]]*}[[:space:]]*$/ { in_fn=0; exit }
   in_fn { print }
 ' "${ENTRYPOINT}")"
 
