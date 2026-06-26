@@ -50,7 +50,7 @@ jobs:
             echo "has_changes=$HAS_CHANGES"
             echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
-max-turns: 8
+max-turns: 15
 engine:
   id: copilot
   model: claude-haiku-4.5
@@ -177,7 +177,7 @@ Review the precomputed git context from the past 48 hours, identify documentatio
 
 Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.
 
-Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **Do not run any `git` commands** — all required git data is already pre-computed. Running `git show`, `git log`, or `git diff` wastes turns.
+Use the **Recent Git Diffs** section from that file as your **sole source** for recent source changes. **You have no shell access** — the `bash` tool is disabled. Do not attempt to run `git`, `npm test`, `ls`, or any other shell command. They will fail with "Permission denied" and waste your limited turns. All required git data is already pre-computed.
 
 The workflow gate already checked the past 7 days to decide whether this run is needed. The pre-computed recent diff context is intentionally limited to the past 48 hours to stay focused while still covering delayed daily runs.
 
@@ -189,7 +189,7 @@ Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc
 
 ### 3. Verify Code Examples
 
-Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths.
+Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths. Verify them **only by reading** the pre-computed context and the documentation/source files via the `edit` tool. **Do not run tests, builds, or any shell command to verify** — you have no shell access, so attempts will fail and waste turns.
 
 ### 4. Make Documentation Updates
 
