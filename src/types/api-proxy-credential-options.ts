@@ -180,7 +180,7 @@ export interface ApiProxyCredentialOptions {
   /** Azure token scope. Maps to `AWF_AUTH_AZURE_SCOPE`. */
   authAzureScope?: string;
 
-  /** Azure cloud environment (`'public'`, `'china'`, `'government'`). Maps to `AWF_AUTH_AZURE_CLOUD`. */
+  /** Azure cloud environment (`'public'`, `'usgovernment'`, `'china'`). Maps to `AWF_AUTH_AZURE_CLOUD`. */
   authAzureCloud?: string;
 
   /** AWS IAM role ARN to assume via OIDC federation. Maps to `AWF_AUTH_AWS_ROLE_ARN`. */
