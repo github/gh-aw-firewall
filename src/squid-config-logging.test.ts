@@ -152,15 +152,15 @@ describe('generateSquidConfig', () => {
       // Required fields per audit.schema.json
       const auditLine = result.split('\n').find(l => l.startsWith('logformat audit_jsonl'));
       expect(auditLine).toBeDefined();
-      expect(auditLine).toContain('"timestamp":');
-      expect(auditLine).toContain('"event":"http_access"');
-      expect(auditLine).toContain('"client":');
-      expect(auditLine).toContain('"host":');
-      expect(auditLine).toContain('"dest":');
-      expect(auditLine).toContain('"method":');
-      expect(auditLine).toContain('"status":');
-      expect(auditLine).toContain('"decision":');
-      expect(auditLine).toContain('"url":');
-    });
+      const auditLineText = auditLine ?? '';
+      expect(auditLineText).toContain('"timestamp":');
+      expect(auditLineText).toContain('"event":"http_access"');
+      expect(auditLineText).toContain('"client":');
+      expect(auditLineText).toContain('"host":');
+      expect(auditLineText).toContain('"dest":');
+      expect(auditLineText).toContain('"method":');
+      expect(auditLineText).toContain('"status":');
+      expect(auditLineText).toContain('"decision":');
+      expect(auditLineText).toContain('"url":');
   });
 });
