@@ -189,7 +189,7 @@ Review only the files listed under **Affected Documentation** in `/tmp/gh-aw/doc
 
 ### 3. Verify Code Examples
 
-Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths. Verify them **only by reading** the pre-computed context and the documentation/source files via the `edit` tool. **Do not run tests, builds, or any shell command to verify** — you have no shell access, so attempts will fail and waste turns.
+Ensure code examples in documentation match current CLI flags, environment variables, Docker configuration, and file paths. Verify them **only by reading** the pre-computed context and the documentation/source files via the `edit` tool. **Do not use the `shell` tool** to run tests, builds, or command-line checks — shell attempts are restricted/denied in this workflow and will waste your limited turns.
 
 ### 4. Make Documentation Updates
 
