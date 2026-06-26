@@ -11,12 +11,12 @@ describe('doc maintainer workflow optimization config', () => {
 
     expect(source).toContain('description: Daily documentation review with a 7-day change gate and 48-hour agent context');
     expect(source).toContain("if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'");
-    expect(source).toContain('max-turns: 8');
+    expect(source).toContain('max-turns: 15');
     expect(source).toContain('bash: false');
     expect(source).toContain('github: false');
     expect(source).toContain('Read `/tmp/gh-aw/doc-maintainer-context/context.md` first.');
     expect(source).toContain('Use the **Recent Git Diffs** section from that file as your **sole source**');
-    expect(source).toContain('**Do not run any `git` commands**');
+    expect(source).toContain('**Do not use the `shell` tool** (and the `bash` tool is disabled). Do not attempt to run `git`, `npm test`, `ls`, or any other shell command');
     expect(source).toContain('The workflow gate already checked the past 7 days to decide whether this run is needed.');
     expect(source).toContain('files listed under **Affected Documentation** in `/tmp/gh-aw/doc-maintainer-context/context.md`');
     expect(source).toContain('echo "## Changes"');
@@ -60,7 +60,7 @@ describe('doc maintainer workflow optimization config', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
     expect(lock).toContain('# Daily documentation review with a 7-day change gate and 48-hour agent context');
-    expect(lock).toContain('GH_AW_MAX_TURNS: 8');
+    expect(lock).toContain('GH_AW_MAX_TURNS: 15');
     expect(lock).toContain("(needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true')");
     expect(lock).toContain('Build documentation maintainer context');
     expect(lock).toContain('skip_agent: ${{ steps.check.outputs.skip_agent }}');
