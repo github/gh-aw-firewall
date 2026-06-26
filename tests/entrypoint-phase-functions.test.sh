@@ -104,11 +104,11 @@ CHROOT_BLOCK="$(awk '
 
 chroot_helpers=(
   'mount_host_procfs'
+  'check_chroot_prereqs'
   'copy_preload_libs'
   'copy_agent_helper_scripts'
   'copy_dind_runner_binary'
   'copy_awf_ca_cert'
-  'check_chroot_prereqs'
   'setup_chroot_etc'
   'build_path_script'
 )
