@@ -130,8 +130,10 @@ describe('validateEnableTokenSteeringFlag', () => {
   it('should pass when --enable-token-steering is false', () => {
     expect(validateEnableTokenSteeringFlag(false, false)).toEqual({ valid: true });
   });
-  it('should pass when --enable-token-steering is false and --enable-api-proxy is true', () => {
-    expect(validateEnableTokenSteeringFlag(true, false)).toEqual({ valid: true });
+  it('should pass when --enable-api-proxy is true and --enable-token-steering is false', () => {
+    const enableApiProxy = true;
+    const enableTokenSteering = false;
+    expect(validateEnableTokenSteeringFlag(enableApiProxy, enableTokenSteering)).toEqual({ valid: true });
   });
   it('should fail when --enable-token-steering is true without --enable-api-proxy', () => {
     const r = validateEnableTokenSteeringFlag(false, true);
