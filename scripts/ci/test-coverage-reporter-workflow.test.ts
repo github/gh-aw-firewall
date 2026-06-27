@@ -34,9 +34,9 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(source).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
     expect(source).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
 
-    // Runtime optimization: npm cache restore before npm ci
+    // Runtime optimization: npm cache (restore+save) before npm ci
     expect(source).toContain('- name: Cache npm dependencies');
-    expect(source).toContain('uses: actions/cache/restore');
+    expect(source).toContain('uses: actions/cache');
 
     // Runtime optimization: avoid full unshallow fetch
     expect(source).toContain('git fetch --shallow-since="7 days ago" --no-tags origin HEAD');
@@ -76,7 +76,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
     expect(lock).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
     expect(lock).toContain('- name: Cache npm dependencies');
-    expect(lock).toContain('uses: actions/cache/restore');
+    expect(lock).toContain('uses: actions/cache@');
     expect(lock).toContain('git fetch --shallow-since=\\"7 days ago\\" --no-tags origin HEAD');
     expect(lock).not.toContain('git fetch --prune --unshallow --tags');
 

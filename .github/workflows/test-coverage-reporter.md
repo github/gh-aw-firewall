@@ -49,7 +49,7 @@ timeout-minutes: 20
 
 steps:
   - name: Cache npm dependencies
-    uses: actions/cache/restore
+    uses: actions/cache
     with:
       path: ~/.npm
       key: npm-${{ hashFiles('package-lock.json') }}
