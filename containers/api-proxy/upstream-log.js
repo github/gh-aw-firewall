@@ -3,6 +3,22 @@
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { stripBearerPrefix } = require('./providers/copilot-auth');
 
+// Paths that represent actual LLM inference calls (should count against maxRuns).
+// Non-inference endpoints (e.g., GET /models) are excluded.
+const INFERENCE_PATHS = [
+  '/v1/chat/completions',
+  '/chat/completions',
+  '/v1/responses',
+  '/responses',
+  '/v1/messages',
+];
+
+function isInferenceRequest(method, url) {
+  if (method !== 'POST') return false;
+  const path = url.split('?')[0];
+  return INFERENCE_PATHS.some((p) => path === p || path.endsWith(p));
+}
+
 function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
   const baseMessage = `Upstream returned ${statusCode}`;
   const byokBaseUrl = (env.COPILOT_PROVIDER_BASE_URL || '').trim();
@@ -36,7 +52,7 @@ function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, apply
     metrics.increment('requests_total', { provider, method: req.method, status_class: sc });
     metrics.increment('response_bytes_total', { provider }, responseBytes);
     metrics.observe('request_duration_ms', duration, { provider });
-    if (statusCode >= 200 && statusCode < 300) {
+    if (statusCode >= 200 && statusCode < 300 && isInferenceRequest(req.method, req.url)) {
       applyMaxRunsInvocation();
     }
     const logFields = {
@@ -86,4 +102,5 @@ module.exports = {
   createLogRequestCompletion,
   createLogUpstreamAuthError,
   buildCopilotAuthErrorMessage,
+  isInferenceRequest,
 };
