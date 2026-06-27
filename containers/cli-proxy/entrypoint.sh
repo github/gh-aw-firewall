@@ -59,38 +59,87 @@ echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
 # Probe external DIFC proxy liveness before serving agent traffic.
 # Retries with exponential backoff to handle transient startup delays.
 # Distinct error messages help distinguish "not yet ready" from "unreachable".
+
+# Classify a failed DIFC-proxy liveness probe into a diagnostic category.
+# Args: $1=gh stderr, $2=gh stdout (response body), $3=gh/timeout exit code.
+# Echoes the diagnosis string. Kept as a pure function so it can be unit-tested
+# in isolation — see tests/cli-proxy-probe-classify.test.sh (#5615).
+#   ECONNREFUSED ("connection refused" in gh output)  → not yet ready
+#   Timeout (exit 124, or "deadline"/"timed out")      → unreachable / slow
+#   EAI_AGAIN / ENOTFOUND / getaddrinfo                → DNS not yet resolved
+#     (peer may not yet be joined to awf-net; keep retrying, do not fail fast)
+#   HTTP NNN in gh output                              → proxy reachable, but the
+#     forwarded API call returned an error (wrong host / auth / tenant) — this is
+#     the common GHEC data-residency (*.ghe.com) case, NOT "unknown"
+#   Other                                              → unknown
+classify_probe_failure() {
+  local probe_err="$1" probe_out="$2" probe_exit="$3" http_status
+  http_status="$(printf '%s\n%s\n' "${probe_err}" "${probe_out}" | grep -oiE "HTTP[/ ][0-9.]* ?[0-9]{3}|HTTP [0-9]{3}" | grep -oE "[0-9]{3}" | head -1 || true)"
+  if echo "${probe_err}" | grep -qiE "connection refused|ECONNREFUSED"; then
+    echo "not-yet-ready (ECONNREFUSED)"
+  elif [ "${probe_exit}" -eq 124 ] || echo "${probe_err}" | grep -qiE "timeout|deadline|timed out"; then
+    echo "unreachable (timeout)"
+  elif echo "${probe_err}" | grep -qiE "EAI_AGAIN|ENOTFOUND|getaddrinfo|no such host|name or service not known"; then
+    echo "dns-not-yet-ready"
+  elif [ -n "${http_status}" ]; then
+    echo "reachable-but-api-error (HTTP ${http_status})"
+  else
+    echo "unknown"
+  fi
+}
+
 MAX_LIVENESS_ATTEMPTS="${AWF_CLI_PROXY_LIVENESS_ATTEMPTS:-10}"
 LIVENESS_SLEEP_SECONDS="${AWF_CLI_PROXY_LIVENESS_SLEEP_SECONDS:-1}"
 LIVENESS_TIMEOUT_SECONDS="${AWF_CLI_PROXY_LIVENESS_TIMEOUT_SECONDS:-5}"
+PROBE_OUT_FILE="$(mktemp)"
+PROBE_ERR_FILE="$(mktemp)"
+trap 'rm -f "${PROBE_OUT_FILE}" "${PROBE_ERR_FILE}"' EXIT
 ATTEMPT=1
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
-  PROBE_ERR=""
-  if PROBE_ERR="$(timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit 2>&1 >/dev/null)"; then
+  # Capture stdout (the gh response body) and stderr separately so a
+  # "reachable but the forwarded API call failed" result (e.g. wrong API host
+  # on *.ghe.com data-residency tenants) can surface the actual HTTP status and
+  # body instead of being reported as an opaque diagnosis=unknown. See #5615.
+  if timeout "${LIVENESS_TIMEOUT_SECONDS}" gh api rate_limit \
+       >"${PROBE_OUT_FILE}" 2>"${PROBE_ERR_FILE}"; then
     echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
     break
   fi
   PROBE_EXIT=$?
-  # Classify the failure for clearer diagnostics:
-  #   ECONNREFUSED (exit 7 for curl, or "connection refused" in gh output) → not yet ready
-  #   Timeout (exit 28 for curl, or "context deadline" in gh output)        → unreachable / slow
-  #   EAI_AGAIN / ENOTFOUND / getaddrinfo                                   → DNS not yet resolved
-  #     (peer may not yet be joined to awf-net; keep retrying, do not fail fast)
-  #   Other                                                                  → unknown / auth error
-  DIAG_TYPE="unknown"
-  if echo "${PROBE_ERR}" | grep -qiE "connection refused|ECONNREFUSED"; then
-    DIAG_TYPE="not-yet-ready (ECONNREFUSED)"
-  elif [ "${PROBE_EXIT}" -eq 124 ] || echo "${PROBE_ERR}" | grep -qiE "timeout|deadline|timed out"; then
-    DIAG_TYPE="unreachable (timeout)"
-  elif echo "${PROBE_ERR}" | grep -qiE "EAI_AGAIN|ENOTFOUND|getaddrinfo|no such host|name or service not known"; then
-    DIAG_TYPE="dns-not-yet-ready"
-  fi
+  PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
+  PROBE_OUT="$(cat "${PROBE_OUT_FILE}")"
+  DIAG_TYPE="$(classify_probe_failure "${PROBE_ERR}" "${PROBE_OUT}" "${PROBE_EXIT}")"
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
     echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
     if [ -n "${PROBE_ERR}" ]; then
-      echo "[cli-proxy] gh api error: ${PROBE_ERR}"
+      echo "[cli-proxy] gh api stderr: ${PROBE_ERR}"
     fi
+    if [ -n "${PROBE_OUT}" ]; then
+      echo "[cli-proxy] gh api response body: $(printf '%s' "${PROBE_OUT}" | head -c 1000)"
+    fi
+    # When the forwarded call is reachable but errors on an enterprise tenant,
+    # the most likely cause is that the external DIFC proxy is not targeting the
+    # enterprise API host. Surface a targeted hint (companion issues:
+    # github/gh-aw-mcpg#8202, github/gh-aw#41911).
+    case "${GITHUB_SERVER_URL:-}" in
+      *ghe.com* | *ghe.localhost*)
+        case "${DIAG_TYPE}" in
+          reachable-but-api-error* | unknown)
+            echo "[cli-proxy] HINT: GITHUB_SERVER_URL=${GITHUB_SERVER_URL} looks like a GitHub Enterprise"
+            echo "[cli-proxy]       data-residency tenant. The external DIFC proxy may be targeting the"
+            echo "[cli-proxy]       wrong API host (github.com instead of the enterprise host), so the"
+            echo "[cli-proxy]       forwarded 'gh api' call fails. See github/gh-aw-firewall#5615."
+            ;;
+        esac
+        ;;
+    esac
     echo "[cli-proxy] Failing fast to avoid repeated in-agent retries"
     exit 1
+  fi
+  # Surface the captured gh error on every failed attempt so transient and
+  # persistent failures (e.g. a stable HTTP error) are both visible in logs.
+  if [ -n "${PROBE_ERR}" ]; then
+    echo "[cli-proxy] gh api stderr (attempt ${ATTEMPT}): $(printf '%s' "${PROBE_ERR}" | head -c 500)"
   fi
   # Exponential backoff: sleep 1, 2, 4, 8 … seconds (capped at 30s)
   SLEEP_SECS=$(( LIVENESS_SLEEP_SECONDS * (1 << (ATTEMPT - 1)) ))
@@ -99,6 +148,8 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
   sleep "${SLEEP_SECS}"
   ATTEMPT=$((ATTEMPT + 1))
 done
+rm -f "${PROBE_OUT_FILE}" "${PROBE_ERR_FILE}"
+trap - EXIT
 
 # Cleanup handler: stop the Node HTTP server and TCP tunnel on signal
 cleanup() {

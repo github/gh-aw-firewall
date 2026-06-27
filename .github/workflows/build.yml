@@ -73,4 +73,6 @@ jobs:
 
       - name: Run shell unit tests
         if: matrix.node-version == '20'
-        run: bash tests/setup-iptables-port-spec.test.sh
+        run: |
+          bash tests/setup-iptables-port-spec.test.sh
+          bash tests/cli-proxy-probe-classify.test.sh
