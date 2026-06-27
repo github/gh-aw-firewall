@@ -97,21 +97,41 @@ describe('upstream-log', () => {
 
   describe('isInferenceRequest', () => {
     test.each([
+      // OpenAI / Copilot / Anthropic paths
       ['POST', '/v1/chat/completions'],
       ['POST', '/chat/completions'],
       ['POST', '/v1/responses'],
       ['POST', '/responses'],
       ['POST', '/v1/messages'],
+      // Gemini generateContent endpoints
+      ['POST', '/v1beta/models/gemini-pro:generateContent'],
+      ['POST', '/v1/models/gemini-2.0-flash:generateContent'],
+      ['POST', '/v1beta/models/gemini-pro:streamGenerateContent'],
+      // Normalization: trailing slash is stripped before matching
+      ['POST', '/v1/chat/completions/'],
+      // Normalization: fragment is stripped before matching
+      ['POST', '/v1/chat/completions#section'],
     ])('returns true for %s %s', (method, url) => {
       expect(isInferenceRequest(method, url)).toBe(true);
     });
 
     test.each([
+      // Non-inference GET endpoints
       ['GET', '/models'],
       ['GET', '/v1/models'],
+      ['GET', '/v1beta/models'],
+      // Non-inference POST endpoints
       ['POST', '/v1/embeddings'],
+      // Wrong method for an inference path
       ['GET', '/v1/chat/completions'],
+      // POST /models is not inference
       ['POST', '/models'],
+      // Non-inference Gemini endpoint (model list, not generation)
+      ['GET', '/v1beta/models/gemini-pro'],
+      // Non-string inputs
+      [null, '/v1/chat/completions'],
+      ['POST', null],
+      [undefined, '/v1/chat/completions'],
     ])('returns false for %s %s', (method, url) => {
       expect(isInferenceRequest(method, url)).toBe(false);
     });

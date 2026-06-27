@@ -13,10 +13,21 @@ const INFERENCE_PATHS = [
   '/v1/messages',
 ];
 
+// Gemini inference endpoints use method-style suffixes: :generateContent and
+// :streamGenerateContent (POST /v1beta/models/<model>:generateContent, etc.)
+const INFERENCE_SUFFIXES = [
+  ':generateContent',
+  ':streamGenerateContent',
+];
+
 function isInferenceRequest(method, url) {
+  if (typeof method !== 'string' || typeof url !== 'string') return false;
   if (method !== 'POST') return false;
-  const path = url.split('?')[0];
-  return INFERENCE_PATHS.some((p) => path === p || path.endsWith(p));
+  // Strip query string, fragment, and trailing slashes before matching.
+  const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  if (INFERENCE_PATHS.some((p) => path === p || path.endsWith(p))) return true;
+  if (INFERENCE_SUFFIXES.some((s) => path.endsWith(s))) return true;
+  return false;
 }
 
 function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
