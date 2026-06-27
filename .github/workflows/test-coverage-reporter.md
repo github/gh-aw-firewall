@@ -34,6 +34,10 @@ tools:
   github: false
   bash: false
 
+engine:
+  id: copilot
+  model: summarization
+
 safe-outputs:
   threat-detection:
     enabled: false
@@ -44,6 +48,13 @@ safe-outputs:
 timeout-minutes: 20
 
 steps:
+  - name: Cache npm dependencies
+    uses: actions/cache/restore
+    with:
+      path: ~/.npm
+      key: npm-${{ hashFiles('package-lock.json') }}
+      restore-keys: npm-
+
   - name: Install dependencies
     run: set -o pipefail && npm ci 2>&1 | tail -5
 
@@ -81,7 +92,7 @@ steps:
             }))
             .filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))
             .sort((a, b) => a.stmts - b.stmts)
-            .slice(0, 80);
+            .slice(0, 20);
           console.log('| File | Stmts | Branch | Funcs | Lines | Status |');
           console.log('|------|------:|-------:|------:|------:|--------|');
           rows.forEach(r => {
@@ -148,7 +159,7 @@ steps:
       {
         echo "RECENT_FILES<<EOF"
         if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-          git fetch --prune --unshallow --tags
+          git fetch --shallow-since="7 days ago" --no-tags origin HEAD
         fi
         git log --since="7 days ago" --name-only --format="" | grep -E "^src/.*\.ts$" | sort -u | head -10
         echo "---"
@@ -259,9 +270,7 @@ This is **gh-aw-firewall**, a security-critical network firewall. Test coverage 
 
 ## Pre-computed Coverage Data
 
-The test suite has already run and the discussion body has been pre-built. Use the data below — **do not re-run npm test or npm run test:coverage**.
-
-The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.
+The test suite has already run and all coverage metrics were pre-computed. Use the data below — **do not re-run npm test or npm run test:coverage**.
 
 ## Your Task
 
@@ -269,9 +278,18 @@ The top coverage gaps (pre-identified) are:
 
 ${{ steps.coverage-gaps-brief.outputs.COVERAGE_GAPS_BRIEF }}
 
-Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`,
-write the **Notable Findings** (2–4 bullets) and **Recommendations** (3 prioritized High/Medium/Low items) sections,
-then append both to `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}` and post the complete discussion via `create_discussion`.
+Using only this brief, write a complete coverage discussion that follows this structure:
+
+- `## 📊 Test Coverage Report — YYYY-MM-DD`
+- `### Overall Coverage`
+- `### 🛡️ Security-Critical Path Status`
+- `### 📋 Coverage Table`
+- `### 🔧 Function Audit`
+- `### 📅 Recent Source Changes (last 7 days)`
+- `### 🔎 Notable Findings` (2–4 bullets)
+- `### 🎯 Recommendations` (3 prioritized High/Medium/Low items)
+
+Populate each section using the pre-computed step outputs and call `create_discussion` with the full final body.
 
 ## Guidelines
 

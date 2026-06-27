@@ -11,6 +11,7 @@ describe('test coverage reporter workflow token optimization config', () => {
 
     expect(source).toContain('github: false');
     expect(source).toContain('bash: false');
+    expect(source).toContain('model: summarization');
     expect(source).not.toContain('toolsets: [repos, discussions]');
     expect(source).not.toContain('bash: true');
     expect(source).toContain('const SECURITY_CRITICAL = [');
@@ -20,6 +21,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(source).toContain("'domain-patterns'");
     expect(source).toContain("'cli'");
     expect(source).toContain('.filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))');
+    expect(source).toContain('.slice(0, 20);');
 
     // Token optimization: coverage-json step removed (COVERAGE_TABLE alone is sufficient)
     expect(source).not.toContain('coverage-json');
@@ -29,6 +31,16 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(source).toContain('Pre-build discussion template');
     expect(source).toContain('id: discussion-template');
     expect(source).toContain('DISCUSSION_BODY');
+    expect(source).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
+    expect(source).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
+
+    // Runtime optimization: npm cache restore before npm ci
+    expect(source).toContain('- name: Cache npm dependencies');
+    expect(source).toContain('uses: actions/cache/restore');
+
+    // Runtime optimization: avoid full unshallow fetch
+    expect(source).toContain('git fetch --shallow-since="7 days ago" --no-tags origin HEAD');
+    expect(source).not.toContain('git fetch --prune --unshallow --tags');
 
     // Token optimization: push trigger has paths filter to reduce run frequency
     expect(source).toContain("paths:");
@@ -52,6 +64,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('shell(');
     expect(lock).toContain('const SECURITY_CRITICAL = [');
     expect(lock).toContain('.filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))');
+    expect(lock).toContain('.slice(0, 20);');
 
     // Token optimization: coverage-json step removed
     expect(lock).not.toContain('coverage-json');
@@ -60,6 +73,12 @@ describe('test coverage reporter workflow token optimization config', () => {
     // Token optimization: pre-built discussion template step compiled correctly
     expect(lock).toContain('id: discussion-template');
     expect(lock).toContain('DISCUSSION_BODY');
+    expect(lock).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
+    expect(lock).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
+    expect(lock).toContain('- name: Cache npm dependencies');
+    expect(lock).toContain('uses: actions/cache/restore');
+    expect(lock).toContain('git fetch --shallow-since=\\"7 days ago\\" --no-tags origin HEAD');
+    expect(lock).not.toContain('git fetch --prune --unshallow --tags');
 
     // Token optimization: push trigger paths filter present in compiled workflow
     expect(lock).toContain('paths:');
