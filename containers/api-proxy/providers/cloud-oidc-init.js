@@ -4,7 +4,7 @@ const { OidcTokenProvider } = require('../oidc-token-provider');
 const {
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
-} = require('../proxy-utils');
+} = require('../oidc-adapter-utils');
 
 /**
  * @typedef {object} OidcAuthProvider

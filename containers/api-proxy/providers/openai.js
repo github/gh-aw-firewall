@@ -12,9 +12,9 @@
 
 const {
   normalizeBasePath,
-  validateAuthHeaderEnv,
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
+const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 
 const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');

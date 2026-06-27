@@ -22,8 +22,8 @@ const {
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
   composeBodyTransforms,
-  resolveOidcAuthHeaders,
 } = require('../proxy-utils');
+const { resolveOidcAuthHeaders } = require('../oidc-adapter-utils');
 const { createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {

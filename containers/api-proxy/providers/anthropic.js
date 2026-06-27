@@ -16,9 +16,11 @@ const {
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
+} = require('../proxy-utils');
+const {
   validateAuthHeaderEnv,
   resolveOidcAuthHeaders,
-} = require('../proxy-utils');
+} = require('../oidc-adapter-utils');
 const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');

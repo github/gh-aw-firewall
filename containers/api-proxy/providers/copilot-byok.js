@@ -1,7 +1,7 @@
 'use strict';
 
 const { parseBodyAsObject } = require('../body-utils');
-const { isValidHeaderName } = require('../proxy-utils');
+const { isValidHeaderName } = require('../oidc-adapter-utils');
 
 /**
  * Header names that must never be overridden by caller-supplied extra headers.
