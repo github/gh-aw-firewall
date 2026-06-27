@@ -69,6 +69,7 @@ Prefer the narrowest match. Examples:
 
 - split filesystem / missing bind-mounted files → A1 or A3
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
+- `mkdirat ... : read-only file system` during chroot agent startup → A12
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
