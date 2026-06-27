@@ -24,9 +24,9 @@ fi
 # Extract only the classify_probe_failure() definition so we can source it in
 # isolation without running the rest of the entrypoint (which starts servers).
 FUNC_DEF=$(awk '
-  /^classify_probe_failure\(\)/ { capture=1 }
+  $0 ~ /^[[:space:]]*classify_probe_failure\(\)[[:space:]]*\{/ { capture=1 }
   capture { print }
-  capture && /^}/ { capture=0; exit }
+  capture && $0 ~ /^[[:space:]]*}[[:space:]]*$/ { exit }
 ' "${ENTRYPOINT}")
 
 if [ -z "${FUNC_DEF}" ]; then
