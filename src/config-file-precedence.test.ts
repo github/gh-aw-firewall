@@ -1,4 +1,4 @@
-import { applyConfigOptionsInPlaceWithCliPrecedence } from './config-file';
+import { applyConfigOptionsInPlaceWithCliPrecedence } from './config-precedence';
 
 describe('applyConfigOptionsInPlaceWithCliPrecedence', () => {
   it('does not overwrite explicitly provided CLI options', () => {

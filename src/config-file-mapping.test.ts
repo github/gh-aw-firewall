@@ -1,4 +1,4 @@
-import { mapAwfFileConfigToCliOptions } from './config-file';
+import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
   it('maps nested config values to CLI option names', () => {

@@ -3,6 +3,8 @@ import { applyConfigFilePrecedence, resolveAllowedDomains, resolveBlockedDomains
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
 jest.mock('../config-file');
+jest.mock('../config-mapper');
+jest.mock('../config-precedence');
 jest.mock('../domain-utils');
 jest.mock('../rules');
 jest.mock('../domain-validation');
@@ -12,6 +14,8 @@ jest.mock('../api-proxy-config');
 
 import { logger } from '../logger';
 import * as configFile from '../config-file';
+import * as configMapper from '../config-mapper';
+import * as configPrecedence from '../config-precedence';
 import * as domainUtils from '../domain-utils';
 import * as rules from '../rules';
 import * as domainValidation from '../domain-validation';
@@ -21,6 +25,8 @@ import * as apiProxyConfig from '../api-proxy-config';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedConfigFile = configFile as jest.Mocked<typeof configFile>;
+const mockedConfigMapper = configMapper as jest.Mocked<typeof configMapper>;
+const mockedConfigPrecedence = configPrecedence as jest.Mocked<typeof configPrecedence>;
 const mockedDomainUtils = domainUtils as jest.Mocked<typeof domainUtils>;
 const mockedRules = rules as jest.Mocked<typeof rules>;
 const mockedDomainValidation = domainValidation as jest.Mocked<typeof domainValidation>;
@@ -52,16 +58,16 @@ describe('applyConfigFilePrecedence', () => {
     const fileConfig = { version: 1, allowDomains: 'example.com' };
     const fileDerivedOptions = { allowDomains: 'example.com' };
     mockedConfigFile.loadAwfFileConfig.mockReturnValue(fileConfig as never);
-    mockedConfigFile.mapAwfFileConfigToCliOptions.mockReturnValue(fileDerivedOptions);
-    mockedConfigFile.applyConfigOptionsInPlaceWithCliPrecedence.mockImplementation();
+    mockedConfigMapper.mapAwfFileConfigToCliOptions.mockReturnValue(fileDerivedOptions);
+    mockedConfigPrecedence.applyConfigOptionsInPlaceWithCliPrecedence.mockImplementation();
 
     const options: Record<string, unknown> = { config: '/path/to/config.yml' };
     const getSource = jest.fn().mockReturnValue('default');
     applyConfigFilePrecedence(options, getSource);
 
     expect(mockedConfigFile.loadAwfFileConfig).toHaveBeenCalledWith('/path/to/config.yml');
-    expect(mockedConfigFile.mapAwfFileConfigToCliOptions).toHaveBeenCalledWith(fileConfig);
-    expect(mockedConfigFile.applyConfigOptionsInPlaceWithCliPrecedence).toHaveBeenCalledWith(
+    expect(mockedConfigMapper.mapAwfFileConfigToCliOptions).toHaveBeenCalledWith(fileConfig);
+    expect(mockedConfigPrecedence.applyConfigOptionsInPlaceWithCliPrecedence).toHaveBeenCalledWith(
       options,
       fileDerivedOptions,
       expect.any(Function)
@@ -82,10 +88,10 @@ describe('applyConfigFilePrecedence', () => {
     const fileConfig = {};
     const fileDerivedOptions = {};
     mockedConfigFile.loadAwfFileConfig.mockReturnValue(fileConfig as never);
-    mockedConfigFile.mapAwfFileConfigToCliOptions.mockReturnValue(fileDerivedOptions);
+    mockedConfigMapper.mapAwfFileConfigToCliOptions.mockReturnValue(fileDerivedOptions);
 
     let capturedPredicate: ((name: string) => boolean) | undefined;
-    mockedConfigFile.applyConfigOptionsInPlaceWithCliPrecedence.mockImplementation(
+    mockedConfigPrecedence.applyConfigOptionsInPlaceWithCliPrecedence.mockImplementation(
       (_opts, _derived, predicate) => { capturedPredicate = predicate; }
     );
 

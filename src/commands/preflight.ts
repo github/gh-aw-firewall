@@ -1,9 +1,7 @@
 import { logger } from '../logger';
-import {
-  loadAwfFileConfig,
-  mapAwfFileConfigToCliOptions,
-  applyConfigOptionsInPlaceWithCliPrecedence,
-} from '../config-file';
+import { loadAwfFileConfig } from '../config-file';
+import { mapAwfFileConfigToCliOptions } from '../config-mapper';
+import { applyConfigOptionsInPlaceWithCliPrecedence } from '../config-precedence';
 import { validateDomainOrPattern } from '../domain-validation';
 import { loadAndMergeDomains } from '../rules';
 import { parseDomains, parseDomainsFile } from '../domain-utils';
