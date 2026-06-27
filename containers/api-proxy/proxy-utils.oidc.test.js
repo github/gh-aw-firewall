@@ -1,3 +1,4 @@
+// Tests for oidc-adapter-utils.js (auth/OIDC helper module)
 const {
   isValidHeaderName,
   validateAuthHeaderEnv,
