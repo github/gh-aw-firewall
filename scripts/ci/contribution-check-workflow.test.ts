@@ -34,7 +34,7 @@ describe('contribution-check workflow', () => {
   it('has conservative turn limit and appropriate model', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
-    expect(source).toContain('max-turns: 3');
+    expect(source).toContain('max-turns: 4');
     expect(source).toContain('model: gpt-5.4-mini');
   });
 });
