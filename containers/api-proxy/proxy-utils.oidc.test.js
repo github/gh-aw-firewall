@@ -4,6 +4,7 @@ const {
   validateAuthHeaderEnv,
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
+  resolveAuthHeadersWithFallback,
 } = require('./oidc-adapter-utils');
 
 describe('isValidHeaderName', () => {
@@ -104,5 +105,40 @@ describe('resolveOidcAuthHeaders', () => {
     });
 
     expect(headers).toEqual({ Authorization: 'Bearer bearer-oidc-token' });
+  });
+});
+
+describe('resolveAuthHeadersWithFallback', () => {
+  it('returns OIDC headers when token is available', () => {
+    const headers = resolveAuthHeadersWithFallback({
+      oidcProvider: { getToken: () => 'oidc-token' },
+      awsOidcProvider: null,
+      buildOidcHeaders: (token) => ({ Authorization: ['oidc', token].join(':') }),
+      staticHeaders: { 'x-api-key': 'static-token' },
+    });
+
+    expect(headers).toEqual({ Authorization: 'oidc:oidc-token' });
+  });
+
+  it('returns an empty object when OIDC is configured but token is unavailable', () => {
+    const headers = resolveAuthHeadersWithFallback({
+      oidcProvider: { getToken: () => '' },
+      awsOidcProvider: null,
+      buildOidcHeaders: () => ({ Authorization: 'ignored-token' }),
+      staticHeaders: { 'x-api-key': 'static-token' },
+    });
+
+    expect(headers).toEqual({});
+  });
+
+  it('falls back to static headers when OIDC is not configured', () => {
+    const headers = resolveAuthHeadersWithFallback({
+      oidcProvider: null,
+      awsOidcProvider: null,
+      buildOidcHeaders: () => ({ Authorization: 'ignored-token' }),
+      staticHeaders: { 'x-api-key': 'static-token' },
+    });
+
+    expect(headers).toEqual({ 'x-api-key': 'static-token' });
   });
 });

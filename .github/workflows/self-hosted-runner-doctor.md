@@ -104,12 +104,15 @@ Prefer the narrowest match. Examples:
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
+- `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 
 ### 4. Check for known unresolved problems
 
 If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, the remaining `GH_HOST` leak to user steps, or ARC/DinD base-userland staging), say so explicitly instead of implying there is a shipped fix.
 
 A13 / #5541 — ARC/DinD split-fs base-userland staging is not yet implemented; AWF cannot currently run end-to-end on a split-fs runner with an empty /host.
+
+C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
 ### 5. Avoid duplicate triage
 

@@ -15,6 +15,7 @@ const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
 const { injectSteeringMessage } = require('./body-transform');
+const { handleRequestError } = require('./proxy-error-handler');
 const {
   maybeStripLearnedHeaderValues,
   resetDeprecatedHeaderValuesForTests,
@@ -145,35 +146,6 @@ function getUrlPathForSpan(requestUrl) {
  */
 function isValidRequestId(id) {
   return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
-}
-
-function handleRequestError(err, {
-  res,
-  requestId,
-  provider,
-  req,
-  targetHost,
-  startTime,
-  statusCode,
-  clientMessage,
-  extraMetrics,
-  onHeadersSent,
-}) {
-  const duration = Date.now() - startTime;
-  metrics.gaugeDec('active_requests', { provider });
-  metrics.increment('requests_errors_total', { provider });
-  if (extraMetrics) extraMetrics(duration);
-  logRequest('error', 'request_error', {
-    request_id: requestId, provider, method: req.method,
-    path: sanitizeForLog(req.url), duration_ms: duration,
-    error: sanitizeForLog(err.message), upstream_host: targetHost,
-  });
-  if (res.headersSent) {
-    if (onHeadersSent) onHeadersSent(err);
-    return;
-  }
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: clientMessage, message: err.message }));
 }
 
 const { collectRequestBody, transformRequestBody } = createBodyHandler({ handleRequestError, otel });
@@ -455,4 +427,5 @@ module.exports = {
   injectSteeringMessage,
   _setSleepForTests,
   _resetSleepForTests,
+  handleRequestError,
 };

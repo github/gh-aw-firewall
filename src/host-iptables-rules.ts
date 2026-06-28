@@ -134,23 +134,15 @@ interface ProxyDestinationRuleOptions {
   cliProxyConfig?: CliProxyHostConfig;
 }
 
-async function addProxyDestinationAcceptRules(
+/**
+ * Add iptables ACCEPT rules for optional sidecar destinations (DoH proxy, API proxy, CLI proxy).
+ * Returns the resolved gateway IPs needed by subsequent host-access rules.
+ */
+async function addSidecarDestinationRules(
   chain: string,
-  squidIp: string,
-  {
-    squidPort,
-    apiProxyIp,
-    dohProxyIp,
-    hostAccess,
-    cliProxyConfig,
-  }: ProxyDestinationRuleOptions,
-): Promise<void> {
-  // 5. Allow traffic to Squid proxy
-  await execa('iptables', [
-    '-t', 'filter', '-A', chain,
-    '-p', 'tcp', '-d', squidIp, '--dport', squidPort.toString(),
-    '-j', 'ACCEPT',
-  ]);
+  options: Pick<ProxyDestinationRuleOptions, 'apiProxyIp' | 'dohProxyIp' | 'cliProxyConfig' | 'hostAccess'>,
+): Promise<string[]> {
+  const { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess } = options;
 
   // 5a. Allow DNS traffic to DoH proxy sidecar (when enabled)
   if (dohProxyIp) {
@@ -159,8 +151,6 @@ async function addProxyDestinationAcceptRules(
   }
 
   // 5b. Allow traffic to API proxy sidecar (when enabled)
-  // Allow all API proxy ports declared in API_PROXY_PORTS.
-  // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
   if (apiProxyIp) {
     const allPorts = Object.values(API_PROXY_PORTS);
     const minPort = Math.min(...allPorts);
@@ -174,6 +164,7 @@ async function addProxyDestinationAcceptRules(
     ]);
   }
 
+  // Resolve gateway IPs (needed for CLI proxy and host access rules)
   const needsGatewayIps = !!cliProxyConfig || !!hostAccess?.enabled;
   const dockerBridgeGateway = needsGatewayIps ? await getDockerBridgeGateway() : null;
   const gatewayIps = [AWF_NETWORK_GATEWAY];
@@ -195,26 +186,60 @@ async function addProxyDestinationAcceptRules(
     logger.info(`CLI proxy host access enabled: ${cliProxyIp} → host gateway:${difcProxyPort}`);
   }
 
-  // 5c. Allow traffic to host gateway when host access is enabled
-  if (hostAccess?.enabled) {
-    const defaultPorts = ['80', '443'];
-    const customPorts = [
-      ...parseValidPortSpecs(hostAccess.allowHostPorts, 'port spec'),
-      ...parseValidPortSpecs(hostAccess.allowHostServicePorts, 'host service port spec'),
-    ];
-    const allPorts = [...new Set([...defaultPorts, ...customPorts])];
+  return gatewayIps;
+}
 
-    for (const gwIp of gatewayIps) {
-      for (const port of allPorts) {
-        logger.debug(`Allowing host gateway traffic: ${gwIp}:${port}`);
-        await execa('iptables', [
-          '-t', 'filter', '-A', chain,
-          '-p', 'tcp', '-d', gwIp, '--dport', port,
-          '-j', 'ACCEPT',
-        ]);
-      }
+/**
+ * Add iptables ACCEPT rules for host gateway access (Playwright, MCP servers, etc.).
+ */
+async function addHostAccessRules(
+  chain: string,
+  gatewayIps: string[],
+  hostAccess: HostAccessConfig,
+): Promise<void> {
+  const defaultPorts = ['80', '443'];
+  const customPorts = [
+    ...parseValidPortSpecs(hostAccess.allowHostPorts, 'port spec'),
+    ...parseValidPortSpecs(hostAccess.allowHostServicePorts, 'host service port spec'),
+  ];
+  const allPorts = [...new Set([...defaultPorts, ...customPorts])];
+
+  for (const gwIp of gatewayIps) {
+    for (const port of allPorts) {
+      logger.debug(`Allowing host gateway traffic: ${gwIp}:${port}`);
+      await execa('iptables', [
+        '-t', 'filter', '-A', chain,
+        '-p', 'tcp', '-d', gwIp, '--dport', port,
+        '-j', 'ACCEPT',
+      ]);
     }
-    logger.info(`Host access enabled: allowing traffic to gateway IPs ${gatewayIps.join(', ')} on ports ${allPorts.join(', ')}`);
+  }
+  logger.info(`Host access enabled: allowing traffic to gateway IPs ${gatewayIps.join(', ')} on ports ${allPorts.join(', ')}`);
+}
+
+async function addProxyDestinationAcceptRules(
+  chain: string,
+  squidIp: string,
+  {
+    squidPort,
+    apiProxyIp,
+    dohProxyIp,
+    hostAccess,
+    cliProxyConfig,
+  }: ProxyDestinationRuleOptions,
+): Promise<void> {
+  // 5. Allow traffic to Squid proxy
+  await execa('iptables', [
+    '-t', 'filter', '-A', chain,
+    '-p', 'tcp', '-d', squidIp, '--dport', squidPort.toString(),
+    '-j', 'ACCEPT',
+  ]);
+
+  const gatewayIps = await addSidecarDestinationRules(chain, { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess });
+
+  // 5c. Allow traffic to host gateway when host access is enabled
+  if (hostAccess && hostAccess.enabled) {
+    await addHostAccessRules(chain, gatewayIps, hostAccess);
   }
 }
 

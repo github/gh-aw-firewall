@@ -220,12 +220,10 @@ export function preserveCleanupArtifacts(
   );
 }
 
-type RemoveWorkDirectoriesOptions = {
-  dockerHostPathPrefix?: string;
-  imageRegistry?: string;
-  imageTag?: string;
-  agentImage?: string;
-};
+type RemoveWorkDirectoriesOptions = Pick<
+  PreserveCleanupArtifactsOptions,
+  'dockerHostPathPrefix' | 'imageRegistry' | 'imageTag' | 'agentImage'
+>;
 
 export function removeWorkDirectories(workDir: string, options: RemoveWorkDirectoriesOptions = {}): void {
   fs.rmSync(workDir, { recursive: true, force: true });
