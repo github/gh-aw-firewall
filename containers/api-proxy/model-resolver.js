@@ -19,7 +19,6 @@
  * case-insensitive, and sorted by semver semantics (highest version first).
  */
 
-const { getTierSortedModels } = require('./model-discovery');
 const { globMatch, extractVersionNumbers, compareByVersion } = require('./model-utils');
 const {
   DEFAULT_MODEL_FALLBACK,
