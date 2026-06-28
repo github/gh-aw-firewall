@@ -15,6 +15,15 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
+jest.mock('./artifact-permissions', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const real = jest.requireActual<typeof import('./artifact-permissions')>('./artifact-permissions');
+  return {
+    ...real,
+    fixArtifactPermissionsForRootless: jest.fn(real.fixArtifactPermissionsForRootless),
+  };
+});
+
 // Wrap the fs methods we need to control with jest.fn() so individual tests
 // can inject one-shot errors without using jest.spyOn (which fails on non-
 // configurable properties in Jest's module sandbox).
@@ -24,6 +33,7 @@ jest.mock('fs', () => {
   return {
     ...real,
     copyFileSync: jest.fn(real.copyFileSync),
+    rmSync: jest.fn(real.rmSync),
     renameSync: jest.fn(real.renameSync),
     mkdirSync: jest.fn(real.mkdirSync),
   };
@@ -32,16 +42,21 @@ jest.mock('fs', () => {
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { fixArtifactPermissionsForRootless } from './artifact-permissions';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import {
   preserveIptablesAudit,
   preserveCleanupArtifacts,
+  removeWorkDirectories,
 } from './artifact-preservation';
 
 // Cast mocked methods for convenient mockImplementationOnce usage.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realFs = jest.requireActual<typeof import('fs')>('fs');
 const mockCopyFileSync = fs.copyFileSync as jest.MockedFunction<typeof fs.copyFileSync>;
+const mockFixArtifactPermissionsForRootless =
+  fixArtifactPermissionsForRootless as jest.MockedFunction<typeof fixArtifactPermissionsForRootless>;
+const mockRmSync = fs.rmSync as jest.MockedFunction<typeof fs.rmSync>;
 const mockRenameSync = fs.renameSync as jest.MockedFunction<typeof fs.renameSync>;
 const mockMkdirSync = fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>;
 
@@ -56,6 +71,7 @@ describe('artifact-preservation – error paths', () => {
     mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 0 });
     // Re-apply real implementations in case a test replaced them with mockImplementation/mockImplementationOnce.
     mockCopyFileSync.mockImplementation(realFs.copyFileSync);
+    mockRmSync.mockImplementation(realFs.rmSync);
     mockRenameSync.mockImplementation(realFs.renameSync);
     mockMkdirSync.mockImplementation(realFs.mkdirSync);
   });
@@ -314,6 +330,50 @@ describe('artifact-preservation – error paths', () => {
         expect(() => preserveCleanupArtifacts(workDir)).not.toThrow();
       } finally {
         realFs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('removeWorkDirectories', () => {
+    it('repairs chroot-home permissions and retries removal after EACCES', () => {
+      const workDir = makeTempDir();
+      const chrootHomeDir = `${workDir}-chroot-home`;
+      let chrootHomeRemovalAttempts = 0;
+
+      try {
+        realFs.mkdirSync(chrootHomeDir);
+        realFs.writeFileSync(path.join(chrootHomeDir, '.aws-config'), 'config');
+
+        mockRmSync.mockImplementation((target, options) => {
+          if (target === chrootHomeDir) {
+            chrootHomeRemovalAttempts += 1;
+            if (chrootHomeRemovalAttempts === 1) {
+              const error = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+              throw error;
+            }
+          }
+          return realFs.rmSync(target, options);
+        });
+
+        expect(() => removeWorkDirectories(workDir, {
+          dockerHostPathPrefix: '/host',
+          imageRegistry: 'ghcr.io/github/gh-aw-firewall',
+          imageTag: 'latest',
+          agentImage: 'act',
+        })).not.toThrow();
+
+        expect(mockFixArtifactPermissionsForRootless).toHaveBeenCalledWith(
+          [chrootHomeDir],
+          '/host',
+          'ghcr.io/github/gh-aw-firewall',
+          'latest',
+          'act',
+        );
+        expect(chrootHomeRemovalAttempts).toBe(2);
+        expect(realFs.existsSync(chrootHomeDir)).toBe(false);
+      } finally {
+        realFs.rmSync(workDir, { recursive: true, force: true });
+        realFs.rmSync(chrootHomeDir, { recursive: true, force: true });
       }
     });
   });
