@@ -164,11 +164,11 @@ describe('config-assembly', () => {
       );
     });
 
-    it('should allow custom COPILOT_MODEL values in BYOK mode with a provider base URL', () => {
+    function expectByokModelAllowed(buildConfigOverrides: Record<string, unknown>): void {
       mockBuildConfigOnce({
         copilotProviderApiKey: 'byok-api-key-for-azure-foundry',
-        copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/o4-mini-aw',
         additionalEnv: { COPILOT_MODEL: 'o4-mini-aw' },
+        ...buildConfigOverrides,
       });
 
       const agentOptions = createMinimalAgentOptions();
@@ -184,31 +184,21 @@ describe('config-assembly', () => {
 
       expect(logger.error).not.toHaveBeenCalled();
       expect(result.additionalEnv?.COPILOT_MODEL).toBe('o4-mini-aw');
+    }
+
+    it('should allow custom COPILOT_MODEL values in BYOK mode with a provider base URL', () => {
+      expectByokModelAllowed({
+        copilotProviderBaseUrl: 'https://example-resource.openai.azure.com/openai/deployments/o4-mini-aw',
+      });
     });
 
     it('should allow custom COPILOT_MODEL values when provider base URL is set via env file', () => {
       const envFilePath = path.join(getTestDir(), 'byok.env');
-      fs.writeFileSync(envFilePath, 'COPILOT_PROVIDER_BASE_URL=https://example-resource.openai.azure.com/openai/deployments/o4-mini-aw\n');
-
-      mockBuildConfigOnce({
-        copilotProviderApiKey: 'byok-api-key-for-azure-foundry',
-        envFile: envFilePath,
-        additionalEnv: { COPILOT_MODEL: 'o4-mini-aw' },
-      });
-
-      const agentOptions = createMinimalAgentOptions();
-      agentOptions.additionalEnv = { COPILOT_MODEL: 'o4-mini-aw' };
-
-      const result = assembleAndValidateConfig(
-        {},
-        'echo test',
-        createMinimalLogAndLimits(),
-        createMinimalNetworkOptions(),
-        agentOptions,
+      fs.writeFileSync(
+        envFilePath,
+        'COPILOT_PROVIDER_BASE_URL=https://example-resource.openai.azure.com/openai/deployments/o4-mini-aw\n',
       );
-
-      expect(logger.error).not.toHaveBeenCalled();
-      expect(result.additionalEnv?.COPILOT_MODEL).toBe('o4-mini-aw');
+      expectByokModelAllowed({ envFile: envFilePath });
     });
 
     it('should log normalization when COPILOT_MODEL casing is adjusted', () => {
