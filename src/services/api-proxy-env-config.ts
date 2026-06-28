@@ -2,7 +2,7 @@ import { SQUID_PORT } from '../constants';
 import { stripScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
-import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV } from '../api-proxy-env-constants';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 
 /**
@@ -191,30 +191,7 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
       AWF_MAX_BLOCKED_CAPTURE_BYTES: String(config.maxCapturedBytes),
     }),
     // OIDC authentication (Azure, AWS, GCP, Anthropic)
-    ...pickEnvVars(
-      'AWF_AUTH_TYPE',
-      'AWF_AUTH_PROVIDER',
-      'AWF_AUTH_OIDC_AUDIENCE',
-      // Azure
-      'AWF_AUTH_AZURE_TENANT_ID',
-      'AWF_AUTH_AZURE_CLIENT_ID',
-      'AWF_AUTH_AZURE_SCOPE',
-      'AWF_AUTH_AZURE_CLOUD',
-      // AWS
-      'AWF_AUTH_AWS_ROLE_ARN',
-      'AWF_AUTH_AWS_REGION',
-      'AWF_AUTH_AWS_ROLE_SESSION_NAME',
-      // GCP
-      'AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER',
-      'AWF_AUTH_GCP_SERVICE_ACCOUNT',
-      'AWF_AUTH_GCP_SCOPE',
-      // Anthropic
-      'AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID',
-      'AWF_AUTH_ANTHROPIC_ORGANIZATION_ID',
-      'AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID',
-      'AWF_AUTH_ANTHROPIC_WORKSPACE_ID',
-      'AWF_AUTH_ANTHROPIC_TOKEN_URL',
-    ),
+    ...pickEnvVars(...OIDC_AUTH_ENV_VARS, 'AWF_AUTH_ANTHROPIC_TOKEN_URL'),
     // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
     ...(normalizedAuthType === 'github-oidc' && pickEnvVars(
       'ACTIONS_ID_TOKEN_REQUEST_URL',
@@ -232,23 +209,11 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...(config.anthropicApiAuthHeader && { [ANTHROPIC_ENV.AUTH_HEADER]: config.anthropicApiAuthHeader }),
     ...(config.anthropicTokenUrl && { AWF_AUTH_ANTHROPIC_TOKEN_URL: config.anthropicTokenUrl }),
     // OIDC auth config-file values override host env vars (config-file > env fallback precedence)
-    ...(config.authType && { AWF_AUTH_TYPE: config.authType }),
-    ...(config.authProvider && { AWF_AUTH_PROVIDER: config.authProvider }),
-    ...(config.authOidcAudience && { AWF_AUTH_OIDC_AUDIENCE: config.authOidcAudience }),
-    ...(config.authAzureTenantId && { AWF_AUTH_AZURE_TENANT_ID: config.authAzureTenantId }),
-    ...(config.authAzureClientId && { AWF_AUTH_AZURE_CLIENT_ID: config.authAzureClientId }),
-    ...(config.authAzureScope && { AWF_AUTH_AZURE_SCOPE: config.authAzureScope }),
-    ...(config.authAzureCloud && { AWF_AUTH_AZURE_CLOUD: config.authAzureCloud }),
-    ...(config.authAwsRoleArn && { AWF_AUTH_AWS_ROLE_ARN: config.authAwsRoleArn }),
-    ...(config.authAwsRegion && { AWF_AUTH_AWS_REGION: config.authAwsRegion }),
-    ...(config.authAwsRoleSessionName && { AWF_AUTH_AWS_ROLE_SESSION_NAME: config.authAwsRoleSessionName }),
-    ...(config.authGcpWorkloadIdentityProvider && { AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: config.authGcpWorkloadIdentityProvider }),
-    ...(config.authGcpServiceAccount && { AWF_AUTH_GCP_SERVICE_ACCOUNT: config.authGcpServiceAccount }),
-    ...(config.authGcpScope && { AWF_AUTH_GCP_SCOPE: config.authGcpScope }),
-    ...(config.authAnthropicFederationRuleId && { AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID: config.authAnthropicFederationRuleId }),
-    ...(config.authAnthropicOrganizationId && { AWF_AUTH_ANTHROPIC_ORGANIZATION_ID: config.authAnthropicOrganizationId }),
-    ...(config.authAnthropicServiceAccountId && { AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: config.authAnthropicServiceAccountId }),
-    ...(config.authAnthropicWorkspaceId && { AWF_AUTH_ANTHROPIC_WORKSPACE_ID: config.authAnthropicWorkspaceId }),
+    ...Object.fromEntries(
+      OIDC_AUTH_ENV_MAPPING
+        .filter(({ configKey }) => (config as unknown as Record<string, unknown>)[configKey])
+        .map(({ configKey, envVar }) => [envVar, (config as unknown as Record<string, unknown>)[configKey] as string])
+    ),
     // NOTE: AWF_ANTHROPIC_TRANSFORM_FILE is intentionally NOT forwarded from the host.
     // The api-proxy container holds live API credentials; loading arbitrary host-side JS
     // files into it would create an arbitrary-code-execution risk.  If you need a custom
