@@ -238,7 +238,7 @@ async function addProxyDestinationAcceptRules(
   const gatewayIps = await addSidecarDestinationRules(chain, { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess });
 
   // 5c. Allow traffic to host gateway when host access is enabled
-  if (hostAccess?.enabled) {
+  if (hostAccess && hostAccess.enabled) {
     await addHostAccessRules(chain, gatewayIps, hostAccess);
   }
 }
