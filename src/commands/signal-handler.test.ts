@@ -31,6 +31,36 @@ describe('registerSignalHandlers', () => {
     delete handlers['SIGTERM'];
   });
 
+  async function runSignalScenario({
+    signal,
+    containersStarted,
+    keepContainers,
+    fastKillRejects = false,
+  }: {
+    signal: 'SIGINT' | 'SIGTERM';
+    containersStarted: boolean;
+    keepContainers: boolean;
+    fastKillRejects?: boolean;
+  }): Promise<{ fastKill: jest.Mock; performCleanup: jest.Mock }> {
+    const fastKill = fastKillRejects
+      ? jest.fn().mockRejectedValue(new Error('kill failed'))
+      : jest.fn().mockResolvedValue(undefined);
+    const performCleanup = jest.fn().mockResolvedValue(undefined);
+
+    const deps: SignalHandlerDependencies = {
+      getContainersStarted: () => containersStarted,
+      keepContainers,
+      fastKillAgentContainer: fastKill,
+      performCleanup,
+    };
+
+    registerSignalHandlers(deps);
+    handlers[signal]();
+    await flushPromises();
+
+    return { fastKill, performCleanup };
+  }
+
   it('registers SIGINT and SIGTERM handlers', () => {
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => false,
@@ -45,118 +75,57 @@ describe('registerSignalHandlers', () => {
     expect(processOnSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
   });
 
-  it('fast-kills agent container on SIGINT when containers are started and keepContainers is false', async () => {
-    const fastKill = jest.fn().mockResolvedValue(undefined);
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const)(
+    'fast-kills agent container on %s when containers are started and keepContainers is false',
+    async (signal, exitCode) => {
+      const { fastKill, performCleanup } = await runSignalScenario({
+        signal,
+        containersStarted: true,
+        keepContainers: false,
+      });
 
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => true,
-      keepContainers: false,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
-
-    registerSignalHandlers(deps);
-
-    handlers['SIGINT']();
-    await flushPromises();
-    expect(fastKill).toHaveBeenCalled();
-    expect(performCleanup).toHaveBeenCalledWith('SIGINT');
-    expect(processExitSpy).toHaveBeenCalledWith(130);
-  });
+      expect(fastKill).toHaveBeenCalled();
+      expect(performCleanup).toHaveBeenCalledWith(signal);
+      expect(processExitSpy).toHaveBeenCalledWith(exitCode);
+    }
+  );
 
   it('skips fast-kill on SIGINT when containers are not started', async () => {
-    const fastKill = jest.fn().mockResolvedValue(undefined);
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => false,
+    const { fastKill, performCleanup } = await runSignalScenario({
+      signal: 'SIGINT',
+      containersStarted: false,
       keepContainers: false,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
+    });
 
-    registerSignalHandlers(deps);
-
-    handlers['SIGINT']();
-    await flushPromises();
     expect(fastKill).not.toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGINT');
   });
 
   it('skips fast-kill on SIGINT when keepContainers is true', async () => {
-    const fastKill = jest.fn().mockResolvedValue(undefined);
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => true,
+    const { fastKill } = await runSignalScenario({
+      signal: 'SIGINT',
+      containersStarted: true,
       keepContainers: true,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
+    });
 
-    registerSignalHandlers(deps);
-
-    handlers['SIGINT']();
-    await flushPromises();
     expect(fastKill).not.toHaveBeenCalled();
   });
 
-  it('fast-kills agent container on SIGTERM when containers are started and keepContainers is false', async () => {
-    const fastKill = jest.fn().mockResolvedValue(undefined);
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => true,
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const)('swallows errors thrown during %s handling', async (signal, exitCode) => {
+    await runSignalScenario({
+      signal,
+      containersStarted: true,
       keepContainers: false,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
-
-    registerSignalHandlers(deps);
-
-    handlers['SIGTERM']();
-    await flushPromises();
-    expect(fastKill).toHaveBeenCalled();
-    expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
-    expect(processExitSpy).toHaveBeenCalledWith(143);
-  });
-
-  it('swallows errors thrown during SIGINT handling', async () => {
-    const fastKill = jest.fn().mockRejectedValue(new Error('kill failed'));
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => true,
-      keepContainers: false,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
-
-    registerSignalHandlers(deps);
+      fastKillRejects: true,
+    });
 
     // Should not throw even though fastKillAgentContainer rejects
-    handlers['SIGINT']();
-    await flushPromises();
-    expect(processExitSpy).toHaveBeenCalledWith(130);
-  });
-
-  it('swallows errors thrown during SIGTERM handling', async () => {
-    const fastKill = jest.fn().mockRejectedValue(new Error('kill failed'));
-    const performCleanup = jest.fn().mockResolvedValue(undefined);
-
-    const deps: SignalHandlerDependencies = {
-      getContainersStarted: () => true,
-      keepContainers: false,
-      fastKillAgentContainer: fastKill,
-      performCleanup,
-    };
-
-    registerSignalHandlers(deps);
-
-    // Should not throw even though fastKillAgentContainer rejects
-    handlers['SIGTERM']();
-    await flushPromises();
-    expect(processExitSpy).toHaveBeenCalledWith(143);
+    expect(processExitSpy).toHaveBeenCalledWith(exitCode);
   });
 });
