@@ -26,6 +26,9 @@ sandbox:
   agent:
     id: awf
 strict: false
+concurrency:
+  group: "test-coverage-reporter-${{ github.ref }}"
+  cancel-in-progress: true
 network:
   allowed:
     - github
