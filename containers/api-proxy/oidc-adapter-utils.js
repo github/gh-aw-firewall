@@ -88,9 +88,34 @@ function resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeader
   return null;
 }
 
+/**
+ * Resolve auth headers with automatic static-key fallback.
+ *
+ * Combines OIDC resolution with a static-key fallback into a single call,
+ * encapsulating the repeated pattern across provider adapters:
+ *   1. If OIDC provider has a token → use buildOidcHeaders(token)
+ *   2. If OIDC is configured but no token yet → return empty {} (fail-safe)
+ *   3. If no OIDC → return staticHeaders
+ *
+ * @param {object} opts
+ * @param {{ getToken: () => (string|undefined|null) }|null|undefined} [opts.oidcProvider]
+ * @param {unknown} [opts.awsOidcProvider]
+ * @param {(token: string) => Record<string, string>} opts.buildOidcHeaders
+ * @param {Record<string, string>} opts.staticHeaders - Headers to use when no OIDC is configured
+ * @returns {Record<string, string>}
+ */
+function resolveAuthHeadersWithFallback({ oidcProvider, awsOidcProvider, buildOidcHeaders, staticHeaders }) {
+  const oidcHeaders = resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeaders });
+  if (oidcHeaders !== null) {
+    return oidcHeaders;
+  }
+  return staticHeaders;
+}
+
 module.exports = {
   isValidHeaderName,
   validateAuthHeaderEnv,
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
+  resolveAuthHeadersWithFallback,
 };

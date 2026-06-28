@@ -20,6 +20,7 @@ const {
 const {
   validateAuthHeaderEnv,
   resolveOidcAuthHeaders,
+  resolveAuthHeadersWithFallback,
 } = require('../oidc-adapter-utils');
 const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
@@ -127,20 +128,16 @@ function createAnthropicAdapter(env, deps = {}) {
     validationPath: '/v1/messages',
     validationMethod: 'POST',
     validationBody: '{}',
-    validationHeaders: () => {
-      if (oidcProvider && oidcProvider.isReady()) {
-        return {
-          'Authorization': `Bearer ${oidcProvider.getToken()}`,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        };
-      }
-      return {
-        [authHeaderName]: apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      };
-    },
+    validationHeaders: () => ({
+      ...resolveAuthHeadersWithFallback({
+        oidcProvider,
+        awsOidcProvider: null,
+        buildOidcHeaders: (token) => ({ 'Authorization': `Bearer ${token}` }),
+        staticHeaders: { [authHeaderName]: apiKey },
+      }),
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    }),
     validationSkip: () => {
       if (!oidcConfigured) return null;
       // After OIDC init, validate using the acquired token
@@ -149,12 +146,15 @@ function createAnthropicAdapter(env, deps = {}) {
     },
     skipModelsFetch: () => oidcConfigured && !oidcProvider?.isReady(),
     modelsPath: '/v1/models',
-    modelsFetchHeaders: () => {
-      if (oidcProvider && oidcProvider.isReady()) {
-        return { 'Authorization': `Bearer ${oidcProvider.getToken()}`, 'anthropic-version': '2023-06-01' };
-      }
-      return { [authHeaderName]: apiKey, 'anthropic-version': '2023-06-01' };
-    },
+    modelsFetchHeaders: () => ({
+      ...resolveAuthHeadersWithFallback({
+        oidcProvider,
+        awsOidcProvider: null,
+        buildOidcHeaders: (token) => ({ 'Authorization': `Bearer ${token}` }),
+        staticHeaders: { [authHeaderName]: apiKey },
+      }),
+      'anthropic-version': '2023-06-01',
+    }),
     reflectionConfigured: !!apiKey || oidcRequested,
     reflectionExtra: () => ({
       auth_type: oidcRequested ? 'github-oidc/anthropic' : 'static-key',
