@@ -220,11 +220,41 @@ export function preserveCleanupArtifacts(
   );
 }
 
-export function removeWorkDirectories(workDir: string): void {
+type RemoveWorkDirectoriesOptions = {
+  dockerHostPathPrefix?: string;
+  imageRegistry?: string;
+  imageTag?: string;
+  agentImage?: string;
+};
+
+export function removeWorkDirectories(workDir: string, options: RemoveWorkDirectoriesOptions = {}): void {
   fs.rmSync(workDir, { recursive: true, force: true });
 
   const chrootHomeDir = `${workDir}-chroot-home`;
   if (fs.existsSync(chrootHomeDir)) {
-    fs.rmSync(chrootHomeDir, { recursive: true, force: true });
+    try {
+      fs.rmSync(chrootHomeDir, { recursive: true, force: true });
+    } catch (error: unknown) {
+      // In rootless Docker, files created inside the container may be owned by
+      // remapped UIDs that the host process cannot delete. Fix permissions via
+      // a privileged container, then retry removal.
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
+        logger.debug('Chroot home removal failed with EACCES; attempting rootless permission repair');
+        fixArtifactPermissionsForRootless(
+          [chrootHomeDir],
+          options.dockerHostPathPrefix,
+          options.imageRegistry,
+          options.imageTag,
+          options.agentImage,
+        );
+        try {
+          fs.rmSync(chrootHomeDir, { recursive: true, force: true });
+        } catch (retryError) {
+          logger.warn('Failed to remove chroot home directory after permission repair:', retryError);
+        }
+      } else {
+        logger.warn('Failed to remove chroot home directory:', error);
+      }
+    }
   }
 }

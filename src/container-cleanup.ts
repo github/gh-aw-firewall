@@ -50,7 +50,12 @@ export async function cleanup(
       await unmountSslTmpfs(sslDir);
     }
 
-    removeWorkDirectories(workDir);
+    removeWorkDirectories(workDir, {
+      dockerHostPathPrefix,
+      imageRegistry,
+      imageTag,
+      agentImage,
+    });
     logger.debug('Temporary files cleaned up');
   } catch (error) {
     logger.warn('Failed to clean up temporary files:', error);
