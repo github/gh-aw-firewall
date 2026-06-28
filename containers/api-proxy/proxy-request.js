@@ -427,4 +427,5 @@ module.exports = {
   injectSteeringMessage,
   _setSleepForTests,
   _resetSleepForTests,
+  handleRequestError,
 };

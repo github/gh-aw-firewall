@@ -3,7 +3,7 @@
 /**
  * AWF API Proxy — Request error handling.
  *
- * Extracted from proxy-request.js to isolate error classification and response
+ * Extracted from proxy-request.js to isolate error handling and response
  * construction from the main proxy plumbing.
  */
 
