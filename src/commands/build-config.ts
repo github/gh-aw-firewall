@@ -1,5 +1,5 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
-import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV } from '../api-proxy-env-constants';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 
 /**
  * Inputs required to assemble a {@link WrapperConfig}.
@@ -204,20 +204,15 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     authType: (options.authType as string | undefined) || process.env.AWF_AUTH_TYPE,
     authProvider: (options.authProvider as string | undefined) || process.env.AWF_AUTH_PROVIDER,
     authOidcAudience: (options.authOidcAudience as string | undefined) || process.env.AWF_AUTH_OIDC_AUDIENCE,
-    authAzureTenantId: (options.authAzureTenantId as string | undefined) || process.env.AWF_AUTH_AZURE_TENANT_ID,
-    authAzureClientId: (options.authAzureClientId as string | undefined) || process.env.AWF_AUTH_AZURE_CLIENT_ID,
-    authAzureScope: (options.authAzureScope as string | undefined) || process.env.AWF_AUTH_AZURE_SCOPE,
-    authAzureCloud: (options.authAzureCloud as string | undefined) || process.env.AWF_AUTH_AZURE_CLOUD,
-    authAwsRoleArn: (options.authAwsRoleArn as string | undefined) || process.env.AWF_AUTH_AWS_ROLE_ARN,
-    authAwsRegion: (options.authAwsRegion as string | undefined) || process.env.AWF_AUTH_AWS_REGION,
-    authAwsRoleSessionName: (options.authAwsRoleSessionName as string | undefined) || process.env.AWF_AUTH_AWS_ROLE_SESSION_NAME,
-    authGcpWorkloadIdentityProvider: (options.authGcpWorkloadIdentityProvider as string | undefined) || process.env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER,
-    authGcpServiceAccount: (options.authGcpServiceAccount as string | undefined) || process.env.AWF_AUTH_GCP_SERVICE_ACCOUNT,
-    authGcpScope: (options.authGcpScope as string | undefined) || process.env.AWF_AUTH_GCP_SCOPE,
-    authAnthropicFederationRuleId: (options.authAnthropicFederationRuleId as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,
-    authAnthropicOrganizationId: (options.authAnthropicOrganizationId as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,
-    authAnthropicServiceAccountId: (options.authAnthropicServiceAccountId as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID,
-    authAnthropicWorkspaceId: (options.authAnthropicWorkspaceId as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_WORKSPACE_ID,
+    ...Object.fromEntries(
+      OIDC_AUTH_ENV_MAPPING
+        .filter(m => !['authType', 'authProvider', 'authOidcAudience'].includes(m.configKey))
+        .map(({ configKey, envVar }) => [
+          configKey,
+          (options[configKey] as string | undefined) || process.env[envVar],
+        ])
+        .filter(([, v]) => v !== undefined)
+    ),
     geminiApiTarget:
       (options.geminiApiTarget as string | undefined) || process.env[GEMINI_ENV.TARGET],
     geminiApiBasePath:
