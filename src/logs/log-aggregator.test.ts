@@ -135,9 +135,11 @@ describe('log-aggregator', () => {
     });
 
     it('should filter out transaction-end-before-headers entries', () => {
+      const [first, second] = validTunnelEntries();
       const entries: ParsedLogEntry[] = [
-        ...validTunnelEntries(),
+        first,
         transactionEndEntry(),
+        second,
       ];
 
       const stats = aggregateLogs(entries);
@@ -146,9 +148,11 @@ describe('log-aggregator', () => {
     });
 
     it('should handle multiple transaction-end-before-headers entries', () => {
+      const [first, second] = validTunnelEntries();
       const entries: ParsedLogEntry[] = [
-        ...validTunnelEntries(),
+        first,
         transactionEndEntry({ clientIp: '::1' }), // healthcheck from localhost
+        second,
         transactionEndEntry({ clientIp: '172.30.0.20' }), // shutdown-time connection closure
       ];
 
