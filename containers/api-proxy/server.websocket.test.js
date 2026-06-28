@@ -323,14 +323,14 @@ describe('proxyWebSocket security guards', () => {
     jest.restoreAllMocks();
   });
 
-  it('blocks with 429 when max-runs limit is exceeded', () => {
+  it('blocks with 403 when max-runs limit is exceeded', () => {
     process.env.AWF_MAX_RUNS = '1';
     applyMaxRunsInvocation(); // consume the single allowed run
 
     const socket = makeMockSocket();
     wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
 
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_runs_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });

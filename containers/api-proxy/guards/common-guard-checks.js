@@ -80,10 +80,8 @@ function buildCommonGuardChecks(deps, model) {
     {
       block: getMaxRunsBlockState(),
       isBlocked: block => block && block.maxExceeded,
-      // Terminal hard cap: 429 signals the agent has exhausted its allowed
-      // turns.  Unlike transient rate-limits, the Retry-After is absent so
-      // well-behaved clients won't retry indefinitely.
-      statusCode: 429,
+      // Terminal hard cap — non-retryable (see effective-tokens guard above).
+      statusCode: 403,
       eventName: 'max_runs_exceeded',
       buildError: buildMaxRunsExceededError,
       buildLogFields: block => ({

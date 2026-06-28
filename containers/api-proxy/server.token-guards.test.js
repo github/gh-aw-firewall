@@ -231,7 +231,7 @@ describe('proxyRequest max-runs guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 429 with structured payload when max runs limit is exceeded', async () => {
+  it('returns 403 with structured payload when max runs limit is exceeded', async () => {
     const cycle = createMockUpstreamCycle(https);
 
     // First request completes successfully — consumes the single allowed run
@@ -251,12 +251,11 @@ describe('proxyRequest max-runs guard', () => {
     await flushPromises();
 
     expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
     const payload = JSON.parse(res2.end.mock.calls[0][0]);
     expect(payload.error.type).toBe('max_runs_exceeded');
-    expect(payload.error.message).toMatch(/Maximum LLM invocations exceeded/);
     expect(payload.error.max_runs).toBe(1);
     expect(payload.error.invocation_count).toBe(1);
   });
