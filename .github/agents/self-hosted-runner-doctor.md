@@ -76,12 +76,15 @@ Prefer the narrowest match. Examples:
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
+- `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 
 ### 4. Check for known unresolved problems
 
 If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, the remaining `GH_HOST` leak to user steps, or ARC/DinD base-userland staging), say so explicitly instead of implying there is a shipped fix.
 
 A13 / #5541 — ARC/DinD split-fs base-userland staging is not yet implemented; AWF cannot currently run end-to-end on a split-fs runner with an empty /host.
+
+C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
 ## Output Requirements
 
@@ -163,6 +166,7 @@ Establish these facts before matching a failure mode:
 | C4 | `none of the git remotes correspond to the GH_HOST environment variable` | `GH_HOST` leaked as `localhost:18443` instead of the real enterprise host | Derive `GH_HOST` from `GITHUB_SERVER_URL` even with `--env-all` | Print `GH_HOST` in the agent and compare to `git remote -v` | #1452, #1460, #1492, #1499 |
 | C5 | `malformed version:` from `gh --repo` in later user steps | `GH_HOST=localhost:18443` leaked into non-AWF steps via `$GITHUB_ENV` | Primary fix belongs in gh-aw; cli-proxy can mitigate only partially | Check `$GITHUB_ENV` and `curl http://localhost:18443/api/v3/meta` | #3937 |
 | C6 | Safe-outputs post-processing talks to github.com instead of GHES | gh-aw emitted `GH_HOST` to the wrong channel for later jobs | Fix the compiler / environment propagation in gh-aw | Inspect `$GITHUB_OUTPUT` and `$GITHUB_ENV` for `GH_HOST` | #1460, #1566 |
+| C7 | `awf-cli-proxy` DIFC-proxy liveness probe loops retrying; cli-proxy logs show `diagnosis=unknown` (AWF < v0.27.12) or `diagnosis=reachable-but-api-error (HTTP NNN)` with a `*.ghe.com` hint (AWF ≥ v0.27.12); AWF fails to start | DIFC proxy is reachable but the forwarded `gh api rate_limit` call returns an HTTP error because the DIFC proxy is not enterprise-host-aware on data-residency `*.ghe.com` tenants | **Partially mitigated**: upgrade to AWF ≥ v0.27.12 for a targeted `*.ghe.com` hint and HTTP status in cli-proxy logs; root cause (DIFC proxy enterprise-host awareness) is **unresolved** in companion projects (github/gh-aw-mcpg#8202, github/gh-aw#41911) | Check `GITHUB_SERVER_URL` for `*.ghe.com`; inspect cli-proxy logs for `diagnosis=unknown` or `reachable-but-api-error (HTTP NNN)`; confirm AWF ≥ v0.27.12 for the targeted hint | #5615, #5616 |
 
 ## Category D — Alternative runtimes and adjacent gaps
 
@@ -193,6 +197,7 @@ Establish these facts before matching a failure mode:
 | `chroot: failed to run command '/bin/sh'` on glibc daemon (not musl — confirmed by `ldd --version`) | A13 |
 | `getent passwd <UID>` fails or `HOME=/`, `USER=root` in chroot | A6 |
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |
+| `diagnosis=unknown` from `awf-cli-proxy` DIFC probe (proxy reachable, no connection error) with `GITHUB_SERVER_URL=*.ghe.com`, or `diagnosis=reachable-but-api-error (HTTP NNN)` | C7 |
 
 ## Known unresolved items
 
@@ -203,3 +208,4 @@ Flag these explicitly instead of implying there is a complete fix:
 - D4 / #4849 — enterprise header injection extension point
 - C5 / #3937 — full `GH_HOST` leak fix still requires gh-aw changes
 - A13 / #5541 — base-userland staging for ARC/DinD split-fs (`stageBaseSystem()` not yet implemented; security-preserving fix requires sourcing the base userland from the AWF-signed image)
+- C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency (root cause unresolved; tracked in github/gh-aw-mcpg#8202 and github/gh-aw#41911)
