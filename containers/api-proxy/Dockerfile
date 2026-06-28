@@ -20,7 +20,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
      model-resolver.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js \
      model-config.js key-validation.js server-factory.js startup.js \
-     proxy-request.js proxy-guards.js http-client.js body-handler.js model-discovery.js management.js oidc-token-provider.js \
+     proxy-request.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js model-discovery.js management.js oidc-token-provider.js \
      oidc-token-provider-base.js \
      github-oidc.js aws-oidc-token-provider.js gcp-oidc-token-provider.js \
      anthropic-oidc-token-provider.js \
