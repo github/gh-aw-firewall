@@ -25,7 +25,6 @@ const {
   DEFAULT_MODEL_FALLBACK,
   normalizeFallbackConfig,
   resolveAliasDefinition,
-  inferModelFamilyPrefix,
   selectMiddlePowerFallback,
   tryMiddlePowerFallback,
 } = require('./model-fallback');
