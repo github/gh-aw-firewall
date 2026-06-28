@@ -3,12 +3,12 @@
  *
  * Provides secure storage and cleanup for SSL key material:
  * - tmpfs mount/unmount for memory-only key storage
- * - Secure file wiping (overwrite with random data before deletion)
+ * - Best-effort secure file wiping (overwrite before deletion)
  * - Recursive directory ownership management
  *
  * Security considerations:
  * - Keys stored in tmpfs never touch disk
- * - Secure wipe prevents recovery from disk storage
+ * - File overwrite reduces recovery risk for disk-backed storage (best effort)
  */
 
 import * as fs from 'fs';
@@ -73,38 +73,62 @@ export async function unmountSslTmpfs(sslDir: string): Promise<void> {
 
 /**
  * Securely wipes a file by overwriting its contents with random data before unlinking.
- * This prevents recovery of sensitive key material from disk.
+ * This is best-effort risk reduction for disk-backed storage; recovery prevention
+ * cannot be guaranteed on all filesystems (for example, journaling/COW).
  *
  * @param filePath - Path to the file to securely wipe
  */
 export function secureWipeFile(filePath: string): void {
+  let fd: number | undefined;
+
   try {
-    if (!fs.existsSync(filePath)) {
-      return;
+    const openFlags = fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW ?? 0);
+    fd = fs.openSync(filePath, openFlags);
+
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Refusing to wipe non-regular file: ${filePath}`);
     }
 
-    const stat = fs.statSync(filePath);
     const size = stat.size;
-
     if (size > 0) {
       // Overwrite with random data
-      const fd = fs.openSync(filePath, 'w');
       const randomData = crypto.randomBytes(size);
-      fs.writeSync(fd, randomData);
+      let offset = 0;
+      while (offset < size) {
+        offset += fs.writeSync(fd, randomData, offset, size - offset, offset);
+      }
       fs.fsyncSync(fd);
-      fs.closeSync(fd);
     }
-
-    fs.unlinkSync(filePath);
-    logger.debug(`Securely wiped: ${filePath}`);
   } catch (error) {
-    // Best-effort: if secure wipe fails, still try to delete
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    logger.debug(`Could not securely overwrite ${filePath}: ${error}`);
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Ignore close errors during cleanup
+      }
+    }
+  }
+
+  // Best-effort: if secure wipe fails, still try to delete
+  try {
+    fs.unlinkSync(filePath);
+    logger.debug(`Securely wiped (best-effort): ${filePath}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
     try {
       fs.unlinkSync(filePath);
     } catch {
       // Ignore deletion errors during cleanup
     }
-    logger.debug(`Could not securely wipe ${filePath}: ${error}`);
+    logger.debug(`Could not delete ${filePath} after wipe attempt: ${error}`);
   }
 }
 
