@@ -11,7 +11,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-max-turns: 3
+max-turns: 4
 concurrency:
   group: "contribution-check-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
