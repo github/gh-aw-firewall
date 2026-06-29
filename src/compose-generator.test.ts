@@ -1,5 +1,6 @@
 import { generateDockerCompose } from './compose-generator';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
+import { logger } from './logger';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
 import * as fs from 'fs';
@@ -387,6 +388,47 @@ describe('generateDockerCompose', () => {
         expect(result.services['sysroot-stage'].image).toBe(
           'ghcr.io/github/gh-aw-firewall/build-tools:0.28.0',
         );
+      });
+
+      it('warns when runnerToolCachePath is under /opt', () => {
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation();
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          runnerToolCachePath: '/opt/hostedtoolcache',
+        };
+
+        generateDockerCompose(config, mockNetworkConfig);
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('under /opt (/opt/hostedtoolcache)')
+        );
+        warnSpy.mockRestore();
+      });
+
+      it('does not warn when runnerToolCachePath is on a shared path', () => {
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation();
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          runnerToolCachePath: '/var/lib/awf/tool-cache',
+        };
+
+        generateDockerCompose(config, mockNetworkConfig);
+
+        expect(warnSpy).not.toHaveBeenCalled();
+        warnSpy.mockRestore();
+      });
+
+      it('declares sysroot volume in network-isolation mode', () => {
+        const config = {
+          ...mockConfig,
+          networkIsolation: true,
+          runnerTopology: 'arc-dind' as const,
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.volumes).toEqual({ sysroot: {} });
       });
     });
 });
