@@ -399,6 +399,21 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.container.unknown is not supported');
   });
 
+  it('rejects non-object runner', () => {
+    const errors = validateAwfFileConfig({ runner: 'invalid' });
+    expect(errors).toContain('config.runner must be an object');
+  });
+
+  it('rejects invalid runner field types', () => {
+    expect(validateAwfFileConfig({ runner: { topology: 'invalid' } })).toContain('config.runner.topology must be one of: arc-dind');
+    expect(validateAwfFileConfig({ runner: { sysrootImage: 123 } })).toContain('config.runner.sysrootImage must be a string');
+  });
+
+  it('rejects unknown runner keys', () => {
+    const errors = validateAwfFileConfig({ runner: { unknown: true } });
+    expect(errors).toContain('config.runner.unknown is not supported');
+  });
+
   it('rejects non-object chroot', () => {
     const errors = validateAwfFileConfig({ chroot: 'invalid' });
     expect(errors).toContain('config.chroot must be an object');

@@ -37,6 +37,10 @@ AWF supports ARC runners where the runner filesystem and Docker daemon filesyste
       "path": "/usr/local/bin/copilot",
       "targetPath": "/usr/local/bin/copilot"
     }
+  },
+  "runner": {
+    "topology": "arc-dind",
+    "sysrootImage": "ghcr.io/github/gh-aw-firewall/build-tools:latest"
   }
 }
 ```
@@ -49,6 +53,23 @@ AWF supports ARC runners where the runner filesystem and Docker daemon filesyste
 - `dind.stageEngineBinary`: copies an engine binary from the runner path into daemon-visible filesystem before compose startup.
 - `dind.stagingImage`: image used for short-lived staging containers.
 - `dind.workDir`: target root for DinD pre-staged directory tree (`/tmp/gh-aw` default).
+- `runner.topology: "arc-dind"`: enables sysroot staging (`sysroot-stage` init service + `sysroot` volume mounted on agent at `/host:ro`).
+- `runner.sysrootImage`: optional override for the sysroot image used by `runner.topology=arc-dind`.
+
+## Build-tools sysroot image
+
+When `runner.topology` is `arc-dind`, AWF starts a one-shot `sysroot-stage` service that copies
+the filesystem from `ghcr.io/github/gh-aw-firewall/build-tools:latest` into a named `sysroot`
+volume. The agent mounts that volume at `/host:ro`.
+
+This image pre-installs root-required system build dependencies (for example gcc/make/cmake,
+libssl-dev/libc6-dev/libicu-dev, capsh/gosu/gh) so ARC workflow steps can stay non-root.
+
+## Tool cache path guidance for ARC
+
+If `RUNNER_TOOL_CACHE` points under `/opt` (for example `/opt/hostedtoolcache`) AWF logs a warning
+in `runner.topology=arc-dind` mode because `/opt` is commonly not visible from the DinD daemon
+filesystem. Prefer a shared runner/daemon path under `/tmp/gh-aw` when possible.
 
 ## Auto-detection of split filesystem setups
 

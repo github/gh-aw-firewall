@@ -777,6 +777,24 @@
           "description": "The GitHub deployment type. 'github.com' = GitHub.com (default), 'ghes' = GitHub Enterprise Server (on-premises), 'ghec' = GitHub Enterprise Cloud (*.ghe.com tenants), 'ghec-self-hosted' = GHEC with self-hosted runners."
         }
       }
+    },
+    "runner": {
+      "type": "object",
+      "description": "Runner topology and sysroot staging settings.",
+      "additionalProperties": false,
+      "properties": {
+        "topology": {
+          "type": "string",
+          "enum": [
+            "arc-dind"
+          ],
+          "description": "Runner topology mode. Set to \"arc-dind\" to enable sysroot-stage init service and /host sysroot volume mount for split runner/daemon filesystems."
+        },
+        "sysrootImage": {
+          "type": "string",
+          "description": "Override sysroot image used by runner.topology=arc-dind. Defaults to \"ghcr.io/github/gh-aw-firewall/build-tools:latest\"."
+        }
+      }
     }
   },
   "$defs": {

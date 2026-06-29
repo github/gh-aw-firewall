@@ -11,6 +11,7 @@ import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptab
 import { buildApiProxyService } from './services/api-proxy-service';
 import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
+import { buildSysrootStageService, isSysrootTopologyEnabled } from './services/sysroot-service';
 import { TOPOLOGY_NETWORK_NAME } from './topology';
 
 /**
@@ -139,9 +140,22 @@ export function generateDockerCompose(
 
   // ── Assemble base services ─────────────────────────────────────────────────
 
+  const sysrootEnabled = isSysrootTopologyEnabled(config);
+  if (sysrootEnabled) {
+    agentService.volumes = [`sysroot:/host:ro`, ...(agentService.volumes || [])];
+    agentService.depends_on['sysroot-stage'] = {
+      condition: 'service_completed_successfully',
+    };
+  }
+
   const services: Record<string, any> = {
     'squid-proxy': squidService,
     'agent': agentService,
+    ...(sysrootEnabled
+      ? {
+        'sysroot-stage': buildSysrootStageService(config, imageConfig),
+      }
+      : {}),
   };
 
   if (!networkIsolation) {
@@ -242,6 +256,13 @@ export function generateDockerCompose(
           driver: 'bridge',
         },
       },
+      ...(sysrootEnabled
+        ? {
+          volumes: {
+            sysroot: {},
+          },
+        }
+        : {}),
     };
 
     return composeResult;
@@ -254,6 +275,13 @@ export function generateDockerCompose(
         external: true,
       },
     },
+    ...(sysrootEnabled
+      ? {
+        volumes: {
+          sysroot: {},
+        },
+      }
+      : {}),
   };
 
   return composeResult;

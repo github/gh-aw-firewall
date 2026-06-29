@@ -152,6 +152,10 @@ export interface AwfFileConfig {
   platform?: {
     type?: 'github.com' | 'ghes' | 'ghec' | 'ghec-self-hosted';
   };
+  runner?: {
+    topology?: 'arc-dind';
+    sysrootImage?: string;
+  };
 }
 
 /**

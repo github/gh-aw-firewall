@@ -496,4 +496,15 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.platformType).toBeUndefined();
   });
+
+  it('maps runner topology fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      runner: {
+        topology: 'arc-dind',
+        sysrootImage: 'ghcr.io/github/gh-aw-firewall/build-tools:latest',
+      },
+    });
+    expect(result.runnerTopology).toBe('arc-dind');
+    expect(result.runnerSysrootImage).toBe('ghcr.io/github/gh-aw-firewall/build-tools:latest');
+  });
 });

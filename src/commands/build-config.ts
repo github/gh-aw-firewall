@@ -227,6 +227,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
+    runnerTopology: options.runnerTopology as 'arc-dind' | undefined,
+    runnerSysrootImage: options.runnerSysrootImage as string | undefined,
   };
 }
 

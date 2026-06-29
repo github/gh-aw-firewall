@@ -60,9 +60,17 @@ function makeDefaultMocks() {
 }
 
 describe('validateNetworkOptions', () => {
+  const savedRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
+
   beforeEach(() => {
     jest.clearAllMocks();
     makeDefaultMocks();
+    delete process.env.RUNNER_TOOL_CACHE;
+  });
+
+  afterAll(() => {
+    if (savedRunnerToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
+    else process.env.RUNNER_TOOL_CACHE = savedRunnerToolCache;
   });
 
   describe('happy path', () => {
@@ -259,6 +267,24 @@ describe('validateNetworkOptions', () => {
       const result = validateNetworkOptions({});
 
       expect(result.dnsOverHttps).toBe('https://1.1.1.1/dns-query');
+    });
+  });
+
+  describe('arc-dind RUNNER_TOOL_CACHE warnings', () => {
+    it('warns when RUNNER_TOOL_CACHE is under /opt in arc-dind topology', () => {
+      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
+      validateNetworkOptions({ runnerTopology: 'arc-dind' });
+
+      const warnCalls = (logger.warn as jest.Mock).mock.calls.map((c: string[]) => c[0]);
+      expect(warnCalls.some((m: string) => m.includes('RUNNER_TOOL_CACHE is under /opt'))).toBe(true);
+    });
+
+    it('does not warn when topology is not arc-dind', () => {
+      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
+      validateNetworkOptions({});
+
+      const warnCalls = (logger.warn as jest.Mock).mock.calls.map((c: string[]) => c[0]);
+      expect(warnCalls.some((m: string) => m.includes('RUNNER_TOOL_CACHE is under /opt'))).toBe(false);
     });
   });
 });

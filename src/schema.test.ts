@@ -244,6 +244,13 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
   });
 
+  it('accepts runner.topology and runner.sysrootImage', () => {
+    expect(validate({ runner: { topology: 'arc-dind' } })).toBe(true);
+    expect(validate({ runner: { topology: 'invalid' } })).toBe(false);
+    expect(validate({ runner: { sysrootImage: 'ghcr.io/github/gh-aw-firewall/build-tools:latest' } })).toBe(true);
+    expect(validate({ runner: { sysrootImage: 123 } })).toBe(false);
+  });
+
   it('validates chroot.identity fields', () => {
     expect(validate({ chroot: { identity: { home: '/tmp/gh-aw/home', user: 'runner', uid: 1001, gid: 1001 } } })).toBe(true);
     expect(validate({ chroot: { identity: { uid: 1.2 } } })).toBe(false);

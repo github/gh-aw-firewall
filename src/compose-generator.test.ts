@@ -312,4 +312,30 @@ describe('generateDockerCompose', () => {
         expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBeUndefined();
       });
     });
+
+    describe('runner.topology arc-dind', () => {
+      it('adds sysroot-stage service and sysroot volume', () => {
+        const result = generateDockerCompose(
+          { ...mockConfig, runnerTopology: 'arc-dind' },
+          mockNetworkConfig
+        );
+
+        expect(result.services['sysroot-stage']).toBeDefined();
+        expect(result.services['sysroot-stage'].image).toBe('ghcr.io/github/gh-aw-firewall/build-tools:latest');
+        expect(result.volumes?.sysroot).toEqual({});
+      });
+
+      it('mounts sysroot on agent /host and depends on sysroot-stage completion', () => {
+        const result = generateDockerCompose(
+          { ...mockConfig, runnerTopology: 'arc-dind' },
+          mockNetworkConfig
+        );
+
+        expect(result.services.agent.volumes).toContain('sysroot:/host:ro');
+        const dependsOn = result.services.agent.depends_on as { [key: string]: { condition: string } };
+        expect(dependsOn['sysroot-stage']).toEqual({
+          condition: 'service_completed_successfully',
+        });
+      });
+    });
 });

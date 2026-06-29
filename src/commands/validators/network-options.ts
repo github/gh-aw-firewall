@@ -78,6 +78,18 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
     );
   }
 
+  if (options.runnerTopology === 'arc-dind') {
+    const runnerToolCache = process.env.RUNNER_TOOL_CACHE?.trim();
+    if (runnerToolCache === '/opt' || runnerToolCache?.startsWith('/opt/')) {
+      logger.warn(
+        '⚠️  RUNNER_TOOL_CACHE is under /opt, which is typically invisible to DinD daemons in ARC.',
+      );
+      logger.warn(
+        '   Prefer a runner-visible shared path (for example under /tmp/gh-aw) for tool-cache mounts.',
+      );
+    }
+  }
+
   // --- Domain resolution --------------------------------------------------
 
   // Resolve allowed and blocked domains (parse, merge, validate)
