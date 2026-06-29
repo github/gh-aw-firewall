@@ -73,6 +73,7 @@ Prefer the narrowest match. Examples:
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
+- `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
@@ -155,6 +156,7 @@ Establish these facts before matching a failure mode:
 | B4 | `node: command not found` after `actions/setup-node` on self-hosted | Node was installed in `$HOME/work/_tool` and that toolcache is not visible | Mount / expose the runner toolcache; use `AWF_EXTRA_TOOLCACHE_DIRS` if needed | `which node`; inspect `$HOME/work/_tool/node` | #3544, #3545 |
 | B5 | `getaddrinfo EAI_AGAIN <awmg-cli-proxy>` → `awf-cli-proxy could not connect to the external DIFC proxy` → `The agent was never invoked` in `--network-isolation` + `--topology-attach` runs | Startup ordering deadlock: `connectTopologyContainers()` runs only after `startContainers()` succeeds, but `startContainers()` blocks on the cli-proxy health gate that requires the topology peer to be reachable on `awf-net` (which `internal: true`). The peer is never attached → EAI_AGAIN → fail-fast → deadlock. Deterministic, not flaky. | Resolved in AWF: attach topology peers to `awf-net` before the health-gated bring-up (Fix A: split `up -d`, network first → attach → remaining); also harden cli-proxy to treat `EAI_AGAIN`/`ENOTFOUND` as not-yet-ready (Fix B) | Confirm `topologyAttach` is non-empty; check the cli-proxy logs for `EAI_AGAIN`; verify AWF version includes the ordering fix | #5543, #5542 |
 | B6 | `EACCES` in `upload-artifact` step after a `sudo: false` (`--network-isolation`) AWF run; firewall log/audit dirs present but unreadable | Sidecars write files as non-runner UIDs (squid → uid 13, cli-proxy → `cliproxy`, agent/iptables-init → root). AWF's `chmod -R a+rX` repair runs as the unprivileged runner and silently fails at `debug` level on files it doesn't own | Resolved in AWF: (a) run Node sidecars as runner UID via compose `user:`; (b) root perm-fixer container at cleanup (daemon-run, mounts log dir, chowns to runner UID, skipped when `--keep-containers`); (c) promote swallowed-`chmod` failure from `debug` to `warn` | `ls -la <firewall-logs-dir>` after run — look for root or uid-13 owned files; check AWF logs for the swallowed `chmod` warning | #5545, #5542 |
+| B7 | AWF exits with unhandled `EACCES` error during cleanup; stack trace shows `unlink ... /tmp/awf-<ts>-chroot-home/<path>` (e.g. `.aws/config`, cloud credentials) | In rootless Docker mode the agent container runs with UID namespace remapping. Files created by the agent inside the `chroot-home` temp directory are owned by remapped UIDs. AWF's `removeWorkDirectories()` runs as the unprivileged host runner and `fs.rmSync` fails on these files. | **Fixed in AWF v0.27.13**: upgrade AWF; `removeWorkDirectories` now catches `EACCES` and retries after spinning up a short-lived repair container (`CHOWN`/`DAC_OVERRIDE`/`FOWNER` capabilities) that chowns the files back to the host user | `ls -la /tmp/awf-*-chroot-home/` after a rootless run — files owned by non-runner UIDs confirm the mode; upgrade to AWF ≥ v0.27.13 | #5653 |
 
 ## Category C — GHES / GHEC / `ghe.com`
 
@@ -194,6 +196,7 @@ Establish these facts before matching a failure mode:
 | `mkdirat ... : read-only file system` during chroot agent startup | A12 |
 | `getaddrinfo EAI_AGAIN <topology-peer>` with `awf-cli-proxy could not connect to the external DIFC proxy` | B5 |
 | `EACCES` in `upload-artifact` after `sudo: false` (`--network-isolation`) AWF run | B6 |
+| `EACCES` / `unlink` on path containing `/tmp/awf-...-chroot-home/` during AWF cleanup (not in an `upload-artifact` step) | B7 |
 | `chroot: failed to run command '/bin/sh'` on glibc daemon (not musl — confirmed by `ldd --version`) | A13 |
 | `getent passwd <UID>` fails or `HOME=/`, `USER=root` in chroot | A6 |
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |

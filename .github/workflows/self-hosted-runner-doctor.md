@@ -101,6 +101,7 @@ Prefer the narrowest match. Examples:
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
+- `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
 - `FATAL: http_port: IPv6 is not available` → B3
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
