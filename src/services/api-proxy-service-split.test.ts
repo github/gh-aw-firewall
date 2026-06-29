@@ -3,7 +3,7 @@ import { parseImageTag } from '../image-tag';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import { buildApiProxyServiceConfig } from './api-proxy-service-config';
-import { buildApiProxyBaseEnv } from './api-proxy-env-config';
+import { buildApiProxyBaseEnv, buildProviderTargetEnv } from './api-proxy-env-config';
 import { buildApiProxyLifecycleConfig } from './api-proxy-lifecycle-config';
 import { buildAgentCredentialEnv } from './api-proxy-credential-env';
 
