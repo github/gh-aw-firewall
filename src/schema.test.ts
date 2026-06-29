@@ -1,18 +1,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import Ajv from 'ajv';
+import Ajv2020 from 'ajv/dist/2020';
 
 const schemaPath = path.join(__dirname, '..', 'docs', 'awf-config.schema.json');
 
 describe('awf-config.schema.json', () => {
   let schema: Record<string, unknown>;
-  let validate: ReturnType<Ajv['compile']>;
+  let validate: ReturnType<Ajv2020['compile']>;
 
   beforeAll(() => {
     const raw = fs.readFileSync(schemaPath, 'utf8');
     schema = JSON.parse(raw) as Record<string, unknown>;
-    const ajv = new Ajv({ validateSchema: false });
+    const ajv = new Ajv2020({ allErrors: true });
+    ajv.addKeyword({ keyword: 'version' });
     validate = ajv.compile(schema);
   });
 
