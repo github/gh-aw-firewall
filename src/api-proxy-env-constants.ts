@@ -45,7 +45,7 @@ export const COPILOT_ENV = {
  * Each entry maps a WrapperConfig field name to its corresponding environment variable.
  * Used by both build-config.ts (env → config) and api-proxy-env-config.ts (config → env).
  */
-export const OIDC_AUTH_ENV_MAPPING = [
+const OIDC_AUTH_ENV_MAPPING = [
   { configKey: 'authType', envVar: 'AWF_AUTH_TYPE' },
   { configKey: 'authProvider', envVar: 'AWF_AUTH_PROVIDER' },
   { configKey: 'authOidcAudience', envVar: 'AWF_AUTH_OIDC_AUDIENCE' },
@@ -71,6 +71,7 @@ export const OIDC_AUTH_ENV_MAPPING = [
   configKey: Extract<keyof import('./types').WrapperConfig, string>;
   envVar: `AWF_AUTH_${string}`;
 }>;
+export { OIDC_AUTH_ENV_MAPPING };
 
 /** Env var names for OIDC auth — use with pickEnvVars() to forward host env to sidecar */
 export const OIDC_AUTH_ENV_VARS = OIDC_AUTH_ENV_MAPPING.map(m => m.envVar);
