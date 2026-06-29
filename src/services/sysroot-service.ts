@@ -46,11 +46,11 @@ export function buildSysrootStageService(params: SysrootServiceParams): any {
       'for d in usr lib bin sbin etc; do ' +
       '  [ -d "/$d" ] && cp -a "/$d" /sysroot/; ' +
       'done; ' +
-      '[ -d /lib64 ] && cp -a /lib64 /sysroot/ || true; ' +
+      'if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi; ' +
       'touch /sysroot/.awf-sysroot-ready; ' +
       'echo "Sysroot copy complete"',
     ],
-    networks: {},
+    network_mode: 'none',
   };
 }
 

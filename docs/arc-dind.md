@@ -14,16 +14,14 @@ The simplest way to configure AWF for ARC/DinD is through the `runner.topology` 
 }
 ```
 
-When `runner.topology` is set to `"arc-dind"`, AWF applies overridable defaults:
+When `runner.topology` is set to `"arc-dind"`, AWF enables ARC/DinD-specific sysroot staging behavior:
 
 | Behavior | Default | Override |
 |----------|---------|----------|
-| Network isolation (no NET_ADMIN) | `true` | `network.isolation` |
-| DinD pre-stage dirs | `true` | `dind.preStageDirs` |
 | Sysroot image for `/host` base | `build-tools:<tag>` | `runner.sysrootImage` |
 | Tool cache warning if under `/opt` | Emitted | Set `RUNNER_TOOL_CACHE` to shared path |
 
-An explicit value in any downstream key always overrides the topology default.
+Other ARC/DinD settings (for example `network.isolation` and `dind.preStageDirs`) are configured explicitly through their own fields.
 
 ## Build-tools sysroot image
 

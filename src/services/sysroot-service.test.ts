@@ -125,12 +125,22 @@ describe('buildSysrootStageService', () => {
     expect(service.command[0]).toContain('.awf-sysroot-ready');
   });
 
-  it('has empty networks (no network needed for copy)', () => {
+  it('uses network_mode none (no network needed for copy)', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
       imageTag: 'latest',
     });
-    expect(service.networks).toEqual({});
+    expect(service.network_mode).toBe('none');
+  });
+
+  it('copies /lib64 conditionally without masking copy failures', () => {
+    const service = buildSysrootStageService({
+      config: makeConfig({ runnerTopology: 'arc-dind' }),
+      registry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    });
+    expect(service.command[0]).toContain('if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi;');
+    expect(service.command[0]).not.toContain('|| true');
   });
 });

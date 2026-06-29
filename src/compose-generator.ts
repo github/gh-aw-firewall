@@ -103,6 +103,7 @@ export function generateDockerCompose(
 
   const effectiveHome = getRealUserHome();
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+  const sysrootActive = isSysrootEnabled(config);
 
   const agentVolumes = buildAgentVolumes({
     config,
@@ -114,6 +115,25 @@ export function generateDockerCompose(
     sessionStatePath,
     initSignalDir,
   });
+
+  if (sysrootActive) {
+    const sysrootShadowedTargets = new Set([
+      '/host/usr',
+      '/host/bin',
+      '/host/sbin',
+      '/host/lib',
+      '/host/lib64',
+      '/host/opt',
+      '/host/sys',
+      '/host/dev',
+    ]);
+    const filteredVolumes = agentVolumes.filter(volume => {
+      const target = volume.split(':')[1];
+      return !sysrootShadowedTargets.has(target);
+    });
+    agentVolumes.length = 0;
+    agentVolumes.push(...filteredVolumes);
+  }
 
   // ── Agent service ──────────────────────────────────────────────────────────
 
@@ -148,7 +168,6 @@ export function generateDockerCompose(
 
   // ── Optional: sysroot-stage init container (ARC/DinD) ─────────────────────
 
-  const sysrootActive = isSysrootEnabled(config);
   if (sysrootActive) {
     const sysrootService = buildSysrootStageService({
       config,

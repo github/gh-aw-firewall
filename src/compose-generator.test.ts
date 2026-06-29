@@ -361,6 +361,32 @@ describe('generateDockerCompose', () => {
         expect(result.services.agent.volumes).toContain('sysroot:/host:ro');
       });
 
+      it('does not retain base-system bind mounts that shadow sysroot', () => {
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          dockerHostPathPrefix: '/daemon-root',
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        expect(volumes).not.toContain('/usr:/host/usr:ro');
+        expect(volumes).not.toContain('/bin:/host/bin:ro');
+        expect(volumes).not.toContain('/lib:/host/lib:ro');
+        expect(volumes).not.toContain('/lib64:/host/lib64:ro');
+        expect(volumes).not.toContain('/opt:/host/opt:ro');
+        expect(volumes).not.toContain('/sys:/host/sys:ro');
+        expect(volumes).not.toContain('/dev:/host/dev:ro');
+        expect(volumes.some(v => v.includes(':/host/usr:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/bin:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/sbin:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/lib:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/lib64:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/opt:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/sys:ro'))).toBe(false);
+        expect(volumes.some(v => v.includes(':/host/dev:ro'))).toBe(false);
+      });
+
       it('does not declare sysroot volume when topology is standard', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
         expect(result.volumes).toBeUndefined();
