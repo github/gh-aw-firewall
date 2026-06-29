@@ -78,6 +78,23 @@ describe('API proxy split builders', () => {
     expect(env.AWF_PROVIDER_SESSION_ID).toBe('session-123');
   });
 
+  it('buildProviderTargetEnv trims AWF_PROVIDER_SESSION_ID from process.env', () => {
+    const savedSessionId = process.env.AWF_PROVIDER_SESSION_ID;
+    process.env.AWF_PROVIDER_SESSION_ID = ' session-from-env ';
+
+    try {
+      const env = buildProviderTargetEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+      });
+
+      expect(env.AWF_PROVIDER_SESSION_ID).toBe('session-from-env');
+    } finally {
+      if (savedSessionId !== undefined) process.env.AWF_PROVIDER_SESSION_ID = savedSessionId;
+      else delete process.env.AWF_PROVIDER_SESSION_ID;
+    }
+  });
+
   it('buildAgentCredentialEnv builds isolated agent credentials', () => {
     const agentEnvAdditions = buildAgentCredentialEnv({
       config: {

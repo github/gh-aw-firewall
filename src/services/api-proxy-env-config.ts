@@ -52,7 +52,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
   return env;
 }
 
-export function resolveProviderSessionId(config: WrapperConfig): string | undefined {
+function resolveProviderSessionId(config: WrapperConfig): string | undefined {
   // Auto-derivation from GITHUB_RUN_ID was removed because the Copilot
   // `session_id`/`x-session-id` convention causes strict OpenAI-compatible
   // BYOK targets (e.g. Azure OpenAI) to reject every request with HTTP 400.
