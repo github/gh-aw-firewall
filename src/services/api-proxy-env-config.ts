@@ -8,6 +8,7 @@ import { NetworkConfig } from './squid-service';
 /**
  * Builds provider API target/basePath environment variables for the api-proxy container.
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
+ * @internal Exported for testing
  */
 export function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
