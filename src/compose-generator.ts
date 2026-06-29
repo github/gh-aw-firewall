@@ -6,11 +6,13 @@ import { parseImageTag } from './image-tag';
 import { SslConfig } from './host-env';
 import { getRealUserHome } from './host-identity';
 import { resolveLogPaths } from './log-paths';
+import { logger } from './logger';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptablesInitService } from './services/agent-service';
 import { buildApiProxyService } from './services/api-proxy-service';
 import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
+import { buildSysrootStageService, isSysrootEnabled } from './services/sysroot-service';
 import { TOPOLOGY_NETWORK_NAME } from './topology';
 
 /**
@@ -144,6 +146,35 @@ export function generateDockerCompose(
     'agent': agentService,
   };
 
+  // ── Optional: sysroot-stage init container (ARC/DinD) ─────────────────────
+
+  const sysrootActive = isSysrootEnabled(config);
+  if (sysrootActive) {
+    const sysrootService = buildSysrootStageService({
+      config,
+      registry,
+      imageTag: parsedImageTag.tag,
+    });
+    services['sysroot-stage'] = sysrootService;
+
+    // Agent waits for sysroot copy to complete before starting
+    agentService.depends_on['sysroot-stage'] = {
+      condition: 'service_completed_successfully',
+    };
+
+    // Warn if tool cache is under /opt (invisible to the DinD daemon)
+    const toolCachePath = config.runnerToolCachePath || process.env.RUNNER_TOOL_CACHE;
+    if (!toolCachePath || toolCachePath.startsWith('/opt')) {
+      logger.warn(
+        'ARC/DinD: RUNNER_TOOL_CACHE is ' +
+        (toolCachePath ? `under /opt (${toolCachePath})` : 'not set') +
+        ', which is invisible to the DinD daemon. ' +
+        'Redirect it to a shared volume path (e.g. /tmp/gh-aw/tool-cache) ' +
+        'so setup-* action outputs are available inside the agent container.',
+      );
+    }
+  }
+
   if (!networkIsolation) {
     const iptablesInitService = buildIptablesInitService({
       agentService,
@@ -212,6 +243,18 @@ export function generateDockerCompose(
 
   // ── Final compose result ───────────────────────────────────────────────────
 
+  // When sysroot staging is active, declare the named volume and mount it
+  // on the agent at /host (replacing the per-directory system bind mounts).
+  const namedVolumes: Record<string, any> | undefined = sysrootActive
+    ? { sysroot: {} }
+    : undefined;
+
+  if (sysrootActive) {
+    // The sysroot named volume provides /host content (system binaries, libs, etc.)
+    // via the sysroot-stage init container instead of per-directory bind mounts.
+    agentVolumes.push('sysroot:/host:ro');
+  }
+
   if (networkIsolation) {
     // Topology enforcement: the agent (and sidecars) live on an `internal`
     // network with no route to the internet. Squid is dual-homed — attached to
@@ -242,6 +285,7 @@ export function generateDockerCompose(
           driver: 'bridge',
         },
       },
+      ...(namedVolumes && { volumes: namedVolumes }),
     };
 
     return composeResult;
@@ -254,6 +298,7 @@ export function generateDockerCompose(
         external: true,
       },
     },
+    ...(namedVolumes && { volumes: namedVolumes }),
   };
 
   return composeResult;

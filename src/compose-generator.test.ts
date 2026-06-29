@@ -312,4 +312,81 @@ describe('generateDockerCompose', () => {
         expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBeUndefined();
       });
     });
+
+    describe('sysroot-stage service (runner.topology = arc-dind)', () => {
+      it('adds sysroot-stage service when runnerTopology is arc-dind', () => {
+        const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services['sysroot-stage']).toBeDefined();
+        expect(result.services['sysroot-stage'].container_name).toBe('awf-sysroot-stage');
+        expect(result.services['sysroot-stage'].image).toBe(
+          'ghcr.io/github/gh-aw-firewall/build-tools:latest',
+        );
+      });
+
+      it('does not add sysroot-stage when runnerTopology is not set', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        expect(result.services['sysroot-stage']).toBeUndefined();
+      });
+
+      it('does not add sysroot-stage when runnerTopology is standard', () => {
+        const config = { ...mockConfig, runnerTopology: 'standard' as const };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        expect(result.services['sysroot-stage']).toBeUndefined();
+      });
+
+      it('agent depends_on sysroot-stage with service_completed_successfully', () => {
+        const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services.agent.depends_on).toMatchObject({
+          'sysroot-stage': { condition: 'service_completed_successfully' },
+        });
+      });
+
+      it('declares sysroot named volume', () => {
+        const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.volumes).toBeDefined();
+        expect(result.volumes!.sysroot).toEqual({});
+      });
+
+      it('adds sysroot:/host:ro to agent volumes', () => {
+        const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services.agent.volumes).toContain('sysroot:/host:ro');
+      });
+
+      it('does not declare sysroot volume when topology is standard', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        expect(result.volumes).toBeUndefined();
+      });
+
+      it('uses custom sysrootImage when configured', () => {
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          sysrootImage: 'ghcr.io/my-org/custom:v1',
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services['sysroot-stage'].image).toBe('ghcr.io/my-org/custom:v1');
+      });
+
+      it('uses imageTag in default sysroot image', () => {
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          imageTag: '0.28.0',
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services['sysroot-stage'].image).toBe(
+          'ghcr.io/github/gh-aw-firewall/build-tools:0.28.0',
+        );
+      });
+    });
 });

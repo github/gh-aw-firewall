@@ -424,10 +424,87 @@ jobs:
           echo "::warning::SBOM attestation for agent-act failed after 3 attempts (Rekor may be unavailable)"
           exit 1
 
+  # Build build-tools sysroot image for ARC/DinD deployments
+  # Provides system-level build infrastructure (gcc, make, dev libraries) for agent containers
+  build-build-tools:
+    name: Build Build-Tools Image
+    runs-on: ubuntu-latest
+    needs: bump-version
+    outputs:
+      digest: ${{ steps.build_build_tools.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@a3c050c5b9001e95079e262a6db77c5e7c7c3467 # v3
+        with:
+          platforms: linux/arm64
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+
+      - name: Build and push Build-Tools image
+        id: build_build_tools
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./containers/build-tools
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/build-tools:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/build-tools:latest
+          no-cache: true
+
+      - name: Sign Build-Tools image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/build-tools@${{ steps.build_build_tools.outputs.digest }}
+
+      - name: Generate SBOM for Build-Tools image
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          image: ghcr.io/${{ github.repository }}/build-tools@${{ steps.build_build_tools.outputs.digest }}
+          format: spdx-json
+          output-file: build-tools-sbom.spdx.json
+
+      - name: Attest SBOM for Build-Tools image
+        continue-on-error: true
+        run: |
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3..."
+            if cosign attest --yes \
+              --predicate build-tools-sbom.spdx.json \
+              --type spdxjson \
+              ghcr.io/${{ github.repository }}/build-tools@${{ steps.build_build_tools.outputs.digest }}; then
+              echo "SBOM attestation succeeded on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep_time=$((30 * attempt))
+              echo "Attempt $attempt failed, retrying in ${sleep_time}s..."
+              sleep "$sleep_time"
+            fi
+          done
+          echo "::warning::SBOM attestation for build-tools failed after 3 attempts (Rekor may be unavailable)"
+          exit 1
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-build-tools]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
