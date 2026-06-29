@@ -78,7 +78,7 @@ export async function unmountSslTmpfs(sslDir: string): Promise<void> {
  *
  * @param filePath - Path to the file to securely wipe
  */
-export function secureWipeFile(filePath: string): void {
+function secureWipeFile(filePath: string): void {
   let fd: number | undefined;
 
   try {
