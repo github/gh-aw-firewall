@@ -3,7 +3,7 @@ import { parseImageTag } from '../image-tag';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../constants/placeholders';
 import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import { buildApiProxyServiceConfig } from './api-proxy-service-config';
-import { buildApiProxyBaseEnv, buildProviderTargetEnv } from './api-proxy-env-config';
+import { buildApiProxyBaseEnv } from './api-proxy-env-config';
 import { buildApiProxyLifecycleConfig } from './api-proxy-lifecycle-config';
 import { buildAgentCredentialEnv } from './api-proxy-credential-env';
 
@@ -68,12 +68,12 @@ describe('API proxy split builders', () => {
       .toThrow('buildApiProxyLifecycleConfig: networkConfig.proxyIp is required');
   });
 
-  it('buildProviderTargetEnv trims explicit provider session id', () => {
-    const env = buildProviderTargetEnv({
+  it('buildApiProxyBaseEnv trims explicit provider session id', () => {
+    const env = buildApiProxyBaseEnv({
       ...baseConfig,
       workDir: '/tmp/awf-test',
       copilotByokSessionId: ' session-123 ',
-    });
+    }, networkConfig);
 
     expect(env.AWF_PROVIDER_SESSION_ID).toBe('session-123');
   });
