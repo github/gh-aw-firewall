@@ -8,71 +8,43 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
 
-jest.mock('./ssl-bump', () => ({
-  isOpenSslAvailable: jest.fn(),
-  generateSessionCa: jest.fn(),
-  initSslDb: jest.fn(),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./ssl-bump', () => require('./test-helpers/config-writer-test-harness.test-utils').sslBumpMockFactory());
 
-jest.mock('./domain-matchers', () => ({
-  parseUrlPatterns: jest.fn().mockReturnValue([]),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./domain-matchers', () => require('./test-helpers/config-writer-test-harness.test-utils').domainMatchersMockFactory());
 
-jest.mock('./host-env', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  ...require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({
-    SQUID_PORT: 3128,
-  }),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({ SQUID_PORT: 3128 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 
-jest.mock('./squid-config', () => ({
-  generateSquidConfig: jest.fn().mockReturnValue('# mock squid config'),
-  generatePolicyManifest: jest.fn().mockReturnValue({}),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./squid-config', () => require('./test-helpers/config-writer-test-harness.test-utils').squidConfigMockFactory());
 
-jest.mock('./compose-generator', () => ({
-  generateDockerCompose: jest.fn().mockReturnValue({ services: {}, version: '3' }),
-  redactDockerComposeSecrets: jest.fn().mockReturnValue({ services: {}, version: '3' }),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./compose-generator', () => require('./test-helpers/config-writer-test-harness.test-utils').composeGeneratorMockFactory());
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable, generateSessionCa } from './ssl-bump';
-import { getRealUserHome } from './host-identity';
+import {
+  buildWriteConfig,
+  setupConfigWriterTempDir,
+  cleanupConfigWriterTempDir,
+} from './test-helpers/config-writer-test-harness.test-utils';
 
 describe('config-writer additional branches', () => {
   let tempDir: string;
 
-  const buildWriteConfig = (
-    overrides: Partial<Parameters<typeof writeConfigs>[0]> = {}
-  ): Parameters<typeof writeConfigs>[0] => ({
-    workDir: tempDir,
-    sslBump: false,
-    allowedDomains: [],
-    agentCommand: 'echo test',
-    logLevel: 'info',
-    keepContainers: false,
-    buildLocal: false,
-    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-    imageTag: 'latest',
-    ...overrides,
-  });
-
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cw-branches-test-'));
-    jest.clearAllMocks();
-    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
-    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+    tempDir = setupConfigWriterTempDir('cw-branches-test-');
   });
 
   afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+    cleanupConfigWriterTempDir(tempDir);
   });
 
   // ─── writeAuditArtifacts symlink guard ─────────────────────────────────
@@ -85,7 +57,7 @@ describe('config-writer additional branches', () => {
       fs.symlinkSync(realAuditDir, symlinkAuditDir);
 
       await expect(
-        writeConfigs(buildWriteConfig({ auditDir: symlinkAuditDir }))
+        writeConfigs(buildWriteConfig(tempDir, { auditDir: symlinkAuditDir }))
       ).rejects.toThrow(`Refusing to use symlink as directory: ${symlinkAuditDir}`);
     });
   });
@@ -114,7 +86,7 @@ describe('config-writer additional branches', () => {
       try {
         // Should succeed — the alt path resolves via dist/../../containers/...
         // and the real file exists at containers/agent/seccomp-profile.json.
-        await expect(writeConfigs(buildWriteConfig())).resolves.toBeUndefined();
+        await expect(writeConfigs(buildWriteConfig(tempDir))).resolves.toBeUndefined();
       } finally {
         existsSyncMock.mockImplementation(originalImpl);
       }
@@ -129,7 +101,7 @@ describe('config-writer additional branches', () => {
       (generateSessionCa as jest.Mock).mockRejectedValue('string rejection');
 
       await expect(
-        writeConfigs(buildWriteConfig({ sslBump: true }))
+        writeConfigs(buildWriteConfig(tempDir, { sslBump: true }))
       ).rejects.toThrow('SSL Bump initialization failed: string rejection');
     });
   });
