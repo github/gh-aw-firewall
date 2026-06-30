@@ -139,7 +139,7 @@ For fine-grained control (or when not using `runner.topology`):
 - `runner.topology: "arc-dind"`: enables sysroot staging (`sysroot-stage` init service + `sysroot` volume mounted on agent at `/host:rw`).
 - `runner.sysrootImage`: optional override for the sysroot image used by `runner.topology=arc-dind`.
 
-## Build-tools sysroot image
+## Sysroot staging lifecycle
 
 When `runner.topology` is `arc-dind`, AWF starts a one-shot `sysroot-stage` service that copies
 the filesystem from a build-tools image derived from the same `--image-registry` and `--image-tag`
