@@ -10,16 +10,27 @@ function normalizeChrootBinariesSourcePath(chrootBinariesSourcePath?: string): s
   return normalized === '/' ? undefined : normalized;
 }
 
-export function buildSystemMounts(workspaceDir: string, chrootBinariesSourcePath?: string): string[] {
+export function buildSystemMounts(
+  workspaceDir: string,
+  chrootBinariesSourcePath?: string,
+  useSysroot = false
+): string[] {
   const mounts = [
-    '/usr:/host/usr:ro',
-    '/bin:/host/bin:ro',
-    '/sbin:/host/sbin:ro',
-    '/lib:/host/lib:ro',
-    '/lib64:/host/lib64:ro',
-    '/opt:/host/opt:ro',
-    '/sys:/host/sys:ro',
-    '/dev:/host/dev:ro',
+    ...(useSysroot
+      ? [
+        '/sys:/host/sys:ro',
+        '/dev:/host/dev:ro',
+      ]
+      : [
+        '/usr:/host/usr:ro',
+        '/bin:/host/bin:ro',
+        '/sbin:/host/sbin:ro',
+        '/lib:/host/lib:ro',
+        '/lib64:/host/lib64:ro',
+        '/opt:/host/opt:ro',
+        '/sys:/host/sys:ro',
+        '/dev:/host/dev:ro',
+      ]),
     `${workspaceDir}:/host${workspaceDir}:rw`,
     '/tmp:/host/tmp:rw',
   ];

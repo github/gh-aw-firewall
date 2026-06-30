@@ -1,75 +1,49 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 // jest.mock() calls are hoisted before imports — keep them at the top.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
 
-jest.mock('./ssl-bump', () => ({
-  isOpenSslAvailable: jest.fn(),
-  generateSessionCa: jest.fn(),
-  initSslDb: jest.fn(),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./ssl-bump', () => require('./test-helpers/config-writer-test-harness.test-utils').sslBumpMockFactory());
 
-jest.mock('./domain-matchers', () => ({
-  parseUrlPatterns: jest.fn().mockReturnValue([]),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./domain-matchers', () => require('./test-helpers/config-writer-test-harness.test-utils').domainMatchersMockFactory());
 
-jest.mock('./host-env', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  ...require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({
-    SQUID_PORT: 3128,
-  }),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({ SQUID_PORT: 3128 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 
-jest.mock('./squid-config', () => ({
-  generateSquidConfig: jest.fn().mockReturnValue('# mock squid config'),
-  generatePolicyManifest: jest.fn().mockReturnValue({}),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./squid-config', () => require('./test-helpers/config-writer-test-harness.test-utils').squidConfigMockFactory());
 
-jest.mock('./compose-generator', () => ({
-  generateDockerCompose: jest.fn().mockReturnValue({ services: {}, version: '3' }),
-  redactDockerComposeSecrets: jest.fn().mockReturnValue({ services: {}, version: '3' }),
-}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('./compose-generator', () => require('./test-helpers/config-writer-test-harness.test-utils').composeGeneratorMockFactory());
 
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable } from './ssl-bump';
 import { getRealUserHome } from './host-identity';
+import {
+  buildWriteConfig,
+  setupConfigWriterTempDir,
+  cleanupConfigWriterTempDir,
+} from './test-helpers/config-writer-test-harness.test-utils';
 
 describe('writeConfigs', () => {
   let tempDir: string;
-  const buildWriteConfig = (
-    overrides: Partial<Parameters<typeof writeConfigs>[0]> = {}
-  ): Parameters<typeof writeConfigs>[0] => ({
-    workDir: tempDir,
-    sslBump: false,
-    allowedDomains: [],
-    agentCommand: 'echo test',
-    logLevel: 'info',
-    keepContainers: false,
-    buildLocal: false,
-    imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-    imageTag: 'latest',
-    ...overrides,
-  });
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-writer-test-'));
-    jest.clearAllMocks();
-    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
     // getRealUserHome is used to locate host home subdirectories; point it at
     // tempDir so mkdirSync calls stay within the temp tree.
-    (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
+    tempDir = setupConfigWriterTempDir('config-writer-test-');
   });
 
   afterEach(() => {
     // Clean up tempDir and the chroot-home sibling directory that writeConfigs creates.
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
+    cleanupConfigWriterTempDir(tempDir);
   });
 
   describe('SSL Bump preflight guard', () => {
@@ -78,7 +52,7 @@ describe('writeConfigs', () => {
 
       await expect(
         writeConfigs(
-          buildWriteConfig({
+          buildWriteConfig(tempDir, {
             sslBump: true,
           })
         )
@@ -91,7 +65,7 @@ describe('writeConfigs', () => {
 
       await expect(
         writeConfigs(
-          buildWriteConfig({
+          buildWriteConfig(tempDir, {
             sslBump: true,
           })
         )
@@ -102,7 +76,7 @@ describe('writeConfigs', () => {
     });
 
     it('should not check OpenSSL availability when sslBump is not enabled', async () => {
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       expect(isOpenSslAvailable).not.toHaveBeenCalled();
     });
@@ -117,7 +91,7 @@ describe('writeConfigs', () => {
 
       await expect(
         writeConfigs(
-          buildWriteConfig({
+          buildWriteConfig(tempDir, {
             workDir: symlinkWorkDir,
           })
         )
@@ -133,7 +107,7 @@ describe('writeConfigs', () => {
       });
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           proxyLogsDir,
         })
       );
@@ -147,7 +121,7 @@ describe('writeConfigs', () => {
       fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
       fs.chmodSync(mcpLogsDir, 0o700);
 
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       const mcpLogsDirMode = fs.statSync(mcpLogsDir).mode & 0o777;
       expect(mcpLogsDirMode).toBe(0o777);
@@ -159,7 +133,7 @@ describe('writeConfigs', () => {
 
       await expect(
         writeConfigs(
-          buildWriteConfig({
+          buildWriteConfig(tempDir, {
             workDir: filePath,
           })
         )
@@ -170,7 +144,7 @@ describe('writeConfigs', () => {
       const emptyHomeDir = `${tempDir}-chroot-home`;
       expect(fs.existsSync(emptyHomeDir)).toBe(false);
 
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       expect(fs.existsSync(emptyHomeDir)).toBe(true);
       expect(fs.statSync(emptyHomeDir).isDirectory()).toBe(true);
@@ -181,7 +155,7 @@ describe('writeConfigs', () => {
       fs.mkdirSync(emptyHomeDir, { recursive: true });
       const statBefore = fs.statSync(emptyHomeDir);
 
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       const statAfter = fs.statSync(emptyHomeDir);
       expect(statAfter.ino).toBe(statBefore.ino); // Same directory
@@ -197,7 +171,7 @@ describe('writeConfigs', () => {
         fs.rmSync(copilotDir, { recursive: true, force: true });
       }
 
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       expect(fs.existsSync(copilotDir)).toBe(true);
       expect(fs.chownSync).toHaveBeenCalledWith(copilotDir, 1000, 1000);
@@ -213,7 +187,7 @@ describe('writeConfigs', () => {
       }
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           geminiApiKey: 'test-key',
         })
       );
@@ -227,7 +201,7 @@ describe('writeConfigs', () => {
       expect(fs.existsSync(runnerToolCachePath)).toBe(false);
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           runnerToolCachePath,
         })
       );
@@ -249,7 +223,7 @@ describe('writeConfigs', () => {
       (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
 
       await expect(
-        writeConfigs(buildWriteConfig({ runnerToolCachePath }))
+        writeConfigs(buildWriteConfig(tempDir, { runnerToolCachePath }))
       ).rejects.toThrow(`Refusing to use symlink as directory: ${symlinkDir}`);
     });
 
@@ -275,7 +249,7 @@ describe('writeConfigs', () => {
 
       try {
         await expect(
-          writeConfigs(buildWriteConfig({ runnerToolCachePath }))
+          writeConfigs(buildWriteConfig(tempDir, { runnerToolCachePath }))
         ).resolves.toBeUndefined();
       } finally {
         lstatSyncMock.mockImplementation(actualLstatSync);
@@ -291,7 +265,7 @@ describe('writeConfigs', () => {
       const savedRunnerToolCache = process.env.RUNNER_TOOL_CACHE;
       delete process.env.RUNNER_TOOL_CACHE;
       try {
-        await writeConfigs(buildWriteConfig());
+        await writeConfigs(buildWriteConfig(tempDir));
       } finally {
         if (savedRunnerToolCache !== undefined) {
           process.env.RUNNER_TOOL_CACHE = savedRunnerToolCache;
@@ -317,7 +291,7 @@ describe('writeConfigs', () => {
         fs.rmSync(geminiDir, { recursive: true, force: true });
       }
 
-      await writeConfigs(buildWriteConfig());
+      await writeConfigs(buildWriteConfig(tempDir));
 
       expect(fs.existsSync(geminiDir)).toBe(false);
     });
@@ -326,7 +300,7 @@ describe('writeConfigs', () => {
       const auditDir = path.join(tempDir, 'custom-audit');
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           auditDir,
         })
       );
@@ -358,7 +332,7 @@ describe('writeConfigs', () => {
 
       try {
         await expect(
-          writeConfigs(buildWriteConfig())
+          writeConfigs(buildWriteConfig(tempDir))
         ).rejects.toThrow(/Seccomp profile not found/);
       } finally {
         existsSyncMock.mockImplementation(originalImpl);
@@ -377,7 +351,7 @@ describe('writeConfigs', () => {
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           allowedDomains: ['example.com'],
           allowedUrls: ['https://example.com/api/*'],
         })
@@ -396,7 +370,7 @@ describe('writeConfigs', () => {
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           allowedDomains: ['example.com'],
           allowedUrls: [],
         })
@@ -415,7 +389,7 @@ describe('writeConfigs', () => {
       const { generatePolicyManifest } = jest.requireMock('./squid-config');
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           allowedDomains: ['example.com'],
           enableApiProxy: true,
         })
@@ -438,7 +412,7 @@ describe('writeConfigs', () => {
       const { generateSquidConfig } = jest.requireMock('./squid-config');
 
       await writeConfigs(
-        buildWriteConfig({
+        buildWriteConfig(tempDir, {
           allowedDomains: ['example.com'],
           enableApiProxy: false,
         })

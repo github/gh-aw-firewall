@@ -38,7 +38,8 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   logger.debug('Using selective path mounts for security');
 
-  agentVolumes.push(...buildSystemMounts(workspaceDir, config.chrootBinariesSourcePath));
+  const useSysroot = config.runnerTopology === 'arc-dind';
+  agentVolumes.push(...buildSystemMounts(workspaceDir, config.chrootBinariesSourcePath, useSysroot));
   agentVolumes.push(...buildHomeMounts({ config, effectiveHome, agentLogsPath, sessionStatePath }));
   agentVolumes.push(...buildEtcMounts(config));
   agentVolumes.push(generateHostsFileMount(config));
