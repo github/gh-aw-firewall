@@ -6,10 +6,14 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: read
+  issues: read
 tools:
   github:
     mode: gh-proxy
     toolsets: [repos]
+  bash: true
+  edit:
 network:
   allowed:
     - defaults

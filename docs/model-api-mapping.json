@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
   "lastUpdated": "2026-06-30T04:00:00Z",
@@ -12,7 +11,7 @@
       "endpoints": {
         "responses": {
           "path": "/v1/responses",
-          "description": "Newer unified API for agentic, tool-using, and multimodal workflows. Required for GPT-5+ and reasoning models."
+          "description": "Newer unified API for agentic, tool-using, and multimodal workflows. Required for GPT-5+ models; some older models (o1, o3, gpt-4o, gpt-4.1) support it alongside chat/completions."
         },
         "chat_completions": {
           "path": "/v1/chat/completions",
