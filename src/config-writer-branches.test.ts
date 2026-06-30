@@ -110,20 +110,38 @@ describe('config-writer additional branches', () => {
 
   describe('SSL Bump initialization - success path', () => {
     it('completes SSL Bump setup and calls initSslDb when OpenSSL succeeds', async () => {
-      const fakeCaFiles = {
-        certPath: path.join(tempDir, 'ca.pem'),
-        keyPath: path.join(tempDir, 'ca.key'),
-        derPath: path.join(tempDir, 'ca.der'),
-      };
-      (isOpenSslAvailable as jest.Mock).mockResolvedValue(true);
-      (generateSessionCa as jest.Mock).mockResolvedValue(fakeCaFiles);
-      (initSslDb as jest.Mock).mockResolvedValue(path.join(tempDir, 'ssl-db'));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { logger } = require('./logger') as typeof import('./logger');
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
 
-      await expect(
-        writeConfigs(buildWriteConfig(tempDir, { sslBump: true }))
-      ).resolves.toBeUndefined();
+      try {
+        const fakeCaFiles = {
+          certPath: path.join(tempDir, 'ca.pem'),
+          keyPath: path.join(tempDir, 'ca.key'),
+          derPath: path.join(tempDir, 'ca.der'),
+        };
+        (isOpenSslAvailable as jest.Mock).mockResolvedValue(true);
+        (generateSessionCa as jest.Mock).mockResolvedValue(fakeCaFiles);
+        (initSslDb as jest.Mock).mockResolvedValue(path.join(tempDir, 'ssl-db'));
 
-      expect(initSslDb).toHaveBeenCalledWith(tempDir);
+        await expect(
+          writeConfigs(buildWriteConfig(tempDir, { sslBump: true }))
+        ).resolves.toBeUndefined();
+
+        expect(initSslDb).toHaveBeenCalledWith(tempDir);
+
+        expect(infoSpy).toHaveBeenCalledWith(
+          'SSL Bump enabled - generating per-session CA certificate...'
+        );
+        expect(infoSpy).toHaveBeenCalledWith(
+          'SSL Bump CA certificate generated successfully'
+        );
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('SSL Bump mode'));
+      } finally {
+        infoSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
     });
   });
 });
