@@ -354,11 +354,11 @@ describe('generateDockerCompose', () => {
         expect(result.volumes!.sysroot).toEqual({});
       });
 
-      it('adds sysroot:/host:ro to agent volumes', () => {
+      it('adds sysroot:/host:rw to agent volumes', () => {
         const config = { ...mockConfig, runnerTopology: 'arc-dind' as const };
         const result = generateDockerCompose(config, mockNetworkConfig);
 
-        expect(result.services.agent.volumes).toContain('sysroot:/host:ro');
+        expect(result.services.agent.volumes).toContain('sysroot:/host:rw');
       });
 
       it('does not retain base-system bind mounts that shadow sysroot', () => {
@@ -375,16 +375,16 @@ describe('generateDockerCompose', () => {
         expect(volumes).not.toContain('/lib:/host/lib:ro');
         expect(volumes).not.toContain('/lib64:/host/lib64:ro');
         expect(volumes).not.toContain('/opt:/host/opt:ro');
-        expect(volumes).not.toContain('/sys:/host/sys:ro');
-        expect(volumes).not.toContain('/dev:/host/dev:ro');
+        expect(volumes).toContain('/sys:/host/sys:ro');
+        expect(volumes).toContain('/dev:/host/dev:ro');
         expect(volumes.some(v => v.includes(':/host/usr:ro'))).toBe(false);
         expect(volumes.some(v => v.includes(':/host/bin:ro'))).toBe(false);
         expect(volumes.some(v => v.includes(':/host/sbin:ro'))).toBe(false);
         expect(volumes.some(v => v.includes(':/host/lib:ro'))).toBe(false);
         expect(volumes.some(v => v.includes(':/host/lib64:ro'))).toBe(false);
         expect(volumes.some(v => v.includes(':/host/opt:ro'))).toBe(false);
-        expect(volumes.some(v => v.includes(':/host/sys:ro'))).toBe(false);
-        expect(volumes.some(v => v.includes(':/host/dev:ro'))).toBe(false);
+        expect(volumes.filter(v => v.endsWith(':/host/sys:ro'))).toEqual(['/sys:/host/sys:ro']);
+        expect(volumes.filter(v => v.endsWith(':/host/dev:ro'))).toEqual(['/dev:/host/dev:ro']);
       });
 
       it('does not declare sysroot volume when topology is standard', () => {
