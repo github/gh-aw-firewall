@@ -335,6 +335,15 @@ interface DockerService {
   command?: string[];
 
   /**
+   * Entrypoint for the container
+   *
+   * Overrides the ENTRYPOINT from the Dockerfile.
+   *
+   * @example ['/bin/sh', '-c']
+   */
+  entrypoint?: string[];
+
+  /**
    * Port mappings from host to container
    *
    * Array of port mappings in format 'host:container' or 'host:container/protocol'.

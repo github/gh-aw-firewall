@@ -132,7 +132,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     rateLimitBytesPm: toStringIfDefined(config.rateLimiting?.bytesPerMinute),
 
     platformType: config.platform?.type,
+
     runnerTopology: config.runner?.topology,
-    runnerSysrootImage: config.runner?.sysrootImage,
+    sysrootImage: config.runner?.sysrootImage,
   };
 }

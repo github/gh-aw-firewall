@@ -405,7 +405,7 @@ describe('validateAwfFileConfig', () => {
   });
 
   it('rejects invalid runner field types', () => {
-    expect(validateAwfFileConfig({ runner: { topology: 'invalid' } })).toContain('config.runner.topology must be one of: arc-dind');
+    expect(validateAwfFileConfig({ runner: { topology: 'invalid' } })).toContain('config.runner.topology must be one of: standard, arc-dind');
     expect(validateAwfFileConfig({ runner: { sysrootImage: 123 } })).toContain('config.runner.sysrootImage must be a string');
   });
 
@@ -585,5 +585,41 @@ describe('validateAwfFileConfig', () => {
 
   it('accepts empty config object', () => {
     expect(validateAwfFileConfig({})).toEqual([]);
+  });
+
+  it('accepts valid runner topology config', () => {
+    const errors = validateAwfFileConfig({
+      runner: { topology: 'arc-dind' },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('accepts runner with sysrootImage', () => {
+    const errors = validateAwfFileConfig({
+      runner: { topology: 'arc-dind', sysrootImage: 'ghcr.io/my-org/sysroot:v1' },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('accepts standard topology', () => {
+    const errors = validateAwfFileConfig({
+      runner: { topology: 'standard' },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects invalid runner topology value', () => {
+    const errors = validateAwfFileConfig({
+      runner: { topology: 'invalid' },
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some(e => e.includes('topology'))).toBe(true);
+  });
+
+  it('rejects unknown runner properties', () => {
+    const errors = validateAwfFileConfig({
+      runner: { topology: 'arc-dind', unknownProp: true },
+    });
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

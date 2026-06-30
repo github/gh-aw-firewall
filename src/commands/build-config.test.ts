@@ -304,6 +304,20 @@ describe('buildConfig', () => {
       expect(config.runnerToolCachePath).toBe('/opt/hostedtoolcache');
     });
 
+    it('should pass through runnerTopology', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, runnerTopology: 'arc-dind' },
+      }));
+      expect(config.runnerTopology).toBe('arc-dind');
+    });
+
+    it('should pass through sysrootImage', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, sysrootImage: 'ghcr.io/my-org/sysroot:v1' },
+      }));
+      expect(config.sysrootImage).toBe('ghcr.io/my-org/sysroot:v1');
+    });
+
     it('should pass through chroot identity fields', () => {
       const config = buildConfig(makeInputs({
         options: {

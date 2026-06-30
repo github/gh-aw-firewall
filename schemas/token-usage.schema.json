@@ -103,7 +103,10 @@
     },
     "x_initiator": {
       "type": "string",
-      "enum": ["agent", "user"],
+      "enum": [
+        "agent",
+        "user"
+      ],
       "description": "The X-Initiator header value sent on the request. Determines billing treatment: 'agent' requests are not billed as premium, 'user' requests are. Present only for Copilot-bound requests."
     },
     "billing": {
@@ -114,11 +117,26 @@
           "type": "object",
           "description": "X-Quota-Snapshot-Chat parsed fields.",
           "properties": {
-            "ent": { "type": "string", "description": "Entitlement count (-1 = unlimited)." },
-            "ov": { "type": "string", "description": "Overage requests made this period." },
-            "ovPerm": { "type": "string", "description": "Whether overage is allowed (true/false)." },
-            "rem": { "type": "string", "description": "Percentage of entitlement remaining." },
-            "rst": { "type": "string", "description": "Quota reset date (RFC 3339 UTC)." }
+            "ent": {
+              "type": "string",
+              "description": "Entitlement count (-1 = unlimited)."
+            },
+            "ov": {
+              "type": "string",
+              "description": "Overage requests made this period."
+            },
+            "ovPerm": {
+              "type": "string",
+              "description": "Whether overage is allowed (true/false)."
+            },
+            "rem": {
+              "type": "string",
+              "description": "Percentage of entitlement remaining."
+            },
+            "rst": {
+              "type": "string",
+              "description": "Quota reset date (RFC 3339 UTC)."
+            }
           },
           "additionalProperties": true
         },
@@ -126,17 +144,41 @@
           "type": "object",
           "description": "X-Quota-Snapshot-Premium-Chat parsed fields. Tracks premium request units (PRU).",
           "properties": {
-            "ent": { "type": "string", "description": "Premium entitlement count." },
-            "ov": { "type": "string", "description": "Premium overage requests made." },
-            "ovPerm": { "type": "string", "description": "Whether premium overage is allowed." },
-            "rem": { "type": "string", "description": "Percentage of premium entitlement remaining." },
-            "rst": { "type": "string", "description": "Premium quota reset date." }
+            "ent": {
+              "type": "string",
+              "description": "Premium entitlement count."
+            },
+            "ov": {
+              "type": "string",
+              "description": "Premium overage requests made."
+            },
+            "ovPerm": {
+              "type": "string",
+              "description": "Whether premium overage is allowed."
+            },
+            "rem": {
+              "type": "string",
+              "description": "Percentage of premium entitlement remaining."
+            },
+            "rst": {
+              "type": "string",
+              "description": "Premium quota reset date."
+            }
           },
           "additionalProperties": true
         },
-        "rate_limit": { "type": "string", "description": "X-RateLimit-Limit value." },
-        "rate_remaining": { "type": "string", "description": "X-RateLimit-Remaining value." },
-        "rate_reset": { "type": "string", "description": "X-RateLimit-Reset value (Unix timestamp)." }
+        "rate_limit": {
+          "type": "string",
+          "description": "X-RateLimit-Limit value."
+        },
+        "rate_remaining": {
+          "type": "string",
+          "description": "X-RateLimit-Remaining value."
+        },
+        "rate_reset": {
+          "type": "string",
+          "description": "X-RateLimit-Reset value (Unix timestamp)."
+        }
       },
       "additionalProperties": true
     },

@@ -224,11 +224,11 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,
     dockerHostPathPrefix,
+    runnerTopology: options.runnerTopology as 'standard' | 'arc-dind' | undefined,
+    sysrootImage: options.sysrootImage as string | undefined,
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
-    runnerTopology: options.runnerTopology as 'arc-dind' | undefined,
-    runnerSysrootImage: options.runnerSysrootImage as string | undefined,
   };
 }
 

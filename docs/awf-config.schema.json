@@ -780,19 +780,20 @@
     },
     "runner": {
       "type": "object",
-      "description": "Runner topology and sysroot staging settings.",
+      "description": "Runner topology configuration. Declares the runner deployment model so AWF can activate the correct split-filesystem, sysroot, and network isolation behavior.",
       "additionalProperties": false,
       "properties": {
         "topology": {
           "type": "string",
           "enum": [
+            "standard",
             "arc-dind"
           ],
-          "description": "Runner topology mode. Set to \"arc-dind\" to enable sysroot-stage init service and /host sysroot volume mount for split runner/daemon filesystems."
+          "description": "Runner deployment topology. 'standard' (default) = GitHub-hosted VM or self-hosted runner with local Docker. 'arc-dind' = ARC (Actions Runner Controller) with Docker-in-Docker sidecar, where the runner and Docker daemon have separate filesystems. When set to 'arc-dind', AWF applies overridable defaults: network.isolation=true, dind.preStageDirs=true, sysroot image activation, and tool cache validation."
         },
         "sysrootImage": {
           "type": "string",
-          "description": "Override sysroot image used by runner.topology=arc-dind. Defaults to \"ghcr.io/github/gh-aw-firewall/build-tools:latest\"."
+          "description": "Container image providing system-level build tools (gcc, make, libraries) for the agent's chroot base. Used as an init container that copies its filesystem into a named volume mounted at /host. Only used when runner.topology is 'arc-dind'. Defaults to 'ghcr.io/github/gh-aw-firewall/build-tools:<imageTag>'."
         }
       }
     }

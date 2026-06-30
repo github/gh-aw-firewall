@@ -497,14 +497,20 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.platformType).toBeUndefined();
   });
 
-  it('maps runner topology fields', () => {
-    const result = mapAwfFileConfigToCliOptions({
-      runner: {
-        topology: 'arc-dind',
-        sysrootImage: 'ghcr.io/github/gh-aw-firewall/build-tools:latest',
-      },
-    });
+  it('maps runner.topology to runnerTopology', () => {
+    const result = mapAwfFileConfigToCliOptions({ runner: { topology: 'arc-dind' } });
     expect(result.runnerTopology).toBe('arc-dind');
-    expect(result.runnerSysrootImage).toBe('ghcr.io/github/gh-aw-firewall/build-tools:latest');
+  });
+
+  it('maps runner.sysrootImage to sysrootImage', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      runner: { topology: 'arc-dind', sysrootImage: 'ghcr.io/my-org/sysroot:v1' },
+    });
+    expect(result.sysrootImage).toBe('ghcr.io/my-org/sysroot:v1');
+  });
+
+  it('leaves runnerTopology undefined when runner is not set', () => {
+    const result = mapAwfFileConfigToCliOptions({});
+    expect(result.runnerTopology).toBeUndefined();
   });
 });
