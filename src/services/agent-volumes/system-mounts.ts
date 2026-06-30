@@ -17,7 +17,10 @@ export function buildSystemMounts(
 ): string[] {
   const mounts = [
     ...(useSysroot
-      ? []
+      ? [
+        '/sys:/host/sys:ro',
+        '/dev:/host/dev:ro',
+      ]
       : [
         '/usr:/host/usr:ro',
         '/bin:/host/bin:ro',

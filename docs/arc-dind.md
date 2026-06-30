@@ -52,7 +52,7 @@ services:
     depends_on:
       sysroot-stage: { condition: service_completed_successfully }
     volumes:
-      - sysroot:/host:ro
+      - sysroot:/host:rw
       - /tmp/gh-aw/tool-cache:/host/tmp/gh-aw/tool-cache:ro
 
 volumes:
@@ -136,14 +136,15 @@ For fine-grained control (or when not using `runner.topology`):
 - `dind.stageEngineBinary`: copies an engine binary from the runner path into daemon-visible filesystem before compose startup.
 - `dind.stagingImage`: image used for short-lived staging containers.
 - `dind.workDir`: target root for DinD pre-staged directory tree (`/tmp/gh-aw` default).
-- `runner.topology: "arc-dind"`: enables sysroot staging (`sysroot-stage` init service + `sysroot` volume mounted on agent at `/host:ro`).
+- `runner.topology: "arc-dind"`: enables sysroot staging (`sysroot-stage` init service + `sysroot` volume mounted on agent at `/host:rw`).
 - `runner.sysrootImage`: optional override for the sysroot image used by `runner.topology=arc-dind`.
 
 ## Build-tools sysroot image
 
 When `runner.topology` is `arc-dind`, AWF starts a one-shot `sysroot-stage` service that copies
-the filesystem from `ghcr.io/github/gh-aw-firewall/build-tools:latest` into a named `sysroot`
-volume. The agent mounts that volume at `/host:ro`.
+the filesystem from a build-tools image derived from the same `--image-registry` and `--image-tag`
+settings as the other AWF containers (unless `runner.sysrootImage` overrides it) into a named
+`sysroot` volume. The agent mounts that volume at `/host:rw`.
 
 This image pre-installs root-required system build dependencies (for example gcc/make/cmake,
 libssl-dev/libc6-dev/libicu-dev, capsh/gosu/gh) so ARC workflow steps can stay non-root.

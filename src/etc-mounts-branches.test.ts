@@ -286,6 +286,14 @@ describe('system-mounts branch coverage', () => {
     expect(mounts).toContain('/custom/tools:/host/tmp/awf-runner-bin:ro');
   });
 
+  it('keeps live /sys and /dev mounts when sysroot mode is enabled', () => {
+    const mounts = buildSystemMounts('/workspace', undefined, true);
+    expect(mounts).toContain('/sys:/host/sys:ro');
+    expect(mounts).toContain('/dev:/host/dev:ro');
+    expect(mounts).not.toContain('/usr:/host/usr:ro');
+    expect(mounts).not.toContain('/bin:/host/bin:ro');
+  });
+
   it('excludes runner-bin mount when chrootBinariesSourcePath is whitespace-only', () => {
     const mounts = buildSystemMounts('/workspace', '   ');
     expect(mounts.every(m => !m.includes('awf-runner-bin'))).toBe(true);

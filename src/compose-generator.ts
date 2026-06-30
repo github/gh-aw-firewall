@@ -124,8 +124,6 @@ export function generateDockerCompose(
       '/host/lib',
       '/host/lib64',
       '/host/opt',
-      '/host/sys',
-      '/host/dev',
     ]);
     const filteredVolumes = agentVolumes.filter(volume => {
       const target = volume.split(':')[1];
@@ -263,15 +261,17 @@ export function generateDockerCompose(
   // ── Final compose result ───────────────────────────────────────────────────
 
   // When sysroot staging is active, declare the named volume and mount it
-  // on the agent at /host (replacing the per-directory system bind mounts).
+  // on the agent at /host (replacing the per-directory userspace bind mounts,
+  // while /sys and /dev remain live host mounts).
   const namedVolumes: Record<string, any> | undefined = sysrootActive
     ? { sysroot: {} }
     : undefined;
 
   if (sysrootActive) {
-    // The sysroot named volume provides /host content (system binaries, libs, etc.)
-    // via the sysroot-stage init container instead of per-directory bind mounts.
-    agentVolumes.push('sysroot:/host:ro');
+    // The sysroot named volume provides most /host content (system binaries,
+    // libs, etc.) via the sysroot-stage init container instead of per-directory
+    // userspace bind mounts.
+    agentVolumes.push('sysroot:/host:rw');
   }
 
   if (networkIsolation) {
