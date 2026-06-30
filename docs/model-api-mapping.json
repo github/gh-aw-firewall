@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-06-30T04:00:00Z",
+  "lastUpdated": "2026-06-30T08:10:00Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -108,6 +108,12 @@
       },
       "models": [
         {
+          "family": "claude-mythos-5",
+          "patterns": ["claude-mythos-5*", "claude-mythos-preview*"],
+          "endpoints": ["messages"],
+          "notes": "Invitation-only via Project Glasswing. Includes claude-mythos-5 and claude-mythos-preview. Research-focused; claude-mythos-preview targets defensive cybersecurity workflows. 1M token context."
+        },
+        {
           "family": "claude-fable-5",
           "patterns": ["claude-fable-5*"],
           "endpoints": ["messages"],
@@ -117,7 +123,7 @@
           "family": "claude-opus-4",
           "patterns": ["claude-opus-4*"],
           "endpoints": ["messages"],
-          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5. 1M token context."
+          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-opus-4-1. 1M token context."
         },
         {
           "family": "claude-sonnet-4",
