@@ -203,7 +203,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
-- `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; activates sysroot staging, network isolation defaults, and tool cache validation when `arc-dind`)*
+- `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `ghcr.io/github/gh-aw-firewall/build-tools:<imageTag>`)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
