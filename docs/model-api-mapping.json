@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model-to-API Endpoint Mapping",
+  "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
+  "lastUpdated": "2026-06-30T04:00:00Z",
+  "sources": {
+    "openai": "https://platform.openai.com/docs/models",
+    "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
+  },
+  "providers": {
+    "openai": {
+      "endpoints": {
+        "responses": {
+          "path": "/v1/responses",
+          "description": "Newer unified API for agentic, tool-using, and multimodal workflows. Required for GPT-5+ and reasoning models."
+        },
+        "chat_completions": {
+          "path": "/v1/chat/completions",
+          "description": "Legacy conversational API. Being deprecated for newer models by end of 2026."
+        }
+      },
+      "models": [
+        {
+          "family": "gpt-5.5",
+          "patterns": ["gpt-5.5*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. Not accessible via /chat/completions."
+        },
+        {
+          "family": "gpt-5.4",
+          "patterns": ["gpt-5.4*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only."
+        },
+        {
+          "family": "gpt-5.3",
+          "patterns": ["gpt-5.3*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. Includes gpt-5.3-codex variants."
+        },
+        {
+          "family": "gpt-5.2",
+          "patterns": ["gpt-5.2*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only."
+        },
+        {
+          "family": "gpt-5",
+          "patterns": ["gpt-5", "gpt-5-*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. Includes gpt-5-mini, gpt-5-nano, gpt-5-pro."
+        },
+        {
+          "family": "o4",
+          "patterns": ["o4*"],
+          "endpoints": ["responses"],
+          "notes": "Reasoning model. Responses API only. Includes o4-mini."
+        },
+        {
+          "family": "o3",
+          "patterns": ["o3*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Reasoning model. Supports both endpoints."
+        },
+        {
+          "family": "o1",
+          "patterns": ["o1*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Reasoning model. Supports both endpoints."
+        },
+        {
+          "family": "gpt-4o",
+          "patterns": ["gpt-4o*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Multimodal. Supports both endpoints."
+        },
+        {
+          "family": "gpt-4.1",
+          "patterns": ["gpt-4.1*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints."
+        },
+        {
+          "family": "gpt-4-turbo",
+          "patterns": ["gpt-4-turbo*"],
+          "endpoints": ["chat_completions"],
+          "notes": "Legacy. Chat completions only."
+        },
+        {
+          "family": "gpt-4",
+          "patterns": ["gpt-4", "gpt-4-*"],
+          "endpoints": ["chat_completions"],
+          "notes": "Legacy. Chat completions only."
+        },
+        {
+          "family": "gpt-3.5-turbo",
+          "patterns": ["gpt-3.5-turbo*"],
+          "endpoints": ["chat_completions"],
+          "notes": "Legacy. Chat completions only. Deprecated."
+        }
+      ]
+    },
+    "anthropic": {
+      "endpoints": {
+        "messages": {
+          "path": "/v1/messages",
+          "description": "Unified Messages API for all Claude models. Supports tool use, streaming, extended thinking, and vision."
+        }
+      },
+      "models": [
+        {
+          "family": "claude-fable-5",
+          "patterns": ["claude-fable-5*"],
+          "endpoints": ["messages"],
+          "notes": "Latest flagship. 1M token context."
+        },
+        {
+          "family": "claude-opus-4",
+          "patterns": ["claude-opus-4*"],
+          "endpoints": ["messages"],
+          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5. 1M token context."
+        },
+        {
+          "family": "claude-sonnet-4",
+          "patterns": ["claude-sonnet-4*"],
+          "endpoints": ["messages"],
+          "notes": "Includes claude-sonnet-4-6, claude-sonnet-4-5. Production workhorse. 1M token context."
+        },
+        {
+          "family": "claude-haiku-4",
+          "patterns": ["claude-haiku-4*"],
+          "endpoints": ["messages"],
+          "notes": "Includes claude-haiku-4-5. Fast/cheap. 200K token context."
+        },
+        {
+          "family": "claude-3.5-sonnet",
+          "patterns": ["claude-3-5-sonnet*", "claude-3.5-sonnet*"],
+          "endpoints": ["messages"],
+          "notes": "Previous generation. 200K token context."
+        },
+        {
+          "family": "claude-3.5-haiku",
+          "patterns": ["claude-3-5-haiku*", "claude-3.5-haiku*"],
+          "endpoints": ["messages"],
+          "notes": "Previous generation fast model."
+        },
+        {
+          "family": "claude-3-opus",
+          "patterns": ["claude-3-opus*"],
+          "endpoints": ["messages"],
+          "notes": "Previous generation. 200K token context."
+        }
+      ]
+    }
+  }
+}
