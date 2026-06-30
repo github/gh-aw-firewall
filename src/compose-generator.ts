@@ -149,8 +149,13 @@ export function generateDockerCompose(
       // Drop mounts sourced from AWF workDir (runner's unshared /tmp/awf-*)
       if (source.startsWith(workDirPrefix)) return false;
 
-      // Drop home directory mounts targeting /host/home/... — sysroot provides them
-      if (source.startsWith(effectiveHome) && target.startsWith(hostHomeMountPrefix)) return false;
+      // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
+      // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
+      // custom mounts or tool-cache mounts that the sysroot doesn't provide.
+      if (source.startsWith(effectiveHome) && target.startsWith(hostHomeMountPrefix)) {
+        const relPath = source.slice(effectiveHome.length);
+        if (relPath.startsWith('/.') || relPath === '') return false;
+      }
 
       return true;
     });
