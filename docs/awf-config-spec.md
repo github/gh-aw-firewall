@@ -77,6 +77,7 @@ following top-level properties. All are OPTIONAL:
 | `container` | object | Container and Docker settings |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
+| `runner` | object | Runner topology declaration (standard vs. ARC/DinD) |
 | `environment` | object | Environment variable propagation (see §8) |
 | `logging` | object | Logging and diagnostics |
 | `rateLimiting` | object | Egress rate limiting |
@@ -202,6 +203,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
+- `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; activates sysroot staging, network isolation defaults, and tool cache validation when `arc-dind`)*
+- `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `ghcr.io/github/gh-aw-firewall/build-tools:<imageTag>`)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
