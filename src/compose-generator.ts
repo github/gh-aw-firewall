@@ -139,6 +139,7 @@ export function generateDockerCompose(
 
     const filteredVolumes = agentVolumes.filter(volume => {
       const parts = volume.split(':');
+      if (parts.length < 2) return true; // Keep malformed entries unchanged
       const source = parts[0];
       const target = parts[1];
 
