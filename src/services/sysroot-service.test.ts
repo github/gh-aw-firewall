@@ -125,6 +125,17 @@ describe('buildSysrootStageService', () => {
     expect(service.command[0]).toContain('.awf-sysroot-ready');
   });
 
+  it('escapes $d as $$d for Docker Compose variable interpolation', () => {
+    const service = buildSysrootStageService({
+      config: makeConfig({ runnerTopology: 'arc-dind' }),
+      registry: 'ghcr.io/github/gh-aw-firewall',
+      imageTag: 'latest',
+    });
+    // Docker Compose treats $var as variable interpolation; $$ escapes to literal $
+    expect(service.command[0]).toContain('/$$d');
+    expect(service.command[0]).not.toMatch(/\/\$d[^$]/);
+  });
+
   it('uses network_mode none (no network needed for copy)', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),

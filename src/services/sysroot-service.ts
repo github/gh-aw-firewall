@@ -44,7 +44,9 @@ export function buildSysrootStageService(params: SysrootServiceParams): any {
       'fi; ' +
       'echo "Copying sysroot filesystem..."; ' +
       'for d in usr lib bin sbin etc; do ' +
-      '  [ -d "/$d" ] && cp -a "/$d" /sysroot/; ' +
+      // Use $$ to escape Docker Compose variable interpolation — Compose
+      // treats bare $d as a variable reference and replaces it with "".
+      '  [ -d "/$$d" ] && cp -a "/$$d" /sysroot/; ' +
       'done; ' +
       'if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi; ' +
       'touch /sysroot/.awf-sysroot-ready; ' +
