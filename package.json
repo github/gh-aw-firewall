@@ -50,7 +50,7 @@
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "execa": "^5.1.1",
-    "js-yaml": "^4.3.0"
+    "js-yaml": "^5.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
