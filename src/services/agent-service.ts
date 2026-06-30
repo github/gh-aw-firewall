@@ -246,6 +246,12 @@ interface IptablesInitServiceParams {
   // iptables-init containers land on two different daemon-side directories and the
   // ready/output.log handshake silently fails ("No init container output log found").
   dockerHostPathPrefix?: string;
+  // The IP that Docker resolves `host-gateway` to (i.e., the IP behind
+  // `host.docker.internal` in the agent container). Passed to the init container
+  // so it can create NAT bypass rules even though it cannot resolve
+  // `host.docker.internal` itself (Docker rejects extra_hosts on containers
+  // using network_mode: service:<other>).
+  hostGatewayIp?: string;
 }
 
 /**
@@ -254,7 +260,7 @@ interface IptablesInitServiceParams {
  * without ever granting NET_ADMIN to the agent itself.
  */
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
-  const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix } = params;
+  const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix, hostGatewayIp } = params;
 
   // The init-signal mount must use the same source path that the agent container uses,
   // otherwise the two containers bind to different daemon-side directories and the
@@ -293,6 +299,7 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
       AWF_CLI_PROXY_IP: environment.AWF_CLI_PROXY_IP || '',
       AWF_SSL_BUMP_ENABLED: environment.AWF_SSL_BUMP_ENABLED || '',
       AWF_SSL_BUMP_INTERCEPT_PORT: environment.AWF_SSL_BUMP_INTERCEPT_PORT || '',
+      AWF_HOST_GATEWAY_IP: hostGatewayIp || '',
     },
     depends_on: {
       'agent': {

@@ -294,6 +294,13 @@ configure_host_access_rules() {
       allow_host_access_to_gateway "$HOST_GATEWAY_IP" "host gateway"
     elif [ -n "$HOST_GATEWAY_IP" ]; then
       echo "[iptables] WARNING: host.docker.internal resolved to invalid IP '${HOST_GATEWAY_IP}', skipping host gateway bypass"
+    elif [ -n "$AWF_HOST_GATEWAY_IP" ] && is_valid_ipv4 "$AWF_HOST_GATEWAY_IP"; then
+      # Fallback: the CLI detected the host-gateway IP and passed it via env var.
+      # This handles hosts where the init container cannot resolve host.docker.internal
+      # (Docker rejects extra_hosts on containers using network_mode: service:agent).
+      echo "[iptables] host.docker.internal not resolvable in init container, using CLI-provided host gateway IP"
+      HOST_GATEWAY_IP="$AWF_HOST_GATEWAY_IP"
+      allow_host_access_to_gateway "$HOST_GATEWAY_IP" "host gateway (from AWF_HOST_GATEWAY_IP)"
     else
       echo "[iptables] WARNING: host.docker.internal could not be resolved, skipping host gateway bypass"
     fi
@@ -319,8 +326,11 @@ configure_host_access_rules() {
     # Parse port list once, before resolving gateway IPs, so both blocks can use it
     IFS=',' read -ra HSP_PORTS <<< "$AWF_HOST_SERVICE_PORTS"
 
-    # Resolve host gateway IP
+    # Resolve host gateway IP (with AWF_HOST_GATEWAY_IP fallback, same as host access block)
     HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
+    if [ -z "$HSP_HOST_GW_IP" ] && [ -n "$AWF_HOST_GATEWAY_IP" ]; then
+      HSP_HOST_GW_IP="$AWF_HOST_GATEWAY_IP"
+    fi
     HSP_NET_GW_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
 
     if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
