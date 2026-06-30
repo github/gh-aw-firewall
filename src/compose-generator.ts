@@ -13,6 +13,7 @@ import { buildApiProxyService } from './services/api-proxy-service';
 import { buildDohProxyService } from './services/doh-proxy-service';
 import { buildCliProxyService } from './services/cli-proxy-service';
 import { buildSysrootStageService, isSysrootEnabled } from './services/sysroot-service';
+import { resolveDockerHostGateway } from './services/host-gateway';
 import { TOPOLOGY_NETWORK_NAME } from './topology';
 
 /**
@@ -193,12 +194,18 @@ export function generateDockerCompose(
   }
 
   if (!networkIsolation) {
+    // Resolve the host-gateway IP so the init container can create NAT bypass rules
+    // for host.docker.internal traffic. The init container cannot resolve this itself
+    // because Docker rejects extra_hosts on containers using network_mode: service:agent.
+    const hostGatewayIp = config.enableHostAccess ? resolveDockerHostGateway() : undefined;
+
     const iptablesInitService = buildIptablesInitService({
       agentService,
       environment,
       networkConfig,
       initSignalDir,
       dockerHostPathPrefix: config.dockerHostPathPrefix,
+      hostGatewayIp,
     });
     services['iptables-init'] = iptablesInitService;
   }
