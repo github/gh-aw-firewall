@@ -15,6 +15,7 @@
  */
 
 const metrics = require('./metrics');
+const { getModelApiMappingReflect } = require('./model-api-mapping');
 
 /**
  * @typedef {object} ManagementDeps
@@ -109,6 +110,7 @@ function createManagementHandlers(deps) {
       runs: getMaxRunsUsage(),
       cache_misses: getMaxCacheMissesUsage(),
       permission_denied: getPermissionDeniedUsage(),
+      model_api_mapping: getModelApiMappingReflect(),
     };
   }
 

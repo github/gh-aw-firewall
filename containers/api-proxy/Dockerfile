@@ -31,7 +31,8 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      upstream-log.js upstream-retry.js upstream-token.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js \
      token-budget-log.js blocked-request-diagnostics.js \
-     provider-env-constants.js provider-names.js ./
+     provider-env-constants.js provider-names.js \
+     model-api-mapping.js model-api-mapping.json ./
 COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/
