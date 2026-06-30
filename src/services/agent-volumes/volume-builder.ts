@@ -42,7 +42,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   agentVolumes.push(...buildSystemMounts(workspaceDir, config.chrootBinariesSourcePath, useSysroot));
   agentVolumes.push(...buildHomeMounts({ config, effectiveHome, agentLogsPath, sessionStatePath }));
   agentVolumes.push(...buildEtcMounts(config));
-  agentVolumes.push(generateHostsFileMount(config));
+  // When sysroot-stage is active, the sysroot volume provides /etc/hosts.
+  // The generated chroot hosts file lives on the runner's /tmp which the
+  // Docker daemon cannot see on split-fs. DNS pre-resolution is skipped;
+  // the agent resolves domains at runtime via the container's DNS config.
+  if (!useSysroot) {
+    agentVolumes.push(generateHostsFileMount(config));
+  }
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));
   agentVolumes.push(...buildCustomVolumeMounts(config.volumeMounts));
