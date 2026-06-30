@@ -13,6 +13,12 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
+// Mock host-gateway resolution (runs execa.sync against Docker, which we don't want in unit tests)
+const mockResolveDockerHostGateway = jest.fn();
+jest.mock('./services/host-gateway', () => ({
+  resolveDockerHostGateway: (...args: any[]) => mockResolveDockerHostGateway(...args),
+}));
+
 let mockConfig: WrapperConfig;
 
 describe('generateDockerCompose', () => {
@@ -311,6 +317,39 @@ describe('generateDockerCompose', () => {
         expect(result.networks['awf-net'].external).toBe(true);
         expect(result.networks['awf-ext']).toBeUndefined();
         expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBeUndefined();
+      });
+    });
+
+    describe('host-gateway IP passthrough (AWF_HOST_GATEWAY_IP)', () => {
+      afterEach(() => {
+        mockResolveDockerHostGateway.mockReset();
+      });
+
+      it('should pass AWF_HOST_GATEWAY_IP to iptables-init when enableHostAccess is true', () => {
+        mockResolveDockerHostGateway.mockReturnValue('192.168.1.100');
+        const config = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const initEnv = result.services['iptables-init']?.environment as Record<string, string>;
+
+        expect(mockResolveDockerHostGateway).toHaveBeenCalled();
+        expect(initEnv.AWF_HOST_GATEWAY_IP).toBe('192.168.1.100');
+      });
+
+      it('should set AWF_HOST_GATEWAY_IP to empty when enableHostAccess is false', () => {
+        const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+        const initEnv = result.services['iptables-init']?.environment as Record<string, string>;
+
+        expect(mockResolveDockerHostGateway).not.toHaveBeenCalled();
+        expect(initEnv.AWF_HOST_GATEWAY_IP).toBe('');
+      });
+
+      it('should set AWF_HOST_GATEWAY_IP to empty when detection fails', () => {
+        mockResolveDockerHostGateway.mockReturnValue(undefined);
+        const config = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const initEnv = result.services['iptables-init']?.environment as Record<string, string>;
+
+        expect(initEnv.AWF_HOST_GATEWAY_IP).toBe('');
       });
     });
 
