@@ -70,7 +70,7 @@ export function fixArtifactPermissionsForRootless(
           imageRef,
           'sh',
           '-c',
-          'chown -R "$TUID:$TGID" /fix && chmod -R a+rX /fix',
+          'chown -R "$TUID:$TGID" /fix && chmod -R a+rwX /fix',
         ],
         { env: getLocalDockerEnv(), reject: false },
       );
