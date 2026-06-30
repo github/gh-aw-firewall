@@ -29,7 +29,7 @@ jest.mock('./compose-generator', () => require('./test-helpers/config-writer-tes
 import * as fs from 'fs';
 import * as path from 'path';
 import { writeConfigs } from './config-writer';
-import { isOpenSslAvailable, generateSessionCa } from './ssl-bump';
+import { isOpenSslAvailable, generateSessionCa, initSslDb } from './ssl-bump';
 import {
   buildWriteConfig,
   setupConfigWriterTempDir,
@@ -103,6 +103,27 @@ describe('config-writer additional branches', () => {
       await expect(
         writeConfigs(buildWriteConfig(tempDir, { sslBump: true }))
       ).rejects.toThrow('SSL Bump initialization failed: string rejection');
+    });
+  });
+
+  // ─── initializeSslBump success path ────────────────────────────────────
+
+  describe('SSL Bump initialization - success path', () => {
+    it('completes SSL Bump setup and calls initSslDb when OpenSSL succeeds', async () => {
+      const fakeCaFiles = {
+        certPath: path.join(tempDir, 'ca.pem'),
+        keyPath: path.join(tempDir, 'ca.key'),
+        derPath: path.join(tempDir, 'ca.der'),
+      };
+      (isOpenSslAvailable as jest.Mock).mockResolvedValue(true);
+      (generateSessionCa as jest.Mock).mockResolvedValue(fakeCaFiles);
+      (initSslDb as jest.Mock).mockResolvedValue(path.join(tempDir, 'ssl-db'));
+
+      await expect(
+        writeConfigs(buildWriteConfig(tempDir, { sslBump: true }))
+      ).resolves.toBeUndefined();
+
+      expect(initSslDb).toHaveBeenCalledWith(tempDir);
     });
   });
 });
