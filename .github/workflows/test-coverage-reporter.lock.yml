@@ -61,7 +61,7 @@ on:
     paths:
     - src/**/*.ts
   schedule:
-  - cron: "25 4 * * *"
+  - cron: "25 18 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

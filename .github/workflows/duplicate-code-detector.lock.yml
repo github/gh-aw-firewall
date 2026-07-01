@@ -55,7 +55,7 @@
 name: "Duplicate Code Detector"
 on:
   schedule:
-  - cron: "34 21 * * *"
+  - cron: "38 5 * * *"
     # Friendly format: daily (scattered)
   workflow_dispatch:
     inputs:

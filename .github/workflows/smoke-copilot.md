@@ -43,7 +43,7 @@ safe-outputs:
 timeout-minutes: 15
 sandbox:
   mcp:
-    version: v0.3.1
+    version: v0.3.32
 strict: false
 jobs:
   verify_token_usage:
