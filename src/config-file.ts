@@ -112,6 +112,7 @@ export interface AwfFileConfig {
     dockerHost?: string;
     dockerHostPathPrefix?: string;
     runnerToolCachePath?: string;
+    mounts?: string[];
   };
   chroot?: {
     binariesSourcePath?: string;
