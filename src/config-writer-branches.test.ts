@@ -5,26 +5,7 @@
  *   - initializeSslBump: non-Error rejection propagation
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./ssl-bump', () => require('./test-helpers/config-writer-test-harness.test-utils').sslBumpMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./domain-matchers', () => require('./test-helpers/config-writer-test-harness.test-utils').domainMatchersMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({ SQUID_PORT: 3128 }));
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./squid-config', () => require('./test-helpers/config-writer-test-harness.test-utils').squidConfigMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./compose-generator', () => require('./test-helpers/config-writer-test-harness.test-utils').composeGeneratorMockFactory());
+import './test-helpers/config-writer-dependency-mocks.test-utils';
 
 import * as fs from 'fs';
 import * as path from 'path';
