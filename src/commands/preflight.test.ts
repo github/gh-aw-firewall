@@ -1,4 +1,10 @@
-import { applyConfigFilePrecedence, resolveAllowedDomains, resolveBlockedDomains } from './preflight';
+import {
+  applyConfigFilePrecedence,
+  parseDomainOptions,
+  resolveAllowedDomains,
+  resolveBlockedDomains,
+  validateAllowedDomains,
+} from './preflight';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
@@ -289,6 +295,91 @@ describe('resolveAllowedDomains', () => {
     const result = resolveAllowedDomains({ rulesetFile: [] });
     expect(mockedRules.loadAndMergeDomains).not.toHaveBeenCalled();
     expect(result.allowedDomains).toEqual([]);
+  });
+});
+
+describe('parseDomainOptions', () => {
+  let processExitSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    mockedDomainUtils.parseDomains.mockReturnValue([]);
+    mockedDomainUtils.parseDomainsFile.mockReturnValue([]);
+    mockedRules.loadAndMergeDomains.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    processExitSpy.mockRestore();
+  });
+
+  it('parses and merges domains from all domain options', () => {
+    mockedDomainUtils.parseDomains.mockReturnValue(['flag.com']);
+    mockedDomainUtils.parseDomainsFile.mockReturnValue(['file.com']);
+    mockedRules.loadAndMergeDomains.mockReturnValue(['ruleset.com']);
+
+    const result = parseDomainOptions({
+      allowDomains: 'flag.com',
+      allowDomainsFile: '/path/to/domains.txt',
+      rulesetFile: ['/path/to/ruleset.yml'],
+    });
+
+    expect(mockedDomainUtils.parseDomains).toHaveBeenCalledWith('flag.com');
+    expect(mockedDomainUtils.parseDomainsFile).toHaveBeenCalledWith('/path/to/domains.txt');
+    expect(mockedRules.loadAndMergeDomains).toHaveBeenCalledWith(['/path/to/ruleset.yml'], ['flag.com', 'file.com']);
+    expect(result).toEqual(['ruleset.com']);
+  });
+
+  it('exits when domains file cannot be read', () => {
+    mockedDomainUtils.parseDomainsFile.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    expect(() => parseDomainOptions({ allowDomainsFile: '/missing.txt' })).toThrow('process.exit called');
+    expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to read domains file'));
+  });
+
+  it('exits when ruleset file fails to load', () => {
+    mockedRules.loadAndMergeDomains.mockImplementation(() => {
+      throw new Error('Bad YAML');
+    });
+
+    expect(() => parseDomainOptions({ rulesetFile: ['/bad.yml'] })).toThrow('process.exit called');
+    expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to load ruleset file'));
+  });
+});
+
+describe('validateAllowedDomains', () => {
+  let processExitSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation();
+  });
+
+  afterEach(() => {
+    processExitSpy.mockRestore();
+  });
+
+  it('validates each domain', () => {
+    validateAllowedDomains(['example.com', '*.example.org']);
+    expect(mockedDomainValidation.validateDomainOrPattern).toHaveBeenCalledTimes(2);
+    expect(mockedDomainValidation.validateDomainOrPattern).toHaveBeenNthCalledWith(1, 'example.com');
+    expect(mockedDomainValidation.validateDomainOrPattern).toHaveBeenNthCalledWith(2, '*.example.org');
+  });
+
+  it('exits when domain validation fails', () => {
+    mockedDomainValidation.validateDomainOrPattern.mockImplementation(() => {
+      throw new Error('Invalid domain');
+    });
+
+    expect(() => validateAllowedDomains(['bad domain!'])).toThrow('process.exit called');
+    expect(mockedLogger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid domain or pattern'));
   });
 });
 
