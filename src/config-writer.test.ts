@@ -1,4 +1,4 @@
-// jest.mock() calls are hoisted before imports — keep them at the top.
+// Hoisted jest.mock() registrations live in the shared helper — this import must remain first.
 import './test-helpers/config-writer-dependency-mocks.test-utils';
 
 import * as fs from 'fs';
