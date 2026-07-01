@@ -14,7 +14,7 @@
  */
 
 const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
-const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
+const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { GEMINI_ENV } = require('../provider-env-constants');
 
 /**
@@ -25,14 +25,13 @@ const { GEMINI_ENV } = require('../provider-env-constants');
  * @returns {import('./index').ProviderAdapter}
  */
 function createGeminiAdapter(env, deps = {}) {
-  const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
+  const { apiKey, rawTarget, basePath, bodyTransform } = createProviderAuthScaffold(env, deps, {
     keyEnvVar: GEMINI_ENV.KEY,
     targetEnvVar: GEMINI_ENV.TARGET,
     basePathEnvVar: GEMINI_ENV.BASE_PATH,
     defaultTarget: 'generativelanguage.googleapis.com',
   });
 
-  const bodyTransform = deps.bodyTransform || null;
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,

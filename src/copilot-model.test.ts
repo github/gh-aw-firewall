@@ -16,6 +16,17 @@ describe('validateCopilotModel', () => {
     expect(result).toEqual({ valid: true, resolvedModel: 'gpt-5.3-codex' });
   });
 
+  it.each([
+    'gpt-4.5',
+    'gpt-5.1',
+    'claude-fable-5',
+    'claude-mythos-5',
+    'claude-sonnet-5',
+  ])('accepts newly supported Copilot allowlist models (%s)', model => {
+    const result = validateCopilotModel(model);
+    expect(result).toEqual({ valid: true, resolvedModel: model });
+  });
+
   it('accepts empty values after trimming', () => {
     const result = validateCopilotModel('   ');
     expect(result).toEqual({ valid: true, resolvedModel: '' });
@@ -66,6 +77,7 @@ describe('validateCopilotModel', () => {
       return;
     }
     expect(result.reason).toBe('unsupported');
+    expect(result.message).toContain('unsupported or unrecognized by this AWF version');
     expect(result.message).toContain("Did you mean 'gpt-5.3-codex'?");
   });
 
@@ -77,7 +89,7 @@ describe('validateCopilotModel', () => {
     }
     expect(result.reason).toBe('unsupported');
     expect(result.message).toBe(
-      "Error: model 'this-model-does-not-exist-anywhere-12345' is retired or unsupported.",
+      "Error: model 'this-model-does-not-exist-anywhere-12345' is unsupported or unrecognized by this AWF version.",
     );
   });
 });

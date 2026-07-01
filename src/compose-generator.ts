@@ -6,15 +6,10 @@ import { parseImageTag } from './image-tag';
 import { SslConfig } from './host-env';
 import { getRealUserHome } from './host-identity';
 import { resolveLogPaths } from './log-paths';
-import { logger } from './logger';
 import { buildSquidService } from './services/squid-service';
-import { buildAgentEnvironment, buildAgentVolumes, buildAgentService, buildIptablesInitService } from './services/agent-service';
-import { buildApiProxyService } from './services/api-proxy-service';
-import { buildDohProxyService } from './services/doh-proxy-service';
-import { buildCliProxyService } from './services/cli-proxy-service';
-import { buildSysrootStageService, isSysrootEnabled } from './services/sysroot-service';
-import { resolveDockerHostGateway } from './services/host-gateway';
-import { TOPOLOGY_NETWORK_NAME } from './topology';
+import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
+import { assembleOptionalServices } from './services/optional-services';
+import { buildComposeNetworks } from './compose-network';
 
 /**
  * Generates Docker Compose configuration
@@ -51,15 +46,15 @@ export function generateDockerCompose(
   // ── Log / state paths ──────────────────────────────────────────────────────
 
   const logPaths = resolveLogPaths(config);
-  const { squidLogs: squidLogsPath, sessionState: sessionStatePath, agentLogs: agentLogsPath, apiProxyLogs: apiProxyLogsPath, cliProxyLogs: cliProxyLogsPath } = logPaths;
+  const { squidLogs: squidLogsPath } = logPaths;
 
-  // ── Init-signal directory ──────────────────────────────────────────────────
+  // ── Init-signal directory path ─────────────────────────────────────────────
+  //
+  // The directory is created by prepareWorkDirectories (workdir-setup.ts)
+  // during Phase 2 of writeConfigs, before generateDockerCompose is called.
+  // Here we only derive the path so it can be forwarded into optional service assembly.
 
-  // Create init-signal directory for iptables init container coordination
   const initSignalDir = path.join(config.workDir, 'init-signal');
-  if (!fs.existsSync(initSignalDir)) {
-    fs.mkdirSync(initSignalDir, { recursive: true });
-  }
 
   // ── DNS servers ────────────────────────────────────────────────────────────
 
@@ -76,7 +71,7 @@ export function generateDockerCompose(
     imageConfig,
   });
 
-  // ── Agent environment ──────────────────────────────────────────────────────
+  // ── Agent environment, volumes, and service ────────────────────────────────
 
   const environment = buildAgentEnvironment({
     config,
@@ -85,26 +80,8 @@ export function generateDockerCompose(
     sslConfig,
   });
 
-  // Pre-set API proxy IP in environment before the init container definition.
-  // The init container's environment object captures values at definition time,
-  // so AWF_API_PROXY_IP must be set before the init container is defined.
-  // Without this, the init container gets an empty AWF_API_PROXY_IP and
-  // setup-iptables.sh never adds ACCEPT rules for the API proxy, blocking connectivity.
-  if (config.enableApiProxy && networkConfig.proxyIp) {
-    environment.AWF_API_PROXY_IP = networkConfig.proxyIp;
-  }
-
-  // Pre-set CLI proxy IP in environment before the init container definition
-  // for the same reason as AWF_API_PROXY_IP above.
-  if (config.difcProxyHost && networkConfig.cliProxyIp) {
-    environment.AWF_CLI_PROXY_IP = networkConfig.cliProxyIp;
-  }
-
-  // ── Agent volumes ──────────────────────────────────────────────────────────
-
   const effectiveHome = getRealUserHome();
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
-  const sysrootActive = isSysrootEnabled(config);
 
   const agentVolumes = buildAgentVolumes({
     config,
@@ -112,59 +89,10 @@ export function generateDockerCompose(
     projectRoot,
     effectiveHome,
     workspaceDir,
-    agentLogsPath,
-    sessionStatePath,
+    agentLogsPath: logPaths.agentLogs,
+    sessionStatePath: logPaths.sessionState,
     initSignalDir,
   });
-
-  if (sysrootActive) {
-    const sysrootShadowedTargets = new Set([
-      '/host/usr',
-      '/host/bin',
-      '/host/sbin',
-      '/host/lib',
-      '/host/lib64',
-      '/host/opt',
-    ]);
-
-    // On split-fs ARC/DinD, the Docker daemon cannot see the runner's
-    // filesystem paths. Filter out bind mounts the daemon can't resolve:
-    //  - Source under workDir (runner's unshared /tmp/awf-*): daemon can't see it
-    //  - Source under effectiveHome with target under /host: sysroot volume provides these
-    //  - Sysroot-shadowed targets: system binaries already in the sysroot volume
-    // Keep: /tmp:/tmp (daemon has its own), /dev/null overlays, /dev and /sys
-    //       (kernel VFS), workspace mounts (ARC shares workspace with daemon).
-    const workDirPrefix = config.workDir;
-    const hostHomeMountPrefix = `/host${effectiveHome}`;
-
-    const filteredVolumes = agentVolumes.filter(volume => {
-      const parts = volume.split(':');
-      if (parts.length < 2) return true; // Keep malformed entries unchanged
-      const source = parts[0];
-      const target = parts[1];
-
-      // Drop sysroot-shadowed targets (system binaries provided by volume)
-      if (sysrootShadowedTargets.has(target)) return false;
-
-      // Drop mounts sourced from AWF workDir (runner's unshared /tmp/awf-*)
-      if (source.startsWith(workDirPrefix)) return false;
-
-      // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
-      // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
-      // custom mounts or tool-cache mounts that the sysroot doesn't provide.
-      if (source.startsWith(effectiveHome) && target.startsWith(hostHomeMountPrefix)) {
-        const normalizedSource = source.replace(/\/+$/, '') || '/';
-        const relPath = normalizedSource.slice(effectiveHome.length);
-        if (relPath.startsWith('/.') || relPath === '') return false;
-      }
-
-      return true;
-    });
-    agentVolumes.length = 0;
-    agentVolumes.push(...filteredVolumes);
-  }
-
-  // ── Agent service ──────────────────────────────────────────────────────────
 
   const agentService = buildAgentService({
     config,
@@ -175,19 +103,6 @@ export function generateDockerCompose(
     imageConfig,
   });
 
-  // ── iptables-init service ──────────────────────────────────────────────────
-  //
-  // In network-isolation (topology) mode there is no iptables enforcement, so the
-  // init container is omitted entirely. The agent skips its init-wait loop via the
-  // AWF_NETWORK_ISOLATION env var set below.
-
-  const networkIsolation = !!config.networkIsolation;
-
-  if (networkIsolation) {
-    // Tell the agent entrypoint to skip the iptables-init handshake.
-    environment.AWF_NETWORK_ISOLATION = '1';
-  }
-
   // ── Assemble base services ─────────────────────────────────────────────────
 
   const services: Record<string, any> = {
@@ -195,169 +110,31 @@ export function generateDockerCompose(
     'agent': agentService,
   };
 
-  // ── Optional: sysroot-stage init container (ARC/DinD) ─────────────────────
+  // ── Insert optional sidecars and wire depends_on edges ────────────────────
 
-  if (sysrootActive) {
-    const sysrootService = buildSysrootStageService({
-      config,
-      registry,
-      imageTag: parsedImageTag.tag,
-    });
-    services['sysroot-stage'] = sysrootService;
-
-    // Agent waits for sysroot copy to complete before starting
-    agentService.depends_on['sysroot-stage'] = {
-      condition: 'service_completed_successfully',
-    };
-
-    // Warn if tool cache is under /opt (invisible to the DinD daemon)
-    const toolCachePath = config.runnerToolCachePath || process.env.RUNNER_TOOL_CACHE;
-    if (!toolCachePath || toolCachePath.startsWith('/opt')) {
-      logger.warn(
-        'ARC/DinD: RUNNER_TOOL_CACHE is ' +
-        (toolCachePath ? `under /opt (${toolCachePath})` : 'not set') +
-        ', which is invisible to the DinD daemon. ' +
-        'Redirect it to a shared volume path (e.g. /tmp/gh-aw/tool-cache) ' +
-        'so setup-* action outputs are available inside the agent container.',
-      );
-    }
-  }
-
-  if (!networkIsolation) {
-    // Resolve the host-gateway IP so the init container can create NAT bypass rules
-    // for host.docker.internal traffic. The init container cannot resolve this itself
-    // because Docker rejects extra_hosts on containers using network_mode: service:agent.
-    const hostGatewayIp = config.enableHostAccess ? resolveDockerHostGateway() : undefined;
-
-    const iptablesInitService = buildIptablesInitService({
-      agentService,
-      environment,
-      networkConfig,
-      initSignalDir,
-      dockerHostPathPrefix: config.dockerHostPathPrefix,
-      hostGatewayIp,
-    });
-    services['iptables-init'] = iptablesInitService;
-  }
-
-  // ── Optional: API proxy sidecar ────────────────────────────────────────────
-
-  if (config.enableApiProxy && networkConfig.proxyIp) {
-    const { service: proxyService, agentEnvAdditions } = buildApiProxyService({
-      config,
-      networkConfig,
-      apiProxyLogsPath,
-      imageConfig,
-    });
-
-    services['api-proxy'] = proxyService;
-
-    // Apply agent environment mutations from the api-proxy builder
-    Object.assign(environment, agentEnvAdditions);
-
-    // Update agent dependencies to wait for api-proxy
-    agentService.depends_on['api-proxy'] = {
-      condition: 'service_healthy',
-    };
-  }
-
-  // ── Optional: DNS-over-HTTPS proxy sidecar ─────────────────────────────────
-
-  if (config.dnsOverHttps && networkConfig.dohProxyIp) {
-    const dohService = buildDohProxyService({ config, networkConfig });
-
-    services['doh-proxy'] = dohService;
-
-    // Update agent dependencies to also wait for doh-proxy
-    agentService.depends_on['doh-proxy'] = {
-      condition: 'service_healthy',
-    };
-  }
-
-  // ── Optional: CLI proxy sidecar ────────────────────────────────────────────
-
-  if (config.difcProxyHost && networkConfig.cliProxyIp) {
-    const { service: cliService, agentEnvAdditions } = buildCliProxyService({
-      config,
-      networkConfig,
-      cliProxyLogsPath,
-      imageConfig,
-    });
-
-    services['cli-proxy'] = cliService;
-
-    // Apply agent environment mutations from the cli-proxy builder
-    Object.assign(environment, agentEnvAdditions);
-
-    // Update agent dependencies to wait for cli-proxy
-    agentService.depends_on['cli-proxy'] = {
-      condition: 'service_healthy',
-    };
-  }
-
-  // ── Final compose result ───────────────────────────────────────────────────
-
-  // When sysroot staging is active, declare the named volume and mount it
-  // on the agent at /host (replacing the per-directory userspace bind mounts,
-  // while /sys and /dev remain live host mounts).
-  const namedVolumes: Record<string, any> | undefined = sysrootActive
-    ? { sysroot: {} }
-    : undefined;
-
-  if (sysrootActive) {
-    // The sysroot named volume provides most /host content (system binaries,
-    // libs, etc.) via the sysroot-stage init container instead of per-directory
-    // userspace bind mounts.
-    agentVolumes.push('sysroot:/host:rw');
-  }
-
-  if (networkIsolation) {
-    // Topology enforcement: the agent (and sidecars) live on an `internal`
-    // network with no route to the internet. Squid is dual-homed — attached to
-    // both the internal network and an external bridge network — so it is the
-    // sole egress path. No host iptables and no NET_ADMIN are involved.
-    squidService.networks = {
-      ...(squidService.networks || {}),
-      'awf-ext': {},
-    };
-
-    // The agent must resolve names via Docker's embedded resolver (127.0.0.11),
-    // which forwards through the daemon's network rather than the agent's, so it
-    // still works on an internal network. The configured external DNS servers are
-    // unreachable from an internal network.
-    agentService.dns = ['127.0.0.11'];
-
-    const composeResult: DockerComposeConfig = {
-      services,
-      networks: {
-        'awf-net': {
-          name: TOPOLOGY_NETWORK_NAME,
-          internal: true,
-          ipam: {
-            config: [{ subnet: networkConfig.subnet }],
-          },
-        },
-        'awf-ext': {
-          driver: 'bridge',
-        },
-      },
-      ...(namedVolumes && { volumes: namedVolumes }),
-    };
-
-    return composeResult;
-  }
-
-  const composeResult: DockerComposeConfig = {
+  const { namedVolumes } = assembleOptionalServices({
     services,
-    networks: {
-      'awf-net': {
-        external: true,
-      },
-    },
-    ...(namedVolumes && { volumes: namedVolumes }),
-  };
+    agentService,
+    agentVolumes,
+    environment,
+    config,
+    networkConfig,
+    imageConfig,
+    logPaths,
+    initSignalDir,
+    effectiveHome,
+  });
 
-  return composeResult;
+  // ── Assemble and return the compose result ─────────────────────────────────
+
+  return buildComposeNetworks({
+    services,
+    squidService,
+    agentService,
+    networkIsolation: !!config.networkIsolation,
+    networkConfig,
+    namedVolumes,
+  });
 }
 
 /**

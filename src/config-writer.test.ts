@@ -1,28 +1,8 @@
+// Hoisted jest.mock() registrations live in the shared helper — this import must remain first.
+import './test-helpers/config-writer-dependency-mocks.test-utils';
+
 import * as fs from 'fs';
 import * as path from 'path';
-
-// jest.mock() calls are hoisted before imports — keep them at the top.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('fs', () => require('./test-helpers/fs-mock-factory.test-utils').fsMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./ssl-bump', () => require('./test-helpers/config-writer-test-harness.test-utils').sslBumpMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./domain-matchers', () => require('./test-helpers/config-writer-test-harness.test-utils').domainMatchersMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils').hostEnvMockFactory({ SQUID_PORT: 3128 }));
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./squid-config', () => require('./test-helpers/config-writer-test-harness.test-utils').squidConfigMockFactory());
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('./compose-generator', () => require('./test-helpers/config-writer-test-harness.test-utils').composeGeneratorMockFactory());
-
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable } from './ssl-bump';
 import { getRealUserHome } from './host-identity';

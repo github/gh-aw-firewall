@@ -1,14 +1,11 @@
 /**
  * Shared test harness for config-writer suites.
  *
- * Each consuming test file must still declare its own jest.mock() calls
- * (Jest hoists them before imports), but can use the factory functions below
- * to keep those calls to a single line each:
+ * Shared jest.mock() registration lives in
+ * config-writer-dependency-mocks.test-utils.ts.
  *
- *   jest.mock('./ssl-bump', () =>
- *     require('./test-helpers/config-writer-test-harness.test-utils').sslBumpMockFactory()
- *   );
- *   // … (see each test file for the full set)
+ * This file provides the mock factories and lifecycle helpers consumed by
+ * that module and by the config-writer test suites.
  *
  * The buildWriteConfig, setupConfigWriterTempDir, and cleanupConfigWriterTempDir
  * helpers eliminate the duplicated factory and lifecycle code that was previously

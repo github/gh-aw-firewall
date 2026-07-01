@@ -607,6 +607,14 @@
         "runnerToolCachePath": {
           "type": "string",
           "description": "Host runner tool cache directory to mount read-only into chroot mode. When set, AWF checks this path first before environment-based auto-detection."
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/[^:]+:/[^:]+(:(ro|rw))?$"
+          },
+          "description": "Custom volume mounts for the agent container. Format: \"/host_path:/container_path[:ro|rw]\" (both paths must be absolute). In chroot mode, container paths are automatically prefixed with /host."
         }
       }
     },

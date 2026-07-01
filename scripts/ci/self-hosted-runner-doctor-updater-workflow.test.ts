@@ -28,6 +28,6 @@ describe('runner doctor updater workflow config', () => {
     expect(lock).toContain('🩺 Runner Doctor Update');
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
     expect(lock).toContain('Compute scan window');
-    expect(lock).toContain('github/gh-aw-actions/setup@2ad2a516e432f0a0000cfaed33d262a380f9e58f');
+    expect(lock).toContain('github/gh-aw-actions/setup@dadd6a0a0f4d1087fbd3e115776f28471388d6db');
   });
 });

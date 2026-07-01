@@ -22,7 +22,7 @@ const {
   resolveOidcAuthHeaders,
   resolveAuthHeadersWithFallback,
 } = require('../oidc-adapter-utils');
-const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
+const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
@@ -48,7 +48,7 @@ try {
  * @returns {import('./index').ProviderAdapter}
  */
 function createAnthropicAdapter(env, deps = {}) {
-  const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
+  const { apiKey, rawTarget, basePath, bodyTransform: depsBodyTransform } = createProviderAuthScaffold(env, deps, {
     keyEnvVar: ANTHROPIC_ENV.KEY,
     targetEnvVar: ANTHROPIC_ENV.TARGET,
     basePathEnvVar: ANTHROPIC_ENV.BASE_PATH,
@@ -113,11 +113,9 @@ function createAnthropicAdapter(env, deps = {}) {
     customTransform,
   });
 
-  const bodyTransform = deps.bodyTransform || null;
-
   // Build the composed transform once at construction time to avoid
   // re-allocating the wrapper function on every request.
-  const composedBodyTransform = composeBodyTransforms(bodyTransform, optimisationsTransform);
+  const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,

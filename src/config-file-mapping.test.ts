@@ -299,6 +299,27 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.runnerToolCachePath).toBe('/opt/hostedtoolcache');
   });
 
+  it('maps container.mounts to mount array', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      container: {
+        mounts: [
+          '/tmp/gh-aw:/tmp/gh-aw:ro',
+          '/tmp/gh-aw/home:/tmp/gh-aw/home:rw',
+        ],
+      },
+    });
+
+    expect(result.mount).toEqual([
+      '/tmp/gh-aw:/tmp/gh-aw:ro',
+      '/tmp/gh-aw/home:/tmp/gh-aw/home:rw',
+    ]);
+  });
+
+  it('leaves mount undefined when container.mounts is not set', () => {
+    const result = mapAwfFileConfigToCliOptions({ container: {} });
+    expect(result.mount).toBeUndefined();
+  });
+
   it('maps environment fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       environment: {

@@ -285,3 +285,62 @@ describe('buildProviderAdapter', () => {
     });
   });
 });
+
+describe('createProviderAuthScaffold', () => {
+  const { createProviderAuthScaffold } = require('./adapter-factory');
+  const envVars = {
+    keyEnvVar: 'MY_API_KEY',
+    targetEnvVar: 'MY_API_TARGET',
+    basePathEnvVar: 'MY_API_BASE_PATH',
+    defaultTarget: 'api.example.com',
+  };
+
+  it('reads apiKey, rawTarget, basePath from env using the given env-var names', () => {
+    const env = { MY_API_KEY: 'secret-key', MY_API_TARGET: 'custom.example.com', MY_API_BASE_PATH: '/v2' };
+    const result = createProviderAuthScaffold(env, {}, envVars);
+    expect(result.apiKey).toBe('secret-key');
+    expect(result.rawTarget).toBe('custom.example.com');
+    expect(result.basePath).toBe('/v2');
+  });
+
+  it('returns undefined apiKey when the key env var is absent', () => {
+    const result = createProviderAuthScaffold({}, {}, envVars);
+    expect(result.apiKey).toBeUndefined();
+  });
+
+  it('falls back to defaultTarget when the target env var is absent', () => {
+    const result = createProviderAuthScaffold({}, {}, envVars);
+    expect(result.rawTarget).toBe('api.example.com');
+  });
+
+  it('returns the deps bodyTransform when provided', () => {
+    const transform = (body) => body;
+    const result = createProviderAuthScaffold({}, { bodyTransform: transform }, envVars);
+    expect(result.bodyTransform).toBe(transform);
+  });
+
+  it('returns null bodyTransform when deps is empty', () => {
+    const result = createProviderAuthScaffold({}, {}, envVars);
+    expect(result.bodyTransform).toBeNull();
+  });
+
+  it('returns null bodyTransform when deps.bodyTransform is null', () => {
+    const result = createProviderAuthScaffold({}, { bodyTransform: null }, envVars);
+    expect(result.bodyTransform).toBeNull();
+  });
+
+  it('returns null bodyTransform when deps is omitted', () => {
+    const result = createProviderAuthScaffold({}, undefined, envVars);
+    expect(result.bodyTransform).toBeNull();
+  });
+
+  it('trims whitespace from apiKey and treats blank string as undefined', () => {
+    const result = createProviderAuthScaffold({ MY_API_KEY: '   ' }, {}, envVars);
+    expect(result.apiKey).toBeUndefined();
+  });
+
+  it('strips https:// protocol prefix from rawTarget', () => {
+    const result = createProviderAuthScaffold({ MY_API_TARGET: 'https://custom.example.com' }, {}, envVars);
+    expect(result.rawTarget).toBe('custom.example.com');
+  });
+});
