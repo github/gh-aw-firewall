@@ -705,12 +705,16 @@ copy_system_ca_bundle() {
   # which is not mounted into the chroot. This function finds the system bundle
   # and copies it to /tmp/awf-lib/ so TLS works regardless of distro.
   #
-  # If copy_awf_ca_cert already set SSL_CERT_FILE (SSL Bump mode), we skip
-  # overwriting — the AWF CA takes precedence for MITM proxy trust.
-  # However, if SSL Bump is active we still detect the system bundle so it
-  # can be appended to the AWF CA cert for full chain trust.
+  # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
+  # proxy validation. We only append the system bundle to that staged AWF CA.
+  SYSTEM_CA_CHROOT=""
 
-  if [ -n "$AWF_CA_CHROOT" ]; then
+  if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
+    if [ -z "$AWF_CA_CHROOT" ] || [ ! -f "/host${AWF_CA_CHROOT}" ]; then
+      echo "[entrypoint][WARN] SSL Bump enabled but chroot AWF CA bundle is unavailable — preserving existing TLS env vars"
+      return
+    fi
+
     # SSL Bump already configured TLS env vars; detect system bundle and append
     # it to the AWF CA so tools trust both the AWF proxy CA AND the upstream CAs.
     local SYSTEM_BUNDLE=""
@@ -727,7 +731,7 @@ copy_system_ca_bundle() {
     done
     if [ -n "$SYSTEM_BUNDLE" ]; then
       # Append system bundle to the AWF CA cert so both are trusted
-      if cat "$SYSTEM_BUNDLE" >> /host/tmp/awf-lib/awf-ca.crt 2>/dev/null; then
+      if { printf '\n'; cat "$SYSTEM_BUNDLE"; } >> "/host${AWF_CA_CHROOT}" 2>/dev/null; then
         echo "[entrypoint] System CA bundle ($SYSTEM_BUNDLE) appended to AWF CA cert"
       fi
     fi
@@ -775,6 +779,7 @@ copy_system_ca_bundle() {
     if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
        [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then
       local CA_PATH="/tmp/awf-lib/system-ca-certificates.crt"
+      SYSTEM_CA_CHROOT="$CA_PATH"
       export SSL_CERT_FILE="$CA_PATH"
       export NODE_EXTRA_CA_CERTS="$CA_PATH"
       export REQUESTS_CA_BUNDLE="$CA_PATH"
@@ -1256,7 +1261,7 @@ run_chroot_command() {
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
   # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
 

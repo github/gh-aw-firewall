@@ -31,6 +31,7 @@ required_functions=(
   copy_agent_helper_scripts
   copy_dind_runner_binary
   copy_awf_ca_cert
+  copy_system_ca_bundle
   check_chroot_prereqs
   setup_chroot_etc
   build_path_script
@@ -102,6 +103,12 @@ CHROOT_BLOCK="$(awk '
   in_fn { print }
 ' "${ENTRYPOINT}")"
 
+COPY_SYSTEM_CA_BUNDLE_BLOCK="$(awk '
+  /^[[:space:]]*copy_system_ca_bundle\(\)[[:space:]]*\{[[:space:]]*$/ { in_fn=1; next }
+  in_fn && /^[[:space:]]*}[[:space:]]*$/ { in_fn=0; exit }
+  in_fn { print }
+' "${ENTRYPOINT}")"
+
 chroot_helpers=(
   'mount_host_procfs'
   'check_chroot_prereqs'
@@ -128,6 +135,25 @@ for helper in "${chroot_helpers[@]}"; do
   last_helper_line="${helper_line}"
   pass "run_chroot_command() calls ${helper} in order"
 done
+
+if printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq 'if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]'; then
+  pass "copy_system_ca_bundle() keys SSL Bump handling off AWF_SSL_BUMP_ENABLED"
+else
+  fail "copy_system_ca_bundle() does not key SSL Bump handling off AWF_SSL_BUMP_ENABLED"
+fi
+
+if printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq "printf '\\n'" && \
+   printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq '"/host${AWF_CA_CHROOT}"'; then
+  pass "copy_system_ca_bundle() appends system roots to the staged AWF CA bundle safely"
+else
+  fail "copy_system_ca_bundle() does not safely append system roots to the staged AWF CA bundle"
+fi
+
+if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
+  pass "run_chroot_command() cleans up copied system CA bundles"
+else
+  fail "run_chroot_command() does not clean up copied system CA bundles"
+fi
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
