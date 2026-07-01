@@ -52,7 +52,7 @@ export function generateDockerCompose(
   //
   // The directory is created by prepareWorkDirectories (workdir-setup.ts)
   // during Phase 2 of writeConfigs, before generateDockerCompose is called.
-  // Here we only derive the path so it can be passed to buildIptablesInitService.
+  // Here we only derive the path so it can be forwarded into optional service assembly.
 
   const initSignalDir = path.join(config.workDir, 'init-signal');
 
