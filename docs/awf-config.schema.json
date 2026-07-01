@@ -612,9 +612,9 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^[^:]+:[^:]+(:(ro|rw))?$"
+            "pattern": "^/[^:]+:/[^:]+(:(ro|rw))?$"
           },
-          "description": "Custom volume mounts for the agent container. Format: \"host_path:container_path[:ro|rw]\". In chroot mode, container paths are automatically prefixed with /host."
+          "description": "Custom volume mounts for the agent container. Format: \"/host_path:/container_path[:ro|rw]\" (both paths must be absolute). In chroot mode, container paths are automatically prefixed with /host."
         }
       }
     },

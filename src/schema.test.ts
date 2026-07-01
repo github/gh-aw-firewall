@@ -254,6 +254,10 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { mounts: ['invalid-no-colon'] } })).toBe(false);
     expect(validate({ container: { mounts: ['/src:/dst:invalid-mode'] } })).toBe(false);
     expect(validate({ container: { mounts: 'not-an-array' } })).toBe(false);
+    // Relative paths must be rejected (runtime validator requires absolute paths)
+    expect(validate({ container: { mounts: ['relative/path:/container/dst'] } })).toBe(false);
+    expect(validate({ container: { mounts: ['/host/src:relative/container'] } })).toBe(false);
+    expect(validate({ container: { mounts: ['./relative:/container/dst:ro'] } })).toBe(false);
   });
 
   it('accepts runner.topology and runner.sysrootImage', () => {
