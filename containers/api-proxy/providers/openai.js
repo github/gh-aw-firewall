@@ -16,7 +16,7 @@ const {
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 
-const { createBaseAdapterConfig, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
+const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
@@ -28,7 +28,12 @@ const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
  * @returns {import('./index').ProviderAdapter}
  */
 function createOpenAIAdapter(env, deps = {}) {
-  const { apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath } = createBaseAdapterConfig(env, {
+  const {
+    apiKey: openaiApiKey,
+    rawTarget: openaiTarget,
+    basePath: openaiBasePath,
+    bodyTransform,
+  } = createProviderAuthScaffold(env, deps, {
     keyEnvVar: OPENAI_ENV.KEY,
     targetEnvVar: OPENAI_ENV.TARGET,
     basePathEnvVar: OPENAI_ENV.BASE_PATH,
@@ -56,8 +61,6 @@ function createOpenAIAdapter(env, deps = {}) {
   // /responses) need a /v1 prefix to reach the correct versioned API surface.
   // Custom targets manage their own path layout and must not receive an implicit prefix.
   const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
-
-  const bodyTransform = deps.bodyTransform || null;
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
   const {
