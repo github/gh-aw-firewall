@@ -107,7 +107,7 @@ Prefer the narrowest match. Examples:
 - `400 bad request: Authorization header is badly formatted` → C3
 - `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 
-### 4. Check for known unresolved problems
+### 4. Check for known gaps and notable fixes
 
 If the best match is one of the known open gaps (gVisor/Kata runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
 
