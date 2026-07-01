@@ -24,6 +24,10 @@ import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
+beforeEach(() => {
+  mockExecaFn.mockReset();
+  containerLifecycleTestHelpers.resetAgentExternallyKilled();
+});
 // ─── fastKillAgentContainer ──────────────────────────────────────────────────
 
 describe('fastKillAgentContainer – stop timeout', () => {
