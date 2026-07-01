@@ -473,6 +473,14 @@ describe('startContainers', () => {
       ).rejects.toThrow('squid phase failed');
 
       expect(onNetworkReady).not.toHaveBeenCalled();
+      const fullUpCalls = mockExecaFn.mock.calls.filter(
+        (call: any[]) =>
+          call[0] === 'docker' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('up') &&
+          !call[1].includes('--no-deps')
+      );
+      expect(fullUpCalls).toHaveLength(0);
     });
 
     it('retains the api-proxy/squid one-shot retry in the full bring-up phase', async () => {

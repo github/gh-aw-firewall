@@ -18,6 +18,172 @@ import {
 } from './container-startup-diagnostics';
 import { checkSquidLogs } from './squid-log-reader';
 
+function getComposeUpArgs(skipPull?: boolean): string[] {
+  const composeArgs = ['compose', 'up', '-d'];
+  if (skipPull) {
+    composeArgs.push('--pull', 'never');
+    logger.debug('Using --pull never (skip-pull mode)');
+  }
+  return composeArgs;
+}
+
+async function runDockerComposeUp(workDir: string, composeArgs: string[]): Promise<void> {
+  // Redirect Docker Compose stdout to stderr so it doesn't pollute the
+  // agent command's stdout. Docker Compose outputs build progress and
+  // container creation status to stdout, which would be captured by test
+  // runners and break assertions that check for agent command output.
+  // All AWF informational output goes to stderr (via logger), so this
+  // keeps the output consistent. Users still see progress in their terminal.
+  await execa('docker', composeArgs, {
+    cwd: workDir,
+    stdout: process.stderr,
+    stderr: 'inherit',
+    env: getLocalDockerEnv(),
+  });
+}
+
+async function attemptContainerStartup(
+  workDir: string,
+  composeArgs: string[],
+  skipPull?: boolean,
+  onNetworkReady?: () => Promise<void>,
+): Promise<Error | undefined> {
+  // Phase 1 (topology mode only): start squid-proxy alone so the compose-managed
+  // awf-net is created before any health-gated dependents (cli-proxy, agent) start.
+  // Then invoke onNetworkReady() so external peer containers are attached to awf-net,
+  // breaking the ordering deadlock where the cli-proxy liveness probe fired before
+  // the DIFC peer had been joined to the internal network (EAI_AGAIN → fail-fast).
+  // Phase 3 is the normal full bring-up below (runDockerComposeUp).
+  if (onNetworkReady) {
+    logger.info('Topology mode: starting squid-proxy first to create awf-net...');
+    const squidOnlyArgs = ['compose', 'up', '-d', '--no-deps'];
+    if (skipPull) {
+      squidOnlyArgs.push('--pull', 'never');
+    }
+    squidOnlyArgs.push('squid-proxy');
+    await execa('docker', squidOnlyArgs, {
+      cwd: workDir,
+      stdout: process.stderr,
+      stderr: 'inherit',
+      env: getLocalDockerEnv(),
+    });
+    logger.info('squid-proxy started; attaching topology peers before full bring-up...');
+    await onNetworkReady();
+    logger.info('Topology peers attached; continuing with full container bring-up...');
+  }
+
+  try {
+    await runDockerComposeUp(workDir, composeArgs);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+function createCliProxyStartupError(): Error {
+  return new Error(
+    `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy (or exited before establishing a connection). ` +
+    `Failing fast to avoid repeated in-agent retries. ` +
+    `The agent was never invoked. ` +
+    `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
+  );
+}
+
+function createRepeatedApiProxyStartupError(): Error {
+  return new Error(
+    `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed to start on both attempts. ` +
+    `The agent was never invoked. ` +
+    `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
+  );
+}
+
+async function handleRetryStartupFailure(
+  retryError: Error,
+  workDir: string,
+  proxyLogsDir: string | undefined,
+  allowedDomains: string[],
+): Promise<void> {
+  const retryErrorMsg = retryError.message;
+  if (await didContainerFailStartup(retryErrorMsg, API_PROXY_CONTAINER_NAME)) {
+    // Surface api-proxy logs and emit a clear, unambiguous error so
+    // downstream parse steps don't blame the model for never running.
+    await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
+    throw createRepeatedApiProxyStartupError();
+  }
+  // Dump squid container logs before falling through to the domain-blockage
+  // diagnostic path, so that persistent squid failures are diagnosable.
+  if (await didContainerFailStartup(retryErrorMsg, SQUID_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(SQUID_CONTAINER_NAME);
+  }
+  if (await didContainerFailStartup(retryErrorMsg, CLI_PROXY_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
+    throw createCliProxyStartupError();
+  }
+  // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
+  // through to the Squid log diagnostic path below as if it were the first error.
+  await handleHealthcheckError(retryErrorMsg, retryError, workDir, proxyLogsDir, allowedDomains);
+}
+
+async function handleStartupFailure(
+  error: Error,
+  workDir: string,
+  proxyLogsDir: string | undefined,
+  allowedDomains: string[],
+  runComposeUp: () => Promise<void>,
+): Promise<void> {
+  const errorMsg = error.message;
+  const firstAttemptApiProxyStartupFailure = await didContainerFailStartup(errorMsg, API_PROXY_CONTAINER_NAME);
+  // Only check squid if api-proxy didn't already claim the failure, so we
+  // don't fire two inspect calls when api-proxy is the root cause.
+  const firstAttemptSquidStartupFailure = !firstAttemptApiProxyStartupFailure
+    && await didContainerFailStartup(errorMsg, SQUID_CONTAINER_NAME);
+  // CLI proxy startup failures are non-retriable because they usually mean
+  // the external DIFC proxy is unavailable (connection refused) and retries
+  // only delay failure while the agent repeatedly burns tokens.
+  const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
+    && !firstAttemptSquidStartupFailure
+    && await didContainerFailStartup(errorMsg, CLI_PROXY_CONTAINER_NAME);
+
+  // When api-proxy or squid specifically fails to start, retry once.
+  // Both containers are occasionally flaky on slow or busy CI runners:
+  // - api-proxy: the Node.js process inside the container takes longer to bind its port
+  // - squid: the squid proxy is slow to open its listen socket on resource-constrained hosts
+  if (firstAttemptApiProxyStartupFailure || firstAttemptSquidStartupFailure) {
+    const failingContainer = firstAttemptApiProxyStartupFailure ? API_PROXY_CONTAINER_NAME : SQUID_CONTAINER_NAME;
+    logger.warn(`${failingContainer} failed to start — this may be a transient startup failure, retrying once...`);
+    await logContainerLogsToStderr(failingContainer);
+
+    // Tear down before retry so Docker Compose starts fresh
+    try {
+      await runComposeDown(workDir, { reject: false });
+    } catch (cleanupError) {
+      // Best-effort cleanup — proceed with retry regardless
+      logger.debug('Cleanup before retry failed (proceeding anyway):', cleanupError);
+    }
+
+    try {
+      await runComposeUp();
+      logger.success('Containers started successfully (retry succeeded)');
+      return;
+    } catch (retryError) {
+      await handleRetryStartupFailure(
+        retryError instanceof Error ? retryError : new Error(String(retryError)),
+        workDir,
+        proxyLogsDir,
+        allowedDomains,
+      );
+      return;
+    }
+  }
+
+  if (firstAttemptCliProxyStartupFailure) {
+    await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
+    throw createCliProxyStartupError();
+  }
+
+  await handleHealthcheckError(errorMsg, error, workDir, proxyLogsDir, allowedDomains);
+}
+
 /**
  * Starts Docker Compose services
  * @param workDir - Working directory containing Docker Compose config
@@ -56,133 +222,15 @@ export async function startContainers(workDir: string, allowedDomains: string[],
     logger.debug('No existing containers to remove (this is normal)');
   }
 
-  const composeArgs = ['compose', 'up', '-d'];
-  if (skipPull) {
-    composeArgs.push('--pull', 'never');
-    logger.debug('Using --pull never (skip-pull mode)');
+  const composeArgs = getComposeUpArgs(skipPull);
+  const runComposeUp = () => runDockerComposeUp(workDir, composeArgs);
+  const startupError = await attemptContainerStartup(workDir, composeArgs, skipPull, onNetworkReady);
+  if (startupError) {
+    await handleStartupFailure(startupError, workDir, proxyLogsDir, allowedDomains, runComposeUp);
+    return;
   }
 
-  const runDockerComposeUp = async (): Promise<void> => {
-    // Redirect Docker Compose stdout to stderr so it doesn't pollute the
-    // agent command's stdout. Docker Compose outputs build progress and
-    // container creation status to stdout, which would be captured by test
-    // runners and break assertions that check for agent command output.
-    // All AWF informational output goes to stderr (via logger), so this
-    // keeps the output consistent. Users still see progress in their terminal.
-    await execa('docker', composeArgs, {
-      cwd: workDir,
-      stdout: process.stderr,
-      stderr: 'inherit',
-      env: getLocalDockerEnv(),
-    });
-  };
-
-  // Phase 1 (topology mode only): start squid-proxy alone so the compose-managed
-  // awf-net is created before any health-gated dependents (cli-proxy, agent) start.
-  // Then invoke onNetworkReady() so external peer containers are attached to awf-net,
-  // breaking the ordering deadlock where the cli-proxy liveness probe fired before
-  // the DIFC peer had been joined to the internal network (EAI_AGAIN → fail-fast).
-  // Phase 3 is the normal full bring-up below (runDockerComposeUp).
-  if (onNetworkReady) {
-    logger.info('Topology mode: starting squid-proxy first to create awf-net...');
-    const squidOnlyArgs = ['compose', 'up', '-d', '--no-deps'];
-    if (skipPull) {
-      squidOnlyArgs.push('--pull', 'never');
-    }
-    squidOnlyArgs.push('squid-proxy');
-    await execa('docker', squidOnlyArgs, {
-      cwd: workDir,
-      stdout: process.stderr,
-      stderr: 'inherit',
-      env: getLocalDockerEnv(),
-    });
-    logger.info('squid-proxy started; attaching topology peers before full bring-up...');
-    await onNetworkReady();
-    logger.info('Topology peers attached; continuing with full container bring-up...');
-  }
-
-  try {
-    await runDockerComposeUp();
-    logger.success('Containers started successfully');
-  } catch (firstError) {
-    const firstErrorMsg = firstError instanceof Error ? firstError.message : String(firstError);
-    const firstAttemptApiProxyStartupFailure = await didContainerFailStartup(firstErrorMsg, API_PROXY_CONTAINER_NAME);
-    // Only check squid if api-proxy didn't already claim the failure, so we
-    // don't fire two inspect calls when api-proxy is the root cause.
-    const firstAttemptSquidStartupFailure = !firstAttemptApiProxyStartupFailure
-      && await didContainerFailStartup(firstErrorMsg, SQUID_CONTAINER_NAME);
-    // CLI proxy startup failures are non-retriable because they usually mean
-    // the external DIFC proxy is unavailable (connection refused) and retries
-    // only delay failure while the agent repeatedly burns tokens.
-    const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
-      && !firstAttemptSquidStartupFailure
-      && await didContainerFailStartup(firstErrorMsg, CLI_PROXY_CONTAINER_NAME);
-
-    // When api-proxy or squid specifically fails to start, retry once.
-    // Both containers are occasionally flaky on slow or busy CI runners:
-    // - api-proxy: the Node.js process inside the container takes longer to bind its port
-    // - squid: the squid proxy is slow to open its listen socket on resource-constrained hosts
-    if (firstAttemptApiProxyStartupFailure || firstAttemptSquidStartupFailure) {
-      const failingContainer = firstAttemptApiProxyStartupFailure ? API_PROXY_CONTAINER_NAME : SQUID_CONTAINER_NAME;
-      logger.warn(`${failingContainer} failed to start — this may be a transient startup failure, retrying once...`);
-      await logContainerLogsToStderr(failingContainer);
-
-      // Tear down before retry so Docker Compose starts fresh
-      try {
-        await runComposeDown(workDir, { reject: false });
-      } catch (cleanupError) {
-        // Best-effort cleanup — proceed with retry regardless
-        logger.debug('Cleanup before retry failed (proceeding anyway):', cleanupError);
-      }
-
-      try {
-        await runDockerComposeUp();
-        logger.success('Containers started successfully (retry succeeded)');
-        return;
-      } catch (retryError) {
-        const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-        if (await didContainerFailStartup(retryErrorMsg, API_PROXY_CONTAINER_NAME)) {
-          // Surface api-proxy logs and emit a clear, unambiguous error so
-          // downstream parse steps don't blame the model for never running.
-          await logContainerLogsToStderr(API_PROXY_CONTAINER_NAME);
-          throw new Error(
-            `AWF firewall failed to start: ${API_PROXY_CONTAINER_NAME} failed to start on both attempts. ` +
-            `The agent was never invoked. ` +
-            `See ${API_PROXY_CONTAINER_NAME} container logs above for details.`
-          );
-        }
-        // Dump squid container logs before falling through to the domain-blockage
-        // diagnostic path, so that persistent squid failures are diagnosable.
-        if (await didContainerFailStartup(retryErrorMsg, SQUID_CONTAINER_NAME)) {
-          await logContainerLogsToStderr(SQUID_CONTAINER_NAME);
-        }
-        if (await didContainerFailStartup(retryErrorMsg, CLI_PROXY_CONTAINER_NAME)) {
-          await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
-          throw new Error(
-            `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy (or exited before establishing a connection). ` +
-            `Failing fast to avoid repeated in-agent retries. ` +
-            `The agent was never invoked. ` +
-            `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
-          );
-        }
-        // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
-        // through to the Squid log diagnostic path below as if it were the first error.
-        return await handleHealthcheckError(retryErrorMsg, retryError as Error, workDir, proxyLogsDir, allowedDomains);
-      }
-    }
-
-    if (firstAttemptCliProxyStartupFailure) {
-      await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
-      throw new Error(
-        `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy (or exited before establishing a connection). ` +
-        `Failing fast to avoid repeated in-agent retries. ` +
-        `The agent was never invoked. ` +
-        `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
-      );
-    }
-
-    return await handleHealthcheckError(firstErrorMsg, firstError as Error, workDir, proxyLogsDir, allowedDomains);
-  }
+  logger.success('Containers started successfully');
 }
 
 /**
