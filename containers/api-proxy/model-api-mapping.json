@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-06-30T04:00:00Z",
+  "lastUpdated": "2026-07-01T19:00:00Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -44,6 +44,12 @@
           "notes": "Responses API only."
         },
         {
+          "family": "gpt-5.1",
+          "patterns": ["gpt-5.1*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only."
+        },
+        {
           "family": "gpt-5",
           "patterns": ["gpt-5", "gpt-5-*"],
           "endpoints": ["responses"],
@@ -80,6 +86,12 @@
           "notes": "Supports both endpoints."
         },
         {
+          "family": "gpt-4.5",
+          "patterns": ["gpt-4.5*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints."
+        },
+        {
           "family": "gpt-4-turbo",
           "patterns": ["gpt-4-turbo*"],
           "endpoints": ["chat_completions"],
@@ -112,6 +124,18 @@
           "patterns": ["claude-fable-5*"],
           "endpoints": ["messages"],
           "notes": "Latest flagship. 1M token context."
+        },
+        {
+          "family": "claude-mythos-5",
+          "patterns": ["claude-mythos-5*"],
+          "endpoints": ["messages"],
+          "notes": "1M token context."
+        },
+        {
+          "family": "claude-sonnet-5",
+          "patterns": ["claude-sonnet-5*"],
+          "endpoints": ["messages"],
+          "notes": "1M token context."
         },
         {
           "family": "claude-opus-4",
