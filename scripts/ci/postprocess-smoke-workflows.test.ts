@@ -11,7 +11,7 @@
 // time. If the source regex changes, these tests will catch regressions by
 // failing on the expected inputs below.
 const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+\n/m;
+  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
 
 describe('installStepRegex', () => {
   it('should match unquoted /opt/gh-aw path', () => {
@@ -49,6 +49,13 @@ describe('installStepRegex', () => {
     expect(installStepRegex.test(input)).toBe(true);
   });
 
+  it('should match version followed by trailing --rootless flag (gh-aw v0.82+)', () => {
+    const input =
+      '      - name: Install AWF binary\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.16 --rootless\n';
+    expect(installStepRegex.test(input)).toBe(true);
+  });
+
   it('should not match step with wrong name', () => {
     const input =
       '      - name: Install something else\n' +
@@ -66,7 +73,40 @@ describe('installStepRegex', () => {
   });
 });
 
-// ── Cache-memory security hardening regex tests ───────────────────────────
+// ── Duplicate Setup Node.js collapse regex test ───────────────────────────
+// Mirrors duplicateSetupNodeRegex in postprocess-smoke-workflows.ts. The
+// backreference guarantees only byte-identical consecutive blocks collapse.
+const duplicateSetupNodeRegex =
+  /^( {6}- name: Setup Node\.js\n {8}uses: actions\/setup-node@[0-9a-f]+ # v[0-9.]+\n {8}with:\n {10}node-version: '[^']*'\n {10}package-manager-cache: false\n)\1/m;
+
+describe('duplicateSetupNodeRegex', () => {
+  const block = [
+    "      - name: Setup Node.js",
+    "        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0",
+    "        with:",
+    "          node-version: '24'",
+    "          package-manager-cache: false",
+    "",
+  ].join("\n");
+
+  it('collapses two consecutive identical Setup Node.js blocks into one', () => {
+    const input = block + block + "      - name: Install awf dependencies\n";
+    const output = input.replace(duplicateSetupNodeRegex, '$1');
+    expect(output).toBe(block + "      - name: Install awf dependencies\n");
+  });
+
+  it('does not collapse a single Setup Node.js block', () => {
+    const input = block + "      - name: Install awf dependencies\n";
+    expect(duplicateSetupNodeRegex.test(input)).toBe(false);
+  });
+
+  it('does not collapse consecutive Setup Node.js blocks that differ', () => {
+    const differing = block.replace("node-version: '24'", "node-version: '20'");
+    const input = block + differing + "      - name: Install awf dependencies\n";
+    expect(duplicateSetupNodeRegex.test(input)).toBe(false);
+  });
+});
+
 // Mirrors the patterns in postprocess-smoke-workflows.ts.
 // If those patterns change, these tests will catch regressions.
 
