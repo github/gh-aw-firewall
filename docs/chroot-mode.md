@@ -191,6 +191,8 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 **Note:** As of v0.13.13, `/proc` is no longer bind-mounted. Instead, a fresh container-scoped procfs is mounted at `/host/proc` during entrypoint initialization. This provides dynamic `/proc/self/exe` resolution required by Java and .NET runtimes.
 
+**System CA Bundle Detection:** The entrypoint automatically detects the host system CA bundle from common locations (Debian/Ubuntu `/etc/ssl/certs/ca-certificates.crt`, RHEL/Amazon Linux `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/pki/tls/cert.pem`, macOS `/etc/ssl/cert.pem`). If the bundle is not already accessible in the chroot via existing mounts (e.g., `/etc/pki` paths), it is copied to `/tmp/awf-lib/system-ca-certificates.crt` and `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` are set to point at it.
+
 ### Read-Write Mounts
 
 | Host Path | Container Path | Purpose |

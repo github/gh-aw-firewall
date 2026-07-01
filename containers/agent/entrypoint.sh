@@ -699,6 +699,96 @@ copy_awf_ca_cert() {
   fi
 }
 
+copy_system_ca_bundle() {
+  # Detect and copy the host system CA bundle to a chroot-accessible path.
+  # On Amazon Linux / RHEL-family systems, the CA bundle lives under /etc/pki/
+  # which is not mounted into the chroot. This function finds the system bundle
+  # and copies it to /tmp/awf-lib/ so TLS works regardless of distro.
+  #
+  # If copy_awf_ca_cert already set SSL_CERT_FILE (SSL Bump mode), we skip
+  # overwriting — the AWF CA takes precedence for MITM proxy trust.
+  # However, if SSL Bump is active we still detect the system bundle so it
+  # can be appended to the AWF CA cert for full chain trust.
+
+  if [ -n "$AWF_CA_CHROOT" ]; then
+    # SSL Bump already configured TLS env vars; detect system bundle and append
+    # it to the AWF CA so tools trust both the AWF proxy CA AND the upstream CAs.
+    local SYSTEM_BUNDLE=""
+    for candidate in \
+      /host/etc/ssl/certs/ca-certificates.crt \
+      /host/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+      /host/etc/pki/tls/certs/ca-bundle.crt \
+      /host/etc/pki/tls/cert.pem \
+      /host/etc/ssl/cert.pem; do
+      if [ -s "$candidate" ]; then
+        SYSTEM_BUNDLE="$candidate"
+        break
+      fi
+    done
+    if [ -n "$SYSTEM_BUNDLE" ]; then
+      # Append system bundle to the AWF CA cert so both are trusted
+      if cat "$SYSTEM_BUNDLE" >> /host/tmp/awf-lib/awf-ca.crt 2>/dev/null; then
+        echo "[entrypoint] System CA bundle ($SYSTEM_BUNDLE) appended to AWF CA cert"
+      fi
+    fi
+    return
+  fi
+
+  # No SSL Bump — detect and expose the system CA bundle for chroot.
+  local SYSTEM_BUNDLE=""
+  for candidate in \
+    /host/etc/ssl/certs/ca-certificates.crt \
+    /host/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    /host/etc/pki/tls/certs/ca-bundle.crt \
+    /host/etc/pki/tls/cert.pem \
+    /host/etc/ssl/cert.pem; do
+    if [ -s "$candidate" ]; then
+      SYSTEM_BUNDLE="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$SYSTEM_BUNDLE" ]; then
+    echo "[entrypoint][WARN] No system CA bundle found — TLS may fail inside chroot"
+    return
+  fi
+
+  # Check if the bundle is already accessible inside the chroot via existing mounts.
+  # AWF mounts /etc/ssl and /etc/ca-certificates into the chroot; paths under those
+  # prefixes are already visible. Paths under /etc/pki (RHEL/Amazon Linux) are not.
+  local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
+  case "$CHROOT_RELATIVE" in
+    /etc/ssl/*|/etc/ca-certificates/*)
+      # Already accessible via existing bind mounts
+      export SSL_CERT_FILE="$CHROOT_RELATIVE"
+      export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"
+      export REQUESTS_CA_BUNDLE="$CHROOT_RELATIVE"
+      export CURL_CA_BUNDLE="$CHROOT_RELATIVE"
+      export GIT_SSL_CAINFO="$CHROOT_RELATIVE"
+      echo "[entrypoint] System CA bundle found at $CHROOT_RELATIVE (already accessible in chroot)"
+      return
+      ;;
+  esac
+
+  # Bundle is not accessible in chroot (e.g., /etc/pki paths). Copy it.
+  if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+    if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
+       [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then
+      local CA_PATH="/tmp/awf-lib/system-ca-certificates.crt"
+      export SSL_CERT_FILE="$CA_PATH"
+      export NODE_EXTRA_CA_CERTS="$CA_PATH"
+      export REQUESTS_CA_BUNDLE="$CA_PATH"
+      export CURL_CA_BUNDLE="$CA_PATH"
+      export GIT_SSL_CAINFO="$CA_PATH"
+      echo "[entrypoint] System CA bundle copied from $SYSTEM_BUNDLE to $CA_PATH"
+    else
+      echo "[entrypoint][WARN] Could not copy system CA bundle to chroot — TLS may fail"
+    fi
+  else
+    echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for system CA bundle"
+  fi
+}
+
 check_chroot_prereqs() {
   # Verify prerequisites for chroot execution: glibc-based host, capsh, and bash.
   # Each check fails fast with exit 1 on failure.
@@ -1109,6 +1199,7 @@ run_chroot_command() {
   copy_agent_helper_scripts
   copy_dind_runner_binary
   copy_awf_ca_cert
+  copy_system_ca_bundle
   setup_chroot_etc
 
   # Determine working directory inside the chroot

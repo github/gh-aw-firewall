@@ -109,6 +109,7 @@ chroot_helpers=(
   'copy_agent_helper_scripts'
   'copy_dind_runner_binary'
   'copy_awf_ca_cert'
+  'copy_system_ca_bundle'
   'setup_chroot_etc'
   'build_path_script'
 )
