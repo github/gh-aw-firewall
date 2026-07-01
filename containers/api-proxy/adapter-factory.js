@@ -152,6 +152,36 @@ function createAdapterMethods(opts) {
 }
 
 /**
+ * Bundle the repeated env-reading and deps-extraction boilerplate common to
+ * all non-Copilot provider adapters:
+ *
+ *   createBaseAdapterConfig(env, envVars)   → { apiKey, rawTarget, basePath }
+ *   deps.bodyTransform || null              → bodyTransform
+ *
+ * Centralising this pattern reduces the number of places where
+ * security-sensitive credential env-var names are referenced directly and
+ * makes it easier to add cross-cutting concerns (e.g. audit logging,
+ * key-validation hooks) in one place rather than in every provider file.
+ *
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {{ bodyTransform?: ((body: Buffer) => Buffer|null)|null }} [deps={}] - Injected dependencies
+ * @param {object} envVars
+ * @param {string} envVars.keyEnvVar      - e.g. 'GEMINI_API_KEY'
+ * @param {string} envVars.targetEnvVar   - e.g. 'GEMINI_API_TARGET'
+ * @param {string} envVars.basePathEnvVar - e.g. 'GEMINI_API_BASE_PATH'
+ * @param {string} envVars.defaultTarget  - e.g. 'generativelanguage.googleapis.com'
+ * @returns {{ apiKey: string|undefined, rawTarget: string, basePath: string,
+ *             bodyTransform: ((body: Buffer) => Buffer|null)|null }}
+ */
+function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, basePathEnvVar, defaultTarget }) {
+  const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
+    keyEnvVar, targetEnvVar, basePathEnvVar, defaultTarget,
+  });
+  const bodyTransform = (deps != null && deps.bodyTransform != null) ? deps.bodyTransform : null;
+  return { apiKey, rawTarget, basePath, bodyTransform };
+}
+
+/**
  * Assemble a provider adapter object from its constituent parts.
  *
  * Every provider adapter returns the same outer object shape:
@@ -216,6 +246,7 @@ function buildProviderAdapter({
 
 module.exports = {
   createBaseAdapterConfig,
+  createProviderAuthScaffold,
   createAdapterMethods,
   buildProviderAdapter,
 };
