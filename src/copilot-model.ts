@@ -28,8 +28,10 @@ const RETIRED_COPILOT_MODEL_ALIASES: Record<string, string> = {
 const SUPPORTED_COPILOT_MODELS = new Set([
   'gpt-4',
   'gpt-4.1',
+  'gpt-4.5',
   'gpt-4o',
   'gpt-4o-mini',
+  'gpt-5.1',
   'gpt-5.2',
   'gpt-5.2-codex',
   'gpt-5.3-codex',
@@ -39,8 +41,11 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'gpt-5-mini',
   'o3',
   'o3-mini',
+  'claude-fable-5',
   'claude-haiku-4.5',
+  'claude-mythos-5',
   'claude-opus-4.8',
+  'claude-sonnet-5',
   'claude-sonnet-4.5',
   'claude-sonnet-4.6',
   'gemini-3.1-pro-preview',
@@ -120,7 +125,7 @@ export function validateCopilotModel(rawModel: string): CopilotModelValidationRe
     valid: false,
     reason: 'unsupported',
     message: suggested
-      ? `Error: model '${trimmed}' is retired or unsupported. Did you mean '${suggested}'?`
-      : `Error: model '${trimmed}' is retired or unsupported.`,
+      ? `Error: model '${trimmed}' is unsupported or unrecognized by this AWF version. Did you mean '${suggested}'?`
+      : `Error: model '${trimmed}' is unsupported or unrecognized by this AWF version.`,
   };
 }
