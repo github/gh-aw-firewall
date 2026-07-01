@@ -153,7 +153,8 @@ export function generateDockerCompose(
       // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
       // custom mounts or tool-cache mounts that the sysroot doesn't provide.
       if (source.startsWith(effectiveHome) && target.startsWith(hostHomeMountPrefix)) {
-        const relPath = source.slice(effectiveHome.length);
+        const normalizedSource = source.replace(/\/+$/, '') || '/';
+        const relPath = normalizedSource.slice(effectiveHome.length);
         if (relPath.startsWith('/.') || relPath === '') return false;
       }
 

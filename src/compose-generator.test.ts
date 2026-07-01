@@ -1,4 +1,5 @@
 import { generateDockerCompose } from './compose-generator';
+import { getRealUserHome } from './host-identity';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { logger } from './logger';
 import { WrapperConfig } from './types';
@@ -496,7 +497,7 @@ describe('generateDockerCompose', () => {
         expect(result.volumes).toEqual({ sysroot: {} });
       });
 
-      it('filters out workDir-based and home-based bind mounts on split-fs', () => {
+      it('filters out workDir and home dot-directory bind mounts on split-fs', () => {
         const config = {
           ...mockConfig,
           runnerTopology: 'arc-dind' as const,
@@ -504,16 +505,34 @@ describe('generateDockerCompose', () => {
         };
         const result = generateDockerCompose(config, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
+        const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
 
         // workDir-based mounts should be dropped
         expect(volumes.some(v => v.startsWith('/tmp/awf-12345'))).toBe(false);
 
-        // Home-based mounts targeting /host/home should be dropped
-        const homeTargets = volumes.filter(v => {
+        // Home dot-directory mounts should be dropped, but workspace mounts under home should remain.
+        const homeTargets = volumes
+          .filter(v => {
+            const target = v.split(':')[1];
+            return target.startsWith('/host/home') && !v.startsWith('/dev/null');
+          })
+          .map(v => v.split(':')[1]);
+
+        expect(homeTargets).toContain(`/host${workspaceDir}`);
+        expect(homeTargets.some(target => target.startsWith('/host/home/runner/.'))).toBe(false);
+
+        // Home root mounts (including trailing slash source) should be dropped.
+        const effectiveHome = getRealUserHome();
+        const configWithHomeRootMount = {
+          ...config,
+          volumeMounts: [`${effectiveHome}/:/host${effectiveHome}:rw`],
+        };
+        const resultWithHomeRootMount = generateDockerCompose(configWithHomeRootMount, mockNetworkConfig);
+        const homeRootMounts = (resultWithHomeRootMount.services.agent.volumes as string[]).filter(v => {
           const target = v.split(':')[1];
-          return target.startsWith('/host/home') && !v.startsWith('/dev/null');
+          return target === `/host${effectiveHome}` || target === `/host${effectiveHome}/`;
         });
-        expect(homeTargets).toHaveLength(0);
+        expect(homeRootMounts).toHaveLength(0);
 
         // Should still have /tmp:/tmp, /sys, /dev, sysroot volume
         expect(volumes).toContain('/tmp:/tmp:rw');
