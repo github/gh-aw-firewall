@@ -355,6 +355,20 @@ for (const workflowPath of workflowPaths) {
     console.log(`  Replaced ${matches.length} awf install step(s) with local build`);
   }
 
+  // Collapse a duplicate "Setup Node.js" step: buildLocalInstallSteps injects a
+  // Setup Node.js step (needed for workflows the compiler leaves without one), but
+  // some workflows already emit an identical Setup Node.js immediately before the
+  // install step, producing two consecutive identical steps. The backreference only
+  // matches byte-identical consecutive blocks, so this never removes a differing or
+  // required step. Loop until stable in case of >2 repeats.
+  const duplicateSetupNodeRegex =
+    /^( {6}- name: Setup Node\.js\n {8}uses: actions\/setup-node@[0-9a-f]+ # v[0-9.]+\n {8}with:\n {10}node-version: '[^']*'\n {10}package-manager-cache: false\n)\1/m;
+  while (duplicateSetupNodeRegex.test(content)) {
+    content = content.replace(duplicateSetupNodeRegex, '$1');
+    modified = true;
+    console.log(`  Collapsed duplicate consecutive Setup Node.js step`);
+  }
+
   // Ensure a "Checkout repository" step exists before "Install awf dependencies"
   // in every job. The gh-aw compiler may add jobs (e.g. detection) that reference
   // install_awf_binary.sh but don't include a checkout step. After we replace the
