@@ -11,7 +11,7 @@
 // time. If the source regex changes, these tests will catch regressions by
 // failing on the expected inputs below.
 const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+\n/m;
+  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
 
 describe('installStepRegex', () => {
   it('should match unquoted /opt/gh-aw path', () => {
@@ -46,6 +46,13 @@ describe('installStepRegex', () => {
     const input =
       '      - name: Install AWF binary\n' +
       '        run: bash /opt/gh-aw/actions/install_awf_binary.sh v0.25.17\n';
+    expect(installStepRegex.test(input)).toBe(true);
+  });
+
+  it('should match version followed by trailing --rootless flag (gh-aw v0.82+)', () => {
+    const input =
+      '      - name: Install AWF binary\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.16 --rootless\n';
     expect(installStepRegex.test(input)).toBe(true);
   });
 
