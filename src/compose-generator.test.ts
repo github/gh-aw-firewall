@@ -511,15 +511,16 @@ describe('generateDockerCompose', () => {
         expect(volumes.some(v => v.startsWith('/tmp/awf-12345'))).toBe(false);
 
         // Home dot-directory mounts should be dropped, but workspace mounts under home should remain.
+        const effectiveHomeForFilter = getRealUserHome();
         const homeTargets = volumes
           .filter(v => {
             const target = v.split(':')[1];
-            return target.startsWith('/host/home') && !v.startsWith('/dev/null');
+            return target.startsWith(`/host${effectiveHomeForFilter}`) && !v.startsWith('/dev/null');
           })
           .map(v => v.split(':')[1]);
 
         expect(homeTargets).toContain(`/host${workspaceDir}`);
-        expect(homeTargets.some(target => target.startsWith('/host/home/runner/.'))).toBe(false);
+        expect(homeTargets.some(target => target.startsWith(`/host${effectiveHomeForFilter}/.`))).toBe(false);
 
         // Home root mounts (including trailing slash source) should be dropped.
         const effectiveHome = getRealUserHome();
