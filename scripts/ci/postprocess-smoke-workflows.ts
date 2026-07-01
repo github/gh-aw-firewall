@@ -572,108 +572,12 @@ for (const workflowPath of workflowPaths) {
     }
   }
 
-  // For smoke-services: inject GitHub Actions services block (Redis + PostgreSQL) into the
-  // agent job and replace --enable-host-access with --allow-host-service-ports 6379,5432.
-  // The gh-aw compiler does not natively support GitHub Actions `services:` in the
-  // frontmatter, so we inject them via post-processing. These services are required for
-  // the smoke test to connect to Redis and PostgreSQL via host.docker.internal.
-  const isServicesSmoke = workflowPath.includes('smoke-services.lock.yml');
-  if (isServicesSmoke) {
-    // Inject services block after the agent job's "runs-on: ubuntu-latest" line.
-    // The agent job uses `needs: activation` (single value) to distinguish it from the
-    // detection job which uses a multi-line `needs:` array.
-    const agentJobServicesBlock =
-      '    services:\n' +
-      '      redis:\n' +
-      '        image: redis:7-alpine\n' +
-      '        ports:\n' +
-      '          - 6379:6379\n' +
-      '        options: >-\n' +
-      '          --health-cmd "redis-cli ping"\n' +
-      '          --health-interval 10s\n' +
-      '          --health-timeout 5s\n' +
-      '          --health-retries 5\n' +
-      '      postgres:\n' +
-      '        image: postgres:15-alpine\n' +
-      '        env:\n' +
-      '          POSTGRES_USER: postgres\n' +
-      '          POSTGRES_PASSWORD: testpass\n' +
-      '          POSTGRES_DB: smoketest\n' +
-      '        ports:\n' +
-      '          - 5432:5432\n' +
-      '        options: >-\n' +
-      '          --health-cmd pg_isready\n' +
-      '          --health-interval 10s\n' +
-      '          --health-timeout 5s\n' +
-      '          --health-retries 5\n';
-
-    // Match the agent job's needs/runs-on block (unique pattern: single-value needs)
-    // followed immediately by permissions or services. Use flexible whitespace to
-    // tolerate compiler indentation changes and handle both fresh and already-processed files.
-    // The agent job has `needs: activation` (single string value); the detection job uses
-    // a multi-value array (`needs:\n      - activation\n      - agent`), making this unique.
-    const agentJobNeedsRunsOnRegex =
-      /^( {2}agent:\n {4}needs: activation\n {4}runs-on: ubuntu-latest\n)( {4}permissions:)/m;
-    const agentJobWithServicesRegex =
-      /^( {2}agent:\n {4}needs: activation\n {4}runs-on: ubuntu-latest\n {4}services:)/m;
-
-    if (!agentJobWithServicesRegex.test(content)) {
-      if (agentJobNeedsRunsOnRegex.test(content)) {
-        // No services block yet — inject it
-        content = content.replace(
-          agentJobNeedsRunsOnRegex,
-          `$1${agentJobServicesBlock}$2`
-        );
-        modified = true;
-        console.log(`  Injected services block (Redis + PostgreSQL) into agent job`);
-      } else {
-        console.warn(
-          `  WARNING: Could not find agent job pattern to inject services block. ` +
-            `The compiled lock file may have changed structure. Manual review required.`
-        );
-      }
-    } else {
-      console.log(`  Services block already present in agent job`);
-    }
-
-    // Replace --enable-host-access with --allow-host-service-ports 6379,5432
-    // only in the agent job's awf invocation (not the detection job).
-    // The agent job's command is identifiable by its long --allow-domains list enclosed
-    // in single quotes (the detection job uses a shorter unquoted domain list). We match
-    // only within a single line and bound the match with the later --build-local flag to
-    // avoid cross-line over-matching.
-    // --allow-domains '...' <other flags> --enable-host-access --build-local
-    const agentJobEnableHostAccessRegex =
-      /(--allow-domains '[^']*' [^\n]* )--enable-host-access( --build-local)/;
-    const agentJobHostServicePortsRegex =
-      /(--allow-domains '[^']*' [^\n]* )--allow-host-service-ports 6379,5432( --build-local)/;
-
-    if (!agentJobHostServicePortsRegex.test(content)) {
-      if (agentJobEnableHostAccessRegex.test(content)) {
-        const matchCount = (content.match(new RegExp(agentJobEnableHostAccessRegex.source, 'g')) || []).length;
-        if (matchCount > 1) {
-          console.warn(
-            `  WARNING: Found ${matchCount} matches for agent job --enable-host-access pattern. ` +
-              `Only the first will be replaced. Manual review recommended.`
-          );
-        }
-        content = content.replace(
-          agentJobEnableHostAccessRegex,
-          `$1--allow-host-service-ports 6379,5432$2`
-        );
-        modified = true;
-        console.log(`  Replaced --enable-host-access with --allow-host-service-ports 6379,5432 in agent job`);
-      } else {
-        console.warn(
-          `  WARNING: Could not find --enable-host-access in agent job awf command. ` +
-            `The compiled lock file may have changed structure. Manual review required.`
-        );
-      }
-    } else {
-      console.log(`  --allow-host-service-ports 6379,5432 already present in agent job`);
-    }
-  }
-
+  // NOTE: smoke-services no longer needs post-processing to add its Redis/PostgreSQL
+  // service containers or host-service-port access. gh-aw v0.82+ natively supports a
+  // top-level `services:` frontmatter section: the compiler emits the GitHub Actions
+  // `services:` block into the agent job AND auto-derives --allow-host-service-ports
+  // (persisted as security.allowHostServicePorts in awf-config.json) from the declared
+  // port mappings. The services are declared directly in smoke-services.md.
 
   // The step downloads a private action but is never used in these jobs,
   // causing 401 Unauthorized failures when permissions: {} is set.

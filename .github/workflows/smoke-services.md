@@ -16,6 +16,29 @@ permissions:
   actions: read
 name: Smoke Services
 engine: copilot
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - 6379:6379
+    options: >-
+      --health-cmd "redis-cli ping"
+      --health-interval 10s
+      --health-timeout 5s
+      --health-retries 5
+  postgres:
+    image: postgres:15-alpine
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: smoketest
+    ports:
+      - 5432:5432
+    options: >-
+      --health-cmd pg_isready
+      --health-interval 10s
+      --health-timeout 5s
+      --health-retries 5
 network:
   allowed:
     - defaults
