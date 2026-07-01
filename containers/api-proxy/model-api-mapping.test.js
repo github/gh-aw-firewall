@@ -33,6 +33,13 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toEqual(['responses']);
     });
 
+    it('finds GPT-5.1 as responses-only', () => {
+      const result = lookupModelEndpoints('gpt-5.1-codex', 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('gpt-5.1');
+      expect(result.endpoints).toEqual(['responses']);
+    });
+
     it('finds GPT-5.5-turbo as responses-only', () => {
       const result = lookupModelEndpoints('gpt-5.5-turbo', 'openai');
       expect(result).not.toBeNull();
@@ -49,6 +56,13 @@ describe('model-api-mapping', () => {
     it('finds Claude models as messages endpoint', () => {
       const result = lookupModelEndpoints('claude-sonnet-4-6', 'anthropic');
       expect(result).not.toBeNull();
+      expect(result.endpoints).toEqual(['messages']);
+    });
+
+    it('finds Claude Sonnet 5 as messages endpoint', () => {
+      const result = lookupModelEndpoints('claude-sonnet-5', 'anthropic');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('claude-sonnet-5');
       expect(result.endpoints).toEqual(['messages']);
     });
 
@@ -75,7 +89,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBeTruthy();
+      expect(reflect.last_updated).toBe('2026-07-01T08:18:06Z');
       expect(reflect.error).toBeNull();
     });
   });
