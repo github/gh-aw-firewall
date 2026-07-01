@@ -97,6 +97,22 @@ describe('resolveApiCredentials', () => {
     expect(credentials.authGcpScope).toBe('https://www.googleapis.com/auth/cloud-platform');
   });
 
+  it('treats explicitly provided empty string as authoritative over env var', () => {
+    process.env.OPENAI_API_BASE_PATH = '/env-base-path';
+    process.env.ANTHROPIC_API_BASE_PATH = '/env-anthropic-base';
+    process.env.GEMINI_API_BASE_PATH = '/env-gemini-base';
+
+    const credentials = resolveApiCredentials({
+      openaiApiBasePath: '',
+      anthropicApiBasePath: '',
+      geminiApiBasePath: '',
+    });
+
+    expect(credentials.openaiApiBasePath).toBe('');
+    expect(credentials.anthropicApiBasePath).toBe('');
+    expect(credentials.geminiApiBasePath).toBe('');
+  });
+
   it('passes through resolved copilot endpoints and github token precedence', () => {
     process.env.GITHUB_TOKEN = 'github-token';
     process.env.GH_TOKEN = 'gh-token';

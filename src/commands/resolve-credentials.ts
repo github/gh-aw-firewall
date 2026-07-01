@@ -76,7 +76,7 @@ export function resolveApiCredentials(
       'anthropicApiAuthHeader',
       ANTHROPIC_ENV.AUTH_HEADER
     ),
-    anthropicTokenUrl: (options.anthropicTokenUrl as string | undefined) || process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
+    anthropicTokenUrl: (options.anthropicTokenUrl as string | undefined) ?? process.env.AWF_AUTH_ANTHROPIC_TOKEN_URL,
     ...oidcCredentials,
     geminiApiTarget: resolveOptionOrEnv(options, 'geminiApiTarget', GEMINI_ENV.TARGET),
     geminiApiBasePath: resolveOptionOrEnv(options, 'geminiApiBasePath', GEMINI_ENV.BASE_PATH),
@@ -89,5 +89,5 @@ function resolveOptionOrEnv(
   optionKey: string,
   envVar: string
 ): string | undefined {
-  return (options[optionKey] as string | undefined) || process.env[envVar];
+  return (options[optionKey] as string | undefined) ?? process.env[envVar];
 }
