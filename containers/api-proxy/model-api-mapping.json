@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-01T19:00:00Z",
+  "lastUpdated": "2026-07-01T08:18:06Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -47,7 +47,7 @@
           "family": "gpt-5.1",
           "patterns": ["gpt-5.1*"],
           "endpoints": ["responses"],
-          "notes": "Responses API only."
+          "notes": "Responses API only. Includes gpt-5.1-codex, gpt-5.1-codex-max, gpt-5.1-codex-mini variants."
         },
         {
           "family": "gpt-5",
@@ -88,8 +88,8 @@
         {
           "family": "gpt-4.5",
           "patterns": ["gpt-4.5*"],
-          "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints."
+          "endpoints": ["chat_completions"],
+          "notes": "Preview model. Chat completions only."
         },
         {
           "family": "gpt-4-turbo",
@@ -127,15 +127,15 @@
         },
         {
           "family": "claude-mythos-5",
-          "patterns": ["claude-mythos-5*"],
+          "patterns": ["claude-mythos-5*", "claude-mythos-preview*"],
           "endpoints": ["messages"],
-          "notes": "1M token context."
+          "notes": "Invitation-only (Project Glasswing). Limited availability. 1M token context."
         },
         {
           "family": "claude-sonnet-5",
           "patterns": ["claude-sonnet-5*"],
           "endpoints": ["messages"],
-          "notes": "1M token context."
+          "notes": "Best combination of speed and intelligence. 1M token context."
         },
         {
           "family": "claude-opus-4",

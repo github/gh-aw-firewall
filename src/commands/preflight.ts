@@ -54,6 +54,56 @@ export function applyConfigFilePrecedence(
 }
 
 /**
+ * Parses and merges domain options from CLI flags and ruleset files.
+ *
+ * Calls `process.exit(1)` on parse/merge failures.
+ */
+export function parseDomainOptions(options: Record<string, unknown>): string[] {
+  let allowedDomains: string[] = [];
+
+  if (options.allowDomains) {
+    allowedDomains = parseDomains(options.allowDomains as string);
+  }
+
+  if (options.allowDomainsFile) {
+    try {
+      const fileDomainsArray = parseDomainsFile(options.allowDomainsFile as string);
+      allowedDomains.push(...fileDomainsArray);
+    } catch (error) {
+      logger.error(`Failed to read domains file: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  }
+
+  if (options.rulesetFile && Array.isArray(options.rulesetFile) && options.rulesetFile.length > 0) {
+    try {
+      allowedDomains = loadAndMergeDomains(options.rulesetFile as string[], allowedDomains);
+    } catch (error) {
+      logger.error(`Failed to load ruleset file: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  }
+
+  return allowedDomains;
+}
+
+/**
+ * Validates allowed domain patterns.
+ *
+ * Calls `process.exit(1)` on validation failures.
+ */
+export function validateAllowedDomains(domains: string[]): void {
+  for (const domain of domains) {
+    try {
+      validateDomainOrPattern(domain);
+    } catch (error) {
+      logger.error(`Invalid domain or pattern: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  }
+}
+
+/**
  * Resolves the final set of allowed domains by:
  * 1. Parsing `--allow-domains` and `--allow-domains-file` flags
  * 2. Merging `--ruleset-file` YAML domains
@@ -67,33 +117,7 @@ export function applyConfigFilePrecedence(
  * Calls `process.exit(1)` on any validation failure.
  */
 export function resolveAllowedDomains(options: Record<string, unknown>): AllowedDomainsResult {
-  let allowedDomains: string[] = [];
-
-  // Parse domains from command-line flag if provided
-  if (options.allowDomains) {
-    allowedDomains = parseDomains(options.allowDomains as string);
-  }
-
-  // Parse domains from file if provided
-  if (options.allowDomainsFile) {
-    try {
-      const fileDomainsArray = parseDomainsFile(options.allowDomainsFile as string);
-      allowedDomains.push(...fileDomainsArray);
-    } catch (error) {
-      logger.error(`Failed to read domains file: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
-
-  // Merge domains from --ruleset-file YAML files
-  if (options.rulesetFile && Array.isArray(options.rulesetFile) && options.rulesetFile.length > 0) {
-    try {
-      allowedDomains = loadAndMergeDomains(options.rulesetFile as string[], allowedDomains);
-    } catch (error) {
-      logger.error(`Failed to load ruleset file: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
+  let allowedDomains = parseDomainOptions(options);
 
   // Log when no domains are specified (all network access will be blocked)
   if (allowedDomains.length === 0) {
@@ -152,15 +176,7 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     logger.debug.bind(logger)
   );
 
-  // Validate all domains and patterns
-  for (const domain of allowedDomains) {
-    try {
-      validateDomainOrPattern(domain);
-    } catch (error) {
-      logger.error(`Invalid domain or pattern: ${error instanceof Error ? error.message : error}`);
-      process.exit(1);
-    }
-  }
+  validateAllowedDomains(allowedDomains);
 
   return { allowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
 }
