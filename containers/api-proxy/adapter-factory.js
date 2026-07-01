@@ -156,7 +156,7 @@ function createAdapterMethods(opts) {
  * all non-Copilot provider adapters:
  *
  *   createBaseAdapterConfig(env, envVars)   → { apiKey, rawTarget, basePath }
- *   deps.bodyTransform || null              → bodyTransform
+ *   deps.bodyTransform ?? null              → bodyTransform
  *
  * Centralising this pattern reduces the number of places where
  * security-sensitive credential env-var names are referenced directly and
@@ -164,14 +164,14 @@ function createAdapterMethods(opts) {
  * key-validation hooks) in one place rather than in every provider file.
  *
  * @param {Record<string, string|undefined>} env - Environment variables
- * @param {{ bodyTransform?: ((body: Buffer) => Buffer|null)|null }} [deps={}] - Injected dependencies
+ * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null }} [deps={}] - Injected dependencies
  * @param {object} envVars
  * @param {string} envVars.keyEnvVar      - e.g. 'GEMINI_API_KEY'
  * @param {string} envVars.targetEnvVar   - e.g. 'GEMINI_API_TARGET'
  * @param {string} envVars.basePathEnvVar - e.g. 'GEMINI_API_BASE_PATH'
  * @param {string} envVars.defaultTarget  - e.g. 'generativelanguage.googleapis.com'
  * @returns {{ apiKey: string|undefined, rawTarget: string, basePath: string,
- *             bodyTransform: ((body: Buffer) => Buffer|null)|null }}
+ *             bodyTransform: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null }}
  */
 function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, basePathEnvVar, defaultTarget }) {
   const { apiKey, rawTarget, basePath } = createBaseAdapterConfig(env, {
