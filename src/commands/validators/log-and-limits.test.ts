@@ -37,7 +37,7 @@ jest.mock('../../domain-utils', () => {
   };
 });
 
-import { validateLogAndLimits } from './log-and-limits';
+import { logAndLimitsTestHelpers, validateLogAndLimits } from './log-and-limits';
 import { logger } from '../../logger';
 import { parseMemoryLimit } from '../../option-parsers';
 import { processAgentImageOption } from '../../domain-utils';
@@ -144,6 +144,43 @@ describe('validateLogAndLimits – success paths', () => {
     const aliases = { 'fast': ['gpt-3.5-turbo'] };
     const result = validateLogAndLimits(minimalOptions({ modelAliases: aliases }));
     expect(result.modelAliases).toEqual(aliases);
+  });
+});
+
+describe('logAndLimitsTestHelpers', () => {
+  it('validates model multiplier options in isolation', () => {
+    const result = logAndLimitsTestHelpers.validateModelMultiplierOptions({
+      modelAliases: { fast: ['gpt-4.1-mini'] },
+      maxEffectiveTokens: '1000',
+      maxAiCredits: '2.5',
+      effectiveTokenDefaultModelMultiplier: '1.25',
+      effectiveTokenModelMultipliers: { 'gpt-4': 2 },
+      maxModelMultiplier: 'gpt-4:3,claude-3:4',
+      maxModelMultiplierCap: '5',
+    });
+
+    expect(result).toEqual({
+      modelAliases: { fast: ['gpt-4.1-mini'] },
+      maxEffectiveTokens: 1000,
+      maxAiCredits: 2.5,
+      effectiveTokenModelMultipliers: { 'gpt-4': 3, 'claude-3': 4 },
+      effectiveTokenDefaultModelMultiplier: 1.25,
+      maxModelMultiplierCap: 5,
+    });
+  });
+
+  it('validates run limits in isolation', () => {
+    const result = logAndLimitsTestHelpers.validateRunLimits({
+      maxRuns: '5',
+      maxPermissionDenied: 3,
+      maxCacheMisses: '7',
+    });
+
+    expect(result).toEqual({
+      maxRuns: 5,
+      maxPermissionDenied: 3,
+      maxCacheMisses: 7,
+    });
   });
 });
 

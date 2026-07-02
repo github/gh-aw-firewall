@@ -27,6 +27,116 @@ export interface LogAndLimitsResult {
   agentImage: string | undefined;
 }
 
+type ValidatorOptions = Record<string, unknown>;
+
+type ModelMultiplierOptionsResult = Pick<
+  LogAndLimitsResult,
+  | 'modelAliases'
+  | 'maxEffectiveTokens'
+  | 'maxAiCredits'
+  | 'effectiveTokenModelMultipliers'
+  | 'effectiveTokenDefaultModelMultiplier'
+  | 'maxModelMultiplierCap'
+>;
+
+type RunLimitsResult = Pick<
+  LogAndLimitsResult,
+  'maxRuns' | 'maxPermissionDenied' | 'maxCacheMisses'
+>;
+
+function exitValidationError(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
+
+function parseOptionalNumber(option: string | number | undefined): number | undefined {
+  return option !== undefined ? Number(option) : undefined;
+}
+
+function validatePositiveIntegerOption(optionName: string, value: number | undefined): void {
+  if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+    exitValidationError(`Error: Invalid ${optionName} value (must be a positive integer)`);
+  }
+}
+
+function validatePositiveNumberOption(optionName: string, value: number | undefined): void {
+  if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+    exitValidationError(`Error: Invalid ${optionName} value (must be > 0)`);
+  }
+}
+
+function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultiplierOptionsResult {
+  // Model aliases may be injected via config file (not a Commander option),
+  // so access through a Record cast with a proper type annotation.
+  const modelAliases = options.modelAliases as Record<string, string[]> | undefined;
+  const maxEffectiveTokensOption = options.maxEffectiveTokens as string | number | undefined;
+  const maxAiCreditsOption = options.maxAiCredits as string | number | undefined;
+  const effectiveTokenDefaultModelMultiplierOption = options
+    .effectiveTokenDefaultModelMultiplier as string | number | undefined;
+  // Config-file multipliers (already a Record<string, number>)
+  const configFileMultipliers = options.effectiveTokenModelMultipliers as
+    | Record<string, number>
+    | undefined;
+  // CLI multipliers via --max-model-multiplier (model:multiplier,... format)
+  const maxModelMultiplierRaw = options.maxModelMultiplier as string | undefined;
+  let cliMultipliers: Record<string, number> | undefined;
+  if (maxModelMultiplierRaw !== undefined) {
+    const parsed = parseModelMultipliersCli(maxModelMultiplierRaw);
+    if ('error' in parsed) {
+      exitValidationError(`Error: ${parsed.error}`);
+    }
+    cliMultipliers = parsed.multipliers;
+  }
+
+  const effectiveTokenModelMultipliers =
+    configFileMultipliers || cliMultipliers
+      ? { ...configFileMultipliers, ...cliMultipliers }
+      : undefined;
+  const maxEffectiveTokens = parseOptionalNumber(maxEffectiveTokensOption);
+  const maxAiCredits = parseOptionalNumber(maxAiCreditsOption);
+  const effectiveTokenDefaultModelMultiplier = parseOptionalNumber(
+    effectiveTokenDefaultModelMultiplierOption,
+  );
+  const maxModelMultiplierCap = parseOptionalNumber(
+    options.maxModelMultiplierCap as string | number | undefined,
+  );
+
+  validatePositiveIntegerOption('maxEffectiveTokens', maxEffectiveTokens);
+  validatePositiveNumberOption('maxAiCredits', maxAiCredits);
+  validatePositiveNumberOption(
+    'effectiveTokenDefaultModelMultiplier',
+    effectiveTokenDefaultModelMultiplier,
+  );
+  validatePositiveNumberOption('maxModelMultiplierCap', maxModelMultiplierCap);
+
+  return {
+    modelAliases,
+    maxEffectiveTokens,
+    maxAiCredits,
+    effectiveTokenModelMultipliers,
+    effectiveTokenDefaultModelMultiplier,
+    maxModelMultiplierCap,
+  };
+}
+
+function validateRunLimits(options: ValidatorOptions): RunLimitsResult {
+  const maxRuns = parseOptionalNumber(options.maxRuns as string | number | undefined);
+  const maxPermissionDenied = parseOptionalNumber(
+    options.maxPermissionDenied as string | number | undefined,
+  );
+  const maxCacheMisses = parseOptionalNumber(options.maxCacheMisses as string | number | undefined);
+
+  validatePositiveIntegerOption('maxRuns', maxRuns);
+  validatePositiveIntegerOption('maxPermissionDenied', maxPermissionDenied);
+  validatePositiveIntegerOption('maxCacheMisses', maxCacheMisses);
+
+  return {
+    maxRuns,
+    maxPermissionDenied,
+    maxCacheMisses,
+  };
+}
+
 /**
  * Validates log-level, model-multiplier, and resource-limit options.
  *
@@ -39,138 +149,20 @@ export interface LogAndLimitsResult {
  * Calls `process.exit(1)` on any validation failure so the caller always
  * receives a fully-validated result.
  */
-export function validateLogAndLimits(options: Record<string, unknown>): LogAndLimitsResult {
+export function validateLogAndLimits(options: ValidatorOptions): LogAndLimitsResult {
   // --- Log level -----------------------------------------------------------
 
   const logLevel = options.logLevel as LogLevel;
   if (!['debug', 'info', 'warn', 'error'].includes(logLevel)) {
-    console.error(`Invalid log level: ${logLevel}`);
-    process.exit(1);
+    exitValidationError(`Invalid log level: ${logLevel}`);
   }
 
   // Validate --anthropic-cache-tail-ttl if provided
   validateAnthropicCacheTailTtl(options.anthropicCacheTailTtl as string | undefined);
 
   // --- Model multipliers ---------------------------------------------------
-
-  // Model aliases may be injected via config file (not a Commander option),
-  // so access through a Record cast with a proper type annotation.
-  const modelAliases = (options as Record<string, unknown>).modelAliases as
-    | Record<string, string[]>
-    | undefined;
-  const maxEffectiveTokensOption = (options as Record<string, unknown>).maxEffectiveTokens as
-    | string
-    | number
-    | undefined;
-  const maxAiCreditsOption = (options as Record<string, unknown>).maxAiCredits as
-    | string
-    | number
-    | undefined;
-  const effectiveTokenDefaultModelMultiplierOption = (options as Record<string, unknown>)
-    .effectiveTokenDefaultModelMultiplier as string | number | undefined;
-  // Config-file multipliers (already a Record<string, number>)
-  const configFileMultipliers = (options as Record<string, unknown>)
-    .effectiveTokenModelMultipliers as Record<string, number> | undefined;
-  // CLI multipliers via --max-model-multiplier (model:multiplier,... format)
-  const maxModelMultiplierRaw = (options as Record<string, unknown>).maxModelMultiplier as
-    | string
-    | undefined;
-  let cliMultipliers: Record<string, number> | undefined;
-  if (maxModelMultiplierRaw !== undefined) {
-    const parsed = parseModelMultipliersCli(maxModelMultiplierRaw);
-    if ('error' in parsed) {
-      console.error(`Error: ${parsed.error}`);
-      process.exit(1);
-    }
-    cliMultipliers = parsed.multipliers;
-  }
-  // CLI flag overrides config-file values for the same model name.
-  const effectiveTokenModelMultipliers =
-    configFileMultipliers || cliMultipliers
-      ? { ...configFileMultipliers, ...cliMultipliers }
-      : undefined;
-  const maxEffectiveTokens =
-    maxEffectiveTokensOption !== undefined ? Number(maxEffectiveTokensOption) : undefined;
-  const maxAiCredits =
-    maxAiCreditsOption !== undefined ? Number(maxAiCreditsOption) : undefined;
-  const effectiveTokenDefaultModelMultiplier =
-    effectiveTokenDefaultModelMultiplierOption !== undefined
-      ? Number(effectiveTokenDefaultModelMultiplierOption)
-      : undefined;
-
-  if (
-    maxEffectiveTokens !== undefined &&
-    (!Number.isInteger(maxEffectiveTokens) || maxEffectiveTokens <= 0)
-  ) {
-    console.error('Error: Invalid maxEffectiveTokens value (must be a positive integer)');
-    process.exit(1);
-  }
-
-  if (
-    maxAiCredits !== undefined &&
-    (!Number.isFinite(maxAiCredits) || maxAiCredits <= 0)
-  ) {
-    console.error('Error: Invalid maxAiCredits value (must be > 0)');
-    process.exit(1);
-  }
-
-  if (
-    effectiveTokenDefaultModelMultiplier !== undefined &&
-    (!Number.isFinite(effectiveTokenDefaultModelMultiplier) || effectiveTokenDefaultModelMultiplier <= 0)
-  ) {
-    console.error('Error: Invalid effectiveTokenDefaultModelMultiplier value (must be > 0)');
-    process.exit(1);
-  }
-
-  const maxModelMultiplierCapOption = (options as Record<string, unknown>).maxModelMultiplierCap as
-    | string
-    | number
-    | undefined;
-  const maxModelMultiplierCap =
-    maxModelMultiplierCapOption !== undefined ? Number(maxModelMultiplierCapOption) : undefined;
-
-  if (
-    maxModelMultiplierCap !== undefined &&
-    (!Number.isFinite(maxModelMultiplierCap) || maxModelMultiplierCap <= 0)
-  ) {
-    console.error('Error: Invalid maxModelMultiplierCap value (must be > 0)');
-    process.exit(1);
-  }
-
-  const maxRunsOption = (options as Record<string, unknown>).maxRuns as
-    | string
-    | number
-    | undefined;
-  const maxRuns = maxRunsOption !== undefined ? Number(maxRunsOption) : undefined;
-
-  if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns <= 0)) {
-    console.error('Error: Invalid maxRuns value (must be a positive integer)');
-    process.exit(1);
-  }
-
-  const maxPermissionDeniedOption = (options as Record<string, unknown>).maxPermissionDenied as
-    | string
-    | number
-    | undefined;
-  const maxPermissionDenied =
-    maxPermissionDeniedOption !== undefined ? Number(maxPermissionDeniedOption) : undefined;
-
-  if (maxPermissionDenied !== undefined && (!Number.isInteger(maxPermissionDenied) || maxPermissionDenied <= 0)) {
-    console.error('Error: Invalid maxPermissionDenied value (must be a positive integer)');
-    process.exit(1);
-  }
-
-  const maxCacheMissesOption = (options as Record<string, unknown>).maxCacheMisses as
-    | string
-    | number
-    | undefined;
-  const maxCacheMisses =
-    maxCacheMissesOption !== undefined ? Number(maxCacheMissesOption) : undefined;
-
-  if (maxCacheMisses !== undefined && (!Number.isInteger(maxCacheMisses) || maxCacheMisses <= 0)) {
-    console.error('Error: Invalid maxCacheMisses value (must be a positive integer)');
-    process.exit(1);
-  }
+  const modelMultiplierOptions = validateModelMultiplierOptions(options);
+  const runLimits = validateRunLimits(options);
 
   logger.setLevel(logLevel);
 
@@ -198,16 +190,16 @@ export function validateLogAndLimits(options: Record<string, unknown>): LogAndLi
 
   return {
     logLevel,
-    modelAliases,
-    maxEffectiveTokens,
-    maxAiCredits,
-    effectiveTokenModelMultipliers,
-    effectiveTokenDefaultModelMultiplier,
-    maxModelMultiplierCap,
-    maxRuns,
-    maxPermissionDenied,
-    maxCacheMisses,
+    ...modelMultiplierOptions,
+    ...runLimits,
     memoryLimit: memoryLimit.value,
     agentImage: agentImageResult.agentImage,
   };
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const logAndLimitsTestHelpers = {
+  validateModelMultiplierOptions,
+  validateRunLimits,
+};
