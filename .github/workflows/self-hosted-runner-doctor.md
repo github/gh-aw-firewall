@@ -99,6 +99,8 @@ Prefer the narrowest match. Examples:
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
 - `mkdirat ... : read-only file system` during chroot agent startup → A12
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
+- `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
+- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
 - `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)

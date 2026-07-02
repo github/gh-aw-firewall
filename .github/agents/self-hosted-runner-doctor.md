@@ -71,6 +71,8 @@ Prefer the narrowest match. Examples:
 - `capsh` / musl / `node: command not found` in DinD chroot → A4, A8
 - `mkdirat ... : read-only file system` during chroot agent startup → A12
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
+- `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
+- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
 - `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
@@ -132,7 +134,7 @@ Establish these facts before matching a failure mode:
 
 | ID | Signal | Root cause | Fix / flag | Probe | Citations |
 |---|---|---|---|---|---|
-| A1 | Bind-mounted files are missing in DinD containers | Bind mounts point at runner paths that the DinD daemon cannot see | `--docker-host-path-prefix /tmp/gh-aw`, `container.dockerHostPathPrefix`, `AWF_DIND=1` | Create a `/tmp` sentinel on the runner, then `docker run -v /tmp:/tmp ... ls <sentinel>` | #2833, #2945, #3553, #3845, #3906, #4023, #4271, #4399, #4727, #4737, #4787 |
+| A1 | Bind-mounted files are missing in DinD containers | Bind mounts point at runner paths that the DinD daemon cannot see | `--docker-host-path-prefix /tmp/gh-aw`, `container.dockerHostPathPrefix`, `AWF_DIND=1` | Create a `/tmp` sentinel on the runner, then `docker run -v /tmp:/tmp ... ls <sentinel>` | #2833, #2945, #3553, #3845, #3906, #4023, #4271, #4399, #4727, #4737, #4787, github/gh-aw-firewall#5753 |
 | A2 | `DOCKER_HOST=tcp://...` disappears and compose falls back to `/var/run/docker.sock` | TCP `DOCKER_HOST` was stripped instead of propagated | Preserve `DOCKER_HOST` into compose and container env | `docker -H "$DOCKER_HOST" info` and inspect generated compose env | #4830 |
 | A3 | Non-standard unix `DOCKER_HOST` does not trigger split-fs handling | Split-filesystem auto-detection only keyed on `tcp://` | Treat non-default unix sockets and ARC fingerprints as split-fs | Check whether `DOCKER_HOST` uses a unix socket outside `/var/run/docker.sock` | #3553, #3906, #4023 |
 | A4 | `capsh` missing, `/bin/bash` missing, or `node` missing in DinD chroot | Alpine/musl daemon host lacks glibc tooling expected by chroot mode | Use `ghcr.io/github/gh-aw-firewall/dind-ubuntu:latest`; fail fast on musl | `ldd --version`, inspect daemon `/etc/os-release`, verify `capsh` | #3393, #3397, #4567, #4737, #4787, #2535 |
@@ -145,6 +147,8 @@ Establish these facts before matching a failure mode:
 | A11 | Threat detection passes even though the engine binary is missing | `GH_AW_DETECTION_CONTINUE_ON_ERROR` suppressed a real setup failure | Reconsider default or log the skipped check explicitly | `printenv GH_AW_DETECTION_CONTINUE_ON_ERROR`; inspect agent logs for `ENOENT` | #4787 |
 | A12 | `mkdirat ... : read-only file system` during agent chroot startup on ARC/DinD | `chroot.binariesSourcePath` set to the same root as `--docker-host-path-prefix` (e.g. both `/tmp/gh-aw`); Docker mounts `/tmp/gh-aw/usr:/host/usr:ro` first, then the attempt to mkdir `/host/usr/local/bin` as a nested overlay mount point fails because the parent is read-only | **Fixed in firewall v0.27.10**: upgrade AWF; the overlay is now mounted at `/host/tmp/awf-runner-bin:ro` (writable `/host/tmp` parent) instead of `/host/usr/local/bin:ro` | Check `awf --version`; inspect agent container logs for `mkdirat`; verify `chroot.binariesSourcePath` equals `docker-host-path-prefix` root | #5481, #5482 |
 | A13 | `chroot: failed to run command '/bin/sh': No such file or directory` or `[entrypoint][ERROR] capsh not found on host system` on a **glibc/Debian daemon** (not musl/Alpine) | ARC/DinD split-fs: system-mount source dirs (`/tmp/gh-aw/{usr,bin,lib,...}`) are empty because nothing populates them. The entrypoint "musl/Alpine" warning is **misleading** — it fires because no dynamic loader is found, not because the daemon is musl. | **Fixed in AWF v0.27.15**: set `runner.topology: "arc-dind"` in the AWF config JSON. AWF emits a `sysroot-stage` init container that copies the signed `build-tools` image filesystem (`bash`, `capsh`, `gcc`, dev libs, coreutils) into a named `sysroot` volume mounted at `/host:ro` before the agent starts. Use `runner.sysrootImage` to pin a specific image. | Check `awf --version` ≥ v0.27.15; verify `runner.topology: "arc-dind"` is set; inspect compose output for `sysroot-stage` service and `sysroot` volume | #5541, github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 |
+| A14 | `unknown shorthand flag: 'd' in -d` / `Command failed with exit code 125: docker compose up -d --pull never` | ARC/DinD sidecar image lacks `docker-compose-plugin`; AWF uses `docker compose` (v2 plugin syntax) to orchestrate containers but the DinD sidecar only has legacy standalone Docker or no Compose support | Add `docker-compose-plugin` to the DinD sidecar Dockerfile: `RUN apt-get update && apt-get install -y docker-compose-plugin` (Debian/Ubuntu) or `RUN apk add docker-compose` (Alpine) | `docker compose version` inside the DinD sidecar — v2 output confirms plugin is present; inspect sidecar Dockerfile for `docker-compose-plugin` | github/gh-aw-firewall#5729 |
+| A15 | `[WARN] Rootless artifact permission repair failed for .../sandbox/firewall/logs (exit 1)`; squid log files unreadable after ARC/DinD run; `awf logs summary` returns `Failed to load logs: EACCES` | `fixArtifactPermissionsForRootless()` binds the log directory into a repair container but does not apply `dockerHostPathPrefix` translation to the bind mount source path; the DinD daemon cannot resolve the runner-local path, so `chmod` exits non-zero | **Open — fix in progress** (PR github/gh-aw-firewall#5817): workaround — run `chmod -R a+rX` inside the squid container before `docker compose down` while it still owns the log volume; or configure squid to write logs as runner UID | `ls -la <proxy-logs-dir>` after run — files owned by uid 13 (squid) confirm the mode; check AWF logs for `[WARN] Rootless artifact permission repair failed` | github/gh-aw-firewall#5816 |
 
 ## Category B — Self-hosted runners
 
@@ -187,6 +191,8 @@ Establish these facts before matching a failure mode:
 | `chroot: failed to run command 'capsh'` or `capsh not found` | A4 |
 | `AWF chroot mode requires a glibc-based daemon host` | A4 |
 | `one-shot-token.so ... __fprintf_chk: symbol not found` | A5 |
+| `unknown shorthand flag: 'd' in -d` from `docker compose up -d` on ARC/DinD | A14 |
+| `Rootless artifact permission repair failed for .../sandbox/firewall/logs` on ARC/DinD | A15 |
 | `FATAL: http_port: IPv6 is not available` or `Bungled ... [::]:3128` | B3 |
 | `node: command not found` on self-hosted or DinD | A8 or B4 |
 | `none of the git remotes correspond to the GH_HOST environment variable` | C4 |
@@ -211,3 +217,4 @@ Flag these explicitly instead of implying there is a complete fix:
 - D4 / #4849 — enterprise header injection extension point
 - C5 / #3937 — full `GH_HOST` leak fix still requires gh-aw changes
 - C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency (root cause unresolved; tracked in github/gh-aw-mcpg#8202 and github/gh-aw#41911)
+- A15 / github/gh-aw-firewall#5816 — rootless artifact permission repair on ARC/DinD: `fixArtifactPermissionsForRootless()` does not apply `dockerHostPathPrefix` to repair step bind mount; fix tracked in PR github/gh-aw-firewall#5817
