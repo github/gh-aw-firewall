@@ -29,6 +29,6 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('🩺 Runner Doctor');
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
-    expect(lock).toContain('github/gh-aw-actions/setup@dadd6a0a0f4d1087fbd3e115776f28471388d6db');
+    expect(lock).toContain('github/gh-aw-actions/setup@3fac1cfa7a5a375a6a5eb9839178f6dad7adb60a');
   });
 });
