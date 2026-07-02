@@ -26,6 +26,86 @@ import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
+import type { WrapperConfig } from '../types';
+
+const SENSITIVE_CONFIG_KEYS = new Set([
+  'openaiApiKey',
+  'anthropicApiKey',
+  'copilotGithubToken',
+  'copilotProviderApiKey',
+  'geminiApiKey',
+]);
+
+function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
+  const redactedConfig: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (SENSITIVE_CONFIG_KEYS.has(key)) continue;
+    redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
+  }
+  return redactedConfig;
+}
+
+function persistConfigAuditArtifact(
+  config: WrapperConfig,
+  redactedConfig: Record<string, unknown>,
+): void {
+  try {
+    const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
+    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o755 });
+    const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
+    fs.writeFileSync(
+      configArtifactPath,
+      JSON.stringify(redactedConfig, null, 2) + '\n',
+      { mode: 0o644 },
+    );
+    fs.chmodSync(configArtifactPath, 0o644);
+  } catch (err) {
+    logger.debug(`Failed to write resolved config artifact: ${err}`);
+  }
+}
+
+function buildCleanupFn(
+  config: WrapperConfig,
+  getContainersStarted: () => boolean,
+  getHostIptablesSetup: () => boolean,
+) {
+  return async (signal?: string) => {
+    if (signal) {
+      logger.info(`Received ${signal}, cleaning up...`);
+    }
+
+    // Copy iptables audit BEFORE stopping containers (volumes are destroyed by `docker compose down -v`)
+    if (getContainersStarted()) {
+      preserveIptablesAudit(config.workDir, config.auditDir);
+      await stopContainers(config.workDir, config.keepContainers);
+    }
+
+    if (getHostIptablesSetup() && !config.keepContainers) {
+      await cleanupHostIptables();
+    }
+
+    if (!config.keepContainers) {
+      await cleanup(
+        config.workDir,
+        false,
+        config.proxyLogsDir,
+        config.auditDir,
+        config.sessionStateDir,
+        config.dockerHostPathPrefix,
+        config.imageRegistry,
+        config.imageTag,
+        config.agentImage,
+      );
+      // Note: We don't remove the firewall network here since it can be reused
+      // across multiple runs. Cleanup script will handle removal if needed.
+    } else {
+      logger.info(`Configuration files preserved at: ${config.workDir}`);
+      logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
+      logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
+      logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
+    }
+  };
+}
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -106,33 +186,9 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
   // Log config with redacted secrets - remove API keys entirely
   // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
-  const redactedConfig: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (
-      key === 'openaiApiKey' ||
-      key === 'anthropicApiKey' ||
-      key === 'copilotGithubToken' ||
-      key === 'copilotProviderApiKey' ||
-      key === 'geminiApiKey'
-    ) continue;
-    redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
-  }
+  const redactedConfig = redactConfigForLogging(config);
   logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
-
-  // Persist redacted config to audit artifact for post-run diagnostics
-  try {
-    const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
-    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o755 });
-    const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
-    fs.writeFileSync(
-      configArtifactPath,
-      JSON.stringify(redactedConfig, null, 2) + '\n',
-      { mode: 0o644 },
-    );
-    fs.chmodSync(configArtifactPath, 0o644);
-  } catch (err) {
-    logger.debug(`Failed to write resolved config artifact: ${err}`);
-  }
+  persistConfigAuditArtifact(config, redactedConfig);
 
   logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
   if (config.blockedDomains && config.blockedDomains.length > 0) {
@@ -145,43 +201,11 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   let containersStarted = false;
   let hostIptablesSetup = false;
 
-  // Handle cleanup on process exit
-  const performCleanup = async (signal?: string) => {
-    if (signal) {
-      logger.info(`Received ${signal}, cleaning up...`);
-    }
-
-    // Copy iptables audit BEFORE stopping containers (volumes are destroyed by `docker compose down -v`)
-    if (containersStarted) {
-      preserveIptablesAudit(config.workDir, config.auditDir);
-      await stopContainers(config.workDir, config.keepContainers);
-    }
-
-    if (hostIptablesSetup && !config.keepContainers) {
-      await cleanupHostIptables();
-    }
-
-    if (!config.keepContainers) {
-      await cleanup(
-        config.workDir,
-        false,
-        config.proxyLogsDir,
-        config.auditDir,
-        config.sessionStateDir,
-        config.dockerHostPathPrefix,
-        config.imageRegistry,
-        config.imageTag,
-        config.agentImage,
-      );
-      // Note: We don't remove the firewall network here since it can be reused
-      // across multiple runs. Cleanup script will handle removal if needed.
-    } else {
-      logger.info(`Configuration files preserved at: ${config.workDir}`);
-      logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
-      logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
-      logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
-    }
-  };
+  const performCleanup = buildCleanupFn(
+    config,
+    () => containersStarted,
+    () => hostIptablesSetup,
+  );
 
   // Register signal handlers for graceful shutdown
   registerSignalHandlers({
@@ -226,3 +250,11 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   }
   };
 }
+
+/** @internal Exposed for unit tests. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  redactConfigForLogging,
+  persistConfigAuditArtifact,
+  buildCleanupFn,
+};

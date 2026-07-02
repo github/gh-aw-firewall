@@ -15,7 +15,7 @@ jest.mock('fs', () => {
   };
 });
 
-import { createMainAction } from './main-action';
+import { createMainAction, testHelpers } from './main-action';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
@@ -469,6 +469,59 @@ describe('createMainAction', () => {
         expect.any(String),
         { mode: 0o644 },
       );
+    });
+  });
+
+  describe('extracted helper functions', () => {
+    it('redactConfigForLogging removes sensitive keys and redacts agentCommand', () => {
+      const secretValue = 'secret-123';
+      const configWithSecrets = {
+        ...STUB_CONFIG,
+        agentCommand: `agent --token ${secretValue}`,
+        openaiApiKey: 'sk-secret',
+      } as unknown as import('../types').WrapperConfig;
+      mockedRedactSecrets.redactSecrets.mockImplementation((s: string) =>
+        s.replace(secretValue, '[REDACTED]')
+      );
+
+      const redacted = testHelpers.redactConfigForLogging(configWithSecrets);
+
+      expect(redacted).not.toHaveProperty('openaiApiKey');
+      expect(redacted.agentCommand).toContain('[REDACTED]');
+      expect(redacted.agentCommand).not.toContain(secretValue);
+    });
+
+    it('persistConfigAuditArtifact logs debug when writing the artifact fails', () => {
+      mockMkdirSync.mockImplementationOnce(() => {
+        throw new Error('write failed');
+      });
+
+      testHelpers.persistConfigAuditArtifact(STUB_CONFIG, { foo: 'bar' });
+
+      expect(mockedLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to write resolved config artifact:')
+      );
+    });
+
+    it('buildCleanupFn runs cleanup using provided state getters', async () => {
+      const performCleanup = testHelpers.buildCleanupFn(
+        STUB_CONFIG,
+        () => true,
+        () => true,
+      );
+
+      await performCleanup();
+
+      expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalledWith(
+        STUB_CONFIG.workDir,
+        STUB_CONFIG.auditDir
+      );
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
+        STUB_CONFIG.workDir,
+        STUB_CONFIG.keepContainers
+      );
+      expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
+      expect(mockedDockerManager.cleanup).toHaveBeenCalled();
     });
   });
 });
