@@ -1,10 +1,8 @@
 /**
  * Environment variable name constants for the API proxy provider adapters.
  *
- * This is the single source of truth for env var names on the TypeScript host side.
  * The CommonJS equivalent lives in containers/api-proxy/provider-env-constants.js.
- *
- * Both files must be kept in sync when adding or renaming env vars.
+ * Keep both files in sync; src/api-proxy-env-constants-sync.test.ts enforces parity.
  */
 
 /** Environment variable names for the OpenAI provider adapter. */
