@@ -12,6 +12,8 @@ jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMo
 describe('stopContainers', () => {
   const { getDir } = useTempDir();
 
+  beforeEach(() => jest.clearAllMocks());
+
   it('should skip stopping when keepContainers is true', async () => {
     await stopContainers(getDir(), true);
 

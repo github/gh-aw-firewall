@@ -38,11 +38,16 @@ export async function runComposeDown(
  */
 export async function fixSquidLogPermissionsBeforeShutdown(): Promise<void> {
   try {
-    await execa(
+    const result = await execa(
       'docker',
       ['exec', '--user', 'root', SQUID_CONTAINER_NAME, 'chmod', '-R', 'a+rX', '/var/log/squid'],
       { env: getLocalDockerEnv(), reject: false },
     );
+    if (result.exitCode !== 0) {
+      logger.debug(
+        `Pre-shutdown squid log chmod exited with code ${result.exitCode}: ${result.stderr || '(no stderr)'}`,
+      );
+    }
   } catch {
     // Container not running or docker not available — not an error.
     logger.debug('Pre-shutdown squid log chmod skipped (container not available)');
