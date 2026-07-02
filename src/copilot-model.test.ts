@@ -22,6 +22,7 @@ describe('validateCopilotModel', () => {
     'claude-fable-5',
     'claude-mythos-5',
     'claude-sonnet-5',
+    'mai-code-1-flash',
   ])('accepts newly supported Copilot allowlist models (%s)', model => {
     const result = validateCopilotModel(model);
     expect(result).toEqual({ valid: true, resolvedModel: model });

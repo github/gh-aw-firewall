@@ -50,6 +50,7 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'claude-sonnet-4.6',
   'gemini-3.1-pro-preview',
   'gemini-3.5-flash',
+  'mai-code-1-flash',
 ]);
 
 /** Maps separator-normalized names (all `-`) → canonical model name. */
