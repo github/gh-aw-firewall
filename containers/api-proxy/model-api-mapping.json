@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-01T08:18:06Z",
+  "lastUpdated": "2026-07-02T22:45:35Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -28,38 +28,56 @@
         {
           "family": "gpt-5.4",
           "patterns": ["gpt-5.4*"],
-          "endpoints": ["responses"],
-          "notes": "Responses API only."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. Includes gpt-5.4-mini, gpt-5.4-nano."
         },
         {
           "family": "gpt-5.3",
           "patterns": ["gpt-5.3*"],
-          "endpoints": ["responses"],
-          "notes": "Responses API only. Includes gpt-5.3-codex variants."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. Only gpt-5.3-chat-latest confirmed in OpenAPI spec; gpt-5.3-codex variants not present."
         },
         {
           "family": "gpt-5.2",
           "patterns": ["gpt-5.2*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. Includes gpt-5.2-pro."
+        },
+        {
+          "family": "gpt-5.1-codex-max",
+          "patterns": ["gpt-5.1-codex-max"],
           "endpoints": ["responses"],
-          "notes": "Responses API only."
+          "notes": "Responses API only (ResponsesOnlyModel)."
         },
         {
           "family": "gpt-5.1",
           "patterns": ["gpt-5.1*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints for gpt-5.1, gpt-5.1-codex, gpt-5.1-mini."
+        },
+        {
+          "family": "gpt-5-codex/pro",
+          "patterns": ["gpt-5-codex", "gpt-5-pro"],
           "endpoints": ["responses"],
-          "notes": "Responses API only. Includes gpt-5.1-codex, gpt-5.1-codex-max, gpt-5.1-codex-mini variants."
+          "notes": "Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel)."
         },
         {
           "family": "gpt-5",
           "patterns": ["gpt-5", "gpt-5-*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints for gpt-5, gpt-5-mini, gpt-5-nano."
+        },
+        {
+          "family": "o4-mini-deep-research",
+          "patterns": ["o4-mini-deep-research"],
           "endpoints": ["responses"],
-          "notes": "Responses API only. Includes gpt-5-mini, gpt-5-nano, gpt-5-pro."
+          "notes": "Responses API only (ResponsesOnlyModel)."
         },
         {
           "family": "o4",
           "patterns": ["o4*"],
-          "endpoints": ["responses"],
-          "notes": "Reasoning model. Responses API only. Includes o4-mini."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Reasoning model. o4-mini supports both endpoints (ModelIdsShared)."
         },
         {
           "family": "o3",
@@ -83,7 +101,7 @@
           "family": "gpt-4.1",
           "patterns": ["gpt-4.1*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints."
+          "notes": "Supports both endpoints. Includes gpt-4.1-mini, gpt-4.1-nano."
         },
         {
           "family": "gpt-4.5",

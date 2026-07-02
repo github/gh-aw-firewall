@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-02T07:56:20Z",
+  "lastUpdated": "2026-07-02T22:45:35Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -44,22 +44,40 @@
           "notes": "Supports both endpoints. Includes gpt-5.2-pro."
         },
         {
+          "family": "gpt-5.1-codex-max",
+          "patterns": ["gpt-5.1-codex-max"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only (ResponsesOnlyModel)."
+        },
+        {
           "family": "gpt-5.1",
           "patterns": ["gpt-5.1*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints for gpt-5.1, gpt-5.1-codex, gpt-5.1-mini. gpt-5.1-codex-max is Responses API only (ResponsesOnlyModel)."
+          "notes": "Supports both endpoints for gpt-5.1, gpt-5.1-codex, gpt-5.1-mini."
+        },
+        {
+          "family": "gpt-5-codex/pro",
+          "patterns": ["gpt-5-codex", "gpt-5-pro"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel)."
         },
         {
           "family": "gpt-5",
           "patterns": ["gpt-5", "gpt-5-*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints for gpt-5, gpt-5-mini, gpt-5-nano. Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel)."
+          "notes": "Supports both endpoints for gpt-5, gpt-5-mini, gpt-5-nano."
+        },
+        {
+          "family": "o4-mini-deep-research",
+          "patterns": ["o4-mini-deep-research"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only (ResponsesOnlyModel)."
         },
         {
           "family": "o4",
           "patterns": ["o4*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Reasoning model. o4-mini supports both endpoints (ModelIdsShared). o4-mini-deep-research is Responses API only."
+          "notes": "Reasoning model. o4-mini supports both endpoints (ModelIdsShared)."
         },
         {
           "family": "o3",
