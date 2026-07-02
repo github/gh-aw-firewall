@@ -65,7 +65,7 @@ on:
     - labeled
   # roles: all # Roles processed as role check in pre-activation job
   schedule:
-  - cron: "6 */12 * * *"
+  - cron: "18 */12 * * *"
   workflow_dispatch:
     inputs:
       aw_context:

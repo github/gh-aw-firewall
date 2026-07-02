@@ -56,7 +56,7 @@
 name: "Red-Team Benchmark"
 on:
   schedule:
-  - cron: "51 16 * * 6"
+  - cron: "11 3 * * 6"
     # Friendly format: weekly (scattered)
   workflow_dispatch:
     inputs:

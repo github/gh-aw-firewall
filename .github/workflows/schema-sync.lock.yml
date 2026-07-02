@@ -55,7 +55,7 @@
 name: "Schema & Spec Sync"
 on:
   schedule:
-  - cron: "22 12 * * 1-5"
+  - cron: "11 4 * * 1-5"
     # Friendly format: daily on weekdays (scattered)
   workflow_dispatch:
     inputs:

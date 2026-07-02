@@ -52,7 +52,7 @@
 name: "CLI Flag Consistency Checker"
 on:
   schedule:
-  - cron: "52 17 * * 1"
+  - cron: "5 11 * * 0"
     # Friendly format: weekly (scattered)
   workflow_dispatch:
     inputs:

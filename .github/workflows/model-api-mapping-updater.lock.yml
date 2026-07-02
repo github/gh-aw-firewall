@@ -55,7 +55,7 @@
 name: "Model API Mapping Updater"
 on:
   schedule:
-  - cron: "48 6 * * *"
+  - cron: "7 5 * * *"
     # Friendly format: daily around 06:00 UTC (scattered)
   workflow_dispatch:
     inputs:

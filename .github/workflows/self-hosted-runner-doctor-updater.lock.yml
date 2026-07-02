@@ -57,7 +57,7 @@
 name: "Runner Doctor Updater"
 on:
   schedule:
-  - cron: "21 16 * * *"
+  - cron: "50 18 * * *"
     # Friendly format: daily (scattered)
   # skip-if-match: # Skip-if-match processed as search check in pre-activation job
     # max: 1
