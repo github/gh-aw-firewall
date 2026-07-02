@@ -31,6 +31,7 @@ function createGeminiAdapter(env, deps = {}) {
     basePathEnvVar: GEMINI_ENV.BASE_PATH,
     defaultTarget: 'generativelanguage.googleapis.com',
   });
+  const buildAuthHeaders = () => ({ 'x-goog-api-key': apiKey });
 
   const adapterMethods = createAdapterMethods({
     apiKey,
@@ -40,9 +41,9 @@ function createGeminiAdapter(env, deps = {}) {
     port: 10003,
     defaultTarget: 'generativelanguage.googleapis.com',
     validationPath: '/v1beta/models',
-    validationHeaders: () => ({ 'x-goog-api-key': apiKey }),
+    validationHeaders: buildAuthHeaders,
     modelsPath: '/v1beta/models',
-    modelsFetchHeaders: () => ({ 'x-goog-api-key': apiKey }),
+    modelsFetchHeaders: buildAuthHeaders,
   });
 
   return buildProviderAdapter({
@@ -51,7 +52,7 @@ function createGeminiAdapter(env, deps = {}) {
     isManagementPort: false,
     adapterMethods,
     getAuthHeaders() {
-      return { 'x-goog-api-key': apiKey };
+      return buildAuthHeaders();
     },
     bodyTransform,
     isEnabled() { return !!apiKey; },

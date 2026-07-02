@@ -70,17 +70,13 @@ function createOpenAIAdapter(env, deps = {}) {
     skipModelsFetch,
     resolveAuthHeaders,
   } = createProviderOidcAuth(env, { staticAuthToken: apiKey });
-  /**
-   * Build a static-key auth header object.
-   * When AWF_OPENAI_AUTH_HEADER is set, uses that header name with the raw key.
-   * Otherwise uses the standard `Authorization: Bearer <key>` format.
-   */
-  function buildStaticAuthHeaders(key) {
+  function buildTokenAuthHeaders(key) {
     if (customAuthHeader) {
       return { [customAuthHeader]: key };
     }
-    return { 'Authorization': `Bearer ${key}` };
+    return { 'Authorization': 'Bearer ' + key };
   }
+  const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
 
   const adapterMethods = createAdapterMethods({
     apiKey,
@@ -90,11 +86,11 @@ function createOpenAIAdapter(env, deps = {}) {
     port: 10000,
     defaultTarget: 'api.openai.com',
     validationPath: '/v1/models',
-    validationHeaders: () => buildStaticAuthHeaders(apiKey),
+    validationHeaders: buildStaticAuthHeaders,
     validationSkip,
     skipModelsFetch,
     modelsPath: '/v1/models',
-    modelsFetchHeaders: () => buildStaticAuthHeaders(apiKey),
+    modelsFetchHeaders: buildStaticAuthHeaders,
     reflectionConfigured: !!apiKey || oidcConfigured,
     reflectionModelsPath: '/v1/models',
     reflectionExtra: () => ({
@@ -109,10 +105,8 @@ function createOpenAIAdapter(env, deps = {}) {
     adapterMethods,
     getAuthHeaders() {
       return resolveAuthHeaders(
-        (token) => (customAuthHeader
-          ? { [customAuthHeader]: token }
-          : { 'Authorization': ['Bearer', token].join(' ') }),
-        buildStaticAuthHeaders(apiKey),
+        buildTokenAuthHeaders,
+        buildStaticAuthHeaders(),
       );
     },
     bodyTransform,

@@ -116,6 +116,14 @@ function createAnthropicAdapter(env, deps = {}) {
   // Build the composed transform once at construction time to avoid
   // re-allocating the wrapper function on every request.
   const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
+  const buildOidcBearerAuthHeaders = (token) => ({ 'Authorization': 'Bearer ' + token });
+  const buildStaticAuthHeaders = () => ({ [authHeaderName]: apiKey });
+  const resolveAuthHeadersForValidationAndModels = () => resolveAuthHeadersWithFallback({
+    oidcProvider,
+    awsOidcProvider: null,
+    buildOidcHeaders: buildOidcBearerAuthHeaders,
+    staticHeaders: buildStaticAuthHeaders(),
+  });
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,
@@ -127,12 +135,7 @@ function createAnthropicAdapter(env, deps = {}) {
     validationMethod: 'POST',
     validationBody: '{}',
     validationHeaders: () => ({
-      ...resolveAuthHeadersWithFallback({
-        oidcProvider,
-        awsOidcProvider: null,
-        buildOidcHeaders: (token) => ({ 'Authorization': `Bearer ${token}` }),
-        staticHeaders: { [authHeaderName]: apiKey },
-      }),
+      ...resolveAuthHeadersForValidationAndModels(),
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     }),
@@ -145,12 +148,7 @@ function createAnthropicAdapter(env, deps = {}) {
     skipModelsFetch: () => oidcConfigured && !oidcProvider?.isReady(),
     modelsPath: '/v1/models',
     modelsFetchHeaders: () => ({
-      ...resolveAuthHeadersWithFallback({
-        oidcProvider,
-        awsOidcProvider: null,
-        buildOidcHeaders: (token) => ({ 'Authorization': `Bearer ${token}` }),
-        staticHeaders: { [authHeaderName]: apiKey },
-      }),
+      ...resolveAuthHeadersForValidationAndModels(),
       'anthropic-version': '2023-06-01',
     }),
     reflectionConfigured: !!apiKey || oidcRequested,
@@ -176,7 +174,7 @@ function createAnthropicAdapter(env, deps = {}) {
       const oidcHeaders = resolveOidcAuthHeaders({
         oidcProvider,
         awsOidcProvider: null,
-        buildOidcHeaders: (token) => ({ 'Authorization': 'Bearer ' + token }),
+        buildOidcHeaders: buildOidcBearerAuthHeaders,
       });
 
       // oidcHeaders === null  → OIDC not configured; fall through to static key.
@@ -187,7 +185,7 @@ function createAnthropicAdapter(env, deps = {}) {
         return {};
       }
 
-      const headers = oidcHeaders !== null ? { ...oidcHeaders } : { [authHeaderName]: apiKey };
+      const headers = oidcHeaders !== null ? { ...oidcHeaders } : buildStaticAuthHeaders();
 
       if (!req.headers['anthropic-version']) {
         headers['anthropic-version'] = '2023-06-01';
