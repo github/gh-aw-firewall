@@ -9,7 +9,7 @@ const providerEnvConstants = require('../containers/api-proxy/provider-env-const
 };
 
 describe('API proxy provider env constants', () => {
-  it('stays in sync between TypeScript host code and JS sidecar code', () => {
+  it('TypeScript host and JS sidecar both load from the same JSON source', () => {
     expect(providerEnvConstants.OPENAI_ENV).toEqual(OPENAI_ENV);
     expect(providerEnvConstants.ANTHROPIC_ENV).toEqual(ANTHROPIC_ENV);
     expect(providerEnvConstants.GEMINI_ENV).toEqual(GEMINI_ENV);
