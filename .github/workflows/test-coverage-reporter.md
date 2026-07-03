@@ -68,11 +68,11 @@ steps:
     id: coverage
     run: |
       set +e
-      npm run test:coverage 2>&1 | tee /tmp/coverage-full.log
-      COVERAGE_EXIT=$?
-      tail -20 /tmp/coverage-full.log
-      if [ $COVERAGE_EXIT -ne 0 ]; then
-        echo "::warning::test:coverage exited with code $COVERAGE_EXIT (some tests may have failed); continuing with available coverage data"
+      set -o pipefail
+      npm run test:coverage 2>&1 | tee /tmp/coverage-full.log | tail -20
+      COVERAGE_EXIT=${PIPESTATUS[0]}
+      if [ "${COVERAGE_EXIT}" -ne 0 ]; then
+        echo "::warning::test:coverage exited with code ${COVERAGE_EXIT} (some tests may have failed); continuing with available coverage data"
       fi
       # Continue even if tests fail — this is a reporter, not a gate
       exit 0
