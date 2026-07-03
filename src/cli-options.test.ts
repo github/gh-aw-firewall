@@ -71,6 +71,16 @@ describe('cli-options program', () => {
     expect(parseMount('/a:/b:ro')).toEqual(['/a:/b:ro']);
   });
 
+  it('parses vertex API routing flags', () => {
+    program.parse(
+      ['node', 'awf', '--vertex-api-target', 'vertex.internal', '--vertex-api-base-path', '/v1beta1', '--', 'true'],
+      { from: 'node' },
+    );
+    const opts = program.opts();
+    expect(opts.vertexApiTarget).toBe('vertex.internal');
+    expect(opts.vertexApiBasePath).toBe('/v1beta1');
+  });
+
   describe('custom formatHelp', () => {
     it('generates help output containing usage and options sections', () => {
       const help = program.helpInformation();

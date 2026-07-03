@@ -318,6 +318,14 @@ program
     'Base path prefix for Gemini API requests',
   )
   .option(
+    '--vertex-api-target <host>',
+    'Target hostname for Vertex API requests (default: aiplatform.googleapis.com)',
+  )
+  .option(
+    '--vertex-api-base-path <path>',
+    'Base path prefix for Vertex API requests',
+  )
+  .option(
     '--anthropic-auto-cache',
     'Enable Anthropic prompt-cache optimizations in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects cache breakpoints on tools/system/messages, upgrades TTL to 1h,\n' +

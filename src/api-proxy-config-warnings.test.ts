@@ -159,7 +159,28 @@ describe('emitApiProxyTargetWarnings', () => {
     expect(warnings).toHaveLength(0);
   });
 
-  it('should emit warnings for all four custom targets when none are in allowed domains', () => {
+  it('should emit warning for custom Vertex target not in allowed domains', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, vertexApiTarget: 'custom.vertex-router.internal' },
+      ['github.com'],
+      (msg) => warnings.push(msg)
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('--vertex-api-target=custom.vertex-router.internal');
+  });
+
+  it('should emit no warnings when custom Vertex target is in allowed domains', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, vertexApiTarget: 'vertex.example.com' },
+      ['example.com'],
+      (msg) => warnings.push(msg)
+    );
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('should emit warnings for all five custom targets when none are in allowed domains', () => {
     const warnings: string[] = [];
     emitApiProxyTargetWarnings(
       {
@@ -168,12 +189,14 @@ describe('emitApiProxyTargetWarnings', () => {
         anthropicApiTarget: 'anthropic.internal',
         copilotApiTarget: 'copilot.internal',
         geminiApiTarget: 'gemini.internal',
+        vertexApiTarget: 'vertex.internal',
       },
       ['github.com'],
       (msg) => warnings.push(msg)
     );
-    expect(warnings).toHaveLength(4);
+    expect(warnings).toHaveLength(5);
     expect(warnings[3]).toContain('--gemini-api-target=gemini.internal');
+    expect(warnings[4]).toContain('--vertex-api-target=vertex.internal');
   });
 });
 

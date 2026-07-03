@@ -157,6 +157,28 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     expect(domains).toContain('https://flag.gemini.internal');
     expect(domains).not.toContain('https://env.gemini.internal');
   });
+
+  it('should add vertex-api-target option to allowed domains', () => {
+    const domains: string[] = ['github.com'];
+    resolveApiTargetsToAllowedDomains({ vertexApiTarget: 'custom.vertex.internal' }, domains);
+    expect(domains).not.toContain('custom.vertex.internal');
+    expect(domains).toContain('https://custom.vertex.internal');
+  });
+
+  it('should read VERTEX_API_TARGET from env when flag not set', () => {
+    const domains: string[] = [];
+    const env = { VERTEX_API_TARGET: 'env.vertex.internal' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toContain('https://env.vertex.internal');
+  });
+
+  it('should prefer vertexApiTarget option over VERTEX_API_TARGET env var', () => {
+    const domains: string[] = [];
+    const env = { VERTEX_API_TARGET: 'env.vertex.internal' };
+    resolveApiTargetsToAllowedDomains({ vertexApiTarget: 'flag.vertex.internal' }, domains, env);
+    expect(domains).toContain('https://flag.vertex.internal');
+    expect(domains).not.toContain('https://env.vertex.internal');
+  });
 });
 
 describe('extractGhesDomainsFromEngineApiTarget (via resolveApiTargetsToAllowedDomains)', () => {

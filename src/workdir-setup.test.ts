@@ -213,6 +213,32 @@ describe('prepareWorkDirectories', () => {
       expect(fs.existsSync(geminiDir)).toBe(true);
     });
 
+    it('creates .gemini directory when googleApiKey is provided', () => {
+      const geminiDir = path.join(fixture.tempDir, '.gemini');
+      if (fs.existsSync(geminiDir)) {
+        fs.rmSync(geminiDir, { recursive: true, force: true });
+      }
+
+      const config = buildConfig({ googleApiKey: 'test-key' });
+      const logPaths = resolveLogPaths(config);
+
+      prepareWorkDirectories(config, logPaths);
+
+      expect(fs.existsSync(geminiDir)).toBe(true);
+    });
+
+    it('repairs ownership on existing .gemini directory for vertex runs', () => {
+      const geminiDir = path.join(fixture.tempDir, '.gemini');
+      fs.mkdirSync(geminiDir, { recursive: true });
+
+      const config = buildConfig({ googleApiKey: 'test-key' });
+      const logPaths = resolveLogPaths(config);
+
+      prepareWorkDirectories(config, logPaths);
+
+      expect(fs.chownSync).toHaveBeenCalledWith(geminiDir, 1000, 1000);
+    });
+
     it('does not create .gemini directory when geminiApiKey is not provided', () => {
       const geminiDir = path.join(fixture.tempDir, '.gemini');
       if (fs.existsSync(geminiDir)) {

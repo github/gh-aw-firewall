@@ -30,6 +30,7 @@ api.openai.com or api.anthropic.com
 - **10001**: Anthropic API proxy (api.anthropic.com)
 - **10002**: GitHub Copilot API proxy (api.githubcopilot.com)
 - **10003**: Google Gemini API proxy (generativelanguage.googleapis.com)
+- **10004**: Google Vertex AI API proxy (aiplatform.googleapis.com)
 
 ## Environment Variables
 
@@ -39,9 +40,12 @@ Required (at least one):
 - `COPILOT_GITHUB_TOKEN` - GitHub token for Copilot authentication
 - `COPILOT_PROVIDER_API_KEY` - Direct upstream provider key for Copilot BYOK mode
 - `GEMINI_API_KEY` - Google Gemini API key for authentication
+- `GOOGLE_API_KEY` - Google Vertex AI API key for authentication
 
 Optional:
 - `COPILOT_API_TARGET` - Target hostname for GitHub Copilot API requests (default: `api.githubcopilot.com`). Useful for GHES deployments.
+- `VERTEX_API_TARGET` - Target hostname for Vertex API requests (default: `aiplatform.googleapis.com`)
+- `VERTEX_API_BASE_PATH` - Base path prefix for Vertex API requests
 - `AWF_BYOK_EXTRA_HEADERS` - JSON object of additional headers to inject into upstream requests when the Copilot BYOK API key (`COPILOT_PROVIDER_API_KEY`) is in use. Useful for provider-native observability (e.g. OpenRouter session grouping, Helicone user tracking):
   ```
   AWF_BYOK_EXTRA_HEADERS='{"x-session-id":"my-session","HTTP-Referer":"https://example.com"}'
@@ -56,6 +60,10 @@ Optional:
 Set by AWF:
 - `HTTP_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
 - `HTTPS_PROXY` - Squid proxy URL (http://172.30.0.10:3128)
+
+Agent-side routing for Vertex mode:
+- `GOOGLE_VERTEX_BASE_URL=http://api-proxy:10004`
+- `GOOGLE_API_KEY=google-api-key-placeholder-for-credential-isolation` (placeholder; real key remains in sidecar)
 
 ## Security
 

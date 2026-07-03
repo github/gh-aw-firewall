@@ -3,6 +3,7 @@ import {
   DEFAULT_ANTHROPIC_API_TARGET,
   DEFAULT_COPILOT_API_TARGET,
   DEFAULT_GEMINI_API_TARGET,
+  DEFAULT_VERTEX_API_TARGET,
 } from './domain-utils';
 
 /**
@@ -47,7 +48,7 @@ function validateApiTargetInAllowedDomains(
  * @param warn - Function to emit a warning message
  */
 export function emitApiProxyTargetWarnings(
-  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string; copilotApiTarget?: string; geminiApiTarget?: string },
+  config: { enableApiProxy?: boolean; openaiApiTarget?: string; anthropicApiTarget?: string; copilotApiTarget?: string; geminiApiTarget?: string; vertexApiTarget?: string },
   allowedDomains: string[],
   warn: (msg: string) => void
 ): void {
@@ -91,6 +92,16 @@ export function emitApiProxyTargetWarnings(
   );
   if (geminiTargetWarning) {
     warn(`⚠️  ${geminiTargetWarning}`);
+  }
+
+  const vertexTargetWarning = validateApiTargetInAllowedDomains(
+    config.vertexApiTarget ?? DEFAULT_VERTEX_API_TARGET,
+    DEFAULT_VERTEX_API_TARGET,
+    '--vertex-api-target',
+    allowedDomains
+  );
+  if (vertexTargetWarning) {
+    warn(`⚠️  ${vertexTargetWarning}`);
   }
 }
 

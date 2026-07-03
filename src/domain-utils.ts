@@ -220,5 +220,7 @@ export const DEFAULT_OPENAI_API_TARGET = 'api.openai.com';
 export const DEFAULT_ANTHROPIC_API_TARGET = 'api.anthropic.com';
 /** Default upstream hostname for Google Gemini API requests in the api-proxy sidecar */
 export const DEFAULT_GEMINI_API_TARGET = 'generativelanguage.googleapis.com';
+/** Default upstream hostname for Google Vertex AI API requests in the api-proxy sidecar */
+export const DEFAULT_VERTEX_API_TARGET = 'aiplatform.googleapis.com';
 /** Default upstream hostname for GitHub Copilot API requests in the api-proxy sidecar (when running on github.com) */
 export const DEFAULT_COPILOT_API_TARGET = 'api.githubcopilot.com';
