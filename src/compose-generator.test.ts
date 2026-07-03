@@ -541,5 +541,21 @@ describe('generateDockerCompose', () => {
         expect(volumes).toContain('/dev:/host/dev:ro');
         expect(volumes).toContain('sysroot:/host:rw');
       });
+
+      it('drops the workDir-adjacent chroot-home bind mount on split-fs', () => {
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          workDir: '/tmp/awf-12345',
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        // The empty-home mount is sourced from `${workDir}-chroot-home`, a sibling
+        // of workDir under the runner's /tmp that the DinD daemon cannot see.
+        expect(volumes.some(v => v.split(':')[0] === '/tmp/awf-12345-chroot-home')).toBe(false);
+        expect(volumes.some(v => v.split(':')[0].startsWith('/tmp/awf-12345'))).toBe(false);
+      });
     });
 });
+
