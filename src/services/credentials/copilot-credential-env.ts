@@ -2,6 +2,7 @@ import { logger } from '../../logger';
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../../constants/placeholders';
 import { getConfigEnvValue } from '../../env-utils';
+import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
 
 interface CopilotCredentialEnvParams {
   config: WrapperConfig;
@@ -45,26 +46,30 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // Reference: https://github.blog/changelog/2026-04-07-copilot-cli-now-supports-byok-and-local-models/
   const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
   const hasCopilotProviderBaseUrl = !!config.copilotProviderBaseUrl || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
-  if (!config.copilotGithubToken && !hasCopilotProviderApiKey && !hasCopilotProviderBaseUrl) {
-    return {};
+  const enabled = !!(config.copilotGithubToken || hasCopilotProviderApiKey || hasCopilotProviderBaseUrl);
+
+  const env = buildProviderCredentialIsolationEnv({
+    providerName: 'GitHub Copilot',
+    proxyIp,
+    port: API_PROXY_PORTS.COPILOT,
+    enabled,
+    // COPILOT_API_URL: sidecar URL for the Copilot token/completion endpoint.
+    // COPILOT_PROVIDER_BASE_URL: sidecar URL for the BYOK provider endpoint.
+    baseUrlVarNames: ['COPILOT_API_URL', 'COPILOT_PROVIDER_BASE_URL'],
+    target: config.copilotApiTarget,
+    placeholders: {
+      COPILOT_TOKEN: COPILOT_PLACEHOLDER_TOKEN,
+    },
+    // Enable Copilot CLI offline + BYOK mode so it skips the GitHub OAuth handshake
+    // and talks directly to the sidecar without needing GitHub authentication for inference.
+    extraEnv: {
+      COPILOT_OFFLINE: 'true',
+    },
+  });
+
+  if (!enabled) {
+    return env;
   }
-
-  const copilotProxyUrl = `http://${proxyIp}:${API_PROXY_PORTS.COPILOT}`;
-  const agentEnvAdditions: Record<string, string> = {
-    COPILOT_API_URL: copilotProxyUrl,
-    COPILOT_TOKEN: COPILOT_PLACEHOLDER_TOKEN,
-    COPILOT_OFFLINE: 'true',
-    COPILOT_PROVIDER_BASE_URL: copilotProxyUrl,
-  };
-
-  logger.debug(`GitHub Copilot API will be proxied through sidecar at ${copilotProxyUrl}`);
-  if (config.copilotApiTarget) {
-    logger.debug(`Copilot API target overridden to: ${config.copilotApiTarget}`);
-  }
-
-  // Set placeholder token for GitHub Copilot CLI compatibility
-  // Real authentication happens via COPILOT_API_URL pointing to api-proxy
-  logger.debug('COPILOT_TOKEN set to placeholder value for credential isolation');
 
   // Credential-isolation placeholders for the BYOK auth variables. These MUST be
   // set here (in agentEnvAdditions, applied last in compose-generator) rather than
@@ -76,14 +81,14 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // placeholders regardless of which env input path (--env / --env-file / --env-all)
   // the user used.
   if (config.copilotGithubToken) {
-    agentEnvAdditions.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
+    env.COPILOT_GITHUB_TOKEN = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_GITHUB_TOKEN set to placeholder value for credential isolation');
   }
   // Only mask COPILOT_PROVIDER_API_KEY when the user actually supplied one. If
   // there is nothing to mask, omit it rather than injecting a placeholder that
   // would misleadingly tell Copilot CLI "a key is configured".
   if (hasCopilotProviderApiKey) {
-    agentEnvAdditions.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
+    env.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value for credential isolation');
   }
 
@@ -92,18 +97,9 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // Copilot CLI uses the correct endpoint in both BYOK modes.
   const copilotModel = getConfigEnvValue(config, 'COPILOT_MODEL');
   if (copilotModel && requiresResponsesWireApi(copilotModel)) {
-    agentEnvAdditions.COPILOT_PROVIDER_WIRE_API = 'responses';
+    env.COPILOT_PROVIDER_WIRE_API = 'responses';
     logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
   }
 
-  // Enable Copilot CLI offline + BYOK mode so it skips the GitHub OAuth handshake
-  // and talks directly to the sidecar without needing GitHub authentication for inference.
-  logger.debug('COPILOT_OFFLINE set to true for offline+BYOK mode');
-
-  // Point Copilot CLI's BYOK provider URL at the sidecar. The sidecar then forwards
-  // either to api.githubcopilot.com (GitHub-token mode) or to the user-supplied
-  // upstream COPILOT_PROVIDER_BASE_URL (direct-BYOK mode).
-  logger.debug(`COPILOT_PROVIDER_BASE_URL set to sidecar at ${copilotProxyUrl}`);
-
-  return agentEnvAdditions;
+  return env;
 }
