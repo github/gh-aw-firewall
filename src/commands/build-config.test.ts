@@ -56,6 +56,7 @@ const ENV_KEYS = [
   'COPILOT_PROVIDER_TYPE',
   'COPILOT_PROVIDER_BASE_URL',
   'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
   'GITHUB_TOKEN',
   'GH_TOKEN',
   'AWF_AUDIT_DIR',
@@ -188,6 +189,12 @@ describe('buildConfig', () => {
       process.env.GEMINI_API_KEY = 'gemini-key';
       const config = buildConfig(makeInputs());
       expect(config.geminiApiKey).toBe('gemini-key');
+    });
+
+    it('should read GOOGLE_API_KEY from process.env', () => {
+      process.env.GOOGLE_API_KEY = 'google-key';
+      const config = buildConfig(makeInputs());
+      expect(config.googleApiKey).toBe('google-key');
     });
 
     it('should read COPILOT_PROVIDER_API_KEY from process.env', () => {

@@ -209,4 +209,19 @@ describe('API proxy split builders', () => {
     expect(agentEnvAdditions.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
     expect(agentEnvAdditions.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
   });
+
+  it('buildAgentCredentialEnv sets Vertex AI proxy URL and placeholder key when googleApiKey is present', () => {
+    const agentEnvAdditions = buildAgentCredentialEnv({
+      config: {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        enableApiProxy: true,
+        googleApiKey: 'google-real-key',
+      },
+      networkConfig,
+    });
+
+    expect(agentEnvAdditions.GOOGLE_VERTEX_BASE_URL).toBe('http://172.30.0.30:10004');
+    expect(agentEnvAdditions.GOOGLE_API_KEY).toBe('google-api-key-placeholder-for-credential-isolation');
+  });
 });

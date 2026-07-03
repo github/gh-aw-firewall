@@ -1,4 +1,4 @@
-import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import type { WrapperConfig } from '../types';
 
 interface ResolveApiCredentialsInputs {
@@ -16,6 +16,7 @@ type ApiCredentials = Pick<WrapperConfig,
   | 'copilotProviderType'
   | 'copilotProviderBaseUrl'
   | 'geminiApiKey'
+  | 'googleApiKey'
   | 'copilotApiTarget'
   | 'copilotApiBasePath'
   | 'openaiApiTarget'
@@ -28,6 +29,8 @@ type ApiCredentials = Pick<WrapperConfig,
   | OidcConfigKey
   | 'geminiApiTarget'
   | 'geminiApiBasePath'
+  | 'vertexApiTarget'
+  | 'vertexApiBasePath'
   | 'githubToken'
 >;
 
@@ -60,6 +63,7 @@ export function resolveApiCredentials(
       COPILOT_ENV.PROVIDER_BASE_URL
     ),
     geminiApiKey: process.env[GEMINI_ENV.KEY],
+    googleApiKey: process.env[VERTEX_ENV.KEY],
     copilotApiTarget: inputs.resolvedCopilotApiTarget,
     copilotApiBasePath: inputs.resolvedCopilotApiBasePath,
     openaiApiTarget: resolveOptionOrEnv(options, 'openaiApiTarget', OPENAI_ENV.TARGET),
@@ -80,6 +84,8 @@ export function resolveApiCredentials(
     ...oidcCredentials,
     geminiApiTarget: resolveOptionOrEnv(options, 'geminiApiTarget', GEMINI_ENV.TARGET),
     geminiApiBasePath: resolveOptionOrEnv(options, 'geminiApiBasePath', GEMINI_ENV.BASE_PATH),
+    vertexApiTarget: resolveOptionOrEnv(options, 'vertexApiTarget', VERTEX_ENV.TARGET),
+    vertexApiBasePath: resolveOptionOrEnv(options, 'vertexApiBasePath', VERTEX_ENV.BASE_PATH),
     githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
   };
 }

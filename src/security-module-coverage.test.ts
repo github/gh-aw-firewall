@@ -7,6 +7,7 @@
  *   - src/services/credentials/copilot-credential-env.ts
  *   - src/services/credentials/gemini-credential-env.ts
  *   - src/services/credentials/openai-credential-env.ts
+ *   - src/services/credentials/vertex-credential-env.ts
  */
 
 jest.mock('./logger', () => ({
@@ -29,6 +30,7 @@ import { buildAnthropicCredentialEnv } from './services/credentials/anthropic-cr
 import { buildCopilotCredentialEnv } from './services/credentials/copilot-credential-env';
 import { buildGeminiCredentialEnv } from './services/credentials/gemini-credential-env';
 import { buildOpenAiCredentialEnv } from './services/credentials/openai-credential-env';
+import { buildVertexCredentialEnv } from './services/credentials/vertex-credential-env';
 import type { WrapperConfig } from './types';
 import { getLowerCaseProcessEnvValue, getConfigEnvValue } from './env-utils';
 
@@ -603,5 +605,35 @@ describe('buildOpenAiCredentialEnv', () => {
     const config = { ...baseConfig, openaiApiKey: 'sk-test' } as WrapperConfig;
     const result = buildOpenAiCredentialEnv({ config, proxyIp });
     expect(result.OPENAI_BASE_URL).toMatch(/:10000$/);
+  });
+});
+
+// ====================================================
+// src/services/credentials/vertex-credential-env.ts
+// ====================================================
+describe('buildVertexCredentialEnv', () => {
+  it('returns empty object when googleApiKey is not set', () => {
+    const result = buildVertexCredentialEnv({ config: baseConfig, proxyIp });
+    expect(result).toEqual({});
+  });
+
+  it('returns env additions when googleApiKey is set', () => {
+    const config = { ...baseConfig, googleApiKey: 'AIza-test-key' } as WrapperConfig;
+    const result = buildVertexCredentialEnv({ config, proxyIp });
+    expect(result.GOOGLE_VERTEX_BASE_URL).toBe(`http://${proxyIp}:10004`);
+    expect(result.GOOGLE_API_KEY).toBe('google-api-key-placeholder-for-credential-isolation');
+  });
+
+  it('real googleApiKey is NOT present in agent env (credential isolation)', () => {
+    const realKey = 'AIza-real-vertex-secret-key';
+    const config = { ...baseConfig, googleApiKey: realKey } as WrapperConfig;
+    const result = buildVertexCredentialEnv({ config, proxyIp });
+    expect(Object.values(result)).not.toContain(realKey);
+  });
+
+  it('routes to Vertex AI port 10004 specifically', () => {
+    const config = { ...baseConfig, googleApiKey: 'AIza-test' } as WrapperConfig;
+    const result = buildVertexCredentialEnv({ config, proxyIp });
+    expect(result.GOOGLE_VERTEX_BASE_URL).toMatch(/:10004$/);
   });
 });

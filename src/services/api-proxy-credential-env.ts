@@ -4,6 +4,7 @@ import { buildOpenAiCredentialEnv } from './credentials/openai-credential-env';
 import { buildAnthropicCredentialEnv } from './credentials/anthropic-credential-env';
 import { buildCopilotCredentialEnv } from './credentials/copilot-credential-env';
 import { buildGeminiCredentialEnv } from './credentials/gemini-credential-env';
+import { buildVertexCredentialEnv } from './credentials/vertex-credential-env';
 
 interface ApiProxyCredentialEnvParams {
   config: WrapperConfig;
@@ -27,6 +28,7 @@ export function buildAgentCredentialEnv(params: ApiProxyCredentialEnvParams): Re
   Object.assign(agentEnvAdditions, buildAnthropicCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
   Object.assign(agentEnvAdditions, buildCopilotCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
   Object.assign(agentEnvAdditions, buildGeminiCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
+  Object.assign(agentEnvAdditions, buildVertexCredentialEnv({ config, proxyIp: networkConfig.proxyIp }));
 
   return agentEnvAdditions;
 }

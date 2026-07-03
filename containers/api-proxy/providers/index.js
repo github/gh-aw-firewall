@@ -13,6 +13,7 @@ const { createOpenAIAdapter } = require('./openai');
 const { createAnthropicAdapter } = require('./anthropic');
 const { createCopilotAdapter } = require('./copilot');
 const { createGeminiAdapter } = require('./gemini');
+const { createVertexAdapter } = require('./vertex');
 
 /**
  * @typedef {Object} ProbeConfig
@@ -92,7 +93,7 @@ const { createGeminiAdapter } = require('./gemini');
  * which providers appear in /reflect and models.json output.
  *
  * @param {Record<string, string|undefined>} env - Environment variables (typically process.env)
- * @param {{ openaiBodyTransform, anthropicBodyTransform, copilotBodyTransform, geminiBodyTransform }} deps
+ * @param {{ openaiBodyTransform, anthropicBodyTransform, copilotBodyTransform, geminiBodyTransform, vertexBodyTransform }} deps
  *   Body-transform functions produced by server.js (to avoid circular dependencies).
  * @returns {ProviderAdapter[]}
  */
@@ -101,8 +102,9 @@ function createAllAdapters(env, deps = {}) {
   const anthropic = createAnthropicAdapter(env, { bodyTransform: deps.anthropicBodyTransform || null });
   const copilot   = createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   || null });
   const gemini    = createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    || null });
+  const vertex    = createVertexAdapter(env,    { bodyTransform: deps.vertexBodyTransform    || null });
 
-  return [openai, anthropic, copilot, gemini];
+  return [openai, anthropic, copilot, gemini, vertex];
 }
 
 module.exports = {

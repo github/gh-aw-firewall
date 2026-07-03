@@ -97,6 +97,14 @@ describe('buildExclusionSet', () => {
     it('should exclude GEMINI_API_BASE_URL', () => {
       expect(buildExclusionSet(config).has('GEMINI_API_BASE_URL')).toBe(true);
     });
+
+    it('should exclude GOOGLE_API_KEY (Vertex AI credential)', () => {
+      expect(buildExclusionSet(config).has('GOOGLE_API_KEY')).toBe(true);
+    });
+
+    it('should exclude GOOGLE_VERTEX_BASE_URL (Vertex AI base URL)', () => {
+      expect(buildExclusionSet(config).has('GOOGLE_VERTEX_BASE_URL')).toBe(true);
+    });
   });
 
   describe('when enableApiProxy is false', () => {

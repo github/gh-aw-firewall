@@ -14,6 +14,8 @@ export const ANTHROPIC_ENV = providerEnvConstants.ANTHROPIC_ENV;
 export const GEMINI_ENV = providerEnvConstants.GEMINI_ENV;
 /** Environment variable names for the Copilot provider adapter. */
 export const COPILOT_ENV = providerEnvConstants.COPILOT_ENV;
+/** Environment variable names for the Vertex AI provider adapter. */
+export const VERTEX_ENV = providerEnvConstants.VERTEX_ENV;
 
 /**
  * OIDC authentication env var mappings.

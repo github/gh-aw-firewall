@@ -8,6 +8,7 @@ const ENV_KEYS = [
   'COPILOT_PROVIDER_TYPE',
   'COPILOT_PROVIDER_BASE_URL',
   'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
   'OPENAI_API_TARGET',
   'OPENAI_API_BASE_PATH',
   'ANTHROPIC_API_TARGET',
@@ -22,6 +23,8 @@ const ENV_KEYS = [
   'AWF_AUTH_GCP_SCOPE',
   'GEMINI_API_TARGET',
   'GEMINI_API_BASE_PATH',
+  'VERTEX_API_TARGET',
+  'VERTEX_API_BASE_PATH',
   'GITHUB_TOKEN',
   'GH_TOKEN',
 ] as const;
@@ -53,6 +56,7 @@ describe('resolveApiCredentials', () => {
     process.env.COPILOT_GITHUB_TOKEN = 'gh-copilot';
     process.env.COPILOT_PROVIDER_API_KEY = 'sk-provider';
     process.env.GEMINI_API_KEY = 'sk-gemini';
+    process.env.GOOGLE_API_KEY = 'sk-google';
 
     const credentials = resolveApiCredentials({});
 
@@ -61,6 +65,7 @@ describe('resolveApiCredentials', () => {
     expect(credentials.copilotGithubToken).toBe('gh-copilot');
     expect(credentials.copilotProviderApiKey).toBe('sk-provider');
     expect(credentials.geminiApiKey).toBe('sk-gemini');
+    expect(credentials.googleApiKey).toBe('sk-google');
   });
 
   it('prefers explicit options over environment fallbacks', () => {
@@ -101,16 +106,19 @@ describe('resolveApiCredentials', () => {
     process.env.OPENAI_API_BASE_PATH = '/env-base-path';
     process.env.ANTHROPIC_API_BASE_PATH = '/env-anthropic-base';
     process.env.GEMINI_API_BASE_PATH = '/env-gemini-base';
+    process.env.VERTEX_API_BASE_PATH = '/env-vertex-base';
 
     const credentials = resolveApiCredentials({
       openaiApiBasePath: '',
       anthropicApiBasePath: '',
       geminiApiBasePath: '',
+      vertexApiBasePath: '',
     });
 
     expect(credentials.openaiApiBasePath).toBe('');
     expect(credentials.anthropicApiBasePath).toBe('');
     expect(credentials.geminiApiBasePath).toBe('');
+    expect(credentials.vertexApiBasePath).toBe('');
   });
 
   it('passes through resolved copilot endpoints and github token precedence', () => {

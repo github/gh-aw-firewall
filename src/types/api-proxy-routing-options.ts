@@ -222,4 +222,35 @@ export interface ApiProxyRoutingOptions {
    * @default ''
    */
   geminiApiBasePath?: string;
+
+  /**
+   * Target hostname for Google Vertex AI API requests (used by API proxy sidecar)
+   *
+   * Overrides the default `aiplatform.googleapis.com` target when set. Useful
+   * for region-specific endpoints or private API Gateway endpoints.
+   *
+   * Can be set via:
+   * - CLI flag: `--vertex-api-target <host>`
+   * - Environment variable: `VERTEX_API_TARGET`
+   *
+   * @default 'aiplatform.googleapis.com'
+   * @example
+   * ```bash
+   * awf --enable-api-proxy --vertex-api-target us-central1-aiplatform.googleapis.com -- command
+   * ```
+   */
+  vertexApiTarget?: string;
+
+  /**
+   * Base path prefix for Google Vertex AI API requests (used by API proxy sidecar)
+   *
+   * When set, this path is prepended to every upstream request path.
+   *
+   * Can be set via:
+   * - CLI flag: `--vertex-api-base-path <path>`
+   * - Environment variable: `VERTEX_API_BASE_PATH`
+   *
+   * @default ''
+   */
+  vertexApiBasePath?: string;
 }

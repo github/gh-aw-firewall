@@ -34,6 +34,7 @@ const SENSITIVE_CONFIG_KEYS = new Set([
   'copilotGithubToken',
   'copilotProviderApiKey',
   'geminiApiKey',
+  'googleApiKey',
   'githubToken',
 ]);
 

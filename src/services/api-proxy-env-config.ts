@@ -2,7 +2,7 @@ import { SQUID_PORT } from '../constants';
 import { stripScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
-import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
+import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 
 /**
@@ -22,6 +22,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     { target: config.openaiApiTarget, basePath: config.openaiApiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
     { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
     { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
+    { target: config.vertexApiTarget, basePath: config.vertexApiBasePath, envTarget: VERTEX_ENV.TARGET, envBasePath: VERTEX_ENV.BASE_PATH, stripTarget: true },
   ];
 
   for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
@@ -75,6 +76,7 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
     ...(config.copilotGithubToken && { [COPILOT_ENV.GITHUB_TOKEN]: config.copilotGithubToken }),
     ...(config.geminiApiKey && { [GEMINI_ENV.KEY]: config.geminiApiKey }),
+    ...(config.googleApiKey && { [VERTEX_ENV.KEY]: config.googleApiKey }),
     // Configurable API targets (for GHES/GHEC / custom endpoints)
     // Strip any scheme prefix — server.js also normalizes defensively, but
     // stripping here prevents a scheme-prefixed hostname from reaching the

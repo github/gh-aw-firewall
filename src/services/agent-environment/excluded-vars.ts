@@ -32,6 +32,8 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GEMINI_API_KEY');
     excludedEnvVars.add('GOOGLE_GEMINI_BASE_URL');
     excludedEnvVars.add('GEMINI_API_BASE_URL');
+    excludedEnvVars.add('GOOGLE_API_KEY');
+    excludedEnvVars.add('GOOGLE_VERTEX_BASE_URL');
   }
 
   if (config.difcProxyHost) {

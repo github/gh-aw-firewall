@@ -39,6 +39,12 @@ export const API_PROXY_PORTS = {
    */
   GEMINI: 10003,
 
+  /**
+   * Google Vertex AI API proxy port
+   * @see containers/api-proxy/server.js
+   */
+  VERTEX: 10004,
+
 } as const;
 
 /**

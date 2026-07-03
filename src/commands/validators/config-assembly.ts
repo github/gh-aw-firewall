@@ -220,6 +220,7 @@ function validateApiProxyOptions(
     !!config.copilotGithubToken || copilotByokDirect,
     !!config.geminiApiKey,
     hasAnthropicWif,
+    !!config.googleApiKey,
   );
 
   // Log API proxy status at info level for visibility
@@ -235,7 +236,7 @@ function validateApiProxyOptions(
         ? 'true (wif)'
         : 'false';
     logger.info(
-      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${anthropicStatus}, Copilot=${copilotStatus}, Gemini=${!!config.geminiApiKey}`,
+      `API proxy enabled: OpenAI=${!!config.openaiApiKey}, Anthropic=${anthropicStatus}, Copilot=${copilotStatus}, Gemini=${!!config.geminiApiKey}, Vertex=${!!config.googleApiKey}`,
     );
   }
 

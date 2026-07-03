@@ -17,6 +17,7 @@ export interface ApiProxyCredentialOptions {
    * - http://api-proxy:10001 - Anthropic API proxy (for Claude) {@link API_PROXY_PORTS.ANTHROPIC}
    * - http://api-proxy:10002 - GitHub Copilot API proxy {@link API_PROXY_PORTS.COPILOT}
    * - http://api-proxy:10003 - Google Gemini API proxy {@link API_PROXY_PORTS.GEMINI}
+   * - http://api-proxy:10004 - Google Vertex AI API proxy {@link API_PROXY_PORTS.VERTEX}
    *
    * When the corresponding API key is provided, the following environment
    * variables are set in the agent container:
@@ -24,6 +25,7 @@ export interface ApiProxyCredentialOptions {
    * - ANTHROPIC_BASE_URL=http://api-proxy:10001 (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
    * - COPILOT_API_URL=http://api-proxy:10002 (set when COPILOT_GITHUB_TOKEN is provided)
    * - CLAUDE_CODE_API_KEY_HELPER=/usr/local/bin/get-claude-key.sh (set when ANTHROPIC_API_KEY is provided, or when AWF_AUTH_TYPE=github-oidc and AWF_AUTH_PROVIDER=anthropic)
+   * - GOOGLE_VERTEX_BASE_URL=http://api-proxy:10004 (set when GOOGLE_API_KEY is provided)
    *
    * API keys are passed via environment variables:
    * - OPENAI_API_KEY - Optional OpenAI API key for Codex
@@ -31,6 +33,7 @@ export interface ApiProxyCredentialOptions {
    * - COPILOT_GITHUB_TOKEN - Optional GitHub token for Copilot
    * - COPILOT_PROVIDER_API_KEY - Optional upstream BYOK API key for Copilot-compatible providers
    * - GEMINI_API_KEY - Optional Google Gemini API key
+   * - GOOGLE_API_KEY - Optional Google API key for Vertex AI
    *
    * @default false
    * @example
@@ -113,6 +116,22 @@ export interface ApiProxyCredentialOptions {
    * @default undefined
    */
   geminiApiKey?: string;
+
+  /**
+   * Google API key for Vertex AI (used by API proxy sidecar)
+   *
+   * When enableApiProxy is true, this key is injected into the Node.js sidecar
+   * container and used to authenticate requests to aiplatform.googleapis.com.
+   *
+   * The key is NOT exposed to the agent container - only the proxy URL is provided.
+   * The agent receives a placeholder value so Gemini CLI's Vertex auth check passes.
+   *
+   * Corresponds to the `GOOGLE_API_KEY` environment variable used by the Gemini CLI
+   * in Vertex AI mode (`GOOGLE_GENAI_USE_VERTEXAI=true`).
+   *
+   * @default undefined
+   */
+  googleApiKey?: string;
 
   /**
    * Custom auth header name for OpenAI API requests (used by API proxy sidecar)

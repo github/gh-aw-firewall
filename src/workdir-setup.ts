@@ -232,7 +232,7 @@ function prepareChrootHomeMounts(config: WrapperConfig): void {
   const hostHomeMountSourceDirs = [
     '.copilot', '.cache', '.config', '.local',
     '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
-    ...(config.geminiApiKey ? ['.gemini'] : []),
+    ...(config.geminiApiKey || config.googleApiKey ? ['.gemini'] : []),
   ];
   for (const dir of hostHomeMountSourceDirs) {
     const dirPath = path.join(effectiveHome, dir);

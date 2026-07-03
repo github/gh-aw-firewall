@@ -49,7 +49,7 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   mounts.push(`${effectiveHome}/.anthropic:/host${effectiveHome}/.anthropic:rw`);
   mounts.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
 
-  if (config.geminiApiKey) {
+  if (config.geminiApiKey || config.googleApiKey) {
     mounts.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
   }
 
