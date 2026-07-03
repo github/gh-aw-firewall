@@ -115,9 +115,26 @@ describe('createCopilotAdapter — GHE enterprise auth format', () => {
     expect(headers['Authorization']).toBe('token ghu_enterprise_token_123');
   });
 
-  it('uses "Bearer" when AWF_PLATFORM_TYPE=github.com overrides GHES-looking GITHUB_SERVER_URL', () => {
+  it('uses "token" when auto-derived target is api.enterprise even with AWF_PLATFORM_TYPE=github.com', () => {
+    // With GITHUB_SERVER_URL pointing to a non-ghe.com host, deriveCopilotApiTarget
+    // auto-derives to api.enterprise.githubcopilot.com — a catalog endpoint that
+    // always requires the 'token' prefix. AWF_PLATFORM_TYPE cannot override catalog
+    // endpoints (it only overrides the GHES heuristic for custom/unknown targets).
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'ghu_token_123',
+      AWF_PLATFORM_TYPE: 'github.com',
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_token_123');
+  });
+
+  it('uses "Bearer" when AWF_PLATFORM_TYPE=github.com overrides GHES heuristic for a custom proxy', () => {
+    // AWF_PLATFORM_TYPE=github.com does suppress the 'token' prefix for
+    // custom/unknown targets (not catalog endpoints), e.g. a custom proxy host.
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_token_123',
+      COPILOT_API_TARGET: 'custom-proxy.internal',
       AWF_PLATFORM_TYPE: 'github.com',
       GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
     });
@@ -181,6 +198,21 @@ describe('createCopilotAdapter — Copilot Business auth format', () => {
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('token ghu_business_token_123');
     expect(headers['Authorization']).not.toContain('token token');
+  });
+
+  it('uses "token" prefix for Business target when AWF_PLATFORM_TYPE=ghec is set (regression #5871)', () => {
+    // Regression: gh-aw automatically sets AWF_PLATFORM_TYPE=ghec on *.ghe.com
+    // runners. Previously this caused the 'token' prefix to be suppressed for
+    // COPILOT_API_TARGET=api.business.githubcopilot.com, yielding
+    // "400 bad request: Authorization header is badly formatted".
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+      AWF_PLATFORM_TYPE: 'ghec',
+      GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
   });
 });
 

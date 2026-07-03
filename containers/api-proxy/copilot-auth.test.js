@@ -235,11 +235,33 @@ describe('copilotTargetRequiresGitHubTokenPrefix', () => {
     })).toBe(true);
   });
 
-  it('returns false when an explicit non-GHES AWF_PLATFORM_TYPE overrides the Business host', () => {
-    // The explicit platform override is the documented escape hatch and wins
-    // even for the Business host, matching isGhesInstance semantics.
+  it('returns true for the Business host even when AWF_PLATFORM_TYPE=ghec is set', () => {
+    // Regression: gh-aw automatically sets AWF_PLATFORM_TYPE=ghec on *.ghe.com
+    // (GHEC) runners. The catalog endpoint check must take priority over the
+    // platform-type guard so that Copilot Business customers who set
+    // COPILOT_API_TARGET=api.business.githubcopilot.com still receive the
+    // required 'token' prefix and not 'Bearer'. See github/gh-aw-firewall#5871.
     expect(copilotTargetRequiresGitHubTokenPrefix('api.business.githubcopilot.com', {
       AWF_PLATFORM_TYPE: 'ghec',
+    })).toBe(true);
+  });
+
+  it('returns true for Business host with AWF_PLATFORM_TYPE=ghec and *.ghe.com server (full production scenario)', () => {
+    // Full production scenario from issue #5871: Copilot Business on GHEC.
+    // COPILOT_API_TARGET=api.business.githubcopilot.com, GITHUB_SERVER_URL=*.ghe.com,
+    // AWF_PLATFORM_TYPE=ghec (auto-injected by gh-aw on GHEC runners).
+    expect(copilotTargetRequiresGitHubTokenPrefix('api.business.githubcopilot.com', {
+      AWF_PLATFORM_TYPE: 'ghec',
+      GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+    })).toBe(true);
+  });
+
+  it('returns false when AWF_PLATFORM_TYPE=github.com for a non-catalog custom target', () => {
+    // The platform override should still suppress the GHES heuristic for
+    // custom/unknown proxy targets (only catalog endpoints are unaffected).
+    expect(copilotTargetRequiresGitHubTokenPrefix('custom-proxy.internal', {
+      AWF_PLATFORM_TYPE: 'github.com',
+      GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
     })).toBe(false);
   });
 
