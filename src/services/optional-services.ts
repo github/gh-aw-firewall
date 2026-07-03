@@ -58,7 +58,7 @@ function filterAgentVolumesForSysroot(
     '/host/lib64',
     '/host/opt',
   ]);
-  const workDirPrefix = config.workDir;
+  const normalizedWorkDirPrefix = config.workDir.replace(/\/+$/, '');
   const hostHomeMountPrefix = `/host${effectiveHome}`;
 
   return agentVolumes.filter(volume => {
@@ -71,8 +71,9 @@ function filterAgentVolumesForSysroot(
     if (sysrootShadowedTargets.has(target)) return false;
 
     // Drop mounts sourced from AWF workDir (runner's unshared /tmp/awf-*)
-    if (source.startsWith(workDirPrefix)) return false;
-
+    if (source === normalizedWorkDirPrefix || source.startsWith(`${normalizedWorkDirPrefix}/`)) {
+      return false;
+    }
     // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
     // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
     // custom mounts or tool-cache mounts that the sysroot doesn't provide.
