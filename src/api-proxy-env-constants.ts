@@ -4,29 +4,16 @@
  * Single source of truth: containers/api-proxy/provider-env-constants.json
  * The CommonJS sidecar loads the same JSON via containers/api-proxy/provider-env-constants.js.
  */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const _providerEnvConstants = require('../containers/api-proxy/provider-env-constants.json') as {
-  OPENAI_ENV: { KEY: string; TARGET: string; BASE_PATH: string; AUTH_HEADER: string };
-  ANTHROPIC_ENV: { KEY: string; TARGET: string; BASE_PATH: string; AUTH_HEADER: string };
-  GEMINI_ENV: { KEY: string; TARGET: string; BASE_PATH: string };
-  COPILOT_ENV: {
-    GITHUB_TOKEN: string;
-    PROVIDER_API_KEY: string;
-    PROVIDER_TYPE: string;
-    PROVIDER_BASE_URL: string;
-    API_TARGET: string;
-    API_BASE_PATH: string;
-  };
-};
+import providerEnvConstants from '../containers/api-proxy/provider-env-constants.json';
 
 /** Environment variable names for the OpenAI provider adapter. */
-export const OPENAI_ENV = _providerEnvConstants.OPENAI_ENV;
+export const OPENAI_ENV = providerEnvConstants.OPENAI_ENV;
 /** Environment variable names for the Anthropic provider adapter. */
-export const ANTHROPIC_ENV = _providerEnvConstants.ANTHROPIC_ENV;
+export const ANTHROPIC_ENV = providerEnvConstants.ANTHROPIC_ENV;
 /** Environment variable names for the Gemini provider adapter. */
-export const GEMINI_ENV = _providerEnvConstants.GEMINI_ENV;
+export const GEMINI_ENV = providerEnvConstants.GEMINI_ENV;
 /** Environment variable names for the Copilot provider adapter. */
-export const COPILOT_ENV = _providerEnvConstants.COPILOT_ENV;
+export const COPILOT_ENV = providerEnvConstants.COPILOT_ENV;
 
 /**
  * OIDC authentication env var mappings.
