@@ -44,7 +44,7 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // letting the real BASE_URL leak into the agent) preserves the credential-isolation
   // invariant and surfaces a clear error instead of a silent bypass.
   // Reference: https://github.blog/changelog/2026-04-07-copilot-cli-now-supports-byok-and-local-models/
-  const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
+  const hasCopilotProviderApiKey = !!config.copilotProviderApiKey || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
   const hasCopilotProviderBaseUrl = !!config.copilotProviderBaseUrl || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
   const enabled = !!(config.copilotGithubToken || hasCopilotProviderApiKey || hasCopilotProviderBaseUrl);
 

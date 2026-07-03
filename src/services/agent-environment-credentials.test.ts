@@ -47,6 +47,23 @@ describe('agent environment: credentials', () => {
     expect(env.COPILOT_PROVIDER_API_KEY).not.toBe('sk-real-provider-key');
   });
 
+  it('should mask COPILOT_PROVIDER_API_KEY supplied via additionalEnv (--env path)', () => {
+    // When the user passes --env COPILOT_PROVIDER_API_KEY=<real-key>, the real key ends
+    // up in config.additionalEnv. The credential-isolation logic must detect it there
+    // (not only in config.copilotProviderApiKey) and replace it with the placeholder so
+    // the real key never reaches the agent environment.
+    const configWithEnv = {
+      ...mockConfig,
+      enableApiProxy: true,
+      additionalEnv: { COPILOT_PROVIDER_API_KEY: 'sk-env-provider-key' },
+    };
+    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+    const result = generateDockerCompose(configWithEnv, proxyNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.COPILOT_PROVIDER_API_KEY).toBe('ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(env.COPILOT_PROVIDER_API_KEY).not.toBe('sk-env-provider-key');
+  });
+
   it('should forward AWF_ONE_SHOT_TOKEN_DEBUG when set', () => {
     const original = process.env.AWF_ONE_SHOT_TOKEN_DEBUG;
     process.env.AWF_ONE_SHOT_TOKEN_DEBUG = '1';
