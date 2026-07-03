@@ -52,6 +52,7 @@ export interface AwfFileConfig {
         sessionId?: string;
       };
       gemini?: { host?: string; basePath?: string };
+      vertex?: { host?: string; basePath?: string };
       antigravity?: { host?: string; basePath?: string };
     };
     models?: Record<string, string[]>;

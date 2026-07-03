@@ -159,6 +159,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
 - `apiProxy.targets.antigravity.basePath` → `--gemini-api-base-path`
 - When both `apiProxy.targets.antigravity` and `apiProxy.targets.gemini` are set, `antigravity` takes precedence per field.
+- `apiProxy.targets.vertex.host` → `--vertex-api-target`
+- `apiProxy.targets.vertex.basePath` → `--vertex-api-base-path`
 - `security.sslBump` → `--ssl-bump`
 - `security.enableDlp` → `--enable-dlp`
 - `security.enableHostAccess` → `--enable-host-access`

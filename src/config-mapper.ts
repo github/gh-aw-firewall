@@ -56,6 +56,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     copilotByokSessionId: config.apiProxy?.targets?.copilot?.sessionId,
     geminiApiTarget: antigravityTargetConfig?.host ?? geminiTargetConfig?.host,
     geminiApiBasePath: antigravityTargetConfig?.basePath ?? geminiTargetConfig?.basePath,
+    vertexApiTarget: config.apiProxy?.targets?.vertex?.host,
+    vertexApiBasePath: config.apiProxy?.targets?.vertex?.basePath,
     modelAliases: config.apiProxy?.models,
     allowedModels: config.apiProxy?.allowedModels,
     disallowedModels: config.apiProxy?.disallowedModels,
