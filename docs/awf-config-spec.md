@@ -1553,6 +1553,8 @@ https://raw.githubusercontent.com/github/gh-aw-firewall/main/schemas/cli-proxy-a
 
 ## Informative References
 
+- [docs/arc-dind.md](arc-dind.md) — ARC/DinD split-filesystem architecture, sysroot
+  staging, and end-to-end configuration examples
 - [docs/environment.md](environment.md) — Usage guide for environment
   variables
 - [docs/authentication-architecture.md](authentication-architecture.md) —

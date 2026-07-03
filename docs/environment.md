@@ -365,6 +365,8 @@ container:
 | ARC runner with DinD sidecar | Yes — set to the host mount prefix (e.g. `/host`) |
 | ARC runner with Docker socket mount | Only if the runner and daemon have different filesystem views |
 
+> **See also:** [docs/arc-dind.md](arc-dind.md) for a complete ARC/DinD configuration guide, including sysroot staging, tool-cache guidance, and end-to-end examples.
+
 ### Security: procfs and credential isolation
 
 AWF mounts a container-scoped procfs at `/host/proc` with `hidepid=2` to prevent the agent from reading other processes' environment variables. This is critical because:

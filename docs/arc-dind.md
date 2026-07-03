@@ -160,6 +160,7 @@ filesystem. Prefer a shared runner/daemon path under `/tmp/gh-aw` when possible.
 AWF detects likely ARC/DinD environments at startup and warns when `--docker-host-path-prefix` is missing:
 
 - non-default unix `DOCKER_HOST` socket paths (outside `/var/run/docker.sock` and `/run/docker.sock`)
+- loopback TCP `DOCKER_HOST` endpoints (`tcp://localhost:*` or `tcp://127.0.0.1:*`) — the standard ARC RunnerScaleSet DinD sidecar configuration
 - `AWF_DIND=1`
 
 ## Recommended DinD base image
@@ -173,3 +174,9 @@ It includes `docker-ce`, `libcap2-bin` (`capsh`), and Node.js preinstalled.
 ## Runtime prerequisite
 
 Copilot CLI still requires `node` to be available inside the chrooted runtime PATH.
+
+## See also
+
+- [docs/awf-config-spec.md](awf-config-spec.md) — Normative field reference and CLI mapping for all ARC/DinD config fields (`container.dockerHostPathPrefix`, `container.enableDind`, `container.dockerHost`, `chroot.*`, `dind.*`, `runner.*`)
+- [docs/awf-config.schema.json](awf-config.schema.json) — Machine-readable JSON Schema for IDE validation
+- [docs/environment.md](environment.md) — `DOCKER_HOST` handling, `AWF_DIND`, and split-filesystem guidance

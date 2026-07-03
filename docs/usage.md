@@ -888,6 +888,11 @@ sudo awf --enable-dind --allow-domains registry-1.docker.io -- docker run hello-
 > restrictions by spawning containers that are not subject to the firewall's network
 > rules.  Only enable it for trusted workloads that genuinely need Docker access.
 
+> **ARC/DinD (split runner/daemon filesystem):** If you are running AWF on an ARC
+> runner where the runner pod and the Docker daemon have separate filesystems, see
+> [docs/arc-dind.md](arc-dind.md) for the correct configuration using
+> `--docker-host-path-prefix`, `runner.topology: arc-dind`, and sysroot staging.
+
 ## IP-Based Access
 
 Direct IP access (without domain names) is blocked:
