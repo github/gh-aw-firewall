@@ -64,14 +64,14 @@ function persistConfigAuditArtifact(
 ): void {
   try {
     const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
-    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o755 });
+    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o700 });
     const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
-    fs.writeFileSync(
-      configArtifactPath,
-      JSON.stringify(redactedConfig, null, 2) + '\n',
-      { mode: 0o644 },
-    );
-    fs.chmodSync(configArtifactPath, 0o644);
+    const fd = fs.openSync(configArtifactPath, 'wx', 0o600);
+    try {
+      fs.writeFileSync(fd, JSON.stringify(redactedConfig, null, 2) + '\n');
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err) {
     logger.debug(`Failed to write resolved config artifact: ${err}`);
   }
