@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-02T22:45:35Z",
+  "lastUpdated": "2026-07-03T06:21:01Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -80,16 +80,40 @@
           "notes": "Reasoning model. o4-mini supports both endpoints (ModelIdsShared)."
         },
         {
+          "family": "o3-pro/deep-research",
+          "patterns": ["o3-pro", "o3-pro-*", "o3-deep-research", "o3-deep-research-*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. o3-pro and o3-deep-research are in ResponsesModel but not ChatModel."
+        },
+        {
           "family": "o3",
           "patterns": ["o3*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Reasoning model. Supports both endpoints."
+          "notes": "Reasoning model. o3, o3-mini support both endpoints. o3-pro/deep-research use responses only (covered by separate entry above)."
+        },
+        {
+          "family": "o1-pro",
+          "patterns": ["o1-pro", "o1-pro-*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. o1-pro is in ResponsesModel but not ChatModel."
         },
         {
           "family": "o1",
           "patterns": ["o1*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Reasoning model. Supports both endpoints."
+          "notes": "Reasoning model. o1, o1-mini, o1-preview support both endpoints. o1-pro uses responses only (covered by separate entry above)."
+        },
+        {
+          "family": "computer-use-preview",
+          "patterns": ["computer-use-preview*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only. Specialized model for computer use tasks."
+        },
+        {
+          "family": "codex-mini",
+          "patterns": ["codex-mini*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. codex-mini-latest is in ChatModel."
         },
         {
           "family": "gpt-4o",
@@ -159,7 +183,7 @@
           "family": "claude-opus-4",
           "patterns": ["claude-opus-4*"],
           "endpoints": ["messages"],
-          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5. 1M token context."
+          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-opus-4-1. 1M token context."
         },
         {
           "family": "claude-sonnet-4",
