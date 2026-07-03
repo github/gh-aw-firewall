@@ -55,6 +55,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
             sessionId: 'run-42',
           },
           gemini: { host: 'generativelanguage.googleapis.com', basePath: '/v1beta' },
+          vertex: { host: 'us-central1-aiplatform.googleapis.com', basePath: '/v1' },
         },
       },
     });
@@ -67,6 +68,8 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.copilotByokSessionId).toBe('run-42');
     expect(result.geminiApiTarget).toBe('generativelanguage.googleapis.com');
     expect(result.geminiApiBasePath).toBe('/v1beta');
+    expect(result.vertexApiTarget).toBe('us-central1-aiplatform.googleapis.com');
+    expect(result.vertexApiBasePath).toBe('/v1');
   });
 
   it('maps authHeader fields for openai and anthropic targets', () => {
