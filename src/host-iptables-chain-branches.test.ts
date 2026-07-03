@@ -4,12 +4,12 @@
  * These tests cover the two remaining uncovered branches identified by the
  * coverage report:
  *
- * 1. host-iptables-chain.ts line 20:
+ * 1. host-iptables-chain.ts — `checkPermissionsAndSetupChain`:
  *    `throw new Error('iptables is required but was not found...')` inside the
  *    DOCKER-USER check catch block — triggered when the DOCKER-USER list command
  *    fails with an ENOENT / "not found" error.
  *
- * 2. host-iptables-validation.ts line 34:
+ * 2. host-iptables-validation.ts — `isMissingIptablesError`:
  *    `error instanceof Error ? error.message : ''` — the `''` fallback branch
  *    exercised when `isMissingIptablesError` receives a non-Error thrown value
  *    (e.g. a plain object or string).
@@ -29,7 +29,6 @@ describe('host-iptables-chain branch coverage', () => {
   setupHostIptablesTestSuite(iptablesSharedTestHelpers.resetIpv6State);
 
   // -------------------------------------------------------------------------
-  // chain.ts line 20 (branch):
   // checkPermissionsAndSetupChain – the DOCKER-USER list check fails with an
   // ENOENT / "not found" error.  This path re-throws as a user-readable
   // "iptables is required but was not found" message.
@@ -64,12 +63,11 @@ describe('host-iptables-chain branch coverage', () => {
 });
 
 // -------------------------------------------------------------------------
-// validation.ts line 34 (branch):
 // isMissingIptablesError – the `''` branch of the ternary:
 //   `const message = error instanceof Error ? error.message : ''`
 // This branch fires when the caught value is NOT an Error instance.
 // -------------------------------------------------------------------------
-describe('isMissingIptablesError – non-Error thrown values (validation.ts line 34)', () => {
+describe('isMissingIptablesError – non-Error thrown values', () => {
   it('returns false for a plain object with no code or message (takes the "" branch)', () => {
     // Not an Error instance → message = '' → all three conditions false → returns false
     expect(isMissingIptablesError({ someKey: 'someValue' })).toBe(false);
