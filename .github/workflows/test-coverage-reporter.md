@@ -66,7 +66,16 @@ steps:
 
   - name: Run coverage
     id: coverage
-    run: set -o pipefail && npm run test:coverage 2>&1 | tail -20
+    run: |
+      set +e
+      npm run test:coverage 2>&1 | tee /tmp/coverage-full.log
+      COVERAGE_EXIT=$?
+      tail -20 /tmp/coverage-full.log
+      if [ $COVERAGE_EXIT -ne 0 ]; then
+        echo "::warning::test:coverage exited with code $COVERAGE_EXIT (some tests may have failed); continuing with available coverage data"
+      fi
+      # Continue even if tests fail — this is a reporter, not a gate
+      exit 0
 
   - name: Compute per-file coverage table
     id: coverage-table
