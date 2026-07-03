@@ -4,6 +4,8 @@
 const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockChmodSync = jest.fn();
+const mockOpenSync = jest.fn().mockReturnValue(42);
+const mockCloseSync = jest.fn();
 
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
@@ -12,6 +14,8 @@ jest.mock('fs', () => {
     mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
     writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
     chmodSync: (...args: unknown[]) => mockChmodSync(...args),
+    openSync: (...args: unknown[]) => mockOpenSync(...args),
+    closeSync: (...args: unknown[]) => mockCloseSync(...args),
   };
 });
 
@@ -400,6 +404,9 @@ describe('createMainAction', () => {
       mockMkdirSync.mockReset();
       mockWriteFileSync.mockReset();
       mockChmodSync.mockReset();
+      mockOpenSync.mockReset();
+      mockOpenSync.mockReturnValue(42);
+      mockCloseSync.mockReset();
     });
 
     afterEach(() => jest.restoreAllMocks());
@@ -415,16 +422,15 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/awf-audit', { recursive: true, mode: 0o755 });
+      expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/awf-audit', { recursive: true, mode: 0o700 });
+      expect(mockOpenSync).toHaveBeenCalledWith('/tmp/awf-audit/awf-resolved-config.json', 'wx', 0o600);
       expect(mockWriteFileSync).toHaveBeenCalledWith(
-        '/tmp/awf-audit/awf-resolved-config.json',
+        42,
         expect.stringContaining('"allowedDomains"'),
-        { mode: 0o644 },
       );
-      expect(mockChmodSync).toHaveBeenCalledWith('/tmp/awf-audit/awf-resolved-config.json', 0o644);
       // Verify secret key names are excluded from the artifact
       const written = mockWriteFileSync.mock.calls.find(
-        (c) => String(c[0]).includes('awf-resolved-config.json')
+        (c) => typeof c[0] === 'number'
       );
       expect(written).toBeDefined();
       const writtenJson = String(written![1]);
@@ -451,7 +457,7 @@ describe('createMainAction', () => {
       await action(['echo hi'], {});
 
       const written = mockWriteFileSync.mock.calls.find(
-        (c) => String(c[0]).includes('awf-resolved-config.json')
+        (c) => typeof c[0] === 'number'
       );
       expect(written).toBeDefined();
       const writtenJson = String(written![1]);
@@ -464,10 +470,14 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect(mockOpenSync).toHaveBeenCalledWith(
         '/tmp/awf-test/audit/awf-resolved-config.json',
+        'wx',
+        0o600,
+      );
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        42,
         expect.any(String),
-        { mode: 0o644 },
       );
     });
   });

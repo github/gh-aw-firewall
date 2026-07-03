@@ -56,6 +56,7 @@ function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> 
 
     redactedConfig[key] = value;
   }
+  return redactedConfig;
 }
 
 function persistConfigAuditArtifact(
