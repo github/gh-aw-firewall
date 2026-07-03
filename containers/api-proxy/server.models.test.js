@@ -359,17 +359,17 @@ describe('buildModelsJson', () => {
     expect(result).toHaveProperty('model_aliases');
   });
 
-  it('should include all four providers', () => {
+  it('should include all five providers', () => {
     const result = buildModelsJson();
     const providerKeys = Object.keys(result.providers);
-    expect(providerKeys).toHaveLength(4);
-    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini']));
+    expect(providerKeys).toHaveLength(5);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']));
   });
 
   it('should set models to null for uncached providers', () => {
     const result = buildModelsJson();
     // Without populating cachedModels, all models fields should be null
-    for (const provider of ['openai', 'anthropic', 'copilot', 'gemini']) {
+    for (const provider of ['openai', 'anthropic', 'copilot', 'gemini', 'vertex']) {
       expect(result.providers[provider].models).toBeNull();
     }
   });
@@ -505,8 +505,8 @@ describe('writeModelsJson', () => {
     expect(typeof data.timestamp).toBe('string');
     expect(typeof data.providers).toBe('object');
     const providerKeys = Object.keys(data.providers);
-    expect(providerKeys).toHaveLength(4);
-    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini']));
+    expect(providerKeys).toHaveLength(5);
+    expect(providerKeys).toEqual(expect.arrayContaining(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']));
     expect(data).toHaveProperty('model_aliases');
   });
 

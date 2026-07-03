@@ -376,15 +376,15 @@ describe('reflectEndpoints', () => {
     resetModelCacheState();
   });
 
-  it('should return an array of 4 endpoints', () => {
+  it('should return an array of 5 endpoints', () => {
     const result = reflectEndpoints();
-    expect(result.endpoints).toHaveLength(4);
+    expect(result.endpoints).toHaveLength(5);
   });
 
   it('should include all expected providers', () => {
     const result = reflectEndpoints();
     const providers = result.endpoints.map((e) => e.provider);
-    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini']);
+    expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']);
   });
 
   it('should report models_fetch_complete false before fetch runs', () => {
@@ -404,6 +404,7 @@ describe('reflectEndpoints', () => {
       anthropic: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
       copilot: { enabled: false, strategy: 'middle_power', excludeEngines: [], suppressed: true, suppression_reason: 'copilot_standard_authoritative' },
       gemini: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
+      vertex: { enabled: true, strategy: 'middle_power', excludeEngines: [], suppressed: false },
     });
   });
 
@@ -559,6 +560,7 @@ describe('reflectEndpoints', () => {
       anthropic: 10001,
       copilot: 10002,
       gemini: 10003,
+      vertex: 10004,
     });
   });
 
@@ -569,5 +571,6 @@ describe('reflectEndpoints', () => {
     expect(urlMap.anthropic).toBe('http://api-proxy:10001/v1/models');
     expect(urlMap.copilot).toBe('http://api-proxy:10002/models');
     expect(urlMap.gemini).toBe('http://api-proxy:10003/v1beta/models');
+    expect(urlMap.vertex).toBeNull();
   });
 });
