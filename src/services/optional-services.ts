@@ -71,11 +71,15 @@ function filterAgentVolumesForSysroot(
     if (sysrootShadowedTargets.has(target)) return false;
 
     // Drop mounts sourced from AWF workDir (runner's unshared /tmp/awf-*).
-    // This includes the workDir itself, paths under it, and workDir-adjacent
-    // sibling paths such as the empty-home dir (`${workDir}-chroot-home`) — all
-    // are created by AWF under the runner's /tmp and are invisible to the daemon.
-    // workDir is a unique `/tmp/awf-<timestamp>` path, so a prefix match is safe.
-    if (source.startsWith(normalizedWorkDirPrefix)) {
+    // Matches: the workDir itself, paths under it (`workDir/…`), and the known
+    // sibling pattern `workDir-…` (e.g. `${workDir}-chroot-home`).  Using three
+    // explicit conditions avoids dropping unrelated bind mounts when workDir is
+    // configured to a short or non-unique prefix.
+    if (
+      source === normalizedWorkDirPrefix ||
+      source.startsWith(normalizedWorkDirPrefix + '/') ||
+      source.startsWith(normalizedWorkDirPrefix + '-')
+    ) {
       return false;
     }
     // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
