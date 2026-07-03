@@ -41,9 +41,21 @@ function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> 
   const redactedConfig: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
     if (SENSITIVE_CONFIG_KEYS.has(key)) continue;
-    redactedConfig[key] = key === 'agentCommand' ? redactSecrets(value as string) : value;
+
+    if (key === 'agentCommand') {
+      redactedConfig[key] = redactSecrets(value as string);
+      continue;
+    }
+
+    if (key === 'additionalEnv' && value && typeof value === 'object') {
+      redactedConfig[key] = Object.fromEntries(
+        Object.keys(value as Record<string, string>).map((envKey) => [envKey, '[REDACTED]']),
+      );
+      continue;
+    }
+
+    redactedConfig[key] = value;
   }
-  return redactedConfig;
 }
 
 function persistConfigAuditArtifact(
