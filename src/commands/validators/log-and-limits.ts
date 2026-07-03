@@ -143,7 +143,8 @@ function validateRunLimits(options: ValidatorOptions): RunLimitsResult {
  * Covers the following option groups:
  *  - `--log-level` / `logLevel`
  *  - `--anthropic-cache-tail-ttl`
- *  - `--max-effective-tokens`, `--max-model-multiplier`, `--max-runs`, `--max-cache-misses`
+ *  - `--max-effective-tokens`, `--max-ai-credits`, `--effective-token-default-model-multiplier`, `--max-model-multiplier`, `--max-model-multiplier-cap`
+ *  - `--max-runs`, `--max-permission-denied`, `--max-cache-misses`
  *  - `--memory-limit`, `--agent-image`, `--build-local`
  *
  * Calls `process.exit(1)` on any validation failure so the caller always
