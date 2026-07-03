@@ -34,6 +34,7 @@ const SENSITIVE_CONFIG_KEYS = new Set([
   'copilotGithubToken',
   'copilotProviderApiKey',
   'geminiApiKey',
+  'githubToken',
 ]);
 
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
