@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-03T06:21:01Z",
+  "lastUpdated": "2026-07-04T06:17:12Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -116,10 +116,16 @@
           "notes": "Supports both endpoints. codex-mini-latest is in ChatModel."
         },
         {
+          "family": "chatgpt-4o-latest",
+          "patterns": ["chatgpt-4o-latest"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Rolling alias for the latest ChatGPT-optimized GPT-4o model. Supports both endpoints (ModelIdsShared). Not matched by gpt-4o* pattern due to chatgpt- prefix."
+        },
+        {
           "family": "gpt-4o",
           "patterns": ["gpt-4o*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Multimodal. Supports both endpoints."
+          "notes": "Multimodal. Supports both endpoints. Includes audio and search preview variants."
         },
         {
           "family": "gpt-4.1",
