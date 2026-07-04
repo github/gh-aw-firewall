@@ -94,7 +94,9 @@ describe('createMainAction', () => {
 
     // Default mock implementations
     mockedPreflight.applyConfigFilePrecedence.mockImplementation(() => {});
-    mockedValidateOptions.validateOptions.mockReturnValue(STUB_CONFIG);
+    mockedValidateOptions.validateOptions.mockImplementation(
+      () => ({ ...STUB_CONFIG } as unknown as import('../types').WrapperConfig)
+    );
     mockedDockerManager.setAwfDockerHost.mockImplementation(() => {});
     mockedRedactSecrets.redactSecrets.mockImplementation((s: string) => s);
     mockedOptionParsers.joinShellArgs.mockImplementation((args: string[]) => args.join(' '));
@@ -193,6 +195,61 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
       expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(STUB_CONFIG);
+    });
+
+    it('skips probe and DinD bootstrap when dockerHostPathPrefix is already set', async () => {
+      mockedValidateOptions.validateOptions.mockReturnValue({
+        ...STUB_CONFIG,
+        dockerHostPathPrefix: '/host',
+      } as unknown as import('../types').WrapperConfig);
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedDindProbe.probeSplitFilesystem).not.toHaveBeenCalled();
+      expect(mockedDindBootstrap.runDindBootstrap).not.toHaveBeenCalled();
+    });
+
+    it('auto-applies detected DinD prefix and logs info', async () => {
+      mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
+        prefix: '/host',
+        splitDetected: true,
+        inconclusive: false,
+      });
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Auto-applied --docker-host-path-prefix /host')
+      );
+    });
+
+    it('logs warning when split filesystem is detected without a known prefix', async () => {
+      mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
+        prefix: undefined,
+        splitDetected: true,
+        inconclusive: false,
+      });
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Split runner/daemon filesystem detected')
+      );
+    });
+
+    it('logs empty DNS servers when dnsServers is undefined', async () => {
+      mockedValidateOptions.validateOptions.mockReturnValue({
+        ...STUB_CONFIG,
+        dnsServers: undefined,
+      } as unknown as import('../types').WrapperConfig);
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedLogger.debug).toHaveBeenCalledWith('DNS servers: ');
     });
 
     it('logs allowed domains', async () => {
@@ -499,6 +556,36 @@ describe('createMainAction', () => {
       expect(redacted).not.toHaveProperty('openaiApiKey');
       expect(redacted.agentCommand).toContain('[REDACTED]');
       expect(redacted.agentCommand).not.toContain(secretValue);
+    });
+
+    it('redactConfigForLogging redacts additionalEnv object values', () => {
+      const redacted = testHelpers.redactConfigForLogging({
+        ...STUB_CONFIG,
+        additionalEnv: { ANTHROPIC_API_KEY: 'sk-real', GH_TOKEN: 'token123' },
+      } as unknown as import('../types').WrapperConfig);
+
+      expect(redacted.additionalEnv).toEqual({
+        ANTHROPIC_API_KEY: '[REDACTED]',
+        GH_TOKEN: '[REDACTED]',
+      });
+    });
+
+    it('redactConfigForLogging preserves null additionalEnv', () => {
+      const redacted = testHelpers.redactConfigForLogging({
+        ...STUB_CONFIG,
+        additionalEnv: null as unknown as Record<string, string>,
+      } as unknown as import('../types').WrapperConfig);
+
+      expect(redacted.additionalEnv).toBeNull();
+    });
+
+    it('redactConfigForLogging preserves non-object additionalEnv values', () => {
+      const redacted = testHelpers.redactConfigForLogging({
+        ...STUB_CONFIG,
+        additionalEnv: 'raw-env-string' as unknown as Record<string, string>,
+      } as unknown as import('../types').WrapperConfig);
+
+      expect(redacted.additionalEnv).toBe('raw-env-string');
     });
 
     it('persistConfigAuditArtifact logs debug when writing the artifact fails', () => {
