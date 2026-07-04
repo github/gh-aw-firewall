@@ -18,6 +18,7 @@
 const { makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { VERTEX_ENV } = require('../provider-env-constants');
+const { providerKeyHeaders } = require('./auth-headers');
 
 /**
  * Create the Google Vertex AI provider adapter.
@@ -33,7 +34,7 @@ function createVertexAdapter(env, deps = {}) {
     basePathEnvVar: VERTEX_ENV.BASE_PATH,
     defaultTarget: 'aiplatform.googleapis.com',
   });
-  const buildAuthHeaders = () => ({ 'x-goog-api-key': apiKey });
+  const buildAuthHeaders = () => providerKeyHeaders('x-goog-api-key', apiKey);
 
   const adapterMethods = createAdapterMethods({
     apiKey,

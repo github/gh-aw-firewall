@@ -39,6 +39,7 @@ const {
   copilotTargetRequiresGitHubTokenPrefix,
 } = require('./copilot-auth');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
+const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
 
@@ -126,10 +127,7 @@ function buildCopilotModelsRequest(extra = {}) {
     url: `https://${rawTarget}/models`,
     opts: {
       method: 'GET',
-      headers: {
-        'Authorization': [prefix, githubToken].join(' '),
-        'Copilot-Integration-Id': integrationId,
-      },
+      headers: withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId),
     },
     ...extra,
   };
@@ -191,9 +189,7 @@ function buildCopilotModelsRequest(extra = {}) {
         url: `https://${rawTarget}${modelsPath}`,
         opts: {
           method: 'GET',
-          headers: {
-            'Authorization': ['Bearer', apiKey].join(' '),
-          },
+          headers: bearerAuthHeaders(apiKey),
         },
         cacheKey: 'copilot',
       };
@@ -231,19 +227,13 @@ function buildCopilotModelsRequest(extra = {}) {
       if (isModelsPath && req.method === 'GET' && githubToken) {
         // /models always uses the GitHub OAuth token (not BYOK key)
         const prefix = requiresGitHubTokenPrefix ? 'token' : 'Bearer';
-        return {
-          'Authorization': [prefix, githubToken].join(' '),
-          'Copilot-Integration-Id': integrationId,
-        };
+        return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
       const oidcHeaders = resolveOidcAuthHeaders({
         oidcProvider,
         awsOidcProvider,
-        buildOidcHeaders: (token) => ({
-          'Authorization': ['Bearer', token].join(' '),
-          'Copilot-Integration-Id': integrationId,
-        }),
+        buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
       });
       if (oidcHeaders !== null) {
         return oidcHeaders;
@@ -251,11 +241,10 @@ function buildCopilotModelsRequest(extra = {}) {
 
       // For inference: BYOK keys use 'Bearer'; GitHub tokens use 'token' on Enterprise/Business/GHES
       const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
-      return {
+      return withCopilotIntegration({
         ...(apiKey ? byokExtraHeaders : {}),
-        'Authorization': [authPrefix, authToken].join(' '),
-        'Copilot-Integration-Id': integrationId,
-      };
+        'Authorization': authPrefix + ' ' + authToken,
+      }, integrationId);
     },
     bodyTransform,
     /** Response returned for all requests when no Copilot credentials are configured. */

@@ -16,6 +16,7 @@
 const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { GEMINI_ENV } = require('../provider-env-constants');
+const { providerKeyHeaders } = require('./auth-headers');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -31,7 +32,7 @@ function createGeminiAdapter(env, deps = {}) {
     basePathEnvVar: GEMINI_ENV.BASE_PATH,
     defaultTarget: 'generativelanguage.googleapis.com',
   });
-  const buildAuthHeaders = () => ({ 'x-goog-api-key': apiKey });
+  const buildAuthHeaders = () => providerKeyHeaders('x-goog-api-key', apiKey);
 
   const adapterMethods = createAdapterMethods({
     apiKey,

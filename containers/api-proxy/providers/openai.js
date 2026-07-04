@@ -15,6 +15,7 @@ const {
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
+const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
@@ -72,9 +73,9 @@ function createOpenAIAdapter(env, deps = {}) {
   } = createProviderOidcAuth(env, { staticAuthToken: apiKey });
   function buildTokenAuthHeaders(key) {
     if (customAuthHeader) {
-      return { [customAuthHeader]: key };
+      return providerKeyHeaders(customAuthHeader, key);
     }
-    return { 'Authorization': 'Bearer ' + key };
+    return bearerAuthHeaders(key);
   }
   const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
 

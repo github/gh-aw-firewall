@@ -26,6 +26,7 @@ const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter }
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 const { createProviderOidcAuth } = require('./cloud-oidc-init');
+const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
@@ -116,8 +117,8 @@ function createAnthropicAdapter(env, deps = {}) {
   // Build the composed transform once at construction time to avoid
   // re-allocating the wrapper function on every request.
   const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
-  const buildOidcBearerAuthHeaders = (token) => ({ 'Authorization': 'Bearer ' + token });
-  const buildStaticAuthHeaders = () => ({ [authHeaderName]: apiKey });
+  const buildOidcBearerAuthHeaders = (token) => bearerAuthHeaders(token);
+  const buildStaticAuthHeaders = () => providerKeyHeaders(authHeaderName, apiKey);
   const resolveAuthHeadersForValidationAndModels = () => resolveAuthHeadersWithFallback({
     oidcProvider,
     awsOidcProvider: null,
