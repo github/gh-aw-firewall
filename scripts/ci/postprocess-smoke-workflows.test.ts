@@ -4,14 +4,30 @@
  * These tests verify that the install-step regex correctly handles both
  * quoted and unquoted paths, covering the fix for gh-aw compilers that
  * emit double-quoted ${RUNNER_TEMP}/... paths.
+ *
+ * Regex constants and step-builder functions are imported directly from the
+ * modules that own them, eliminating the previous duplication.
  */
 
-// The regex is module-internal in postprocess-smoke-workflows.ts (line 58-59)
-// and cannot be imported because the script performs file I/O at module load
-// time. If the source regex changes, these tests will catch regressions by
-// failing on the expected inputs below.
-const installStepRegex =
-  /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
+import {
+  installStepRegex,
+  duplicateSetupNodeRegex,
+  setupCacheMemoryStepRegex,
+  cacheMemoryCommitStepRegex,
+  createCacheDirStepRegex,
+  cacheMemoryKeyLineRegex,
+  cacheRestoreKeyPrefixRegex,
+  codexConfigTomlHeredocRegex,
+  CODEX_PROXY_ENV_KEY_REGEX,
+  SESSION_STATE_DIR,
+  sessionStateDirInjectionRegex,
+  legacyApiProxyLogsDirRegex,
+  copySessionStateStepRegex,
+  copilotModelOverrideRegex,
+  issueDuplicationConclusionConcurrencyRegex,
+  issueDuplicationConclusionConcurrencySentinel,
+} from './workflow-patch-patterns';
+import { buildCopySessionStateStep } from './workflow-step-builders';
 
 describe('installStepRegex', () => {
   it('should match unquoted /opt/gh-aw path', () => {
@@ -74,10 +90,7 @@ describe('installStepRegex', () => {
 });
 
 // ── Duplicate Setup Node.js collapse regex test ───────────────────────────
-// Mirrors duplicateSetupNodeRegex in postprocess-smoke-workflows.ts. The
-// backreference guarantees only byte-identical consecutive blocks collapse.
-const duplicateSetupNodeRegex =
-  /^( {6}- name: Setup Node\.js\n {8}uses: actions\/setup-node@[0-9a-f]+ # v[0-9.]+\n {8}with:\n {10}node-version: '[^']*'\n {10}package-manager-cache: false\n)\1/m;
+// The backreference guarantees only byte-identical consecutive blocks collapse.
 
 describe('duplicateSetupNodeRegex', () => {
   const block = [
@@ -106,24 +119,6 @@ describe('duplicateSetupNodeRegex', () => {
     expect(duplicateSetupNodeRegex.test(input)).toBe(false);
   });
 });
-
-// Mirrors the patterns in postprocess-smoke-workflows.ts.
-// If those patterns change, these tests will catch regressions.
-
-const setupCacheMemoryStepRegex =
-  /^(\s+)- name: Setup cache-memory git repository\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/setup_cache_memory_git\.sh"\n/m;
-
-const cacheMemoryCommitStepRegex =
-  /^(\s+)- name: Commit cache-memory changes\n(?:\1\s[^\n]*\n)*?\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/commit_cache_memory_git\.sh"\n/m;
-
-const createCacheDirStepRegex =
-  /^(\s+)(- name: Create cache-memory directory\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/create_cache_memory_dir\.sh"\n)(\1- name: (?:Cache|Restore) cache-memory file share data\n)/m;
-
-const cacheMemoryKeyLineRegex =
-  /(key: memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)\$\{\{ github\.run_id \}\}/g;
-
-const cacheRestoreKeyPrefixRegex =
-  /(memory-none-nopolicy-(?:\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}|[a-z0-9-]+)-)(\n)/g;
 
 describe('setupCacheMemoryStepRegex', () => {
   const SETUP_STEP =
@@ -204,6 +199,7 @@ describe('cacheMemoryKeyLineRegex', () => {
   it('should match key with GH_AW_WORKFLOW_ID_SANITIZED', () => {
     const input =
       'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ github.run_id }}\n';
+    cacheMemoryKeyLineRegex.lastIndex = 0;
     const result = input.replace(
       cacheMemoryKeyLineRegex,
       (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
@@ -215,6 +211,7 @@ describe('cacheMemoryKeyLineRegex', () => {
   it('should match key with hardcoded workflow id', () => {
     const input =
       'key: memory-none-nopolicy-issue-duplication-detector-${{ github.run_id }}\n';
+    cacheMemoryKeyLineRegex.lastIndex = 0;
     const result = input.replace(
       cacheMemoryKeyLineRegex,
       (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
@@ -227,6 +224,7 @@ describe('cacheMemoryKeyLineRegex', () => {
     const input =
       'key: memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-${{ github.run_id }}\n';
     // The regex matches only ${{ github.run_id }} without CACHE_MEMORY_DATE prefix
+    cacheMemoryKeyLineRegex.lastIndex = 0;
     const match = input.match(cacheMemoryKeyLineRegex);
     // The prefix captured should include CACHE_MEMORY_DATE already
     expect(match).toBeNull(); // no match since run_id is not directly after workflow_id-
@@ -237,6 +235,7 @@ describe('cacheRestoreKeyPrefixRegex', () => {
   it('should match restore-keys prefix with GH_AW_WORKFLOW_ID_SANITIZED', () => {
     const input =
       '            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-\n';
+    cacheRestoreKeyPrefixRegex.lastIndex = 0;
     const result = input.replace(
       cacheRestoreKeyPrefixRegex,
       (_m, prefixWithWorkflowId, newline) =>
@@ -248,6 +247,7 @@ describe('cacheRestoreKeyPrefixRegex', () => {
 
   it('should match restore-keys prefix with hardcoded workflow id', () => {
     const input = '            memory-none-nopolicy-issue-duplication-detector-\n';
+    cacheRestoreKeyPrefixRegex.lastIndex = 0;
     const result = input.replace(
       cacheRestoreKeyPrefixRegex,
       (_m, prefixWithWorkflowId, newline) =>
@@ -268,6 +268,7 @@ describe('cacheRestoreKeyPrefixRegex', () => {
       '            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-\n';
     // The regex should NOT match the already-transformed line because the
     // workflow-ID part is followed by CACHE_MEMORY_DATE, not a newline.
+    cacheRestoreKeyPrefixRegex.lastIndex = 0;
     expect(cacheRestoreKeyPrefixRegex.test(alreadyTransformed)).toBe(false);
     // Reset lastIndex since cacheRestoreKeyPrefixRegex has the 'g' flag
     cacheRestoreKeyPrefixRegex.lastIndex = 0;
@@ -275,12 +276,6 @@ describe('cacheRestoreKeyPrefixRegex', () => {
 });
 
 // ── Codex openai-proxy provider injection tests ──────────────────────────────
-// Mirrors the patterns in postprocess-smoke-workflows.ts.
-
-const codexConfigTomlHeredocRegex =
-  /^(\s+)(cat > "\/tmp\/gh-aw\/mcp-config\/config\.toml" << GH_AW_CODEX_SHELL_POLICY_\w+_EOF\n)(?:\1[^\n]*\n)*?(\1\[shell_environment_policy\])/m;
-const CODEX_PROXY_ENV_KEY_REGEX =
-  /(^\s+\[model_providers\.openai-proxy\]\n(?:^\s+.*\n)*?)^\s+env_key = "OPENAI_API_KEY"\n/m;
 
 describe('codexConfigTomlHeredocRegex + CODEX_PROXY_ENV_KEY_REGEX', () => {
   it('injects openai-proxy provider without env_key', () => {
@@ -319,40 +314,6 @@ describe('codexConfigTomlHeredocRegex + CODEX_PROXY_ENV_KEY_REGEX', () => {
 });
 
 // ── Session state dir injection and Copy step replacement tests ──────────────
-// Mirrors the patterns in postprocess-smoke-workflows.ts.
-
-const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
-
-const sessionStateDirInjectionRegex =
-  /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
-const legacyApiProxyLogsDirRegex =
-  /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
-
-const copySessionStateStepRegex =
-  /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
-
-const copilotModelOverrideRegex =
-  /^(\s*COPILOT_MODEL:\s*)\$\{\{\s*(?:vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)?(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?(?:env\.COPILOT_MODEL|''|'[^']*')\s*\}\}[ \t]*$/gm;
-
-function buildCopySessionStateStep(indent: string): string {
-  const i = indent;
-  const ri = `${i}    `;
-  return (
-    `${i}- name: Copy Copilot session state files to logs\n` +
-    `${i}  if: always()\n` +
-    `${i}  continue-on-error: true\n` +
-    `${i}  run: |\n` +
-    `${ri}SESSION_STATE_SRC="${SESSION_STATE_DIR}"\n` +
-    `${ri}LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"\n` +
-    `${ri}if [ -d "$SESSION_STATE_SRC" ] && [ -n "$(ls -A "$SESSION_STATE_SRC" 2>/dev/null)" ]; then\n` +
-    `${ri}  mkdir -p "$LOGS_DIR/session-state"\n` +
-    `${ri}  cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"\n` +
-    `${ri}  echo "Copied session state to $LOGS_DIR/session-state"\n` +
-    `${ri}else\n` +
-    `${ri}  echo "No session state found at $SESSION_STATE_SRC"\n` +
-    `${ri}fi\n`
-  );
-}
 
 describe('sessionStateDirInjectionRegex', () => {
   beforeEach(() => {
@@ -411,6 +372,7 @@ describe('legacyApiProxyLogsDirRegex', () => {
 
   it('should replace legacy path with api-proxy-logs path', () => {
     const input = 'LOG_DIR="/tmp/gh-aw/sandbox/firewall/logs/api-proxy"';
+    legacyApiProxyLogsDirRegex.lastIndex = 0;
     const result = input.replace(
       legacyApiProxyLogsDirRegex,
       '/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs'
@@ -530,13 +492,6 @@ describe('copilotModelOverrideRegex', () => {
 });
 
 // ── Issue duplication detector conclusion concurrency tests ───────────────────
-// Mirrors the patterns in postprocess-smoke-workflows.ts.
-// If those patterns change, these tests will catch regressions.
-
-const issueDuplicationConclusionConcurrencyRegex =
-  /([ ]+group: "gh-aw-conclusion-issue-duplication-detector)("\n[ ]+cancel-in-progress: false)/;
-const issueDuplicationConclusionConcurrencySentinel =
-  'gh-aw-conclusion-issue-duplication-detector-${{ github.event.issue.number';
 
 describe('issueDuplicationConclusionConcurrencyRegex', () => {
   const ORIGINAL_CONCURRENCY =
