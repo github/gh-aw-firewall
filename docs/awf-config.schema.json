@@ -598,7 +598,7 @@
         },
         "dockerHost": {
           "type": "string",
-          "description": "Docker daemon socket URI for AWF's own operations (e.g. \"unix:///var/run/docker.sock\" or \"tcp://localhost:2375\"). Auto-detected from the DOCKER_HOST environment variable when not set explicitly. When combined with container.enableDind, AWF also mounts that socket inside the agent and sets the agent's DOCKER_HOST to the same URI so in-agent docker commands use the correct daemon. On ARC/DinD runners with a loopback TCP daemon (tcp://localhost:*), AWF detects the split-filesystem configuration automatically."
+          "description": "Docker daemon socket URI for AWF's own operations (e.g. \"unix:///var/run/docker.sock\" or \"tcp://localhost:2375\"). Auto-detected from the DOCKER_HOST environment variable when not set explicitly. When combined with container.enableDind, AWF also mounts that socket inside the agent and sets the agent's DOCKER_HOST to the same URI so in-agent docker commands use the correct daemon. On ARC/DinD runners with a loopback TCP daemon (tcp://localhost:* or tcp://127.0.0.1:*), AWF treats this as a DinD hint for warnings (for example, missing container.dockerHostPathPrefix), but does not auto-apply a path prefix."
         },
         "dockerHostPathPrefix": {
           "type": "string",
