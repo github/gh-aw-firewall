@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-04T06:17:12Z",
+  "lastUpdated": "2026-07-05T06:27:39Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -57,9 +57,9 @@
         },
         {
           "family": "gpt-5-codex/pro",
-          "patterns": ["gpt-5-codex", "gpt-5-pro"],
+          "patterns": ["gpt-5-codex", "gpt-5-pro", "gpt-5-pro-*"],
           "endpoints": ["responses"],
-          "notes": "Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel)."
+          "notes": "Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel). Includes dated variants like gpt-5-pro-2025-10-06."
         },
         {
           "family": "gpt-5",
@@ -69,9 +69,9 @@
         },
         {
           "family": "o4-mini-deep-research",
-          "patterns": ["o4-mini-deep-research"],
+          "patterns": ["o4-mini-deep-research", "o4-mini-deep-research-*"],
           "endpoints": ["responses"],
-          "notes": "Responses API only (ResponsesOnlyModel)."
+          "notes": "Responses API only (ResponsesOnlyModel). Includes dated variants like o4-mini-deep-research-2025-06-26."
         },
         {
           "family": "o4",
