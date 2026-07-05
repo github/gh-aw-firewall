@@ -18,7 +18,7 @@ const { providerKeyHeaders } = require('./auth-headers');
  * Create a Google API-key–based provider adapter.
  *
  * @param {Record<string, string|undefined>} env - Environment variables
- * @param {{ bodyTransform?: ((body: Buffer) => Buffer|null)|null }} [deps={}] - Injected dependencies
+ * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @param {object} opts
  * @param {string} opts.name                    - Provider slug (e.g. 'gemini')
  * @param {number} opts.port                    - Proxy port (e.g. 10003)

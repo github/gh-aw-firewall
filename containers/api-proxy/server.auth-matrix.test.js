@@ -14,6 +14,7 @@ const { createOpenAIAdapter } = require('./providers/openai');
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { createCopilotAdapter } = require('./providers/copilot');
 const { createGeminiAdapter } = require('./providers/gemini');
+const { createVertexAdapter } = require('./providers/vertex');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -518,6 +519,39 @@ describe('Auth Matrix — Gemini', () => {
 
     it('is enabled when API key is set', () => {
       const adapter = createGeminiAdapter({ GEMINI_API_KEY: 'AIza-test' });
+      expect(adapter.isEnabled()).toBe(true);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vertex Auth Matrix
+// ---------------------------------------------------------------------------
+
+describe('Auth Matrix — Vertex', () => {
+  describe('static API key', () => {
+    it('sends x-goog-api-key header', () => {
+      const adapter = createVertexAdapter({ GOOGLE_API_KEY: 'AIza-test-key' });
+      const headers = adapter.getAuthHeaders(fakeReq());
+      expect(headers['x-goog-api-key']).toBe('AIza-test-key');
+      expect(headers.Authorization).toBeUndefined();
+    });
+
+    it('targets aiplatform.googleapis.com by default', () => {
+      const adapter = createVertexAdapter({ GOOGLE_API_KEY: 'AIza-test' });
+      const probe = adapter.getValidationProbe();
+      expect(probe.url).toContain('aiplatform.googleapis.com');
+    });
+  });
+
+  describe('isEnabled gating', () => {
+    it('is disabled when no API key set', () => {
+      const adapter = createVertexAdapter({});
+      expect(adapter.isEnabled()).toBe(false);
+    });
+
+    it('is enabled when API key is set', () => {
+      const adapter = createVertexAdapter({ GOOGLE_API_KEY: 'AIza-test' });
       expect(adapter.isEnabled()).toBe(true);
     });
   });

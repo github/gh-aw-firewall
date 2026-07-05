@@ -22,7 +22,7 @@ const { createGoogleApiKeyAdapter } = require('./google-adapter');
  * Create the Google Vertex AI provider adapter.
  *
  * @param {Record<string, string|undefined>} env - Environment variables
- * @param {{ bodyTransform: ((body: Buffer) => Buffer|null)|null }} deps - Injected dependencies
+ * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @returns {import('./index').ProviderAdapter}
  */
 function createVertexAdapter(env, deps = {}) {
