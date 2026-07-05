@@ -231,7 +231,14 @@ function buildProviderAdapter({
   // Auto-generate getUnconfiguredHealthResponse from declarative metadata when
   // no explicit function is provided.  The optional unavailableWhen callback
   // allows providers with OIDC to surface a dynamic message/status.
-  if (getUnconfiguredHealthResponse === undefined && healthServiceName !== undefined && missingCredentialMessage !== undefined) {
+  const hasDeclarativeHealthMetadata =
+    healthServiceName !== undefined || missingCredentialMessage !== undefined || unavailableWhen !== undefined;
+  if (getUnconfiguredHealthResponse === undefined && hasDeclarativeHealthMetadata) {
+    if (healthServiceName === undefined || missingCredentialMessage === undefined) {
+      throw new TypeError(
+        `Provider adapter "${name}" declarative health metadata requires both healthServiceName and missingCredentialMessage`,
+      );
+    }
     getUnconfiguredHealthResponse = () => {
       if (unavailableWhen) {
         const override = unavailableWhen();

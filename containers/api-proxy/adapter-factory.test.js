@@ -227,6 +227,35 @@ describe('buildProviderAdapter', () => {
       expect(response.body.error).toBe('TEST_API_KEY not configured in api-proxy sidecar');
     });
 
+    it('throws when declarative health metadata is partially specified', () => {
+      expect(() => buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        healthServiceName: 'awf-api-proxy-test',
+      })).toThrow('declarative health metadata requires both healthServiceName and missingCredentialMessage');
+
+      expect(() => buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        missingCredentialMessage: 'TEST_API_KEY not configured in api-proxy sidecar',
+      })).toThrow('declarative health metadata requires both healthServiceName and missingCredentialMessage');
+
+      expect(() => buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        unavailableWhen: () => ({ message: 'OIDC token unavailable' }),
+      })).toThrow('declarative health metadata requires both healthServiceName and missingCredentialMessage');
+    });
+
     it('auto-generated getUnconfiguredHealthResponse uses unavailableWhen override when it returns truthy', () => {
       const adapter = buildProviderAdapter({
         name: 'test',
