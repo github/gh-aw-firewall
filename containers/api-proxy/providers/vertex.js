@@ -15,7 +15,6 @@
  * aiplatform.googleapis.com directly, enabling credential isolation.
  */
 
-const { makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { VERTEX_ENV } = require('../provider-env-constants');
 const { providerKeyHeaders } = require('./auth-headers');
@@ -67,10 +66,8 @@ function createVertexAdapter(env, deps = {}) {
         body: { error: 'Vertex AI proxy not configured (no GOOGLE_API_KEY). Set GOOGLE_API_KEY in the AWF runner environment to enable credential isolation.' },
       };
     },
-    /** /health response when not configured. */
-    getUnconfiguredHealthResponse() {
-      return makeUnconfiguredHealthResponse('awf-api-proxy-vertex', 'GOOGLE_API_KEY not configured in api-proxy sidecar');
-    },
+    healthServiceName: 'awf-api-proxy-vertex',
+    missingCredentialMessage: 'GOOGLE_API_KEY not configured in api-proxy sidecar',
   });
 }
 

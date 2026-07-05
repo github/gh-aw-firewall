@@ -20,7 +20,6 @@
 const {
   normalizeBasePath,
   makeProviderNotConfiguredResponse,
-  makeUnconfiguredHealthResponse,
   composeBodyTransforms,
 } = require('../proxy-utils');
 const { resolveOidcAuthHeaders } = require('../oidc-adapter-utils');
@@ -262,13 +261,9 @@ function buildCopilotModelsRequest(extra = {}) {
         'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY to enable this provider.'
       );
     },
-    /** /health response when not configured. */
-    getUnconfiguredHealthResponse() {
-      if (oidcConfigured) {
-        return makeUnconfiguredHealthResponse('awf-api-proxy-copilot', `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar`);
-      }
-      return makeUnconfiguredHealthResponse('awf-api-proxy-copilot', 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar');
-    },
+    healthServiceName: 'awf-api-proxy-copilot',
+    missingCredentialMessage: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar',
+    unavailableWhen: () => oidcConfigured ? { message: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` } : null,
     extra: {
       ...oidcRuntimeMethods,
       // Exposed for introspection / testing

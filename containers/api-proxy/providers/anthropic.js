@@ -15,7 +15,6 @@
 const {
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
-  makeUnconfiguredHealthResponse,
 } = require('../proxy-utils');
 const {
   validateAuthHeaderEnv,
@@ -222,13 +221,9 @@ function createAnthropicAdapter(env, deps = {}) {
         'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.'
       );
     },
-    /** /health response when not configured. */
-    getUnconfiguredHealthResponse() {
-      if (oidcRequested) {
-        return makeUnconfiguredHealthResponse('awf-api-proxy-anthropic', oidcUnavailableError, 'unavailable');
-      }
-      return makeUnconfiguredHealthResponse('awf-api-proxy-anthropic', 'ANTHROPIC_API_KEY not configured in api-proxy sidecar');
-    },
+    healthServiceName: 'awf-api-proxy-anthropic',
+    missingCredentialMessage: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar',
+    unavailableWhen: () => oidcRequested ? { message: oidcUnavailableError, status: 'unavailable' } : null,
     extra: {
       ...oidcRuntimeMethods,
       // Exposed for introspection (logging, tests)

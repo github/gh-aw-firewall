@@ -208,6 +208,73 @@ describe('buildProviderAdapter', () => {
       });
       expect(adapter.getUnconfiguredHealthResponse).toBe(getUnconfiguredHealthResponse);
     });
+
+    it('auto-generates getUnconfiguredHealthResponse from healthServiceName and missingCredentialMessage', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        healthServiceName: 'awf-api-proxy-test',
+        missingCredentialMessage: 'TEST_API_KEY not configured in api-proxy sidecar',
+      });
+      expect(typeof adapter.getUnconfiguredHealthResponse).toBe('function');
+      const response = adapter.getUnconfiguredHealthResponse();
+      expect(response.statusCode).toBe(503);
+      expect(response.body.status).toBe('not_configured');
+      expect(response.body.service).toBe('awf-api-proxy-test');
+      expect(response.body.error).toBe('TEST_API_KEY not configured in api-proxy sidecar');
+    });
+
+    it('auto-generated getUnconfiguredHealthResponse uses unavailableWhen override when it returns truthy', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        healthServiceName: 'awf-api-proxy-test',
+        missingCredentialMessage: 'TEST_API_KEY not configured in api-proxy sidecar',
+        unavailableWhen: () => ({ message: 'OIDC token unavailable', status: 'unavailable' }),
+      });
+      const response = adapter.getUnconfiguredHealthResponse();
+      expect(response.statusCode).toBe(503);
+      expect(response.body.status).toBe('unavailable');
+      expect(response.body.service).toBe('awf-api-proxy-test');
+      expect(response.body.error).toBe('OIDC token unavailable');
+    });
+
+    it('auto-generated getUnconfiguredHealthResponse falls back to missingCredentialMessage when unavailableWhen returns null', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        healthServiceName: 'awf-api-proxy-test',
+        missingCredentialMessage: 'TEST_API_KEY not configured in api-proxy sidecar',
+        unavailableWhen: () => null,
+      });
+      const response = adapter.getUnconfiguredHealthResponse();
+      expect(response.body.status).toBe('not_configured');
+      expect(response.body.error).toBe('TEST_API_KEY not configured in api-proxy sidecar');
+    });
+
+    it('explicit getUnconfiguredHealthResponse takes precedence over declarative metadata', () => {
+      const explicitFn = () => ({ statusCode: 503, body: { status: 'custom' } });
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        getUnconfiguredHealthResponse: explicitFn,
+        healthServiceName: 'awf-api-proxy-test',
+        missingCredentialMessage: 'TEST_API_KEY not configured',
+      });
+      expect(adapter.getUnconfiguredHealthResponse).toBe(explicitFn);
+    });
   });
 
   describe('extra fields', () => {

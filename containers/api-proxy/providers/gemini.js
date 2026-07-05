@@ -13,7 +13,7 @@
  *   Gemini SDK versions append alongside the header.
  */
 
-const { stripGeminiKeyParam, makeUnconfiguredHealthResponse } = require('../proxy-utils');
+const { stripGeminiKeyParam } = require('../proxy-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { GEMINI_ENV } = require('../provider-env-constants');
 const { providerKeyHeaders } = require('./auth-headers');
@@ -75,10 +75,8 @@ function createGeminiAdapter(env, deps = {}) {
         body: { error: 'Gemini proxy not configured (no GEMINI_API_KEY). Set GEMINI_API_KEY in the AWF runner environment to enable credential isolation.' },
       };
     },
-    /** /health response when not configured. */
-    getUnconfiguredHealthResponse() {
-      return makeUnconfiguredHealthResponse('awf-api-proxy-gemini', 'GEMINI_API_KEY not configured in api-proxy sidecar');
-    },
+    healthServiceName: 'awf-api-proxy-gemini',
+    missingCredentialMessage: 'GEMINI_API_KEY not configured in api-proxy sidecar',
   });
 }
 
