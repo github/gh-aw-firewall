@@ -111,7 +111,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-07-04T06:17:12Z');
+      expect(reflect.last_updated).toBe('2026-07-05T06:27:39Z');
       expect(reflect.error).toBeNull();
     });
   });
