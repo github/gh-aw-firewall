@@ -43,7 +43,7 @@ describe('generateUpstreamProxySection', () => {
     });
     expect(result).toContain('acl upstream_bypass dstdomain .corp.com');
     // Should NOT add exact match for already-dotted domain
-    const exactMatchLine = 'acl upstream_bypass dstdomain corp.com\n';
+    const exactMatchLine = 'acl upstream_bypass dstdomain corp.com';
     expect(result).not.toContain(exactMatchLine);
   });
 
