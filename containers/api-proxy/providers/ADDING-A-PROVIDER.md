@@ -102,7 +102,12 @@ module.exports = { createMyProviderAdapter };
 | `getModelsFetchConfig()` | ✅ | Returns fetch config or `null` |
 | `getReflectionInfo()` | ✅ | Returns endpoint metadata for `/reflect` and `models.json` |
 | `getUnconfiguredResponse()` | ➖ optional | Response for proxy requests when `alwaysBind=true` & not enabled |
-| `getUnconfiguredHealthResponse()` | ➖ optional | `/health` response when not enabled (defaults to 503) |
+| `getUnconfiguredHealthResponse()` | ➖ optional | `/health` response when not enabled — prefer the declarative form below |
+| `healthServiceName` | ➖ optional | Service name for auto-generated `/health` response (e.g. `'awf-api-proxy-myprovider'`); requires `missingCredentialMessage` |
+| `missingCredentialMessage` | ➖ optional | Default error message when credentials are absent (requires `healthServiceName`) |
+| `unavailableWhen` | ➖ optional | `() => ({ message: 'OIDC token unavailable', status: 'unavailable' })` or `() => null` — when non-null the auto-generated `/health` response uses the returned message/status (e.g. for OIDC token-not-yet-available states) |
+
+> **Tip:** Pass `healthServiceName` + `missingCredentialMessage` (and optionally `unavailableWhen`) to `buildProviderAdapter` instead of writing a `getUnconfiguredHealthResponse()` method. The factory auto-generates the method from those values, keeping provider files free of repetitive boilerplate.
 
 ---
 

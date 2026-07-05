@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { normalizeApiTarget, normalizeBasePath } = require('./proxy-utils');
+const { normalizeApiTarget, normalizeBasePath, makeUnconfiguredHealthResponse } = require('./proxy-utils');
 
 /**
  *
@@ -204,7 +204,10 @@ function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, b
  * @param {(() => boolean)} [opts.isEnabled]                   - Optional isEnabled override (must be provided either here or via `extra`)
  * @param {((url: string) => string)} [opts.transformRequestUrl] - Optional URL transformer
  * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredResponse]       - Optional not-configured response
- * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredHealthResponse] - Optional not-configured /health response
+ * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredHealthResponse] - Optional explicit not-configured /health response (takes precedence over declarative metadata)
+ * @param {string}  [opts.healthServiceName]        - Service name for auto-generated /health response (e.g. 'awf-api-proxy-gemini'); requires missingCredentialMessage
+ * @param {string}  [opts.missingCredentialMessage] - Default error message when credentials are absent; requires healthServiceName
+ * @param {(() => { message: string, status?: string }|null)} [opts.unavailableWhen] - Optional callback; when it returns a non-null object the /health response uses that message (and optional status, e.g. 'unavailable') instead of missingCredentialMessage
  * @param {object} [opts.extra={}]         - Extra fields spread into the returned object last (e.g. OIDC runtime methods, introspection fields, overrides)
  * @returns {import('./providers/index').ProviderAdapter}
  */
@@ -220,8 +223,32 @@ function buildProviderAdapter({
   transformRequestUrl,
   getUnconfiguredResponse,
   getUnconfiguredHealthResponse,
+  healthServiceName,
+  missingCredentialMessage,
+  unavailableWhen,
   extra = {},
 }) {
+  // Auto-generate getUnconfiguredHealthResponse from declarative metadata when
+  // no explicit function is provided.  The optional unavailableWhen callback
+  // allows providers with OIDC to surface a dynamic message/status.
+  const hasDeclarativeHealthMetadata =
+    healthServiceName !== undefined || missingCredentialMessage !== undefined || unavailableWhen !== undefined;
+  if (getUnconfiguredHealthResponse === undefined && hasDeclarativeHealthMetadata) {
+    if (healthServiceName === undefined || missingCredentialMessage === undefined) {
+      throw new TypeError(
+        `Provider adapter "${name}" declarative health metadata requires both healthServiceName and missingCredentialMessage`,
+      );
+    }
+    getUnconfiguredHealthResponse = () => {
+      if (unavailableWhen) {
+        const override = unavailableWhen();
+        if (override) {
+          return makeUnconfiguredHealthResponse(healthServiceName, override.message, override.status);
+        }
+      }
+      return makeUnconfiguredHealthResponse(healthServiceName, missingCredentialMessage);
+    };
+  }
   const adapter = {
     name,
     port,
