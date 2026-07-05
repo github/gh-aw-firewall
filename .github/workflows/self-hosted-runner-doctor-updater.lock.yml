@@ -475,7 +475,6 @@ jobs:
           path: /tmp/gh-aw/cache-memory
           restore-keys: |
             memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-${{ env.CACHE_MEMORY_DATE }}-
-            memory-none-nopolicy-${{ env.GH_AW_WORKFLOW_ID_SANITIZED }}-
       - name: Setup cache-memory git repository
         env:
           GH_AW_CACHE_DIR: /tmp/gh-aw/cache-memory

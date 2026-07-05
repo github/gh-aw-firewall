@@ -418,7 +418,6 @@ jobs:
         run: set -o pipefail && npm run build 2>&1 | tail -5
       - id: coverage
         name: Run coverage
-        shell: bash
         run: "set +e\nset -o pipefail\nnpm run test:coverage 2>&1 | tee /tmp/coverage-full.log | tail -20\nCOVERAGE_EXIT=${PIPESTATUS[0]}\nif [ \"${COVERAGE_EXIT}\" -ne 0 ]; then\n  echo \"::warning::test:coverage exited with code ${COVERAGE_EXIT} (some tests may have failed); continuing with available coverage data\"\nfi\n# Continue even if tests fail — this is a reporter, not a gate\nexit 0\n"
       - id: coverage-table
         name: Compute per-file coverage table
