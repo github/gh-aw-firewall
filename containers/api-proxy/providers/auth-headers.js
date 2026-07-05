@@ -16,7 +16,7 @@
  * @returns {Record<string, string>}
  */
 function bearerAuthHeaders(token, extraHeaders) {
-  return { 'Authorization': 'Bearer ' + token, ...extraHeaders };
+  return { ...extraHeaders, 'Authorization': 'Bearer ' + token };
 }
 
 /**
