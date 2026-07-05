@@ -29,7 +29,7 @@ function bearerAuthHeaders(token, extraHeaders) {
  * @returns {Record<string, string>}
  */
 function providerKeyHeaders(headerName, token, extraHeaders) {
-  return { [headerName]: token, ...extraHeaders };
+  return { ...extraHeaders, [headerName]: token };
 }
 
 /**
