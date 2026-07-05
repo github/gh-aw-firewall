@@ -203,7 +203,7 @@ describe('parseAuditJsonlLine – branch coverage for absent/non-string fields',
 
 // ─── workdir-setup.ts ─────────────────────────────────────────────────────────
 
-// Use real fs (not the mock factory) since we need symlink/non-dir setup.
+// Uses the fs mock factory (wraps real fs with spies) for symlink/non-dir setup.
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -424,8 +424,6 @@ describe('workdir-setup – prepareChrootHomeMounts runnerToolCachePath outside 
 });
 
 // ─── commands/network-setup.ts ────────────────────────────────────────────────
-
-jest.mock('./commands/network-setup', () => jest.requireActual('./commands/network-setup'));
 
 // Mock only the deps, not the module under test
 jest.mock('./logger', () => jest.requireActual('./test-helpers/mock-logger.test-utils').loggerMockFactory());
