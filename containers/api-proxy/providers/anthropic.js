@@ -18,8 +18,6 @@ const {
 } = require('../proxy-utils');
 const {
   validateAuthHeaderEnv,
-  resolveOidcAuthHeaders,
-  resolveAuthHeadersWithFallback,
 } = require('../oidc-adapter-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
@@ -66,6 +64,7 @@ function createAnthropicAdapter(env, deps = {}) {
   const {
     oidcProvider, oidcConfigured,
     runtimeMethods: oidcRuntimeMethods,
+    resolveAuthHeaders,
   } = createProviderOidcAuth(env, {
     staticAuthToken: apiKey,
     oidcProviderFactory: oidcRequested ? (env) => {
@@ -118,12 +117,10 @@ function createAnthropicAdapter(env, deps = {}) {
   const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
   const buildOidcBearerAuthHeaders = (token) => bearerAuthHeaders(token);
   const buildStaticAuthHeaders = () => providerKeyHeaders(authHeaderName, apiKey);
-  const resolveAuthHeadersForValidationAndModels = () => resolveAuthHeadersWithFallback({
-    oidcProvider,
-    awsOidcProvider: null,
-    buildOidcHeaders: buildOidcBearerAuthHeaders,
-    staticHeaders: buildStaticAuthHeaders(),
-  });
+  const resolveAuthHeadersForValidationAndModels = () => resolveAuthHeaders(
+    buildOidcBearerAuthHeaders,
+    buildStaticAuthHeaders(),
+  );
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,
@@ -171,40 +168,35 @@ function createAnthropicAdapter(env, deps = {}) {
      * @returns {Record<string, string>}
      */
     getAuthHeaders(req) {
-      const oidcHeaders = resolveOidcAuthHeaders({
-        oidcProvider,
-        awsOidcProvider: null,
-        buildOidcHeaders: buildOidcBearerAuthHeaders,
-      });
+      const headers = resolveAuthHeaders(
+        buildOidcBearerAuthHeaders,
+        buildStaticAuthHeaders(),
+      );
 
-      // oidcHeaders === null  → OIDC not configured; fall through to static key.
-      // oidcHeaders === {}    → OIDC configured, token not yet ready; return empty so the
-      //                         request fails authentication rather than leaking the static key.
-      // oidcHeaders === {...} → OIDC token available; use it.
-      if (oidcHeaders !== null && Object.keys(oidcHeaders).length === 0) {
+      // OIDC configured but token not yet ready: fail closed so static creds are not leaked.
+      if (Object.keys(headers).length === 0) {
         return {};
       }
-
-      const headers = oidcHeaders !== null ? { ...oidcHeaders } : buildStaticAuthHeaders();
+      const mergedHeaders = { ...headers };
 
       if (!req.headers['anthropic-version']) {
-        headers['anthropic-version'] = '2023-06-01';
+        mergedHeaders['anthropic-version'] = '2023-06-01';
       }
 
       if (autoCache) {
         const existing = req.headers['anthropic-beta'];
         if (!existing) {
-          headers['anthropic-beta'] = EXTENDED_CACHE_BETA;
+          mergedHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
         } else {
           const normalizedExisting = Array.isArray(existing) ? existing.join(',') : existing;
           const existingBetas = normalizedExisting.split(',').map(s => s.trim()).filter(Boolean);
           if (!existingBetas.includes(EXTENDED_CACHE_BETA)) {
-            headers['anthropic-beta'] = `${normalizedExisting},${EXTENDED_CACHE_BETA}`;
+            mergedHeaders['anthropic-beta'] = `${normalizedExisting},${EXTENDED_CACHE_BETA}`;
           }
         }
       }
 
-      return headers;
+      return mergedHeaders;
     },
     bodyTransform: composedBodyTransform,
     /** Response returned for all requests when no ANTHROPIC_API_KEY is configured. */

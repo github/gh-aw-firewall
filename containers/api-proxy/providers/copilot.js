@@ -22,7 +22,6 @@ const {
   makeProviderNotConfiguredResponse,
   composeBodyTransforms,
 } = require('../proxy-utils');
-const { resolveOidcAuthHeaders } = require('../oidc-adapter-utils');
 const { createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {
@@ -71,6 +70,7 @@ function createCopilotAdapter(env, deps = {}) {
   const {
     authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
     runtimeMethods: oidcRuntimeMethods,
+    resolveAuthHeaders,
   } = createProviderOidcAuth(env, { staticAuthToken: authToken, skipWhen: !!staticAuthToken });
   // Extra headers to inject on all requests that use the BYOK API key.
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
@@ -229,21 +229,15 @@ function buildCopilotModelsRequest(extra = {}) {
         return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
-      const oidcHeaders = resolveOidcAuthHeaders({
-        oidcProvider,
-        awsOidcProvider,
-        buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
-      });
-      if (oidcHeaders !== null) {
-        return oidcHeaders;
-      }
-
       // For inference: BYOK keys use 'Bearer'; GitHub tokens use 'token' on Enterprise/Business/GHES
       const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
-      return withCopilotIntegration({
-        ...(apiKey ? byokExtraHeaders : {}),
-        'Authorization': authPrefix + ' ' + authToken,
-      }, integrationId);
+      return resolveAuthHeaders(
+        (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
+        withCopilotIntegration({
+          ...(apiKey ? byokExtraHeaders : {}),
+          'Authorization': authPrefix + ' ' + authToken,
+        }, integrationId),
+      );
     },
     bodyTransform,
     /** Response returned for all requests when no Copilot credentials are configured. */

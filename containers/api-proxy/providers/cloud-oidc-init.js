@@ -3,7 +3,7 @@
 const { OidcTokenProvider } = require('../oidc-token-provider');
 const {
   createOidcRuntimeAdapterMethods,
-  resolveOidcAuthHeaders,
+  resolveAuthHeadersWithFallback,
 } = require('../oidc-adapter-utils');
 
 /**
@@ -170,8 +170,12 @@ function createProviderOidcAuth(env, {
      * @returns {Record<string, string>}
      */
     resolveAuthHeaders(buildOidcHeaders, staticHeaders) {
-      const oidcHeaders = resolveOidcAuthHeaders({ oidcProvider, awsOidcProvider, buildOidcHeaders });
-      return oidcHeaders !== null ? oidcHeaders : staticHeaders;
+      return resolveAuthHeadersWithFallback({
+        oidcProvider,
+        awsOidcProvider,
+        buildOidcHeaders,
+        staticHeaders,
+      });
     },
   };
 }
