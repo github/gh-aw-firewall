@@ -11,6 +11,8 @@ import { logger } from './logger';
 export const TOPOLOGY_NETWORK_NAME = 'awf-net';
 
 const DAEMON_PING_TIMEOUT_MS = 5000;
+const DAEMON_PING_RETRIES = 3;
+const DAEMON_PING_RETRY_DELAY_MS = 2000;
 
 interface TopologyLogger {
   info: (message: string, ...args: unknown[]) => void;
@@ -19,23 +21,34 @@ interface TopologyLogger {
 
 /**
  * Returns true if the Docker daemon is reachable via `docker info`.
- * Uses a short timeout so the fail-stop preflight does not hang.
+ * Retries with backoff to tolerate transient daemon unresponsiveness
+ * (e.g., when the daemon is under load from concurrent container healthchecks
+ * and image operations during GitHub Actions job startup).
  */
 async function isDockerDaemonReachable(): Promise<boolean> {
-  try {
-    const result = await execa(
-      'docker',
-      ['info', '--format', '{{.ServerVersion}}'],
-      {
-        env: getLocalDockerEnv(),
-        timeout: DAEMON_PING_TIMEOUT_MS,
-        reject: false,
-      },
-    );
-    return result.exitCode === 0;
-  } catch {
-    return false;
+  for (let attempt = 1; attempt <= DAEMON_PING_RETRIES; attempt++) {
+    try {
+      const result = await execa(
+        'docker',
+        ['info', '--format', '{{.ServerVersion}}'],
+        {
+          env: getLocalDockerEnv(),
+          timeout: DAEMON_PING_TIMEOUT_MS,
+          reject: false,
+        },
+      );
+      if (result.exitCode === 0) {
+        return true;
+      }
+    } catch {
+      // timeout or exec failure — retry
+    }
+    if (attempt < DAEMON_PING_RETRIES) {
+      logger.debug(`Docker daemon probe attempt ${attempt}/${DAEMON_PING_RETRIES} failed, retrying in ${DAEMON_PING_RETRY_DELAY_MS}ms...`);
+      await new Promise(resolve => setTimeout(resolve, DAEMON_PING_RETRY_DELAY_MS));
+    }
   }
+  return false;
 }
 
 /**

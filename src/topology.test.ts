@@ -11,6 +11,7 @@ jest.mock('./docker-host', () => ({
 }));
 jest.mock('./logger', () => ({
   logger: {
+    debug: jest.fn(),
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
@@ -47,18 +48,32 @@ describe('topology', () => {
       exitSpy.mockRestore();
     });
 
-    it('exits when the Docker daemon is unreachable', async () => {
-      mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+    it('returns without exiting when daemon becomes reachable on retry', async () => {
+      mockedExeca
+        .mockResolvedValueOnce({ exitCode: 1 } as any) // attempt 1 fails
+        .mockResolvedValueOnce({ exitCode: 0 } as any); // attempt 2 succeeds
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+      await assertTopologySupported();
+
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(mockedExeca).toHaveBeenCalledTimes(2);
+      exitSpy.mockRestore();
+    });
+
+    it('exits when the Docker daemon is unreachable after all retries', async () => {
+      mockedExeca.mockResolvedValue({ exitCode: 1 } as any);
       const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
       await assertTopologySupported();
 
       expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(mockedExeca).toHaveBeenCalledTimes(3); // all retries exhausted
       exitSpy.mockRestore();
     });
 
-    it('exits when the Docker daemon probe throws', async () => {
-      mockedExeca.mockRejectedValueOnce(new Error('spawn docker ENOENT'));
+    it('exits when the Docker daemon probe throws on all retries', async () => {
+      mockedExeca.mockRejectedValue(new Error('spawn docker ENOENT'));
       const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
       await assertTopologySupported();
@@ -69,7 +84,7 @@ describe('topology', () => {
 
     it('exits when an ARC kubernetes-native runner is detected', async () => {
       process.env.ACTIONS_RUNNER_CONTAINER_HOOKS = '/hooks/index.js';
-      mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
+      mockedExeca.mockResolvedValue({ exitCode: 1 } as any);
       const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
       await assertTopologySupported();
