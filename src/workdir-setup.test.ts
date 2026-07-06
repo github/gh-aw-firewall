@@ -11,6 +11,8 @@ jest.mock('./host-env', () => require('./test-helpers/fs-mock-factory.test-utils
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./host-identity', () => require('./test-helpers/fs-mock-factory.test-utils').hostIdentityMockFactory());
 
+const actualFs = jest.requireActual<typeof import('fs')>('fs');
+
 import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
@@ -145,14 +147,32 @@ describe('prepareWorkDirectories', () => {
       // Simulate EPERM: directory owned by another user (e.g., MCP gateway)
       const eperm = new Error("EPERM: operation not permitted, chmod '/tmp/gh-aw/mcp-logs'") as NodeJS.ErrnoException;
       eperm.code = 'EPERM';
-      (fs.chmodSync as jest.Mock).mockImplementation((target: string) => {
+      (fs.chmodSync as jest.Mock).mockImplementation((target: fs.PathLike, mode: fs.Mode) => {
         if (target === mcpLogsDir) throw eperm;
+        actualFs.chmodSync(target, mode);
       });
 
       const config = buildConfig();
       const logPaths = resolveLogPaths(config);
 
       expect(() => prepareWorkDirectories(config, logPaths)).not.toThrow();
+    });
+
+    it('rethrows non-EPERM errors when chmod on pre-existing mcp-logs dir fails', () => {
+      const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+      fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
+
+      const erofs = new Error("EROFS: read-only file system, chmod '/tmp/gh-aw/mcp-logs'") as NodeJS.ErrnoException;
+      erofs.code = 'EROFS';
+      (fs.chmodSync as jest.Mock).mockImplementation((target: fs.PathLike, mode: fs.Mode) => {
+        if (target === mcpLogsDir) throw erofs;
+        actualFs.chmodSync(target, mode);
+      });
+
+      const config = buildConfig();
+      const logPaths = resolveLogPaths(config);
+
+      expect(() => prepareWorkDirectories(config, logPaths)).toThrow(erofs);
     });
 
     it('falls back to world-writable squid logs when squid chown fails', () => {
