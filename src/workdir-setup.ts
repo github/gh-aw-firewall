@@ -200,10 +200,11 @@ function prepareLogDirectories(logPaths: LogPaths): void {
       fs.chmodSync(mcpLogsDir, 0o777);
       logger.debug(`MCP logs directory permissions fixed at: ${mcpLogsDir}`);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EPERM') {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EPERM' && code !== 'EROFS') {
         throw error;
       }
-      logger.debug(`MCP logs directory already exists at: ${mcpLogsDir} (chmod skipped, owned by another user)`);
+      logger.debug(`MCP logs directory already exists at: ${mcpLogsDir} (chmod skipped: ${code})`);
     }
   }
 }

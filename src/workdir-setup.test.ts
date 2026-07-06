@@ -37,6 +37,10 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
     jest.clearAllMocks();
     (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
+    // Restore chmodSync to its default passthrough (clearAllMocks doesn't reset implementations)
+    (fs.chmodSync as jest.Mock).mockImplementation(
+      (...args: Parameters<typeof actualFs.chmodSync>) => actualFs.chmodSync(...args),
+    );
     (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
   });
 
@@ -158,7 +162,7 @@ describe('prepareWorkDirectories', () => {
       expect(() => prepareWorkDirectories(config, logPaths)).not.toThrow();
     });
 
-    it('rethrows non-EPERM errors when chmod on pre-existing mcp-logs dir fails', () => {
+    it('does not throw when chmod on pre-existing mcp-logs dir fails with EROFS', () => {
       const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
       fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
 
@@ -172,7 +176,24 @@ describe('prepareWorkDirectories', () => {
       const config = buildConfig();
       const logPaths = resolveLogPaths(config);
 
-      expect(() => prepareWorkDirectories(config, logPaths)).toThrow(erofs);
+      expect(() => prepareWorkDirectories(config, logPaths)).not.toThrow();
+    });
+
+    it('rethrows non-EPERM/EROFS errors when chmod on pre-existing mcp-logs dir fails', () => {
+      const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+      fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
+
+      const eio = new Error("EIO: i/o error, chmod '/tmp/gh-aw/mcp-logs'") as NodeJS.ErrnoException;
+      eio.code = 'EIO';
+      (fs.chmodSync as jest.Mock).mockImplementation((target: fs.PathLike, mode: fs.Mode) => {
+        if (target === mcpLogsDir) throw eio;
+        actualFs.chmodSync(target, mode);
+      });
+
+      const config = buildConfig();
+      const logPaths = resolveLogPaths(config);
+
+      expect(() => prepareWorkDirectories(config, logPaths)).toThrow(eio);
     });
 
     it('falls back to world-writable squid logs when squid chown fails', () => {
