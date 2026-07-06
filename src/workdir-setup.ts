@@ -144,8 +144,8 @@ function prepareLogDirectories(logPaths: LogPaths): void {
   // Otherwise, use workDir/squid-logs (will be moved to /tmp after cleanup)
   //
   // TRIPLE-LAYER DEFENSE for squid log permissions:
-  // Layer 1 (here): chown to UID 13:13 on the host filesystem at creation time.
-  //   On non-ARC deployments this is the only layer that matters.
+  // Layer 1 (here): best-effort chown to UID 13:13 on the host filesystem during workdir setup.
+  //   On non-ARC deployments this is typically sufficient.
   //   On ARC/DinD this may be a no-op (daemon has a different filesystem view).
   // Layer 2 (squid-service.ts entrypoint): chown preflight inside the container.
   //   Repairs ownership when Docker daemon auto-creates the bind-mount source
