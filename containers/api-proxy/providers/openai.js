@@ -111,19 +111,18 @@ function createOpenAIAdapter(env, deps = {}) {
       );
     },
     bodyTransform,
-    /** Response returned when port 10000 receives a proxy request but no key is set. */
-    getUnconfiguredResponse() {
-      if (oidcConfigured) {
-        return {
-          statusCode: 503,
-          body: { error: 'OpenAI OIDC token unavailable; retry shortly' },
-        };
-      }
-      return {
-        statusCode: 404,
-        body: { error: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)' },
-      };
+    missingCredentialResponse: {
+      kind: 'plain_error',
+      statusCode: 404,
+      message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
     },
+    unconfiguredResponseWhen: () => (oidcConfigured
+      ? {
+          kind: 'plain_error',
+          statusCode: 503,
+          message: 'OpenAI OIDC token unavailable; retry shortly',
+        }
+      : null),
     extra: {
       ...oidcRuntimeMethods,
       /** Port 10000 always counts toward the startup validation latch. */

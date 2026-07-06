@@ -12,7 +12,37 @@
 
 'use strict';
 
-const { normalizeApiTarget, normalizeBasePath, makeUnconfiguredHealthResponse } = require('./proxy-utils');
+const {
+  normalizeApiTarget,
+  normalizeBasePath,
+  makeProviderNotConfiguredResponse,
+  makeUnconfiguredHealthResponse,
+} = require('./proxy-utils');
+
+/**
+ * @param {string} provider
+ * @param {number} port
+ * @param {{
+ *   kind: 'plain_error',
+ *   message: string,
+ *   statusCode: number
+ * }|{
+ *   kind: 'provider_not_configured',
+ *   message: string,
+ *   statusCode?: number
+ * }} spec
+ * @returns {import('./providers/index').UnconfiguredResponse}
+ */
+function buildUnconfiguredResponse(provider, port, spec) {
+  if (spec.kind === 'plain_error') {
+    return { statusCode: spec.statusCode, body: { error: spec.message } };
+  }
+  const response = makeProviderNotConfiguredResponse(provider, port, spec.message);
+  if (spec.statusCode !== undefined) {
+    response.statusCode = spec.statusCode;
+  }
+  return response;
+}
 
 /**
  *
@@ -204,6 +234,24 @@ function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, b
  * @param {(() => boolean)} [opts.isEnabled]                   - Optional isEnabled override (must be provided either here or via `extra`)
  * @param {((url: string) => string)} [opts.transformRequestUrl] - Optional URL transformer
  * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredResponse]       - Optional not-configured response
+ * @param {{
+ *   kind: 'plain_error',
+ *   message: string,
+ *   statusCode: number
+ * }|{
+ *   kind: 'provider_not_configured',
+ *   message: string,
+ *   statusCode?: number
+ * }} [opts.missingCredentialResponse] - Declarative default request-time not-configured response
+ * @param {(() => ({
+ *   kind: 'plain_error',
+ *   message: string,
+ *   statusCode: number
+ * }|{
+ *   kind: 'provider_not_configured',
+ *   message: string,
+ *   statusCode?: number
+ * }|null))} [opts.unconfiguredResponseWhen] - Optional override callback for request-time not-configured response
  * @param {(() => import('./providers/index').UnconfiguredResponse)} [opts.getUnconfiguredHealthResponse] - Optional explicit not-configured /health response (takes precedence over declarative metadata)
  * @param {string}  [opts.healthServiceName]        - Service name for auto-generated /health response (e.g. 'awf-api-proxy-gemini'); requires missingCredentialMessage
  * @param {string}  [opts.missingCredentialMessage] - Default error message when credentials are absent; requires healthServiceName
@@ -222,12 +270,28 @@ function buildProviderAdapter({
   isEnabled,
   transformRequestUrl,
   getUnconfiguredResponse,
+  missingCredentialResponse,
+  unconfiguredResponseWhen,
   getUnconfiguredHealthResponse,
   healthServiceName,
   missingCredentialMessage,
   unavailableWhen,
   extra = {},
 }) {
+  const hasDeclarativeRequestMetadata =
+    missingCredentialResponse !== undefined || unconfiguredResponseWhen !== undefined;
+  if (getUnconfiguredResponse === undefined && hasDeclarativeRequestMetadata) {
+    if (missingCredentialResponse === undefined) {
+      throw new TypeError(
+        `Provider adapter "${name}" declarative request metadata requires missingCredentialResponse`,
+      );
+    }
+    getUnconfiguredResponse = () => {
+      const override = unconfiguredResponseWhen ? unconfiguredResponseWhen() : null;
+      return buildUnconfiguredResponse(name, port, override || missingCredentialResponse);
+    };
+  }
+
   // Auto-generate getUnconfiguredHealthResponse from declarative metadata when
   // no explicit function is provided.  The optional unavailableWhen callback
   // allows providers with OIDC to surface a dynamic message/status.

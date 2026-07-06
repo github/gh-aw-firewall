@@ -185,6 +185,71 @@ describe('buildProviderAdapter', () => {
       expect(adapter.getUnconfiguredResponse).toBe(getUnconfiguredResponse);
     });
 
+    it('auto-generates getUnconfiguredResponse from missingCredentialResponse metadata', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        missingCredentialResponse: {
+          kind: 'provider_not_configured',
+          message: 'TEST_API_KEY not configured',
+        },
+      });
+
+      expect(adapter.getUnconfiguredResponse()).toEqual({
+        statusCode: 503,
+        body: {
+          error: {
+            message: 'TEST_API_KEY not configured',
+            type: 'provider_not_configured',
+            provider: 'test',
+            port: 10099,
+          },
+        },
+      });
+    });
+
+    it('auto-generated getUnconfiguredResponse uses unconfiguredResponseWhen override when present', () => {
+      const adapter = buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        missingCredentialResponse: {
+          kind: 'provider_not_configured',
+          message: 'TEST_API_KEY not configured',
+        },
+        unconfiguredResponseWhen: () => ({
+          kind: 'plain_error',
+          statusCode: 503,
+          message: 'OIDC token unavailable; retry shortly',
+        }),
+      });
+
+      expect(adapter.getUnconfiguredResponse()).toEqual({
+        statusCode: 503,
+        body: { error: 'OIDC token unavailable; retry shortly' },
+      });
+    });
+
+    it('throws when declarative request metadata is partially specified', () => {
+      expect(() => buildProviderAdapter({
+        name: 'test',
+        port: 10099,
+        adapterMethods: makeAdapterMethods(),
+        getAuthHeaders() { return {}; },
+        isEnabled() { return false; },
+        unconfiguredResponseWhen: () => ({
+          kind: 'plain_error',
+          statusCode: 503,
+          message: 'OIDC token unavailable; retry shortly',
+        }),
+      })).toThrow('declarative request metadata requires missingCredentialResponse');
+    });
+
     it('omits getUnconfiguredHealthResponse when not provided', () => {
       const adapter = buildProviderAdapter({
         name: 'test',
