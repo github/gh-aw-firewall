@@ -423,7 +423,7 @@ On ARC/DinD runners with split filesystems, the Docker daemon may auto-create
 bind-mount source directories as `root:root`, overriding host-side ownership.
 AWF uses a triple-layer defense to ensure correct permissions:
 
-1. **Host-side prep** (`workdir-setup.ts`): `chown` to service UID at creation
+1. **Host-side prep** (`workdir-setup.ts`): best-effort `chown` to service UID during workdir setup (runs even if the directory already exists)
 2. **Container preflight** (`squid-service.ts`): `chown`/`chmod` inside the container before the service starts
 3. **Pre-shutdown repair** (`container-stop.ts`): `chmod -R a+rX` while container is still running
 
