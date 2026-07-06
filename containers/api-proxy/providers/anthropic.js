@@ -183,7 +183,7 @@ function createAnthropicAdapter(env, deps = {}) {
         mergedHeaders['anthropic-version'] = '2023-06-01';
       }
 
-      if (autoCache) {
+      if (autoCache && EXTENDED_CACHE_BETA) {
         const existing = req.headers['anthropic-beta'];
         if (!existing) {
           mergedHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
