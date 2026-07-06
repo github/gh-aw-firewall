@@ -142,20 +142,34 @@ function prepareLogDirectories(logPaths: LogPaths): void {
   // Create squid logs directory for persistence
   // If proxyLogsDir is specified, write directly there (timeout-safe)
   // Otherwise, use workDir/squid-logs (will be moved to /tmp after cleanup)
-  // Note: Squid runs as user 'proxy' (UID 13, GID 13 in ubuntu/squid image)
-  // We need to make the directory writable by the proxy user
-  // Squid container runs as non-root 'proxy' user (UID 13, GID 13)
-  // Set ownership so proxy user can write logs without root privileges
+  //
+  // TRIPLE-LAYER DEFENSE for squid log permissions:
+  // Layer 1 (here): chown to UID 13:13 on the host filesystem at creation time.
+  //   On non-ARC deployments this is the only layer that matters.
+  //   On ARC/DinD this may be a no-op (daemon has a different filesystem view).
+  // Layer 2 (squid-service.ts entrypoint): chown preflight inside the container.
+  //   Repairs ownership when Docker daemon auto-creates the bind-mount source
+  //   as root:root on split filesystems. Required for ARC/DinD.
+  // Layer 3 (container-stop.ts): chmod -R a+rX before compose down.
+  //   Ensures the runner user can read log files (owned by UID 13) after
+  //   the container is removed, for `awf logs summary` and artifact uploads.
+  //
+  // Each layer compensates for the others' failure modes. Do not remove any
+  // layer without understanding all deployment topologies (shared FS, DinD,
+  // rootless Docker, NFS root-squash).
   const SQUID_PROXY_UID = 13;
   const SQUID_PROXY_GID = 13;
   ensureDirectory(logPaths.squidLogs, {
     mode: 0o755,
-    onCreate: () => {
+    onAfterEnsure: () => {
       try {
         fs.chownSync(logPaths.squidLogs, SQUID_PROXY_UID, SQUID_PROXY_GID);
       } catch {
-        // Fallback to world-writable if chown fails (e.g., non-root context)
-        fs.chmodSync(logPaths.squidLogs, 0o777);
+        // Fallback to world-writable if chown fails (e.g., non-root context,
+        // pre-existing dir owned by another user, NFS root-squash)
+        try {
+          fs.chmodSync(logPaths.squidLogs, 0o777);
+        } catch { /* best-effort — container entrypoint preflight will retry */ }
       }
     },
   });
@@ -206,6 +220,36 @@ function prepareLogDirectories(logPaths: LogPaths): void {
       }
       logger.debug(`MCP logs directory already exists at: ${mcpLogsDir} (chmod skipped: ${code})`);
     }
+  }
+
+  // Prune stale MCP log subdirectories to prevent unbounded growth on persistent
+  // runners. Each AWF run or MCP gateway session creates timestamped subdirs;
+  // without pruning these accumulate indefinitely since mcpLogsDir lives outside
+  // workDir and is not cleaned up by removeWorkDirectories().
+  pruneStaleMcpLogDirs(mcpLogsDir);
+}
+
+const MCP_LOGS_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function pruneStaleMcpLogDirs(mcpLogsDir: string): void {
+  try {
+    const entries = fs.readdirSync(mcpLogsDir, { withFileTypes: true });
+    const now = Date.now();
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = path.join(mcpLogsDir, entry.name);
+      try {
+        const stat = fs.statSync(dirPath);
+        if (now - stat.mtimeMs > MCP_LOGS_MAX_AGE_MS) {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+          logger.debug(`Pruned stale MCP log directory: ${dirPath}`);
+        }
+      } catch {
+        // Skip entries we can't stat or remove (owned by another user, etc.)
+      }
+    }
+  } catch {
+    // Best-effort: if we can't read the directory, skip pruning silently
   }
 }
 
@@ -321,4 +365,6 @@ export const workdirSetupTestHelpers = {
   prepareLogDirectories,
   prepareChrootHomeMounts,
   ensureInitSignalDir,
+  pruneStaleMcpLogDirs,
+  MCP_LOGS_MAX_AGE_MS,
 };

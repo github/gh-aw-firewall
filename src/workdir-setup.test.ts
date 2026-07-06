@@ -212,6 +212,81 @@ describe('prepareWorkDirectories', () => {
       const mode = fs.statSync(proxyLogsDir).mode & 0o777;
       expect(mode).toBe(0o777);
     });
+
+    it('repairs squid logs ownership even when directory pre-exists', () => {
+      const config = buildConfig();
+      const logPaths = resolveLogPaths(config);
+
+      // Pre-create the squid logs directory (simulates leftover from crashed run)
+      fs.mkdirSync(logPaths.squidLogs, { recursive: true });
+
+      prepareWorkDirectories(config, logPaths);
+
+      // chown should still be called (onAfterEnsure, not just onCreate)
+      expect(fs.chownSync).toHaveBeenCalledWith(logPaths.squidLogs, 13, 13);
+    });
+
+    it('tolerates both chown and chmod failure on squid logs (best-effort)', () => {
+      const config = buildConfig();
+      const logPaths = resolveLogPaths(config);
+
+      (fs.chownSync as unknown as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
+        if (String(targetPath) === logPaths.squidLogs) {
+          throw new Error('chown failed');
+        }
+      });
+      (fs.chmodSync as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
+        if (String(targetPath) === logPaths.squidLogs) {
+          throw new Error('chmod failed');
+        }
+        actualFs.chmodSync(targetPath as string, 0o777);
+      });
+
+      // Should not throw — container entrypoint preflight will handle it
+      expect(() => prepareWorkDirectories(config, logPaths)).not.toThrow();
+    });
+  });
+
+  describe('MCP log pruning', () => {
+    it('removes subdirectories older than 24 hours', () => {
+      const mcpLogsDir = path.join(fixture.tempDir, 'mcp-logs');
+      fs.mkdirSync(mcpLogsDir, { recursive: true });
+
+      // Create a "stale" subdir and set its mtime to 25 hours ago
+      const staleDir = path.join(mcpLogsDir, 'stale-session');
+      fs.mkdirSync(staleDir);
+      const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      fs.utimesSync(staleDir, oldTime, oldTime);
+
+      // Create a "fresh" subdir (mtime is now)
+      const freshDir = path.join(mcpLogsDir, 'fresh-session');
+      fs.mkdirSync(freshDir);
+
+      workdirSetupTestHelpers.pruneStaleMcpLogDirs(mcpLogsDir);
+
+      expect(fs.existsSync(staleDir)).toBe(false);
+      expect(fs.existsSync(freshDir)).toBe(true);
+    });
+
+    it('skips files (only prunes directories)', () => {
+      const mcpLogsDir = path.join(fixture.tempDir, 'mcp-logs');
+      fs.mkdirSync(mcpLogsDir, { recursive: true });
+
+      const staleFile = path.join(mcpLogsDir, 'old-file.log');
+      fs.writeFileSync(staleFile, 'data');
+      const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      fs.utimesSync(staleFile, oldTime, oldTime);
+
+      workdirSetupTestHelpers.pruneStaleMcpLogDirs(mcpLogsDir);
+
+      expect(fs.existsSync(staleFile)).toBe(true);
+    });
+
+    it('tolerates unreadable directory without throwing', () => {
+      expect(() => {
+        workdirSetupTestHelpers.pruneStaleMcpLogDirs('/nonexistent/path');
+      }).not.toThrow();
+    });
   });
 
   describe('chroot home bind-mount preparation', () => {
