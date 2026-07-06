@@ -22,7 +22,13 @@ jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
   return {
     ...actual,
-    readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+    readFileSync: (...args: unknown[]) => {
+      // Only intercept the stdin fd read used by config-file's readStdinSync.
+      if (args[0] === process.stdin.fd) {
+        return mockReadFileSync(...args);
+      }
+      return (actual.readFileSync as unknown as (...a: unknown[]) => unknown)(...args);
+    },
   };
 });
 
