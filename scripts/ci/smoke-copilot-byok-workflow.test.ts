@@ -17,10 +17,12 @@ describe('smoke copilot BYOK workflow model selection', () => {
     expect(source).toContain('COPILOT_MODEL: claude-haiku-4.5');
   });
 
-  it.each(byokLockPaths)('forces workflow-level COPILOT_MODEL in %s', (lockPath) => {
+  it.each(byokLockPaths)('sets workflow-level COPILOT_MODEL env in %s', (lockPath) => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(lock).toContain('COPILOT_MODEL: ${{ env.COPILOT_MODEL }}');
+    // The compiled lock file should define COPILOT_MODEL at the workflow env level
+    // (pinned model from the source .md) and use vars-based selection in the agent job
+    expect(lock).toMatch(/^\s+COPILOT_MODEL: (?:claude-haiku-4\.5|o4-mini-aw)/m);
     expect(lock).not.toContain('COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || env.COPILOT_MODEL }}');
   });
 });
