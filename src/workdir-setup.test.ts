@@ -138,6 +138,23 @@ describe('prepareWorkDirectories', () => {
       expect(mode).toBe(0o777);
     });
 
+    it('does not throw when chmod on pre-existing mcp-logs dir fails with EPERM', () => {
+      const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+      fs.mkdirSync(mcpLogsDir, { recursive: true, mode: 0o700 });
+
+      // Simulate EPERM: directory owned by another user (e.g., MCP gateway)
+      const eperm = new Error("EPERM: operation not permitted, chmod '/tmp/gh-aw/mcp-logs'") as NodeJS.ErrnoException;
+      eperm.code = 'EPERM';
+      (fs.chmodSync as jest.Mock).mockImplementation((target: string) => {
+        if (target === mcpLogsDir) throw eperm;
+      });
+
+      const config = buildConfig();
+      const logPaths = resolveLogPaths(config);
+
+      expect(() => prepareWorkDirectories(config, logPaths)).not.toThrow();
+    });
+
     it('falls back to world-writable squid logs when squid chown fails', () => {
       const proxyLogsDir = path.join(fixture.tempDir, 'proxy-logs');
       (fs.chownSync as unknown as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {

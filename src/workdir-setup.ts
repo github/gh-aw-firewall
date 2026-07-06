@@ -194,9 +194,14 @@ function prepareLogDirectories(logPaths: LogPaths): void {
     fs.chmodSync(mcpLogsDir, 0o777);
     logger.debug(`MCP logs directory created at: ${mcpLogsDir}`);
   } else {
-    // Fix permissions if directory already exists (e.g., created by a previous run)
-    fs.chmodSync(mcpLogsDir, 0o777);
-    logger.debug(`MCP logs directory permissions fixed at: ${mcpLogsDir}`);
+    // Best-effort permission fix if directory already exists (e.g., created by MCP gateway
+    // or a previous run). May fail with EPERM if owned by a different user.
+    try {
+      fs.chmodSync(mcpLogsDir, 0o777);
+      logger.debug(`MCP logs directory permissions fixed at: ${mcpLogsDir}`);
+    } catch {
+      logger.debug(`MCP logs directory already exists at: ${mcpLogsDir} (chmod skipped, owned by another user)`);
+    }
   }
 }
 
