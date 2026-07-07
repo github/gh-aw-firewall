@@ -35,7 +35,7 @@ const {
   deriveCopilotApiTarget,
   copilotTargetRequiresGitHubTokenPrefix,
 } = require('./copilot-auth');
-const { createProviderOidcAuth } = require('./cloud-oidc-init');
+const { createProviderOidcAuth, createProviderOidcHeaderResolver } = require('./cloud-oidc-init');
 const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
@@ -102,6 +102,16 @@ function createCopilotAdapter(env, deps = {}) {
     ? (body) => injectByokExtraBodyFields(body, byokExtraBodyFields)
     : null;
   const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
+  const requiresGitHubTokenPrefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env);
+  const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
+  const inferenceAuthHeaderResolver = createProviderOidcHeaderResolver({
+    resolveAuthHeaders,
+    buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
+    buildStaticHeaders: () => withCopilotIntegration({
+      ...(apiKey ? byokExtraHeaders : {}),
+      'Authorization': authPrefix + ' ' + authToken,
+    }, integrationId),
+  });
 
   // Pre-computed models path used by getModelsFetchConfig and getReflectionInfo.
   // For BYOK/custom providers the base path prefix is included (e.g. /api/v1/models
@@ -120,7 +130,7 @@ function createCopilotAdapter(env, deps = {}) {
    * @returns {{ url: string, opts: { method: string, headers: Record<string,string> } } & Record<string, unknown>}
    */
 function buildCopilotModelsRequest(extra = {}) {
-  const prefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env) ? 'token' : 'Bearer';
+  const prefix = requiresGitHubTokenPrefix ? 'token' : 'Bearer';
   return {
     url: `https://${rawTarget}/models`,
     opts: {
@@ -219,8 +229,6 @@ function buildCopilotModelsRequest(extra = {}) {
       // Enterprise/Business Copilot API requires 'token <value>' for GitHub OAuth tokens.
       // BYOK API keys use 'Bearer' regardless of target.
       // Standard api.githubcopilot.com and GHEC (*.ghe.com) also use 'Bearer' for all credentials.
-      const requiresGitHubTokenPrefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env);
-
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
       if (isModelsPath && req.method === 'GET' && githubToken) {
         // /models always uses the GitHub OAuth token (not BYOK key)
@@ -228,15 +236,7 @@ function buildCopilotModelsRequest(extra = {}) {
         return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
-      // For inference: BYOK keys use 'Bearer'; GitHub tokens use 'token' on Enterprise/Business/GHES
-      const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
-      return resolveAuthHeaders(
-        (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
-        withCopilotIntegration({
-          ...(apiKey ? byokExtraHeaders : {}),
-          'Authorization': authPrefix + ' ' + authToken,
-        }, integrationId),
-      );
+      return inferenceAuthHeaderResolver.resolveHeaders();
     },
     bodyTransform,
     missingCredentialResponse: {

@@ -18,7 +18,7 @@ const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
-const { createProviderOidcAuth } = require('./cloud-oidc-init');
+const { createProviderOidcAuth, createProviderOidcHeaderResolver } = require('./cloud-oidc-init');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
@@ -78,6 +78,11 @@ function createOpenAIAdapter(env, deps = {}) {
     return bearerAuthHeaders(key);
   }
   const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
+  const oidcHeaderResolver = createProviderOidcHeaderResolver({
+    resolveAuthHeaders,
+    buildOidcHeaders: buildTokenAuthHeaders,
+    buildStaticHeaders: buildStaticAuthHeaders,
+  });
 
   const adapterMethods = createAdapterMethods({
     apiKey,
@@ -105,10 +110,7 @@ function createOpenAIAdapter(env, deps = {}) {
     isManagementPort: true,
     adapterMethods,
     getAuthHeaders() {
-      return resolveAuthHeaders(
-        buildTokenAuthHeaders,
-        buildStaticAuthHeaders(),
-      );
+      return oidcHeaderResolver.resolveHeaders();
     },
     bodyTransform,
     missingCredentialResponse: {

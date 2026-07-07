@@ -1,6 +1,10 @@
 'use strict';
 
-const { resolveCloudOidcProviders, createProviderOidcAuth } = require('./cloud-oidc-init');
+const {
+  resolveCloudOidcProviders,
+  createProviderOidcAuth,
+  createProviderOidcHeaderResolver,
+} = require('./cloud-oidc-init');
 
 describe('resolveCloudOidcProviders', () => {
   it('returns no providers when github-oidc is not configured', () => {
@@ -89,6 +93,43 @@ describe('createProviderOidcAuth', () => {
     expect(auth.runtimeMethods.isEnabled()).toBe(false);
     expect(auth.validationSkip()).toBeNull();
     expect(auth.skipModelsFetch()).toBe(false);
+  });
+
+  describe('createProviderOidcHeaderResolver', () => {
+    it('resolves OIDC headers when token is available', () => {
+      const resolveAuthHeaders = jest.fn((buildOidcHeaders) => buildOidcHeaders('oidc-token'));
+      const resolver = createProviderOidcHeaderResolver({
+        resolveAuthHeaders,
+        buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+        buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+      });
+
+      expect(resolver.resolveHeaders()).toEqual({ Authorization: 'Bearer ' + 'oidc-' + 'token' });
+      expect(resolveAuthHeaders).toHaveBeenCalledWith(
+        expect.any(Function),
+        { 'x-api-key': 'static-key' },
+      );
+    });
+
+    it('returns static headers when OIDC is not configured', () => {
+      const resolver = createProviderOidcHeaderResolver({
+        resolveAuthHeaders: (_buildOidcHeaders, staticHeaders) => staticHeaders,
+        buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+        buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+      });
+
+      expect(resolver.resolveHeaders()).toEqual({ 'x-api-key': 'static-key' });
+    });
+
+    it('returns empty headers when OIDC is configured but token is unavailable', () => {
+      const resolver = createProviderOidcHeaderResolver({
+        resolveAuthHeaders: () => ({}),
+        buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+        buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+      });
+
+      expect(resolver.resolveHeaders()).toEqual({});
+    });
   });
 
   it('isEnabled() returns true when staticAuthToken is set (no OIDC)', () => {

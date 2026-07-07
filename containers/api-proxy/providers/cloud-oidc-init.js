@@ -180,7 +180,32 @@ function createProviderOidcAuth(env, {
   };
 }
 
+/**
+ * Build a shared OIDC/static auth-header resolver for provider adapters.
+ *
+ * @param {object} options
+ * @param {(buildOidcHeaders: (token: string) => Record<string, string>, staticHeaders: Record<string, string>) => Record<string, string>} options.resolveAuthHeaders
+ * @param {(token: string) => Record<string, string>} options.buildOidcHeaders
+ * @param {() => Record<string, string>} options.buildStaticHeaders
+ * @returns {{ resolveHeaders: () => Record<string, string> }}
+ */
+function createProviderOidcHeaderResolver({
+  resolveAuthHeaders,
+  buildOidcHeaders,
+  buildStaticHeaders,
+}) {
+  return {
+    resolveHeaders() {
+      return resolveAuthHeaders(
+        buildOidcHeaders,
+        buildStaticHeaders(),
+      );
+    },
+  };
+}
+
 module.exports = {
   resolveCloudOidcProviders,
   createProviderOidcAuth,
+  createProviderOidcHeaderResolver,
 };
