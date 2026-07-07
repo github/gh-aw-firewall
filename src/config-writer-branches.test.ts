@@ -3,13 +3,14 @@
  *   - writeAuditArtifacts: auditDir symlink guard
  *   - copySeccompProfile: alternate seccomp-profile.json fallback path
  *   - initializeSslBump: non-Error rejection propagation
+ *   - validateAndPrepareWorkDir: EACCES diagnostic
  */
 
 import './test-helpers/config-writer-dependency-mocks.test-utils';
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { writeConfigs } from './config-writer';
+import { writeConfigs, configWriterTestHelpers } from './config-writer';
 import { isOpenSslAvailable, generateSessionCa, initSslDb } from './ssl-bump';
 import {
   buildWriteConfig,
@@ -122,6 +123,109 @@ describe('config-writer additional branches', () => {
       } finally {
         infoSpy.mockRestore();
         warnSpy.mockRestore();
+      }
+    });
+  });
+
+  // ─── validateAndPrepareWorkDir EACCES diagnostic ──────────────────────────
+
+  describe('validateAndPrepareWorkDir EACCES diagnostic', () => {
+    it('throws with diagnostic naming the blocking ancestor in the suggested fix', () => {
+      const blockerDir = path.join(tempDir, 'stale-parent');
+      const workDir = path.join(blockerDir, 'new-workdir');
+
+      const eacces = Object.assign(
+        new Error(`EACCES: permission denied, mkdir '${workDir}'`),
+        { code: 'EACCES' }
+      );
+      (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+      // existsSync: only stale-parent exists; workDir does not
+      (fs.existsSync as jest.Mock).mockImplementation((p: fs.PathLike) =>
+        String(p) === blockerDir
+      );
+      // statSync: blockerDir is root-owned
+      (fs.statSync as jest.Mock).mockReturnValue({ uid: 0, gid: 0, mode: 0o40755 } as fs.Stats);
+      // accessSync: blockerDir is not writable
+      (fs.accessSync as jest.Mock).mockImplementation(() => { throw new Error('EACCES'); });
+
+      try {
+        expect(() =>
+          configWriterTestHelpers.validateAndPrepareWorkDir(buildWriteConfig(tempDir, { workDir }))
+        ).toThrow(/EACCES: cannot create work directory/);
+
+        (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+        expect(() =>
+          configWriterTestHelpers.validateAndPrepareWorkDir(buildWriteConfig(tempDir, { workDir }))
+        ).toThrow(new RegExp(`Suggested fix: sudo rm -rf ${blockerDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+      } finally {
+        (fs.existsSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.existsSync>) => jest.requireActual<typeof import('fs')>('fs').existsSync(...args)
+        );
+        (fs.statSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.statSync>) => jest.requireActual<typeof import('fs')>('fs').statSync(...args)
+        );
+        (fs.accessSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.accessSync>) => jest.requireActual<typeof import('fs')>('fs').accessSync(...args)
+        );
+      }
+    });
+
+    it('falls back to workDir in the suggested fix when no blocking ancestor is identified', () => {
+      const workDir = path.join(tempDir, 'new-workdir');
+
+      const eacces = Object.assign(
+        new Error(`EACCES: permission denied, mkdir '${workDir}'`),
+        { code: 'EACCES' }
+      );
+      (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+      (fs.existsSync as jest.Mock).mockImplementation(() => false);
+
+      try {
+        expect(() =>
+          configWriterTestHelpers.validateAndPrepareWorkDir(buildWriteConfig(tempDir, { workDir }))
+        ).toThrow(new RegExp(`Suggested fix: sudo rm -rf ${workDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+      } finally {
+        (fs.existsSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.existsSync>) => jest.requireActual<typeof import('fs')>('fs').existsSync(...args)
+        );
+      }
+    });
+
+    it('uses W_OK | X_OK when checking writability of the ancestor', () => {
+      const blockerDir = path.join(tempDir, 'stale-parent');
+      const workDir = path.join(blockerDir, 'new-workdir');
+
+      const eacces = Object.assign(
+        new Error(`EACCES: permission denied, mkdir '${workDir}'`),
+        { code: 'EACCES' }
+      );
+      (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+      (fs.existsSync as jest.Mock).mockImplementation((p: fs.PathLike) =>
+        String(p) === blockerDir
+      );
+      (fs.statSync as jest.Mock).mockReturnValue({ uid: 0, gid: 0, mode: 0o40755 } as fs.Stats);
+      (fs.accessSync as jest.Mock).mockImplementation(() => { throw new Error('EACCES'); });
+
+      const actualFsConstants = jest.requireActual<typeof import('fs')>('fs').constants;
+
+      try {
+        expect(() =>
+          configWriterTestHelpers.validateAndPrepareWorkDir(buildWriteConfig(tempDir, { workDir }))
+        ).toThrow(/EACCES/);
+        expect(fs.accessSync as jest.Mock).toHaveBeenCalledWith(
+          blockerDir,
+          actualFsConstants.W_OK | actualFsConstants.X_OK
+        );
+      } finally {
+        (fs.existsSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.existsSync>) => jest.requireActual<typeof import('fs')>('fs').existsSync(...args)
+        );
+        (fs.statSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.statSync>) => jest.requireActual<typeof import('fs')>('fs').statSync(...args)
+        );
+        (fs.accessSync as jest.Mock).mockImplementation(
+          (...args: Parameters<typeof fs.accessSync>) => jest.requireActual<typeof import('fs')>('fs').accessSync(...args)
+        );
       }
     });
   });

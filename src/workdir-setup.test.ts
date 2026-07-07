@@ -41,6 +41,12 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
     (fs.chmodSync as jest.Mock).mockImplementation(
       (...args: Parameters<typeof actualFs.chmodSync>) => actualFs.chmodSync(...args),
     );
+    (fs.mkdirSync as jest.Mock).mockImplementation(
+      (...args: Parameters<typeof actualFs.mkdirSync>) => actualFs.mkdirSync(...args),
+    );
+    (fs.accessSync as jest.Mock).mockImplementation(
+      (...args: Parameters<typeof actualFs.accessSync>) => actualFs.accessSync(...args),
+    );
     (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
   });
 
@@ -495,5 +501,90 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
 
     workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
     expect(fs.existsSync(geminiDir)).toBe(false);
+  });
+});
+
+describe('ensureDirectory EACCES diagnostic', () => {
+  const fixture = setupWorkdirFixture({ cleanupChrootHome: false });
+
+  it('throws a diagnostic error naming the nearest existing ancestor as blocker', () => {
+    const parentDir = path.join(fixture.tempDir, 'stale-parent');
+    const targetDir = path.join(parentDir, 'new-child');
+    actualFs.mkdirSync(parentDir, { recursive: true });
+
+    const eacces = Object.assign(
+      new Error(`EACCES: permission denied, mkdir '${targetDir}'`),
+      { code: 'EACCES' }
+    );
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+    (fs.accessSync as jest.Mock).mockImplementationOnce(() => { throw new Error('EACCES'); });
+
+    expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
+      new RegExp(`Blocked by: .*stale-parent`)
+    );
+  });
+
+  it('uses nearest existing ancestor as blocker even when it appears writable', () => {
+    const parentDir = path.join(fixture.tempDir, 'existing-parent');
+    const targetDir = path.join(parentDir, 'new-child');
+    actualFs.mkdirSync(parentDir, { recursive: true });
+
+    const eacces = Object.assign(
+      new Error(`EACCES: permission denied, mkdir '${targetDir}'`),
+      { code: 'EACCES' }
+    );
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+    // accessSync succeeds (writable), but nearest ancestor is still reported as blocker
+
+    expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
+      new RegExp(`Blocked by: .*existing-parent`)
+    );
+  });
+
+  it('falls back to dirPath in Blocked by when no existing ancestor is found', () => {
+    const targetDir = path.join(fixture.tempDir, 'deep', 'nonexistent', 'dir');
+
+    const eacces = Object.assign(
+      new Error(`EACCES: permission denied, mkdir '${targetDir}'`),
+      { code: 'EACCES' }
+    );
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+    (fs.existsSync as jest.Mock).mockImplementation(() => false);
+
+    try {
+      expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
+        new RegExp(`Blocked by: ${targetDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+      );
+    } finally {
+      (fs.existsSync as jest.Mock).mockImplementation(
+        (...args: Parameters<typeof actualFs.existsSync>) => actualFs.existsSync(...args)
+      );
+    }
+  });
+
+  it('checks W_OK | X_OK when probing the blocking ancestor', () => {
+    const parentDir = path.join(fixture.tempDir, 'stale-parent');
+    const targetDir = path.join(parentDir, 'new-child');
+    actualFs.mkdirSync(parentDir, { recursive: true });
+
+    const eacces = Object.assign(
+      new Error(`EACCES: permission denied, mkdir '${targetDir}'`),
+      { code: 'EACCES' }
+    );
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+
+    expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(/EACCES/);
+    expect(fs.accessSync as jest.Mock).toHaveBeenCalledWith(
+      expect.any(String),
+      actualFs.constants.W_OK | actualFs.constants.X_OK
+    );
+  });
+
+  it('rethrows non-EACCES errors from mkdirSync unchanged', () => {
+    const targetDir = path.join(fixture.tempDir, 'some-dir');
+    const enoent = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw enoent; });
+
+    expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(enoent);
   });
 });

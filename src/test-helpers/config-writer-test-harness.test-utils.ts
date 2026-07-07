@@ -82,8 +82,19 @@ export function buildWriteConfig(
  */
 export function setupConfigWriterTempDir(prefix = 'config-writer-test-'): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const actualFs = jest.requireActual<typeof import('fs')>('fs');
   jest.clearAllMocks();
   (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
+  // Restore passthrough impls for mocks added to fsMockFactory that may be overridden per-test
+  (fs.mkdirSync as jest.Mock).mockImplementation(
+    (...args: Parameters<typeof actualFs.mkdirSync>) => actualFs.mkdirSync(...args),
+  );
+  (fs.accessSync as jest.Mock).mockImplementation(
+    (...args: Parameters<typeof actualFs.accessSync>) => actualFs.accessSync(...args),
+  );
+  (fs.statSync as jest.Mock).mockImplementation(
+    (...args: Parameters<typeof actualFs.statSync>) => actualFs.statSync(...args),
+  );
   (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
   return tempDir;
 }

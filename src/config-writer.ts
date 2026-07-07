@@ -26,12 +26,14 @@ declare const __AWF_SECCOMP_PROFILE__: string | undefined;
 
 /**
  * Produces a human-readable diagnostic string explaining why EACCES occurred.
- * Walks the path hierarchy to identify which ancestor is not writable.
+ * Walks the path hierarchy to identify which ancestor is not writable/searchable.
+ * Returns the diagnostic string and the identified blocking path (if found).
  */
-function diagnoseEacces(targetDir: string): string {
+function diagnoseEacces(targetDir: string): { diagnosis: string; blockerPath: string | null } {
   const resolvedTarget = path.resolve(targetDir);
   let current = resolvedTarget;
   const lines: string[] = [];
+  let blockerPath: string | null = null;
 
   // Walk up to find the blocking directory
   while (current !== path.dirname(current)) {
@@ -43,6 +45,7 @@ function diagnoseEacces(targetDir: string): string {
           `  ${current}: uid=${stat.uid} gid=${stat.gid} mode=${(stat.mode & 0o7777).toString(8)} writable=${writable}`
         );
         if (!writable) {
+          blockerPath = current;
           lines.push(`  └─ BLOCKED HERE: current process (uid=${process.getuid?.() ?? '?'}) cannot write to this directory`);
           break;
         }
@@ -54,14 +57,15 @@ function diagnoseEacces(targetDir: string): string {
     current = path.dirname(current);
   }
 
-  return lines.length > 0
+  const diagnosis = lines.length > 0
     ? `Path diagnosis:\n${lines.join('\n')}`
     : `Path diagnosis: could not determine blocking ancestor`;
+  return { diagnosis, blockerPath };
 }
 
 function isWritable(dirPath: string): boolean {
   try {
-    fs.accessSync(dirPath, fs.constants.W_OK);
+    fs.accessSync(dirPath, fs.constants.W_OK | fs.constants.X_OK);
     return true;
   } catch {
     return false;
@@ -107,14 +111,15 @@ function validateAndPrepareWorkDir(config: WrapperConfig): void {
     }
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
-      const diagnostic = diagnoseEacces(config.workDir);
+      const { diagnosis, blockerPath } = diagnoseEacces(config.workDir);
+      const suggestedPath = blockerPath ?? config.workDir;
       throw new Error(
         `EACCES: cannot create work directory: ${config.workDir}\n` +
-        `${diagnostic}\n` +
+        `${diagnosis}\n` +
         `This typically happens on persistent runners when a previous AWF run ` +
         `left directories owned by root. The calling process (e.g., gh-aw setup) ` +
         `must remove or chown the stale directory before invoking AWF.\n` +
-        `  Suggested fix: sudo rm -rf ${path.dirname(config.workDir)} && mkdir -p ${config.workDir}`
+        `  Suggested fix: sudo rm -rf ${suggestedPath} && mkdir -p ${suggestedPath}`
       );
     }
     throw error;
