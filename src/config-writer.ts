@@ -24,6 +24,50 @@ import { prepareWorkDirectories } from './workdir-setup';
 // builds the identifier remains undeclared, so the typeof check below is safe.
 declare const __AWF_SECCOMP_PROFILE__: string | undefined;
 
+/**
+ * Produces a human-readable diagnostic string explaining why EACCES occurred.
+ * Walks the path hierarchy to identify which ancestor is not writable.
+ */
+function diagnoseEacces(targetDir: string): string {
+  const resolvedTarget = path.resolve(targetDir);
+  let current = resolvedTarget;
+  const lines: string[] = [];
+
+  // Walk up to find the blocking directory
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(current)) {
+      try {
+        const stat = fs.statSync(current);
+        const writable = isWritable(current);
+        lines.push(
+          `  ${current}: uid=${stat.uid} gid=${stat.gid} mode=${(stat.mode & 0o7777).toString(8)} writable=${writable}`
+        );
+        if (!writable) {
+          lines.push(`  └─ BLOCKED HERE: current process (uid=${process.getuid?.() ?? '?'}) cannot write to this directory`);
+          break;
+        }
+      } catch {
+        lines.push(`  ${current}: (cannot stat)`);
+        break;
+      }
+    }
+    current = path.dirname(current);
+  }
+
+  return lines.length > 0
+    ? `Path diagnosis:\n${lines.join('\n')}`
+    : `Path diagnosis: could not determine blocking ancestor`;
+}
+
+function isWritable(dirPath: string): boolean {
+  try {
+    fs.accessSync(dirPath, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolved network topology passed between setup phases. */
 interface NetworkConfig {
   subnet: string;
@@ -46,19 +90,34 @@ function validateAndPrepareWorkDir(config: WrapperConfig): void {
   // Ensure work directory exists with restricted permissions (owner-only access)
   // Defense-in-depth: even if tmpfs overlay fails, non-root processes on the host
   // cannot read the docker-compose.yml which contains sensitive tokens
-  const workDirCreated = Boolean(
-    fs.mkdirSync(config.workDir, { recursive: true, mode: 0o700 })
-  );
-  const workDirLstat = fs.lstatSync(config.workDir);
-  if (workDirLstat.isSymbolicLink()) {
-    throw new Error(`Refusing to use symlink as directory: ${config.workDir}`);
-  }
-  const workDirStat = fs.statSync(config.workDir);
-  if (!workDirStat.isDirectory()) {
-    throw new Error(`Expected directory but found non-directory path: ${config.workDir}`);
-  }
-  if (!workDirCreated) {
-    fs.chmodSync(config.workDir, 0o700);
+  try {
+    const workDirCreated = Boolean(
+      fs.mkdirSync(config.workDir, { recursive: true, mode: 0o700 })
+    );
+    const workDirLstat = fs.lstatSync(config.workDir);
+    if (workDirLstat.isSymbolicLink()) {
+      throw new Error(`Refusing to use symlink as directory: ${config.workDir}`);
+    }
+    const workDirStat = fs.statSync(config.workDir);
+    if (!workDirStat.isDirectory()) {
+      throw new Error(`Expected directory but found non-directory path: ${config.workDir}`);
+    }
+    if (!workDirCreated) {
+      fs.chmodSync(config.workDir, 0o700);
+    }
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
+      const diagnostic = diagnoseEacces(config.workDir);
+      throw new Error(
+        `EACCES: cannot create work directory: ${config.workDir}\n` +
+        `${diagnostic}\n` +
+        `This typically happens on persistent runners when a previous AWF run ` +
+        `left directories owned by root. The calling process (e.g., gh-aw setup) ` +
+        `must remove or chown the stale directory before invoking AWF.\n` +
+        `  Suggested fix: sudo rm -rf ${path.dirname(config.workDir)} && mkdir -p ${config.workDir}`
+      );
+    }
+    throw error;
   }
 }
 
