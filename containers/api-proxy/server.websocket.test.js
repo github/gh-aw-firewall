@@ -226,17 +226,19 @@ describe('proxyWebSocket', () => {
 
       wsProxy(req, socket, Buffer.alloc(0), 'api.openai.com', { 'Authorization': 'Bearer injected' }, 'openai');
 
-      return new Promise(resolve => setTimeout(() => {
-        const upgradeWrite = tlsSocket.write.mock.calls.find(
-          c => typeof c[0] === 'string' && c[0].startsWith('GET ')
-        );
-        expect(upgradeWrite).toBeDefined();
-        const upgradeReqStr = upgradeWrite[0];
-        expect(upgradeReqStr).not.toContain('client-supplied');
-        expect(upgradeReqStr).not.toContain('client-api-key');
-        expect(upgradeReqStr).toContain('Bearer injected');
-        resolve();
-      }, 30));
+      return new Promise(resolve => {
+        tlsSocket.once('secureConnect', () => setImmediate(() => {
+          const upgradeWrite = tlsSocket.write.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].startsWith('GET ')
+          );
+          expect(upgradeWrite).toBeDefined();
+          const upgradeReqStr = upgradeWrite[0];
+          expect(upgradeReqStr).not.toContain('client-supplied');
+          expect(upgradeReqStr).not.toContain('client-api-key');
+          expect(upgradeReqStr).toContain('Bearer injected');
+          resolve();
+        }));
+      });
     });
 
     it('forwards the CONNECT request to the configured Squid proxy host/port', () => {
@@ -267,12 +269,14 @@ describe('proxyWebSocket', () => {
       const headBytes = Buffer.from([0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f]); // WS text frame: FIN=1, opcode=1, len=5, payload='Hello'
       wsProxy(makeUpgradeReq(), socket, headBytes, 'api.openai.com', { 'Authorization': 'Bearer k' }, 'openai');
 
-      return new Promise(resolve => setTimeout(() => {
-        const bufWrite = tlsSocket.write.mock.calls.find(c => Buffer.isBuffer(c[0]));
-        expect(bufWrite).toBeDefined();
-        expect(bufWrite[0]).toEqual(headBytes);
-        resolve();
-      }, 30));
+      return new Promise(resolve => {
+        tlsSocket.once('secureConnect', () => setImmediate(() => {
+          const bufWrite = tlsSocket.write.mock.calls.find(c => Buffer.isBuffer(c[0]));
+          expect(bufWrite).toBeDefined();
+          expect(bufWrite[0]).toEqual(headBytes);
+          resolve();
+        }));
+      });
     });
   });
 });
