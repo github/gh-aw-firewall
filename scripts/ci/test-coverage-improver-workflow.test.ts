@@ -75,7 +75,7 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).not.toContain("shell(cat:src/*.test.ts)");
     expect(lock).not.toContain("shell(npm run lint)");
     expect(lock).not.toContain("shell(npm run test)");
-    expect(lock).toContain('github/gh-aw-actions/setup@3fac1cfa7a5a375a6a5eb9839178f6dad7adb60a # v0.82.2');
+    expect(lock).toContain('github/gh-aw-actions/setup@eb6dc28843ed52402ea15a0ddf6334c40330eab4 # v0.82.3');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.5.0');
 
