@@ -35,4 +35,27 @@ describe('models-dev-catalog', () => {
       zeroCost: true,
     });
   });
+
+  it('includes bundled pricing for claude-fable-5 and claude-mythos-5', () => {
+    expect(resolveCatalogModel('claude-fable-5')).toEqual({
+      exists: true,
+      pricing: {
+        input: 10,
+        cachedInput: 1,
+        cacheWrite: 12.5,
+        output: 50,
+      },
+      zeroCost: false,
+    });
+    expect(resolveCatalogModel('claude-mythos-5')).toEqual({
+      exists: true,
+      pricing: {
+        input: 10,
+        cachedInput: 1,
+        cacheWrite: 12.5,
+        output: 50,
+      },
+      zeroCost: false,
+    });
+  });
 });
