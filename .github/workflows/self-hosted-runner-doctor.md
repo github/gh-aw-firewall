@@ -101,13 +101,18 @@ Prefer the narrowest match. Examples:
 - `chroot: failed to run command '/bin/sh'` on a glibc daemon → A13 (empty staging, not A4 musl)
 - `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
 - `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
+- `node: command not found` on ARC/DinD with `runner.topology: arc-dind` even when binary is correctly installed → A16 (sysroot filter was over-broad and dropped the workspace mount)
 - `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
 - `EACCES` in upload-artifact after sudo:false → B6
 - `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
+- `EACCES: permission denied, mkdir '/tmp/gh-aw/...'` before containers start on a persistent runner → B8 (stale root-owned pre-flight dirs)
 - `FATAL: http_port: IPv6 is not available` → B3
+- `No CA certificates were loaded from the system` in chroot on RHEL/Fedora/Amazon Linux → B9 (missing /etc/pki/ mount)
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
+- `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog)
 - `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
+- `Error: invalid key 'build-tools'` with `--image-tag build-tools=sha256:...` → A17 (build-tools not in IMAGE_DIGEST_KEYS)
 
 ### 4. Check for known gaps and notable fixes
 
@@ -115,7 +120,17 @@ If the best match is one of the known open gaps (gVisor/Kata runtime support, `-
 
 A13 / github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 — ARC/DinD split-fs base-userland staging is **fixed in AWF v0.27.15**: set `runner.topology: "arc-dind"` in the AWF config JSON. The `sysroot-stage` init container copies the signed `build-tools` image filesystem into a `sysroot` volume mounted at `/host:ro` before the agent starts.
 
+A16 / github/gh-aw-firewall#5739 — ARC/DinD sysroot filter over-broad (drops workspace mounts under `_work/`) is **fixed** in AWF version including github/gh-aw-firewall#5739. Filter now only drops dot-directories and the home root; workspace paths under `_work/` now pass through.
+
+A17 / github/gh-aw-firewall#5985 — `build-tools` image cannot be digest-pinned; fix pending in open PR github/gh-aw-firewall#5986. Security-sensitive deployments must wait for the merge.
+
+B8 / github/gh-aw-firewall#5983 — Pre-flight EACCES on persistent runners from stale root-owned `/tmp/gh-aw/` dirs is **fixed** in AWF version including github/gh-aw-firewall#5983 (`preflight-reclaim.ts`). Workaround: `sudo rm -rf /tmp/gh-aw/sandbox`.
+
+B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible in chroot is **fixed** in AWF version including github/gh-aw-firewall#5783. Workaround: copy `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` to a chroot-visible path and set `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE`/`GIT_SSL_CAINFO`.
+
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
+
+C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872.
 
 ### 5. Avoid duplicate triage
 
