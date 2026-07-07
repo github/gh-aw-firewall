@@ -341,6 +341,7 @@ variables as *source credentials* — real API keys read from the host:
 | `COPILOT_GITHUB_TOKEN` | GitHub Copilot — enables sidecar routing to `api.githubcopilot.com` (CAPI BYOK / offline mode) |
 | `COPILOT_PROVIDER_API_KEY` | GitHub Copilot BYOK provider key (e.g., Azure OpenAI / OpenRouter API key); independently enables sidecar routing — typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream |
 | `GEMINI_API_KEY` | Google Gemini |
+| `GOOGLE_API_KEY` | Google Vertex AI |
 
 The following secondary aliases SHOULD also be recognized:
 `OPENAI_KEY`, `CODEX_API_KEY`, `CLAUDE_API_KEY`.
@@ -367,10 +368,11 @@ When the API proxy sidecar is enabled, the following rules apply:
    | `COPILOT_API_URL` | `http://172.30.0.30:10002` | Routes Copilot calls to sidecar |
    | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | Routes Gemini calls to sidecar |
    | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | Alias for compatibility |
+   | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | Routes Vertex AI calls to sidecar |
 
 5. The API proxy sidecar SHALL inject the real credentials into upstream
    requests. Sidecar port assignments: 10000 (OpenAI), 10001 (Anthropic),
-   10002 (Copilot), 10003 (Gemini).
+   10002 (Copilot), 10003 (Gemini), 10004 (Vertex AI).
 
 6. A conforming implementation MUST forward the following OpenTelemetry
    variables from the host into the **api-proxy sidecar** container so that
@@ -728,7 +730,7 @@ pending warning per subsequent request):
 ### 10.6 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port
-(10000–10003). Each port returns the same aggregate reflection payload, whose
+(10000–10004). Each port returns the same aggregate reflection payload, whose
 `endpoints` array lists all provider adapters. Only the management port
 (10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
 ports still serve provider-local `/health` responses.
@@ -872,7 +874,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 
 ### 11.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10003; see
+The `/reflect` endpoint (available on all provider ports 10000–10004; see
 §10.6) MUST include the current max-runs state:
 
 ```json
@@ -936,7 +938,7 @@ The API proxy MUST enforce the permission-denied limit as follows:
 
 ### 11a.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10003; see
+The `/reflect` endpoint (available on all provider ports 10000–10004; see
 §10.6) MUST include the current permission-denied guard state:
 
 ```json
@@ -1025,7 +1027,7 @@ The API proxy MUST enforce the cache-miss limit as follows:
 
 ### 11b.3 Introspection
 
-The `/reflect` endpoint (available on all provider ports 10000–10003; see
+The `/reflect` endpoint (available on all provider ports 10000–10004; see
 §10.6) MUST include the current cache-miss guard state:
 
 ```json
