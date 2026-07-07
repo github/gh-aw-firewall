@@ -11,13 +11,14 @@ const https = require('https');
 const { HTTPS_PROXY, proxyAgent } = require('./http-client');
 const { createBodyHandler, sleep, _setSleepForTests, _resetSleepForTests } = require('./body-handler');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
+const { isValidRequestId, buildRequestHeaders } = require('./request-headers');
+const { createSendUpstreamRequest } = require('./upstream-http');
 const metrics = require('./metrics');
 const rateLimiter = require('./rate-limiter');
 const { buildUpstreamPath, shouldStripHeader } = require('./proxy-utils');
 const { injectSteeringMessage } = require('./body-transform');
 const { handleRequestError } = require('./proxy-error-handler');
 const {
-  maybeStripLearnedHeaderValues,
   resetDeprecatedHeaderValuesForTests,
   parseDeprecatedHeaderFromBody,
   learnAndStripDeprecatedHeaderValue,
@@ -121,12 +122,6 @@ try {
 /** Shared RateLimiter instance. */
 const limiter = rateLimiter.create();
 
-/**
- * Backoff delays (ms) between successive model-not-supported retries.
- * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
- */
-const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
-
 function getUrlPathForSpan(requestUrl) {
   if (typeof requestUrl !== 'string' || !requestUrl) return '/';
   try {
@@ -137,16 +132,6 @@ function getUrlPathForSpan(requestUrl) {
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
-
-/**
- * Return true if id is a safe, non-empty request-ID string.
- * Limits length and character set to prevent log injection.
- * @param {unknown} id
- * @returns {boolean}
- */
-function isValidRequestId(id) {
-  return typeof id === 'string' && id.length <= 128 && /^[\w\-\.]+$/.test(id);
-}
 
 const { collectRequestBody, transformRequestBody } = createBodyHandler({ handleRequestError, otel });
 
@@ -190,59 +175,6 @@ const proxyWebSocket = createProxyWebSocket({
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
 
-/**
- * Build the headers object for the upstream request.
- * Strips headers matched by `shouldStripHeader()`, merges injected auth
- * headers, sets the request-id, and adjusts content-length when the body was
- * transformed.
- *
- * @param {Buffer} body - Final (possibly transformed) request body
- * @param {number} inboundBytes - Original body size before transforms
- * @param {import('http').IncomingMessage} req
- * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string }} opts
- * @returns {object} Headers object for the upstream request
- */
-function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId }) {
-  const headers = {};
-  for (const [name, value] of Object.entries(req.headers)) {
-    if (!shouldStripHeader(name)) headers[name] = value;
-  }
-  headers['x-request-id'] = requestId;
-  Object.assign(headers, injectHeaders);
-
-  if (provider === 'anthropic' || provider === 'copilot') {
-    maybeStripLearnedHeaderValues(headers, requestId, provider);
-  }
-
-  const isCopilotHost =
-    targetHost === 'githubcopilot.com' ||
-    targetHost.endsWith('.githubcopilot.com');
-  if (isCopilotHost && !headers['x-initiator']) {
-    headers['x-initiator'] = 'agent';
-  }
-
-  if (body.length !== inboundBytes) {
-    headers['content-length'] = String(body.length);
-    delete headers['transfer-encoding'];
-  }
-
-  const injectedKey = Object.entries(injectHeaders).find(([k]) =>
-    ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
-  )?.[1];
-  if (injectedKey) {
-    const keyPreview = injectedKey.length > 8
-      ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
-      : '(short)';
-    logRequest('debug', 'auth_inject', {
-      request_id: requestId, provider,
-      key_length: injectedKey.length, key_preview: keyPreview,
-      has_anthropic_version: !!headers['anthropic-version'],
-    });
-  }
-
-  return headers;
-}
-
 const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -257,66 +189,15 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   learnAndStripDeprecatedHeaderValue,
 });
 
-/**
- * Create and dispatch the upstream HTTPS request.
- * Sets up the proxyReq error handler, writes the body, and delegates response
- * handling to handleUpstreamResponse (including the one-shot retry path).
- *
- * @param {object} requestHeaders - Headers for the upstream request
- * @param {{ body: Buffer, targetHost: string, upstreamPath: string, req: object,
- *           res: object, provider: string, requestId: string, startTime: number,
- *           span: object, requestBytes: number, hasRetried?: boolean,
- *           modelNotSupportedRetryCount?: number }} ctx
- */
-function sendUpstreamRequest(requestHeaders, {
-  body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
-  hasRetried = false,
-  modelNotSupportedRetryCount = 0,
-}) {
-  const options = {
-    hostname: targetHost, port: 443, path: upstreamPath,
-    method: req.method, headers: requestHeaders,
-    agent: proxyAgent,
-  };
-
-  const proxyReq = https.request(options, (proxyRes) => {
-    handleUpstreamResponse(proxyRes, requestHeaders, {
-      body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
-      hasRetried,
-      modelNotSupportedRetryCount,
-      onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
-        body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
-        hasRetried: true,
-        modelNotSupportedRetryCount,
-      }),
-      onModelNotSupportedRetry: () => {
-        const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
-        sleep(delayMs).then(() => {
-          sendUpstreamRequest(requestHeaders, {
-            body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
-            hasRetried,
-            modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
-          });
-        });
-      },
-    });
-  });
-
-  proxyReq.on('error', (err) => {
-    otel.endSpanError(span, err, 502);
-    handleRequestError(err, {
-      res, requestId, provider, req, targetHost, startTime,
-      statusCode: 502, clientMessage: 'Proxy error',
-      extraMetrics: (duration) => {
-        metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
-        metrics.observe('request_duration_ms', duration, { provider });
-      },
-    });
-  });
-
-  if (body.length > 0) proxyReq.write(body);
-  proxyReq.end();
-}
+const sendUpstreamRequest = createSendUpstreamRequest({
+  https,
+  proxyAgent,
+  handleUpstreamResponse,
+  sleep,
+  otel,
+  handleRequestError,
+  metrics,
+});
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
 
