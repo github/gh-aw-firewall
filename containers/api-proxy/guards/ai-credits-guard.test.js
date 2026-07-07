@@ -84,6 +84,21 @@ describe('ai-credits-guard', () => {
     expect(getAiCreditsReflectState().by_model['claude-sonnet-4-6-20260601'].total).toBeCloseTo(0.5175, 10);
   });
 
+  it('resolves claude-sonnet-5 from curated pricing without unknown-model rejection', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 2000,
+      cache_read_tokens: 1000,
+      cache_write_tokens: 500,
+      output_tokens: 100,
+    }, 'claude-sonnet-5');
+
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.5175, 10);
+    expect(checkUnknownModelRejection('claude-sonnet-5')).toBeNull();
+  });
+
   it('does not double-count cached tokens when input_tokens is total-inclusive (OpenAI-style)', () => {
     // OpenAI (Chat Completions and Responses API) reports prompt_tokens/input_tokens
     // as the TOTAL input, with cached tokens being a subset. When no provider is
@@ -432,6 +447,9 @@ describe('ai-credits-guard', () => {
 
       const result = checkUnknownModelRejection('gpt-5-mini');
       expect(result).toBeNull();
+
+      const sonnet5 = checkUnknownModelRejection('claude-sonnet-5');
+      expect(sonnet5).toBeNull();
     });
   });
 });

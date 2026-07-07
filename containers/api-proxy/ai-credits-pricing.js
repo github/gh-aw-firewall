@@ -17,6 +17,7 @@ module.exports = Object.freeze({
   'claude-sonnet-4':   { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
   'claude-sonnet-4-5': { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
   'claude-sonnet-4-6': { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
+  'claude-sonnet-5':   { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
   'claude-opus-4-5':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
   'claude-opus-4-6':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
   'claude-opus-4-7':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
