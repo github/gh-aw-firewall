@@ -1,10 +1,10 @@
 import path from 'path';
 
-const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools'] as const;
 
 type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
 
-interface ParsedImageTag {
+export interface ParsedImageTag {
   tag: string;
   digests: Partial<Record<ImageDigestKey, string>>;
 }

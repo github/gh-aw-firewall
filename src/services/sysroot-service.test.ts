@@ -1,4 +1,5 @@
 import { buildSysrootStageService, isSysrootEnabled, resolveSysrootImage } from './sysroot-service';
+import { parseImageTag } from '../image-tag';
 import { WrapperConfig } from '../types';
 
 // Minimal WrapperConfig for testing
@@ -62,6 +63,17 @@ describe('resolveSysrootImage', () => {
     });
     expect(resolveSysrootImage(config)).toBe('ghcr.io/my-org/custom-sysroot:v1');
   });
+
+  it('includes sha256 digest in resolved image when provided in imageTag', () => {
+    const digest = 'sha256:' + 'f'.repeat(64);
+    const config = makeConfig({
+      runnerTopology: 'arc-dind',
+      imageTag: `v0.28.0,build-tools=${digest}`,
+    });
+    expect(resolveSysrootImage(config)).toBe(
+      `ghcr.io/github/gh-aw-firewall/build-tools:v0.28.0@${digest}`,
+    );
+  });
 });
 
 describe('buildSysrootStageService', () => {
@@ -69,7 +81,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.container_name).toBe('awf-sysroot-stage');
   });
@@ -78,9 +90,19 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: '0.28.0',
+      parsedTag: parseImageTag('0.28.0'),
     });
     expect(service.image).toBe('ghcr.io/github/gh-aw-firewall/build-tools:0.28.0');
+  });
+
+  it('appends sha256 digest when build-tools digest is provided', () => {
+    const digest = 'sha256:' + 'e'.repeat(64);
+    const service = buildSysrootStageService({
+      config: makeConfig({ runnerTopology: 'arc-dind' }),
+      registry: 'ghcr.io/github/gh-aw-firewall',
+      parsedTag: parseImageTag(`0.28.0,build-tools=${digest}`),
+    });
+    expect(service.image).toBe(`ghcr.io/github/gh-aw-firewall/build-tools:0.28.0@${digest}`);
   });
 
   it('uses explicit sysrootImage when configured', () => {
@@ -90,7 +112,7 @@ describe('buildSysrootStageService', () => {
         sysrootImage: 'ghcr.io/my-org/sysroot:v2',
       }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.image).toBe('ghcr.io/my-org/sysroot:v2');
   });
@@ -99,7 +121,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.volumes).toEqual(['sysroot:/sysroot']);
   });
@@ -108,7 +130,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(service.command).toHaveLength(1);
@@ -120,7 +142,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.command[0]).toContain('.awf-sysroot-ready');
   });
@@ -129,7 +151,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     // Docker Compose treats $var as variable interpolation; $$ escapes to literal $
     expect(service.command[0]).toContain('/$$d');
@@ -140,7 +162,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.network_mode).toBe('none');
   });
@@ -149,7 +171,7 @@ describe('buildSysrootStageService', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),
       registry: 'ghcr.io/github/gh-aw-firewall',
-      imageTag: 'latest',
+      parsedTag: parseImageTag('latest'),
     });
     expect(service.command[0]).toContain('if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi;');
     expect(service.command[0]).not.toContain('|| true');

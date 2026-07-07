@@ -1,18 +1,19 @@
 import { WrapperConfig } from '../types';
 import { logger } from '../logger';
+import { ParsedImageTag, buildRuntimeImageRef, parseImageTag } from '../image-tag';
 
 /**
  * Default sysroot image when runner.topology is 'arc-dind' and no explicit
  * sysrootImage is configured.
  */
-function defaultSysrootImage(registry: string, tag: string): string {
-  return `${registry}/build-tools:${tag}`;
+function defaultSysrootImage(registry: string, parsedTag: ParsedImageTag): string {
+  return buildRuntimeImageRef(registry, 'build-tools', parsedTag);
 }
 
 interface SysrootServiceParams {
   config: WrapperConfig;
   registry: string;
-  imageTag: string;
+  parsedTag: ParsedImageTag;
 }
 
 /**
@@ -26,8 +27,8 @@ interface SysrootServiceParams {
  * /lib64 is conditionally copied (exists on amd64, not on arm64).
  */
 export function buildSysrootStageService(params: SysrootServiceParams): any {
-  const { config, registry, imageTag } = params;
-  const image = config.sysrootImage || defaultSysrootImage(registry, imageTag);
+  const { config, registry, parsedTag } = params;
+  const image = config.sysrootImage || defaultSysrootImage(registry, parsedTag);
 
   logger.info(`ARC/DinD: sysroot-stage will use image ${image}`);
 
@@ -70,6 +71,7 @@ export function isSysrootEnabled(config: WrapperConfig): boolean {
 export function resolveSysrootImage(config: WrapperConfig): string | undefined {
   if (!isSysrootEnabled(config)) return undefined;
   const registry = config.imageRegistry || 'ghcr.io/github/gh-aw-firewall';
-  const tag = config.imageTag || 'latest';
-  return config.sysrootImage || defaultSysrootImage(registry, tag);
+  if (config.sysrootImage) return config.sysrootImage;
+  const parsedTag = parseImageTag(config.imageTag || 'latest');
+  return buildRuntimeImageRef(registry, 'build-tools', parsedTag);
 }

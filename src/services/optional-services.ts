@@ -98,7 +98,7 @@ function filterAgentVolumesForSysroot(
 function assembleSysrootService(
   params: AssembleOptionalServicesParams,
   registry: string,
-  imageTag: string,
+  parsedTag: import('../image-tag').ParsedImageTag,
   sysrootActive: boolean,
 ): void {
   if (!sysrootActive) return;
@@ -119,7 +119,7 @@ function assembleSysrootService(
   const sysrootService = buildSysrootStageService({
     config,
     registry,
-    imageTag,
+    parsedTag,
   });
   services['sysroot-stage'] = sysrootService;
 
@@ -249,7 +249,7 @@ export function assembleOptionalServices(
   const sysrootActive = isSysrootEnabled(config);
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
-  assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag.tag, sysrootActive);
+  assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
   assembleIptablesInitService(params, networkIsolation);
   assembleApiProxyService(params);
   assembleDohProxyService(params);

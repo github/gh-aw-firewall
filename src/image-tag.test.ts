@@ -1,7 +1,7 @@
 import path from 'path';
 import { parseImageTag, buildRuntimeImageRef, assignImageSource } from './image-tag';
 
-const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy'] as const;
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools'] as const;
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);
 
@@ -134,6 +134,19 @@ describe('buildRuntimeImageRef', () => {
       const parsed = parseImageTag(`0.25.18,squid=${VALID_DIGEST}`);
       const ref = buildRuntimeImageRef('ghcr.io/github/gh-aw-firewall', 'agent', parsed);
       expect(ref).toBe('ghcr.io/github/gh-aw-firewall/agent:0.25.18');
+    });
+
+    it('should build ref for build-tools image with digest', () => {
+      const buildToolsDigest = 'sha256:' + 'd'.repeat(64);
+      const parsed = parseImageTag(`0.28.0,build-tools=${buildToolsDigest}`);
+      const ref = buildRuntimeImageRef('ghcr.io/github/gh-aw-firewall', 'build-tools', parsed);
+      expect(ref).toBe(`ghcr.io/github/gh-aw-firewall/build-tools:0.28.0@${buildToolsDigest}`);
+    });
+
+    it('should build ref for build-tools image without digest', () => {
+      const parsed = parseImageTag('0.28.0');
+      const ref = buildRuntimeImageRef('ghcr.io/github/gh-aw-firewall', 'build-tools', parsed);
+      expect(ref).toBe('ghcr.io/github/gh-aw-firewall/build-tools:0.28.0');
     });
   });
 
