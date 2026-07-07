@@ -6,7 +6,8 @@
  * The server only enforces meta-command denial (auth, config, extension).
  */
 
-const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand } = require('./server');
+const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv } = require('./security');
+const { runGhCommand } = require('./gh-runner');
 
 describe('PROTECTED_ENV_KEYS', () => {
   it('should protect GH_HOST from agent override', () => {
