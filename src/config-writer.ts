@@ -18,6 +18,7 @@ import {
   SQUID_IP,
 } from './host-iptables-shared';
 import { prepareWorkDirectories } from './workdir-setup';
+import { reclaimStaleDirectory } from './preflight-reclaim';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -41,8 +42,17 @@ interface NetworkConfig {
  * symlink injection, and re-applies the permission mask on pre-existing dirs.
  * Security-critical: docker-compose.yml (which contains plaintext secrets) is
  * written here, so non-root host processes must not be able to read it.
+ *
+ * Pre-flight: on persistent runners, a previous AWF run may leave the workDir
+ * (or its ancestors) owned by root. We detect and reclaim these before mkdirSync
+ * to prevent EACCES failures in rootless/network-isolation mode.
  */
 function validateAndPrepareWorkDir(config: WrapperConfig): void {
+  // Pre-flight: reclaim stale root-owned directories from previous runs.
+  // This handles the case where Docker containers (or AWF running as root)
+  // leave directories that the current non-root user cannot write to.
+  reclaimStaleDirectory(config.workDir);
+
   // Ensure work directory exists with restricted permissions (owner-only access)
   // Defense-in-depth: even if tmpfs overlay fails, non-root processes on the host
   // cannot read the docker-compose.yml which contains sensitive tokens

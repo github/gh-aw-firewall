@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { LogPaths } from './log-paths';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
+import { reclaimStaleDirectory } from './preflight-reclaim';
 
 interface EnsureDirectoryOptions {
   mode?: number;
@@ -113,8 +114,18 @@ function prepareChrootHomeMountpoint(emptyHomeDir: string, relativeMountPath: st
 /**
  * Creates all log and session-state directories required before container
  * startup, setting ownership and permissions for the respective service users.
+ *
+ * Pre-flight: attempts to reclaim any root-owned directories from previous runs
+ * before calling ensureDirectory, preventing EACCES on persistent runners.
  */
 function prepareLogDirectories(logPaths: LogPaths): void {
+  // Pre-flight: reclaim any stale root-owned log directories from previous runs.
+  // On persistent runners (or shared /tmp), Docker containers may leave these
+  // directories owned by root, causing ensureDirectory to fail with EACCES.
+  for (const dir of [logPaths.agentLogs, logPaths.sessionState, logPaths.squidLogs, logPaths.apiProxyLogs, logPaths.cliProxyLogs]) {
+    reclaimStaleDirectory(dir);
+  }
+
   // Create agent logs directory for persistence
   // Chown to host user so Copilot CLI can write logs (AWF runs as root, agent runs as host user)
   ensureDirectory(logPaths.agentLogs, {
@@ -203,6 +214,7 @@ function prepareLogDirectories(logPaths: LogPaths): void {
   // Uses mode 0o777 to allow GitHub Actions workflows and MCP gateway to create subdirectories
   // even when AWF runs as root (e.g., sudo awf)
   const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+  reclaimStaleDirectory(mcpLogsDir);
   if (ensureDirectory(mcpLogsDir, { mode: 0o777 })) {
     // Explicitly set permissions to 0o777 (not affected by umask)
     fs.chmodSync(mcpLogsDir, 0o777);
