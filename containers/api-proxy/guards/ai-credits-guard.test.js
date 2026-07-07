@@ -219,6 +219,23 @@ describe('ai-credits-guard', () => {
     expect(checkUnknownModelRejection('text-embedding-ada-002')).toBeNull();
   });
 
+  it('does not reject claude-fable-5 when maxAiCredits is active', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1_000_000,
+      output_tokens: 100_000,
+    }, 'claude-fable-5');
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 1_500,
+      totalAiCredits: 1_500,
+    });
+    expect(checkUnknownModelRejection('claude-fable-5')).toBeNull();
+    expect(checkUnknownModelRejection('claude-mythos-5')).toBeNull();
+  });
+
   it('uses bundled models.dev pricing for known catalog models', () => {
     const usage = applyAiCreditsUsage({
       input_tokens: 100,

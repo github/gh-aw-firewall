@@ -21,6 +21,8 @@ module.exports = Object.freeze({
   'claude-opus-4-6':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
   'claude-opus-4-7':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
   'claude-opus-4-8':   { input: 5.00,  cachedInput: 0.50,  cacheWrite: 6.25, output: 25.00 },
+  'claude-fable-5':    { input: 10.00, cachedInput: 1.00,  cacheWrite: 12.50, output: 50.00 },
+  'claude-mythos-5':   { input: 10.00, cachedInput: 1.00,  cacheWrite: 12.50, output: 50.00 },
   'gemini-2.5-pro':    { input: 1.25,  cachedInput: 0.125, cacheWrite: null, output: 10.00 },
   'gemini-3-flash':    { input: 0.50,  cachedInput: 0.05,  cacheWrite: null, output: 3.00 },
   'gemini-3.1-flash':  { input: 0.75,  cachedInput: 0.075, cacheWrite: null, output: 4.50 },
