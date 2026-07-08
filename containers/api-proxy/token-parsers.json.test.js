@@ -448,23 +448,23 @@ describe('extractUsageFromJson with copilot_usage', () => {
 
   test('extracts Gemini usageMetadata with thoughtsTokenCount', () => {
     const body = Buffer.from(JSON.stringify({
-     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
-     usageMetadata: {
-       promptTokenCount: 1000,
-       candidatesTokenCount: 500,
-       totalTokenCount: 2500,
-       thoughtsTokenCount: 1000,
-     },
-     modelVersion: 'gemini-3-pro',
+      candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+      usageMetadata: {
+        promptTokenCount: 1000,
+        candidatesTokenCount: 500,
+        totalTokenCount: 2500,
+        thoughtsTokenCount: 1000,
+      },
+      modelVersion: 'gemini-3-pro',
     }));
 
     const result = extractUsageFromJson(body);
     expect(result.model).toBe('gemini-3-pro');
     expect(result.usage).toEqual({
-     input_tokens: 1000,
-     output_tokens: 500,
-     total_tokens: 2500,
-     reasoning_tokens: 1000,
+      input_tokens: 1000,
+      output_tokens: 500,
+      total_tokens: 2500,
+      reasoning_tokens: 1000,
     });
   });
 
