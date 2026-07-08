@@ -206,6 +206,11 @@
       "type": "number",
       "exclusiveMinimum": 0,
       "description": "Per-model cost multiplier applied to the effective token calculation for this request. Present only when apiProxy.maxEffectiveTokens is configured."
+    },
+    "reasoning_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of reasoning/thinking tokens consumed (e.g. OpenAI o-series completion_tokens_details.reasoning_tokens, Anthropic thinking blocks, or Gemini thoughtsTokenCount). Zero when the model does not emit reasoning tokens."
     }
   }
 }
