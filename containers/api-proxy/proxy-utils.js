@@ -293,7 +293,7 @@ function sanitizeAcceptEncoding(value) {
     const encoding = p.split(';')[0].trim().toLowerCase();
     return SUPPORTED_ENCODINGS.has(encoding);
   });
-  return supported.length > 0 ? supported.join(', ') : 'gzip, deflate, br';
+  return supported.length > 0 ? supported.join(', ') : 'identity';
 }
 
 module.exports = {

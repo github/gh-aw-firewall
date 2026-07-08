@@ -166,6 +166,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     // Safety: drop buffer if it grows too large (malformed frames)
     if (buffer.length > MAX_WS_BUFFER) {
       buffer = Buffer.alloc(0);
+      fragments.length = 0; // clear in-progress fragment state
       httpHeaderParsed = true; // skip header parsing
       return;
     }

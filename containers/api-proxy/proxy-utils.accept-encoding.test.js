@@ -15,8 +15,8 @@ describe('sanitizeAcceptEncoding', () => {
     expect(sanitizeAcceptEncoding('gzip;q=1.0, zstd;q=0.8, br;q=0.5')).toBe('gzip;q=1.0, br;q=0.5');
   });
 
-  it('handles zstd-only Accept-Encoding by returning defaults', () => {
-    expect(sanitizeAcceptEncoding('zstd')).toBe('gzip, deflate, br');
+  it('handles zstd-only Accept-Encoding by returning identity', () => {
+    expect(sanitizeAcceptEncoding('zstd')).toBe('identity');
   });
 
   it('preserves identity encoding', () => {
