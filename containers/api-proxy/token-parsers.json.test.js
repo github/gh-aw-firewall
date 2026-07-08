@@ -421,28 +421,28 @@ describe('extractUsageFromJson with copilot_usage', () => {
 
   test('extracts Gemini usageMetadata with cachedContentTokenCount', () => {
     const body = Buffer.from(JSON.stringify({
-     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
-     usageMetadata: {
-       promptTokenCount: 5000,
-       candidatesTokenCount: 200,
-       totalTokenCount: 5200,
-       cachedContentTokenCount: 4000,
-     },
+      candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+      usageMetadata: {
+        promptTokenCount: 5000,
+        candidatesTokenCount: 200,
+        totalTokenCount: 5200,
+        cachedContentTokenCount: 4000,
+      },
     }));
 
     const result = extractUsageFromJson(body);
     expect(result.usage).toEqual({
-     input_tokens: 5000,
-     output_tokens: 200,
-     total_tokens: 5200,
-     cache_read_input_tokens: 4000,
+      input_tokens: 5000,
+      output_tokens: 200,
+      total_tokens: 5200,
+      cache_read_input_tokens: 4000,
     });
     expect(normalizeUsage(result.usage)).toEqual({
-     input_tokens: 5000,
-     output_tokens: 200,
-     cache_read_tokens: 4000,
-     cache_write_tokens: 0,
-     reasoning_tokens: 0,
+      input_tokens: 5000,
+      output_tokens: 200,
+      cache_read_tokens: 4000,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
     });
   });
 
