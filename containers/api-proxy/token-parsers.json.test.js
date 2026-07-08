@@ -470,9 +470,9 @@ describe('extractUsageFromJson with copilot_usage', () => {
 
   test('prefers usage field over usageMetadata when both present', () => {
     const body = Buffer.from(JSON.stringify({
-     model: 'some-model',
-     usage: { input_tokens: 10, output_tokens: 5 },
-     usageMetadata: { promptTokenCount: 99, candidatesTokenCount: 99 },
+      model: 'some-model',
+      usage: { input_tokens: 10, output_tokens: 5 },
+      usageMetadata: { promptTokenCount: 99, candidatesTokenCount: 99 },
     }));
 
     const result = extractUsageFromJson(body);
