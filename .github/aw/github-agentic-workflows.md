@@ -1186,8 +1186,7 @@ MCP server configuration has two layers:
 
 #### Localhost rewrite in network isolation mode
 
-When network isolation is enabled (`sandbox.agent.sudo: false`), loopback HTTP MCP URLs in `mcp-servers` are rewritten by the compiler:
-
+When network isolation is enabled (i.e., when the MCP gateway runs in a Docker container), loopback HTTP MCP URLs in `mcp-servers` are rewritten by the compiler:
 - `http://localhost:PORT/...`
 - `http://127.0.0.1:PORT/...`
 - `http://[::1]:PORT/...`
