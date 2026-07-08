@@ -391,4 +391,67 @@ describe('extractUsageFromSseLine with copilot_usage', () => {
       reasoning_tokens: 0,
     });
   });
+
+  // ── Gemini streaming usageMetadata ──────────────────────────────────────
+
+  test('extracts Gemini usageMetadata from SSE chunk', () => {
+    const line = JSON.stringify({
+      candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+      usageMetadata: {
+        promptTokenCount: 304854,
+        candidatesTokenCount: 2313,
+        totalTokenCount: 307167,
+        cachedContentTokenCount: 201702,
+      },
+      modelVersion: 'gemini-3-flash-preview',
+    });
+
+    const { usage, model } = extractUsageFromSseLine(line);
+    expect(model).toBe('gemini-3-flash-preview');
+    expect(usage).toEqual({
+      input_tokens: 304854,
+      output_tokens: 2313,
+      total_tokens: 307167,
+      cache_read_input_tokens: 201702,
+    });
+    expect(normalizeUsage(usage)).toEqual({
+      input_tokens: 304854,
+      output_tokens: 2313,
+      cache_read_tokens: 201702,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+    });
+  });
+
+  test('extracts Gemini usageMetadata with thoughtsTokenCount from SSE', () => {
+    const line = JSON.stringify({
+      usageMetadata: {
+        promptTokenCount: 1000,
+        candidatesTokenCount: 500,
+        totalTokenCount: 2500,
+        thoughtsTokenCount: 1000,
+      },
+      modelVersion: 'gemini-3-pro',
+    });
+
+    const { usage, model } = extractUsageFromSseLine(line);
+    expect(model).toBe('gemini-3-pro');
+    expect(usage).toEqual({
+      input_tokens: 1000,
+      output_tokens: 500,
+      total_tokens: 2500,
+      reasoning_tokens: 1000,
+    });
+  });
+
+  test('prefers usage over usageMetadata in SSE line', () => {
+    const line = JSON.stringify({
+      model: 'some-model',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      usageMetadata: { promptTokenCount: 99, candidatesTokenCount: 99 },
+    });
+
+    const { usage } = extractUsageFromSseLine(line);
+    expect(usage).toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
+  });
 });

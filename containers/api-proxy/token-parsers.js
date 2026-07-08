@@ -218,6 +218,28 @@ function buildStreamingFinalChunkUsage(usage) {
 }
 
 /**
+ * Build usage from Gemini's usageMetadata format.
+ *
+ * Gemini API returns token counts in a different structure:
+ *   usageMetadata: {
+ *     promptTokenCount: <n>,
+ *     candidatesTokenCount: <n>,
+ *     totalTokenCount: <n>,
+ *     cachedContentTokenCount: <n>,   // optional
+ *     thoughtsTokenCount: <n>,        // optional, for thinking models
+ *   }
+ */
+function buildGeminiUsage(usageMetadata) {
+  const out = {};
+  if (typeof usageMetadata.promptTokenCount === 'number') out.input_tokens = usageMetadata.promptTokenCount;
+  if (typeof usageMetadata.candidatesTokenCount === 'number') out.output_tokens = usageMetadata.candidatesTokenCount;
+  if (typeof usageMetadata.totalTokenCount === 'number') out.total_tokens = usageMetadata.totalTokenCount;
+  if (typeof usageMetadata.cachedContentTokenCount === 'number') out.cache_read_input_tokens = usageMetadata.cachedContentTokenCount;
+  if (typeof usageMetadata.thoughtsTokenCount === 'number') out.reasoning_tokens = usageMetadata.thoughtsTokenCount;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
  * Extract the authoritative per-type token breakdown from a Copilot
  * `copilot_usage.token_details` array.
  *
@@ -307,6 +329,14 @@ function extractUsageFromJson(body) {
     result.usage = buildUsageFromSource(usageSource);
     result.usage = mergeCopilotBreakdown(result.usage, json);
 
+    // Gemini API: usage is in usageMetadata with different field names
+    if (!result.usage && json.usageMetadata && typeof json.usageMetadata === 'object') {
+      result.usage = buildGeminiUsage(json.usageMetadata);
+      if (!result.model) {
+        result.model = json.modelVersion || null;
+      }
+    }
+
     return result;
   } catch {
     return { usage: null, model: null };
@@ -360,6 +390,13 @@ function extractUsageFromSseLine(line) {
     if (json.usage && typeof json.usage === 'object') {
       result.usage = buildStreamingFinalChunkUsage(json.usage);
       result.usage = mergeCopilotBreakdown(result.usage, json);
+      return result;
+    }
+
+    // Gemini streaming: usageMetadata in each chunk (last chunk has final totals)
+    if (json.usageMetadata && typeof json.usageMetadata === 'object') {
+      result.usage = buildGeminiUsage(json.usageMetadata);
+      if (!result.model) result.model = json.modelVersion || null;
       return result;
     }
 

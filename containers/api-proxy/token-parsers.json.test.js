@@ -396,4 +396,86 @@ describe('extractUsageFromJson with copilot_usage', () => {
       reasoning_tokens: 0,
     });
   });
+
+  // ── Gemini usageMetadata ──────────────────────────────────────────────
+
+  test('extracts Gemini usageMetadata from non-streaming response', () => {
+    const body = Buffer.from(JSON.stringify({
+     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+     usageMetadata: {
+       promptTokenCount: 100,
+       candidatesTokenCount: 50,
+       totalTokenCount: 150,
+     },
+     modelVersion: 'gemini-3-flash-preview',
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gemini-3-flash-preview');
+    expect(result.usage).toEqual({
+     input_tokens: 100,
+     output_tokens: 50,
+     total_tokens: 150,
+    });
+  });
+
+  test('extracts Gemini usageMetadata with cachedContentTokenCount', () => {
+    const body = Buffer.from(JSON.stringify({
+     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+     usageMetadata: {
+       promptTokenCount: 5000,
+       candidatesTokenCount: 200,
+       totalTokenCount: 5200,
+       cachedContentTokenCount: 4000,
+     },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({
+     input_tokens: 5000,
+     output_tokens: 200,
+     total_tokens: 5200,
+     cache_read_input_tokens: 4000,
+    });
+    expect(normalizeUsage(result.usage)).toEqual({
+     input_tokens: 5000,
+     output_tokens: 200,
+     cache_read_tokens: 4000,
+     cache_write_tokens: 0,
+     reasoning_tokens: 0,
+    });
+  });
+
+  test('extracts Gemini usageMetadata with thoughtsTokenCount', () => {
+    const body = Buffer.from(JSON.stringify({
+     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+     usageMetadata: {
+       promptTokenCount: 1000,
+       candidatesTokenCount: 500,
+       totalTokenCount: 2500,
+       thoughtsTokenCount: 1000,
+     },
+     modelVersion: 'gemini-3-pro',
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.model).toBe('gemini-3-pro');
+    expect(result.usage).toEqual({
+     input_tokens: 1000,
+     output_tokens: 500,
+     total_tokens: 2500,
+     reasoning_tokens: 1000,
+    });
+  });
+
+  test('prefers usage field over usageMetadata when both present', () => {
+    const body = Buffer.from(JSON.stringify({
+     model: 'some-model',
+     usage: { input_tokens: 10, output_tokens: 5 },
+     usageMetadata: { promptTokenCount: 99, candidatesTokenCount: 99 },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({ input_tokens: 10, output_tokens: 5 });
+  });
 });
