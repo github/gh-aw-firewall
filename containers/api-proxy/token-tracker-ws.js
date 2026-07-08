@@ -16,6 +16,7 @@ const {
   buildTokenUsageRecord,
   incrementTokenMetrics,
   diag,
+  auditTrack,
 } = require('./token-persistence');
 const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-tracker-shared');
 
@@ -135,6 +136,7 @@ function parseWebSocketFrames(buf, fragments) {
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
   const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage } = opts;
 
+  auditTrack('WS_TRACK_START', { rid: requestId, provider, path: reqPath });
   logRequest('debug', 'ws_token_track_start', {
     request_id: requestId,
     provider,
@@ -213,19 +215,22 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     if (finalized) return;
     finalized = true;
 
+    const hasUsage = Object.keys(streamingUsage).length > 0;
+    auditTrack('WS_TRACK_END', { rid: requestId, result: hasUsage ? 'ok' : 'no_usage', frames: frameCount, msgs: textMessageCount, bytes: totalBytes });
+
     logRequest('debug', 'ws_token_track_end', {
       request_id: requestId,
       provider,
       total_bytes: totalBytes,
       frame_count: frameCount,
       text_message_count: textMessageCount,
-      has_usage: Object.keys(streamingUsage).length > 0,
+      has_usage: hasUsage,
       usage_keys: Object.keys(streamingUsage),
       model: streamingModel,
     });
-    diag('WS_TRACK_END', { request_id: requestId, provider, total_bytes: totalBytes, frame_count: frameCount, text_message_count: textMessageCount, has_usage: Object.keys(streamingUsage).length > 0, usage_keys: Object.keys(streamingUsage), model: streamingModel });
+    diag('WS_TRACK_END', { request_id: requestId, provider, total_bytes: totalBytes, frame_count: frameCount, text_message_count: textMessageCount, has_usage: hasUsage, usage_keys: Object.keys(streamingUsage), model: streamingModel });
 
-    if (Object.keys(streamingUsage).length === 0) return;
+    if (!hasUsage) return;
 
     const duration = Date.now() - startTime;
     const normalized = normalizeUsage(streamingUsage);

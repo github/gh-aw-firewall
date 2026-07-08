@@ -16,6 +16,7 @@ const { logRequest } = require('./logging');
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
 const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.jsonl');
+const AUDIT_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-tracker-audit.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
@@ -33,6 +34,7 @@ const TOKEN_DIAG_SCHEMA = `token-diag/v${AWF_VERSION || '0.0.0-dev'}`;
 
 let logStream = null;
 let diagStream = null;
+let auditStream = null;
 
 /**
  * Write a diagnostic line to the diagnostics log file.
@@ -69,6 +71,25 @@ function diag(msg, data) {
     const record = buildTokenDiagRecord(msg, data);
     if (!validateTokenDiagRecord(record)) return;
     diagStream.write(JSON.stringify(record) + '\n');
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Always-on audit trail for token tracking lifecycle.
+ *
+ * Writes minimal structured events to token-tracker-audit.jsonl so that CI
+ * failures can be diagnosed without AWF_DEBUG_TOKENS=1.  Each tracked
+ * request emits exactly two lines: TRACK_START and TRACK_END (with result).
+ */
+function auditTrack(event, data) {
+  try {
+    if (!auditStream) {
+      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+      auditStream = fs.createWriteStream(AUDIT_LOG_FILE, { flags: 'a', mode: 0o644 });
+      auditStream.on('error', () => { auditStream = null; });
+    }
+    const line = { ts: Date.now(), event, ...data };
+    auditStream.write(JSON.stringify(line) + '\n');
   } catch { /* best-effort */ }
 }
 
@@ -258,6 +279,10 @@ function closeLogStream() {
         pending++;
         diagStream.end(() => { diagStream = null; pending--; check(); });
       }
+      if (auditStream) {
+        pending++;
+        auditStream.end(() => { auditStream = null; pending--; check(); });
+      }
       if (pending === 0) resolve();
     }),
     closeBlockedRequestDiagStream(),
@@ -269,6 +294,7 @@ module.exports = {
   TOKEN_USAGE_SCHEMA,
   TOKEN_DIAG_SCHEMA,
   diag,
+  auditTrack,
   buildTokenDiagRecord,
   buildTokenUsageRecord,
   incrementTokenMetrics,

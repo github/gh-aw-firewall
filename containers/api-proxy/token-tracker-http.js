@@ -34,6 +34,7 @@ const {
   buildTokenUsageRecord,
   incrementTokenMetrics,
   diag,
+  auditTrack,
 } = require('./token-persistence');
 const { warnCacheReadRollupMismatch, mergeBudgetFields } = require('./token-tracker-shared');
 
@@ -286,6 +287,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   // Only process successful responses (2xx)
   if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+    auditTrack('TRACK_END', { rid: requestId, result: 'skip_status', status: proxyRes.statusCode });
     logRequest('debug', 'token_track_skip_status', {
       request_id: requestId,
       provider,
@@ -314,6 +316,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   const normalized = normalizeUsage(usage);
   if (!normalized) {
+    auditTrack('TRACK_END', { rid: requestId, result: 'no_usage', streaming, bytes: state.totalBytes, overflow: state.overflow, ct: state.contentType, ce: contentEncoding });
     // Log at info level so failed extraction is visible in CI without debug mode
     logRequest('info', 'token_track_no_usage', {
       request_id: requestId,
@@ -329,6 +332,9 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
     return;
   }
+
+  auditTrack('TRACK_END', { rid: requestId, result: 'ok', streaming, model: model || requestModel, input: normalized.input_tokens, output: normalized.output_tokens, cache_read: normalized.cache_read_tokens });
+
   if (state.observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
     warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model, observedCacheReadTokens: state.observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming });
   }
@@ -394,6 +400,8 @@ function trackTokenUsage(proxyRes, opts) {
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
   const compressed = isCompressedResponse(proxyRes.headers);
 
+  auditTrack('TRACK_START', { rid: requestId, provider, path: reqPath, streaming, ct: contentType, ce: contentEncoding, status: proxyRes.statusCode });
+
   logRequest('debug', 'token_track_start', {
     request_id: requestId,
     provider,
@@ -410,6 +418,7 @@ function trackTokenUsage(proxyRes, opts) {
   // If the response uses an encoding we cannot decompress (e.g. zstd), skip
   // token tracking entirely and log a warning so the issue is visible in CI.
   if (compressed && isUnsupportedEncoding(proxyRes.headers)) {
+    auditTrack('TRACK_SKIP_ENCODING', { rid: requestId, ce: contentEncoding });
     logRequest('warn', 'token_track_unsupported_encoding', {
       request_id: requestId,
       provider,

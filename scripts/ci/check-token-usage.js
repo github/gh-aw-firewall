@@ -282,6 +282,22 @@ function main(argv) {
       '::error::Could not locate token-usage.jsonl in the agent artifact. ' +
         'The api-proxy did not record token usage.',
     );
+    // Print audit trail if available to diagnose why tracking failed
+    const auditFile = findFileRecursive(options.artifactRoot, 'token-tracker-audit.jsonl');
+    if (auditFile) {
+      try {
+        const auditContent = fs.readFileSync(auditFile, 'utf8').trim();
+        const lines = auditContent.split('\n').filter(Boolean);
+        console.error(`\n--- Token tracker audit trail (${lines.length} events) ---`);
+        for (const line of lines.slice(0, 100)) {
+          console.error(`  ${line}`);
+        }
+        if (lines.length > 100) console.error(`  ... (${lines.length - 100} more lines)`);
+        console.error('--- End audit trail ---\n');
+      } catch { /* ignore read errors */ }
+    } else {
+      console.error('  (no token-tracker-audit.jsonl found — tracker may not have been invoked)');
+    }
     return 1;
   }
 

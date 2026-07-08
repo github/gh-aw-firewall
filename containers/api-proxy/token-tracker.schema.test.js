@@ -266,8 +266,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(parsed.request_id).toBe('schema-field-http');
       done();
@@ -289,8 +290,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(parsed.request_id).toBe('schema-field-ws');
       done();
@@ -324,8 +326,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed).toMatchObject({
         request_id: 'budget-fields-http',
         effective_tokens_this_response: 40,
@@ -359,8 +362,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed.effective_tokens_this_response).toBeUndefined();
       expect(parsed.effective_tokens_total).toBeUndefined();
       expect(parsed.model_multiplier).toBeUndefined();
@@ -392,8 +396,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed).toMatchObject({
         request_id: 'budget-fields-ws',
         effective_tokens_this_response: 112,
@@ -422,8 +427,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed.effective_tokens_this_response).toBeUndefined();
       expect(parsed.effective_tokens_total).toBeUndefined();
       expect(parsed.model_multiplier).toBeUndefined();
@@ -481,8 +487,9 @@ describe('token-usage _schema exact version from AWF_VERSION', () => {
       writeStreamSpy.mockRestore();
       await isolated.closeLogStream();
 
-      expect(mockStream.write).toHaveBeenCalledTimes(1);
-      const parsed = mockStream.writtenRecords[0];
+      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      expect(usageRecords).toHaveLength(1);
+      const parsed = usageRecords[0];
       expect(parsed._schema).toBe('token-usage/v9.8.7');
       expect(parsed.request_id).toBe('exact-version-test');
       done();
