@@ -401,13 +401,13 @@ describe('extractUsageFromJson with copilot_usage', () => {
 
   test('extracts Gemini usageMetadata from non-streaming response', () => {
     const body = Buffer.from(JSON.stringify({
-     candidates: [{ content: { parts: [{ text: 'hello' }] } }],
-     usageMetadata: {
-       promptTokenCount: 100,
-       candidatesTokenCount: 50,
-       totalTokenCount: 150,
-     },
-     modelVersion: 'gemini-3-flash-preview',
+      candidates: [{ content: { parts: [{ text: 'hello' }] } }],
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 50,
+        totalTokenCount: 150,
+      },
+      modelVersion: 'gemini-3-flash-preview',
     }));
 
     const result = extractUsageFromJson(body);
