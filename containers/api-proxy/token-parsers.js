@@ -19,16 +19,28 @@ function isStreamingResponse(headers) {
 }
 
 /**
- * Check if a response is gzip or deflate compressed.
+ * Check if a response is compressed with a known encoding.
+ * Includes zstd detection — even though we cannot decompress it natively,
+ * recognizing it allows the tracker to skip parsing garbage bytes and log
+ * an actionable warning.
  */
 function isCompressedResponse(headers) {
   const ce = (headers['content-encoding'] || '').toLowerCase();
-  return ce === 'gzip' || ce === 'deflate' || ce === 'br';
+  return ce === 'gzip' || ce === 'deflate' || ce === 'br' || ce === 'zstd';
+}
+
+/**
+ * Check if a response uses an encoding we cannot decompress.
+ * Currently only zstd (Node.js has no built-in zstd support).
+ */
+function isUnsupportedEncoding(headers) {
+  const ce = (headers['content-encoding'] || '').toLowerCase();
+  return ce === 'zstd';
 }
 
 /**
  * Create a decompression transform stream based on content-encoding.
- * Returns null if the encoding is not supported.
+ * Returns null if the encoding is not supported (including zstd).
  */
 function createDecompressor(headers) {
   const ce = (headers['content-encoding'] || '').toLowerCase();
@@ -414,6 +426,7 @@ function normalizeUsage(usage) {
 module.exports = {
   isStreamingResponse,
   isCompressedResponse,
+  isUnsupportedEncoding,
   createDecompressor,
   extractReasoningTokens,
   extractCacheReadTokens,

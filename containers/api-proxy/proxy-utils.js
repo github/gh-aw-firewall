@@ -270,6 +270,32 @@ function makeUnconfiguredHealthResponse(service, error, status = 'not_configured
   return { statusCode: 503, body: { status, service, error } };
 }
 
+/**
+ * Encodings that the token tracker can decompress for response inspection.
+ * If the upstream responds with an encoding not in this set, the tracker
+ * receives raw compressed bytes and fails to extract usage data.
+ */
+const SUPPORTED_ENCODINGS = new Set(['gzip', 'deflate', 'br', 'identity']);
+
+/**
+ * Sanitize Accept-Encoding to only include encodings the token tracker can
+ * decompress. This prevents upstream APIs from responding with unsupported
+ * encodings (e.g. zstd) that the tracker cannot parse.
+ *
+ * @param {string|undefined} value - Original Accept-Encoding header value
+ * @returns {string} Filtered Accept-Encoding value
+ */
+function sanitizeAcceptEncoding(value) {
+  if (!value) return 'gzip, deflate, br';
+  const parts = value.split(',').map(p => p.trim()).filter(Boolean);
+  const supported = parts.filter(p => {
+    // Extract encoding name (strip quality value like ";q=0.5")
+    const encoding = p.split(';')[0].trim().toLowerCase();
+    return SUPPORTED_ENCODINGS.has(encoding);
+  });
+  return supported.length > 0 ? supported.join(', ') : 'gzip, deflate, br';
+}
+
 module.exports = {
   normalizeApiTarget,
   parseApiTargetAndBasePath,
@@ -280,4 +306,5 @@ module.exports = {
   composeBodyTransforms,
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
+  sanitizeAcceptEncoding,
 };

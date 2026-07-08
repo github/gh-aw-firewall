@@ -1,7 +1,7 @@
 'use strict';
 
 const { logRequest } = require('./logging');
-const { shouldStripHeader } = require('./proxy-utils');
+const { shouldStripHeader, sanitizeAcceptEncoding } = require('./proxy-utils');
 const { maybeStripLearnedHeaderValues } = require('./deprecated-header-tracker');
 
 /**
@@ -48,6 +48,13 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   if (body.length !== inboundBytes) {
     headers['content-length'] = String(body.length);
     delete headers['transfer-encoding'];
+  }
+
+  // Restrict Accept-Encoding to encodings the token tracker can decompress.
+  // Without this, upstream APIs may respond with unsupported encodings (e.g.
+  // zstd) that the tracker cannot parse, causing silent token-usage data loss.
+  if (headers['accept-encoding']) {
+    headers['accept-encoding'] = sanitizeAcceptEncoding(headers['accept-encoding']);
   }
 
   const injectedKey = Object.entries(injectHeaders).find(([k]) =>
