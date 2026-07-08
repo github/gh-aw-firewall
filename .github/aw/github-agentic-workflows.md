@@ -1173,6 +1173,48 @@ mcp-servers:
       - custom_function_2
 ```
 
+### MCP Transport and Reachability
+
+MCP server configuration has two layers:
+
+1. **Workflow frontmatter (`mcp-servers`)** — author-facing configuration:
+   - `command:` + `args:` defines a **stdio** MCP server process.
+   - `url:` defines an **HTTP** MCP server endpoint.
+2. **MCP gateway runtime config** — compiler-generated configuration consumed by the gateway.
+   - Frontmatter stdio servers are compiled into gateway stdio/stdin process entries.
+   - Frontmatter `command:` is valid for workflow authors even though the gateway's internal schema differs.
+
+#### Localhost rewrite in network isolation mode
+
+When network isolation is enabled (`sandbox.agent.sudo: false`), loopback HTTP MCP URLs in `mcp-servers` are rewritten by the compiler:
+
+- `http://localhost:PORT/...`
+- `http://127.0.0.1:PORT/...`
+- `http://[::1]:PORT/...`
+
+becomes:
+
+- `http://host.docker.internal:PORT/...`
+
+This rewrite is required because the MCP gateway runs in a Docker container and cannot reach the host loopback interface directly.
+
+#### Host-side HTTP server binding requirement
+
+If a workflow starts a local HTTP MCP server in `steps:` and network isolation is enabled, the server must bind to `0.0.0.0` (or another non-loopback interface). Binding only to `127.0.0.1` / `::1` will not be reachable from the gateway via `host.docker.internal`.
+
+Compiler/lint behavior:
+- The compiler SHOULD emit a warning when an HTTP MCP server URL is loopback-localhost and the same workflow appears to start a server with `--host 127.0.0.1`, `--bind 127.0.0.1`, `--host ::1`, or `--bind ::1`.
+
+#### Network reachability matrix
+
+| MCP Type | URL / Address | Network Isolation OFF | Network Isolation ON |
+|----------|----------------|-----------------------|----------------------|
+| HTTP | `localhost:PORT` | ✅ Works directly | ⚠️ Rewritten to `host.docker.internal:PORT`; server must bind `0.0.0.0` |
+| HTTP | `host.docker.internal:PORT` | ✅ Works (when Docker host gateway is available) | ✅ Works; server must bind `0.0.0.0` |
+| HTTP | External URL | ✅ Works | ✅ Works (domain must be permitted by `network.allowed`) |
+| Stdio | `container:` image | ✅ Containerized runtime | ✅ Containerized runtime |
+| Stdio | `command:` + `args:` (frontmatter) | ✅ Compiled to gateway stdio/stdin process config | ✅ Compiled to gateway stdio/stdin process config |
+
 ### Engine Network Permissions
 
 Control network access for AI engines using the top-level `network:` field. If no `network:` permission is specified, it defaults to `network: defaults` which provides access to basic infrastructure only.
