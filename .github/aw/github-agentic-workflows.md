@@ -1181,7 +1181,7 @@ MCP server configuration has two layers:
    - `command:` + `args:` defines a **stdio** MCP server process.
    - `url:` defines an **HTTP** MCP server endpoint.
 2. **MCP gateway runtime config** — compiler-generated configuration consumed by the gateway.
-   - Frontmatter stdio servers are compiled into gateway stdio/stdin process entries.
+   - Frontmatter stdio servers are compiled into gateway stdio (stdin/stdout) process entries.
    - Frontmatter `command:` is valid for workflow authors even though the gateway's internal schema differs.
 
 #### Localhost rewrite in network isolation mode
