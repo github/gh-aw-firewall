@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
-import { buildRuntimeImageRef, parseImageTag } from './image-tag';
+import { parseImageTag } from './image-tag';
 import { logger } from './logger';
 import { applyHostPathPrefixToVolumes } from './services/host-path-prefix';
 import { getLocalDockerEnv } from './docker-host';
@@ -12,7 +12,10 @@ function resolvePermFixerImageRef(imageRegistry?: string, imageTag?: string, age
     const registry = imageRegistry || 'ghcr.io/github/gh-aw-firewall';
     const parsedImageTag = parseImageTag(imageTag || 'latest');
     const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    return buildRuntimeImageRef(registry, imageName, parsedImageTag);
+    // Use tag-only ref (no digest) because this runs with --pull never.
+    // Including the digest causes Docker to attempt registry verification
+    // even with --pull never, which times out if credentials are unavailable.
+    return `${registry}/${imageName}:${parsedImageTag.tag}`;
   } catch {
     return 'ghcr.io/github/gh-aw-firewall/agent:latest';
   }
