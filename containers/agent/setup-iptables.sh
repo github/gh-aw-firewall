@@ -59,7 +59,8 @@ parse_port_specs() {
   local _pps_trimmed=""
   IFS=',' read -ra _pps_entries <<< "$_pps_input"
   for _pps_trimmed in "${_pps_entries[@]}"; do
-    _pps_trimmed=$(echo "$_pps_trimmed" | xargs)
+    _pps_trimmed="${_pps_trimmed#"${_pps_trimmed%%[! ]*}"}"
+    _pps_trimmed="${_pps_trimmed%"${_pps_trimmed##*[! ]}"}"
     if [ -z "$_pps_trimmed" ]; then
       continue
     fi
