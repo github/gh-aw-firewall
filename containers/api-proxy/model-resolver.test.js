@@ -588,9 +588,10 @@ describe('resolveModel — complex alias trees', () => {
 
   it('fan-out: alias with two sub-alias branches merges candidates and picks highest version', () => {
     // best → [sonnet-branch, haiku-branch]
-    // sonnet-branch → copilot/*sonnet*  →  4.5, 4.6 (sub picks 4.6)
-    // haiku-branch  → copilot/*haiku*   →  3.5        (sub picks 3.5)
-    // fan-out candidates: [4.6, 3.5] → 4.6 wins
+    // Each sub-alias resolves independently to its own highest-version model:
+    //   sonnet-branch → copilot/*sonnet*  →  sub-alias resolution yields claude-sonnet-4.6
+    //   haiku-branch  → copilot/*haiku*   →  sub-alias resolution yields claude-haiku-3.5
+    // The parent fan-out collects [4.6, 3.5] and version-sorts → 4.6 wins
     const aliases = {
       best: ['sonnet-branch', 'haiku-branch'],
       'sonnet-branch': ['copilot/*sonnet*'],
@@ -688,7 +689,9 @@ describe('resolveModel — complex alias trees', () => {
     // root → [mid-a, mid-b]
     // mid-a → leaf-a → copilot/*opus*   (2 levels deep, yields claude-opus-4.5)
     // mid-b → copilot/*haiku*           (1 level deep, yields claude-haiku-3.5)
-    // candidates at root level: [opus-4.5, haiku-3.5] → opus wins (4 > 3)
+    // candidates at root level: [opus-4.5, haiku-3.5]
+    // compareByVersion extracts leading numeric segments: opus-4.5 → [4,5], haiku-3.5 → [3,5]
+    // First segment comparison: 4 > 3 → claude-opus-4.5 sorts first (highest version)
     const aliases = {
       root: ['mid-a', 'mid-b'],
       'mid-a': ['leaf-a'],
@@ -769,10 +772,11 @@ describe('resolveModel — complex alias trees', () => {
 
   it('resolves an alias tree that mixes provider-pattern leaves with sub-alias leaves', () => {
     // mixed → ['copilot/*gpt-5*', 'sonnet-ref']
-    // 'copilot/*gpt-5*' is a provider pattern → adds gpt-5.2 directly
-    // 'sonnet-ref' is a sub-alias → resolves to claude-sonnet-4.6
+    // 'copilot/*gpt-5*' is a provider pattern → all matching models added directly: [gpt-5.2]
+    // 'sonnet-ref' is a sub-alias ref → sub-alias resolution yields one model: claude-sonnet-4.6
     // candidates: [gpt-5.2, claude-sonnet-4.6]
-    // compareByVersion: gpt-5.2 ([5,2]) vs claude-sonnet-4.6 ([4,6]) → 5 > 4 → gpt-5.2 wins
+    // compareByVersion extracts numeric segments: gpt-5.2 → [5,2], claude-sonnet-4.6 → [4,6]
+    // First segment comparison: 5 > 4 → gpt-5.2 sorts first (highest version)
     const aliases = {
       mixed: ['copilot/*gpt-5*', 'sonnet-ref'],
       'sonnet-ref': ['copilot/*sonnet*'],
