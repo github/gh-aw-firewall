@@ -67,13 +67,11 @@ function resolveProviderSessionId(config: WrapperConfig): string | undefined {
   return normalizedValue || undefined;
 }
 
-// ts-prune-ignore-next
 /**
  * Builds API credential environment variables for the api-proxy sidecar.
  * These keys are passed securely to the sidecar and are NOT visible to the agent container.
- * @internal Exported for testing
  */
-export function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
+function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
   return {
     ...(config.openaiApiKey && { [OPENAI_ENV.KEY]: config.openaiApiKey }),
     ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
@@ -83,13 +81,11 @@ export function buildCredentialEnv(config: WrapperConfig): Record<string, string
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds provider routing environment variables: API targets, GitHub enterprise URLs,
  * platform type, and integration identity.
- * @internal Exported for testing
  */
-export function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> {
+function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> {
   return {
     // Configurable API targets (for GHES/GHEC / custom endpoints)
     // Strip any scheme prefix — server.js also normalizes defensively, but
@@ -121,13 +117,11 @@ export function buildProviderRoutingEnv(config: WrapperConfig): Record<string, s
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds Squid proxy routing environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
  * Routes all api-proxy outbound traffic through Squid to enforce domain whitelisting.
- * @internal Exported for testing
  */
-export function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<string, string> {
+function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<string, string> {
   return {
     // Route through Squid to respect domain whitelisting
     HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
@@ -139,14 +133,12 @@ export function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<strin
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds OpenTelemetry distributed tracing environment variables.
  * Forwards OTLP endpoint, headers, service name, and parent trace context so
  * api-proxy spans are children of the workflow trace.
- * @internal Exported for testing
  */
-export function buildOtelEnv(): Record<string, string> {
+function buildOtelEnv(): Record<string, string> {
   return {
     // GH_AW_OTLP_ENDPOINTS (JSON array) enables fan-out to multiple collectors.
     // OTEL_EXPORTER_OTLP_ENDPOINT is kept for backward compat (single-endpoint fallback).
@@ -162,13 +154,11 @@ export function buildOtelEnv(): Record<string, string> {
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds rate limiting and token guard environment variables.
  * Controls request rates, effective token budgets, run limits, and agent timeout.
- * @internal Exported for testing
  */
-export function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
+function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
   return {
     // Rate limiting configuration
     ...(config.rateLimitConfig && {
@@ -210,13 +200,11 @@ export function buildRateLimitEnv(config: WrapperConfig): Record<string, string>
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds model policy environment variables: aliases, allowed/disallowed models,
  * Anthropic prompt-cache optimizations, token steering, and diagnostic logging.
- * @internal Exported for testing
  */
-export function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
+function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
   return {
     // Model alias configuration
     ...(config.modelAliases && {
@@ -253,14 +241,15 @@ export function buildModelPolicyEnv(config: WrapperConfig): Record<string, strin
   };
 }
 
-// ts-prune-ignore-next
 /**
  * Builds OIDC authentication environment variables: Azure/AWS/GCP/Anthropic OIDC provider vars,
  * GitHub Actions OIDC runtime tokens, and custom auth headers for internal AI gateways.
- * @internal Exported for testing
  */
-export function buildOidcEnv(config: WrapperConfig): Record<string, string> {
-  const normalizedAuthType = (config.authType?.toLowerCase().trim()) || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
+function buildOidcEnv(config: WrapperConfig): Record<string, string> {
+  const normalizedAuthType = (config.authType?.toLowerCase().trim())
+    || (getConfigEnvValue(config, 'AWF_AUTH_TYPE')?.toLowerCase())
+    || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE')
+    || '';
 
   return {
     // OIDC authentication (Azure, AWS, GCP, Anthropic)
@@ -306,3 +295,15 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...buildOidcEnv(config),
   };
 }
+
+// ts-prune-ignore-next
+/** @internal Exported for unit testing only */
+export const testHelpers = {
+  buildCredentialEnv,
+  buildProviderRoutingEnv,
+  buildProxyRoutingEnv,
+  buildOtelEnv,
+  buildRateLimitEnv,
+  buildModelPolicyEnv,
+  buildOidcEnv,
+};

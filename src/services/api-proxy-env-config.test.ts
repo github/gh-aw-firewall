@@ -1,5 +1,13 @@
 import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
 import {
+  testHelpers,
+  buildApiProxyBaseEnv,
+} from './api-proxy-env-config';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
+
+const {
   buildCredentialEnv,
   buildProviderRoutingEnv,
   buildProxyRoutingEnv,
@@ -7,11 +15,7 @@ import {
   buildRateLimitEnv,
   buildModelPolicyEnv,
   buildOidcEnv,
-  buildApiProxyBaseEnv,
-} from './api-proxy-env-config';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
+} = testHelpers;
 
 const networkConfig = {
   subnet: '172.30.0.0/24',
@@ -367,6 +371,18 @@ describe('buildOidcEnv', () => {
     process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://actions.local/token';
     const env = buildOidcEnv({ ...baseConfig, workDir: '/tmp/awf-test', authType: 'github-oidc' });
     expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://actions.local/token');
+  });
+
+  it('forwards ACTIONS_ID_TOKEN_REQUEST_* when AWF_AUTH_TYPE is set via additionalEnv', () => {
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://actions.local/token';
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'runtime-token';
+    const env = buildOidcEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: { AWF_AUTH_TYPE: 'github-oidc' },
+    });
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://actions.local/token');
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('runtime-token');
   });
 
   it('sets custom OpenAI auth header when openaiApiAuthHeader is configured', () => {
