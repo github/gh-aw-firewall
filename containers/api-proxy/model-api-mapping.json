@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-05T06:27:39Z",
+  "lastUpdated": "2026-07-09T06:32:34Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -23,7 +23,7 @@
           "family": "gpt-5.5",
           "patterns": ["gpt-5.5*"],
           "endpoints": ["responses"],
-          "notes": "Responses API only. Not accessible via /chat/completions."
+          "notes": "Responses API only. Not present in OpenAI OpenAPI spec v2.3.0; reserved for future gpt-5.5 family models."
         },
         {
           "family": "gpt-5.4",
@@ -142,20 +142,20 @@
         {
           "family": "gpt-4-turbo",
           "patterns": ["gpt-4-turbo*"],
-          "endpoints": ["chat_completions"],
-          "notes": "Legacy. Chat completions only."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints."
         },
         {
           "family": "gpt-4",
           "patterns": ["gpt-4", "gpt-4-*"],
-          "endpoints": ["chat_completions"],
-          "notes": "Legacy. Chat completions only."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints."
         },
         {
           "family": "gpt-3.5-turbo",
           "patterns": ["gpt-3.5-turbo*"],
-          "endpoints": ["chat_completions"],
-          "notes": "Legacy. Chat completions only. Deprecated."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints. Deprecated."
         }
       ]
     },
