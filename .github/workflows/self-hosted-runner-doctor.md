@@ -122,7 +122,7 @@ A13 / github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 — ARC/DinD split-
 
 A16 / github/gh-aw-firewall#5739 — ARC/DinD sysroot filter over-broad (drops workspace mounts under `_work/`) is **fixed** in AWF version including github/gh-aw-firewall#5739. Filter now only drops dot-directories and the home root; workspace paths under `_work/` now pass through.
 
-A17 / github/gh-aw-firewall#5985 — `build-tools` image cannot be digest-pinned; fix pending in open PR github/gh-aw-firewall#5986. Security-sensitive deployments must wait for the merge.
+A17 / github/gh-aw-firewall#5985, github/gh-aw-firewall#5986 — `build-tools` digest pinning is **fixed** in AWF version including github/gh-aw-firewall#5986. `'build-tools'` is now a valid key for `--image-tag build-tools=sha256:<digest>`.
 
 B8 / github/gh-aw-firewall#5983 — Pre-flight EACCES on persistent runners from stale root-owned `/tmp/gh-aw/` dirs is **fixed** in AWF version including github/gh-aw-firewall#5983 (`preflight-reclaim.ts`). Workaround: `sudo rm -rf /tmp/gh-aw/sandbox`.
 
