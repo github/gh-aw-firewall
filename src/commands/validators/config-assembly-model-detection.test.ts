@@ -11,7 +11,9 @@ import {
   setupConfigAssemblyTestSuite,
   warnClassicPATWithCopilotModel,
 } from './config-assembly.test-utils';
-import { resolveAliasToFirstConcrete } from './config-assembly';
+import { testHelpers } from './api-proxy-validator';
+
+const { resolveAliasToFirstConcrete } = testHelpers;
 
 describe('config-assembly', () => {
   setupConfigAssemblyTestSuite();

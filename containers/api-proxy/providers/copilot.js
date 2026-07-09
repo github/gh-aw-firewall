@@ -35,7 +35,7 @@ const {
   deriveCopilotApiTarget,
   copilotTargetRequiresGitHubTokenPrefix,
 } = require('./copilot-auth');
-const { createProviderOidcAuth, createProviderOidcHeaderResolver } = require('./cloud-oidc-init');
+const { createProviderOidcHeaderStrategy } = require('./cloud-oidc-init');
 const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
@@ -66,11 +66,6 @@ function createCopilotAdapter(env, deps = {}) {
   // createOidcRuntimeAdapterMethods + oidcConfigured, and the real token is resolved
   // lazily inside getAuthHeaders.
   const authToken = staticAuthToken;
-  const {
-    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
-    runtimeMethods: oidcRuntimeMethods,
-    resolveAuthHeaders,
-  } = createProviderOidcAuth(env, { staticAuthToken: authToken, skipWhen: !!staticAuthToken });
   // Extra headers to inject on all requests that use the BYOK API key.
   // Only populated when AWF_BYOK_EXTRA_HEADERS is set; ignored for standard
   // GitHub OAuth (COPILOT_GITHUB_TOKEN-only) requests.
@@ -104,8 +99,11 @@ function createCopilotAdapter(env, deps = {}) {
   const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
   const requiresGitHubTokenPrefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env);
   const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
-  const inferenceAuthHeaderResolver = createProviderOidcHeaderResolver({
-    resolveAuthHeaders,
+  const {
+    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
+    runtimeMethods: oidcRuntimeMethods,
+    resolveHeaders: resolveInferenceHeaders,
+  } = createProviderOidcHeaderStrategy(env, { staticAuthToken: authToken, skipWhen: !!staticAuthToken }, {
     buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
     buildStaticHeaders: () => withCopilotIntegration({
       ...(apiKey ? byokExtraHeaders : {}),
@@ -236,7 +234,7 @@ function buildCopilotModelsRequest(extra = {}) {
         return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
-      return inferenceAuthHeaderResolver.resolveHeaders();
+      return resolveInferenceHeaders();
     },
     bodyTransform,
     missingCredentialResponse: {

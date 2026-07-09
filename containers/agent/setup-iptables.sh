@@ -40,25 +40,49 @@ is_valid_port_spec() {
   fi
 }
 
-# Allow AWF_HOST_SERVICE_PORTS entries to a destination IP.
-# Port validation is intentionally strict to prevent malformed iptables rules.
+# Parse a comma-separated port spec string, validating each entry.
+# Mirrors TypeScript parseValidPortSpecs() in src/host-iptables-validation.ts.
+# Usage: parse_port_specs <result_array_name> <input> <label>
+# Populates the named array with valid port specs; warns and skips invalid ones.
+# Requires bash 4.3+ for nameref (declare -n).
+parse_port_specs() {
+  local -n _pps_result="$1"
+  local _pps_input="$2"
+  local _pps_label="$3"
+  _pps_result=()
+
+  if [ -z "$_pps_input" ]; then
+    return
+  fi
+
+  local -a _pps_entries=()
+  local _pps_trimmed=""
+  IFS=',' read -ra _pps_entries <<< "$_pps_input"
+  for _pps_trimmed in "${_pps_entries[@]}"; do
+    _pps_trimmed="${_pps_trimmed#"${_pps_trimmed%%[! ]*}"}"
+    _pps_trimmed="${_pps_trimmed%"${_pps_trimmed##*[! ]}"}"
+    if [ -z "$_pps_trimmed" ]; then
+      continue
+    fi
+    if ! is_valid_port_spec "$_pps_trimmed"; then
+      echo "[iptables] WARNING: Skipping invalid ${_pps_label}: $_pps_trimmed"
+      continue
+    fi
+    _pps_result+=("$_pps_trimmed")
+  done
+}
+
+# Allow AWF_HOST_SERVICE_PORTS entries (pre-validated via parse_port_specs) to a destination IP.
 allow_service_ports_to_ip() {
   local dest_ip="$1"
   local log_each_port="${2:-false}"
-  local port=""
+  local port_spec=""
 
-  for port in "${HSP_PORTS[@]}"; do
-    port=$(echo "$port" | xargs)
-    if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-      echo "[iptables] WARNING: Skipping invalid service port: $port"
-      continue
+  for port_spec in "${HSP_PORTS[@]}"; do
+    if [ "$log_each_port" = "true" ]; then
+      echo "[iptables]   Allow host service port $port_spec to $dest_ip"
     fi
-    if [ -n "$port" ]; then
-      if [ "$log_each_port" = "true" ]; then
-        echo "[iptables]   Allow host service port $port to $dest_ip"
-      fi
-      iptables -A OUTPUT -p tcp -d "$dest_ip" --dport "$port" -j ACCEPT
-    fi
+    iptables -A OUTPUT -p tcp -d "$dest_ip" --dport "$port_spec" -j ACCEPT
   done
 }
 
@@ -268,14 +292,9 @@ allow_host_access_to_gateway() {
   # FILTER: also allow user-specified ports from --allow-host-ports
   if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
     local -a gw_ports=()
+    parse_port_specs gw_ports "$AWF_ALLOW_HOST_PORTS" "port spec"
     local port_spec=""
-    IFS=',' read -ra gw_ports <<< "$AWF_ALLOW_HOST_PORTS"
     for port_spec in "${gw_ports[@]}"; do
-      port_spec=$(echo "$port_spec" | xargs)
-      if ! is_valid_port_spec "$port_spec"; then
-        echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-        continue
-      fi
       echo "[iptables]   Allow ${label} port $port_spec"
       iptables -A OUTPUT -p tcp -d "$gw_ip" --dport "$port_spec" -j ACCEPT
     done
@@ -323,8 +342,8 @@ configure_host_access_rules() {
   # Must be applied BEFORE dangerous port RETURN rules so traffic to host gateway
   # on these ports is accepted, not dropped.
   if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
-    # Parse port list once, before resolving gateway IPs, so both blocks can use it
-    IFS=',' read -ra HSP_PORTS <<< "$AWF_HOST_SERVICE_PORTS"
+    # Parse and validate port list once, before resolving gateway IPs, so both blocks can use it
+    parse_port_specs HSP_PORTS "$AWF_HOST_SERVICE_PORTS" "host service port"
 
     # Resolve host gateway IP (with AWF_HOST_GATEWAY_IP fallback, same as host access block)
     HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
@@ -374,29 +393,12 @@ configure_http_dnat() {
   # If user specified additional ports via --allow-host-ports, redirect those too
   if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
     echo "[iptables] Redirect user-specified ports to Squid..."
-
-    # Parse comma-separated port list
-    IFS=',' read -ra PORTS <<< "$AWF_ALLOW_HOST_PORTS"
-
-    for port_spec in "${PORTS[@]}"; do
-      # Remove leading/trailing spaces
-      port_spec=$(echo "$port_spec" | xargs)
-
-      if ! is_valid_port_spec "$port_spec"; then
-        echo "[iptables] WARNING: Skipping invalid port spec: $port_spec"
-        continue
-      fi
-
-      if [[ $port_spec == *"-"* ]]; then
-        # Port range (e.g., "3000-3010")
-        echo "[iptables]   Redirect port range $port_spec to Squid..."
-        # For port ranges, use --dport with range syntax (without multiport)
-        iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
-      else
-        # Single port (e.g., "3000")
-        echo "[iptables]   Redirect port $port_spec to Squid..."
-        iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
-      fi
+    local -a dnat_ports=()
+    parse_port_specs dnat_ports "$AWF_ALLOW_HOST_PORTS" "port spec"
+    local port_spec=""
+    for port_spec in "${dnat_ports[@]}"; do
+      echo "[iptables]   Redirect port $port_spec to Squid..."
+      iptables -t nat -A OUTPUT -p tcp --dport "$port_spec" -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
     done
   else
     echo "[iptables] No additional ports specified (only 80, 443 allowed)"

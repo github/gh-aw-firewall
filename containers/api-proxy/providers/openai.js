@@ -18,7 +18,7 @@ const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
-const { createProviderOidcAuth, createProviderOidcHeaderResolver } = require('./cloud-oidc-init');
+const { createProviderOidcHeaderStrategy } = require('./cloud-oidc-init');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
@@ -64,13 +64,6 @@ function createOpenAIAdapter(env, deps = {}) {
   const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
-  const {
-    authProvider, oidcConfigured,
-    runtimeMethods: oidcRuntimeMethods,
-    validationSkip,
-    skipModelsFetch,
-    resolveAuthHeaders,
-  } = createProviderOidcAuth(env, { staticAuthToken: apiKey });
   function buildTokenAuthHeaders(key) {
     if (customAuthHeader) {
       return providerKeyHeaders(customAuthHeader, key);
@@ -78,8 +71,13 @@ function createOpenAIAdapter(env, deps = {}) {
     return bearerAuthHeaders(key);
   }
   const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
-  const oidcHeaderResolver = createProviderOidcHeaderResolver({
-    resolveAuthHeaders,
+  const {
+    authProvider, oidcConfigured,
+    runtimeMethods: oidcRuntimeMethods,
+    validationSkip,
+    skipModelsFetch,
+    resolveHeaders: resolveOidcHeaders,
+  } = createProviderOidcHeaderStrategy(env, { staticAuthToken: apiKey }, {
     buildOidcHeaders: buildTokenAuthHeaders,
     buildStaticHeaders: buildStaticAuthHeaders,
   });
@@ -110,7 +108,7 @@ function createOpenAIAdapter(env, deps = {}) {
     isManagementPort: true,
     adapterMethods,
     getAuthHeaders() {
-      return oidcHeaderResolver.resolveHeaders();
+      return resolveOidcHeaders();
     },
     bodyTransform,
     missingCredentialResponse: {

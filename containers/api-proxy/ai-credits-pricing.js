@@ -3,6 +3,12 @@
 // Curated per-model pricing in dollars per 1M tokens.
 // These provider-agnostic aliases take precedence over the bundled models.dev
 // catalog fallback.
+//
+// SYNC NOTE: When adding a new Copilot CLI completion model here, also add it
+// to SUPPORTED_COPILOT_MODELS in src/copilot-model.ts (the host-side validator).
+// If you don't, AWF will reject the COPILOT_MODEL value with a misleading
+// "retired or unsupported" error before any container starts.
+// A CI guard in src/copilot-model-catalog-sync.test.ts enforces this invariant.
 module.exports = Object.freeze({
   'gpt-5-mini':        { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },
   'gpt-5-codex-mini':  { input: 0.25,  cachedInput: 0.025, cacheWrite: null, output: 2.00 },

@@ -25,6 +25,22 @@ const RETIRED_COPILOT_MODEL_ALIASES: Record<string, string> = {
   'gpt-5-codex': 'gpt-5.3-codex',
 };
 
+/**
+ * Single source of truth for all Copilot CLI completion models that AWF accepts
+ * as a `COPILOT_MODEL` value.  The host-side validator rejects any value not in
+ * this set (or its separator-normalised form) before containers start.
+ *
+ * When **adding** a new Copilot CLI model here, also update:
+ *   - `containers/api-proxy/ai-credits-pricing.js`  (AI-credits billing)
+ *   - `docs/model-api-mapping.json`                  (endpoint routing, OpenAI/Anthropic only)
+ *
+ * When **retiring** a model, move it to `RETIRED_COPILOT_MODEL_ALIASES` (below)
+ * and mirror the change in `containers/api-proxy/guards/retired-model-guard.js`.
+ *
+ * A CI guard in `src/copilot-model-catalog-sync.test.ts` fails if any model
+ * present in `ai-credits-pricing.js` is missing from this set (and is not
+ * explicitly listed as a non-CLI model in the test's exclusion set).
+ */
 const SUPPORTED_COPILOT_MODELS = new Set([
   'gpt-4',
   'gpt-4.1',
@@ -90,6 +106,12 @@ function levenshtein(a: string, b: string): number {
   }
   return dp[a.length][b.length];
 }
+
+/** @internal Exposed for unit tests — catalog sync guard uses this to verify pricing parity. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  supportedCopilotModels: new Set(SUPPORTED_COPILOT_MODELS) as ReadonlySet<string>,
+};
 
 export function validateCopilotModel(rawModel: string): CopilotModelValidationResult {
   const trimmed = rawModel.trim();
