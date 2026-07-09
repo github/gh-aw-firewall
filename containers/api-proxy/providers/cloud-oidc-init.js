@@ -204,8 +204,50 @@ function createProviderOidcHeaderResolver({
   };
 }
 
+/**
+ * Combined OIDC auth initialisation + header resolver for provider adapters.
+ *
+ * Eliminates the repeated two-step pattern of calling `createProviderOidcAuth`
+ * followed by `createProviderOidcHeaderResolver` in every provider adapter.
+ * Providers pass their provider-specific header builders; the common
+ * credential-resolution lifecycle is handled once in this function.
+ *
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {object} [oidcAuthOptions] - Options forwarded to createProviderOidcAuth
+ * @param {string|undefined} [oidcAuthOptions.staticAuthToken]
+ * @param {boolean} [oidcAuthOptions.skipWhen=false]
+ * @param {((env: Record<string, string|undefined>) => OidcAuthProvider|null|undefined)|null} [oidcAuthOptions.oidcProviderFactory]
+ * @param {object} headerOptions - Provider-specific header builders
+ * @param {(token: string) => Record<string, string>} headerOptions.buildOidcHeaders
+ * @param {() => Record<string, string>} headerOptions.buildStaticHeaders
+ * @returns {{
+ *   authProvider: string,
+ *   oidcProvider: any,
+ *   awsOidcProvider: any,
+ *   oidcConfigured: boolean,
+ *   runtimeMethods: { isEnabled: () => boolean, getOidcProvider: () => any, getAwsOidcProvider: () => any },
+ *   validationSkip: () => ({ skip: true, reason: string }|null),
+ *   skipModelsFetch: () => boolean,
+ *   resolveAuthHeaders: (buildOidcHeaders: (token: string) => Record<string, string>, staticHeaders: Record<string, string>) => Record<string, string>,
+ *   resolveHeaders: () => Record<string, string>,
+ * }}
+ */
+function createProviderOidcHeaderStrategy(env, oidcAuthOptions = {}, {
+  buildOidcHeaders,
+  buildStaticHeaders,
+}) {
+  const oidcAuth = createProviderOidcAuth(env, oidcAuthOptions);
+  const { resolveHeaders } = createProviderOidcHeaderResolver({
+    resolveAuthHeaders: oidcAuth.resolveAuthHeaders,
+    buildOidcHeaders,
+    buildStaticHeaders,
+  });
+  return { ...oidcAuth, resolveHeaders };
+}
+
 module.exports = {
   resolveCloudOidcProviders,
   createProviderOidcAuth,
   createProviderOidcHeaderResolver,
+  createProviderOidcHeaderStrategy,
 };

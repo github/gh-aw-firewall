@@ -4,6 +4,7 @@ const {
   resolveCloudOidcProviders,
   createProviderOidcAuth,
   createProviderOidcHeaderResolver,
+  createProviderOidcHeaderStrategy,
 } = require('./cloud-oidc-init');
 
 describe('resolveCloudOidcProviders', () => {
@@ -248,5 +249,85 @@ describe('createProviderOidcAuth', () => {
     expect(auth.oidcConfigured).toBe(true);
 
     auth.oidcProvider.shutdown();
+  });
+});
+
+describe('createProviderOidcHeaderStrategy', () => {
+  it('returns all oidcAuth fields plus a resolveHeaders function', () => {
+    const strategy = createProviderOidcHeaderStrategy({}, {}, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+    });
+
+    expect(strategy.oidcConfigured).toBe(false);
+    expect(strategy.oidcProvider).toBeNull();
+    expect(strategy.awsOidcProvider).toBeNull();
+    expect(strategy.authProvider).toBe('azure');
+    expect(typeof strategy.runtimeMethods).toBe('object');
+    expect(typeof strategy.validationSkip).toBe('function');
+    expect(typeof strategy.skipModelsFetch).toBe('function');
+    expect(typeof strategy.resolveAuthHeaders).toBe('function');
+    expect(typeof strategy.resolveHeaders).toBe('function');
+  });
+
+  it('resolveHeaders returns static headers when no OIDC is configured', () => {
+    const strategy = createProviderOidcHeaderStrategy({}, {}, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+    });
+
+    expect(strategy.resolveHeaders()).toEqual({ 'x-api-key': 'static-key' });
+  });
+
+  it('resolveHeaders returns OIDC headers when a token is available', () => {
+    const mockProvider = { isReady: () => true, getToken: () => 'oidc-token' };
+    const strategy = createProviderOidcHeaderStrategy({}, {
+      oidcProviderFactory: () => mockProvider,
+    }, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+    });
+
+    expect(strategy.oidcConfigured).toBe(true);
+    expect(strategy.resolveHeaders()).toEqual({ Authorization: 'Bearer oidc-token' });
+  });
+
+  it('resolveHeaders returns empty object when OIDC configured but token not ready', () => {
+    const mockProvider = { isReady: () => false, getToken: () => '' };
+    const strategy = createProviderOidcHeaderStrategy({}, {
+      oidcProviderFactory: () => mockProvider,
+    }, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+    });
+
+    expect(strategy.oidcConfigured).toBe(true);
+    expect(strategy.resolveHeaders()).toEqual({});
+  });
+
+  it('forwards oidcAuthOptions to createProviderOidcAuth', () => {
+    const strategy = createProviderOidcHeaderStrategy({}, {
+      staticAuthToken: 'my-api-key',
+    }, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'my-api-key' }),
+    });
+
+    expect(strategy.runtimeMethods.isEnabled()).toBe(true);
+  });
+
+  it('resolveHeaders uses the provider-specific buildOidcHeaders decorator', () => {
+    const mockProvider = { isReady: () => true, getToken: () => 'oidc-token' };
+    const strategy = createProviderOidcHeaderStrategy({}, {
+      oidcProviderFactory: () => mockProvider,
+    }, {
+      buildOidcHeaders: (token) => ({ Authorization: 'Bearer ' + token, 'x-custom': 'extra' }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+    });
+
+    expect(strategy.resolveHeaders()).toEqual({
+      Authorization: 'Bearer oidc-token',
+      'x-custom': 'extra',
+    });
   });
 });

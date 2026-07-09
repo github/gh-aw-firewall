@@ -21,7 +21,7 @@ const {
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
-const { createProviderOidcAuth, createProviderOidcHeaderResolver } = require('./cloud-oidc-init');
+const { createProviderOidcHeaderStrategy } = require('./cloud-oidc-init');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
@@ -63,8 +63,8 @@ function createAnthropicAdapter(env, deps = {}) {
   const {
     oidcProvider, oidcConfigured,
     runtimeMethods: oidcRuntimeMethods,
-    resolveAuthHeaders,
-  } = createProviderOidcAuth(env, {
+    resolveHeaders: resolveOidcHeaders,
+  } = createProviderOidcHeaderStrategy(env, {
     staticAuthToken: apiKey,
     oidcProviderFactory: oidcRequested ? (env) => {
       const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL;
@@ -83,6 +83,9 @@ function createAnthropicAdapter(env, deps = {}) {
         oidcAudience: env.AWF_AUTH_OIDC_AUDIENCE || 'https://api.anthropic.com',
       });
     } : null,
+  }, {
+    buildOidcHeaders: (token) => bearerAuthHeaders(token),
+    buildStaticHeaders: () => providerKeyHeaders(authHeaderName, apiKey),
   });
 
   const oidcUnavailableError = oidcConfigured
@@ -114,13 +117,6 @@ function createAnthropicAdapter(env, deps = {}) {
   // Build the composed transform once at construction time to avoid
   // re-allocating the wrapper function on every request.
   const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
-  const buildOidcBearerAuthHeaders = (token) => bearerAuthHeaders(token);
-  const buildStaticAuthHeaders = () => providerKeyHeaders(authHeaderName, apiKey);
-  const oidcHeaderResolver = createProviderOidcHeaderResolver({
-    resolveAuthHeaders,
-    buildOidcHeaders: buildOidcBearerAuthHeaders,
-    buildStaticHeaders: buildStaticAuthHeaders,
-  });
   const adapterMethods = createAdapterMethods({
     apiKey,
     rawTarget,
@@ -132,7 +128,7 @@ function createAnthropicAdapter(env, deps = {}) {
     validationMethod: 'POST',
     validationBody: '{}',
     validationHeaders: () => ({
-      ...oidcHeaderResolver.resolveHeaders(),
+      ...resolveOidcHeaders(),
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     }),
@@ -145,7 +141,7 @@ function createAnthropicAdapter(env, deps = {}) {
     skipModelsFetch: () => oidcConfigured && !oidcProvider?.isReady(),
     modelsPath: '/v1/models',
     modelsFetchHeaders: () => ({
-      ...oidcHeaderResolver.resolveHeaders(),
+      ...resolveOidcHeaders(),
       'anthropic-version': '2023-06-01',
     }),
     reflectionConfigured: !!apiKey || oidcRequested,
@@ -168,7 +164,7 @@ function createAnthropicAdapter(env, deps = {}) {
      * @returns {Record<string, string>}
      */
     getAuthHeaders(req) {
-      const headers = oidcHeaderResolver.resolveHeaders();
+      const headers = resolveOidcHeaders();
 
       // OIDC configured but token not yet ready: fail closed so static creds are not leaked.
       if (Object.keys(headers).length === 0) {
