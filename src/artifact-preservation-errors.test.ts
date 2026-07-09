@@ -16,7 +16,6 @@
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 jest.mock('./artifact-permissions', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const real = jest.requireActual<typeof import('./artifact-permissions')>('./artifact-permissions');
   return {
     ...real,
@@ -28,7 +27,6 @@ jest.mock('./artifact-permissions', () => {
 // can inject one-shot errors without using jest.spyOn (which fails on non-
 // configurable properties in Jest's module sandbox).
 jest.mock('fs', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const real = jest.requireActual<typeof import('fs')>('fs');
   return {
     ...real,
@@ -51,7 +49,6 @@ import {
 } from './artifact-preservation';
 
 // Cast mocked methods for convenient mockImplementationOnce usage.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const realFs = jest.requireActual<typeof import('fs')>('fs');
 const mockCopyFileSync = fs.copyFileSync as jest.MockedFunction<typeof fs.copyFileSync>;
 const mockFixArtifactPermissionsForRootless =
