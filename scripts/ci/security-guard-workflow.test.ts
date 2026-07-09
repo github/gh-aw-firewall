@@ -40,7 +40,7 @@ describe('security guard workflow optimization config', () => {
     expect(lock).toContain('COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode');
     expect(lock).not.toContain(`COPILOT_DUMMY_BYOK: ${COPILOT_PLACEHOLDER_TOKEN}`);
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
-    expect(lock).toContain('github/gh-aw-actions/setup@55402c5c057cb7cd9a0b95156e31ab8ca1f5cde3 # v0.82.5');
+    expect(lock).toContain('github/gh-aw-actions/setup@bf7ba42ce6443bf79fa184c9c6a35de202690bfc # v0.82.7');
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
     expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.5.0');
   });
