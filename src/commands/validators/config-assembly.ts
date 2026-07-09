@@ -223,11 +223,15 @@ export function resolveAliasToFirstConcrete(
   if (visited.has(normalizedKey)) return undefined;
   visited.add(normalizedKey);
 
-  // Find the alias entry (case-insensitive)
-  const foundKey = Object.keys(aliases).find(k => k.toLowerCase() === normalizedKey);
-  if (!foundKey) return undefined;
+  // Pre-compute the set of lowercased alias keys once to avoid repeated
+  // Object.keys() calls inside the pattern loop.
+  const aliasKeySet = new Set(Object.keys(aliases).map(k => k.toLowerCase()));
 
-  for (const pattern of aliases[foundKey]) {
+  // Find the alias entry (case-insensitive); destructure to get the patterns.
+  const entry = Object.entries(aliases).find(([k]) => k.toLowerCase() === normalizedKey);
+  if (!entry) return undefined;
+
+  for (const pattern of entry[1]) {
     // Runtime wildcard — cannot validate at preflight
     if (pattern.includes('*')) continue;
 
@@ -235,9 +239,11 @@ export function resolveAliasToFirstConcrete(
     // provider context, skip.
     if (pattern.includes('/')) continue;
 
-    // Nested alias reference — recurse with a copy of the visited set so that
-    // sibling patterns after a failed branch are still reachable.
-    if (Object.keys(aliases).some(k => k.toLowerCase() === pattern.toLowerCase())) {
+    // Nested alias reference — recurse with a snapshot of the visited set so
+    // that sibling patterns after a failed/cyclic branch remain reachable.
+    // (Passing `visited` directly would mark siblings visited during a failed
+    // branch and incorrectly skip them on subsequent iterations.)
+    if (aliasKeySet.has(pattern.toLowerCase())) {
       const resolved = resolveAliasToFirstConcrete(pattern, aliases, new Set(visited));
       if (resolved !== undefined) return resolved;
       continue;
