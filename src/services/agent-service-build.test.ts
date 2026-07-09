@@ -329,6 +329,17 @@ describe('agent service', () => {
       });
     });
 
+    describe('allowHostServicePorts option', () => {
+      it('should pass AWF_VALID_HOST_SERVICE_PORTS to the iptables-init container', () => {
+        const config = { ...mockConfig, enableHostAccess: true, allowHostServicePorts: '5432,6379' };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const initEnv = (result.services['iptables-init'] as any).environment as Record<string, string>;
+
+        expect(initEnv.AWF_VALID_HOST_SERVICE_PORTS).toBe('5432,6379');
+      });
+    });
+
   describe('toolchain var fallback to GITHUB_ENV', () => {
     let tmpDir: string;
     let testConfig: WrapperConfig;

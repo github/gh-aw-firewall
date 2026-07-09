@@ -184,6 +184,14 @@ else
   fail "split_valid_port_specs should return [80,443,3128], got: ${result_arr[*]}"
 fi
 
+# Multiple valid ports with whitespace around entries
+mapfile -t result_arr < <(run_split_valid_port_specs "80, 443 ,3128" "port spec")
+if [ "${#result_arr[@]}" -eq 3 ] && [ "${result_arr[0]}" = "80" ] && [ "${result_arr[1]}" = "443" ] && [ "${result_arr[2]}" = "3128" ]; then
+  pass "split_valid_port_specs trims surrounding whitespace on entries"
+else
+  fail "split_valid_port_specs should trim and return [80,443,3128], got: ${result_arr[*]}"
+fi
+
 # Valid port range
 result=$(run_split_valid_port_specs "3000-3010" "port spec")
 if [ "$result" = "3000-3010" ]; then
