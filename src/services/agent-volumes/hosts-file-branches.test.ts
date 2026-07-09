@@ -151,9 +151,10 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
   });
 
   it('swallows statSync error for individual chroot staging directory entries', () => {
-    // Create a chroot- dir inside tmpDir so the readdirSync loop runs over it
-    const staleDir = path.join(tmpDir, 'chroot-stale');
-    actual.mkdirSync(staleDir);
+    // Create a chroot- dir inside the docker-host staging root so pruneStaleChrootStageDirs iterates over it
+    const stageRoot = path.join(tmpDir, 'awf-docker-host-stage');
+    const staleDir = path.join(stageRoot, 'chroot-stale');
+    actual.mkdirSync(staleDir, { recursive: true });
 
     mockStatSync.mockImplementationOnce(() => {
       throw new Error('ENOENT: no such file');
@@ -166,5 +167,6 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
     });
 
     expect(() => generateHostsFileMount(config)).not.toThrow();
+    expect(mockStatSync).toHaveBeenCalled();
   });
 });
