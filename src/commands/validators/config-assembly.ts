@@ -194,6 +194,63 @@ function validateHostAccessConfig(
 }
 
 /**
+ * Recursively resolves an alias key to its first concrete (non-wildcard) model
+ * name, following nested alias references with cycle detection.
+ *
+ * Resolution rules for each pattern:
+ *   - Contains `*`         → runtime wildcard, skip.
+ *   - Contains `/`         → provider-scoped (e.g. `copilot/gpt-4.1`), cannot
+ *                            be validated without provider context, skip.
+ *   - Matches an alias key  → nested alias reference, recurse.
+ *   - Otherwise             → plain concrete model name, return it.
+ *
+ * @param aliasKey  Alias name to start resolution from (case-insensitive).
+ * @param aliases   Full alias map (values are arrays of patterns).
+ * @param visited   Accumulates visited keys for cycle detection; callers should
+ *                  not pass this argument — it is used by recursive calls only.
+ * @returns The first concrete model name found, or `undefined` when all paths
+ *          are wildcards, provider-scoped, or form a cycle.
+ */
+// ts-prune-ignore-next
+export function resolveAliasToFirstConcrete(
+  aliasKey: string,
+  aliases: Record<string, string[]>,
+  visited: Set<string> = new Set(),
+): string | undefined {
+  const normalizedKey = aliasKey.toLowerCase();
+
+  // Cycle guard
+  if (visited.has(normalizedKey)) return undefined;
+  visited.add(normalizedKey);
+
+  // Find the alias entry (case-insensitive)
+  const foundKey = Object.keys(aliases).find(k => k.toLowerCase() === normalizedKey);
+  if (!foundKey) return undefined;
+
+  for (const pattern of aliases[foundKey]) {
+    // Runtime wildcard — cannot validate at preflight
+    if (pattern.includes('*')) continue;
+
+    // Provider-scoped pattern (e.g. "copilot/gpt-4.1") — unvalidatable without
+    // provider context, skip.
+    if (pattern.includes('/')) continue;
+
+    // Nested alias reference — recurse with a copy of the visited set so that
+    // sibling patterns after a failed branch are still reachable.
+    if (Object.keys(aliases).some(k => k.toLowerCase() === pattern.toLowerCase())) {
+      const resolved = resolveAliasToFirstConcrete(pattern, aliases, new Set(visited));
+      if (resolved !== undefined) return resolved;
+      continue;
+    }
+
+    // Plain concrete model name
+    return pattern;
+  }
+
+  return undefined;
+}
+
+/**
  * Validates and logs the API proxy configuration.  Emits warnings for missing
  * keys and target-domain mismatches. This guard is not expected to call
  * `process.exit(1)` (warnings only).
@@ -294,27 +351,19 @@ function validateCopilotModelOption(
     (config.copilotGithubToken || config.copilotProviderApiKey)
   ) {
     // Check whether COPILOT_MODEL is a runtime alias key.  Aliases are resolved
-    // later by the api-proxy using AWF_MODEL_ALIASES.  When an alias is found,
-    // validate its first concrete (non-wildcard) pattern so that misconfigured
-    // alias chains are caught at preflight rather than silently failing at
-    // request time.  If all patterns are wildcards (runtime-resolved), we
-    // cannot validate at this stage and skip the check.
-    const normalizedModel = copilotModel.toLowerCase();
-    const aliasPatterns: string[] | undefined = (() => {
-      if (!config.modelAliases) return undefined;
-      const entry = Object.entries(config.modelAliases).find(
-        ([k]) => k.toLowerCase() === normalizedModel,
-      );
-      if (!entry) return undefined;
-      const value = entry[1];
-      return Array.isArray(value) ? value : undefined;
-    })();
+    // later by the api-proxy using AWF_MODEL_ALIASES.  Recursively resolve the
+    // alias chain (with cycle protection) to find the first concrete model name
+    // and validate it at preflight so that misconfigured alias chains are caught
+    // early.  If the chain contains only wildcards or provider-scoped patterns,
+    // validation is skipped — the actual model is only known at request time.
+    const isAlias = !!config.modelAliases &&
+      Object.keys(config.modelAliases).some(k => k.toLowerCase() === copilotModel.toLowerCase());
 
-    if (aliasPatterns !== undefined) {
-      // Resolve the alias: find the first concrete (non-wildcard) pattern and
-      // validate it.  Keep COPILOT_MODEL as the alias name so the api-proxy
-      // can perform its own availability-aware resolution at request time.
-      const firstConcrete = aliasPatterns.find(p => !p.includes('*'));
+    if (isAlias) {
+      // Recursively resolve to the first concrete model name and validate it.
+      // COPILOT_MODEL is left as the alias name so the api-proxy can perform
+      // its own availability-aware resolution at request time.
+      const firstConcrete = resolveAliasToFirstConcrete(copilotModel, config.modelAliases!);
       if (firstConcrete !== undefined) {
         const aliasValidation = validateCopilotModel(firstConcrete);
         if (!aliasValidation.valid) {
@@ -325,7 +374,7 @@ function validateCopilotModelOption(
           process.exit(1);
         }
       }
-      // Alias is valid (or all patterns are runtime wildcards) — leave
+      // Alias is valid (or all paths are wildcards/provider-scoped) — leave
       // COPILOT_MODEL as the alias name for the api-proxy.
     } else {
       // Not an alias: validate and normalise the concrete model name directly.

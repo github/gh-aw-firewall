@@ -11,6 +11,7 @@ import {
   setupConfigAssemblyTestSuite,
   warnClassicPATWithCopilotModel,
 } from './config-assembly.test-utils';
+import { resolveAliasToFirstConcrete } from './config-assembly';
 
 describe('config-assembly', () => {
   setupConfigAssemblyTestSuite();
@@ -350,6 +351,139 @@ describe('config-assembly', () => {
       expect(logger.error).toHaveBeenCalledWith(
         expect.stringContaining("model 'not-a-real-model-xyz' is unsupported or unrecognized"),
       );
+    });
+
+    it('should resolve a recursive alias chain (smart -> fast -> gpt-4.1) and validate the concrete model', () => {
+      const aliases = { fast: ['gpt-4.1'], smart: ['fast'] };
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: aliases,
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = aliases;
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'smart' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should reject a recursive alias chain that resolves to an unsupported model', () => {
+      const aliases = { inner: ['not-a-real-model-xyz'], outer: ['inner'] };
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: aliases,
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = aliases;
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'outer' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("alias 'outer' resolves to model 'not-a-real-model-xyz'"),
+      );
+    });
+
+    it('should allow a cyclic alias chain without crashing (cycle protection)', () => {
+      const aliases = { alpha: ['beta'], beta: ['alpha'] };
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: aliases,
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = aliases;
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'alpha' };
+
+      // Cyclic alias resolves to undefined (no concrete model) — skips validation
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveAliasToFirstConcrete', () => {
+    it('returns undefined for unknown alias key', () => {
+      expect(resolveAliasToFirstConcrete('unknown', { fast: ['gpt-4.1'] })).toBeUndefined();
+    });
+
+    it('returns the first concrete pattern for a direct alias', () => {
+      expect(resolveAliasToFirstConcrete('fast', { fast: ['gpt-4.1', 'gpt-4o'] })).toBe('gpt-4.1');
+    });
+
+    it('skips wildcards and returns the first non-wildcard', () => {
+      expect(resolveAliasToFirstConcrete('s', { s: ['copilot/*sonnet*', 'gpt-4.1'] })).toBe('gpt-4.1');
+    });
+
+    it('skips provider-scoped patterns', () => {
+      expect(resolveAliasToFirstConcrete('s', { s: ['copilot/gpt-4.1', 'gpt-4o-mini'] })).toBe('gpt-4o-mini');
+    });
+
+    it('returns undefined when all patterns are wildcards', () => {
+      expect(resolveAliasToFirstConcrete('s', { s: ['copilot/*sonnet*'] })).toBeUndefined();
+    });
+
+    it('resolves a one-level nested alias', () => {
+      expect(resolveAliasToFirstConcrete('smart', { fast: ['gpt-4.1'], smart: ['fast'] })).toBe('gpt-4.1');
+    });
+
+    it('resolves a multi-level nested alias chain', () => {
+      const aliases = { a: ['b'], b: ['c'], c: ['gpt-4o-mini'] };
+      expect(resolveAliasToFirstConcrete('a', aliases)).toBe('gpt-4o-mini');
+    });
+
+    it('returns undefined for a direct cycle', () => {
+      expect(resolveAliasToFirstConcrete('x', { x: ['x'] })).toBeUndefined();
+    });
+
+    it('returns undefined for a mutual cycle', () => {
+      expect(resolveAliasToFirstConcrete('a', { a: ['b'], b: ['a'] })).toBeUndefined();
+    });
+
+    it('skips a cyclic branch and falls through to a valid sibling pattern', () => {
+      const aliases = { a: ['b', 'gpt-4.1'], b: ['a'] };
+      expect(resolveAliasToFirstConcrete('a', aliases)).toBe('gpt-4.1');
+    });
+
+    it('is case-insensitive for alias key lookup', () => {
+      expect(resolveAliasToFirstConcrete('FAST', { fast: ['gpt-4.1'] })).toBe('gpt-4.1');
+    });
+
+    it('is case-insensitive when following nested alias references', () => {
+      expect(resolveAliasToFirstConcrete('smart', { FAST: ['gpt-4.1'], smart: ['FAST'] })).toBe('gpt-4.1');
     });
   });
 });
