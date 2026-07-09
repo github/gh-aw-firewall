@@ -119,7 +119,10 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = actual.mkdtempSync(path.join(os.tmpdir(), 'awf-prune-'));
+    // Use /tmp/ prefix so shouldUseDockerHostStaging() returns true
+    // (it requires paths starting with /tmp); os.tmpdir() on macOS
+    // returns /var/folders/… which would skip the staging code path.
+    tmpDir = actual.mkdtempSync(path.join('/tmp', 'awf-prune-'));
     jest.clearAllMocks();
     mockExecaSync.mockReturnValue({ stdout: '', stderr: '' });
     // Default: delegate to real implementations
