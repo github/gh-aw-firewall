@@ -534,3 +534,251 @@ describe('resolveModel with modelPolicyConfig', () => {
     expect(result).toBeNull();
   });
 });
+
+// ── Complex alias tree resolution ────────────────────────────────────────────
+
+describe('resolveModel — complex alias trees', () => {
+  // Disable middle-power fallback throughout so failed branches clearly return null
+  const noFallback = { enabled: false };
+
+  const baseModels = {
+    copilot: [
+      'claude-haiku-3.5',
+      'claude-sonnet-4.5',
+      'claude-sonnet-4.6',
+      'claude-opus-4.5',
+      'gpt-4o',
+      'gpt-4o-mini',
+      'gpt-5.2',
+    ],
+    anthropic: [
+      'claude-3-haiku-20240307',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-opus-20240229',
+    ],
+    openai: ['gpt-4o', 'gpt-4-turbo', 'gpt-5.2'],
+  };
+
+  it('resolves a 4-level deep chain to the highest-version concrete model', () => {
+    // deep → level1 → level2 → level3 → copilot/*sonnet*
+    const aliases = {
+      deep: ['level1'],
+      level1: ['level2'],
+      level2: ['level3'],
+      level3: ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('deep', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('resolves a 5-level deep chain picking the highest-version match', () => {
+    // a → b → c → d → e → copilot/*gpt-5*
+    const aliases = {
+      a: ['b'],
+      b: ['c'],
+      c: ['d'],
+      d: ['e'],
+      e: ['copilot/*gpt-5*'],
+    };
+    const result = resolveModel('a', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5.2');
+  });
+
+  it('fan-out: alias with two sub-alias branches merges candidates and picks highest version', () => {
+    // best → [sonnet-branch, haiku-branch]
+    // sonnet-branch → copilot/*sonnet*  →  4.5, 4.6 (sub picks 4.6)
+    // haiku-branch  → copilot/*haiku*   →  3.5        (sub picks 3.5)
+    // fan-out candidates: [4.6, 3.5] → 4.6 wins
+    const aliases = {
+      best: ['sonnet-branch', 'haiku-branch'],
+      'sonnet-branch': ['copilot/*sonnet*'],
+      'haiku-branch': ['copilot/*haiku*'],
+    };
+    const result = resolveModel('best', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('fan-out: resolves via the only working branch when the other branch has no matches', () => {
+    // prefer-codex → [codex-branch, sonnet-branch]
+    // codex-branch → copilot/gpt-5*codex*  → no match in baseModels
+    // sonnet-branch → copilot/*sonnet*      → matches
+    // Use object-syntax for codex-branch to suppress its middle-power fallback
+    const aliases = {
+      'prefer-codex': ['codex-branch', 'sonnet-branch'],
+      'codex-branch': { patterns: ['copilot/gpt-5*codex*'], fallback: false },
+      'sonnet-branch': ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('prefer-codex', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('detects a 3-node cycle (A → B → C → A) and returns null', () => {
+    const aliases = {
+      a: ['b'],
+      b: ['c'],
+      c: ['a'],
+    };
+    const result = resolveModel('a', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).toBeNull();
+  });
+
+  it('detects a cycle entered mid-chain (A → B → C → B) and returns null', () => {
+    const aliases = {
+      a: ['b'],
+      b: ['c'],
+      c: ['b'],
+    };
+    const result = resolveModel('a', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).toBeNull();
+  });
+
+  it('detects a diamond cycle where all branches eventually cycle back', () => {
+    // top → [left, right]; left → bottom; right → bottom; bottom → left
+    const aliases = {
+      top: ['left', 'right'],
+      left: ['bottom'],
+      right: ['bottom'],
+      bottom: ['left'],
+    };
+    const result = resolveModel('top', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).toBeNull();
+  });
+
+  it('succeeds when one branch is a direct provider pattern alongside a cyclic sub-alias', () => {
+    // combo → ['copilot/*sonnet*', 'cycle-start']
+    // copilot/*sonnet* is a provider pattern (matched directly, no recursion needed)
+    // cycle-start → cycle-end → cycle-start  (cycle, contributes nothing)
+    const aliases = {
+      combo: ['copilot/*sonnet*', 'cycle-start'],
+      'cycle-start': ['cycle-end'],
+      'cycle-end': ['cycle-start'],
+    };
+    const result = resolveModel('combo', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('skips provider patterns for a different provider when resolving a specific provider', () => {
+    // openai-only alias has patterns only for openai; resolving for copilot finds nothing
+    const aliases = {
+      'openai-only': ['openai/*gpt*'],
+    };
+    const result = resolveModel('openai-only', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).toBeNull();
+  });
+
+  it('deduplicates candidates when two branches resolve to the same model', () => {
+    // dup → [path-a, path-b]; both paths → copilot/*sonnet*
+    // After dedup, exactly one copy of each model; still picks highest version
+    const aliases = {
+      dup: ['path-a', 'path-b'],
+      'path-a': ['copilot/*sonnet*'],
+      'path-b': ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('dup', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('resolves a sibling tree where branches have different depths and picks the overall highest version', () => {
+    // root → [mid-a, mid-b]
+    // mid-a → leaf-a → copilot/*opus*   (2 levels deep, yields claude-opus-4.5)
+    // mid-b → copilot/*haiku*           (1 level deep, yields claude-haiku-3.5)
+    // candidates at root level: [opus-4.5, haiku-3.5] → opus wins (4 > 3)
+    const aliases = {
+      root: ['mid-a', 'mid-b'],
+      'mid-a': ['leaf-a'],
+      'leaf-a': ['copilot/*opus*'],
+      'mid-b': ['copilot/*haiku*'],
+    };
+    const result = resolveModel('root', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-opus-4.5');
+  });
+
+  it('resolves a tree that includes the default ("") alias as an intermediate node', () => {
+    // "" → top-alias → mid → copilot/gpt-4o
+    const aliases = {
+      '': ['top-alias'],
+      'top-alias': ['mid'],
+      mid: ['copilot/gpt-4o'],
+    };
+    const result = resolveModel('', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-4o');
+  });
+
+  it('returns null when every branch of the tree targets unavailable models', () => {
+    const aliases = {
+      root: ['branch-a', 'branch-b'],
+      'branch-a': { patterns: ['copilot/nonexistent-xyz'], fallback: false },
+      'branch-b': { patterns: ['openai/nonexistent-abc'], fallback: false },
+    };
+    const result = resolveModel('root', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).toBeNull();
+  });
+
+  it('accumulates log entries from all levels of a multi-hop chain', () => {
+    // 3-level chain: deep → level1 → level2 → copilot/*sonnet*
+    const aliases = {
+      deep: ['level1'],
+      level1: ['level2'],
+      level2: ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('deep', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    // Expect at least one log entry per alias hop (3 hops minimum)
+    expect(result.log.length).toBeGreaterThanOrEqual(3);
+    const logText = result.log.join('\n');
+    expect(logText).toContain('deep');
+    expect(logText).toContain('level1');
+    expect(logText).toContain('level2');
+  });
+
+  it('resolves case-insensitive keys at every level of the tree', () => {
+    // Alias keys use mixed case; requested model is lowercase
+    const aliases = {
+      'DEEP-ALIAS': ['MID-ALIAS'],
+      'MID-ALIAS': ['LEAF-ALIAS'],
+      'LEAF-ALIAS': ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('deep-alias', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('resolves a wide flat tree: alias referencing many sub-aliases, picks global highest', () => {
+    // wide → [opus-ref, sonnet-ref, haiku-ref, gpt-ref]
+    const aliases = {
+      wide: ['opus-ref', 'sonnet-ref', 'haiku-ref', 'gpt-ref'],
+      'opus-ref': ['copilot/*opus*'],
+      'sonnet-ref': ['copilot/*sonnet*'],
+      'haiku-ref': ['copilot/*haiku*'],
+      'gpt-ref': ['copilot/gpt-4o'],
+    };
+    const result = resolveModel('wide', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    // All four sub-aliases resolve to one model each; version sort picks the highest overall
+    // claude-sonnet-4.6 (v4.6) > claude-opus-4.5 (v4.5) > ...
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
+
+  it('resolves an alias tree that mixes provider-pattern leaves with sub-alias leaves', () => {
+    // mixed → ['copilot/*gpt-5*', 'sonnet-ref']
+    // 'copilot/*gpt-5*' is a provider pattern → adds gpt-5.2 directly
+    // 'sonnet-ref' is a sub-alias → resolves to claude-sonnet-4.6
+    // candidates: [gpt-5.2, claude-sonnet-4.6]
+    // compareByVersion: gpt-5.2 ([5,2]) vs claude-sonnet-4.6 ([4,6]) → 5 > 4 → gpt-5.2 wins
+    const aliases = {
+      mixed: ['copilot/*gpt-5*', 'sonnet-ref'],
+      'sonnet-ref': ['copilot/*sonnet*'],
+    };
+    const result = resolveModel('mixed', aliases, baseModels, 'copilot', [], noFallback);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5.2');
+  });
+});
