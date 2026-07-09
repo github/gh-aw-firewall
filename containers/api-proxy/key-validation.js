@@ -176,6 +176,30 @@ async function fetchStartupModels(adapters = []) {
   modelFetchComplete = true;
 }
 
+/**
+ * Resolve a model ID for startup validation across all providers.
+ *
+ * Uses resolveModel for proper alias resolution — recursive, cycle-protected,
+ * case-insensitive. Middle-power fallback is intentionally disabled so only
+ * genuine alias→model and direct matches are counted.
+ *
+ * @param {string} requestedModel
+ * @param {{ models: Record<string, string[]|{patterns: string[], fallback?: boolean}> }|null} modelAliases
+ * @param {Record<string, string[]|null>} models
+ * @returns {{ provider: string, resolvedModel: string, log: string[] } | null}
+ */
+function _resolveModelForValidation(requestedModel, modelAliases, models) {
+  const aliases = modelAliases ? modelAliases.models : {};
+  const noFallback = { enabled: false };
+  for (const provider of Object.keys(models)) {
+    const result = resolveModel(requestedModel, aliases, models, provider, [], noFallback);
+    if (result) {
+      return { provider, resolvedModel: result.resolvedModel, log: result.log };
+    }
+  }
+  return null;
+}
+
 function validateRequestedModel() {
   const requestedModel = (process.env.AWF_REQUESTED_MODEL || '').trim();
   if (!requestedModel) return;
@@ -193,22 +217,10 @@ function validateRequestedModel() {
     return;
   }
 
-  const normalizedRequested = requestedModel.toLowerCase();
-  const found = allModels.some(m => m.toLowerCase() === normalizedRequested);
-
-  let aliasResolved = false;
   const modelAliases = getModelAliases();
-  if (!found && modelAliases) {
-    for (const provider of Object.keys(cachedModels)) {
-      const result = resolveModel(requestedModel, modelAliases.models, cachedModels, provider, [], { enabled: false });
-      if (result) {
-        aliasResolved = true;
-        break;
-      }
-    }
-  }
+  const resolution = _resolveModelForValidation(requestedModel, modelAliases, cachedModels);
 
-  if (!found && !aliasResolved) {
+  if (!resolution) {
     const availableModels = allModels.slice(0, 20).join(', ');
     const truncated = allModels.length > 20 ? ` (and ${allModels.length - 20} more)` : '';
     logRequest('error', 'model_unavailable_at_startup', {
@@ -219,13 +231,20 @@ function validateRequestedModel() {
         `Available models: ${availableModels}${truncated}`,
     });
   } else {
+    for (const line of resolution.log) {
+      logRequest('debug', 'model_validation_step', { message: line, provider: resolution.provider });
+    }
+    const resolvedVia = resolution.resolvedModel.toLowerCase() === requestedModel.toLowerCase() ? 'direct' : 'alias';
     logRequest('info', 'model_validation', {
       requested_model: requestedModel,
-      resolved_via: aliasResolved ? 'alias' : 'direct',
+      resolved_via: resolvedVia,
       message: `Requested model '${requestedModel}' is available`,
     });
   }
 }
+
+/** @internal Exposed for unit tests only. */
+const testHelpers = { _resolveModelForValidation };
 
 module.exports = {
   keyValidationResults,
@@ -242,4 +261,5 @@ module.exports = {
   validateApiKeys,
   fetchStartupModels,
   validateRequestedModel,
+  testHelpers,
 };
