@@ -1,10 +1,15 @@
 #!/bin/bash
-# Shell unit tests for is_valid_port_spec() and parse_port_specs() in
+# Shell unit tests for is_valid_port_spec() and split_valid_port_specs() in
 # containers/agent/setup-iptables.sh.
 #
 # Runs every case from tests/port-spec-fixtures.json against the shell
 # implementation to ensure it stays aligned with the TypeScript isValidPortSpec()
 # in src/host-iptables-validation.ts.
+#
+# split_valid_port_specs() is the replacement for the former parse_port_specs();
+# it consumes pre-validated specs produced by TypeScript parseValidPortSpecs()
+# and applies is_valid_port_spec() as a fail-closed assertion rather than a
+# full second parser.
 #
 # Usage:
 #   bash tests/setup-iptables-port-spec.test.sh
@@ -39,7 +44,7 @@ pass() { echo "✓ $1"; PASS=$((PASS + 1)); }
 fail() { echo "❌ FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 # ---------------------------------------------------------------------------
-# Source is_valid_port_spec() and parse_port_specs() from setup-iptables.sh.
+# Source is_valid_port_spec() and split_valid_port_specs() from setup-iptables.sh.
 # ---------------------------------------------------------------------------
 
 # Extract both function definitions so we can source them in isolation without
@@ -54,15 +59,15 @@ extract_func() {
 }
 
 IS_VALID_FUNC_DEF=$(extract_func "is_valid_port_spec")
-PARSE_SPECS_FUNC_DEF=$(extract_func "parse_port_specs")
+SPLIT_SPECS_FUNC_DEF=$(extract_func "split_valid_port_specs")
 
 if [ -z "${IS_VALID_FUNC_DEF}" ]; then
   echo "❌ is_valid_port_spec() not found in ${SETUP_IPTABLES}"
   exit 1
 fi
 
-if [ -z "${PARSE_SPECS_FUNC_DEF}" ]; then
-  echo "❌ parse_port_specs() not found in ${SETUP_IPTABLES}"
+if [ -z "${SPLIT_SPECS_FUNC_DEF}" ]; then
+  echo "❌ split_valid_port_specs() not found in ${SETUP_IPTABLES}"
   exit 1
 fi
 
@@ -76,34 +81,34 @@ run_is_valid_port_spec() {
   )
 }
 
-# run_parse_port_specs <input> <label>
+# run_split_valid_port_specs <input> <label>
 # Outputs the resulting array elements, one per line.
 # Warnings (lines starting with "[iptables] WARNING:") go to stdout from the
 # function but are filtered out here so callers get only valid specs.
-run_parse_port_specs() {
+run_split_valid_port_specs() {
   local input="$1"
   local label="${2:-port spec}"
   (
     eval "${IS_VALID_FUNC_DEF}"
-    eval "${PARSE_SPECS_FUNC_DEF}"
+    eval "${SPLIT_SPECS_FUNC_DEF}"
     declare -a _result=()
-    parse_port_specs _result "$input" "$label"
+    split_valid_port_specs _result "$input" "$label"
     for elem in "${_result[@]}"; do
       echo "$elem"
     done
   ) 2>/dev/null | grep -v '^\[iptables\] WARNING:' || true
 }
 
-# run_parse_port_specs_warnings <input> <label>
-# Outputs only the WARNING lines emitted by parse_port_specs.
-run_parse_port_specs_warnings() {
+# run_split_valid_port_specs_warnings <input> <label>
+# Outputs only the WARNING lines emitted by split_valid_port_specs.
+run_split_valid_port_specs_warnings() {
   local input="$1"
   local label="${2:-port spec}"
   (
     eval "${IS_VALID_FUNC_DEF}"
-    eval "${PARSE_SPECS_FUNC_DEF}"
+    eval "${SPLIT_SPECS_FUNC_DEF}"
     declare -a _result=()
-    parse_port_specs _result "$input" "$label"
+    split_valid_port_specs _result "$input" "$label"
   ) 2>/dev/null | grep '^\[iptables\] WARNING:' || true
 }
 
@@ -152,79 +157,71 @@ for spec in "${INVALID_SPECS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# parse_port_specs — functional tests
+# split_valid_port_specs — functional tests (fail-closed assertion behaviour)
 # ---------------------------------------------------------------------------
 
 # Empty input produces empty result
-result=$(run_parse_port_specs "" "port spec")
+result=$(run_split_valid_port_specs "" "port spec")
 if [ -z "$result" ]; then
-  pass "parse_port_specs returns empty array for empty input"
+  pass "split_valid_port_specs returns empty array for empty input"
 else
-  fail "parse_port_specs should return empty array for empty input, got: ${result}"
+  fail "split_valid_port_specs should return empty array for empty input, got: ${result}"
 fi
 
 # Single valid port
-result=$(run_parse_port_specs "80" "port spec")
+result=$(run_split_valid_port_specs "80" "port spec")
 if [ "$result" = "80" ]; then
-  pass "parse_port_specs returns single valid port"
+  pass "split_valid_port_specs returns single valid port"
 else
-  fail "parse_port_specs should return '80' for input '80', got: '${result}'"
+  fail "split_valid_port_specs should return '80' for input '80', got: '${result}'"
 fi
 
 # Multiple valid ports
-mapfile -t result_arr < <(run_parse_port_specs "80,443,3128" "port spec")
+mapfile -t result_arr < <(run_split_valid_port_specs "80,443,3128" "port spec")
 if [ "${#result_arr[@]}" -eq 3 ] && [ "${result_arr[0]}" = "80" ] && [ "${result_arr[1]}" = "443" ] && [ "${result_arr[2]}" = "3128" ]; then
-  pass "parse_port_specs returns all valid ports from comma-separated input"
+  pass "split_valid_port_specs returns all valid ports from comma-separated input"
 else
-  fail "parse_port_specs should return [80,443,3128], got: ${result_arr[*]}"
-fi
-
-# Port with surrounding whitespace is trimmed
-result=$(run_parse_port_specs " 80 " "port spec")
-if [ "$result" = "80" ]; then
-  pass "parse_port_specs trims leading/trailing whitespace from port spec"
-else
-  fail "parse_port_specs should trim ' 80 ' to '80', got: '${result}'"
+  fail "split_valid_port_specs should return [80,443,3128], got: ${result_arr[*]}"
 fi
 
 # Valid port range
-result=$(run_parse_port_specs "3000-3010" "port spec")
+result=$(run_split_valid_port_specs "3000-3010" "port spec")
 if [ "$result" = "3000-3010" ]; then
-  pass "parse_port_specs accepts a valid port range"
+  pass "split_valid_port_specs accepts a valid port range"
 else
-  fail "parse_port_specs should accept range '3000-3010', got: '${result}'"
+  fail "split_valid_port_specs should accept range '3000-3010', got: '${result}'"
 fi
 
-# Invalid specs are filtered out; valid ones are kept
-mapfile -t result_arr < <(run_parse_port_specs "80,0,443,65536" "port spec")
+# Fail-closed: an unexpectedly invalid entry is skipped with a warning
+mapfile -t result_arr < <(run_split_valid_port_specs "80,0,443" "port spec")
 if [ "${#result_arr[@]}" -eq 2 ] && [ "${result_arr[0]}" = "80" ] && [ "${result_arr[1]}" = "443" ]; then
-  pass "parse_port_specs filters invalid specs and keeps valid ones"
+  pass "split_valid_port_specs (fail-closed) skips unexpected invalid entry"
 else
-  fail "parse_port_specs should keep [80,443] from '80,0,443,65536', got: ${result_arr[*]}"
+  fail "split_valid_port_specs should keep [80,443] from '80,0,443', got: ${result_arr[*]}"
 fi
 
-# Invalid spec produces a warning message
-warning_output=$(run_parse_port_specs_warnings "0" "port spec")
+# Fail-closed warning message
+warning_output=$(run_split_valid_port_specs_warnings "0" "port spec")
 if echo "$warning_output" | grep -q "WARNING"; then
-  pass "parse_port_specs emits WARNING for invalid spec"
+  pass "split_valid_port_specs emits WARNING for unexpected invalid spec"
 else
-  fail "parse_port_specs should emit WARNING for invalid spec '0', got: '${warning_output}'"
+  fail "split_valid_port_specs should emit WARNING for invalid spec '0', got: '${warning_output}'"
 fi
 
 # All-invalid input returns empty array
-result=$(run_parse_port_specs "0,65536,abc" "port spec")
+result=$(run_split_valid_port_specs "0,65536,abc" "port spec")
 if [ -z "$result" ]; then
-  pass "parse_port_specs returns empty array when all specs are invalid"
+  pass "split_valid_port_specs returns empty array when all specs are invalid"
 else
-  fail "parse_port_specs should return empty array for all-invalid input, got: '${result}'"
+  fail "split_valid_port_specs should return empty array for all-invalid input, got: '${result}'"
 fi
 
 # Mix of valid ports and ranges
-mapfile -t result_arr < <(run_parse_port_specs "80,3000-3010,443" "port spec")
+mapfile -t result_arr < <(run_split_valid_port_specs "80,3000-3010,443" "port spec")
 if [ "${#result_arr[@]}" -eq 3 ] && [ "${result_arr[0]}" = "80" ] && [ "${result_arr[1]}" = "3000-3010" ] && [ "${result_arr[2]}" = "443" ]; then
-  pass "parse_port_specs handles mix of single ports and ranges"
+  pass "split_valid_port_specs handles mix of single ports and ranges"
 else
-  fail "parse_port_specs should return [80,3000-3010,443], got: ${result_arr[*]}"
+  fail "split_valid_port_specs should return [80,3000-3010,443], got: ${result_arr[*]}"
 fi
 
 # ---------------------------------------------------------------------------

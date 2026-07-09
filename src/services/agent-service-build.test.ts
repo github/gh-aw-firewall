@@ -295,12 +295,37 @@ describe('agent service', () => {
         expect(env.AWF_ALLOW_HOST_PORTS).toBe('8080,3000');
       });
 
+      it('should set AWF_VALID_ALLOW_HOST_PORTS with pre-validated specs when allowHostPorts is specified', () => {
+        const config = { ...mockConfig, enableHostAccess: true, allowHostPorts: '8080,3000' };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.AWF_VALID_ALLOW_HOST_PORTS).toBe('8080,3000');
+      });
+
       it('should NOT set AWF_ALLOW_HOST_PORTS when allowHostPorts is undefined', () => {
         const config = { ...mockConfig, enableHostAccess: true };
         const result = generateDockerCompose(config, mockNetworkConfig);
         const env = result.services.agent.environment as Record<string, string>;
 
         expect(env.AWF_ALLOW_HOST_PORTS).toBeUndefined();
+      });
+
+      it('should NOT set AWF_VALID_ALLOW_HOST_PORTS when allowHostPorts is undefined', () => {
+        const config = { ...mockConfig, enableHostAccess: true };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const env = result.services.agent.environment as Record<string, string>;
+
+        expect(env.AWF_VALID_ALLOW_HOST_PORTS).toBeUndefined();
+      });
+
+      it('should pass AWF_VALID_ALLOW_HOST_PORTS to the iptables-init container', () => {
+        const config = { ...mockConfig, enableHostAccess: true, allowHostPorts: '8080,3000' };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const initEnv = (result.services['iptables-init'] as any).environment as Record<string, string>;
+
+        expect(initEnv.AWF_VALID_ALLOW_HOST_PORTS).toBe('8080,3000');
       });
     });
 

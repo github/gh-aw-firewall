@@ -294,6 +294,10 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
       AWF_ENABLE_HOST_ACCESS: environment.AWF_ENABLE_HOST_ACCESS || '',
       AWF_ALLOW_HOST_PORTS: environment.AWF_ALLOW_HOST_PORTS || '',
       AWF_HOST_SERVICE_PORTS: environment.AWF_HOST_SERVICE_PORTS || '',
+      // Pre-validated port specs: parsed once in TypeScript so setup-iptables.sh
+      // can consume already-normalized specs without a second full parser.
+      AWF_VALID_ALLOW_HOST_PORTS: environment.AWF_VALID_ALLOW_HOST_PORTS || '',
+      AWF_VALID_HOST_SERVICE_PORTS: environment.AWF_VALID_HOST_SERVICE_PORTS || '',
       AWF_API_PROXY_IP: environment.AWF_API_PROXY_IP || '',
       AWF_DOH_PROXY_IP: environment.AWF_DOH_PROXY_IP || '',
       AWF_CLI_PROXY_IP: environment.AWF_CLI_PROXY_IP || '',

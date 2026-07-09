@@ -27,6 +27,12 @@ has_ip6tables() {
 # Rejects leading zeros (e.g., 080) to align with TypeScript isValidPortSpec()
 # in src/host-iptables-validation.ts.  The shared test vectors in
 # tests/port-spec-fixtures.json are run against both implementations.
+#
+# Used as a fail-closed assertion when consuming pre-validated specs from
+# AWF_VALID_ALLOW_HOST_PORTS / AWF_VALID_HOST_SERVICE_PORTS (set by TypeScript
+# parseValidPortSpecs() before the container starts).  A second full parser is
+# no longer needed; this function guards against any unexpected value reaching
+# an iptables call.
 is_valid_port_spec() {
   local spec="$1"
   if echo "$spec" | grep -qE '^[1-9][0-9]{0,4}-[1-9][0-9]{0,4}$'; then
@@ -40,39 +46,37 @@ is_valid_port_spec() {
   fi
 }
 
-# Parse a comma-separated port spec string, validating each entry.
-# Mirrors TypeScript parseValidPortSpecs() in src/host-iptables-validation.ts.
-# Usage: parse_port_specs <result_array_name> <input> <label>
-# Populates the named array with valid port specs; warns and skips invalid ones.
-# Requires bash 4.3+ for nameref (declare -n).
-parse_port_specs() {
-  local -n _pps_result="$1"
-  local _pps_input="$2"
-  local _pps_label="$3"
-  _pps_result=()
+# Split a pre-validated comma-separated port spec string into an array.
+# Usage: split_valid_port_specs <result_array_name> <input> <label>
+# Specs are already validated by TypeScript parseValidPortSpecs(); this function
+# performs a minimal fail-closed assertion (is_valid_port_spec) as a defence-in-
+# depth guard and skips any entry that somehow fails the check.
+split_valid_port_specs() {
+  local -n _svps_result="$1"
+  local _svps_input="$2"
+  local _svps_label="$3"
+  _svps_result=()
 
-  if [ -z "$_pps_input" ]; then
+  if [ -z "$_svps_input" ]; then
     return
   fi
 
-  local -a _pps_entries=()
-  local _pps_trimmed=""
-  IFS=',' read -ra _pps_entries <<< "$_pps_input"
-  for _pps_trimmed in "${_pps_entries[@]}"; do
-    _pps_trimmed="${_pps_trimmed#"${_pps_trimmed%%[! ]*}"}"
-    _pps_trimmed="${_pps_trimmed%"${_pps_trimmed##*[! ]}"}"
-    if [ -z "$_pps_trimmed" ]; then
+  local -a _svps_entries=()
+  IFS=',' read -ra _svps_entries <<< "$_svps_input"
+  local _svps_spec=""
+  for _svps_spec in "${_svps_entries[@]}"; do
+    if [ -z "$_svps_spec" ]; then
       continue
     fi
-    if ! is_valid_port_spec "$_pps_trimmed"; then
-      echo "[iptables] WARNING: Skipping invalid ${_pps_label}: $_pps_trimmed"
+    if ! is_valid_port_spec "$_svps_spec"; then
+      echo "[iptables] WARNING: Unexpected invalid ${_svps_label} in pre-validated list: $_svps_spec — skipping"
       continue
     fi
-    _pps_result+=("$_pps_trimmed")
+    _svps_result+=("$_svps_spec")
   done
 }
 
-# Allow AWF_HOST_SERVICE_PORTS entries (pre-validated via parse_port_specs) to a destination IP.
+# Allow AWF_VALID_HOST_SERVICE_PORTS entries (pre-validated via split_valid_port_specs) to a destination IP.
 allow_service_ports_to_ip() {
   local dest_ip="$1"
   local log_each_port="${2:-false}"
@@ -289,10 +293,10 @@ allow_host_access_to_gateway() {
   # FILTER: only allow standard ports (80, 443) to this gateway
   iptables -A OUTPUT -p tcp -d "$gw_ip" --dport 80 -j ACCEPT
   iptables -A OUTPUT -p tcp -d "$gw_ip" --dport 443 -j ACCEPT
-  # FILTER: also allow user-specified ports from --allow-host-ports
-  if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+  # FILTER: also allow user-specified ports from --allow-host-ports (consume pre-validated list)
+  if [ -n "$AWF_VALID_ALLOW_HOST_PORTS" ]; then
     local -a gw_ports=()
-    parse_port_specs gw_ports "$AWF_ALLOW_HOST_PORTS" "port spec"
+    split_valid_port_specs gw_ports "$AWF_VALID_ALLOW_HOST_PORTS" "port spec"
     local port_spec=""
     for port_spec in "${gw_ports[@]}"; do
       echo "[iptables]   Allow ${label} port $port_spec"
@@ -341,9 +345,9 @@ configure_host_access_rules() {
   # to the host gateway IP only (for GitHub Actions services containers).
   # Must be applied BEFORE dangerous port RETURN rules so traffic to host gateway
   # on these ports is accepted, not dropped.
-  if [ -n "$AWF_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
-    # Parse and validate port list once, before resolving gateway IPs, so both blocks can use it
-    parse_port_specs HSP_PORTS "$AWF_HOST_SERVICE_PORTS" "host service port"
+  if [ -n "$AWF_VALID_HOST_SERVICE_PORTS" ] && [ -n "$AWF_ENABLE_HOST_ACCESS" ]; then
+    # Consume pre-validated port list (validated once by TypeScript parseValidPortSpecs()).
+    split_valid_port_specs HSP_PORTS "$AWF_VALID_HOST_SERVICE_PORTS" "host service port"
 
     # Resolve host gateway IP (with AWF_HOST_GATEWAY_IP fallback, same as host access block)
     HSP_HOST_GW_IP=$(getent hosts host.docker.internal 2>/dev/null | awk 'NR==1 { print $1 }')
@@ -353,7 +357,7 @@ configure_host_access_rules() {
     HSP_NET_GW_IP=$(route -n 2>/dev/null | awk '/^0\.0\.0\.0/ { print $2; exit }')
 
     if [ -n "$HSP_HOST_GW_IP" ] && is_valid_ipv4 "$HSP_HOST_GW_IP"; then
-      echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_HOST_SERVICE_PORTS"
+      echo "[iptables] Allowing host service ports to host gateway ($HSP_HOST_GW_IP): $AWF_VALID_HOST_SERVICE_PORTS"
       # FILTER: allow traffic to host gateway on these ports
       # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
       allow_service_ports_to_ip "$HSP_HOST_GW_IP" "true"
@@ -361,7 +365,7 @@ configure_host_access_rules() {
 
     # Also allow to network gateway (same as the host access block does)
     if [ -n "$HSP_NET_GW_IP" ] && is_valid_ipv4 "$HSP_NET_GW_IP" && [ "$HSP_NET_GW_IP" != "$HSP_HOST_GW_IP" ]; then
-      echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_HOST_SERVICE_PORTS"
+      echo "[iptables] Allowing host service ports to network gateway ($HSP_NET_GW_IP): $AWF_VALID_HOST_SERVICE_PORTS"
       # FILTER: allow traffic to network gateway on these ports
       # (NAT bypass is already handled by the blanket RETURN rule in the host access block above)
       allow_service_ports_to_ip "$HSP_NET_GW_IP"
@@ -390,11 +394,11 @@ configure_http_dnat() {
   iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
   iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination "${SQUID_IP}:${SQUID_PORT}"
 
-  # If user specified additional ports via --allow-host-ports, redirect those too
-  if [ -n "$AWF_ALLOW_HOST_PORTS" ]; then
+  # If user specified additional ports via --allow-host-ports, redirect those too (consume pre-validated list)
+  if [ -n "$AWF_VALID_ALLOW_HOST_PORTS" ]; then
     echo "[iptables] Redirect user-specified ports to Squid..."
     local -a dnat_ports=()
-    parse_port_specs dnat_ports "$AWF_ALLOW_HOST_PORTS" "port spec"
+    split_valid_port_specs dnat_ports "$AWF_VALID_ALLOW_HOST_PORTS" "port spec"
     local port_spec=""
     for port_spec in "${dnat_ports[@]}"; do
       echo "[iptables]   Redirect port $port_spec to Squid..."

@@ -450,6 +450,7 @@ describe('agent environment: options', () => {
 
       expect(env.AWF_ENABLE_HOST_ACCESS).toBe('1');
       expect(env.AWF_HOST_SERVICE_PORTS).toBe('5432,6379');
+      expect(env.AWF_VALID_HOST_SERVICE_PORTS).toBe('5432,6379');
     });
   });
 
