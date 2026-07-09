@@ -221,5 +221,82 @@ describe('config-assembly', () => {
         "Normalized COPILOT_MODEL value 'GPT-4.1' -> 'gpt-4.1'",
       );
     });
+
+    it('should allow COPILOT_MODEL that matches a runtime alias key (skips preflight validation)', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { small: ['gpt-4o-mini', 'gpt-4.1-mini'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { small: ['gpt-4o-mini', 'gpt-4.1-mini'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'small' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should allow COPILOT_MODEL alias regardless of case (Small -> matches alias key small)', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { small: ['gpt-4o-mini'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { small: ['gpt-4o-mini'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'Small' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('should still reject unsupported COPILOT_MODEL values that are not runtime aliases', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { small: ['gpt-4o-mini'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { small: ['gpt-4o-mini'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'not-a-real-model-xyz' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("model 'not-a-real-model-xyz' is unsupported or unrecognized"),
+      );
+    });
   });
 });

@@ -293,21 +293,32 @@ function validateCopilotModelOption(
     !hasCustomCopilotProviderBaseUrl &&
     (config.copilotGithubToken || config.copilotProviderApiKey)
   ) {
-    const validation = validateCopilotModel(copilotModel);
-    if (!validation.valid) {
-      logger.error(validation.message);
-      process.exit(1);
-    }
+    // If the model name is defined as a runtime alias, skip preflight validation.
+    // Aliases are resolved later in the request path by the api-proxy using
+    // AWF_MODEL_ALIASES, so validating against the hardcoded SUPPORTED_COPILOT_MODELS
+    // set would incorrectly reject valid alias names like 'small'.
+    const normalizedModel = copilotModel.toLowerCase();
+    const isAlias =
+      config.modelAliases != null &&
+      Object.keys(config.modelAliases).some(k => k.toLowerCase() === normalizedModel);
 
-    if (validation.resolvedModel !== copilotModel) {
-      logger.info(
-        `Normalized COPILOT_MODEL value '${copilotModel}' -> '${validation.resolvedModel}'`,
-      );
+    if (!isAlias) {
+      const validation = validateCopilotModel(copilotModel);
+      if (!validation.valid) {
+        logger.error(validation.message);
+        process.exit(1);
+      }
+
+      if (validation.resolvedModel !== copilotModel) {
+        logger.info(
+          `Normalized COPILOT_MODEL value '${copilotModel}' -> '${validation.resolvedModel}'`,
+        );
+      }
+      config.additionalEnv = {
+        ...(config.additionalEnv ?? {}),
+        COPILOT_MODEL: validation.resolvedModel,
+      };
     }
-    config.additionalEnv = {
-      ...(config.additionalEnv ?? {}),
-      COPILOT_MODEL: validation.resolvedModel,
-    };
   }
 }
 
