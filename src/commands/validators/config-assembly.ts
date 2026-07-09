@@ -293,16 +293,42 @@ function validateCopilotModelOption(
     !hasCustomCopilotProviderBaseUrl &&
     (config.copilotGithubToken || config.copilotProviderApiKey)
   ) {
-    // If the model name is defined as a runtime alias, skip preflight validation.
-    // Aliases are resolved later in the request path by the api-proxy using
-    // AWF_MODEL_ALIASES, so validating against the hardcoded SUPPORTED_COPILOT_MODELS
-    // set would incorrectly reject valid alias names like 'small'.
+    // Check whether COPILOT_MODEL is a runtime alias key.  Aliases are resolved
+    // later by the api-proxy using AWF_MODEL_ALIASES.  When an alias is found,
+    // validate its first concrete (non-wildcard) pattern so that misconfigured
+    // alias chains are caught at preflight rather than silently failing at
+    // request time.  If all patterns are wildcards (runtime-resolved), we
+    // cannot validate at this stage and skip the check.
     const normalizedModel = copilotModel.toLowerCase();
-    const isAlias =
-      !!config.modelAliases &&
-      Object.keys(config.modelAliases).some(k => k.toLowerCase() === normalizedModel);
+    const aliasPatterns: string[] | undefined = (() => {
+      if (!config.modelAliases) return undefined;
+      const entry = Object.entries(config.modelAliases).find(
+        ([k]) => k.toLowerCase() === normalizedModel,
+      );
+      if (!entry) return undefined;
+      const value = entry[1];
+      return Array.isArray(value) ? value : undefined;
+    })();
 
-    if (!isAlias) {
+    if (aliasPatterns !== undefined) {
+      // Resolve the alias: find the first concrete (non-wildcard) pattern and
+      // validate it.  Keep COPILOT_MODEL as the alias name so the api-proxy
+      // can perform its own availability-aware resolution at request time.
+      const firstConcrete = aliasPatterns.find(p => !p.includes('*'));
+      if (firstConcrete !== undefined) {
+        const aliasValidation = validateCopilotModel(firstConcrete);
+        if (!aliasValidation.valid) {
+          logger.error(
+            `Error: alias '${copilotModel}' resolves to model '${firstConcrete}' which is ${aliasValidation.reason === 'retired' ? 'retired or unsupported' : 'unsupported or unrecognized by this AWF version'}.`,
+          );
+          logger.error(aliasValidation.message);
+          process.exit(1);
+        }
+      }
+      // Alias is valid (or all patterns are runtime wildcards) — leave
+      // COPILOT_MODEL as the alias name for the api-proxy.
+    } else {
+      // Not an alias: validate and normalise the concrete model name directly.
       const validation = validateCopilotModel(copilotModel);
       if (!validation.valid) {
         logger.error(validation.message);

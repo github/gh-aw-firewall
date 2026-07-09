@@ -222,7 +222,7 @@ describe('config-assembly', () => {
       );
     });
 
-    it('should allow COPILOT_MODEL that matches a runtime alias key (skips preflight validation)', () => {
+    it('should allow COPILOT_MODEL that matches a runtime alias key and resolves to a valid concrete model', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
         modelAliases: { small: ['gpt-4o-mini', 'gpt-4.1-mini'] },
@@ -233,6 +233,32 @@ describe('config-assembly', () => {
 
       const agentOptions = createMinimalAgentOptions();
       agentOptions.additionalEnv = { COPILOT_MODEL: 'small' };
+
+      const result = assembleAndValidateConfig(
+        {},
+        'echo test',
+        logAndLimits,
+        createMinimalNetworkOptions(),
+        agentOptions,
+      );
+
+      expect(logger.error).not.toHaveBeenCalled();
+      // COPILOT_MODEL must remain as the alias name (not the resolved concrete model)
+      // so the api-proxy can perform its own availability-aware resolution.
+      expect(result.additionalEnv?.COPILOT_MODEL).toBeUndefined();
+    });
+
+    it('should allow COPILOT_MODEL alias regardless of case (Small -> matches alias key small)', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { small: ['gpt-4o-mini'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { small: ['gpt-4o-mini'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'Small' };
 
       expect(() => {
         assembleAndValidateConfig(
@@ -247,17 +273,44 @@ describe('config-assembly', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should allow COPILOT_MODEL alias regardless of case (Small -> matches alias key small)', () => {
+    it('should reject alias whose first concrete pattern resolves to an unsupported model', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
-        modelAliases: { small: ['gpt-4o-mini'] },
+        modelAliases: { bad: ['not-a-real-model-xyz'] },
       });
 
       const logAndLimits = createMinimalLogAndLimits();
-      logAndLimits.modelAliases = { small: ['gpt-4o-mini'] };
+      logAndLimits.modelAliases = { bad: ['not-a-real-model-xyz'] };
 
       const agentOptions = createMinimalAgentOptions();
-      agentOptions.additionalEnv = { COPILOT_MODEL: 'Small' };
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'bad' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining("alias 'bad' resolves to model 'not-a-real-model-xyz'"),
+      );
+    });
+
+    it('should allow alias with only wildcard patterns (cannot validate at preflight)', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { sonnet: ['copilot/*sonnet*'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { sonnet: ['copilot/*sonnet*'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'sonnet' };
 
       expect(() => {
         assembleAndValidateConfig(
