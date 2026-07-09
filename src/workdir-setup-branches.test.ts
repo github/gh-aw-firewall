@@ -158,6 +158,7 @@ describe('workdir-setup – prepareLogDirectories mcp-logs already-exists branch
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
   });
 
   it('calls chmodSync on /tmp/gh-aw/mcp-logs when directory already exists (else branch)', () => {
@@ -200,6 +201,7 @@ describe('workdir-setup – prepareChrootHomeMounts runnerToolCachePath outside 
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(`${tempDir}-chroot-home`, { recursive: true, force: true });
   });
 
   it('logs a warning and skips creation when runnerToolCachePath is outside effectiveHome', () => {
