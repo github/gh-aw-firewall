@@ -39,6 +39,41 @@ describe('artifact-permissions', () => {
     }
   });
 
+  it('logs stderr when permission repair fails', () => {
+    const auditDir = makeTempDir();
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: 'no such image: agent:latest', exitCode: 1 });
+      fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no such image: agent:latest'),
+      );
+      warnSpy.mockRestore();
+    } finally {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
+  it('logs exit code without stderr when stderr is empty', () => {
+    const auditDir = makeTempDir();
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 1 });
+      fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/failed.*exit 1/i),
+      );
+      // Should NOT contain a colon suffix when stderr is empty
+      const warnCall = warnSpy.mock.calls.find(c => typeof c[0] === 'string' && /exit 1/.test(c[0]));
+      expect(warnCall?.[0]).not.toMatch(/exit 1\):/);
+      warnSpy.mockRestore();
+    } finally {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs rootless permission repair with translated mount paths', () => {
     const auditDir = makeTempDir();
     try {

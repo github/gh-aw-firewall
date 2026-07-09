@@ -247,11 +247,14 @@ export function removeWorkDirectories(workDir: string, options: RemoveWorkDirect
         );
         try {
           fs.rmSync(chrootHomeDir, { recursive: true, force: true });
-        } catch (retryError) {
-          logger.warn('Failed to remove chroot home directory after permission repair:', retryError);
+        } catch {
+          // Non-fatal: chroot-home will be cleaned by the post-step
+          // (install_copilot_cli.sh's sudo cleanup) or runner infrastructure.
+          logger.debug(`Could not remove chroot home directory after permission repair: ${chrootHomeDir}`);
         }
       } else {
-        logger.warn('Failed to remove chroot home directory:', error);
+        // Non-fatal: same reasoning — defer to post-step cleanup.
+        logger.debug('Failed to remove chroot home directory:', error);
       }
     }
   }

@@ -79,7 +79,11 @@ export function fixArtifactPermissionsForRootless(
       );
 
       if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
-        logger.warn(`Rootless artifact permission repair failed for ${dir} (exit ${result.exitCode})`);
+        const stderr = result.stderr?.trim();
+        logger.warn(
+          `Rootless artifact permission repair failed for ${dir} (exit ${result.exitCode})` +
+            (stderr ? `: ${stderr}` : ''),
+        );
       }
     } catch (error) {
       logger.warn(`Rootless artifact permission repair failed for ${dir}:`, error);
