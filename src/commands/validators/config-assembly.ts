@@ -299,7 +299,7 @@ function validateCopilotModelOption(
     // set would incorrectly reject valid alias names like 'small'.
     const normalizedModel = copilotModel.toLowerCase();
     const isAlias =
-      config.modelAliases != null &&
+      !!config.modelAliases &&
       Object.keys(config.modelAliases).some(k => k.toLowerCase() === normalizedModel);
 
     if (!isAlias) {
