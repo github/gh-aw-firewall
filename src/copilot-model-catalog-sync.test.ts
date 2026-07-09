@@ -17,7 +17,7 @@
 import * as path from 'path';
 import { testHelpers } from './copilot-model';
 
-/** Mirror of the separator normalisation in copilot-model.ts. */
+/** Mirrors the full canonicalization in copilot-model.ts: lowercase then replace separators. */
 function normalizeSeparators(s: string): string {
   return s.replace(/[._]/g, '-').toLowerCase();
 }

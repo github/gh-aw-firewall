@@ -110,7 +110,7 @@ function levenshtein(a: string, b: string): number {
 /** @internal Exposed for unit tests — catalog sync guard uses this to verify pricing parity. */
 // ts-prune-ignore-next
 export const testHelpers = {
-  supportedCopilotModels: SUPPORTED_COPILOT_MODELS,
+  supportedCopilotModels: new Set(SUPPORTED_COPILOT_MODELS) as ReadonlySet<string>,
 };
 
 export function validateCopilotModel(rawModel: string): CopilotModelValidationResult {
