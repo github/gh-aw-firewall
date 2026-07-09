@@ -67,16 +67,30 @@ function resolveProviderSessionId(config: WrapperConfig): string | undefined {
   return normalizedValue || undefined;
 }
 
-export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: NetworkConfig): Record<string, string> {
-  const normalizedAuthType = (config.authType?.toLowerCase().trim()) || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
-
+// ts-prune-ignore-next
+/**
+ * Builds API credential environment variables for the api-proxy sidecar.
+ * These keys are passed securely to the sidecar and are NOT visible to the agent container.
+ * @internal Exported for testing
+ */
+export function buildCredentialEnv(config: WrapperConfig): Record<string, string> {
   return {
-    // Pass API keys securely to sidecar (not visible to agent)
     ...(config.openaiApiKey && { [OPENAI_ENV.KEY]: config.openaiApiKey }),
     ...(config.anthropicApiKey && { [ANTHROPIC_ENV.KEY]: config.anthropicApiKey }),
     ...(config.copilotGithubToken && { [COPILOT_ENV.GITHUB_TOKEN]: config.copilotGithubToken }),
     ...(config.geminiApiKey && { [GEMINI_ENV.KEY]: config.geminiApiKey }),
     ...(config.googleApiKey && { [VERTEX_ENV.KEY]: config.googleApiKey }),
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds provider routing environment variables: API targets, GitHub enterprise URLs,
+ * platform type, and integration identity.
+ * @internal Exported for testing
+ */
+export function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> {
+  return {
     // Configurable API targets (for GHES/GHEC / custom endpoints)
     // Strip any scheme prefix — server.js also normalizes defensively, but
     // stripping here prevents a scheme-prefixed hostname from reaching the
@@ -104,6 +118,17 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     // token-usage.jsonl _schema field reflects the api-proxy image version rather than
     // the CLI version. This ensures correct versioning when --image-tag pins the proxy
     // to a different release.
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds Squid proxy routing environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
+ * Routes all api-proxy outbound traffic through Squid to enforce domain whitelisting.
+ * @internal Exported for testing
+ */
+export function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<string, string> {
+  return {
     // Route through Squid to respect domain whitelisting
     HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
     HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
@@ -111,8 +136,18 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     // Prevent curl health check from routing localhost through Squid
     NO_PROXY: 'localhost,127.0.0.1,::1',
     no_proxy: 'localhost,127.0.0.1,::1',
-    // OpenTelemetry distributed tracing — forward endpoint, headers, service name, and
-    // parent trace context so api-proxy spans are children of the workflow trace.
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds OpenTelemetry distributed tracing environment variables.
+ * Forwards OTLP endpoint, headers, service name, and parent trace context so
+ * api-proxy spans are children of the workflow trace.
+ * @internal Exported for testing
+ */
+export function buildOtelEnv(): Record<string, string> {
+  return {
     // GH_AW_OTLP_ENDPOINTS (JSON array) enables fan-out to multiple collectors.
     // OTEL_EXPORTER_OTLP_ENDPOINT is kept for backward compat (single-endpoint fallback).
     // When neither is set, spans are written to /var/log/api-proxy/otel.jsonl.
@@ -124,6 +159,17 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
       'GITHUB_AW_OTEL_PARENT_SPAN_ID',
     ),
     OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME || 'awf-api-proxy',
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds rate limiting and token guard environment variables.
+ * Controls request rates, effective token budgets, run limits, and agent timeout.
+ * @internal Exported for testing
+ */
+export function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
+  return {
     // Rate limiting configuration
     ...(config.rateLimitConfig && {
       AWF_RATE_LIMIT_ENABLED: String(config.rateLimitConfig.enabled),
@@ -161,6 +207,17 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...(config.agentTimeout !== undefined && {
       AWF_AGENT_TIMEOUT_MINUTES: String(config.agentTimeout),
     }),
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds model policy environment variables: aliases, allowed/disallowed models,
+ * Anthropic prompt-cache optimizations, token steering, and diagnostic logging.
+ * @internal Exported for testing
+ */
+export function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
+  return {
     // Model alias configuration
     ...(config.modelAliases && {
       AWF_MODEL_ALIASES: JSON.stringify({ models: config.modelAliases }),
@@ -193,6 +250,19 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...(config.maxCapturedBytes !== undefined && {
       AWF_MAX_BLOCKED_CAPTURE_BYTES: String(config.maxCapturedBytes),
     }),
+  };
+}
+
+// ts-prune-ignore-next
+/**
+ * Builds OIDC authentication environment variables: Azure/AWS/GCP/Anthropic OIDC provider vars,
+ * GitHub Actions OIDC runtime tokens, and custom auth headers for internal AI gateways.
+ * @internal Exported for testing
+ */
+export function buildOidcEnv(config: WrapperConfig): Record<string, string> {
+  const normalizedAuthType = (config.authType?.toLowerCase().trim()) || getLowerCaseProcessEnvValue('AWF_AUTH_TYPE') || '';
+
+  return {
     // OIDC authentication (Azure, AWS, GCP, Anthropic)
     ...pickEnvVars(...OIDC_AUTH_ENV_VARS, 'AWF_AUTH_ANTHROPIC_TOKEN_URL'),
     // GitHub Actions OIDC runtime tokens (needed by OIDC token provider in api-proxy)
@@ -222,5 +292,17 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     // files into it would create an arbitrary-code-execution risk.  If you need a custom
     // transform, bake your hook.js into a custom container image and set the env var
     // directly in that image's Dockerfile / entrypoint — do NOT forward from the host.
+  };
+}
+
+export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: NetworkConfig): Record<string, string> {
+  return {
+    ...buildCredentialEnv(config),
+    ...buildProviderRoutingEnv(config),
+    ...buildProxyRoutingEnv(networkConfig),
+    ...buildOtelEnv(),
+    ...buildRateLimitEnv(config),
+    ...buildModelPolicyEnv(config),
+    ...buildOidcEnv(config),
   };
 }
