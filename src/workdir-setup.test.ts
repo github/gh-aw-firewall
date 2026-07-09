@@ -524,7 +524,7 @@ describe('ensureDirectory EACCES diagnostic', () => {
     );
   });
 
-  it('uses nearest existing ancestor as blocker even when it appears writable', () => {
+  it('falls back to nearest existing ancestor when no ancestor fails the access check', () => {
     const parentDir = path.join(fixture.tempDir, 'existing-parent');
     const targetDir = path.join(parentDir, 'new-child');
     actualFs.mkdirSync(parentDir, { recursive: true });
@@ -534,11 +534,42 @@ describe('ensureDirectory EACCES diagnostic', () => {
       { code: 'EACCES' }
     );
     (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
-    // accessSync succeeds (writable), but nearest ancestor is still reported as blocker
+    // accessSync delegates to actualFs (all real dirs are writable), so no ancestor
+    // fails the check and the code falls back to the nearest existing ancestor.
 
     expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
       new RegExp(`Blocked by: .*existing-parent`)
     );
+  });
+
+  it('reports the first ancestor that fails the access check, not the nearest existing ancestor', () => {
+    const grandparentDir = path.join(fixture.tempDir, 'grandparent');
+    const parentDir = path.join(grandparentDir, 'parent');
+    const targetDir = path.join(parentDir, 'new-child');
+    actualFs.mkdirSync(parentDir, { recursive: true });
+
+    const eacces = Object.assign(
+      new Error(`EACCES: permission denied, mkdir '${targetDir}'`),
+      { code: 'EACCES' }
+    );
+    (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
+    // parentDir exists and passes the access check; grandparentDir exists but fails it.
+    (fs.accessSync as jest.Mock).mockImplementation((p: string, mode: number) => {
+      if (p === grandparentDir) {
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      }
+      return actualFs.accessSync(p, mode);
+    });
+
+    try {
+      expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
+        new RegExp(`Blocked by: .*grandparent`)
+      );
+    } finally {
+      (fs.accessSync as jest.Mock).mockImplementation(
+        (...args: Parameters<typeof actualFs.accessSync>) => actualFs.accessSync(...args)
+      );
+    }
   });
 
   it('falls back to dirPath in Blocked by when no existing ancestor is found', () => {

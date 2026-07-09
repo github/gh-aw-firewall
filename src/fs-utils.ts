@@ -19,17 +19,29 @@ export function ensureDirectory(dirPath: string, options: EnsureDirectoryOptions
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
       const uid = process.getuid?.() ?? '?';
       // Identify the blocking ancestor for actionable diagnostics.
-      // Default to the nearest existing ancestor (more actionable than a path that
-      // does not exist), and confirm with a W_OK|X_OK access check.
+      // Walk up and choose the first existing ancestor that fails a W_OK|X_OK access
+      // check — that is the actual permission boundary. Fall back to the nearest
+      // existing ancestor if every ancestor passes (unusual, but avoids a null result).
       let blocker: string | null = null;
+      let nearestExisting: string | null = null;
       let current = path.resolve(dirPath);
       while (current !== path.dirname(current)) {
         if (fs.existsSync(current)) {
-          blocker = current;
-          try { fs.accessSync(current, fs.constants.W_OK | fs.constants.X_OK); } catch { /* confirmed blocker */ }
-          break;
+          if (nearestExisting === null) {
+            nearestExisting = current;
+          }
+          try {
+            fs.accessSync(current, fs.constants.W_OK | fs.constants.X_OK);
+          } catch {
+            // This ancestor fails the access check — it is the real blocker.
+            blocker = current;
+            break;
+          }
         }
         current = path.dirname(current);
+      }
+      if (blocker === null) {
+        blocker = nearestExisting;
       }
       throw new Error(
         `EACCES: cannot create directory ${dirPath} (running as uid=${uid}).\n` +
