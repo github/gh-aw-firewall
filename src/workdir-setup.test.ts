@@ -534,8 +534,10 @@ describe('ensureDirectory EACCES diagnostic', () => {
       { code: 'EACCES' }
     );
     (fs.mkdirSync as jest.Mock).mockImplementationOnce(() => { throw eacces; });
-    // accessSync delegates to actualFs (all real dirs are writable), so no ancestor
-    // fails the check and the code falls back to the nearest existing ancestor.
+    // Mock accessSync to always pass so no ancestor fails the check and the code
+    // falls back to the nearest existing ancestor. Without this, system directories
+    // (e.g. /var/folders on macOS) may fail W_OK|X_OK and become the blocker.
+    (fs.accessSync as jest.Mock).mockImplementation(() => undefined);
 
     expect(() => workdirSetupTestHelpers.ensureDirectory(targetDir)).toThrow(
       new RegExp(`Blocked by: .*existing-parent`)
