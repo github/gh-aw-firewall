@@ -89,7 +89,10 @@ steps:
 
       echo "::group::Register runsc as Docker runtime"
       sudo runsc install
-      sudo systemctl reload docker
+      # Must use restart (not reload): Docker's SIGHUP reload does NOT call
+      # setHostGatewayIP(), so --add-host host.docker.internal:host-gateway
+      # breaks for any container started after a reload-only config change.
+      sudo systemctl restart docker
       echo "Docker runtimes:"
       docker info --format '{{.Runtimes}}' || docker info | grep -i runtime
       echo "::endgroup::"
