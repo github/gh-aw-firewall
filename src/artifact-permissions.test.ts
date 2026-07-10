@@ -56,19 +56,18 @@ describe('artifact-permissions', () => {
 
   it('logs exit code without stderr when stderr is empty', () => {
     const auditDir = makeTempDir();
+    let warnSpy: jest.SpyInstance | undefined;
     try {
       getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
-      const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       mockExecaSync.mockReturnValue({ stdout: '', stderr: '', exitCode: 1 });
       fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/failed.*exit 1/i),
-      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/failed.*exit 1/i));
       // Should NOT contain a colon suffix when stderr is empty
       const warnCall = warnSpy.mock.calls.find(c => typeof c[0] === 'string' && /exit 1/.test(c[0]));
       expect(warnCall?.[0]).not.toMatch(/exit 1\):/);
-      warnSpy.mockRestore();
     } finally {
+      warnSpy?.mockRestore();
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
   });
