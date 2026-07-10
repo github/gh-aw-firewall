@@ -3,7 +3,8 @@
  *
  * Targets:
  *  src/commands/signal-handler.ts  line 46: SIGTERM + keepContainers=true (false branch of &&)
- *  src/commands/preflight.ts       lines 51,73,82,217: String(error) path for non-Error throws
+ *  src/commands/preflight.ts       line 51: String(error) path for non-Error throws in config load
+ *                                  lines 73,82,217: raw non-Error value in template literal
  *  src/compose-generator.ts        line 29: buildLocal + containers dir missing (throw branch)
  *                                  line 84: GITHUB_WORKSPACE unset → process.cwd() fallback
  *                                  line 152: redactDockerComposeSecrets service without environment
@@ -163,19 +164,19 @@ describe('parseDomainOptions — String/non-Error branches (lines 73, 82)', () =
 
     expect(() => parseDomainOptions({ allowDomainsFile: '/missing.txt' })).toThrow('process.exit called');
     expect(mockedLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to read domains file')
+      expect.stringContaining('Failed to read domains file: 42')
     );
   });
 
   it('uses non-Error value directly when loadAndMergeDomains throws a non-Error (line 82)', () => {
     mockedRules.loadAndMergeDomains.mockImplementation(() => {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
-      throw { message: 'yaml object error' };
+      throw 'yaml-parse-error';
     });
 
     expect(() => parseDomainOptions({ rulesetFile: ['/bad.yml'] })).toThrow('process.exit called');
     expect(mockedLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load ruleset file')
+      expect.stringContaining('Failed to load ruleset file: yaml-parse-error')
     );
   });
 });
@@ -204,7 +205,7 @@ describe('resolveBlockedDomains — non-Error in validateDomainOrPattern (line 2
 
     expect(() => resolveBlockedDomains({ blockDomains: 'bad!domain' })).toThrow('process.exit called');
     expect(mockedLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Invalid blocked domain or pattern')
+      expect.stringContaining('Invalid blocked domain or pattern: string validation error')
     );
   });
 });
@@ -315,7 +316,7 @@ describe('buildComposeNetworks — networkIsolation with pre-existing squid netw
     });
 
     // squid must have both awf-net (original) and awf-ext (added)
-    const squidNetworks = squidService.networks as Record<string, unknown>;
+    const squidNetworks = result.services['squid-proxy'].networks as Record<string, unknown>;
     expect(squidNetworks).toHaveProperty('awf-net');
     expect(squidNetworks).toHaveProperty('awf-ext');
     // Compose result must declare awf-ext as a bridge network

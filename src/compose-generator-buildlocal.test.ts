@@ -45,7 +45,7 @@ describe('generateDockerCompose — buildLocal with missing containers dir (line
   it('throws when buildLocal=true and the containers directory is absent', () => {
     // Override existsSync so the containers dir check returns false
     mockExistsSync.mockImplementation((p) => {
-      if (typeof p === 'string' && p.endsWith('containers')) {
+      if (typeof p === 'string' && path.basename(p) === 'containers') {
         return false;
       }
       return actualExistsSync(p);
