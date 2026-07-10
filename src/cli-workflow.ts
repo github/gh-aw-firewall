@@ -3,7 +3,7 @@ import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
 import { CLI_PROXY_IP, DOH_PROXY_IP } from './host-iptables-shared';
-import { TOPOLOGY_NETWORK_NAME } from './topology';
+import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 
 interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
@@ -119,6 +119,19 @@ export async function runMainWorkflow(
       ? async () => {
           logger.info(`Attaching ${config.topologyAttach!.length} trusted container(s) to the internal network...`);
           await dependencies.connectTopologyContainers!(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
+
+          // When the agent uses an alternative container runtime (e.g., gVisor),
+          // inject /etc/hosts entries for topology peers. gVisor's userspace
+          // netstack has an isolated loopback that cannot reach Docker's embedded
+          // DNS at 127.0.0.11, so container name resolution fails with EAI_AGAIN.
+          // Bypassing DNS via /etc/hosts (extra_hosts) resolves this.
+          // See: https://github.com/google/gvisor/issues/7469
+          if (config.containerRuntime) {
+            const peerIps = await getTopologyContainerIps(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
+            if (peerIps.size > 0) {
+              patchComposeWithTopologyHosts(config.workDir, peerIps);
+            }
+          }
         }
       : undefined;
 

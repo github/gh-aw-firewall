@@ -1,4 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import execa from 'execa';
+import * as yaml from 'js-yaml';
 import { getLocalDockerEnv } from './docker-host';
 import { logger } from './logger';
 
@@ -130,4 +133,81 @@ export async function connectTopologyContainers(
       );
     }
   }
+}
+
+const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+/**
+ * Inspects the IP addresses of topology-attached containers on the specified
+ * Docker network. Used when the agent runs under an alternative container
+ * runtime (e.g., gVisor's runsc) whose userspace netstack cannot resolve
+ * container names via Docker's embedded DNS at 127.0.0.11.
+ *
+ * @see https://github.com/google/gvisor/issues/7469 — gVisor DNS incompatibility
+ */
+export async function getTopologyContainerIps(
+  networkName: string,
+  containerNames: string[],
+  log: TopologyLogger = logger,
+): Promise<Map<string, string>> {
+  const ips = new Map<string, string>();
+  for (const name of containerNames) {
+    try {
+      const result = await execa(
+        'docker',
+        [
+          'inspect',
+          '--format',
+          `{{(index .NetworkSettings.Networks "${networkName}").IPAddress}}`,
+          name,
+        ],
+        { env: getLocalDockerEnv(), reject: false },
+      );
+      const ip = (result.stdout || '').trim();
+      if (ip && IPV4_REGEX.test(ip)) {
+        ips.set(name, ip);
+        log.info(`Topology peer "${name}" has IP ${ip} on ${networkName}`);
+      } else {
+        log.warn(`Could not determine IP for topology peer "${name}" on ${networkName}`);
+      }
+    } catch (err) {
+      log.warn(`Failed to inspect topology peer "${name}": ${err}`);
+    }
+  }
+  return ips;
+}
+
+/**
+ * Patches docker-compose.yml to add /etc/hosts entries for topology-attached
+ * containers in the agent service. This bypasses Docker's embedded DNS
+ * (127.0.0.11) which is unreachable from gVisor's isolated sandbox loopback.
+ *
+ * Must be called AFTER topology containers are connected to the network
+ * (so their IPs are known) and BEFORE the full `docker compose up` that
+ * starts the agent container (so it picks up the extra_hosts entries).
+ */
+export function patchComposeWithTopologyHosts(
+  workDir: string,
+  peerIps: Map<string, string>,
+  log: TopologyLogger = logger,
+): void {
+  const composePath = path.join(workDir, 'docker-compose.yml');
+  const content = fs.readFileSync(composePath, 'utf8');
+  const compose = yaml.load(content) as any;
+
+  const agentService = compose?.services?.agent;
+  if (!agentService) {
+    log.warn('Could not find agent service in docker-compose.yml; skipping topology DNS patch');
+    return;
+  }
+
+  if (!agentService.extra_hosts) {
+    agentService.extra_hosts = [];
+  }
+  for (const [name, ip] of peerIps) {
+    agentService.extra_hosts.push(`${name}:${ip}`);
+  }
+
+  fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
+  log.info(`Patched docker-compose.yml with ${peerIps.size} topology peer host(s) for gVisor DNS compatibility`);
 }
