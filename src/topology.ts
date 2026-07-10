@@ -210,4 +210,26 @@ export function patchComposeWithTopologyHosts(
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
   log.info(`Patched docker-compose.yml with ${peerIps.size} topology peer host(s) for gVisor DNS compatibility`);
+
+  // Also patch the chroot hosts file. The agent runs chrooted to /host, so it
+  // reads /host/etc/hosts — a pre-generated file mounted read-only from the host.
+  // Docker's extra_hosts only populates the container's /etc/hosts (outside chroot).
+  // Find the source path of the /host/etc/hosts bind mount and append entries there.
+  const volumes: string[] = agentService.volumes || [];
+  const hostsMount = volumes.find((v: string) => v.includes(':/host/etc/hosts'));
+  if (hostsMount) {
+    const hostPath = hostsMount.split(':')[0];
+    try {
+      let hostsEntries = '';
+      for (const [name, ip] of peerIps) {
+        hostsEntries += `${ip}\t${name}\n`;
+      }
+      fs.appendFileSync(hostPath, hostsEntries);
+      log.info(`Appended ${peerIps.size} topology peer(s) to chroot hosts file: ${hostPath}`);
+    } catch (err) {
+      log.warn(`Could not patch chroot hosts file at ${hostPath}: ${err}`);
+    }
+  } else {
+    log.info('No /host/etc/hosts mount found (sysroot-stage mode); topology peers rely on extra_hosts + container DNS');
+  }
 }

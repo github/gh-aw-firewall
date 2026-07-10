@@ -199,12 +199,19 @@ describe('topology', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it('adds extra_hosts entries for topology peers', () => {
+    it('adds extra_hosts entries and patches chroot hosts file', () => {
+      // Create a hosts file that the compose volume references
+      const hostsDir = path.join(tmpDir, 'chroot-abc');
+      fs.mkdirSync(hostsDir);
+      const hostsFile = path.join(hostsDir, 'hosts');
+      fs.writeFileSync(hostsFile, '127.0.0.1 localhost\n');
+
       const compose = {
         services: {
           agent: {
             container_name: 'awf-agent',
             networks: { 'awf-net': { ipv4_address: '172.30.0.20' } },
+            volumes: [`${hostsFile}:/host/etc/hosts:ro`],
           },
         },
       };
@@ -217,7 +224,10 @@ describe('topology', () => {
 
       const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8'));
       expect(patched.services.agent.extra_hosts).toEqual(['mcp-gateway:172.30.0.40']);
-      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('1 topology peer'));
+      // Verify hosts file was also patched
+      const hostsContent = fs.readFileSync(hostsFile, 'utf8');
+      expect(hostsContent).toContain('172.30.0.40\tmcp-gateway');
+      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Appended'));
     });
 
     it('appends to existing extra_hosts without overwriting', () => {

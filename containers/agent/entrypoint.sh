@@ -876,29 +876,6 @@ setup_chroot_etc() {
     fi
   fi
 
-  # Inject topology peer extra_hosts entries into chroot's /etc/hosts.
-  # When the agent runs under an alternative container runtime (e.g., gVisor),
-  # Docker's embedded DNS (127.0.0.11) is unreachable from the sandbox's isolated
-  # loopback. AWF patches docker-compose.yml with extra_hosts entries so Docker
-  # writes them to /etc/hosts — but the chroot uses /host/etc/hosts instead.
-  # Copy any non-standard entries from the container's /etc/hosts to the chroot's.
-  # See: https://github.com/google/gvisor/issues/7469
-  if [ -f /etc/hosts ] && [ -f /host/etc/hosts ]; then
-   # Extract entries that are NOT localhost, host.docker.internal, or the container's own hostname
-   EXTRA_ENTRIES=$(grep -vE '^\s*#|^\s*$|localhost|host\.docker\.internal|'"$(hostname)"'' /etc/hosts 2>/dev/null || true)
-   if [ -n "$EXTRA_ENTRIES" ]; then
-     while IFS= read -r entry; do
-       PEER_HOST=$(echo "$entry" | awk '{print $2}')
-       if [ -n "$PEER_HOST" ] && ! grep -q "$PEER_HOST" /host/etc/hosts 2>/dev/null; then
-         if echo "$entry" >> /host/etc/hosts 2>/dev/null; then
-           HOSTS_MODIFIED=true
-           echo "[entrypoint] Added topology peer to chroot /etc/hosts: $entry"
-         fi
-       fi
-     done <<< "$EXTRA_ENTRIES"
-   fi
-  fi
-
   # Find the user name on the host system by UID
   # This allows us to run as the same user inside the chroot
   HOST_USER_UID="${AWF_CHROOT_IDENTITY_UID:-${AWF_USER_UID:-1000}}"
@@ -1278,13 +1255,10 @@ run_chroot_command() {
     echo "[entrypoint] DNS configuration will be removed on exit"
   fi
   if [ "$HOSTS_MODIFIED" = "true" ]; then
-    # Remove entries we injected into /etc/hosts (runs inside chroot perspective).
-    # Remove host.docker.internal and any topology peer entries that came from
-    # Docker's extra_hosts (non-localhost, non-hostname entries).
+    # Remove the specific host.docker.internal line we added (runs inside chroot perspective)
+    # Use a precise pattern to avoid accidentally removing unrelated entries
     CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^[0-9.]\\+[[:space:]]\\+host\\.docker\\.internal\$/d' /etc/hosts 2>/dev/null || true"
-    # Remove topology peer entries (IPs in the AWF subnet 172.30.0.x)
-    CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^172\\.30\\.0\\./d' /etc/hosts 2>/dev/null || true"
-    echo "[entrypoint] Injected /etc/hosts entries will be removed on exit"
+    echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
   # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
   if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
