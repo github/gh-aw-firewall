@@ -543,7 +543,7 @@ describe('agent service', () => {
     it('should set runtime when containerRuntime is specified', () => {
       const configWithRuntime = {
         ...mockConfig,
-        containerRuntime: 'runsc',
+        containerRuntime: 'gvisor',
       };
       const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
       const agent = result.services.agent as any;
@@ -554,7 +554,7 @@ describe('agent service', () => {
     it('should only set runtime on agent, not on squid', () => {
       const configWithRuntime = {
         ...mockConfig,
-        containerRuntime: 'runsc',
+        containerRuntime: 'gvisor',
       };
       const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
 
@@ -565,7 +565,7 @@ describe('agent service', () => {
     it('should inject compose-internal service hosts when containerRuntime is set', () => {
       const configWithRuntime = {
         ...mockConfig,
-        containerRuntime: 'runsc',
+        containerRuntime: 'gvisor',
         enableApiProxy: true,
       };
       const networkWithProxy = {
@@ -584,13 +584,24 @@ describe('agent service', () => {
     it('should not inject api-proxy host when proxyIp is absent', () => {
       const configWithRuntime = {
         ...mockConfig,
-        containerRuntime: 'runsc',
+        containerRuntime: 'gvisor',
       };
       const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
       const agent = result.services.agent as any;
 
       expect(agent.extra_hosts['squid-proxy']).toBe(mockNetworkConfig.squidIp);
       expect(agent.extra_hosts['api-proxy']).toBeUndefined();
+    });
+
+    it('should pass through unknown runtime names unchanged', () => {
+      const configWithRuntime = {
+        ...mockConfig,
+        containerRuntime: 'kata',
+      };
+      const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
+      const agent = result.services.agent as any;
+
+      expect(agent.runtime).toBe('kata');
     });
   });
 });

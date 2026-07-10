@@ -171,8 +171,9 @@ program
   )
   .option(
     '--container-runtime <runtime>',
-    'OCI container runtime for the agent container (e.g. runsc for gVisor, kata for Kata).\n' +
-    '                                       The runtime must be registered in the Docker daemon config.'
+    'Container runtime for the agent container (e.g. "gvisor" for gVisor sandboxing).\n' +
+    '                                       AWF translates friendly names to Docker runtime identifiers\n' +
+    '                                       (gvisor → runsc). Unknown values are passed through as-is.'
   )
 
   // -- Container Configuration --

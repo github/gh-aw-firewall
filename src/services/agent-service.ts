@@ -160,10 +160,10 @@ export function buildAgentService(params: AgentServiceParams): any {
 
   Object.assign(agentService, resolveAgentImageConfig(config, imageConfig));
 
-  // Set container runtime if specified (e.g., runsc for gVisor)
+  // Set container runtime if specified (e.g., "gvisor" → Docker runtime "runsc")
   if (config.containerRuntime) {
-    agentService.runtime = config.containerRuntime;
-    logger.debug(`Set agent container runtime to: ${config.containerRuntime}`);
+    agentService.runtime = resolveDockerRuntime(config.containerRuntime);
+    logger.debug(`Set agent container runtime to: ${agentService.runtime} (from config: ${config.containerRuntime})`);
 
     // gVisor's userspace netstack has an isolated sandbox loopback that cannot
     // reach Docker's embedded DNS at 127.0.0.11, so compose service name
@@ -181,6 +181,23 @@ export function buildAgentService(params: AgentServiceParams): any {
   }
 
   return agentService;
+}
+
+// ─── Runtime Resolution ──────────────────────────────────────────────────────
+
+/** Maps user-facing runtime names to Docker OCI runtime identifiers. */
+const RUNTIME_MAP: Record<string, string> = {
+  gvisor: 'runsc',
+};
+
+/**
+ * Translates a user-facing container runtime name (e.g. "gvisor") into the
+ * corresponding Docker OCI runtime identifier (e.g. "runsc"). Values that
+ * don't have a mapping are passed through unchanged, allowing direct use of
+ * Docker runtime names when needed.
+ */
+export function resolveDockerRuntime(runtime: string): string {
+  return RUNTIME_MAP[runtime] ?? runtime;
 }
 
 // ─── Image Selection ─────────────────────────────────────────────────────────
