@@ -41,16 +41,15 @@ describe('artifact-permissions', () => {
 
   it('logs stderr when permission repair fails', () => {
     const auditDir = makeTempDir();
+    let warnSpy: jest.SpyInstance | undefined;
     try {
       getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
-      const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       mockExecaSync.mockReturnValue({ stdout: '', stderr: 'no such image: agent:latest', exitCode: 1 });
       fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('no such image: agent:latest'),
-      );
-      warnSpy.mockRestore();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no such image: agent:latest'));
     } finally {
+      warnSpy?.mockRestore();
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
   });
