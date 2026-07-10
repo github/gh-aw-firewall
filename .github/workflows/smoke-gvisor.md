@@ -78,11 +78,6 @@ steps:
       set -euo pipefail
       echo "::group::Install gVisor (runsc)"
       ARCH=$(uname -m)
-      if [ "$ARCH" = "x86_64" ]; then
-        ARCH="amd64"
-      elif [ "$ARCH" = "aarch64" ]; then
-        ARCH="arm64"
-      fi
       URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
       echo "Downloading runsc for ${ARCH}..."
       curl -fsSL "${URL}/runsc" -o /tmp/runsc
