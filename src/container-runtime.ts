@@ -8,12 +8,30 @@
  *    are passed through unchanged so callers can also use raw Docker names.
  *
  * 2. **Capability flags** – each runtime can declare behavioural quirks that
- *    AWF must compensate for.  Today the only flag is `needsStaticDns`, which
- *    tells AWF to inject `/etc/hosts` entries for every service hostname
- *    because the runtime's network stack cannot reach Docker's embedded DNS
- *    at 127.0.0.11.
+ *    AWF must compensate for.  Flags include:
+ *    - `needsStaticDns` – runtime cannot reach Docker's embedded DNS at
+ *      127.0.0.11, so AWF must inject `/etc/hosts` entries for every service.
  *
- * To add a new runtime, add an entry to {@link RUNTIME_REGISTRY}.
+ * ## Adding a new OCI runtime
+ *
+ * Add an entry to {@link RUNTIME_REGISTRY} with the Docker runtime name and
+ * capability flags.  All consumers (agent-service, cli-workflow, topology)
+ * pick up the new runtime automatically via the capability query functions.
+ *
+ * ## Future: non-OCI execution backends (e.g. Docker sbx microVMs)
+ *
+ * Docker sbx (`sbx run`) uses hypervisor-isolated microVMs with their own
+ * Docker daemon, proxy, and credential injection — a fundamentally different
+ * execution model from Docker Compose + OCI runtimes.  When sbx support is
+ * added, the integration point is higher up the stack:
+ *
+ * - `cli-workflow.ts`'s `WorkflowDependencies` interface already decouples
+ *   the orchestration from Docker Compose.  An `SbxBackend` would implement
+ *   the same dependency contract with `sbx create/run/rm` calls.
+ * - This module stays focused on OCI runtime resolution.  Sbx would bypass
+ *   it entirely since it doesn't use Docker's `runtime:` field.
+ * - AWF components that sbx already provides (proxy, credential injection)
+ *   would be skipped via a backend-level check, not a runtime capability flag.
  */
 
 // ─── Registry ────────────────────────────────────────────────────────────────
