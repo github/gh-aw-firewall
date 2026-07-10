@@ -63,10 +63,11 @@ jobs:
       - name: Verify gVisor runtime was used
         run: |
           echo "::group::Check agent logs for gVisor runtime"
-          if grep -q "runtime.*runsc\|gvisor\|runsc" /tmp/gh-aw-agent/*.log 2>/dev/null; then
+          LOG_DIR="/tmp/gh-aw-agent/sandbox/agent/logs"
+          if grep -R -qE 'Linux version .*gVisor' "$LOG_DIR" --include '*.log' 2>/dev/null; then
             echo "✅ gVisor runtime confirmed in agent logs"
           else
-            echo "⚠️ Could not confirm gVisor runtime in logs (may still have been used)"
+            echo "⚠️ Could not confirm gVisor runtime in logs (expected until AWF runtime plumbing is added)"
           fi
           echo "::endgroup::"
       - name: Token-usage sanity check
