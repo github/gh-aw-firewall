@@ -30,14 +30,35 @@ describe('bootPrimary shutdown', () => {
   });
 
   test('closes servers and flushes logs on SIGTERM before exiting', async () => {
+    const callOrder = [];
     const oidcProvider = { initialize: jest.fn().mockResolvedValue(undefined), shutdown: jest.fn() };
     const awsOidcProvider = { initialize: jest.fn().mockResolvedValue(undefined), shutdown: jest.fn() };
     const server = {
       listen: jest.fn((port, host, cb) => cb()),
-      close: jest.fn((cb) => cb()),
+      shutdownConnections: jest.fn().mockImplementation(async () => {
+        callOrder.push('shutdownConnections');
+      }),
+      close: jest.fn((cb) => {
+        callOrder.push('close');
+        cb();
+      }),
     };
-    const closeLogStream = jest.fn().mockResolvedValue(undefined);
-    const otelShutdown = jest.fn().mockResolvedValue(undefined);
+    oidcProvider.shutdown.mockImplementation(() => {
+      callOrder.push('oidcShutdown');
+    });
+    awsOidcProvider.shutdown.mockImplementation(() => {
+      callOrder.push('awsOidcShutdown');
+    });
+    const closeLogStream = jest.fn().mockImplementation(async () => {
+      callOrder.push('closeLogStream');
+    });
+    const otelShutdown = jest.fn().mockImplementation(async () => {
+      callOrder.push('otelShutdown');
+    });
+    processExitSpy.mockImplementation((code) => {
+      callOrder.push(`exit:${code}`);
+      return undefined;
+    });
 
     bootPrimary({
       registeredAdapters: [{
@@ -66,10 +87,15 @@ describe('bootPrimary shutdown', () => {
     await handlers.SIGTERM();
 
     expect(server.close).toHaveBeenCalledTimes(1);
+    expect(server.shutdownConnections).toHaveBeenCalledTimes(1);
     expect(oidcProvider.shutdown).toHaveBeenCalledTimes(1);
     expect(awsOidcProvider.shutdown).toHaveBeenCalledTimes(1);
     expect(closeLogStream).toHaveBeenCalledTimes(1);
     expect(otelShutdown).toHaveBeenCalledTimes(1);
     expect(processExitSpy).toHaveBeenCalledWith(0);
+    expect(callOrder.indexOf('shutdownConnections')).toBeLessThan(callOrder.indexOf('close'));
+    expect(callOrder.indexOf('close')).toBeLessThan(callOrder.indexOf('closeLogStream'));
+    expect(callOrder.indexOf('closeLogStream')).toBeLessThan(callOrder.indexOf('otelShutdown'));
+    expect(callOrder.indexOf('otelShutdown')).toBeLessThan(callOrder.indexOf('exit:0'));
   });
 });

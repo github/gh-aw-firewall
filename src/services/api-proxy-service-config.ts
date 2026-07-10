@@ -7,7 +7,7 @@ import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
-import { buildApiProxyBaseEnv } from './api-proxy-env-config';
+import { buildApiProxyBaseEnv, resolveApiProxyShutdownTimeoutMs } from './api-proxy-env-config';
 import { buildApiProxyLifecycleConfig } from './api-proxy-lifecycle-config';
 
 interface ApiProxyServiceConfigParams {
@@ -23,6 +23,8 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     throw new Error('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
   }
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const shutdownTimeoutMs = resolveApiProxyShutdownTimeoutMs(config);
+  const stopGracePeriodSeconds = Math.ceil((shutdownTimeoutMs + 2000) / 1000);
 
   const proxyService: any = {
     container_name: API_PROXY_CONTAINER_NAME,
@@ -38,7 +40,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     environment: buildApiProxyBaseEnv(config, networkConfig),
     // Security hardening and resource limits to prevent DoS attacks
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
-    stop_grace_period: '2s',
+    stop_grace_period: `${stopGracePeriodSeconds}s`,
   };
 
   // Use GHCR image or build locally

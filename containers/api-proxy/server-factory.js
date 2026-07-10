@@ -39,7 +39,48 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
 }
 
 function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
-  return (req, socket, head) => {
+  const activeUpgradeSockets = new Set();
+
+  function trackUpgradeSocket(socket) {
+    if (!socket || typeof socket.destroy !== 'function') return;
+    activeUpgradeSockets.add(socket);
+    const cleanup = () => activeUpgradeSockets.delete(socket);
+    if (typeof socket.once === 'function') {
+      socket.once('close', cleanup);
+      socket.once('end', cleanup);
+    }
+  }
+
+  async function shutdownConnections() {
+    const sockets = Array.from(activeUpgradeSockets);
+    await Promise.all(sockets.map((socket) => new Promise((resolve) => {
+      if (!activeUpgradeSockets.has(socket)) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        activeUpgradeSockets.delete(socket);
+        resolve();
+      };
+      if (typeof socket.once === 'function') {
+        socket.once('close', finish);
+      }
+      try {
+        if (socket.destroyed) {
+          finish();
+          return;
+        }
+        socket.destroy();
+      } catch {
+        finish();
+      }
+    })));
+  }
+
+  const handler = (req, socket, head) => {
     if (!adapter.isEnabled()) {
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
@@ -55,9 +96,17 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
       adapter.getTargetHost(req),
       adapter.getAuthHeaders(req),
       adapter.name,
-      adapter.getBasePath(req)
+      adapter.getBasePath(req),
+      {
+        onSocketsReady: (clientSocket, upstreamSocket) => {
+          trackUpgradeSocket(clientSocket);
+          trackUpgradeSocket(upstreamSocket);
+        },
+      }
     );
   };
+  handler.shutdownConnections = shutdownConnections;
+  return handler;
 }
 
 function createProviderServer(adapter, deps) {
@@ -71,6 +120,7 @@ function createProviderServer(adapter, deps) {
 
   const handleHealthCheck = createHealthCheckHandler(adapter);
   const handleProxy = createProxyHandler(adapter, checkRateLimit, proxyRequest);
+  const handleUpgrade = createWebSocketUpgradeHandler(adapter, proxyWebSocket);
 
   const server = http.createServer((req, res) => {
     if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
@@ -98,7 +148,8 @@ function createProviderServer(adapter, deps) {
     handleProxy(req, res);
   });
 
-  server.on('upgrade', createWebSocketUpgradeHandler(adapter, proxyWebSocket));
+  server.on('upgrade', handleUpgrade);
+  server.shutdownConnections = () => handleUpgrade.shutdownConnections();
 
   return server;
 }

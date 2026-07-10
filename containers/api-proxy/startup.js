@@ -113,6 +113,12 @@ function bootPrimary({
       process.exit(0);
     }, Number.isFinite(forceExitMs) && forceExitMs > 0 ? forceExitMs : 8000);
     forceExitTimer.unref();
+    await Promise.all(startedServers.map((server) => {
+      if (typeof server.shutdownConnections === 'function') {
+        return server.shutdownConnections();
+      }
+      return Promise.resolve();
+    }));
     await Promise.all(startedServers.map((server) => new Promise((resolve) => {
       try {
         server.close(() => resolve());
