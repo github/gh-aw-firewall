@@ -183,6 +183,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name, e.g. `"gvisor"`; AWF translates to the Docker OCI runtime identifier, e.g. `"runsc"`. Only the agent container uses the custom runtime; infrastructure containers always use `runc`. When set, AWF injects `extra_hosts` entries for compose-internal services to work around DNS issues with non-default runtimes. Requires the runtime to be installed and registered with Docker on the host.)*
 - `chroot.binariesSourcePath` → *(config-only; overlays a runner-side binaries directory at `/usr/local/bin` inside chroot mode)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
