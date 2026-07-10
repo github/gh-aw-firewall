@@ -14,15 +14,40 @@ permissions:
 engine: copilot
 strict: true
 timeout-minutes: 20
+if: needs.fetch_prs.outputs.pr_count != '0'
+jobs:
+  fetch_prs:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      pr_count: ${{ steps.filter.outputs.pr_count }}
+    steps:
+      - name: Filter config-touching merged PRs
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CUTOFF=$(date -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 50 \
+            --json number,title,mergedAt,files > /tmp/all-prs.json
+          PR_COUNT=$(jq --arg cutoff "$CUTOFF" '
+            [.[] | select(.mergedAt >= $cutoff) | select(
+              (.files // []) | map(.path) |
+              any(test("src/config-file\\.ts|src/types/|src/awf-config-schema\\.json|docs/awf-config-spec\\.md|docs/awf-config\\.schema\\.json|src/services/api-proxy-service\\.ts|src/cli"))
+            )] | length
+          ' /tmp/all-prs.json)
+          echo "Found $PR_COUNT relevant merged PRs"
+          echo "pr_count=$PR_COUNT" >> "$GITHUB_OUTPUT"
 network:
   allowed:
     - defaults
-    - node
     - github
 tools:
   github:
     mode: gh-proxy
-    toolsets: [default, pull_requests]
+    toolsets: [pull_requests]
   cache-memory: true
   bash: ["*"]
   edit:
@@ -33,6 +58,23 @@ safe-outputs:
     max: 1
     labels: [automation, config-consistency]
     title-prefix: "fix: "
+steps:
+  - name: Fetch relevant merged PRs
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    run: |
+      set -euo pipefail
+      mkdir -p /tmp/gh-aw
+      CUTOFF=$(date -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+      gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 50 \
+        --json number,title,mergedAt,files > /tmp/gh-aw/all-prs.json
+      jq --arg cutoff "$CUTOFF" '
+        [.[] | select(.mergedAt >= $cutoff) | select(
+          (.files // []) | map(.path) |
+          any(test("src/config-file\\.ts|src/types/|src/awf-config-schema\\.json|docs/awf-config-spec\\.md|docs/awf-config\\.schema\\.json|src/services/api-proxy-service\\.ts|src/cli"))
+        )]
+      ' /tmp/gh-aw/all-prs.json > /tmp/gh-aw/relevant-prs.json
+      echo "Prepared $(jq length /tmp/gh-aw/relevant-prs.json) relevant PRs for audit"
 ---
 
 # Config Consistency Auditor
@@ -58,14 +100,9 @@ Every new AWF configuration field MUST be consistently represented across:
 
 ## Security Classification
 
-Configuration fields MUST follow these rules:
-
-- **Security-sensitive values** (API keys, tokens, credentials, OIDC client IDs/secrets):
-  - Passed via environment variables (`-e` flag or `--env-file`)
-  - MUST NOT appear in stdin config JSON (which may be logged)
-- **Non-sensitive values** (domains, multipliers, model names, timeouts, strategies):
-  - Passed via stdin config (`--config -`)
-  - Mapped in `src/config-file.ts`
+Fields containing "key", "secret", "token", "credential", "password", or OIDC identifiers are
+**security-sensitive** → env vars only (not in `src/config-file.ts`). All other fields
+(domains, multipliers, timeouts, model names) are **non-sensitive** → stdin config via `src/config-file.ts`.
 
 ## Procedure
 
@@ -76,28 +113,21 @@ Read `/tmp/gh-aw/cache-memory/config-audit-state.json`. It stores:
 { "last_audit_date": "YYYY-MM-DD", "last_pr_number": 1234 }
 ```
 
-- If the file exists, audit PRs merged since `last_audit_date`.
-- If the file does NOT exist (first run), audit PRs merged in the **last 7 days**.
+- If the file exists, note the `last_audit_date` for filtering the pre-fetched PR list.
+- If the file does NOT exist (first run), treat PRs from the last 7 days as in scope.
 
-### 2. Fetch recently merged PRs
+### 2. Read pre-fetched relevant PRs
+
+A pre-agent step already fetched and filtered config-touching merged PRs to
+`/tmp/gh-aw/relevant-prs.json`. Read this file:
 
 ```bash
-gh pr list --repo github/gh-aw-firewall --state merged --limit 20 \
-  --json number,title,mergedAt,files --jq '.[] | select(.mergedAt > "CUTOFF_DATE")'
+cat /tmp/gh-aw/relevant-prs.json
 ```
 
-Filter to PRs that modify any of these paths (likely to introduce config):
-- `src/config-file.ts`
-- `src/types/*.ts`
-- `src/awf-config-schema.json`
-- `docs/awf-config-spec.md`
-- `docs/awf-config.schema.json`
-- `src/services/api-proxy-service.ts`
-- `src/cli-options.ts` or `src/cli.ts`
-- `containers/api-proxy/server.js`
-- `containers/api-proxy/guards/*.js`
-
-If no relevant PRs are found, save state and exit with `noop`.
+If the `last_audit_date` from cache-memory is more recent than 7 days ago, additionally
+filter the list to PRs merged after that date. If no PRs remain after filtering, save
+state and exit with `noop`.
 
 ### 3. For each relevant PR, check consistency
 
@@ -128,14 +158,9 @@ For each new configuration field found, verify it exists in ALL required layers:
 
 ### 5. Check security classification
 
-For each new field, determine if it's security-sensitive:
-- Contains "key", "secret", "token", "credential", "password" → security-sensitive
-- Is an OIDC client ID or tenant ID → security-sensitive
-- Is a domain, multiplier, timeout, strategy, model name → non-sensitive
-
-Verify:
-- Security-sensitive fields are passed via env vars (not in config-file.ts stdin mapping)
-- Non-sensitive fields are in config-file.ts (stdin config mapping)
+For each new field, apply the security classification rules from the
+[Security Classification](#security-classification) section above. Verify that
+security-sensitive fields are NOT in `src/config-file.ts` and non-sensitive fields ARE.
 
 ### 6. Fix gaps and create a PR
 
@@ -151,26 +176,8 @@ If gaps are found, fix them directly:
 
 After making fixes, use the `create-pull-request` safe output with:
 - Title: `"fix: propagate config fields to all layers"`
-- Body: A summary table of what was fixed, organized by PR that introduced the gap
-
-Example PR body:
-```markdown
-## Config Consistency Fixes
-
-Automated fixes for configuration fields not fully propagated:
-
-### From PR #1234 — "feat: add fooBar config"
-
-| Field | Fix Applied |
-|-------|-------------|
-| `apiProxy.fooBar` | Added to TypeScript interface in `src/types/api-proxy-options.ts` |
-
-### Verification
-
-- [ ] TypeScript compiles (`tsc --noEmit`)
-- [ ] Config-file-mapping tests pass
-- [ ] Schema validation tests pass
-```
+- Body: A summary table of what was fixed, organized by PR that introduced the gap,
+  with a verification checklist (`tsc --noEmit`, config-file-mapping tests, schema validation tests)
 
 If no gaps are found, use `noop` safe output.
 
