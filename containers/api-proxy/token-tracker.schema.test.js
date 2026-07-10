@@ -12,6 +12,7 @@ const {
   validateTokenUsageRecord,
   writeTokenUsage,
   closeLogStream,
+  TOKEN_LOG_FILE,
 } = require('./token-tracker');
 const {
   buildTokenUsageRecord,
@@ -437,6 +438,13 @@ describe('token-usage JSONL record schema field', () => {
       expect(parsed.ai_credits_total).toBeUndefined();
       done();
     }, 20);
+  });
+});
+
+describe('token-usage file sentinel', () => {
+  test('creates token-usage.jsonl even before first usage record', async () => {
+    await closeLogStream();
+    expect(fs.existsSync(TOKEN_LOG_FILE)).toBe(true);
   });
 });
 

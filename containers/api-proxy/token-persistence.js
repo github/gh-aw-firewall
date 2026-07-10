@@ -36,6 +36,18 @@ let logStream = null;
 let diagStream = null;
 let auditStream = null;
 
+function ensureTokenUsageFileExists() {
+  try {
+    fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+    const fd = fs.openSync(TOKEN_LOG_FILE, 'a', 0o644);
+    fs.closeSync(fd);
+    return true;
+  } catch (err) {
+    logRequest('warn', 'token_log_init_error', { error: err.message });
+    return false;
+  }
+}
+
 /**
  * Write a diagnostic line to the diagnostics log file.
  * Only active when AWF_DEBUG_TOKENS=1 environment variable is set.
@@ -99,9 +111,8 @@ function auditTrack(event, data) {
  */
 function getLogStream() {
   if (logStream) return logStream;
+  if (!ensureTokenUsageFileExists()) return null;
   try {
-    // Ensure directory exists
-    fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
     logStream = fs.createWriteStream(TOKEN_LOG_FILE, { flags: 'a', mode: 0o644 });
     logStream.on('error', (err) => {
       logRequest('warn', 'token_log_error', { error: err.message });
@@ -246,7 +257,15 @@ function writeTokenUsage(record) {
 
   const stream = getLogStream();
   if (stream && !stream.writableEnded) {
-    const ok = stream.write(JSON.stringify(record) + '\n');
+    const ok = stream.write(JSON.stringify(record) + '\n', () => {
+      try {
+        if (typeof stream.fd === 'number' && Number.isInteger(stream.fd)) {
+          fs.fdatasyncSync(stream.fd);
+        }
+      } catch {
+        // best-effort durability
+      }
+    });
     if (!ok) {
       // Backpressure — stream buffer full. Drop this write rather than
       // accumulating unbounded memory. The 'drain' event will unblock
@@ -303,3 +322,5 @@ module.exports = {
   writeTokenUsage,
   closeLogStream,
 };
+
+ensureTokenUsageFileExists();

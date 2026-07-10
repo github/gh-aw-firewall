@@ -4,11 +4,13 @@
 
 require('./test-helpers/token-tracker-setup');
 
+const fs = require('fs');
 const {
   isStreamingResponse,
   isCompressedResponse,
   trackTokenUsage,
   closeLogStream,
+  TOKEN_LOG_FILE,
 } = require('./token-tracker');
 const { EventEmitter } = require('events');
 const zlib = require('zlib');
@@ -79,6 +81,40 @@ describe('trackTokenUsage', () => {
       );
       done();
     }, 10);
+  });
+
+  test('writes token-usage.jsonl incrementally before shutdown', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.statusCode = 200;
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-incremental-write',
+      provider: 'openai',
+      path: '/v1/chat/completions',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 },
+    })));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(fs.existsSync(TOKEN_LOG_FILE)).toBe(true);
+      const lines = fs.readFileSync(TOKEN_LOG_FILE, 'utf8')
+        .split('\n')
+        .filter(Boolean);
+      const matchingLine = lines.find((line) => line.includes('"request_id":"test-incremental-write"'));
+      expect(matchingLine).toBeTruthy();
+      done();
+    }, 20);
   });
 
   test('extracts usage from streaming SSE response', (done) => {
