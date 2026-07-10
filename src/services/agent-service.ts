@@ -154,7 +154,7 @@ export function buildAgentService(params: AgentServiceParams): any {
 
   // Enable host.docker.internal for agent when --enable-host-access is set
   if (config.enableHostAccess) {
-    agentService.extra_hosts = ['host.docker.internal:host-gateway'];
+    agentService.extra_hosts = { 'host.docker.internal': 'host-gateway' };
     environment.AWF_ENABLE_HOST_ACCESS = '1';
   }
 
@@ -171,11 +171,11 @@ export function buildAgentService(params: AgentServiceParams): any {
     // compose-internal services the agent may need to reach by hostname.
     // See: https://github.com/google/gvisor/issues/7469
     if (!agentService.extra_hosts) {
-      agentService.extra_hosts = [];
+      agentService.extra_hosts = {};
     }
-    agentService.extra_hosts.push(`squid-proxy:${networkConfig.squidIp}`);
+    agentService.extra_hosts['squid-proxy'] = networkConfig.squidIp;
     if (networkConfig.proxyIp) {
-      agentService.extra_hosts.push(`api-proxy:${networkConfig.proxyIp}`);
+      agentService.extra_hosts['api-proxy'] = networkConfig.proxyIp;
     }
     logger.debug('Injected compose-internal service hosts for gVisor DNS compatibility');
   }

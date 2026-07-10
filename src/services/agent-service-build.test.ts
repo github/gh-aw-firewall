@@ -575,8 +575,10 @@ describe('agent service', () => {
       const result = generateDockerCompose(configWithRuntime, networkWithProxy);
       const agent = result.services.agent as any;
 
-      expect(agent.extra_hosts).toContain(`squid-proxy:${mockNetworkConfig.squidIp}`);
-      expect(agent.extra_hosts).toContain('api-proxy:172.30.0.30');
+      expect(agent.extra_hosts).toEqual({
+        'squid-proxy': mockNetworkConfig.squidIp,
+        'api-proxy': '172.30.0.30',
+      });
     });
 
     it('should not inject api-proxy host when proxyIp is absent', () => {
@@ -587,8 +589,8 @@ describe('agent service', () => {
       const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
       const agent = result.services.agent as any;
 
-      expect(agent.extra_hosts).toContain(`squid-proxy:${mockNetworkConfig.squidIp}`);
-      expect(agent.extra_hosts).not.toContain(expect.stringContaining('api-proxy'));
+      expect(agent.extra_hosts['squid-proxy']).toBe(mockNetworkConfig.squidIp);
+      expect(agent.extra_hosts['api-proxy']).toBeUndefined();
     });
   });
 });

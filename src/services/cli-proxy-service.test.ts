@@ -61,7 +61,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
-        expect(proxy.extra_hosts).toContain('host.docker.internal:host-gateway');
+        expect(proxy.extra_hosts).toEqual({ 'host.docker.internal': 'host-gateway' });
       });
 
       it('should mount CA cert as read-only volume when difcProxyCaCert is set', () => {

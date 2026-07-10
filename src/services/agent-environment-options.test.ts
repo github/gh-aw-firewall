@@ -397,8 +397,8 @@ describe('agent environment: options', () => {
       const agent = result.services.agent;
       const squid = result.services['squid-proxy'];
 
-      expect(agent.extra_hosts).toEqual(['host.docker.internal:host-gateway']);
-      expect(squid.extra_hosts).toEqual(['host.docker.internal:host-gateway']);
+      expect(agent.extra_hosts).toEqual({ 'host.docker.internal': 'host-gateway' });
+      expect(squid.extra_hosts).toEqual({ 'host.docker.internal': 'host-gateway' });
     });
 
     it('should NOT configure extra_hosts when enableHostAccess is false', () => {

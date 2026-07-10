@@ -160,7 +160,7 @@ export function buildSquidService(params: SquidServiceParams): any {
   // Security note: When combined with allowing host.docker.internal domain,
   // containers can access any port on the host
   if (config.enableHostAccess) {
-    squidService.extra_hosts = ['host.docker.internal:host-gateway'];
+    squidService.extra_hosts = { 'host.docker.internal': 'host-gateway' };
     logger.debug('Host access enabled: host.docker.internal will resolve to host gateway');
   }
 

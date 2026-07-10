@@ -202,10 +202,10 @@ export function patchComposeWithTopologyHosts(
   }
 
   if (!agentService.extra_hosts) {
-    agentService.extra_hosts = [];
+    agentService.extra_hosts = {};
   }
   for (const [name, ip] of peerIps) {
-    agentService.extra_hosts.push(`${name}:${ip}`);
+    agentService.extra_hosts[name] = ip;
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });

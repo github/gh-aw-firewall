@@ -223,7 +223,7 @@ describe('topology', () => {
       patchComposeWithTopologyHosts(tmpDir, peerIps, log);
 
       const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8'));
-      expect(patched.services.agent.extra_hosts).toEqual(['mcp-gateway:172.30.0.40']);
+      expect(patched.services.agent.extra_hosts).toEqual({ 'mcp-gateway': '172.30.0.40' });
       // Verify hosts file was also patched
       const hostsContent = fs.readFileSync(hostsFile, 'utf8');
       expect(hostsContent).toContain('172.30.0.40\tmcp-gateway');
@@ -235,7 +235,7 @@ describe('topology', () => {
         services: {
           agent: {
             container_name: 'awf-agent',
-            extra_hosts: ['host.docker.internal:host-gateway'],
+            extra_hosts: { 'host.docker.internal': 'host-gateway' },
           },
         },
       };
@@ -247,10 +247,10 @@ describe('topology', () => {
       patchComposeWithTopologyHosts(tmpDir, peerIps, log);
 
       const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8'));
-      expect(patched.services.agent.extra_hosts).toEqual([
-        'host.docker.internal:host-gateway',
-        'mcp-gateway:172.30.0.40',
-      ]);
+      expect(patched.services.agent.extra_hosts).toEqual({
+        'host.docker.internal': 'host-gateway',
+        'mcp-gateway': '172.30.0.40',
+      });
     });
 
     it('warns and returns when agent service is not found', () => {

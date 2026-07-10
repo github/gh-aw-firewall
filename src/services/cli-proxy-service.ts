@@ -53,7 +53,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       },
     },
     // Enable host.docker.internal resolution for connecting to host DIFC proxy
-    extra_hosts: ['host.docker.internal:host-gateway'],
+    extra_hosts: { 'host.docker.internal': 'host-gateway' },
     volumes: applyHostPathPrefixToVolumes(
       [
         // Log directory for HTTP server logs
