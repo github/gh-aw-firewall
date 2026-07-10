@@ -163,8 +163,11 @@ export function buildAgentService(params: AgentServiceParams): any {
 
   // Set container runtime if specified (e.g., "gvisor" → Docker runtime "runsc")
   if (config.containerRuntime) {
-    agentService.runtime = resolveDockerRuntime(config.containerRuntime);
-    logger.debug(`Set agent container runtime to: ${agentService.runtime} (from config: ${config.containerRuntime})`);
+    const dockerRuntime = resolveDockerRuntime(config.containerRuntime);
+    if (dockerRuntime) {
+      agentService.runtime = dockerRuntime;
+      logger.debug(`Set agent container runtime to: ${dockerRuntime} (from config: ${config.containerRuntime})`);
+    }
 
     // Some runtimes (e.g. gVisor) have a userspace netstack with an isolated
     // sandbox loopback that cannot reach Docker's embedded DNS at 127.0.0.11.

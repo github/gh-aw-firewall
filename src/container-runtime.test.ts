@@ -1,4 +1,4 @@
-import { resolveDockerRuntime, getRuntimeCapabilities, runtimeNeedsStaticDns } from './container-runtime';
+import { resolveDockerRuntime, getRuntimeCapabilities, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
 
 describe('container-runtime', () => {
   describe('resolveDockerRuntime', () => {
@@ -19,6 +19,7 @@ describe('container-runtime', () => {
       expect(caps).toBeDefined();
       expect(caps!.dockerRuntime).toBe('runsc');
       expect(caps!.needsStaticDns).toBe(true);
+      expect(caps!.executionModel).toBe('compose');
     });
 
     it('returns undefined for unknown runtimes', () => {
@@ -40,6 +41,21 @@ describe('container-runtime', () => {
     it('returns false for undefined/empty', () => {
       expect(runtimeNeedsStaticDns(undefined)).toBe(false);
       expect(runtimeNeedsStaticDns('')).toBe(false);
+    });
+  });
+
+  describe('runtimeUsesComposeAgent', () => {
+    it('returns true when no runtime is configured', () => {
+      expect(runtimeUsesComposeAgent(undefined)).toBe(true);
+    });
+
+    it('returns true for compose-model runtimes (gvisor)', () => {
+      expect(runtimeUsesComposeAgent('gvisor')).toBe(true);
+    });
+
+    it('returns true for unknown runtimes (assumed compose)', () => {
+      expect(runtimeUsesComposeAgent('kata')).toBe(true);
+      expect(runtimeUsesComposeAgent('runsc')).toBe(true);
     });
   });
 });
