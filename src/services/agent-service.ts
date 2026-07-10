@@ -164,6 +164,20 @@ export function buildAgentService(params: AgentServiceParams): any {
   if (config.containerRuntime) {
     agentService.runtime = config.containerRuntime;
     logger.debug(`Set agent container runtime to: ${config.containerRuntime}`);
+
+    // gVisor's userspace netstack has an isolated sandbox loopback that cannot
+    // reach Docker's embedded DNS at 127.0.0.11, so compose service name
+    // resolution fails (EAI_AGAIN). Inject static /etc/hosts entries for all
+    // compose-internal services the agent may need to reach by hostname.
+    // See: https://github.com/google/gvisor/issues/7469
+    if (!agentService.extra_hosts) {
+      agentService.extra_hosts = [];
+    }
+    agentService.extra_hosts.push(`squid-proxy:${networkConfig.squidIp}`);
+    if (networkConfig.proxyIp) {
+      agentService.extra_hosts.push(`api-proxy:${networkConfig.proxyIp}`);
+    }
+    logger.debug('Injected compose-internal service hosts for gVisor DNS compatibility');
   }
 
   return agentService;

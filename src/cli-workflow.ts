@@ -2,7 +2,7 @@ import { WrapperConfig } from './types';
 import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
-import { CLI_PROXY_IP, DOH_PROXY_IP } from './host-iptables-shared';
+import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptables-shared';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 
 interface WorkflowDependencies {
@@ -128,6 +128,15 @@ export async function runMainWorkflow(
           // See: https://github.com/google/gvisor/issues/7469
           if (config.containerRuntime) {
             const peerIps = await getTopologyContainerIps(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
+
+            // Also include compose-internal services whose hostnames the agent
+            // may need to resolve. Docker's embedded DNS (127.0.0.11) handles
+            // this normally, but gVisor's isolated loopback breaks it.
+            peerIps.set('squid-proxy', SQUID_IP);
+            if (config.enableApiProxy) {
+              peerIps.set('api-proxy', API_PROXY_IP);
+            }
+
             if (peerIps.size > 0) {
               patchComposeWithTopologyHosts(config.workDir, peerIps);
             }
