@@ -205,9 +205,7 @@ Run `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` â€
 
 ## Pre-Fetched PR Data
 
-```
-${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-```
+    ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 
 ## Output (MANDATORY)
 
