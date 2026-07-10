@@ -6,6 +6,7 @@ import {
 } from '../constants';
 import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
 import { buildRuntimeImageRef } from '../image-tag';
+import { resolveDockerRuntime, runtimeNeedsStaticDns } from '../container-runtime';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -165,39 +166,24 @@ export function buildAgentService(params: AgentServiceParams): any {
     agentService.runtime = resolveDockerRuntime(config.containerRuntime);
     logger.debug(`Set agent container runtime to: ${agentService.runtime} (from config: ${config.containerRuntime})`);
 
-    // gVisor's userspace netstack has an isolated sandbox loopback that cannot
-    // reach Docker's embedded DNS at 127.0.0.11, so compose service name
-    // resolution fails (EAI_AGAIN). Inject static /etc/hosts entries for all
+    // Some runtimes (e.g. gVisor) have a userspace netstack with an isolated
+    // sandbox loopback that cannot reach Docker's embedded DNS at 127.0.0.11.
+    // For these runtimes, inject static /etc/hosts entries for all
     // compose-internal services the agent may need to reach by hostname.
     // See: https://github.com/google/gvisor/issues/7469
-    if (!agentService.extra_hosts) {
-      agentService.extra_hosts = {};
+    if (runtimeNeedsStaticDns(config.containerRuntime)) {
+      if (!agentService.extra_hosts) {
+        agentService.extra_hosts = {};
+      }
+      agentService.extra_hosts['squid-proxy'] = networkConfig.squidIp;
+      if (networkConfig.proxyIp) {
+        agentService.extra_hosts['api-proxy'] = networkConfig.proxyIp;
+      }
+      logger.debug('Injected compose-internal service hosts for static DNS compatibility');
     }
-    agentService.extra_hosts['squid-proxy'] = networkConfig.squidIp;
-    if (networkConfig.proxyIp) {
-      agentService.extra_hosts['api-proxy'] = networkConfig.proxyIp;
-    }
-    logger.debug('Injected compose-internal service hosts for gVisor DNS compatibility');
   }
 
   return agentService;
-}
-
-// ─── Runtime Resolution ──────────────────────────────────────────────────────
-
-/** Maps user-facing runtime names to Docker OCI runtime identifiers. */
-const RUNTIME_MAP: Record<string, string> = {
-  gvisor: 'runsc',
-};
-
-/**
- * Translates a user-facing container runtime name (e.g. "gvisor") into the
- * corresponding Docker OCI runtime identifier (e.g. "runsc"). Values that
- * don't have a mapping are passed through unchanged, allowing direct use of
- * Docker runtime names when needed.
- */
-export function resolveDockerRuntime(runtime: string): string {
-  return RUNTIME_MAP[runtime] ?? runtime;
 }
 
 // ─── Image Selection ─────────────────────────────────────────────────────────

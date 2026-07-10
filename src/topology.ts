@@ -180,7 +180,7 @@ export async function getTopologyContainerIps(
 /**
  * Patches docker-compose.yml to add /etc/hosts entries for topology-attached
  * containers in the agent service. This bypasses Docker's embedded DNS
- * (127.0.0.11) which is unreachable from gVisor's isolated sandbox loopback.
+ * (127.0.0.11) for runtimes whose network stack cannot reach it (e.g. gVisor).
  *
  * Must be called AFTER topology containers are connected to the network
  * (so their IPs are known) and BEFORE the full `docker compose up` that
@@ -209,7 +209,7 @@ export function patchComposeWithTopologyHosts(
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
-  log.info(`Patched docker-compose.yml with ${peerIps.size} topology peer host(s) for gVisor DNS compatibility`);
+  log.info(`Patched docker-compose.yml with ${peerIps.size} topology peer host(s) for static DNS compatibility`);
 
   // Also patch the chroot hosts file. The agent runs chrooted to /host, so it
   // reads /host/etc/hosts — a pre-generated file mounted read-only from the host.

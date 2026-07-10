@@ -603,5 +603,22 @@ describe('agent service', () => {
 
       expect(agent.runtime).toBe('kata');
     });
+
+    it('should not inject compose-internal hosts for runtimes that do not need static DNS', () => {
+      const configWithRuntime = {
+        ...mockConfig,
+        containerRuntime: 'kata',
+        enableApiProxy: true,
+      };
+      const networkWithProxy = {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      };
+      const result = generateDockerCompose(configWithRuntime, networkWithProxy);
+      const agent = result.services.agent as any;
+
+      expect(agent.extra_hosts?.['squid-proxy']).toBeUndefined();
+      expect(agent.extra_hosts?.['api-proxy']).toBeUndefined();
+    });
   });
 });
