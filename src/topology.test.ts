@@ -2,6 +2,7 @@ import execa from 'execa';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as yaml from 'js-yaml';
 import {
   TOPOLOGY_NETWORK_NAME,
   assertTopologySupported,
@@ -215,14 +216,13 @@ describe('topology', () => {
           },
         },
       };
-      const yaml = require('js-yaml');
       fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
       const log = { info: jest.fn(), warn: jest.fn() };
 
       const peerIps = new Map([['mcp-gateway', '172.30.0.40']]);
       patchComposeWithTopologyHosts(tmpDir, peerIps, log);
 
-      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8'));
+      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8')) as any;
       expect(patched.services.agent.extra_hosts).toEqual({ 'mcp-gateway': '172.30.0.40' });
       // Verify hosts file was also patched
       const hostsContent = fs.readFileSync(hostsFile, 'utf8');
@@ -239,14 +239,13 @@ describe('topology', () => {
           },
         },
       };
-      const yaml = require('js-yaml');
       fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
       const log = { info: jest.fn(), warn: jest.fn() };
 
       const peerIps = new Map([['mcp-gateway', '172.30.0.40']]);
       patchComposeWithTopologyHosts(tmpDir, peerIps, log);
 
-      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8'));
+      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8')) as any;
       expect(patched.services.agent.extra_hosts).toEqual({
         'host.docker.internal': 'host-gateway',
         'mcp-gateway': '172.30.0.40',
@@ -255,7 +254,6 @@ describe('topology', () => {
 
     it('warns and returns when agent service is not found', () => {
       const compose = { services: { squid: {} } };
-      const yaml = require('js-yaml');
       fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
       const log = { info: jest.fn(), warn: jest.fn() };
 
