@@ -108,6 +108,7 @@ Prefer the narrowest match. Examples:
 - `EACCES: permission denied, mkdir '/tmp/gh-aw/...'` before containers start on a persistent runner → B8 (stale root-owned pre-flight dirs)
 - `FATAL: http_port: IPv6 is not available` → B3
 - `No CA certificates were loaded from the system` in chroot on RHEL/Fedora/Amazon Linux → B9 (missing /etc/pki/ mount)
+- `[WARN] Rootless artifact permission repair failed` with each attempt taking ~30 s (registry timeout, not instant) → B10 (compound tag@digest ref causes Docker to attempt GHCR manifest verification even under `--pull never`)
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
 - `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog)
@@ -127,6 +128,8 @@ A17 / github/gh-aw-firewall#5985, github/gh-aw-firewall#5986 — `build-tools` d
 B8 / github/gh-aw-firewall#5983 — Pre-flight EACCES on persistent runners from stale root-owned `/tmp/gh-aw/` dirs is **fixed** in AWF version including github/gh-aw-firewall#5983 (`preflight-reclaim.ts`). Workaround: `sudo rm -rf /tmp/gh-aw/sandbox`.
 
 B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible in chroot is **fixed** in AWF version including github/gh-aw-firewall#5783. Workaround: copy `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` to a chroot-visible path and set `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE`/`GIT_SSL_CAINFO`.
+
+B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair.
 
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
