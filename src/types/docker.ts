@@ -378,6 +378,18 @@ interface DockerService {
    * @example ['/tmp/awf-123:rw,noexec,nosuid,size=1m']
    */
   tmpfs?: string[];
+
+  /**
+   * OCI container runtime to use for this service
+   *
+   * When set, Docker Compose passes `--runtime=<value>` to the container engine.
+   * Requires the named runtime to be registered in the Docker daemon configuration
+   * (e.g., via `runsc install` for gVisor or kata-runtime for Kata Containers).
+   *
+   * @example 'runsc'   // gVisor
+   * @example 'kata'    // Kata Containers
+   */
+  runtime?: string;
 }
 
 /**

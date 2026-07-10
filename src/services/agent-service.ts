@@ -160,6 +160,12 @@ export function buildAgentService(params: AgentServiceParams): any {
 
   Object.assign(agentService, resolveAgentImageConfig(config, imageConfig));
 
+  // Set container runtime if specified (e.g., runsc for gVisor)
+  if (config.containerRuntime) {
+    agentService.runtime = config.containerRuntime;
+    logger.debug(`Set agent container runtime to: ${config.containerRuntime}`);
+  }
+
   return agentService;
 }
 

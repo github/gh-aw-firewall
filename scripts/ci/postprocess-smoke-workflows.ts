@@ -74,3 +74,22 @@ for (const workflowPath of codexWorkflowPaths) {
     console.log(`Skipping ${workflowPath}: no xpia.md changes needed.`);
   }
 }
+
+// ── gVisor workflow: inject --container-runtime runsc into the AWF command ────
+const gvisorLockPath = path.join(workflowsDir, 'smoke-gvisor.lock.yml');
+try {
+  let gvisorContent = fs.readFileSync(gvisorLockPath, 'utf-8');
+  // Insert --container-runtime runsc before --container-workdir on the awf command line.
+  // The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
+  const awfCmdPattern = /awf --config /g;
+  const replacedContent = gvisorContent.replace(awfCmdPattern, 'awf --container-runtime runsc --config ');
+  if (replacedContent !== gvisorContent) {
+    fs.writeFileSync(gvisorLockPath, replacedContent);
+    console.log(`  Injected --container-runtime runsc into AWF command`);
+    console.log(`Updated ${gvisorLockPath}`);
+  } else {
+    console.log(`Skipping ${gvisorLockPath}: no AWF command found to patch.`);
+  }
+} catch {
+  console.log(`Skipping ${gvisorLockPath}: file not found.`);
+}

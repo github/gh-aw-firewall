@@ -112,6 +112,7 @@ export interface AwfFileConfig {
     tty?: boolean;
     dockerHost?: string;
     dockerHostPathPrefix?: string;
+    containerRuntime?: string;
     runnerToolCachePath?: string;
     mounts?: string[];
   };

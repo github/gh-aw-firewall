@@ -531,4 +531,35 @@ describe('agent service', () => {
       }
     });
   });
+
+  describe('container runtime', () => {
+    it('should not set runtime when containerRuntime is not specified', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const agent = result.services.agent as any;
+
+      expect(agent.runtime).toBeUndefined();
+    });
+
+    it('should set runtime when containerRuntime is specified', () => {
+      const configWithRuntime = {
+        ...mockConfig,
+        containerRuntime: 'runsc',
+      };
+      const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
+      const agent = result.services.agent as any;
+
+      expect(agent.runtime).toBe('runsc');
+    });
+
+    it('should only set runtime on agent, not on squid', () => {
+      const configWithRuntime = {
+        ...mockConfig,
+        containerRuntime: 'runsc',
+      };
+      const result = generateDockerCompose(configWithRuntime, mockNetworkConfig);
+
+      expect((result.services.agent as any).runtime).toBe('runsc');
+      expect((result.services['squid-proxy'] as any).runtime).toBeUndefined();
+    });
+  });
 });

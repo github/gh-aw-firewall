@@ -100,4 +100,18 @@ export interface ContainerImageOptions {
    * @example '/host'
    */
   dockerHostPathPrefix?: string;
+
+  /**
+   * OCI container runtime for the agent container
+   *
+   * Sets the Docker Compose `runtime:` field on the agent service.
+   * The named runtime must be registered in the Docker daemon
+   * (e.g., `runsc` for gVisor, `kata` for Kata Containers).
+   *
+   * Only the agent container uses this runtime; infrastructure containers
+   * (squid, api-proxy, cli-proxy) always run under the default runtime.
+   *
+   * @example 'runsc'
+   */
+  containerRuntime?: string;
 }

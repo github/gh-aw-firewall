@@ -105,6 +105,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     tty: config.container?.tty,
     dockerHost: config.container?.dockerHost,
     dockerHostPathPrefix: config.container?.dockerHostPathPrefix,
+    containerRuntime: config.container?.containerRuntime,
     runnerToolCachePath: config.container?.runnerToolCachePath,
     mount: config.container?.mounts,
     chrootBinariesSourcePath: config.chroot?.binariesSourcePath,

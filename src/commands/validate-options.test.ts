@@ -96,6 +96,7 @@ const STUB_CONFIG = {
   awfDockerHost: undefined,
   upstreamProxy: undefined,
   dockerHostPathPrefix: undefined,
+  containerRuntime: undefined,
 } as unknown as import('../types').WrapperConfig;
 
 /** Returns a set of options that pass all validation checks. */

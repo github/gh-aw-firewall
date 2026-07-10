@@ -169,6 +169,11 @@ program
     '                                       Useful for split runner/daemon filesystems (e.g. ARC DinD).\n' +
     '                                       Example: /host'
   )
+  .option(
+    '--container-runtime <runtime>',
+    'OCI container runtime for the agent container (e.g. runsc for gVisor, kata for Kata).\n' +
+    '                                       The runtime must be registered in the Docker daemon config.'
+  )
 
   // -- Container Configuration --
   .option(

@@ -159,6 +159,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,
     dockerHostPathPrefix,
+    containerRuntime: options.containerRuntime as string | undefined,
     runnerTopology: options.runnerTopology as 'standard' | 'arc-dind' | undefined,
     sysrootImage: options.sysrootImage as string | undefined,
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,

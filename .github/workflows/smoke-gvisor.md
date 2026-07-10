@@ -64,10 +64,22 @@ jobs:
         run: |
           echo "::group::Check agent logs for gVisor runtime"
           LOG_DIR="/tmp/gh-aw-agent/sandbox/agent/logs"
-          if grep -R -qE 'Linux version .*gVisor' "$LOG_DIR" --include '*.log' 2>/dev/null; then
+          # Check for gVisor kernel signature in agent logs (written to /proc/version inside gVisor)
+          if grep -R -qE 'gVisor' "$LOG_DIR" --include '*.log' 2>/dev/null; then
             echo "✅ gVisor runtime confirmed in agent logs"
           else
-            echo "⚠️ Could not confirm gVisor runtime in logs (expected until AWF runtime plumbing is added)"
+            echo "⚠️ Could not confirm gVisor runtime in agent logs (gVisor may not write to captured logs)"
+            # Check the docker-compose.yml artifact for runtime: runsc
+            COMPOSE_FILE="/tmp/gh-aw-agent/sandbox/firewall/docker-compose.yml"
+            if [ -f "$COMPOSE_FILE" ] && grep -q 'runtime: runsc' "$COMPOSE_FILE"; then
+              echo "✅ runtime: runsc confirmed in docker-compose.yml"
+            elif [ -f "$COMPOSE_FILE" ]; then
+              echo "::error::runtime: runsc NOT found in docker-compose.yml"
+              grep -A2 'runtime' "$COMPOSE_FILE" || echo "(no runtime field found)"
+              exit 1
+            else
+              echo "⚠️ docker-compose.yml not found in artifacts"
+            fi
           fi
           echo "::endgroup::"
       - name: Token-usage sanity check
