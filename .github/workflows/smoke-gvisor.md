@@ -180,13 +180,13 @@ This workflow validates that AWF's network-isolation mode works correctly when t
 
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
-### 1. gVisor Runtime Verification
-The agent container should be running under gVisor. Verify by running:
-```bash
-cat /proc/version 2>/dev/null || echo "Cannot read /proc/version"
-dmesg 2>/dev/null | head -5 || echo "dmesg not available (expected under gVisor)"
-```
-Under gVisor, `/proc/version` may show a gVisor-specific kernel string or `dmesg` will be unavailable.
+### 1. gVisor Runtime Verification (best-effort)
+For now, the agent container is expected to be running under the default runtime (`runc`). Run the commands below and report **confirmed** only if you see a gVisor-specific kernel string; otherwise report **unconfirmed** (do not fail the run on this check until runtime plumbing is added).
+
+    cat /proc/version 2>/dev/null || echo "Cannot read /proc/version"
+    dmesg 2>/dev/null | head -5 || echo "dmesg not available (may occur under gVisor)"
+
+If `/proc/version` contains `gVisor`, mark runtime as confirmed; otherwise mark it as unconfirmed.
 
 ### 2. GitHub MCP Testing
 Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
