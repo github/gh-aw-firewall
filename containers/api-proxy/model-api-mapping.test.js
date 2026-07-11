@@ -26,6 +26,14 @@ describe('model-api-mapping', () => {
   });
 
   describe('lookupModelEndpoints', () => {
+    it('finds GPT-5.6 as supporting both endpoints', () => {
+      const result = lookupModelEndpoints('gpt-5.6-sol', 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('gpt-5.6');
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
+    });
+
     it('finds GPT-5.5 as responses-only', () => {
       const result = lookupModelEndpoints('gpt-5.5', 'openai');
       expect(result).not.toBeNull();
@@ -111,7 +119,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-07-09T06:32:34Z');
+      expect(reflect.last_updated).toBe('2026-07-11T06:00:54Z');
       expect(reflect.error).toBeNull();
     });
   });
