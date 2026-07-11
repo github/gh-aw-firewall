@@ -263,9 +263,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           }
 
           // For sbx, the microVM can't reach Docker internal IPs (172.30.0.x).
-          // Squid and api-proxy ports are published to the host, accessible via
-          // the sbx gateway IP (172.17.0.0 — the host from the microVM's perspective).
+          // Published Squid port (3128) is accessible via the sbx gateway IP.
+          // The api-proxy is on the awf-ext bridge network and reachable from
+          // inside the sbx via `host.docker.internal` (resolves to the docker0
+          // bridge IP, typically 172.17.0.1).
           const SBX_GATEWAY_IP = '172.17.0.0';
+          const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
 
           sbxEnvironment = buildAgentEnvironment({
             config,
@@ -273,7 +276,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
               subnet: '172.30.0.0/24',
               squidIp: SBX_GATEWAY_IP,
               agentIp: AGENT_IP,
-              proxyIp: config.enableApiProxy ? SBX_GATEWAY_IP : undefined,
+              proxyIp: config.enableApiProxy ? SBX_HOST_DOCKER_INTERNAL : undefined,
               dohProxyIp: config.dnsOverHttps ? DOH_PROXY_IP : undefined,
               cliProxyIp: config.difcProxyHost ? CLI_PROXY_IP : undefined,
             },
@@ -282,7 +285,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
           // Merge credential isolation env vars (COPILOT_API_URL, COPILOT_PROVIDER_BASE_URL, etc.)
           // In Docker mode these are merged by assembleOptionalServices during compose generation.
-          // For sbx, we call buildAgentCredentialEnv directly with the gateway IP as the proxy target.
+          // For sbx, we call buildAgentCredentialEnv directly with host.docker.internal
+          // as the proxy target (the api-proxy is on the awf-ext bridge network).
           if (config.enableApiProxy) {
             const credentialEnv = buildAgentCredentialEnv({
               config,
@@ -290,7 +294,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
                 subnet: '172.30.0.0/24',
                 squidIp: SBX_GATEWAY_IP,
                 agentIp: AGENT_IP,
-                proxyIp: SBX_GATEWAY_IP,
+                proxyIp: SBX_HOST_DOCKER_INTERNAL,
               },
             });
             Object.assign(sbxEnvironment, credentialEnv);
@@ -313,42 +317,28 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           });
 
           // Wait for api-proxy to be healthy before launching agent.
-          // In Docker mode, depends_on: service_healthy gates this; for sbx we poll.
+          // In Docker mode, depends_on: service_healthy gates this; for sbx we poll
+          // via host.docker.internal which resolves to the docker0 bridge from the VM.
           if (config.enableApiProxy) {
-            // Dump network diagnostics from host perspective
-            try {
-              const { execSync } = await import('child_process');
-              const ports = execSync('docker port awf-api-proxy 2>&1', { encoding: 'utf-8', timeout: 5000 });
-              logger.info(`[sbx-diag] api-proxy published ports:\n${ports}`);
-              const nets = execSync("docker inspect --format='{{json .NetworkSettings.Networks}}' awf-api-proxy 2>&1", { encoding: 'utf-8', timeout: 5000 });
-              logger.info(`[sbx-diag] api-proxy networks: ${nets.trim()}`);
-              // Test from HOST if api-proxy is reachable on localhost
-              const hostCurl = execSync('curl -sf --max-time 2 http://localhost:10000/health 2>&1 || echo "host-curl-failed"', { encoding: 'utf-8', timeout: 5000 });
-              logger.info(`[sbx-diag] host→api-proxy:10000/health: ${hostCurl.trim()}`);
-            } catch { /* ignore */ }
+            logger.info('[sbx] Polling api-proxy health via host.docker.internal...');
+            const healthCmd = [
+              'for i in $(seq 1 30); do',
+              `  if curl -sf --max-time 2 http://${SBX_HOST_DOCKER_INTERNAL}:10000/health >/dev/null 2>&1; then`,
+              '    echo "api-proxy healthy after ${i}s"; exit 0;',
+              '  fi;',
+              '  sleep 1;',
+              'done;',
+              'echo "api-proxy health timeout"; exit 1',
+            ].join(' ');
 
-            logger.info('[sbx] Waiting for api-proxy health from sbx...');
-            // Quick diagnostic: try multiple IPs from inside sbx to find which one reaches api-proxy
-            const diagPortCmd = [
-              `echo "Trying gateway ${SBX_GATEWAY_IP}:10000..."`,
-              `curl -sf --max-time 3 http://${SBX_GATEWAY_IP}:10000/health && echo "OK" || echo "FAIL"`,
-              'echo "Trying 10.0.2.2:10000 (QEMU host)..."',
-              'curl -sf --max-time 3 http://10.0.2.2:10000/health && echo "OK" || echo "FAIL"',
-              'echo "Trying 172.17.0.1:10000 (docker0 bridge)..."',
-              'curl -sf --max-time 3 http://172.17.0.1:10000/health && echo "OK" || echo "FAIL"',
-              `echo "Trying gateway ${SBX_GATEWAY_IP}:3128 (squid known-good)..."`,
-              `curl -sf --max-time 3 --proxy http://${SBX_GATEWAY_IP}:3128 -o /dev/null -w "%{http_code}" https://api.github.com/ && echo " OK" || echo " FAIL"`,
-              'echo "Network info:"',
-              'ip route 2>/dev/null || route -n 2>/dev/null || true',
-              'cat /etc/resolv.conf 2>/dev/null | head -3 || true',
-            ].join('; ');
-
-            const diagPortResult = await execInSandbox(sbxName, diagPortCmd, {
+            const healthResult = await execInSandbox(sbxName, healthCmd, {
               timeoutMinutes: 1,
               workDir: config.containerWorkDir,
               environment: sbxEnvironment,
             });
-            logger.info(`[sbx-diag] Port reachability from sbx (exit=${diagPortResult.exitCode})`);
+            if (healthResult.exitCode !== 0) {
+              logger.warn('[sbx] api-proxy health check failed — proceeding anyway');
+            }
           }
 
           // Verify squid proxy is reachable from sandbox
