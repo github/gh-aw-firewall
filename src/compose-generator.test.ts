@@ -359,6 +359,26 @@ describe('generateDockerCompose', () => {
         expect(ports).toContain('10003:10003');
         expect(ports).toContain('10004:10004');
       });
+
+      it('attaches api-proxy to awf-ext in network-isolation mode for port publishing', () => {
+        const config = {
+          ...mockConfig,
+          containerRuntime: 'sbx',
+          runnerTopology: 'arc-dind' as const,
+          networkIsolation: true,
+          enableApiProxy: true,
+        };
+        const networkWithProxy = {
+          ...mockNetworkConfig,
+          proxyIp: '172.30.0.30',
+        };
+        const result = generateDockerCompose(config, networkWithProxy);
+
+        expect(result.services['api-proxy']).toBeDefined();
+        const networks = result.services['api-proxy'].networks as Record<string, any>;
+        expect(networks['awf-ext']).toBeDefined();
+        expect(result.services['api-proxy'].ports).toContain('10002:10002');
+      });
     });
 
     describe('host-gateway IP passthrough (AWF_HOST_GATEWAY_IP)', () => {

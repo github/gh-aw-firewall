@@ -137,6 +137,10 @@ export function generateDockerCompose(
   // When the agent runs in a microVM (e.g. sbx), it can't reach Docker-internal
   // IPs (172.30.0.x).  Publish api-proxy ports to the host so the microVM can
   // reach them via its gateway IP.  (Squid already has ports published.)
+  //
+  // In network-isolation mode the internal network blocks host→container traffic,
+  // so we also attach api-proxy to the external bridge (`awf-ext`) — same as
+  // Squid — so published ports are reachable from outside Docker.
   if (!includeAgent && services['api-proxy']) {
     const proxyService = services['api-proxy'];
     if (!proxyService.ports) {
@@ -144,6 +148,13 @@ export function generateDockerCompose(
     }
     for (const port of Object.values(API_PROXY_PORTS)) {
       proxyService.ports.push(`${port}:${port}`);
+    }
+    // Attach to external network so port publishing works with internal awf-net
+    if (config.networkIsolation) {
+      proxyService.networks = {
+        ...(proxyService.networks || {}),
+        'awf-ext': {},
+      };
     }
   }
 
