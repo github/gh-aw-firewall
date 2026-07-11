@@ -34,6 +34,12 @@ import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP } from '../host-iptables-shared';
 
+/** Report whether a secret is set (and its length) without exposing the value. */
+function redactSecret(value: string | undefined): string {
+  if (!value) return '(unset)';
+  return `(set, len=${value.length})`;
+}
+
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
   'anthropicApiKey',
@@ -300,13 +306,13 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             Object.assign(sbxEnvironment, credentialEnv);
           }
 
-          // Log critical env vars for debugging auth flow
+          // Log critical env vars for debugging auth flow (redact secret values)
           logger.info(`[sbx-env] COPILOT_API_URL=${sbxEnvironment.COPILOT_API_URL || '(unset)'}`);
           logger.info(`[sbx-env] COPILOT_PROVIDER_BASE_URL=${sbxEnvironment.COPILOT_PROVIDER_BASE_URL || '(unset)'}`);
-          logger.info(`[sbx-env] COPILOT_GITHUB_TOKEN=${sbxEnvironment.COPILOT_GITHUB_TOKEN ? '(set, len=' + sbxEnvironment.COPILOT_GITHUB_TOKEN.length + ')' : '(unset)'}`);
-          logger.info(`[sbx-env] COPILOT_API_KEY=${sbxEnvironment.COPILOT_API_KEY ? '(set, len=' + sbxEnvironment.COPILOT_API_KEY.length + ')' : '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_GITHUB_TOKEN=${redactSecret(sbxEnvironment.COPILOT_GITHUB_TOKEN)}`);
+          logger.info(`[sbx-env] COPILOT_API_KEY=${redactSecret(sbxEnvironment.COPILOT_API_KEY)}`);
           logger.info(`[sbx-env] HTTPS_PROXY=${sbxEnvironment.HTTPS_PROXY || '(unset)'}`);
-          logger.info(`[sbx-env] COPILOT_PROVIDER_API_KEY=${sbxEnvironment.COPILOT_PROVIDER_API_KEY ? '(set)' : '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_PROVIDER_API_KEY=${redactSecret(sbxEnvironment.COPILOT_PROVIDER_API_KEY)}`);
 
           // Create the sandbox with configured mounts, proxy chaining through Squid
           const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
