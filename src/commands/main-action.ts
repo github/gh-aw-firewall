@@ -31,7 +31,7 @@ import { createSandbox, execInSandbox, removeSandbox, isSbxAvailable, SBX_DEFAUL
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
-import { AGENT_IP, API_PROXY_IP, CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP } from '../host-iptables-shared';
+import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP } from '../host-iptables-shared';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -261,13 +261,18 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             throw new Error('Docker sbx CLI not found. Install sbx to use --container-runtime sbx.');
           }
 
+          // For sbx, the microVM can't reach Docker internal IPs (172.30.0.x).
+          // Squid and api-proxy ports are published to the host, accessible via
+          // the sbx gateway IP (172.17.0.0 — the host from the microVM's perspective).
+          const SBX_GATEWAY_IP = '172.17.0.0';
+
           sbxEnvironment = buildAgentEnvironment({
             config,
             networkConfig: {
               subnet: '172.30.0.0/24',
-              squidIp: SQUID_IP,
+              squidIp: SBX_GATEWAY_IP,
               agentIp: AGENT_IP,
-              proxyIp: config.enableApiProxy ? API_PROXY_IP : undefined,
+              proxyIp: config.enableApiProxy ? SBX_GATEWAY_IP : undefined,
               dohProxyIp: config.dnsOverHttps ? DOH_PROXY_IP : undefined,
               cliProxyIp: config.difcProxyHost ? CLI_PROXY_IP : undefined,
             },
@@ -282,29 +287,20 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             extraMounts: config.volumeMounts,
           });
 
-          // Diagnostics: verify sandbox connectivity before running agent
-          logger.info('[sbx-diag] Running sandbox connectivity diagnostics...');
+          // Quick sanity check: verify proxy is reachable from inside the sandbox
+          logger.info('[sbx-diag] Verifying proxy connectivity from sandbox...');
           const diagCmd = [
-            'echo "=== sbx network ==="',
-            'cat /proc/net/route 2>/dev/null | head -5',
-            'cat /etc/resolv.conf 2>/dev/null',
-            'echo "=== DNS test ==="',
-            'nslookup api.github.com 2>&1 || echo "nslookup failed"',
-            'getent hosts api.github.com 2>&1 || echo "getent failed"',
-            'echo "=== curl with resolved IP (bypass DNS) ==="',
-            // GitHub's known IP — try direct TCP to bypass DNS
-            'curl -vvv --max-time 5 --resolve "api.github.com:443:140.82.112.6" https://api.github.com/ 2>&1 | tail -20 || echo "direct IP curl failed"',
-            'echo "=== try proxy at various host IPs ==="',
-            'for ip in 172.17.0.0 172.17.0.1; do echo -n "proxy $ip:3128 → "; curl -sS --max-time 3 --proxy "http://$ip:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1; echo ""; done',
-            'echo "=== sbx diagnostics complete ==="',
+            `echo -n "proxy ${SBX_GATEWAY_IP}:3128 → "`,
+            `curl -sS --max-time 5 --proxy "http://${SBX_GATEWAY_IP}:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1`,
+            'echo ""',
           ].join(' && ');
 
           const diagResult = await execInSandbox(sbxName, diagCmd, {
-            timeoutMinutes: 2,
+            timeoutMinutes: 1,
             workDir: config.containerWorkDir,
             environment: sbxEnvironment,
           });
-          logger.info(`[sbx-diag] Diagnostics exited with code ${diagResult.exitCode}`);
+          logger.info(`[sbx-diag] Proxy check exited with code ${diagResult.exitCode}`);
         }
       : startContainers;
 

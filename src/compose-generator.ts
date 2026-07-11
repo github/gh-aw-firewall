@@ -11,6 +11,7 @@ import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './s
 import { assembleOptionalServices } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
 import { runtimeUsesComposeAgent } from './container-runtime';
+import { API_PROXY_PORTS } from './types/ports';
 
 /**
  * Generates Docker Compose configuration
@@ -131,6 +132,20 @@ export function generateDockerCompose(
     initSignalDir,
     effectiveHome,
   });
+
+  // ── Publish infra ports for microVM runtimes ───────────────────────────────
+  // When the agent runs in a microVM (e.g. sbx), it can't reach Docker-internal
+  // IPs (172.30.0.x).  Publish api-proxy ports to the host so the microVM can
+  // reach them via its gateway IP.  (Squid already has ports published.)
+  if (!includeAgent && services['api-proxy']) {
+    const proxyService = services['api-proxy'];
+    if (!proxyService.ports) {
+      proxyService.ports = [];
+    }
+    for (const port of Object.values(API_PROXY_PORTS)) {
+      proxyService.ports.push(`${port}:${port}`);
+    }
+  }
 
   // ── Assemble and return the compose result ─────────────────────────────────
 

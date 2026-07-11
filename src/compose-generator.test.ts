@@ -336,6 +336,29 @@ describe('generateDockerCompose', () => {
         expect(result.services['sysroot-stage']).toBeUndefined();
         expect(result.volumes?.sysroot).toBeUndefined();
       });
+
+      it('publishes api-proxy ports when api-proxy is enabled', () => {
+        const config = {
+          ...mockConfig,
+          containerRuntime: 'sbx',
+          runnerTopology: 'arc-dind' as const,
+          networkIsolation: false,
+          enableApiProxy: true,
+        };
+        const networkWithProxy = {
+          ...mockNetworkConfig,
+          proxyIp: '172.30.0.30',
+        };
+        const result = generateDockerCompose(config, networkWithProxy);
+
+        expect(result.services['api-proxy']).toBeDefined();
+        const ports = result.services['api-proxy'].ports;
+        expect(ports).toContain('10000:10000');
+        expect(ports).toContain('10001:10001');
+        expect(ports).toContain('10002:10002');
+        expect(ports).toContain('10003:10003');
+        expect(ports).toContain('10004:10004');
+      });
     });
 
     describe('host-gateway IP passthrough (AWF_HOST_GATEWAY_IP)', () => {
