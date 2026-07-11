@@ -30,6 +30,7 @@ import { runtimeUsesComposeAgent } from '../container-runtime';
 import { createSandbox, execInSandbox, removeSandbox, isSbxAvailable, SBX_DEFAULT_NAME } from '../sbx-manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
+import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP } from '../host-iptables-shared';
 
@@ -278,6 +279,22 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             },
             dnsServers: config.dnsServers || DEFAULT_DNS_SERVERS,
           });
+
+          // Merge credential isolation env vars (COPILOT_API_URL, COPILOT_PROVIDER_BASE_URL, etc.)
+          // In Docker mode these are merged by assembleOptionalServices during compose generation.
+          // For sbx, we call buildAgentCredentialEnv directly with the gateway IP as the proxy target.
+          if (config.enableApiProxy) {
+            const credentialEnv = buildAgentCredentialEnv({
+              config,
+              networkConfig: {
+                subnet: '172.30.0.0/24',
+                squidIp: SBX_GATEWAY_IP,
+                agentIp: AGENT_IP,
+                proxyIp: SBX_GATEWAY_IP,
+              },
+            });
+            Object.assign(sbxEnvironment, credentialEnv);
+          }
 
           // Log critical env vars for debugging auth flow
           logger.info(`[sbx-env] COPILOT_API_URL=${sbxEnvironment.COPILOT_API_URL || '(unset)'}`);
