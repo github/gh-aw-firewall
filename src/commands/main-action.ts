@@ -285,20 +285,17 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           // Diagnostics: verify sandbox connectivity before running agent
           logger.info('[sbx-diag] Running sandbox connectivity diagnostics...');
           const diagCmd = [
-            'echo "=== sbx diagnostics ==="',
-            'echo "hostname: $(hostname)"',
-            'echo "whoami: $(whoami)"',
-            'echo "=== network ==="',
-            'cat /proc/net/route 2>/dev/null || echo "no route table"',
-            'ip route 2>/dev/null || route -n 2>/dev/null || echo "no routing commands"',
-            'cat /etc/hosts 2>/dev/null || echo "no /etc/hosts"',
-            'cat /etc/resolv.conf 2>/dev/null || echo "no resolv.conf"',
-            'echo "=== gateway test ==="',
-            // Try common sbx gateway patterns to find how to reach the host
-            'for ip in 192.168.127.1 10.0.2.2 172.17.0.1 host.docker.internal; do echo -n "$ip: "; curl -sS --max-time 3 --proxy "http://$ip:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1 || echo "fail"; done',
-            'echo ""',
-            'echo "=== direct outbound ==="',
-            'curl -sS --max-time 5 -o /dev/null -w "direct https: %{http_code} (%{time_total}s)\\n" https://api.github.com/ 2>&1 || echo "direct FAILED"',
+            'echo "=== sbx network ==="',
+            'cat /proc/net/route 2>/dev/null | head -5',
+            'cat /etc/resolv.conf 2>/dev/null',
+            'echo "=== DNS test ==="',
+            'nslookup api.github.com 2>&1 || echo "nslookup failed"',
+            'getent hosts api.github.com 2>&1 || echo "getent failed"',
+            'echo "=== curl with resolved IP (bypass DNS) ==="',
+            // GitHub's known IP — try direct TCP to bypass DNS
+            'curl -vvv --max-time 5 --resolve "api.github.com:443:140.82.112.6" https://api.github.com/ 2>&1 | tail -20 || echo "direct IP curl failed"',
+            'echo "=== try proxy at various host IPs ==="',
+            'for ip in 172.17.0.0 172.17.0.1; do echo -n "proxy $ip:3128 → "; curl -sS --max-time 3 --proxy "http://$ip:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1; echo ""; done',
             'echo "=== sbx diagnostics complete ==="',
           ].join(' && ');
 
