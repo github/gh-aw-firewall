@@ -109,7 +109,7 @@ Prefer the narrowest match. Examples:
 - `FATAL: http_port: IPv6 is not available` → B3
 - `No CA certificates were loaded from the system` in chroot on RHEL/Fedora/Amazon Linux → B9 (missing /etc/pki/ mount)
 - `[WARN] Rootless artifact permission repair failed` with each attempt taking ~30 s (registry timeout, not instant) → B10 (compound tag@digest ref causes Docker to attempt GHCR manifest verification even under `--pull never`)
-- `[WARN] Rootless artifact permission repair failed ... (exit 1)` with no stderr detail, followed by `Command completed with exit code: 1` despite apparent agent success → B11 (repair container stderr not captured; chroot-home removal failure escalated to fatal exit)
+- `[WARN] Rootless artifact permission repair failed ... (exit 1)` with little/no stderr detail, plus cleanup warnings around chroot-home removal and `Command completed with exit code: 1` → B11 (repair warning lacked stderr context; non-zero exit originates from agent command, not cleanup)
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
 - `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog)
@@ -132,7 +132,7 @@ B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible i
 
 B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair.
 
-B11 / github/gh-aw-firewall#6072 — Repair container stderr not captured and chroot-home removal failure escalated to exit 1 is **fixed in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**. Stderr is now included in the `[WARN]` message; chroot-home removal failure is downgraded to `debug`.
+B11 / github/gh-aw-firewall#6072 — Rootless permission-repair diagnostics were too opaque and could mislead triage when the agent already exited non-zero. **Improved in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**: repair-container stderr is now included in the `[WARN]` message, and chroot-home cleanup noise is reduced by downgrading that log to `debug`.
 
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
