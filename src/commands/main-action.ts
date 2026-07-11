@@ -279,6 +279,14 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             dnsServers: config.dnsServers || DEFAULT_DNS_SERVERS,
           });
 
+          // Log critical env vars for debugging auth flow
+          logger.info(`[sbx-env] COPILOT_API_URL=${sbxEnvironment.COPILOT_API_URL || '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_PROVIDER_BASE_URL=${sbxEnvironment.COPILOT_PROVIDER_BASE_URL || '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_GITHUB_TOKEN=${sbxEnvironment.COPILOT_GITHUB_TOKEN ? '(set, len=' + sbxEnvironment.COPILOT_GITHUB_TOKEN.length + ')' : '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_API_KEY=${sbxEnvironment.COPILOT_API_KEY ? '(set, len=' + sbxEnvironment.COPILOT_API_KEY.length + ')' : '(unset)'}`);
+          logger.info(`[sbx-env] HTTPS_PROXY=${sbxEnvironment.HTTPS_PROXY || '(unset)'}`);
+          logger.info(`[sbx-env] COPILOT_PROVIDER_API_KEY=${sbxEnvironment.COPILOT_PROVIDER_API_KEY ? '(set)' : '(unset)'}`);
+
           // Create the sandbox with configured mounts, proxy chaining through Squid
           const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
           sbxName = await createSandbox({
@@ -287,11 +295,14 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             extraMounts: config.volumeMounts,
           });
 
-          // Quick sanity check: verify proxy is reachable from inside the sandbox
+          // Quick sanity check: verify proxy and api-proxy are reachable from sandbox
           logger.info('[sbx-diag] Verifying proxy connectivity from sandbox...');
           const diagCmd = [
-            `echo -n "proxy ${SBX_GATEWAY_IP}:3128 → "`,
+            `echo -n "squid ${SBX_GATEWAY_IP}:3128 → "`,
             `curl -sS --max-time 5 --proxy "http://${SBX_GATEWAY_IP}:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1`,
+            'echo ""',
+            `echo -n "api-proxy ${SBX_GATEWAY_IP}:10002 → "`,
+            `curl -sS --max-time 5 -o /dev/null -w "%{http_code}" http://${SBX_GATEWAY_IP}:10002/ 2>&1`,
             'echo ""',
           ].join(' && ');
 
@@ -300,7 +311,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             workDir: config.containerWorkDir,
             environment: sbxEnvironment,
           });
-          logger.info(`[sbx-diag] Proxy check exited with code ${diagResult.exitCode}`);
+          logger.info(`[sbx-diag] Connectivity check exited with code ${diagResult.exitCode}`);
         }
       : startContainers;
 
