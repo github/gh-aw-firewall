@@ -312,14 +312,35 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             extraMounts: config.volumeMounts,
           });
 
-          // Quick sanity check: verify proxy and api-proxy are reachable from sandbox
-          logger.info('[sbx-diag] Verifying proxy connectivity from sandbox...');
+          // Wait for api-proxy to be healthy before launching agent.
+          // In Docker mode, depends_on: service_healthy gates this; for sbx we poll.
+          if (config.enableApiProxy) {
+            logger.info('[sbx] Waiting for api-proxy health...');
+            const healthCmd = [
+              'for i in $(seq 1 30); do',
+              `  if curl -sf --max-time 2 http://${SBX_GATEWAY_IP}:10000/health >/dev/null 2>&1; then`,
+              '    echo "api-proxy healthy after ${i}s"; exit 0;',
+              '  fi;',
+              '  sleep 1;',
+              'done;',
+              'echo "api-proxy health timeout"; exit 1',
+            ].join(' ');
+
+            const healthResult = await execInSandbox(sbxName, healthCmd, {
+              timeoutMinutes: 1,
+              workDir: config.containerWorkDir,
+              environment: sbxEnvironment,
+            });
+            if (healthResult.exitCode !== 0) {
+              logger.warn('[sbx] api-proxy health check failed — proceeding anyway');
+            }
+          }
+
+          // Verify squid proxy is reachable from sandbox
+          logger.info('[sbx-diag] Verifying squid proxy connectivity...');
           const diagCmd = [
             `echo -n "squid ${SBX_GATEWAY_IP}:3128 → "`,
             `curl -sS --max-time 5 --proxy "http://${SBX_GATEWAY_IP}:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1`,
-            'echo ""',
-            `echo -n "api-proxy ${SBX_GATEWAY_IP}:10002 → "`,
-            `curl -sS --max-time 5 -o /dev/null -w "%{http_code}" http://${SBX_GATEWAY_IP}:10002/ 2>&1`,
             'echo ""',
           ].join(' && ');
 
@@ -344,6 +365,18 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             tty: config.tty,
           });
           logger.info(`[sbx] Agent command exited with code ${result.exitCode}`);
+
+          // Dump api-proxy logs for debugging connection issues
+          if (config.enableApiProxy && result.exitCode !== 0) {
+            try {
+              const { execSync } = await import('child_process');
+              const proxyLogs = execSync('docker logs --tail 80 awf-api-proxy 2>&1', { encoding: 'utf-8', timeout: 10000 });
+              logger.info(`[sbx-diag] api-proxy logs:\n${proxyLogs}`);
+              const healthStatus = execSync('docker inspect --format={{.State.Health.Status}} awf-api-proxy 2>&1', { encoding: 'utf-8', timeout: 5000 });
+              logger.info(`[sbx-diag] api-proxy health status: ${healthStatus.trim()}`);
+            } catch { /* ignore diagnostic failures */ }
+          }
+
           return { exitCode: result.exitCode, blockedDomains: [] as string[] };
         }
       : runAgentCommand;
