@@ -315,25 +315,40 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           // Wait for api-proxy to be healthy before launching agent.
           // In Docker mode, depends_on: service_healthy gates this; for sbx we poll.
           if (config.enableApiProxy) {
-            logger.info('[sbx] Waiting for api-proxy health...');
-            const healthCmd = [
-              'for i in $(seq 1 30); do',
-              `  if curl -sf --max-time 2 http://${SBX_GATEWAY_IP}:10000/health >/dev/null 2>&1; then`,
-              '    echo "api-proxy healthy after ${i}s"; exit 0;',
-              '  fi;',
-              '  sleep 1;',
-              'done;',
-              'echo "api-proxy health timeout"; exit 1',
-            ].join(' ');
+            // Dump network diagnostics from host perspective
+            try {
+              const { execSync } = await import('child_process');
+              const ports = execSync('docker port awf-api-proxy 2>&1', { encoding: 'utf-8', timeout: 5000 });
+              logger.info(`[sbx-diag] api-proxy published ports:\n${ports}`);
+              const nets = execSync("docker inspect --format='{{json .NetworkSettings.Networks}}' awf-api-proxy 2>&1", { encoding: 'utf-8', timeout: 5000 });
+              logger.info(`[sbx-diag] api-proxy networks: ${nets.trim()}`);
+              // Test from HOST if api-proxy is reachable on localhost
+              const hostCurl = execSync('curl -sf --max-time 2 http://localhost:10000/health 2>&1 || echo "host-curl-failed"', { encoding: 'utf-8', timeout: 5000 });
+              logger.info(`[sbx-diag] host→api-proxy:10000/health: ${hostCurl.trim()}`);
+            } catch { /* ignore */ }
 
-            const healthResult = await execInSandbox(sbxName, healthCmd, {
+            logger.info('[sbx] Waiting for api-proxy health from sbx...');
+            // Quick diagnostic: try multiple IPs from inside sbx to find which one reaches api-proxy
+            const diagPortCmd = [
+              `echo "Trying gateway ${SBX_GATEWAY_IP}:10000..."`,
+              `curl -sf --max-time 3 http://${SBX_GATEWAY_IP}:10000/health && echo "OK" || echo "FAIL"`,
+              'echo "Trying 10.0.2.2:10000 (QEMU host)..."',
+              'curl -sf --max-time 3 http://10.0.2.2:10000/health && echo "OK" || echo "FAIL"',
+              'echo "Trying 172.17.0.1:10000 (docker0 bridge)..."',
+              'curl -sf --max-time 3 http://172.17.0.1:10000/health && echo "OK" || echo "FAIL"',
+              `echo "Trying gateway ${SBX_GATEWAY_IP}:3128 (squid known-good)..."`,
+              `curl -sf --max-time 3 --proxy http://${SBX_GATEWAY_IP}:3128 -o /dev/null -w "%{http_code}" https://api.github.com/ && echo " OK" || echo " FAIL"`,
+              'echo "Network info:"',
+              'ip route 2>/dev/null || route -n 2>/dev/null || true',
+              'cat /etc/resolv.conf 2>/dev/null | head -3 || true',
+            ].join('; ');
+
+            const diagPortResult = await execInSandbox(sbxName, diagPortCmd, {
               timeoutMinutes: 1,
               workDir: config.containerWorkDir,
               environment: sbxEnvironment,
             });
-            if (healthResult.exitCode !== 0) {
-              logger.warn('[sbx] api-proxy health check failed — proceeding anyway');
-            }
+            logger.info(`[sbx-diag] Port reachability from sbx (exit=${diagPortResult.exitCode})`);
           }
 
           // Verify squid proxy is reachable from sandbox
