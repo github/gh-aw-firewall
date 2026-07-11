@@ -68,6 +68,7 @@ function createWebSocketTunnel({
     requestId,
     startTime,
     upstreamPath,
+    onSocketsReady,
   }) {
     const { finalize, abort } = createProxyErrorResponder({
       metrics,
@@ -134,6 +135,10 @@ function createWebSocketTunnel({
         tlsSocket.write(upgradeReqStr);
 
         if (head && head.length > 0) tlsSocket.write(head);
+
+        if (typeof onSocketsReady === 'function') {
+          onSocketsReady(socket, tlsSocket);
+        }
 
         tlsSocket.pipe(socket);
         socket.pipe(tlsSocket);

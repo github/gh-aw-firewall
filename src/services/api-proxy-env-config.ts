@@ -5,6 +5,8 @@ import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 
+const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
+
 /**
  * Builds provider API target/basePath environment variables for the api-proxy container.
  * Centralizes the repetitive per-provider target/basePath conditional env generation.
@@ -67,6 +69,16 @@ function resolveProviderSessionId(config: WrapperConfig): string | undefined {
   return normalizedValue || undefined;
 }
 
+export function resolveApiProxyShutdownTimeoutMs(config: WrapperConfig): number {
+  const rawValue = getConfigEnvValue(config, 'AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS')
+    ?? process.env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS;
+  const parsedValue = Number.parseInt(rawValue || '', 10);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS;
+  }
+  return parsedValue;
+}
+
 /**
  * Builds API credential environment variables for the api-proxy sidecar.
  * These keys are passed securely to the sidecar and are NOT visible to the agent container.
@@ -114,6 +126,7 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
     // token-usage.jsonl _schema field reflects the api-proxy image version rather than
     // the CLI version. This ensures correct versioning when --image-tag pins the proxy
     // to a different release.
+    AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS: String(resolveApiProxyShutdownTimeoutMs(config)),
   };
 }
 
@@ -306,4 +319,5 @@ export const testHelpers = {
   buildRateLimitEnv,
   buildModelPolicyEnv,
   buildOidcEnv,
+  resolveApiProxyShutdownTimeoutMs,
 };

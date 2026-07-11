@@ -12,6 +12,7 @@ const {
   validateTokenUsageRecord,
   writeTokenUsage,
   closeLogStream,
+  TOKEN_LOG_FILE,
 } = require('./token-tracker');
 const {
   buildTokenUsageRecord,
@@ -187,7 +188,12 @@ function makeMockStream() {
   const chunks = [];
   const stream = {
     writableEnded: false,
-    write: jest.fn((chunk) => { chunks.push(chunk); return true; }),
+    fd: 123,
+    write: jest.fn((chunk, cb) => {
+      chunks.push(chunk);
+      if (typeof cb === 'function') cb();
+      return true;
+    }),
     end: jest.fn((cb) => { stream.writableEnded = true; if (cb) cb(); }),
     on: jest.fn(),
     get writtenRecords() {
@@ -244,6 +250,62 @@ describe('token-usage JSONL record schema field', () => {
     const parsed = mockStream.writtenRecords[0];
     expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
     expect(parsed.request_id).toBe('direct-write-test');
+  });
+
+  test('writeTokenUsage fdatasyncs the stream fd after a successful write callback', () => {
+    const fdatasyncSyncSpy = jest.spyOn(fs, 'fdatasyncSync').mockImplementation(() => undefined);
+    const record = {
+      _schema: 'token-usage/v0.0.0',
+      timestamp: new Date().toISOString(),
+      event: 'token_usage',
+      request_id: 'fdatasync-test',
+      provider: 'openai',
+      model: 'gpt-4o',
+      path: '/v1/chat/completions',
+      status: 200,
+      streaming: false,
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      duration_ms: 10,
+    };
+
+    try {
+      writeTokenUsage(record);
+      expect(fdatasyncSyncSpy).toHaveBeenCalledWith(123);
+    } finally {
+      fdatasyncSyncSpy.mockRestore();
+    }
+  });
+
+  test('writeTokenUsage swallows fdatasync failures after the write callback', () => {
+    const fdatasyncSyncSpy = jest.spyOn(fs, 'fdatasyncSync').mockImplementation(() => {
+      throw new Error('disk flush failed');
+    });
+    const record = {
+      _schema: 'token-usage/v0.0.0',
+      timestamp: new Date().toISOString(),
+      event: 'token_usage',
+      request_id: 'fdatasync-error-test',
+      provider: 'openai',
+      model: 'gpt-4o',
+      path: '/v1/chat/completions',
+      status: 200,
+      streaming: false,
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      duration_ms: 10,
+    };
+
+    try {
+      expect(() => writeTokenUsage(record)).not.toThrow();
+      expect(fdatasyncSyncSpy).toHaveBeenCalledWith(123);
+    } finally {
+      fdatasyncSyncSpy.mockRestore();
+    }
   });
 
   test('trackTokenUsage HTTP path writes versioned _schema to the stream', (done) => {
@@ -437,6 +499,26 @@ describe('token-usage JSONL record schema field', () => {
       expect(parsed.ai_credits_total).toBeUndefined();
       done();
     }, 20);
+  });
+});
+
+describe('token-usage file sentinel', () => {
+  test('creates token-usage.jsonl even before first usage record', async () => {
+    await closeLogStream();
+    if (fs.existsSync(TOKEN_LOG_FILE)) {
+      fs.unlinkSync(TOKEN_LOG_FILE);
+    }
+
+    let isolated;
+    jest.isolateModules(() => {
+      isolated = require('./token-persistence');
+    });
+
+    try {
+      expect(fs.existsSync(isolated.TOKEN_LOG_FILE)).toBe(true);
+    } finally {
+      await isolated.closeLogStream();
+    }
   });
 });
 

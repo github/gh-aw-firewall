@@ -41,7 +41,9 @@ describe('API proxy split builders', () => {
     expect(service.container_name).toBe('awf-api-proxy');
     expect(service.environment.OPENAI_API_KEY).toBe('sk-test-openai-key');
     expect(service.environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
+    expect(service.environment.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS).toBe('8000');
     expect(service.image).toBe('ghcr.io/github/gh-aw-firewall/api-proxy:latest');
+    expect(service.stop_grace_period).toBe('10s');
   });
 
   it('buildApiProxyBaseEnv builds proxy routing and key env', () => {

@@ -58,6 +58,7 @@ function bootPrimary({
   }
 
   const adaptersToStart = registeredAdapters.filter(a => a.alwaysBind || a.isEnabled());
+  const startedServers = [];
   const expectedListeners = adaptersToStart.filter(a => a.participatesInValidation).length;
   let readyListeners = 0;
 
@@ -87,6 +88,7 @@ function bootPrimary({
 
   for (const adapter of adaptersToStart) {
     const server = createProviderServer(adapter);
+    startedServers.push(server);
     server.listen(adapter.port, '0.0.0.0', () => {
       logRequest('info', 'server_start', {
         message: `${adapter.name} proxy listening on port ${adapter.port}`,
@@ -98,8 +100,32 @@ function bootPrimary({
     });
   }
 
+  let shuttingDown = false;
   async function shutdownGracefully(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logRequest('info', 'shutdown', { message: `Received ${signal}, shutting down gracefully` });
+    const forceExitMs = Number.parseInt(process.env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS || '8000', 10);
+    const forceExitTimer = setTimeout(() => {
+      logRequest('warn', 'shutdown_force_exit', {
+        message: `Forced process exit after ${forceExitMs}ms shutdown timeout`,
+      });
+      process.exit(0);
+    }, Number.isFinite(forceExitMs) && forceExitMs > 0 ? forceExitMs : 8000);
+    forceExitTimer.unref();
+    await Promise.all(startedServers.map((server) => {
+      if (typeof server.shutdownConnections === 'function') {
+        return server.shutdownConnections();
+      }
+      return Promise.resolve();
+    }));
+    await Promise.all(startedServers.map((server) => new Promise((resolve) => {
+      try {
+        server.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    })));
     for (const adapter of registeredAdapters) {
       if (typeof adapter.getOidcProvider === 'function') {
         adapter.getOidcProvider()?.shutdown();
@@ -110,6 +136,7 @@ function bootPrimary({
     }
     await closeLogStream();
     await otelShutdown();
+    clearTimeout(forceExitTimer);
     process.exit(0);
   }
 

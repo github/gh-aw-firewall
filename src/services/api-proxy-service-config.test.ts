@@ -124,7 +124,19 @@ describe('API proxy sidecar: service configuration', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'] as any;
-        expect(proxy.stop_grace_period).toBe('2s');
+        expect(proxy.stop_grace_period).toBe('10s');
+      });
+
+      it('should size stop_grace_period from AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          additionalEnv: { AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS: '15000' },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'] as any;
+        expect(proxy.stop_grace_period).toBe('17s');
       });
 
       it('should set resource limits', () => {
@@ -303,5 +315,18 @@ describe('API proxy sidecar: service configuration', () => {
           if (savedEnv !== undefined) process.env.AWF_PROVIDER_SESSION_ID = savedEnv;
           else delete process.env.AWF_PROVIDER_SESSION_ID;
         }
+      });
+
+      it('should forward AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS from additionalEnv to api-proxy', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          additionalEnv: { AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS: '15000' },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS).toBe('15000');
       });
 });

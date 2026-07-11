@@ -70,7 +70,7 @@ function createProxyWebSocket({
    * @param {string} provider - Provider name for logging and metrics
    * @param {string} [basePath=''] - Optional base-path prefix
    */
-  return function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '') {
+  return function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '', lifecycleHooks = {}) {
     const startTime = Date.now();
     const clientRequestId = req.headers['x-request-id'];
     const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
@@ -122,6 +122,7 @@ function createProxyWebSocket({
       requestId,
       startTime,
       upstreamPath,
+      onSocketsReady: lifecycleHooks.onSocketsReady,
     });
   };
 }

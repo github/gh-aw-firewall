@@ -15,6 +15,7 @@ const {
   buildRateLimitEnv,
   buildModelPolicyEnv,
   buildOidcEnv,
+  resolveApiProxyShutdownTimeoutMs,
 } = testHelpers;
 
 const networkConfig = {
@@ -127,6 +128,29 @@ describe('buildProviderRoutingEnv', () => {
       additionalEnv: { COPILOT_INTEGRATION_ID: '   ' },
     });
     expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
+  });
+
+  it('forwards the default api-proxy shutdown timeout', () => {
+    const env = buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
+    expect(env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS).toBe('8000');
+  });
+});
+
+describe('resolveApiProxyShutdownTimeoutMs', () => {
+  it('prefers trimmed additionalEnv values', () => {
+    expect(resolveApiProxyShutdownTimeoutMs({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: { AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS: ' 15000 ' },
+    })).toBe(15000);
+  });
+
+  it('falls back to the default for invalid values', () => {
+    expect(resolveApiProxyShutdownTimeoutMs({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: { AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS: '0' },
+    })).toBe(8000);
   });
 });
 
