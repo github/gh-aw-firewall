@@ -30,7 +30,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('🩺 Runner Doctor');
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
-    expect(lock).toContain('github/gh-aw-actions/setup@bf7ba42ce6443bf79fa184c9c6a35de202690bfc');
+    expect(lock).toContain('github/gh-aw-actions/setup@99d9d888952ee25fce70c6b3120ca490d7d8da95');
   });
 
   it('keeps the shared catalog, workflow playbook, and portable agent aligned for new failure modes', () => {
