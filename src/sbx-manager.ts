@@ -117,24 +117,6 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   }
   logger.info('[sbx] Auth verified ✓');
 
-  // Debug: dump credential state to diagnose "secret not found" errors
-  logger.info(`[sbx] HOME=${process.env.HOME}, XDG_CONFIG_HOME=${process.env.XDG_CONFIG_HOME || '(unset)'}, XDG_DATA_HOME=${process.env.XDG_DATA_HOME || '(unset)'}`);
-  const credDir = `${process.env.HOME}/.local/state/sandboxes`;
-  try {
-    const lsResult = await execa('find', [credDir, '-type', 'f'], { stdio: ['ignore', 'pipe', 'pipe'], reject: false, timeout: 5000 });
-    logger.info(`[sbx] state files: ${(lsResult.stdout || '(empty)').trim()}`);
-  } catch { /* ignore */ }
-  // Also check ~/.config for sbx config/secrets
-  try {
-    const cfgResult = await execa('bash', ['-c', `find ~/.config -path '*sandbox*' -o -path '*sbx*' -o -path '*docker*' 2>/dev/null | head -20`], { stdio: ['ignore', 'pipe', 'pipe'], reject: false, timeout: 5000 });
-    logger.info(`[sbx] config files: ${(cfgResult.stdout || '(empty)').trim()}`);
-  } catch { /* ignore */ }
-  const dockerCfg = process.env.DOCKER_CONFIG || `${process.env.HOME}/.docker`;
-  try {
-    const dcResult = await execa('find', [dockerCfg, '-type', 'f'], { stdio: ['ignore', 'pipe', 'pipe'], reject: false, timeout: 5000 });
-    logger.info(`[sbx] docker config files: ${(dcResult.stdout || '(empty)').trim()}`);
-  } catch { /* ignore */ }
-
   const args = [
     'create',
     '--name', name,
@@ -145,10 +127,13 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // Add extra mounts passed from AWF config.
   // AWF uses Docker-style "host:container:mode" format but sbx uses positional
   // paths with optional :ro suffix (host path = container path in microVM).
+  const seenPaths = new Set<string>([config.workspaceDir]);
   if (config.extraMounts) {
     for (const mount of config.extraMounts) {
       const parts = mount.split(':');
       const hostPath = parts[0];
+      if (seenPaths.has(hostPath)) continue; // deduplicate
+      seenPaths.add(hostPath);
       // Determine mode: last segment is 'ro' or 'rw' if there are 2+ colons
       const mode = parts.length >= 3 ? parts[parts.length - 1] : (parts.length === 2 && (parts[1] === 'ro' || parts[1] === 'rw') ? parts[1] : undefined);
       if (mode === 'ro') {
@@ -159,24 +144,22 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     }
   }
 
-  // sbx create is a host-side management operation that needs Docker auth
-  // credentials (stored on disk by `sbx login`).  Only sbx exec (which runs
-  // inside the sandbox) gets the sanitized env.
-  // IMPORTANT: Do NOT set DOCKER_SANDBOXES_PROXY here — it gets picked up by
-  // the sbx CLI itself, routing its Docker Hub auth through Squid and breaking
-  // credential lookup.  The proxy is configured inside the sandbox via sbx exec --env.
-  // Use 'yes |' to auto-confirm interactive prompts (sbx checks isatty).
-  // Wrap in bash to handle broken pipe from 'yes' when sbx exits.
-  // Pass --debug for detailed diagnostics during iteration.
-  const debugArgs = ['--debug', ...args];
+  // Mount /tmp so agent runtime files (prompts, logs) are accessible.
+  // Also mount /usr/local/bin for Copilot CLI and other installed tools.
+  for (const sysPath of ['/tmp', '/usr/local/bin']) {
+    if (!seenPaths.has(sysPath)) {
+      seenPaths.add(sysPath);
+      args.push(sysPath);
+    }
+  }
+
   // Unset XDG_CONFIG_HOME inside bash (AWF step sets it to $HOME which breaks
-  // sbx credential lookup). Also unset DOCKER_SANDBOXES_PROXY.
-  const shellCmd = `unset XDG_CONFIG_HOME DOCKER_SANDBOXES_PROXY; yes | sbx ${debugArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}; SBX_EXIT=$?; echo "SBX_EXIT_CODE=$SBX_EXIT"; exit $SBX_EXIT`;
-  logger.info(`[sbx] Running: yes | sbx ${debugArgs.join(' ')}`);
-  logger.info(`[sbx] XDG_CONFIG_HOME in process.env: ${process.env.XDG_CONFIG_HOME || '(unset)'}`);
+  // sbx credential lookup — sbx stores secrets at ~/.config/sandboxes/).
+  // Also unset DOCKER_SANDBOXES_PROXY to prevent routing through Squid.
+  const shellCmd = `unset XDG_CONFIG_HOME DOCKER_SANDBOXES_PROXY; yes | sbx ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}; SBX_EXIT=$?; echo "SBX_EXIT_CODE=$SBX_EXIT"; exit $SBX_EXIT`;
+  logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
   const createResult = await execa('bash', ['-c', shellCmd], {
-    // Don't override env — let Node inherit naturally, bash unset handles conflicts
     stdio: ['ignore', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
