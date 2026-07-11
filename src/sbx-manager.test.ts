@@ -15,12 +15,10 @@ describe('sbx-manager', () => {
   });
 
   describe('createSandbox', () => {
-    it('uses shell agent, configured mounts, and daemon proxy restart', async () => {
+    it('uses shell agent, configured mounts, and sanitized env', async () => {
       mockExecaFn
-        .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'not running' }) // daemon status
-        .mockResolvedValueOnce({ exitCode: 0, stdout: 'started', stderr: '' }) // daemon start
-        .mockResolvedValueOnce({ exitCode: 0, stdout: '{}', stderr: '' }) // daemon status verify
-        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }); // sbx create
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // auth check
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' }); // sbx create
 
       await createSandbox({
         name: 'awf-agent-test',
@@ -34,12 +32,15 @@ describe('sbx-manager', () => {
         '--name', 'awf-agent-test',
         'shell',
         '/workspace',
-        '/tmp/gh-aw:/tmp/gh-aw:ro',
-      ], expect.any(Object));
-
-      expect(mockExecaFn).toHaveBeenCalledWith('sbx', ['daemon', 'start'], expect.objectContaining({
-        env: expect.objectContaining({
-          DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128',
+        '/tmp/gh-aw:ro',
+        '/tmp',
+        '/usr/local/bin',
+        process.env.HOME || '/home/runner',
+      ], expect.objectContaining({
+        input: 'y\n',
+        env: expect.not.objectContaining({
+          XDG_CONFIG_HOME: expect.anything(),
+          DOCKER_SANDBOXES_PROXY: expect.anything(),
         }),
       }));
     });

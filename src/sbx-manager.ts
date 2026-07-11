@@ -155,23 +155,23 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     }
   }
 
-  // Unset XDG_CONFIG_HOME inside bash (AWF step sets it to $HOME which breaks
-  // sbx credential lookup — sbx stores secrets at ~/.config/sandboxes/).
-  // Also unset DOCKER_SANDBOXES_PROXY to prevent routing through Squid.
-  const shellCmd = `unset XDG_CONFIG_HOME DOCKER_SANDBOXES_PROXY; yes | sbx ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}; SBX_EXIT=$?; echo "SBX_EXIT_CODE=$SBX_EXIT"; exit $SBX_EXIT`;
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
-  const createResult = await execa('bash', ['-c', shellCmd], {
+  const env = sanitizeEnvForSbx();
+  delete env.XDG_CONFIG_HOME;
+  delete env.DOCKER_SANDBOXES_PROXY;
+
+  const createResult = await execa('sbx', args, {
+    env,
+    input: 'y\n',
     stdio: ['ignore', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
 
-  // 'yes |' causes broken pipe (exit 141) when sbx exits.
-  // Check if sbx actually succeeded by looking for the success message.
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();
-  const sbxSucceeded = stdout.includes('Created sandbox') || stdout.includes('SBX_EXIT_CODE=0');
+  const sbxSucceeded = stdout.includes('Created sandbox');
   const exitCode = createResult.exitCode ?? 1;
 
   if (exitCode !== 0 && !sbxSucceeded) {
@@ -287,4 +287,3 @@ export async function isSbxAvailable(): Promise<boolean> {
     return false;
   }
 }
-
