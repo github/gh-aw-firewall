@@ -198,7 +198,7 @@ jobs:
       - name: Install gh-aw
         uses: github/gh-aw-actions/setup-cli@99d9d888952ee25fce70c6b3120ca490d7d8da95 # v0.82.8
         with:
-          version: v0.82.7
+          version: v0.82.8
 
       - name: Run operation
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
