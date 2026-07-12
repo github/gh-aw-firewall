@@ -560,8 +560,8 @@ jobs:
 
           echo "::group::Install gVisor (runsc)"
           ARCH=$(uname -m)
-          URL="https://storage.googleapis.com/gvisor/releases/release/20250623.0/${ARCH}"
-          echo "Downloading runsc 20250623.0 for ${ARCH}..."
+          URL="https://storage.googleapis.com/gvisor/releases/release/20250707.0/${ARCH}"
+          echo "Downloading runsc 20250707.0 for ${ARCH}..."
           curl -fsSL "${URL}/runsc" -o /tmp/runsc
           curl -fsSL "${URL}/runsc.sha512" -o /tmp/runsc.sha512
           echo "Verifying SHA-512 for runsc..."
