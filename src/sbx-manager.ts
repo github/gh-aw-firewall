@@ -164,7 +164,7 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   const createResult = await execa('sbx', args, {
     env,
     input: 'y\n',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
