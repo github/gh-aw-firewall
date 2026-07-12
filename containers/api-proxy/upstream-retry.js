@@ -3,9 +3,10 @@
 function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   provider, requestId, hasRetried, onRetry,
   modelNotSupportedRetryCount, maxModelNotSupportedRetries, onModelNotSupportedRetry,
+  onModelEndpointBlockedRetry,
   completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
   parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
-  parseModelNotSupportedFromBody, logRequest, sanitizeForLog,
+  parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
   logRequestCompletion, logUpstreamAuthError, otel,
 }) {
   // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
@@ -23,7 +24,28 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     }
   }
 
-  // ── (b) Transient model-not-supported retry (copilot only, up to MAX) ──────
+  // ── (b) Permanent endpoint-blocked fallback (copilot only) ───────────────────
+  // When Copilot rejects a model because it is not accessible via the requested
+  // endpoint (e.g. gpt-5.4-mini on /chat/completions), this is a permanent
+  // per-model restriction — not a transient catalogue issue.  Try the next
+  // ranked candidate from the alias resolution if one is available.
+  if (
+    provider === 'copilot' &&
+    onModelEndpointBlockedRetry &&
+    parseModelEndpointBlockedFromBody(responseBody)
+  ) {
+    const { req } = authErrCtx;
+    logRequest('warn', 'model_endpoint_blocked_fallback', {
+      request_id: requestId,
+      provider,
+      path: sanitizeForLog(req.url),
+      message: 'Copilot returned 400 endpoint-not-accessible; falling back to next alias candidate',
+    });
+    const didRetry = onModelEndpointBlockedRetry();
+    if (didRetry) return true;
+  }
+
+  // ── (c) Transient model-not-supported retry (copilot only, up to MAX) ──────
   if (
     provider === 'copilot' &&
     modelNotSupportedRetryCount < maxModelNotSupportedRetries &&
@@ -41,7 +63,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     return true;
   }
 
-  // ── (c) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
+  // ── (d) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
   if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
     const { req } = authErrCtx;
     logRequest('error', 'model_unavailable', {

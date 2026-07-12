@@ -23,7 +23,7 @@ const { resolveModel } = require('./model-resolver');
  * @param {Record<string, string[]|null>} availableModels - Cached models per provider
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
- * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, log: string[], fallback?: object } | null}
+ * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, candidates: string[], log: string[], fallback?: object } | null}
  */
 function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig, modelPolicyConfig) {
   // Only attempt rewrite for non-empty bodies
@@ -38,7 +38,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig, modelPolicyConfig);
   if (!resolution) return null;
 
-  const { resolvedModel, log } = resolution;
+  const { resolvedModel, candidates, log } = resolution;
 
   // No rewrite needed if the model is already the resolved value
   if (resolvedModel === parsed.model) return null;
@@ -47,7 +47,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   parsed.model = resolvedModel;
   const newBody = Buffer.from(JSON.stringify(parsed), 'utf8');
 
-  return { body: newBody, originalModel, resolvedModel, log, fallback: resolution.fallback };
+  return { body: newBody, originalModel, resolvedModel, candidates, log, fallback: resolution.fallback };
 }
 
 module.exports = {

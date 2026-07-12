@@ -101,13 +101,18 @@ function getEffectiveModelFallbackForReflect(adapters) {
 function makeModelBodyTransform(provider, cachedModels, refreshProviderModelsForResolution) {
   if (!MODEL_ALIASES) return null;
   const providerModelFallback = getModelFallbackForProvider(provider);
-  return async (body) => {
+  return async (body, req) => {
     let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback, MODEL_POLICY_CONFIG);
     if (!result || (result.fallback && result.fallback.activated)) {
       await refreshProviderModelsForResolution(provider);
       result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, cachedModels, providerModelFallback, MODEL_POLICY_CONFIG);
     }
     if (!result) return null;
+    // Store ranked candidates on the request object so endpoint-blocked retry
+    // logic can fall back to the next candidate without re-resolving.
+    if (req && Array.isArray(result.candidates)) {
+      req.awfModelCandidates = result.candidates;
+    }
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
     const resolvedModel = sanitizeForLog(result.resolvedModel);
     if (providerModelFallback.enabled && result.fallback) {

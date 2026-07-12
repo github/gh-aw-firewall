@@ -156,7 +156,7 @@ function createBodyHandler({ handleRequestError, otel }) {
    */
   async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
-      const transformed = await bodyTransform(body);
+      const transformed = await bodyTransform(body, req);
       if (transformed) body = transformed;
     }
 

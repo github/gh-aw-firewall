@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseBodyAsObject } = require('./body-utils');
+
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
  * Index 0 → delay before the 1st retry, index 1 → delay before the 2nd retry.
@@ -53,6 +55,38 @@ function createSendUpstreamRequest({
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
             });
           });
+        },
+        onModelEndpointBlockedRetry: () => {
+          // The model resolved from the alias is not accessible via this endpoint
+          // (e.g. gpt-5.4-mini on Copilot /chat/completions).  Try the next
+          // ranked candidate stored on the request object during body transform.
+          const candidates = req.awfModelCandidates;
+          if (!Array.isArray(candidates) || candidates.length < 2) return false;
+
+          // Determine which model was sent in the current body.
+          const parsed = parseBodyAsObject(body);
+          const currentModel = parsed && parsed.model;
+          if (!currentModel) return false;
+
+          const currentIdx = candidates.indexOf(currentModel);
+          if (currentIdx < 0 || currentIdx >= candidates.length - 1) return false;
+
+          const nextModel = candidates[currentIdx + 1];
+
+          // Rewrite the body with the next candidate.
+          const newParsed = parseBodyAsObject(body);
+          if (!newParsed) return false;
+          newParsed.model = nextModel;
+          const newBody = Buffer.from(JSON.stringify(newParsed), 'utf8');
+
+          // Update the candidates list so if the next model also fails we can
+          // continue falling back (by shifting the current index forward).
+          sendUpstreamRequest(requestHeaders, {
+            body: newBody, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+            hasRetried,
+            modelNotSupportedRetryCount,
+          });
+          return true;
         },
       });
     });

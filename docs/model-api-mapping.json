@@ -35,7 +35,7 @@
           "family": "gpt-5.4",
           "patterns": ["gpt-5.4*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints. Includes gpt-5.4-mini, gpt-5.4-nano."
+          "notes": "Supports both endpoints on OpenAI. Includes gpt-5.4-mini, gpt-5.4-nano. NOTE: gpt-5.4-mini is not accessible via /chat/completions on the Copilot API (responses-only via Copilot); the api-proxy handles this by falling back to the next alias candidate."
         },
         {
           "family": "gpt-5.3",

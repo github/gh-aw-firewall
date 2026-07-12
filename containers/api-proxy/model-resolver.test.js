@@ -205,6 +205,16 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('claude-sonnet-4.6'); // 4.6 > 4.5
   });
 
+  it('should include ranked candidates list for endpoint-blocked fallback', () => {
+    // When an alias resolves to multiple candidates, all ranked candidates are
+    // returned so the caller can fall back to the next one if the first fails.
+    const result = resolveModel('sonnet', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    expect(Array.isArray(result.candidates)).toBe(true);
+    expect(result.candidates[0]).toBe('claude-sonnet-4.6'); // highest version first
+    expect(result.candidates).toContain('claude-sonnet-4.5'); // lower version available as fallback
+  });
+
   it('should resolve recursive aliases across multiple levels', () => {
     // "" → ["sonnet"] → ["copilot/*sonnet*"] → matches copilot models
     const result = resolveModel('', aliases, availableModels, 'copilot');

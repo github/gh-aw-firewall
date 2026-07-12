@@ -239,6 +239,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
   return {
     resolvedModel: resolved,
+    candidates: unique,
     log,
     fallback: fallbackConfig.enabled
       ? { activated: false, selection_method: 'middle_power_median', reason: 'normal_resolution_succeeded' }
@@ -262,7 +263,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
  * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
- * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
+ * @returns {{ resolvedModel: string, candidates: string[], log: string[], fallback?: object } | null}
  */
 function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK, modelPolicyConfig = null) {
   const log = [];
