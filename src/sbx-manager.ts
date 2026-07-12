@@ -157,24 +157,30 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
-  // Sanitize env to strip secrets (tokens, keys, passwords, etc.) so they
-  // never reach the sbx CLI or sandbox interior.
-  const env = sanitizeEnvForSbx();
-  // Remove DOCKER_SANDBOXES_PROXY during create — setting it here forces the
-  // sbx daemon to route Docker Hub registry auth through Squid, which blocks
-  // the pull. The proxy is set at exec time instead (via the daemon or env).
-  delete env.DOCKER_SANDBOXES_PROXY;
-  // Remove XDG_CONFIG_HOME to avoid confusing sbx credential lookup
-  // (the Copilot harness sets it to $HOME which is non-standard).
-  delete env.XDG_CONFIG_HOME;
+  // Do NOT pass a custom `env` to sbx create. The sanitized env (which strips
+  // vars matching TOKEN, SECRET, KEY, etc.) also strips variables the sbx CLI
+  // needs internally for credential lookup against the daemon's auth store.
+  // Since sbx create is a management command that talks to the local daemon
+  // (not user code running inside the sandbox), inheriting process.env is safe —
+  // these env vars never enter the sandbox interior. The sandbox interior's env
+  // is controlled separately by execInSandbox() which uses sanitizeEnvForSbx().
+  //
+  // DOCKER_SANDBOXES_PROXY must NOT be set during create — it forces the daemon
+  // to route Docker Hub registry auth through Squid, which isn't ready yet.
+  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  delete process.env.DOCKER_SANDBOXES_PROXY;
 
   const createResult = await execa('sbx', args, {
-    env,
     input: 'y\n',
     stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
+
+  // Restore DOCKER_SANDBOXES_PROXY
+  if (savedProxy !== undefined) {
+    process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+  }
 
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();
