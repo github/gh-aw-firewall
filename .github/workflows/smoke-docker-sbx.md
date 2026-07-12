@@ -41,6 +41,9 @@ safe-outputs:
     run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
 timeout-minutes: 15
 sandbox:
+  agent:
+    id: awf
+    runtime: docker-sbx
   mcp:
     version: v0.3.32
 strict: false

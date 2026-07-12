@@ -47,6 +47,9 @@ safe-outputs:
     run-failure: "🐳🏗️ [{workflow_name}]({run_url}) reports {status}. Docker sbx build compatibility issue detected."
 timeout-minutes: 30
 sandbox:
+  agent:
+    id: awf
+    runtime: docker-sbx
   mcp:
     version: v0.3.32
 strict: false
