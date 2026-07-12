@@ -67,7 +67,7 @@ describe('sbx-manager', () => {
       expect(result.PATH).toBe('/custom');
     });
 
-    it('overrides cannot smuggle secret keys', () => {
+    it('overrides take precedence even for secret-like key names', () => {
       // Overrides are applied after filtering, so explicit overrides DO appear
       const result = sanitizeEnvForSbx({ MY_TOKEN: 'override' });
       expect(result.MY_TOKEN).toBe('override');
@@ -104,11 +104,13 @@ describe('sbx-manager', () => {
         process.env.HOME || '/home/runner',
       ], expect.objectContaining({
         input: 'y\n',
-        env: expect.not.objectContaining({
-          XDG_CONFIG_HOME: expect.anything(),
-          DOCKER_SANDBOXES_PROXY: expect.anything(),
+        env: expect.objectContaining({
+          DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128',
         }),
       }));
+      // XDG_CONFIG_HOME must not reach the sbx CLI
+      const sbxCreateCallEnv: Record<string, string | undefined> = mockExecaFn.mock.calls[1][2].env;
+      expect(sbxCreateCallEnv).not.toMatchObject({ XDG_CONFIG_HOME: expect.anything() });
     });
 
     it('uses SBX_DEFAULT_NAME when no name provided', async () => {
@@ -121,7 +123,7 @@ describe('sbx-manager', () => {
         squidIp: '172.30.0.10',
       });
 
-      expect(name).toMatch(/^awf-agent-\d+$/);
+      expect(name).toBe(SBX_DEFAULT_NAME);
     });
 
     it('uses default squidPort 3128 when not specified', async () => {
@@ -131,8 +133,12 @@ describe('sbx-manager', () => {
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' });
 
-      expect(mockedLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('http://172.30.0.10:3128'),
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'sbx',
+        expect.arrayContaining(['create']),
+        expect.objectContaining({
+          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128' }),
+        }),
       );
     });
 
@@ -143,8 +149,12 @@ describe('sbx-manager', () => {
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10', squidPort: 8080 });
 
-      expect(mockedLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('http://172.30.0.10:8080'),
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'sbx',
+        expect.arrayContaining(['create']),
+        expect.objectContaining({
+          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:8080' }),
+        }),
       );
     });
 
