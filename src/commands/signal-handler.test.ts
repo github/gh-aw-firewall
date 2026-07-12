@@ -1,35 +1,10 @@
 import { registerSignalHandlers } from './signal-handler';
+import { flushPromises, createSignalHandlerTestHarness } from './signal-handler.test-utils';
 
 type SignalHandlerDependencies = Parameters<typeof registerSignalHandlers>[0];
 
-const flushPromises = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
-
 describe('registerSignalHandlers', () => {
-  let processOnSpy: jest.SpyInstance;
-  let processExitSpy: jest.SpyInstance;
-  let consoleErrorSpy: jest.SpyInstance;
-  const handlers: Record<string, (...args: unknown[]) => unknown> = {};
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    // Capture registered handlers instead of actually registering them
-    processOnSpy = jest.spyOn(process, 'on').mockImplementation(
-      (event: string | symbol, handler: (...args: unknown[]) => void) => {
-        handlers[String(event)] = handler;
-        return process;
-      }
-    );
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-  });
-
-  afterEach(() => {
-    processOnSpy.mockRestore();
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
-    delete handlers['SIGINT'];
-    delete handlers['SIGTERM'];
-  });
+  const harness = createSignalHandlerTestHarness();
 
   async function runSignalScenario({
     signal,
@@ -55,7 +30,7 @@ describe('registerSignalHandlers', () => {
     };
 
     registerSignalHandlers(deps);
-    handlers[signal]();
+    harness.handlers[signal]();
     await flushPromises();
 
     return { fastKill, performCleanup };
@@ -71,8 +46,8 @@ describe('registerSignalHandlers', () => {
 
     registerSignalHandlers(deps);
 
-    expect(processOnSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
-    expect(processOnSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+    expect(harness.processOnSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
+    expect(harness.processOnSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
   });
 
   it.each([
@@ -89,7 +64,7 @@ describe('registerSignalHandlers', () => {
 
       expect(fastKill).toHaveBeenCalled();
       expect(performCleanup).toHaveBeenCalledWith(signal);
-      expect(processExitSpy).toHaveBeenCalledWith(exitCode);
+      expect(harness.processExitSpy).toHaveBeenCalledWith(exitCode);
     }
   );
 
@@ -126,6 +101,6 @@ describe('registerSignalHandlers', () => {
     });
 
     // Should not throw even though fastKillAgentContainer rejects
-    expect(processExitSpy).toHaveBeenCalledWith(exitCode);
+    expect(harness.processExitSpy).toHaveBeenCalledWith(exitCode);
   });
 });

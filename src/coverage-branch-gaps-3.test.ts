@@ -14,33 +14,10 @@
 // ─── signal-handler.ts — SIGTERM with keepContainers=true ────────────────────
 
 import { registerSignalHandlers } from './commands/signal-handler';
-
-const flushPromises = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+import { flushPromises, createSignalHandlerTestHarness } from './commands/signal-handler.test-utils';
 
 describe('registerSignalHandlers — SIGTERM keepContainers=true (line 46 false branch)', () => {
-  let processOnSpy: jest.SpyInstance;
-  let processExitSpy: jest.SpyInstance;
-  let consoleErrorSpy: jest.SpyInstance;
-  const handlers: Record<string, (...args: unknown[]) => unknown> = {};
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    processOnSpy = jest.spyOn(process, 'on').mockImplementation(
-      (event: string | symbol, handler: (...args: unknown[]) => void) => {
-        handlers[String(event)] = handler;
-        return process;
-      }
-    );
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-  });
-
-  afterEach(() => {
-    processOnSpy.mockRestore();
-    processExitSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
-    delete handlers['SIGTERM'];
-  });
+  const harness = createSignalHandlerTestHarness();
 
   it('skips fast-kill on SIGTERM when keepContainers=true (covers line 46 false branch)', async () => {
     const fastKill = jest.fn().mockResolvedValue(undefined);
@@ -53,12 +30,12 @@ describe('registerSignalHandlers — SIGTERM keepContainers=true (line 46 false 
       performCleanup,
     });
 
-    handlers['SIGTERM']();
+    harness.handlers['SIGTERM']();
     await flushPromises();
 
     expect(fastKill).not.toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
-    expect(processExitSpy).toHaveBeenCalledWith(143);
+    expect(harness.processExitSpy).toHaveBeenCalledWith(143);
   });
 
   it('skips fast-kill on SIGTERM when containers not started (covers line 46 false branch)', async () => {
@@ -72,12 +49,12 @@ describe('registerSignalHandlers — SIGTERM keepContainers=true (line 46 false 
       performCleanup,
     });
 
-    handlers['SIGTERM']();
+    harness.handlers['SIGTERM']();
     await flushPromises();
 
     expect(fastKill).not.toHaveBeenCalled();
     expect(performCleanup).toHaveBeenCalledWith('SIGTERM');
-    expect(processExitSpy).toHaveBeenCalledWith(143);
+    expect(harness.processExitSpy).toHaveBeenCalledWith(143);
   });
 });
 
