@@ -167,8 +167,13 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   //
   // DOCKER_SANDBOXES_PROXY must NOT be set during create — it forces the daemon
   // to route Docker Hub registry auth through Squid, which isn't ready yet.
+  // XDG_CONFIG_HOME must also be removed — the Copilot harness sets it to $HOME,
+  // which makes the sbx CLI look for credentials in $HOME/ instead of the
+  // default $HOME/.config/ where `sbx login` stored them.
   const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  const savedXdg = process.env.XDG_CONFIG_HOME;
   delete process.env.DOCKER_SANDBOXES_PROXY;
+  delete process.env.XDG_CONFIG_HOME;
 
   const createResult = await execa('sbx', args, {
     input: 'y\n',
@@ -177,9 +182,12 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
 
-  // Restore DOCKER_SANDBOXES_PROXY
+  // Restore env vars
   if (savedProxy !== undefined) {
     process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+  }
+  if (savedXdg !== undefined) {
+    process.env.XDG_CONFIG_HOME = savedXdg;
   }
 
   const stdout = (createResult.stdout || '').trim();

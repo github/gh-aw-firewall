@@ -136,17 +136,20 @@ describe('sbx-manager', () => {
       expect(sbxCreateCall.env).toBeUndefined();
     });
 
-    it('temporarily removes DOCKER_SANDBOXES_PROXY during create', async () => {
+    it('temporarily removes DOCKER_SANDBOXES_PROXY and XDG_CONFIG_HOME during create', async () => {
       process.env.DOCKER_SANDBOXES_PROXY = 'http://old-proxy:3128';
+      process.env.XDG_CONFIG_HOME = '/home/runner';
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10', squidPort: 8080 });
 
-      // Proxy should be restored after create
+      // Both should be restored after create
       expect(process.env.DOCKER_SANDBOXES_PROXY).toBe('http://old-proxy:3128');
+      expect(process.env.XDG_CONFIG_HOME).toBe('/home/runner');
       delete process.env.DOCKER_SANDBOXES_PROXY;
+      delete process.env.XDG_CONFIG_HOME;
     });
 
     it('throws when auth check fails (non-zero exit)', async () => {
