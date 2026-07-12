@@ -35,6 +35,11 @@ describe('smoke claude workflow optimization config', () => {
     expect(source).not.toContain('source /tmp/gh-aw/agent/workflow-context.env');
     expect(source).not.toContain('safeoutputs add_comment . < /tmp/gh-aw/agent/result.json');
     expect(source).not.toContain('safeoutputs add_labels . < /tmp/gh-aw/agent/labels.json');
+    // Token-usage verification job must be present so the api-proxy sidecar is
+    // always validated and token data is captured for the claude-token-usage-analyzer.
+    expect(source).toContain('verify_token_usage');
+    expect(source).toContain('check-token-usage.js');
+    expect(source).toContain('Token-usage sanity check');
   });
 
   it('compiles the workflow without playwright tools and with max-turns 8', () => {
@@ -54,5 +59,12 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).not.toContain('playwright_prompt.md');
     expect(lock).not.toContain('mcr.microsoft.com/playwright/mcp');
     expect(lock).not.toContain('Show final Claude Code config');
+    // The api-proxy sidecar must be enabled so Claude API calls are routed through
+    // it and token usage is captured for the claude-token-usage-analyzer.
+    expect(lock).toContain('\\"apiProxy\\":{\\"enabled\\":true');
+    // The verify_token_usage job must exist and call check-token-usage.js to catch
+    // regressions where the api-proxy stops recording token data.
+    expect(lock).toContain('verify_token_usage');
+    expect(lock).toContain('check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude');
   });
 });
