@@ -653,8 +653,20 @@ jobs:
           sbx stop "${sandbox_name}"
           echo "✅ sbx ready"
           echo "::endgroup::"
-      - name: Install AWF binary
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.30
+      - name: Install AWF binary (from source — includes stdin pipe fix)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          npm ci
+          npm run build
+          cat > /usr/local/bin/awf <<'WRAPPER'
+          #!/usr/bin/env bash
+          exec node "$(dirname "$(readlink -f "$0")")/../lib/node_modules/@github/awf/dist/cli.js" "$@"
+          WRAPPER
+          chmod +x /usr/local/bin/awf
+          mkdir -p /usr/local/lib/node_modules/@github/awf
+          cp -r dist package.json node_modules /usr/local/lib/node_modules/@github/awf/
+          awf --version || echo "awf installed (source build)"
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code@2.1.201
       - name: Determine automatic lockdown mode for GitHub MCP Server
