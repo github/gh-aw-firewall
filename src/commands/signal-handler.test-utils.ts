@@ -9,7 +9,7 @@
  *   import { flushPromises, createSignalHandlerTestHarness } from './signal-handler.test-utils';
  *   const harness = createSignalHandlerTestHarness();
  *
- *   handlers['SIGINT']();
+ *   harness.handlers['SIGINT']();
  *   await flushPromises();
  *   expect(harness.processExitSpy).toHaveBeenCalledWith(130);
  */
