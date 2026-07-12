@@ -28,9 +28,6 @@ tools:
 safe-outputs:
   threat-detection:
     enabled: false
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 max-turns: 10
 timeout-minutes: 10
