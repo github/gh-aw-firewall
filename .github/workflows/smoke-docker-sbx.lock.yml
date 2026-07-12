@@ -524,8 +524,20 @@ jobs:
         run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.67
         env:
           GH_HOST: github.com
-      - name: Install AWF binary
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.22 --rootless
+      - name: Install AWF binary (from source — includes stdin pipe fix)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          npm ci
+          npm run build
+          cat > /usr/local/bin/awf <<'WRAPPER'
+          #!/usr/bin/env bash
+          exec node "$(dirname "$(readlink -f "$0")")/../lib/node_modules/@github/awf/dist/cli.js" "$@"
+          WRAPPER
+          chmod +x /usr/local/bin/awf
+          mkdir -p /usr/local/lib/node_modules/@github/awf
+          cp -r dist package.json node_modules containers /usr/local/lib/node_modules/@github/awf/
+          awf --version || echo "awf installed (source build)"
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
@@ -818,6 +830,15 @@ jobs:
         id: pre_agent_audit
         continue-on-error: true
         run: bash "${RUNNER_TEMP}/gh-aw/actions/audit_pre_agent_workspace.sh"
+      - name: Refresh sbx credentials
+        env:
+          DOCKER_PAT_VAL: ${{ secrets.DOCKER_PAT }}
+          DOCKER_USERNAME_VAL: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          # Re-authenticate sbx immediately before AWF runs.
+          # Docker Hub OAuth tokens from sbx login can expire between steps.
+          printf '%s' "$DOCKER_PAT_VAL" | sbx login --username "$DOCKER_USERNAME_VAL" --password-stdin
+          echo "✅ sbx credentials refreshed"
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
