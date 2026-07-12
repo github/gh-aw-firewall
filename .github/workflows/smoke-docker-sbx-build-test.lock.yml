@@ -692,7 +692,7 @@ jobs:
           WRAPPER
           chmod +x /usr/local/bin/awf
           mkdir -p /usr/local/lib/node_modules/@github/awf
-          cp -r dist package.json node_modules /usr/local/lib/node_modules/@github/awf/
+          cp -r dist package.json node_modules containers /usr/local/lib/node_modules/@github/awf/
           awf --version || echo "awf installed (source build)"
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
