@@ -42,6 +42,7 @@ sandbox:
   agent:
     id: awf
     runtime: docker-sbx
+    sudo: true
   mcp:
     version: v0.3.32
 strict: false
