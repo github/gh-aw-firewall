@@ -104,12 +104,12 @@ describe('sbx-manager', () => {
         process.env.HOME || '/home/runner',
       ], expect.objectContaining({
         input: 'y\n',
-        env: expect.objectContaining({
-          DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128',
-        }),
       }));
-      // XDG_CONFIG_HOME must not reach the sbx CLI
+      // DOCKER_SANDBOXES_PROXY must NOT be set during create — it forces
+      // Docker Hub registry auth through Squid, which blocks the pull.
       const sbxCreateCallEnv: Record<string, string | undefined> = mockExecaFn.mock.calls[1][2].env;
+      expect(sbxCreateCallEnv).not.toMatchObject({ DOCKER_SANDBOXES_PROXY: expect.anything() });
+      // XDG_CONFIG_HOME must not reach the sbx CLI
       expect(sbxCreateCallEnv).not.toMatchObject({ XDG_CONFIG_HOME: expect.anything() });
     });
 
@@ -133,13 +133,9 @@ describe('sbx-manager', () => {
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' });
 
-      expect(mockExecaFn).toHaveBeenCalledWith(
-        'sbx',
-        expect.arrayContaining(['create']),
-        expect.objectContaining({
-          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128' }),
-        }),
-      );
+      // Proxy must NOT be set during create
+      const callEnv: Record<string, string | undefined> = mockExecaFn.mock.calls[1][2].env;
+      expect(callEnv).not.toMatchObject({ DOCKER_SANDBOXES_PROXY: expect.anything() });
     });
 
     it('uses custom squidPort when specified', async () => {
@@ -149,13 +145,9 @@ describe('sbx-manager', () => {
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10', squidPort: 8080 });
 
-      expect(mockExecaFn).toHaveBeenCalledWith(
-        'sbx',
-        expect.arrayContaining(['create']),
-        expect.objectContaining({
-          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:8080' }),
-        }),
-      );
+      // Proxy must NOT be set during create
+      const callEnv: Record<string, string | undefined> = mockExecaFn.mock.calls[1][2].env;
+      expect(callEnv).not.toMatchObject({ DOCKER_SANDBOXES_PROXY: expect.anything() });
     });
 
     it('throws when auth check fails (non-zero exit)', async () => {
