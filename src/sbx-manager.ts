@@ -157,16 +157,27 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
-  const env = sanitizeEnvForSbx();
-  env.DOCKER_SANDBOXES_PROXY = proxyUrl;
+  // Set proxy env for the sbx daemon. We avoid passing a custom `env` object
+  // to execa because replacing the full environment can strip variables the
+  // sbx CLI needs to locate its daemon socket and credential store (which
+  // causes "user is not authenticated to Docker" errors even after sbx login).
+  // Instead, we temporarily set the proxy in process.env and restore after.
+  const prevProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  process.env.DOCKER_SANDBOXES_PROXY = proxyUrl;
 
   const createResult = await execa('sbx', args, {
-    env,
     input: 'y\n',
     stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
+
+  // Restore previous value
+  if (prevProxy === undefined) {
+    delete process.env.DOCKER_SANDBOXES_PROXY;
+  } else {
+    process.env.DOCKER_SANDBOXES_PROXY = prevProxy;
+  }
 
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();
