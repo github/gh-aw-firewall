@@ -92,7 +92,7 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   const squidPort = config.squidPort || 3128;
   const proxyUrl = `http://${config.squidIp}:${squidPort}`;
 
-  logger.info(`[sbx] Creating sandbox "${name}" (proxy ${proxyUrl} will be set at exec time)`);
+  logger.info(`[sbx] Creating sandbox "${name}" with proxy ${proxyUrl}`);
 
   // Verify daemon is running and authenticated before attempting create
   // (sbx has no 'auth status' command; 'sbx ls' requires auth so we use it as a probe)
@@ -158,13 +158,12 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
   const env = sanitizeEnvForSbx();
-  delete env.XDG_CONFIG_HOME;
-  delete env.DOCKER_SANDBOXES_PROXY;
+  env.DOCKER_SANDBOXES_PROXY = proxyUrl;
 
   const createResult = await execa('sbx', args, {
     env,
     input: 'y\n',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
