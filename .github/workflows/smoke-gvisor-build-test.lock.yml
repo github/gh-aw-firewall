@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"3367e1014d592815f33fcbb9651af2b17667fc08bf50960bddcefc3d955fa34c","body_hash":"f3a4f734f8c4e2a284d378ed37077133740155e4eb8c139d698ffa501d8c96bf","compiler_version":"v0.82.8","agent_id":"copilot","engine_versions":{"copilot":"1.0.68"}}
-# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0","version":"v7.0.0"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"99d9d888952ee25fce70c6b3120ca490d7d8da95","version":"v0.82.8"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.27.29","digest":"sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.27.29@sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.27.29","digest":"sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.27.29@sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.27.29","digest":"sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.27.29@sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.3.32","digest":"sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.3.32@sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b","pinned_image":"ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b"},{"image":"ghcr.io/github/github-mcp-server:v1.5.0","digest":"sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4","pinned_image":"ghcr.io/github/github-mcp-server:v1.5.0@sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4"}]}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"11ed21812c7840925c07f8da595b5d3e575d949769c59289185c1d57b2d694e5","body_hash":"24c8e4ffb8b14a04ebdd9f7d9ee627d9852721e5e80d22c475617c994d179cf8","compiler_version":"v0.82.8","agent_id":"copilot","engine_versions":{"copilot":"1.0.68"}}
+# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0","version":"v7.0.0"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-go","sha":"924ae3a1cded613372ab5595356fb5720e22ba16","version":"v6.5.0"},{"repo":"actions/setup-node","sha":"48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e","version":"v6.4.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"99d9d888952ee25fce70c6b3120ca490d7d8da95","version":"v0.82.8"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.27.29","digest":"sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.27.29@sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.27.29","digest":"sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.27.29@sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.27.29","digest":"sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.27.29@sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.3.32","digest":"sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.3.32@sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b","pinned_image":"ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b"},{"image":"ghcr.io/github/github-mcp-server:v1.5.0","digest":"sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4","pinned_image":"ghcr.io/github/github-mcp-server:v1.5.0@sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4"}]}
 # This file was automatically generated by gh-aw (v0.82.8). DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -23,7 +23,7 @@
 #
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
-# Smoke gVisor
+# Smoke test gVisor runtime with multi-ecosystem build and test workloads
 #
 # Secrets used:
 #   - COPILOT_GITHUB_TOKEN
@@ -38,6 +38,8 @@
 #   - actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
+#   - actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+#   - actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
 #   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
 #   - github/gh-aw-actions/setup@99d9d888952ee25fce70c6b3120ca490d7d8da95 # v0.82.8
 #
@@ -49,7 +51,7 @@
 #   - ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b
 #   - ghcr.io/github/github-mcp-server:v1.5.0@sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4
 
-name: "Smoke gVisor"
+name: "Smoke gVisor Build Test"
 on:
   pull_request:
     types:
@@ -72,13 +74,13 @@ permissions: {}
 concurrency:
   group: "gh-aw-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{ github.event.label.name || github.run_id }}"
 
-run-name: "Smoke gVisor"
+run-name: "Smoke gVisor Build Test"
 
 jobs:
   activation:
     needs: pre_activation
     if: >
-      needs.pre_activation.outputs.activated == 'true' && (github.event_name == 'pull_request' && github.event.label.name == 'test-gvisor' ||
+      needs.pre_activation.outputs.activated == 'true' && (github.event_name == 'pull_request' && github.event.label.name == 'test-gvisor-build' ||
       !(github.event_name == 'pull_request'))
     runs-on: ubuntu-slim
     permissions:
@@ -117,8 +119,8 @@ jobs:
           parent-span-id: ${{ needs.pre_activation.outputs.setup-parent-span-id || needs.pre_activation.outputs.setup-span-id }}
           safe-output-artifact-client: ${{ env.GH_AW_MAX_DAILY_AI_CREDITS != '' }}
         env:
-          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor.lock.yml@${{ github.ref }}
+          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor-build-test.lock.yml@${{ github.ref }}
           GH_AW_INFO_VERSION: "1.0.34"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_ENGINE_ID: "copilot"
@@ -131,11 +133,11 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.34"
           GH_AW_INFO_AGENT_VERSION: "1.0.34"
           GH_AW_INFO_CLI_VERSION: "v0.82.8"
-          GH_AW_INFO_WORKFLOW_NAME: "Smoke gVisor"
+          GH_AW_INFO_WORKFLOW_NAME: "Smoke gVisor Build Test"
           GH_AW_INFO_EXPERIMENTAL: "false"
           GH_AW_INFO_SUPPORTS_TOOLS_ALLOWLIST: "true"
           GH_AW_INFO_STAGED: "false"
-          GH_AW_INFO_ALLOWED_DOMAINS: '["defaults","github"]'
+          GH_AW_INFO_ALLOWED_DOMAINS: '["defaults","github","node","go"]'
           GH_AW_INFO_FIREWALL_ENABLED: "true"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_AWMG_VERSION: "v0.3.32"
@@ -159,8 +161,8 @@ jobs:
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          key: agentic-workflow-usage-smokegvisor-${{ github.run_id }}
-          restore-keys: agentic-workflow-usage-smokegvisor-
+          key: agentic-workflow-usage-smokegvisorbuildtest-${{ github.run_id }}
+          restore-keys: agentic-workflow-usage-smokegvisorbuildtest-
           path: /tmp/gh-aw/agentic-workflow-usage-cache.jsonl
       - name: Restore daily AIC usage cache (artifact fallback)
         id: restore-daily-aic-cache-fallback
@@ -182,8 +184,8 @@ jobs:
         if: ${{ env.GH_AW_MAX_DAILY_AI_CREDITS != '' }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_WORKFLOW_ID: "smoke-gvisor"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_WORKFLOW_ID: "smoke-gvisor-build-test"
           GH_AW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           GH_AW_WORKFLOW_DISPATCH_AW_CONTEXT: ${{ github.event.inputs.aw_context || '' }}
           GH_AW_HAS_SLASH_COMMAND: "false"
@@ -243,7 +245,7 @@ jobs:
         id: check-lock-file
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_WORKFLOW_FILE: "smoke-gvisor.lock.yml"
+          GH_AW_WORKFLOW_FILE: "smoke-gvisor-build-test.lock.yml"
           GH_AW_CONTEXT_WORKFLOW_REF: "${{ github.workflow_ref }}"
         with:
           script: |
@@ -266,8 +268,8 @@ jobs:
         if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'discussion' || github.event_name == 'discussion_comment' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == github.repository_id
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎 *gVisor smoke test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎 [{workflow_name}]({run_url}) is testing gVisor runtime compatibility...\",\"runSuccess\":\"🦎 [{workflow_name}]({run_url}) completed. gVisor smoke test passed. ✅\",\"runFailure\":\"🦎 [{workflow_name}]({run_url}) reports {status}. gVisor compatibility issue detected.\"}"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎🏗️ *gVisor build test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎🏗️ [{workflow_name}]({run_url}) is testing gVisor runtime with build workloads...\",\"runSuccess\":\"🦎🏗️ [{workflow_name}]({run_url}) completed. gVisor build test passed. ✅\",\"runFailure\":\"🦎🏗️ [{workflow_name}]({run_url}) reports {status}. gVisor build compatibility issue detected.\"}"
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -291,12 +293,8 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_SAFE_OUTPUTS: ${{ runner.temp }}/gh-aw/safeoutputs/outputs.jsonl
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -307,20 +305,20 @@ jobs:
         run: |
           bash "${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh"
           {
-          cat << 'GH_AW_PROMPT_b3363f3d9503f493_EOF'
+          cat << 'GH_AW_PROMPT_488e407e45a69bdb_EOF'
           <system>
-          GH_AW_PROMPT_b3363f3d9503f493_EOF
+          GH_AW_PROMPT_488e407e45a69bdb_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
-          cat << 'GH_AW_PROMPT_b3363f3d9503f493_EOF'
+          cat << 'GH_AW_PROMPT_488e407e45a69bdb_EOF'
           <safe-output-tools>
           Tools: add_comment, add_labels, missing_tool, missing_data, noop
           </safe-output-tools>
-          GH_AW_PROMPT_b3363f3d9503f493_EOF
+          GH_AW_PROMPT_488e407e45a69bdb_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/mcp_cli_tools_prompt.md"
-          cat << 'GH_AW_PROMPT_b3363f3d9503f493_EOF'
+          cat << 'GH_AW_PROMPT_488e407e45a69bdb_EOF'
           <github-context>
           The following GitHub context information is available for this workflow:
           {{#if github.actor}}
@@ -349,12 +347,12 @@ jobs:
           {{/if}}
           </github-context>
 
-          GH_AW_PROMPT_b3363f3d9503f493_EOF
+          GH_AW_PROMPT_488e407e45a69bdb_EOF
           cat "${RUNNER_TEMP}/gh-aw/prompts/github_mcp_tools_with_safeoutputs_prompt.md"
-          cat << 'GH_AW_PROMPT_b3363f3d9503f493_EOF'
+          cat << 'GH_AW_PROMPT_488e407e45a69bdb_EOF'
           </system>
-          {{#runtime-import .github/workflows/smoke-gvisor.md}}
-          GH_AW_PROMPT_b3363f3d9503f493_EOF
+          {{#runtime-import .github/workflows/smoke-gvisor-build-test.md}}
+          GH_AW_PROMPT_488e407e45a69bdb_EOF
           } > "$GH_AW_PROMPT"
       - name: Interpolate variables and render templates
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -362,11 +360,6 @@ jobs:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_ENGINE_ID: "copilot"
           GH_AW_GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -378,12 +371,8 @@ jobs:
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_EXPR_1A3A194A: ${{ github.event.discussion.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'discussion' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_2805DAC9: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
           GH_AW_EXPR_463A214A: ${{ github.event.pull_request.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_7EA93000: ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}
           GH_AW_EXPR_802A9F6A: ${{ github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'issue' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}
-          GH_AW_EXPR_ABDF8D58: ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
-          GH_AW_EXPR_EC16C26C: ${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}
           GH_AW_EXPR_FF1D34CE: ${{ github.event.comment.id || fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').comment_id }}
           GH_AW_GITHUB_ACTOR: ${{ github.actor }}
           GH_AW_GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -404,12 +393,8 @@ jobs:
               file: process.env.GH_AW_PROMPT,
               substitutions: {
                 GH_AW_EXPR_1A3A194A: process.env.GH_AW_EXPR_1A3A194A,
-                GH_AW_EXPR_2805DAC9: process.env.GH_AW_EXPR_2805DAC9,
                 GH_AW_EXPR_463A214A: process.env.GH_AW_EXPR_463A214A,
-                GH_AW_EXPR_7EA93000: process.env.GH_AW_EXPR_7EA93000,
                 GH_AW_EXPR_802A9F6A: process.env.GH_AW_EXPR_802A9F6A,
-                GH_AW_EXPR_ABDF8D58: process.env.GH_AW_EXPR_ABDF8D58,
-                GH_AW_EXPR_EC16C26C: process.env.GH_AW_EXPR_EC16C26C,
                 GH_AW_EXPR_FF1D34CE: process.env.GH_AW_EXPR_FF1D34CE,
                 GH_AW_GITHUB_ACTOR: process.env.GH_AW_GITHUB_ACTOR,
                 GH_AW_GITHUB_EVENT_NAME: process.env.GH_AW_GITHUB_EVENT_NAME,
@@ -466,7 +451,7 @@ jobs:
       GH_AW_ASSETS_MAX_SIZE_KB: 0
       GH_AW_MCP_LOG_DIR: /tmp/gh-aw/mcp-logs/safeoutputs
       GH_AW_RUNTIME_FEATURES: ${{ vars.GH_AW_RUNTIME_FEATURES }}
-      GH_AW_WORKFLOW_ID_SANITIZED: smokegvisor
+      GH_AW_WORKFLOW_ID_SANITIZED: smokegvisorbuildtest
     outputs:
       agentic_engine_timeout: ${{ steps.detect-agent-errors.outputs.agentic_engine_timeout || 'false' }}
       ai_credits_rate_limit_error: ${{ steps.parse-mcp-gateway.outputs.ai_credits_rate_limit_error || 'false' }}
@@ -496,8 +481,8 @@ jobs:
           trace-id: ${{ needs.activation.outputs.setup-trace-id }}
           parent-span-id: ${{ needs.activation.outputs.setup-parent-span-id || needs.activation.outputs.setup-span-id }}
         env:
-          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor.lock.yml@${{ github.ref }}
+          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor-build-test.lock.yml@${{ github.ref }}
           GH_AW_INFO_VERSION: "1.0.34"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_ENGINE_ID: "copilot"
@@ -513,6 +498,11 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+          package-manager-cache: false
       - name: Create gh-aw temp directory
         run: bash "${RUNNER_TEMP}/gh-aw/actions/create_gh_aw_tmp_dir.sh"
       - name: Configure gh CLI for GitHub Enterprise
@@ -524,11 +514,46 @@ jobs:
         with:
           name: activation
           path: /tmp/gh-aw
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.22"
+      - id: env-info
+        name: Capture environment info
+        run: "echo \"::group::Runtime versions\"\necho \"Node: $(node --version 2>&1)\"\necho \"npm: $(npm --version 2>&1)\"\necho \"Go: $(go version 2>&1)\"\necho \"::endgroup::\"\n\necho \"::group::gVisor kernel check\"\nPROC_VERSION=$(cat /proc/version 2>/dev/null || echo \"unavailable\")\necho \"Kernel: $PROC_VERSION\"\nif echo \"$PROC_VERSION\" | grep -qi 'gvisor'; then\n  echo \"GVISOR_CONFIRMED=true\" >> \"$GITHUB_OUTPUT\"\nelse\n  echo \"GVISOR_CONFIRMED=false\" >> \"$GITHUB_OUTPUT\"\nfi\necho \"::endgroup::\"\n\necho \"::group::GitHub.com connectivity\"\nHTTP_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://github.com)\necho \"github.com returned HTTP $HTTP_CODE\"\necho \"SMOKE_HTTP_CODE=$HTTP_CODE\" >> \"$GITHUB_OUTPUT\"\necho \"::endgroup::\"\n"
+      - id: build-node
+        name: Build AWF project (Node.js)
+        run: |
+          echo "::group::npm ci"
+          npm ci 2>&1 | tail -5
+          NPM_CI_EXIT=$?
+          echo "::endgroup::"
+
+          echo "::group::npm run build"
+          npm run build 2>&1 | tail -5
+          NPM_BUILD_EXIT=$?
+          echo "::endgroup::"
+
+          if [ $NPM_CI_EXIT -eq 0 ] && [ $NPM_BUILD_EXIT -eq 0 ]; then
+            echo "NODE_BUILD_STATUS=PASS" >> "$GITHUB_OUTPUT"
+            echo "✅ Node.js build succeeded"
+          else
+            echo "NODE_BUILD_STATUS=FAIL" >> "$GITHUB_OUTPUT"
+            echo "❌ Node.js build failed (ci=$NPM_CI_EXIT, build=$NPM_BUILD_EXIT)"
+          fi
+      - id: test-node
+        name: Run AWF unit tests (Node.js)
+        run: "echo \"::group::npm test\"\n# Run a subset of tests to keep timing reasonable\nnpx jest --ci --forceExit --maxWorkers=2 --testPathPattern='squid-config|docker-manager|logger' 2>&1 | tail -20\nTEST_EXIT=$?\necho \"::endgroup::\"\n\nif [ $TEST_EXIT -eq 0 ]; then\n  echo \"NODE_TEST_STATUS=PASS\" >> \"$GITHUB_OUTPUT\"\n  echo \"✅ Node.js tests passed\"\nelse\n  echo \"NODE_TEST_STATUS=FAIL\" >> \"$GITHUB_OUTPUT\"\n  echo \"❌ Node.js tests failed (exit=$TEST_EXIT)\"\nfi\n"
       - env:
-          GH_TOKEN: ${{ github.token }}
-        id: smoke-data
-        name: Smoke test data
-        run: "echo \"::group::Fetching last 2 merged PRs\"\nPR_DATA=$(gh pr list --repo \"$GITHUB_REPOSITORY\" --state merged --limit 2 \\\n  --json number,title,author,mergedAt \\\n  --jq '.[] | \"PR #\\(.number): \\(.title) (by @\\(.author.login), merged \\(.mergedAt))\"')\necho \"$PR_DATA\"\necho \"::endgroup::\"\n\necho \"::group::GitHub.com connectivity check\"\nHTTP_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://github.com)\necho \"github.com returned HTTP $HTTP_CODE\"\necho \"::endgroup::\"\n\necho \"::group::File write/read test\"\nTEST_DIR=\"/tmp/gh-aw/agent\"\nTEST_FILE=\"$TEST_DIR/smoke-test-gvisor-${GITHUB_RUN_ID}.txt\"\nmkdir -p \"$TEST_DIR\"\necho \"gVisor smoke test passed at $(date)\" > \"$TEST_FILE\"\nFILE_CONTENT=$(cat \"$TEST_FILE\")\necho \"Wrote and read back: $FILE_CONTENT\"\necho \"::endgroup::\"\n\n{\n  echo \"SMOKE_PR_DATA<<SMOKE_EOF\"\n  echo \"$PR_DATA\"\n  echo \"SMOKE_EOF\"\n  echo \"SMOKE_HTTP_CODE=$HTTP_CODE\"\n  echo \"SMOKE_FILE_CONTENT=$FILE_CONTENT\"\n  echo \"SMOKE_FILE_PATH=$TEST_FILE\"\n} >> \"$GITHUB_OUTPUT\""
+          GOROOT: ${{ steps.env-info.outputs.GOROOT || '' }}
+        id: build-go
+        name: Clone and build Go test project
+        run: "echo \"::group::Clone Go test repo\"\ngit clone --depth 1 https://github.com/Mossaka/gh-aw-firewall-test-go.git /tmp/test-go 2>&1 | tail -3\nCLONE_EXIT=$?\necho \"::endgroup::\"\n\nif [ $CLONE_EXIT -ne 0 ]; then\n  echo \"GO_BUILD_STATUS=CLONE_FAILED\" >> \"$GITHUB_OUTPUT\"\n  echo \"GO_TEST_STATUS=SKIPPED\" >> \"$GITHUB_OUTPUT\"\n  echo \"❌ Go clone failed\"\nelse\n  echo \"::group::Go build and test - color\"\n  cd /tmp/test-go/color\n  go mod download 2>&1 | tail -3\n  go build ./... 2>&1 | tail -5\n  BUILD_EXIT=$?\n  go test ./... 2>&1 | tail -10\n  TEST_EXIT=$?\n  echo \"::endgroup::\"\n\n  echo \"::group::Go build and test - uuid\"\n  cd /tmp/test-go/uuid\n  go mod download 2>&1 | tail -3\n  go build ./... 2>&1 | tail -5\n  BUILD2_EXIT=$?\n  go test ./... 2>&1 | tail -10\n  TEST2_EXIT=$?\n  echo \"::endgroup::\"\n\n  if [ $BUILD_EXIT -eq 0 ] && [ $BUILD2_EXIT -eq 0 ]; then\n    echo \"GO_BUILD_STATUS=PASS\" >> \"$GITHUB_OUTPUT\"\n  else\n    echo \"GO_BUILD_STATUS=FAIL\" >> \"$GITHUB_OUTPUT\"\n  fi\n\n  if [ $TEST_EXIT -eq 0 ] && [ $TEST2_EXIT -eq 0 ]; then\n    echo \"GO_TEST_STATUS=PASS\" >> \"$GITHUB_OUTPUT\"\n  else\n    echo \"GO_TEST_STATUS=FAIL\" >> \"$GITHUB_OUTPUT\"\n  fi\nfi\n"
+      - id: net-check
+        name: Network isolation check
+        run: "echo \"::group::Blocked domain test\"\nBLOCKED_CODE=$(curl -s -o /dev/null -w \"%{http_code}\" --max-time 5 https://example.com 2>/dev/null || echo \"000\")\necho \"example.com returned: $BLOCKED_CODE\"\nif [ \"$BLOCKED_CODE\" = \"000\" ] || [ \"$BLOCKED_CODE\" = \"403\" ]; then\n  echo \"NET_ISOLATION=PASS\" >> \"$GITHUB_OUTPUT\"\n  echo \"✅ Network isolation working (blocked domain returned $BLOCKED_CODE)\"\nelse\n  echo \"NET_ISOLATION=FAIL\" >> \"$GITHUB_OUTPUT\"\n  echo \"❌ Network isolation failed (blocked domain returned $BLOCKED_CODE)\"\nfi\necho \"::endgroup::\"\n"
+      - name: Write results summary
+        run: "mkdir -p /tmp/gh-aw/agent\ncat > /tmp/gh-aw/agent/build-test-results.json << RESULTS_EOF\n{\n  \"gvisor_confirmed\": \"${{ steps.env-info.outputs.GVISOR_CONFIRMED }}\",\n  \"http_code\": \"${{ steps.env-info.outputs.SMOKE_HTTP_CODE }}\",\n  \"node_build\": \"${{ steps.build-node.outputs.NODE_BUILD_STATUS }}\",\n  \"node_test\": \"${{ steps.test-node.outputs.NODE_TEST_STATUS }}\",\n  \"go_build\": \"${{ steps.build-go.outputs.GO_BUILD_STATUS }}\",\n  \"go_test\": \"${{ steps.build-go.outputs.GO_TEST_STATUS }}\",\n  \"net_isolation\": \"${{ steps.net-check.outputs.NET_ISOLATION }}\"\n}\nRESULTS_EOF\ncat /tmp/gh-aw/agent/build-test-results.json"
 
       - name: Configure Git credentials
         env:
@@ -625,16 +650,16 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
-          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_586444ac3f82f734_EOF'
-          {"add_comment":{"hide_older_comments":true,"max":1},"add_labels":{"allowed":["smoke-gvisor"]},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
-          GH_AW_SAFE_OUTPUTS_CONFIG_586444ac3f82f734_EOF
+          cat > "${RUNNER_TEMP}/gh-aw/safeoutputs/config.json" << 'GH_AW_SAFE_OUTPUTS_CONFIG_fca7a41e9dc8ce1f_EOF'
+          {"add_comment":{"hide_older_comments":true,"max":1},"add_labels":{"allowed":["smoke-gvisor-build"]},"create_report_incomplete_issue":{},"missing_data":{},"missing_tool":{},"noop":{"max":1,"report-as-issue":"true"},"report_incomplete":{}}
+          GH_AW_SAFE_OUTPUTS_CONFIG_fca7a41e9dc8ce1f_EOF
       - name: Generate Safe Outputs Tools
         env:
           GH_AW_TOOLS_META_JSON: |
             {
               "description_suffixes": {
                 "add_comment": " CONSTRAINTS: Maximum 1 comment(s) can be added. Supports reply_to_id for discussion threading.",
-                "add_labels": " CONSTRAINTS: Only these labels are allowed: [\"smoke-gvisor\"]."
+                "add_labels": " CONSTRAINTS: Only these labels are allowed: [\"smoke-gvisor-build\"]."
               },
               "repo_params": {},
               "dynamic_tools": []
@@ -880,7 +905,7 @@ jobs:
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: |
           set -o pipefail
           printf '%s' "$(date +%s%3N)" > /tmp/gh-aw/agent_cli_start_ms.txt
@@ -895,7 +920,7 @@ jobs:
           export COPILOT_API_KEY="$COPILOT_DUMMY_BYOK"
           (umask 177 && touch /tmp/gh-aw/agent-stdio.log)
           GH_AW_MAX_AI_CREDITS="${GH_AW_MAX_AI_CREDITS:-1000}"
-          printf '%s\n' "{\"\$schema\":\"https://github.com/github/gh-aw-firewall/releases/download/v0.27.29/awf-config.schema.json\",\"network\":{\"allowDomains\":[\"*.githubusercontent.com\",\"api.business.githubcopilot.com\",\"api.enterprise.githubcopilot.com\",\"api.github.com\",\"api.githubcopilot.com\",\"api.individual.githubcopilot.com\",\"api.snapcraft.io\",\"archive.ubuntu.com\",\"azure.archive.ubuntu.com\",\"codeload.github.com\",\"crl.geotrust.com\",\"crl.globalsign.com\",\"crl.identrust.com\",\"crl.sectigo.com\",\"crl.thawte.com\",\"crl.usertrust.com\",\"crl.verisign.com\",\"crl3.digicert.com\",\"crl4.digicert.com\",\"crls.ssl.com\",\"docs.github.com\",\"github-cloud.githubusercontent.com\",\"github-cloud.s3.amazonaws.com\",\"github.blog\",\"github.com\",\"github.githubassets.com\",\"host.docker.internal\",\"json-schema.org\",\"json.schemastore.org\",\"keyserver.ubuntu.com\",\"lfs.github.com\",\"objects.githubusercontent.com\",\"ocsp.digicert.com\",\"ocsp.geotrust.com\",\"ocsp.globalsign.com\",\"ocsp.identrust.com\",\"ocsp.sectigo.com\",\"ocsp.ssl.com\",\"ocsp.thawte.com\",\"ocsp.usertrust.com\",\"ocsp.verisign.com\",\"packagecloud.io\",\"packages.cloud.google.com\",\"packages.microsoft.com\",\"patch-diff.githubusercontent.com\",\"patchdiff.githubusercontent.com\",\"ppa.launchpad.net\",\"raw.githubusercontent.com\",\"registry.npmjs.org\",\"s.symcb.com\",\"s.symcd.com\",\"security.ubuntu.com\",\"telemetry.enterprise.githubcopilot.com\",\"ts-crl.ws.symantec.com\",\"ts-ocsp.ws.symantec.com\",\"www.googleapis.com\"]},\"apiProxy\":{\"enabled\":true,\"enableTokenSteering\":true,\"maxRuns\":500,\"maxAiCredits\":${GH_AW_MAX_AI_CREDITS},\"maxCacheMisses\":5,\"models\":{\"agent\":[\"sonnet-6x\",\"gpt-5.4\",\"gpt-5.3\",\"gemini-pro\",\"any\"],\"antigravity\":[\"copilot/antigravity*\",\"google/antigravity*\",\"gemini/antigravity*\"],\"any\":[\"copilot/*\",\"anthropic/*\",\"openai/*\",\"google/*\",\"gemini/*\"],\"claude\":[\"agent\"],\"codex\":[\"agent\"],\"coding\":[\"copilot/gpt-5*codex*\",\"openai/gpt-5*codex*\",\"gpt-5-codex\",\"kimi\"],\"computer-use\":[\"copilot/*computer-use*\",\"google/*computer-use*\",\"gemini/*computer-use*\",\"openai/*computer-use*\"],\"copilot\":[\"agent\"],\"deep-research\":[\"copilot/deep-research*\",\"copilot/o3-deep-research*\",\"copilot/o4-mini-deep-research*\",\"google/deep-research*\",\"gemini/deep-research*\",\"openai/o3-deep-research*\",\"openai/o4-mini-deep-research*\"],\"fable\":[\"copilot/*fable*\",\"anthropic/*fable*\"],\"gemini\":[\"agent\"],\"gemini-3-flash\":[\"copilot/gemini-3*flash*\",\"google/gemini-3*flash*\",\"gemini/gemini-3*flash*\"],\"gemini-3-pro\":[\"copilot/gemini-3*pro*\",\"google/gemini-3*pro*\",\"google/nano-banana*\",\"gemini/gemini-3*pro*\"],\"gemini-3.1-flash\":[\"copilot/gemini-3.1*flash*\",\"google/gemini-3.1*flash*\",\"gemini/gemini-3.1*flash*\"],\"gemini-3.1-pro\":[\"copilot/gemini-3.1*pro*\",\"google/gemini-3.1*pro*\",\"gemini/gemini-3.1*pro*\"],\"gemini-3.5-flash\":[\"copilot/gemini-3.5*flash*\",\"google/gemini-3.5*flash*\",\"gemini/gemini-3.5*flash*\"],\"gemini-flash\":[\"copilot/gemini-*flash*\",\"google/gemini-*flash*\",\"gemini/gemini-*flash*\"],\"gemini-flash-lite\":[\"copilot/gemini-*flash*lite*\",\"google/gemini-*flash*lite*\",\"gemini/gemini-*flash*lite*\"],\"gemini-omni\":[\"copilot/gemini-omni*\",\"google/gemini-omni*\",\"gemini/gemini-omni*\"],\"gemini-pro\":[\"copilot/gemini-*pro*\",\"google/gemini-*pro*\",\"gemini/gemini-*pro*\"],\"gemma\":[\"copilot/gemma*\",\"google/gemma*\",\"gemini/gemma*\"],\"gpt-5\":[\"copilot/gpt-5*\",\"openai/gpt-5*\"],\"gpt-5-codex\":[\"copilot/gpt-5*codex*\",\"openai/gpt-5*codex*\"],\"gpt-5-mini\":[\"copilot/gpt-5*mini*\",\"openai/gpt-5*mini*\"],\"gpt-5-nano\":[\"copilot/gpt-5*nano*\",\"openai/gpt-5*nano*\"],\"gpt-5-pro\":[\"copilot/gpt-5*pro*\",\"openai/gpt-5*pro*\"],\"gpt-5.1\":[\"copilot/gpt-5.1*\",\"openai/gpt-5.1*\"],\"gpt-5.2\":[\"copilot/gpt-5.2*\",\"openai/gpt-5.2*\"],\"gpt-5.3\":[\"copilot/gpt-5.3*\",\"openai/gpt-5.3*\"],\"gpt-5.4\":[\"copilot/gpt-5.4*\",\"openai/gpt-5.4*\"],\"gpt-5.5\":[\"copilot/gpt-5.5*\",\"openai/gpt-5.5*\"],\"gpt-5.6\":[\"copilot/gpt-5.6*\",\"openai/gpt-5.6*\"],\"haiku\":[\"copilot/*haiku*\",\"anthropic/*haiku*\"],\"image-generation\":[\"copilot/gpt-image*\",\"openai/gpt-image*\",\"openai/chatgpt-image*\",\"copilot/gemini-*image*\",\"google/gemini-*image*\",\"gemini/gemini-*image*\",\"google/imagen*\"],\"kimi\":[\"copilot/kimi*\",\"openai/kimi*\"],\"kiwi\":[\"copilot/kiwi*\",\"openai/kiwi*\"],\"large\":[\"fable\",\"sonnet\",\"gpt-5-pro\",\"gpt-5\",\"gemini-pro\"],\"lyria\":[\"google/lyria*\",\"gemini/lyria*\",\"copilot/lyria*\"],\"mai-code\":[\"copilot/MAI-Code*\",\"copilot/mai-code*\",\"openai/MAI-Code*\"],\"mini\":[\"haiku\",\"gpt-5-mini\",\"gpt-5-nano\",\"gemini-flash-lite\"],\"nano-banana\":[\"copilot/nano-banana*\",\"google/nano-banana*\",\"gemini/nano-banana*\"],\"opus\":[\"copilot/*opus*\",\"anthropic/*opus*\"],\"opusplan\":[\"opus?effort=high\"],\"reasoning\":[\"copilot/o1*\",\"copilot/o3*\",\"copilot/o4*\",\"openai/o1*\",\"openai/o3*\",\"openai/o4*\"],\"robotics\":[\"copilot/*robotics*\",\"google/*robotics*\",\"gemini/*robotics*\"],\"small\":[\"mini\"],\"small-agent\":[\"haiku\",\"gpt-5-mini\",\"gemini-flash\"],\"sonnet\":[\"copilot/*sonnet*\",\"anthropic/*sonnet*\"],\"sonnet-6x\":[\"copilot/*sonnet-4.5*\",\"copilot/*sonnet-4.6*\",\"copilot/*sonnet-4-5-*\",\"anthropic/*sonnet-4-5-*\",\"copilot/*sonnet-4-6*\",\"anthropic/*sonnet-4-6*\"],\"summarization\":[\"haiku\",\"gpt-5-mini\",\"gemini-flash-lite\",\"mini\"],\"veo\":[\"google/veo*\",\"gemini/veo*\"],\"vision\":[\"copilot/gemini-*image*\",\"google/gemini-*image*\",\"gemini/gemini-*image*\",\"copilot/gemini-*flash*\",\"google/gemini-*flash*\",\"gemini/gemini-*flash*\"]}},\"container\":{\"imageTag\":\"0.27.29,squid=sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f,agent=sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe,api-proxy=sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde,cli-proxy=sha256:bfc90b1f10d2ff61dbbbf0d57600001f85bf5f6444ed78bc05d9f6677327e4b8\"},\"logging\":{\"proxyLogsDir\":\"/tmp/gh-aw/sandbox/firewall/logs\",\"auditDir\":\"/tmp/gh-aw/sandbox/firewall/audit\"}}" > "${RUNNER_TEMP}/gh-aw/awf-config.json"
+          printf '%s\n' "{\"\$schema\":\"https://github.com/github/gh-aw-firewall/releases/download/v0.27.29/awf-config.schema.json\",\"network\":{\"allowDomains\":[\"*.githubusercontent.com\",\"api.business.githubcopilot.com\",\"api.enterprise.githubcopilot.com\",\"api.github.com\",\"api.githubcopilot.com\",\"api.individual.githubcopilot.com\",\"api.npms.io\",\"api.snapcraft.io\",\"archive.ubuntu.com\",\"azure.archive.ubuntu.com\",\"bun.sh\",\"cdn.jsdelivr.net\",\"codeload.github.com\",\"crl.geotrust.com\",\"crl.globalsign.com\",\"crl.identrust.com\",\"crl.sectigo.com\",\"crl.thawte.com\",\"crl.usertrust.com\",\"crl.verisign.com\",\"crl3.digicert.com\",\"crl4.digicert.com\",\"crls.ssl.com\",\"deb.nodesource.com\",\"deno.land\",\"docs.github.com\",\"esm.sh\",\"get.pnpm.io\",\"github-cloud.githubusercontent.com\",\"github-cloud.s3.amazonaws.com\",\"github.blog\",\"github.com\",\"github.githubassets.com\",\"go.dev\",\"golang.org\",\"googleapis.deno.dev\",\"googlechromelabs.github.io\",\"goproxy.io\",\"host.docker.internal\",\"json-schema.org\",\"json.schemastore.org\",\"jsr.io\",\"keyserver.ubuntu.com\",\"lfs.github.com\",\"nodejs.org\",\"npm.pkg.github.com\",\"npmjs.com\",\"npmjs.org\",\"objects.githubusercontent.com\",\"ocsp.digicert.com\",\"ocsp.geotrust.com\",\"ocsp.globalsign.com\",\"ocsp.identrust.com\",\"ocsp.sectigo.com\",\"ocsp.ssl.com\",\"ocsp.thawte.com\",\"ocsp.usertrust.com\",\"ocsp.verisign.com\",\"packagecloud.io\",\"packages.cloud.google.com\",\"packages.microsoft.com\",\"patch-diff.githubusercontent.com\",\"patchdiff.githubusercontent.com\",\"pkg.go.dev\",\"ppa.launchpad.net\",\"proxy.golang.org\",\"raw.githubusercontent.com\",\"registry.bower.io\",\"registry.npmjs.com\",\"registry.npmjs.org\",\"registry.yarnpkg.com\",\"repo.yarnpkg.com\",\"s.symcb.com\",\"s.symcd.com\",\"security.ubuntu.com\",\"skimdb.npmjs.com\",\"storage.googleapis.com\",\"sum.golang.org\",\"telemetry.enterprise.githubcopilot.com\",\"telemetry.vercel.com\",\"ts-crl.ws.symantec.com\",\"ts-ocsp.ws.symantec.com\",\"www.googleapis.com\",\"www.npmjs.com\",\"www.npmjs.org\",\"yarnpkg.com\"]},\"apiProxy\":{\"enabled\":true,\"enableTokenSteering\":true,\"maxRuns\":500,\"maxAiCredits\":${GH_AW_MAX_AI_CREDITS},\"maxCacheMisses\":5,\"models\":{\"agent\":[\"sonnet-6x\",\"gpt-5.4\",\"gpt-5.3\",\"gemini-pro\",\"any\"],\"antigravity\":[\"copilot/antigravity*\",\"google/antigravity*\",\"gemini/antigravity*\"],\"any\":[\"copilot/*\",\"anthropic/*\",\"openai/*\",\"google/*\",\"gemini/*\"],\"claude\":[\"agent\"],\"codex\":[\"agent\"],\"coding\":[\"copilot/gpt-5*codex*\",\"openai/gpt-5*codex*\",\"gpt-5-codex\",\"kimi\"],\"computer-use\":[\"copilot/*computer-use*\",\"google/*computer-use*\",\"gemini/*computer-use*\",\"openai/*computer-use*\"],\"copilot\":[\"agent\"],\"deep-research\":[\"copilot/deep-research*\",\"copilot/o3-deep-research*\",\"copilot/o4-mini-deep-research*\",\"google/deep-research*\",\"gemini/deep-research*\",\"openai/o3-deep-research*\",\"openai/o4-mini-deep-research*\"],\"fable\":[\"copilot/*fable*\",\"anthropic/*fable*\"],\"gemini\":[\"agent\"],\"gemini-3-flash\":[\"copilot/gemini-3*flash*\",\"google/gemini-3*flash*\",\"gemini/gemini-3*flash*\"],\"gemini-3-pro\":[\"copilot/gemini-3*pro*\",\"google/gemini-3*pro*\",\"google/nano-banana*\",\"gemini/gemini-3*pro*\"],\"gemini-3.1-flash\":[\"copilot/gemini-3.1*flash*\",\"google/gemini-3.1*flash*\",\"gemini/gemini-3.1*flash*\"],\"gemini-3.1-pro\":[\"copilot/gemini-3.1*pro*\",\"google/gemini-3.1*pro*\",\"gemini/gemini-3.1*pro*\"],\"gemini-3.5-flash\":[\"copilot/gemini-3.5*flash*\",\"google/gemini-3.5*flash*\",\"gemini/gemini-3.5*flash*\"],\"gemini-flash\":[\"copilot/gemini-*flash*\",\"google/gemini-*flash*\",\"gemini/gemini-*flash*\"],\"gemini-flash-lite\":[\"copilot/gemini-*flash*lite*\",\"google/gemini-*flash*lite*\",\"gemini/gemini-*flash*lite*\"],\"gemini-omni\":[\"copilot/gemini-omni*\",\"google/gemini-omni*\",\"gemini/gemini-omni*\"],\"gemini-pro\":[\"copilot/gemini-*pro*\",\"google/gemini-*pro*\",\"gemini/gemini-*pro*\"],\"gemma\":[\"copilot/gemma*\",\"google/gemma*\",\"gemini/gemma*\"],\"gpt-5\":[\"copilot/gpt-5*\",\"openai/gpt-5*\"],\"gpt-5-codex\":[\"copilot/gpt-5*codex*\",\"openai/gpt-5*codex*\"],\"gpt-5-mini\":[\"copilot/gpt-5*mini*\",\"openai/gpt-5*mini*\"],\"gpt-5-nano\":[\"copilot/gpt-5*nano*\",\"openai/gpt-5*nano*\"],\"gpt-5-pro\":[\"copilot/gpt-5*pro*\",\"openai/gpt-5*pro*\"],\"gpt-5.1\":[\"copilot/gpt-5.1*\",\"openai/gpt-5.1*\"],\"gpt-5.2\":[\"copilot/gpt-5.2*\",\"openai/gpt-5.2*\"],\"gpt-5.3\":[\"copilot/gpt-5.3*\",\"openai/gpt-5.3*\"],\"gpt-5.4\":[\"copilot/gpt-5.4*\",\"openai/gpt-5.4*\"],\"gpt-5.5\":[\"copilot/gpt-5.5*\",\"openai/gpt-5.5*\"],\"gpt-5.6\":[\"copilot/gpt-5.6*\",\"openai/gpt-5.6*\"],\"haiku\":[\"copilot/*haiku*\",\"anthropic/*haiku*\"],\"image-generation\":[\"copilot/gpt-image*\",\"openai/gpt-image*\",\"openai/chatgpt-image*\",\"copilot/gemini-*image*\",\"google/gemini-*image*\",\"gemini/gemini-*image*\",\"google/imagen*\"],\"kimi\":[\"copilot/kimi*\",\"openai/kimi*\"],\"kiwi\":[\"copilot/kiwi*\",\"openai/kiwi*\"],\"large\":[\"fable\",\"sonnet\",\"gpt-5-pro\",\"gpt-5\",\"gemini-pro\"],\"lyria\":[\"google/lyria*\",\"gemini/lyria*\",\"copilot/lyria*\"],\"mai-code\":[\"copilot/MAI-Code*\",\"copilot/mai-code*\",\"openai/MAI-Code*\"],\"mini\":[\"haiku\",\"gpt-5-mini\",\"gpt-5-nano\",\"gemini-flash-lite\"],\"nano-banana\":[\"copilot/nano-banana*\",\"google/nano-banana*\",\"gemini/nano-banana*\"],\"opus\":[\"copilot/*opus*\",\"anthropic/*opus*\"],\"opusplan\":[\"opus?effort=high\"],\"reasoning\":[\"copilot/o1*\",\"copilot/o3*\",\"copilot/o4*\",\"openai/o1*\",\"openai/o3*\",\"openai/o4*\"],\"robotics\":[\"copilot/*robotics*\",\"google/*robotics*\",\"gemini/*robotics*\"],\"small\":[\"mini\"],\"small-agent\":[\"haiku\",\"gpt-5-mini\",\"gemini-flash\"],\"sonnet\":[\"copilot/*sonnet*\",\"anthropic/*sonnet*\"],\"sonnet-6x\":[\"copilot/*sonnet-4.5*\",\"copilot/*sonnet-4.6*\",\"copilot/*sonnet-4-5-*\",\"anthropic/*sonnet-4-5-*\",\"copilot/*sonnet-4-6*\",\"anthropic/*sonnet-4-6*\"],\"summarization\":[\"haiku\",\"gpt-5-mini\",\"gemini-flash-lite\",\"mini\"],\"veo\":[\"google/veo*\",\"gemini/veo*\"],\"vision\":[\"copilot/gemini-*image*\",\"google/gemini-*image*\",\"gemini/gemini-*image*\",\"copilot/gemini-*flash*\",\"google/gemini-*flash*\",\"gemini/gemini-*flash*\"]}},\"container\":{\"imageTag\":\"0.27.29,squid=sha256:7bfa0742f9a5bd6309507caaa80a8b6cf3e05bd95a1429affbf64cc94cfbd34f,agent=sha256:debc0b18ef8ea3a64585c4d1eea1099f0d9fa76b53d34a1f3c53b3225fe158fe,api-proxy=sha256:c7754df3f06f346c817db0525ba523cbdaf5349239fd7f37897c4250a8fc7bde,cli-proxy=sha256:bfc90b1f10d2ff61dbbbf0d57600001f85bf5f6444ed78bc05d9f6677327e4b8\"},\"logging\":{\"proxyLogsDir\":\"/tmp/gh-aw/sandbox/firewall/logs\",\"auditDir\":\"/tmp/gh-aw/sandbox/firewall/audit\"}}" > "${RUNNER_TEMP}/gh-aw/awf-config.json"
           cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json
           export GH_AW_MODELS_JSON_PATH="/tmp/gh-aw/models.json"
           GH_AW_DOCKER_HOST=""
@@ -927,7 +952,7 @@ jobs:
           GH_AW_PHASE: agent
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_SAFE_OUTPUTS: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
-          GH_AW_TIMEOUT_MINUTES: 15
+          GH_AW_TIMEOUT_MINUTES: 30
           GH_AW_VERSION: v0.82.8
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_AW: true
@@ -999,10 +1024,10 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           GH_AW_SAFE_OUTPUTS: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
-          GH_AW_ALLOWED_DOMAINS: "*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,codeload.github.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,docs.github.com,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,host.docker.internal,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,lfs.github.com,objects.githubusercontent.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,patch-diff.githubusercontent.com,patchdiff.githubusercontent.com,ppa.launchpad.net,raw.githubusercontent.com,registry.npmjs.org,s.symcb.com,s.symcd.com,security.ubuntu.com,telemetry.enterprise.githubcopilot.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com"
+          GH_AW_ALLOWED_DOMAINS: "*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,api.npms.io,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,bun.sh,cdn.jsdelivr.net,codeload.github.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,deb.nodesource.com,deno.land,docs.github.com,esm.sh,get.pnpm.io,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,go.dev,golang.org,googleapis.deno.dev,googlechromelabs.github.io,goproxy.io,host.docker.internal,json-schema.org,json.schemastore.org,jsr.io,keyserver.ubuntu.com,lfs.github.com,nodejs.org,npm.pkg.github.com,npmjs.com,npmjs.org,objects.githubusercontent.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,patch-diff.githubusercontent.com,patchdiff.githubusercontent.com,pkg.go.dev,ppa.launchpad.net,proxy.golang.org,raw.githubusercontent.com,registry.bower.io,registry.npmjs.com,registry.npmjs.org,registry.yarnpkg.com,repo.yarnpkg.com,s.symcb.com,s.symcd.com,security.ubuntu.com,skimdb.npmjs.com,storage.googleapis.com,sum.golang.org,telemetry.enterprise.githubcopilot.com,telemetry.vercel.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com,www.npmjs.com,www.npmjs.org,yarnpkg.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_LABEL_COMMANDS: "[\"test-gvisor\"]"
+          GH_AW_LABEL_COMMANDS: "[\"test-gvisor-build\"]"
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -1114,7 +1139,7 @@ jobs:
       issues: write
       pull-requests: write
     concurrency:
-      group: "gh-aw-conclusion-smoke-gvisor"
+      group: "gh-aw-conclusion-smoke-gvisor-build-test"
       cancel-in-progress: false
       queue: max
     env:
@@ -1134,8 +1159,8 @@ jobs:
           trace-id: ${{ needs.activation.outputs.setup-trace-id }}
           parent-span-id: ${{ needs.activation.outputs.setup-parent-span-id || needs.activation.outputs.setup-span-id }}
         env:
-          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor.lock.yml@${{ github.ref }}
+          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor-build-test.lock.yml@${{ github.ref }}
           GH_AW_INFO_VERSION: "1.0.68"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_ENGINE_ID: "copilot"
@@ -1210,8 +1235,8 @@ jobs:
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          key: agentic-workflow-usage-smokegvisor-${{ github.run_id }}
-          restore-keys: agentic-workflow-usage-smokegvisor-
+          key: agentic-workflow-usage-smokegvisorbuildtest-${{ github.run_id }}
+          restore-keys: agentic-workflow-usage-smokegvisorbuildtest-
           path: /tmp/gh-aw/agentic-workflow-usage-cache.jsonl
       - name: Write daily AIC usage cache entry
         id: write-daily-aic-cache
@@ -1231,7 +1256,7 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          key: agentic-workflow-usage-smokegvisor-${{ github.run_id }}
+          key: agentic-workflow-usage-smokegvisorbuildtest-${{ github.run_id }}
           path: /tmp/gh-aw/agentic-workflow-usage-cache.jsonl
       - name: Upload daily AIC usage cache artifact
         id: upload-daily-aic-cache
@@ -1249,14 +1274,14 @@ jobs:
         env:
           GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
           GH_AW_NOOP_MAX: "1"
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor.md"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor-build-test.md"
           GH_AW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           GH_AW_AGENT_CONCLUSION: ${{ needs.agent.result }}
           GH_AW_NOOP_REPORT_AS_ISSUE: "true"
           GH_AW_AIC: ${{ needs.agent.outputs.aic }}
           GH_AW_AMBIENT_CONTEXT: ${{ needs.agent.outputs.ambient_context }}
-          GH_AW_WORKFLOW_ID: "smoke-gvisor"
+          GH_AW_WORKFLOW_ID: "smoke-gvisor-build-test"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1270,8 +1295,8 @@ jobs:
         env:
           GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
           GH_AW_MISSING_TOOL_CREATE_ISSUE: "true"
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor.md"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor-build-test.md"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1285,8 +1310,8 @@ jobs:
         env:
           GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
           GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE: "true"
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor.md"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor-build-test.md"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1300,11 +1325,11 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor.md"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor-build-test.md"
           GH_AW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           GH_AW_AGENT_CONCLUSION: ${{ needs.agent.result }}
-          GH_AW_WORKFLOW_ID: "smoke-gvisor"
+          GH_AW_WORKFLOW_ID: "smoke-gvisor-build-test"
           GH_AW_ACTION_FAILURE_ISSUE_EXPIRES_HOURS: "168"
           GH_AW_ENGINE_ID: "copilot"
           GH_AW_CHECKOUT_PR_SUCCESS: ${{ needs.agent.outputs.checkout_pr_success }}
@@ -1325,12 +1350,12 @@ jobs:
           GH_AW_DAILY_AI_CREDITS_EXCEEDED: ${{ needs.activation.outputs.daily_ai_credits_exceeded }}
           GH_AW_DAILY_AI_CREDITS_TOTAL_EFFECTIVE_TOKENS: ${{ needs.activation.outputs.daily_ai_credits_total_effective_tokens }}
           GH_AW_DAILY_AI_CREDITS_THRESHOLD: ${{ needs.activation.outputs.daily_ai_credits_threshold }}
-          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎 *gVisor smoke test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎 [{workflow_name}]({run_url}) is testing gVisor runtime compatibility...\",\"runSuccess\":\"🦎 [{workflow_name}]({run_url}) completed. gVisor smoke test passed. ✅\",\"runFailure\":\"🦎 [{workflow_name}]({run_url}) reports {status}. gVisor compatibility issue detected.\"}"
+          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎🏗️ *gVisor build test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎🏗️ [{workflow_name}]({run_url}) is testing gVisor runtime with build workloads...\",\"runSuccess\":\"🦎🏗️ [{workflow_name}]({run_url}) completed. gVisor build test passed. ✅\",\"runFailure\":\"🦎🏗️ [{workflow_name}]({run_url}) reports {status}. gVisor build compatibility issue detected.\"}"
           GH_AW_GROUP_REPORTS: "false"
           GH_AW_FAILURE_REPORT_AS_ISSUE: "true"
           GH_AW_MISSING_TOOL_REPORT_AS_FAILURE: "true"
           GH_AW_MISSING_DATA_REPORT_AS_FAILURE: "true"
-          GH_AW_TIMEOUT_MINUTES: "15"
+          GH_AW_TIMEOUT_MINUTES: "30"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1346,10 +1371,10 @@ jobs:
           GH_AW_COMMENT_ID: ${{ needs.activation.outputs.comment_id }}
           GH_AW_COMMENT_REPO: ${{ needs.activation.outputs.comment_repo }}
           GH_AW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          GH_AW_WORKFLOW_NAME: "Smoke gVisor"
+          GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
           GH_AW_AGENT_CONCLUSION: ${{ needs.agent.result }}
           GH_AW_SAFE_OUTPUTS_RESULT: ${{ needs.safe_outputs.result }}
-          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎 *gVisor smoke test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎 [{workflow_name}]({run_url}) is testing gVisor runtime compatibility...\",\"runSuccess\":\"🦎 [{workflow_name}]({run_url}) completed. gVisor smoke test passed. ✅\",\"runFailure\":\"🦎 [{workflow_name}]({run_url}) reports {status}. gVisor compatibility issue detected.\"}"
+          GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎🏗️ *gVisor build test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎🏗️ [{workflow_name}]({run_url}) is testing gVisor runtime with build workloads...\",\"runSuccess\":\"🦎🏗️ [{workflow_name}]({run_url}) completed. gVisor build test passed. ✅\",\"runFailure\":\"🦎🏗️ [{workflow_name}]({run_url}) reports {status}. gVisor build compatibility issue detected.\"}"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1360,7 +1385,7 @@ jobs:
 
   pre_activation:
     if: >
-      github.event_name == 'pull_request' && github.event.label.name == 'test-gvisor' || !(github.event_name == 'pull_request')
+      github.event_name == 'pull_request' && github.event.label.name == 'test-gvisor-build' || !(github.event_name == 'pull_request')
     runs-on: ubuntu-slim
     env:
       GH_AW_RUNTIME_FEATURES: ${{ vars.GH_AW_RUNTIME_FEATURES }}
@@ -1378,8 +1403,8 @@ jobs:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
         env:
-          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor.lock.yml@${{ github.ref }}
+          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor-build-test.lock.yml@${{ github.ref }}
           GH_AW_INFO_VERSION: "1.0.34"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_ENGINE_ID: "copilot"
@@ -1411,17 +1436,17 @@ jobs:
       GH_AW_AGENT_AIC: ${{ needs.agent.outputs.aic }}
       GH_AW_AIC: ${{ needs.agent.outputs.aic }}
       GH_AW_AMBIENT_CONTEXT: ${{ needs.agent.outputs.ambient_context }}
-      GH_AW_CALLER_WORKFLOW_ID: "${{ github.repository }}/smoke-gvisor"
+      GH_AW_CALLER_WORKFLOW_ID: "${{ github.repository }}/smoke-gvisor-build-test"
       GH_AW_EFFECTIVE_TOKENS: ${{ needs.agent.outputs.effective_tokens }}
       GH_AW_ENGINE_ID: "copilot"
       GH_AW_ENGINE_MODEL: ${{ needs.agent.outputs.model }}
       GH_AW_ENGINE_VERSION: "1.0.68"
-      GH_AW_LABEL_COMMANDS: "[\"test-gvisor\"]"
+      GH_AW_LABEL_COMMANDS: "[\"test-gvisor-build\"]"
       GH_AW_RUNTIME_FEATURES: ${{ vars.GH_AW_RUNTIME_FEATURES }}
-      GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎 *gVisor smoke test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎 [{workflow_name}]({run_url}) is testing gVisor runtime compatibility...\",\"runSuccess\":\"🦎 [{workflow_name}]({run_url}) completed. gVisor smoke test passed. ✅\",\"runFailure\":\"🦎 [{workflow_name}]({run_url}) reports {status}. gVisor compatibility issue detected.\"}"
-      GH_AW_WORKFLOW_ID: "smoke-gvisor"
-      GH_AW_WORKFLOW_NAME: "Smoke gVisor"
-      GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor.md"
+      GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 🦎🏗️ *gVisor build test by [{workflow_name}]({run_url})*\",\"runStarted\":\"🦎🏗️ [{workflow_name}]({run_url}) is testing gVisor runtime with build workloads...\",\"runSuccess\":\"🦎🏗️ [{workflow_name}]({run_url}) completed. gVisor build test passed. ✅\",\"runFailure\":\"🦎🏗️ [{workflow_name}]({run_url}) reports {status}. gVisor build compatibility issue detected.\"}"
+      GH_AW_WORKFLOW_ID: "smoke-gvisor-build-test"
+      GH_AW_WORKFLOW_NAME: "Smoke gVisor Build Test"
+      GH_AW_WORKFLOW_SOURCE_URL: "${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/.github/workflows/smoke-gvisor-build-test.md"
     outputs:
       code_push_failure_count: ${{ steps.process_safe_outputs.outputs.code_push_failure_count }}
       code_push_failure_errors: ${{ steps.process_safe_outputs.outputs.code_push_failure_errors }}
@@ -1441,8 +1466,8 @@ jobs:
           trace-id: ${{ needs.activation.outputs.setup-trace-id }}
           parent-span-id: ${{ needs.activation.outputs.setup-parent-span-id || needs.activation.outputs.setup-span-id }}
         env:
-          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor"
-          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor.lock.yml@${{ github.ref }}
+          GH_AW_SETUP_WORKFLOW_NAME: "Smoke gVisor Build Test"
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/smoke-gvisor-build-test.lock.yml@${{ github.ref }}
           GH_AW_INFO_VERSION: "1.0.68"
           GH_AW_INFO_AWF_VERSION: "v0.27.29"
           GH_AW_INFO_ENGINE_ID: "copilot"
@@ -1475,10 +1500,10 @@ jobs:
         env:
           GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
           GH_AW_COMMENT_ID: ${{ needs.activation.outputs.comment_id }}
-          GH_AW_ALLOWED_DOMAINS: "*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,codeload.github.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,docs.github.com,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,host.docker.internal,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,lfs.github.com,objects.githubusercontent.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,patch-diff.githubusercontent.com,patchdiff.githubusercontent.com,ppa.launchpad.net,raw.githubusercontent.com,registry.npmjs.org,s.symcb.com,s.symcd.com,security.ubuntu.com,telemetry.enterprise.githubcopilot.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com"
+          GH_AW_ALLOWED_DOMAINS: "*.githubusercontent.com,api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,api.npms.io,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,bun.sh,cdn.jsdelivr.net,codeload.github.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,deb.nodesource.com,deno.land,docs.github.com,esm.sh,get.pnpm.io,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.blog,github.com,github.githubassets.com,go.dev,golang.org,googleapis.deno.dev,googlechromelabs.github.io,goproxy.io,host.docker.internal,json-schema.org,json.schemastore.org,jsr.io,keyserver.ubuntu.com,lfs.github.com,nodejs.org,npm.pkg.github.com,npmjs.com,npmjs.org,objects.githubusercontent.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,patch-diff.githubusercontent.com,patchdiff.githubusercontent.com,pkg.go.dev,ppa.launchpad.net,proxy.golang.org,raw.githubusercontent.com,registry.bower.io,registry.npmjs.com,registry.npmjs.org,registry.yarnpkg.com,repo.yarnpkg.com,s.symcb.com,s.symcd.com,security.ubuntu.com,skimdb.npmjs.com,storage.googleapis.com,sum.golang.org,telemetry.enterprise.githubcopilot.com,telemetry.vercel.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com,www.npmjs.com,www.npmjs.org,yarnpkg.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"hide_older_comments\":true,\"max\":1},\"add_labels\":{\"allowed\":[\"smoke-gvisor\"]},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"true\"},\"report_incomplete\":{}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"hide_older_comments\":true,\"max\":1},\"add_labels\":{\"allowed\":[\"smoke-gvisor-build\"]},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"true\"},\"report_incomplete\":{}}"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -1526,7 +1551,6 @@ jobs:
         run: |
           echo "::group::Check artifacts for gVisor runtime confirmation"
           ARTIFACT_ROOT="/tmp/gh-aw-agent"
-          # Search all text artifacts for gVisor kernel signature or confirmation
           if grep -r -l -i 'gVisor' "$ARTIFACT_ROOT" --include '*.log' --include '*.json' --include '*.txt' --include '*.jsonl' 2>/dev/null | head -3; then
             echo "✅ gVisor runtime confirmed in agent artifacts"
           else
