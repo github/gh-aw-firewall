@@ -158,7 +158,6 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
   const env = sanitizeEnvForSbx();
-  delete env.XDG_CONFIG_HOME;
   env.DOCKER_SANDBOXES_PROXY = proxyUrl;
 
   const createResult = await execa('sbx', args, {
