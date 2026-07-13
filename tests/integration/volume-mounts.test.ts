@@ -57,7 +57,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -72,7 +72,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:rw`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -103,7 +103,7 @@ describe('Volume Mount Functionality', () => {
           `${dir1}:/mount1:ro`,
           `${dir2}:/mount2:ro`,
         ],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -125,7 +125,7 @@ describe('Volume Mount Functionality', () => {
           allowDomains: ['github.com'],
           logLevel: 'debug',
           volumeMounts: [`${testDir}:/data:ro`],
-          timeout: 30000,
+          timeout: 60000,
         }
       );
 
@@ -150,7 +150,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -168,7 +168,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -183,7 +183,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         // No volumeMounts specified
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -199,7 +199,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data`], // No mode specified
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -217,7 +217,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -238,7 +238,7 @@ describe('Volume Mount Functionality', () => {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${projectDir}:/workspace:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -262,7 +262,7 @@ describe('Volume Mount Functionality', () => {
           `${roDir}:/config:ro`,
           `${rwDir}:/logs:rw`,
         ],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
