@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildWorkspaceMounts, buildCustomVolumeMounts } from './workspace-mounts';
-import { makeAgentVolumeConfig } from './test-utils';
+import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 import { WrapperConfig } from '../../types';
 import * as dockerHostStaging from './docker-host-staging';
 

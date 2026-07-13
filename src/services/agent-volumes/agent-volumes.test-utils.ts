@@ -1,4 +1,4 @@
-import { WrapperConfig } from '../../types';
+import type { WrapperConfig } from '../../types';
 
 export function makeAgentVolumeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {

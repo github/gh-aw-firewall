@@ -7,7 +7,7 @@
  */
 
 import { buildDockerSocketMount } from './docker-socket';
-import { makeAgentVolumeConfig } from './test-utils';
+import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 
 jest.mock('../../logger', () => ({
   logger: {

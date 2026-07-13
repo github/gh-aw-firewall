@@ -12,7 +12,7 @@ import {
   extractCommandBinaryName,
   getDockerHostStageRoot,
 } from './docker-host-staging';
-import { makeAgentVolumeConfig } from './test-utils';
+import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 
 let tmpDir: string;
 
