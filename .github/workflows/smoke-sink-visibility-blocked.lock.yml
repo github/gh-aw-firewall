@@ -40,7 +40,7 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
 #   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-#   - github/gh-aw/actions/setup@c1c3d353fbd68f64adb539c5b95019815feb20ec
+#   - github/gh-aw/actions/setup@c369805f9a526f8fdef23e760542721cefc6c497
 #
 # Container images used:
 #   - ghcr.io/github/gh-aw-firewall/agent:0.27.30@sha256:3cc1e14efa9e52ed1fc29d72a0eabf02ff86b30c6af9685fa9ddd687caca6613
@@ -95,7 +95,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@c1c3d353fbd68f64adb539c5b95019815feb20ec
+        uses: github/gh-aw/actions/setup@c369805f9a526f8fdef23e760542721cefc6c497
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -408,7 +408,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@c1c3d353fbd68f64adb539c5b95019815feb20ec
+        uses: github/gh-aw/actions/setup@c369805f9a526f8fdef23e760542721cefc6c497
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -989,7 +989,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@c1c3d353fbd68f64adb539c5b95019815feb20ec
+        uses: github/gh-aw/actions/setup@c369805f9a526f8fdef23e760542721cefc6c497
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1236,7 +1236,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@c1c3d353fbd68f64adb539c5b95019815feb20ec
+        uses: github/gh-aw/actions/setup@c369805f9a526f8fdef23e760542721cefc6c497
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
