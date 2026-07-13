@@ -20,6 +20,7 @@ tools:
   bash:
     - "*"
   github:
+    mode: gh-proxy
     github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
     toolsets: [repos]
     private-to-public-flows: allow
