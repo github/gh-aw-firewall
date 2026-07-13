@@ -47,10 +47,10 @@
  * - `compose` – agent is a Docker Compose service (default runc, gVisor, kata, etc.)
  * - `microvm` – agent runs in a hypervisor-isolated microVM (Docker sbx, etc.)
  */
-export type ExecutionModel = 'compose' | 'microvm';
+type ExecutionModel = 'compose' | 'microvm';
 
 /** Behavioural capabilities / quirks for a container runtime. */
-export interface RuntimeCapabilities {
+interface RuntimeCapabilities {
   /** How the agent is launched.  Determines whether the agent appears as a
    *  Docker Compose service or is managed by an external tool. */
   readonly executionModel: ExecutionModel;
@@ -109,14 +109,6 @@ export function resolveDockerRuntime(runtime: string): string | undefined {
   if (entry) return entry.dockerRuntime;
   // Unknown name — pass through as a raw Docker runtime identifier
   return runtime;
-}
-
-/**
- * Returns the capability flags for a runtime, or `undefined` if the runtime
- * is not in the registry (i.e. a raw Docker runtime name was used directly).
- */
-export function getRuntimeCapabilities(runtime: string): RuntimeCapabilities | undefined {
-  return RUNTIME_REGISTRY[runtime];
 }
 
 /**

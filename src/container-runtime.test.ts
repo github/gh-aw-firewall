@@ -1,4 +1,4 @@
-import { resolveDockerRuntime, getRuntimeCapabilities, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
+import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
 import { sanitizeEnvForSbx } from './sbx-manager';
 
 describe('container-runtime', () => {
@@ -15,29 +15,6 @@ describe('container-runtime', () => {
       expect(resolveDockerRuntime('kata')).toBe('kata');
       expect(resolveDockerRuntime('runsc')).toBe('runsc');
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
-    });
-  });
-
-  describe('getRuntimeCapabilities', () => {
-    it('returns capabilities for gvisor', () => {
-      const caps = getRuntimeCapabilities('gvisor');
-      expect(caps).toBeDefined();
-      expect(caps!.dockerRuntime).toBe('runsc');
-      expect(caps!.needsStaticDns).toBe(true);
-      expect(caps!.executionModel).toBe('compose');
-    });
-
-    it('returns capabilities for sbx', () => {
-      const caps = getRuntimeCapabilities('sbx');
-      expect(caps).toBeDefined();
-      expect(caps!.dockerRuntime).toBeUndefined();
-      expect(caps!.needsStaticDns).toBe(false);
-      expect(caps!.executionModel).toBe('microvm');
-    });
-
-    it('returns undefined for unknown runtimes', () => {
-      expect(getRuntimeCapabilities('kata')).toBeUndefined();
-      expect(getRuntimeCapabilities('runsc')).toBeUndefined();
     });
   });
 
