@@ -10,6 +10,7 @@ import { logger } from '../logger';
 import * as dnsResolver from '../dns-resolver';
 import * as upstreamProxy from '../upstream-proxy';
 import * as optionParsers from '../option-parsers';
+import { setupNetworkConfigMocks } from '../test-helpers/network-setup-mocks.test-utils';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDnsResolver = dnsResolver as jest.Mocked<typeof dnsResolver>;
@@ -20,15 +21,12 @@ describe('resolveNetworkConfig', () => {
   let processExitSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
+    processExitSpy = setupNetworkConfigMocks({
+      detectHostDnsServers: mockedDnsResolver.detectHostDnsServers as jest.Mock,
+      detectUpstreamProxy: mockedUpstreamProxy.detectUpstreamProxy as jest.Mock,
+      parseDnsServers: mockedOptionParsers.parseDnsServers as jest.Mock,
+      parseDnsOverHttps: mockedOptionParsers.parseDnsOverHttps as jest.Mock,
     });
-    // Defaults
-    mockedDnsResolver.detectHostDnsServers.mockReturnValue(['8.8.8.8']);
-    mockedUpstreamProxy.detectUpstreamProxy.mockReturnValue(undefined);
-    mockedOptionParsers.parseDnsServers.mockReturnValue(['1.1.1.1']);
-    mockedOptionParsers.parseDnsOverHttps.mockReturnValue(undefined);
   });
 
   afterEach(() => {
