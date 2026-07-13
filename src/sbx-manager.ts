@@ -157,16 +157,38 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
-  const env = sanitizeEnvForSbx();
-  env.DOCKER_SANDBOXES_PROXY = proxyUrl;
+  // Do NOT pass a custom `env` to sbx create. The sanitized env (which strips
+  // vars matching TOKEN, SECRET, KEY, etc.) also strips variables the sbx CLI
+  // needs internally for credential lookup against the daemon's auth store.
+  // Since sbx create is a management command that talks to the local daemon
+  // (not user code running inside the sandbox), inheriting process.env is safe —
+  // these env vars never enter the sandbox interior. The sandbox interior's env
+  // is controlled separately by execInSandbox() which uses sanitizeEnvForSbx().
+  //
+  // DOCKER_SANDBOXES_PROXY must NOT be set during create — it forces the daemon
+  // to route Docker Hub registry auth through Squid, which isn't ready yet.
+  // XDG_CONFIG_HOME must also be removed — the Copilot harness sets it to $HOME,
+  // which makes the sbx CLI look for credentials in $HOME/ instead of the
+  // default $HOME/.config/ where `sbx login` stored them.
+  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  const savedXdg = process.env.XDG_CONFIG_HOME;
+  delete process.env.DOCKER_SANDBOXES_PROXY;
+  delete process.env.XDG_CONFIG_HOME;
 
   const createResult = await execa('sbx', args, {
-    env,
     input: 'y\n',
     stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
   });
+
+  // Restore env vars
+  if (savedProxy !== undefined) {
+    process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+  }
+  if (savedXdg !== undefined) {
+    process.env.XDG_CONFIG_HOME = savedXdg;
+  }
 
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();

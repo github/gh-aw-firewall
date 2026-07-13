@@ -104,13 +104,12 @@ describe('sbx-manager', () => {
         process.env.HOME || '/home/runner',
       ], expect.objectContaining({
         input: 'y\n',
-        env: expect.objectContaining({
-          DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128',
-        }),
       }));
-      // XDG_CONFIG_HOME must not reach the sbx CLI
-      const sbxCreateCallEnv: Record<string, string | undefined> = mockExecaFn.mock.calls[1][2].env;
-      expect(sbxCreateCallEnv).not.toMatchObject({ XDG_CONFIG_HOME: expect.anything() });
+      // sbx create must NOT pass a custom env — it inherits process.env so the
+      // sbx CLI can find daemon credentials. The sandbox interior is isolated
+      // separately by execInSandbox() which uses sanitizeEnvForSbx().
+      const sbxCreateCall = mockExecaFn.mock.calls[1][2];
+      expect(sbxCreateCall.env).toBeUndefined();
     });
 
     it('uses SBX_DEFAULT_NAME when no name provided', async () => {
@@ -126,36 +125,31 @@ describe('sbx-manager', () => {
       expect(name).toBe(SBX_DEFAULT_NAME);
     });
 
-    it('uses default squidPort 3128 when not specified', async () => {
+    it('does not pass custom env during create (inherits process.env)', async () => {
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' });
 
-      expect(mockExecaFn).toHaveBeenCalledWith(
-        'sbx',
-        expect.arrayContaining(['create']),
-        expect.objectContaining({
-          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:3128' }),
-        }),
-      );
+      const sbxCreateCall = mockExecaFn.mock.calls[1][2];
+      expect(sbxCreateCall.env).toBeUndefined();
     });
 
-    it('uses custom squidPort when specified', async () => {
+    it('temporarily removes DOCKER_SANDBOXES_PROXY and XDG_CONFIG_HOME during create', async () => {
+      process.env.DOCKER_SANDBOXES_PROXY = 'http://old-proxy:3128';
+      process.env.XDG_CONFIG_HOME = '/home/runner';
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
 
       await createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10', squidPort: 8080 });
 
-      expect(mockExecaFn).toHaveBeenCalledWith(
-        'sbx',
-        expect.arrayContaining(['create']),
-        expect.objectContaining({
-          env: expect.objectContaining({ DOCKER_SANDBOXES_PROXY: 'http://172.30.0.10:8080' }),
-        }),
-      );
+      // Both should be restored after create
+      expect(process.env.DOCKER_SANDBOXES_PROXY).toBe('http://old-proxy:3128');
+      expect(process.env.XDG_CONFIG_HOME).toBe('/home/runner');
+      delete process.env.DOCKER_SANDBOXES_PROXY;
+      delete process.env.XDG_CONFIG_HOME;
     });
 
     it('throws when auth check fails (non-zero exit)', async () => {
