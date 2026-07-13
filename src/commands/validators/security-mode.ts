@@ -1,5 +1,6 @@
 import { WrapperConfig } from '../../types';
 import { logger } from '../../logger';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
 
 /**
  * Applies security-mode enforcement to the assembled config.
@@ -24,23 +25,30 @@ export function applySecurityMode(config: WrapperConfig): void {
 
   // --- strict mode (default) ---
 
-  // Force network-isolation on
-  if (!config.networkIsolation) {
-    if (config.networkIsolation === false) {
-      // Explicitly set to false via CLI or config — warn and override
-      logger.warn(
-        '⚠️  network.isolation: false was ignored (incompatible with --security-mode strict, the default).\n' +
-        '   Pass --security-mode compat to disable network isolation.',
-      );
+  // MicroVM runtimes (e.g. sbx) enforce isolation at the hypervisor layer via
+  // DOCKER_SANDBOXES_PROXY; Docker network topology does not apply to them.
+  const isMicroVmRuntime = !runtimeUsesComposeAgent(config.containerRuntime);
+
+  if (!isMicroVmRuntime) {
+    // Force network-isolation on.
+    // Only warn when explicitly disabled (=== false); undefined means "not set by user".
+    if (!config.networkIsolation) {
+      if (config.networkIsolation === false) {
+        logger.warn(
+          '⚠️  --no-network-isolation was ignored (incompatible with --security-mode strict, the default).\n' +
+          '   Pass --security-mode compat to disable network isolation.',
+        );
+      }
+      config.networkIsolation = true;
     }
-    config.networkIsolation = true;
   }
 
-  // Force api-proxy on
+  // Force api-proxy on.
+  // Only warn when explicitly disabled (=== false); undefined means "not set by user".
   if (!config.enableApiProxy) {
     if (config.enableApiProxy === false) {
       logger.warn(
-        '⚠️  --enable-api-proxy: false was ignored (incompatible with --security-mode strict, the default).\n' +
+        '⚠️  --no-enable-api-proxy was ignored (incompatible with --security-mode strict, the default).\n' +
         '   Pass --security-mode compat to disable the API proxy.',
       );
     }
@@ -54,6 +62,25 @@ export function applySecurityMode(config: WrapperConfig): void {
       '   Pass --security-mode compat to enable host access.',
     );
     config.enableHostAccess = false;
+    // Also clear allowHostServicePorts: it auto-enables host access in
+    // applyHostServicePortsConfig() which runs later in the validator pipeline.
+    if (config.allowHostServicePorts) {
+      logger.warn(
+        '⚠️  --allow-host-service-ports was ignored (incompatible with --security-mode strict, the default).\n' +
+        '   Pass --security-mode compat to use host service ports.',
+      );
+      config.allowHostServicePorts = undefined;
+    }
+  }
+
+  // Similarly, allowHostServicePorts alone (without enableHostAccess) would
+  // auto-enable host access downstream — suppress it in strict mode.
+  if (config.allowHostServicePorts) {
+    logger.warn(
+      '⚠️  --allow-host-service-ports was ignored (incompatible with --security-mode strict, the default).\n' +
+      '   Pass --security-mode compat to use host service ports.',
+    );
+    config.allowHostServicePorts = undefined;
   }
 
   if (config.enableDind) {

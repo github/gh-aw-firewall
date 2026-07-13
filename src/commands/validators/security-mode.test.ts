@@ -11,7 +11,12 @@ jest.mock('../../logger', () => ({
   },
 }));
 
+jest.mock('../../container-runtime', () => ({
+  runtimeUsesComposeAgent: jest.fn().mockReturnValue(true),
+}));
+
 import { logger } from '../../logger';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
 
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -22,8 +27,9 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     proxyLogsDir: '/tmp/logs',
     dnsServers: ['8.8.8.8'],
     enableHostAccess: false,
-    networkIsolation: false,
-    enableApiProxy: false,
+    // networkIsolation and enableApiProxy are intentionally left undefined here
+    // to match the CLI default behaviour — users who do not explicitly pass
+    // --network-isolation or --enable-api-proxy will have undefined, not false.
     enableDind: false,
     sslBump: false,
     enableDlp: false,
@@ -41,26 +47,52 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
 describe('applySecurityMode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (runtimeUsesComposeAgent as jest.Mock).mockReturnValue(true);
   });
 
   describe('strict mode (default)', () => {
-    it('should force networkIsolation on', () => {
+    it('should force networkIsolation on when undefined (not explicitly set)', () => {
+      const config = makeConfig({ securityMode: 'strict', networkIsolation: undefined });
+      applySecurityMode(config);
+      expect(config.networkIsolation).toBe(true);
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('--no-network-isolation'),
+      );
+    });
+
+    it('should force networkIsolation on and warn when explicitly disabled', () => {
       const config = makeConfig({ securityMode: 'strict', networkIsolation: false });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('--no-network-isolation was ignored'),
+      );
     });
 
-    it('should force enableApiProxy on', () => {
+    it('should force enableApiProxy on when undefined (not explicitly set)', () => {
+      const config = makeConfig({ securityMode: 'strict', enableApiProxy: undefined });
+      applySecurityMode(config);
+      expect(config.enableApiProxy).toBe(true);
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('--no-enable-api-proxy'),
+      );
+    });
+
+    it('should force enableApiProxy on and warn when explicitly disabled', () => {
       const config = makeConfig({ securityMode: 'strict', enableApiProxy: false });
       applySecurityMode(config);
       expect(config.enableApiProxy).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('--no-enable-api-proxy was ignored'),
+      );
     });
 
     it('should be the default when securityMode is undefined', () => {
-      const config = makeConfig({ securityMode: undefined, networkIsolation: false, enableApiProxy: false });
+      const config = makeConfig({ securityMode: undefined });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(true);
       expect(config.enableApiProxy).toBe(true);
+      expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it('should override enableHostAccess with warning', () => {
@@ -70,6 +102,22 @@ describe('applySecurityMode', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('--enable-host-access was ignored'),
       );
+    });
+
+    it('should clear allowHostServicePorts when set (prevents downstream re-enable of host access)', () => {
+      const config = makeConfig({ allowHostServicePorts: '5432,6379' });
+      applySecurityMode(config);
+      expect(config.allowHostServicePorts).toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('--allow-host-service-ports was ignored'),
+      );
+    });
+
+    it('should clear allowHostServicePorts set alongside enableHostAccess', () => {
+      const config = makeConfig({ enableHostAccess: true, allowHostServicePorts: '5432' });
+      applySecurityMode(config);
+      expect(config.enableHostAccess).toBe(false);
+      expect(config.allowHostServicePorts).toBeUndefined();
     });
 
     it('should override enableDind with warning', () => {
@@ -108,6 +156,27 @@ describe('applySecurityMode', () => {
       });
       applySecurityMode(config);
       expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    describe('microVM runtime (sbx)', () => {
+      beforeEach(() => {
+        (runtimeUsesComposeAgent as jest.Mock).mockReturnValue(false);
+      });
+
+      it('should skip network-isolation enforcement for microVM runtimes', () => {
+        const config = makeConfig({ securityMode: 'strict', containerRuntime: 'sbx' });
+        applySecurityMode(config);
+        expect(config.networkIsolation).toBeUndefined();
+        expect(logger.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining('network-isolation'),
+        );
+      });
+
+      it('should still enforce api-proxy for microVM runtimes', () => {
+        const config = makeConfig({ securityMode: 'strict', containerRuntime: 'sbx' });
+        applySecurityMode(config);
+        expect(config.enableApiProxy).toBe(true);
+      });
     });
   });
 

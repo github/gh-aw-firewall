@@ -108,7 +108,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
-    networkIsolation: options.networkIsolation as boolean,
+    networkIsolation: options.networkIsolation as boolean | undefined,
     topologyAttach: options.topologyAttach as string[] | undefined,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,
@@ -118,7 +118,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     enableDlp: options.enableDlp as boolean,
     securityMode: options.securityMode as 'strict' | 'compat' | undefined,
     allowedUrls,
-    enableApiProxy: options.enableApiProxy as boolean,
+    enableApiProxy: options.enableApiProxy as boolean | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
     requestedModel: options.requestedModel as string | undefined,

@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
@@ -242,10 +242,14 @@ program
   )
   .option(
     '--network-isolation',
-    'Experimental: enforce egress via Docker network topology (internal network +\n' +
+    'Enforce egress via Docker network topology (internal network +\n' +
     '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
-    '                                       Not yet supported with --dns-over-https or --enable-host-access.',
-    false
+    '                                       Not yet supported with --dns-over-https or --enable-host-access.\n' +
+    '                                       Enabled by default in --security-mode strict.'
+  )
+  .option(
+    '--no-network-isolation',
+    'Disable network-isolation mode (requires --security-mode compat in strict mode).'
   )
   .option(
     '--topology-attach <name>',
@@ -274,12 +278,13 @@ program
     '                                       WARNING: allows firewall bypass via docker run',
     false
   )
-  .option(
-    '--security-mode <mode>',
-    'Security enforcement mode (default: strict).\n' +
-    '                                       strict: network-isolation + api-proxy, no sudo/iptables.\n' +
-    '                                       compat: legacy iptables mode, requires sudo.',
-    'strict'
+  .addOption(
+    new Option(
+      '--security-mode <mode>',
+      'Security enforcement mode (default: strict).\n' +
+      '                                       strict: network-isolation + api-proxy, no sudo/iptables.\n' +
+      '                                       compat: legacy iptables mode, requires sudo.',
+    ).choices(['strict', 'compat']).default('strict')
   )
   .option(
     '--enable-dlp',
@@ -292,8 +297,11 @@ program
   .option(
     '--enable-api-proxy',
     'Enable API proxy sidecar for secure credential injection.\n' +
-    '                                       Supports OpenAI (Codex) and Anthropic (Claude) APIs.',
-    false
+    '                                       Supports OpenAI (Codex) and Anthropic (Claude) APIs.'
+  )
+  .option(
+    '--no-enable-api-proxy',
+    'Disable the API proxy sidecar (requires --security-mode compat in strict mode).'
   )
   .option(
     '--copilot-api-target <host>',
