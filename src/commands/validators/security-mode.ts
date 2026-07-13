@@ -71,6 +71,10 @@ export function applySecurityMode(config: WrapperConfig): void {
       );
       config.allowHostServicePorts = undefined;
     }
+    // Clear allowHostPorts that may have been auto-set by localhost keyword
+    if (config.allowHostPorts) {
+      config.allowHostPorts = undefined;
+    }
   }
 
   // Similarly, allowHostServicePorts alone (without enableHostAccess) would

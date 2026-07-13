@@ -113,10 +113,15 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should clear allowHostServicePorts set alongside enableHostAccess', () => {
-      const config = makeConfig({ enableHostAccess: true, allowHostServicePorts: '5432' });
+    it('should clear allowHostServicePorts and allowHostPorts set alongside enableHostAccess', () => {
+      const config = makeConfig({
+        enableHostAccess: true,
+        allowHostPorts: '3000,8080',
+        allowHostServicePorts: '5432',
+      });
       applySecurityMode(config);
       expect(config.enableHostAccess).toBe(false);
+      expect(config.allowHostPorts).toBeUndefined();
       expect(config.allowHostServicePorts).toBeUndefined();
     });
 
