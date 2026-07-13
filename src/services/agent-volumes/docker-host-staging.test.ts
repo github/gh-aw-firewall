@@ -12,16 +12,7 @@ import {
   extractCommandBinaryName,
   getDockerHostStageRoot,
 } from './docker-host-staging';
-import { WrapperConfig } from '../../types';
-
-function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
-  return {
-    allowDomains: 'example.com',
-    agentCommand: 'echo test',
-    workDir: '/tmp/awf-test',
-    ...overrides,
-  } as WrapperConfig;
-}
+import { makeAgentVolumeConfig } from './test-utils';
 
 let tmpDir: string;
 
@@ -76,21 +67,21 @@ describe('shouldUseDockerHostStaging', () => {
 
 describe('getDockerHostStageRoot', () => {
   it('uses workDir as stageRoot when prefix is not a /tmp path', () => {
-    const config = makeConfig({ workDir: tmpDir, dockerHostPathPrefix: '/var/runner' });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir, dockerHostPathPrefix: '/var/runner' });
     const stageRoot = getDockerHostStageRoot(config);
     expect(stageRoot).toContain(tmpDir);
     expect(fs.existsSync(stageRoot)).toBe(true);
   });
 
   it('uses normalizedPrefix as stageRoot for /tmp-based prefixes', () => {
-    const config = makeConfig({ workDir: tmpDir, dockerHostPathPrefix: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir, dockerHostPathPrefix: tmpDir });
     const stageRoot = getDockerHostStageRoot(config);
     expect(stageRoot).toContain(tmpDir);
     expect(fs.existsSync(stageRoot)).toBe(true);
   });
 
   it('creates the stage root directory', () => {
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const stageRoot = getDockerHostStageRoot(config);
     expect(fs.existsSync(stageRoot)).toBe(true);
     expect(fs.statSync(stageRoot).isDirectory()).toBe(true);
@@ -99,13 +90,13 @@ describe('getDockerHostStageRoot', () => {
 
 describe('stageHostFile', () => {
   it('returns undefined when the source path does not exist', () => {
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const result = stageHostFile(config, '/nonexistent/path/file.txt', 'etc/file.txt');
     expect(result).toBeUndefined();
   });
 
   it('returns undefined when source path is a directory, not a file', () => {
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     // Pass a directory path as the source
     const result = stageHostFile(config, tmpDir, 'etc/notfile.txt');
     expect(result).toBeUndefined();
@@ -115,7 +106,7 @@ describe('stageHostFile', () => {
     const srcFile = path.join(tmpDir, 'source.txt');
     fs.writeFileSync(srcFile, 'hello staging');
 
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const result = stageHostFile(config, srcFile, 'etc/source.txt');
     expect(result).toBeDefined();
     expect(fs.readFileSync(result!, 'utf8')).toBe('hello staging');
@@ -124,7 +115,7 @@ describe('stageHostFile', () => {
   it('returns undefined when relativeTargetPath would escape the stage root (path traversal)', () => {
     const srcFile = path.join(tmpDir, 'source.txt');
     fs.writeFileSync(srcFile, 'data');
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const result = stageHostFile(config, srcFile, '../../etc/passwd');
     expect(result).toBeUndefined();
   });
@@ -132,7 +123,7 @@ describe('stageHostFile', () => {
   it('returns undefined when relativeTargetPath normalizes to empty string', () => {
     const srcFile = path.join(tmpDir, 'source.txt');
     fs.writeFileSync(srcFile, 'data');
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     // A relative path that after stripping leading slashes is empty should be rejected
     const result = stageHostFile(config, srcFile, '/');
     expect(result).toBeUndefined();
@@ -141,7 +132,7 @@ describe('stageHostFile', () => {
   it('creates nested directories as needed within the stage root', () => {
     const srcFile = path.join(tmpDir, 'cert.pem');
     fs.writeFileSync(srcFile, 'cert-data');
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const result = stageHostFile(config, srcFile, 'ssl/certs/cert.pem');
     expect(result).toBeDefined();
     expect(fs.existsSync(result!)).toBe(true);
@@ -150,7 +141,7 @@ describe('stageHostFile', () => {
   it('applies the specified file mode', () => {
     const srcFile = path.join(tmpDir, 'secret.txt');
     fs.writeFileSync(srcFile, 'secret');
-    const config = makeConfig({ workDir: tmpDir });
+    const config = makeAgentVolumeConfig({ workDir: tmpDir });
     const result = stageHostFile(config, srcFile, 'secrets/secret.txt', 0o600);
     expect(result).toBeDefined();
     const mode = fs.statSync(result!).mode & 0o777;

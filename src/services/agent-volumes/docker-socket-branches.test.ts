@@ -7,7 +7,7 @@
  */
 
 import { buildDockerSocketMount } from './docker-socket';
-import { WrapperConfig } from '../../types';
+import { makeAgentVolumeConfig } from './test-utils';
 
 jest.mock('../../logger', () => ({
   logger: {
@@ -18,18 +18,9 @@ jest.mock('../../logger', () => ({
   },
 }));
 
-function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
-  return {
-    allowDomains: 'example.com',
-    agentCommand: 'echo test',
-    workDir: '/tmp/awf-test',
-    ...overrides,
-  } as WrapperConfig;
-}
-
 describe('buildDockerSocketMount – non-Unix docker host branch', () => {
   it('returns default socket mounts when awfDockerHost uses tcp:// scheme (non-unix)', () => {
-    const config = makeConfig({ enableDind: true, awfDockerHost: 'tcp://192.168.1.5:2376' });
+    const config = makeAgentVolumeConfig({ enableDind: true, awfDockerHost: 'tcp://192.168.1.5:2376' });
     const mounts = buildDockerSocketMount(config);
 
     // Falls back to DEFAULT_DOCKER_SOCKET_PATH which is /var/run/docker.sock
@@ -41,7 +32,7 @@ describe('buildDockerSocketMount – non-Unix docker host branch', () => {
     const original = process.env.DOCKER_HOST;
     try {
       process.env.DOCKER_HOST = 'tcp://docker-host:2375';
-      const config = makeConfig({ enableDind: true });
+      const config = makeAgentVolumeConfig({ enableDind: true });
       const mounts = buildDockerSocketMount(config);
 
       expect(mounts).toContain('/var/run/docker.sock:/host/var/run/docker.sock:rw');

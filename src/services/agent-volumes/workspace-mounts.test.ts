@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildWorkspaceMounts, buildCustomVolumeMounts } from './workspace-mounts';
+import { makeAgentVolumeConfig } from './test-utils';
 import { WrapperConfig } from '../../types';
 import * as dockerHostStaging from './docker-host-staging';
 
@@ -13,15 +14,6 @@ jest.mock('../../logger', () => ({
     debug: jest.fn(),
   },
 }));
-
-function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
-  return {
-    allowDomains: 'example.com',
-    agentCommand: 'echo test',
-    workDir: '/tmp/awf-test',
-    ...overrides,
-  } as WrapperConfig;
-}
 
 function makeParams(config: WrapperConfig, projectRoot: string, workspaceDir = '/workspace') {
   return {
@@ -49,7 +41,7 @@ describe('buildWorkspaceMounts', () => {
 
   describe('standard mounts', () => {
     it('always includes /tmp, workspace, logs, session-state, init-signal mounts', () => {
-      const config = makeConfig();
+      const config = makeAgentVolumeConfig();
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
 
       expect(mounts).toContain('/tmp:/tmp:rw');
@@ -66,7 +58,7 @@ describe('buildWorkspaceMounts', () => {
       fs.mkdirSync(healthCheckPath, { recursive: true });
       fs.writeFileSync(path.join(healthCheckPath, 'api-proxy-health-check.sh'), '#!/bin/sh\n');
 
-      const config = makeConfig({ enableApiProxy: true });
+      const config = makeAgentVolumeConfig({ enableApiProxy: true });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       const mount = mounts.find(m => m.includes('api-proxy-health-check.sh'));
@@ -75,7 +67,7 @@ describe('buildWorkspaceMounts', () => {
     });
 
     it('skips api-proxy-health-check.sh mount when file does not exist', () => {
-      const config = makeConfig({ enableApiProxy: true });
+      const config = makeAgentVolumeConfig({ enableApiProxy: true });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       expect(mounts.some(m => m.includes('api-proxy-health-check.sh'))).toBe(false);
@@ -86,7 +78,7 @@ describe('buildWorkspaceMounts', () => {
       fs.mkdirSync(healthCheckPath, { recursive: true });
       fs.writeFileSync(path.join(healthCheckPath, 'api-proxy-health-check.sh'), '#!/bin/sh\n');
 
-      const config = makeConfig({ enableApiProxy: false });
+      const config = makeAgentVolumeConfig({ enableApiProxy: false });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       expect(mounts.some(m => m.includes('api-proxy-health-check.sh'))).toBe(false);
@@ -109,7 +101,7 @@ describe('buildWorkspaceMounts', () => {
       jest.spyOn(dockerHostStaging, 'stageHostFile').mockReturnValue(stagedPath);
 
       // Use absolute path so resolveBinaryPath finds it without PATH lookup
-      const config = makeConfig({ agentCommand: `${binaryPath} --flag`, dockerHostPathPrefix: '/tmp' });
+      const config = makeAgentVolumeConfig({ agentCommand: `${binaryPath} --flag`, dockerHostPathPrefix: '/tmp' });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       const binaryMount = mounts.find(m => m.includes('/tmp/awf-runner-bin/myagent'));
@@ -121,7 +113,7 @@ describe('buildWorkspaceMounts', () => {
       jest.spyOn(dockerHostStaging, 'extractCommandBinaryName').mockReturnValue('myagent');
       jest.spyOn(dockerHostStaging, 'stageHostFile').mockReturnValue(undefined);
 
-      const config = makeConfig({ agentCommand: 'myagent', dockerHostPathPrefix: '/tmp' });
+      const config = makeAgentVolumeConfig({ agentCommand: 'myagent', dockerHostPathPrefix: '/tmp' });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       expect(mounts.some(m => m.includes('awf-runner-bin'))).toBe(false);
@@ -130,7 +122,7 @@ describe('buildWorkspaceMounts', () => {
     it('skips binary mount when extractCommandBinaryName returns undefined', () => {
       jest.spyOn(dockerHostStaging, 'extractCommandBinaryName').mockReturnValue(undefined);
 
-      const config = makeConfig({ agentCommand: '', dockerHostPathPrefix: '/tmp' });
+      const config = makeAgentVolumeConfig({ agentCommand: '', dockerHostPathPrefix: '/tmp' });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       expect(mounts.some(m => m.includes('awf-runner-bin'))).toBe(false);
@@ -144,7 +136,7 @@ describe('buildWorkspaceMounts', () => {
       const origPath = process.env.PATH;
       process.env.PATH = '/tmp/empty-dir-that-does-not-exist';
       try {
-        const config = makeConfig({ agentCommand: 'nonexistent-binary-xyz', dockerHostPathPrefix: '/tmp' });
+        const config = makeAgentVolumeConfig({ agentCommand: 'nonexistent-binary-xyz', dockerHostPathPrefix: '/tmp' });
         const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
         expect(mounts.some(m => m.includes('awf-runner-bin'))).toBe(false);
@@ -161,7 +153,7 @@ describe('buildWorkspaceMounts', () => {
 
   describe('no DinD staging when shouldUseDockerHostStaging=false', () => {
     it('does not add binary mount in non-DinD mode', () => {
-      const config = makeConfig({ agentCommand: 'echo test', dockerHostPathPrefix: undefined });
+      const config = makeAgentVolumeConfig({ agentCommand: 'echo test', dockerHostPathPrefix: undefined });
       const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
 
       expect(mounts.some(m => m.includes('awf-runner-bin'))).toBe(false);
