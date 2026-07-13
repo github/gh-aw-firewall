@@ -36,7 +36,7 @@ export async function runComposeDown(
  *
  * Tolerant: silently continues if the container is not running.
  */
-export async function fixSquidLogPermissionsBeforeShutdown(): Promise<void> {
+async function fixSquidLogPermissionsBeforeShutdown(): Promise<void> {
   try {
     const result = await execa(
       'docker',

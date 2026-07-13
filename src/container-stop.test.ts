@@ -1,6 +1,6 @@
 import { fastKillAgentContainer } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
-import { fixSquidLogPermissionsBeforeShutdown, stopContainers } from './container-stop';
+import { stopContainers } from './container-stop';
 import { AGENT_CONTAINER_NAME, SQUID_CONTAINER_NAME } from './constants';
 
 // Mock execa module
@@ -64,28 +64,6 @@ describe('stopContainers', () => {
     mockExecaFn.mockRejectedValueOnce(new Error('Docker compose down failed'));
 
     await expect(stopContainers(getDir(), false)).rejects.toThrow('Docker compose down failed');
-  });
-});
-
-describe('fixSquidLogPermissionsBeforeShutdown', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('runs docker exec as root to chmod squid logs', async () => {
-    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
-
-    await fixSquidLogPermissionsBeforeShutdown();
-
-    expect(mockExecaFn).toHaveBeenCalledWith(
-      'docker',
-      ['exec', '--user', 'root', SQUID_CONTAINER_NAME, 'chmod', '-R', 'a+rX', '/var/log/squid'],
-      expect.objectContaining({ reject: false }),
-    );
-  });
-
-  it('does not throw when docker exec fails (container not running)', async () => {
-    mockExecaFn.mockRejectedValueOnce(new Error('No such container'));
-
-    await expect(fixSquidLogPermissionsBeforeShutdown()).resolves.toBeUndefined();
   });
 });
 
