@@ -85,6 +85,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
+    securityMode: config.security?.securityMode,
     enableDlp: config.security?.enableDlp,
     enableHostAccess: config.security?.enableHostAccess,
     allowHostPorts: joinPorts(config.security?.allowHostPorts),

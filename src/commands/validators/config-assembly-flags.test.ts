@@ -29,16 +29,6 @@ describe('config-assembly', () => {
   });
 
   describe('network-isolation validation', () => {
-    it('should warn that network-isolation is experimental', () => {
-      mockBuildConfigOnce({ networkIsolation: true });
-
-      callAssembleWith();
-
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('--network-isolation is experimental'),
-      );
-    });
-
     it('should exit if --network-isolation is combined with --dns-over-https', () => {
       mockBuildConfigOnce({ networkIsolation: true, dnsOverHttps: true });
 
@@ -47,7 +37,7 @@ describe('config-assembly', () => {
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--network-isolation is not yet supported with --dns-over-https'),
+        expect.stringContaining('--network-isolation is not supported with --dns-over-https'),
       );
     });
 
@@ -59,7 +49,7 @@ describe('config-assembly', () => {
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--network-isolation is not yet supported with --enable-host-access'),
+        expect.stringContaining('--network-isolation is not supported with --enable-host-access'),
       );
     });
 

@@ -61,4 +61,18 @@ export interface SecurityOptions {
    * @default false
    */
   enableDlp?: boolean;
+
+  /**
+   * Security mode that bundles related security settings.
+   *
+   * - `'strict'` (default): Enforces network-isolation (Docker network topology),
+   *   API proxy (credential injection), and rejects host-access / DinD passthrough.
+   *   Incompatible options passed via CLI or config are overridden with warnings.
+   *
+   * - `'compat'`: Preserves the legacy iptables-based configuration. Allows
+   *   host-access, DinD, and direct credential passing. Requires sudo/NET_ADMIN.
+   *
+   * @default 'strict'
+   */
+  securityMode?: 'strict' | 'compat';
 }

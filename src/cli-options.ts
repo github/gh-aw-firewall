@@ -275,6 +275,13 @@ program
     false
   )
   .option(
+    '--security-mode <mode>',
+    'Security enforcement mode (default: strict).\n' +
+    '                                       strict: network-isolation + api-proxy, no sudo/iptables.\n' +
+    '                                       compat: legacy iptables mode, requires sudo.',
+    'strict'
+  )
+  .option(
     '--enable-dlp',
     'Enable DLP (Data Loss Prevention) scanning to block credential\n' +
     '                                       exfiltration in outbound request URLs.',

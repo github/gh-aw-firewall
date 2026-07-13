@@ -493,6 +493,11 @@
       "description": "Security and isolation configuration.",
       "additionalProperties": false,
       "properties": {
+        "securityMode": {
+          "type": "string",
+          "enum": ["strict", "compat"],
+          "description": "Security enforcement mode. 'strict' (default) enforces network-isolation, API proxy credential injection, and rejects host-access/DinD. 'compat' preserves legacy iptables-based mode (requires sudo)."
+        },
         "sslBump": {
           "type": "boolean",
           "description": "Enable SSL bumping (TLS interception) in the Squid proxy. Requires a custom CA certificate."

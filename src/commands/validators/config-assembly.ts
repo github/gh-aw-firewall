@@ -6,6 +6,7 @@ import { LogAndLimitsResult } from './log-and-limits';
 import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
 import { validateInfrastructureOptions, applyRateLimitConfig, validateFeatureFlagCompatibility } from './infrastructure-validator';
+import { applySecurityMode } from './security-mode';
 import { validateHostAccessConfig } from './network-access-validator';
 import { validateApiProxyOptions, validateCopilotModelOption } from './api-proxy-validator';
 
@@ -64,6 +65,7 @@ export function assembleAndValidateConfig(
   });
 
   validateInfrastructureOptions(config);
+  applySecurityMode(config);
   applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);
   applyRateLimitConfig(config, options);
   validateFeatureFlagCompatibility(config);

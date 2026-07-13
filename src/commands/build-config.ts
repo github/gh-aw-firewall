@@ -116,6 +116,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     sslBump: options.sslBump as boolean,
     enableDind: options.enableDind as boolean,
     enableDlp: options.enableDlp as boolean,
+    securityMode: options.securityMode as 'strict' | 'compat' | undefined,
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean,
     modelFallback:
