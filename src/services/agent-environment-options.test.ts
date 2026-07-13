@@ -484,6 +484,21 @@ describe('agent environment: options', () => {
       expect(env.NO_PROXY).toContain('host.docker.internal');
     });
 
+    it('should append topology peer hostnames to NO_PROXY', () => {
+      const configWithTopologyPeers = {
+        ...mockConfig,
+        networkIsolation: true,
+        topologyAttach: ['awmg-mcpg', 'awmg-cli-proxy'],
+      };
+      const result = generateDockerCompose(configWithTopologyPeers, mockNetworkConfig);
+      const agent = result.services.agent;
+      const env = agent.environment as Record<string, string>;
+
+      expect(env.NO_PROXY).toContain('awmg-mcpg');
+      expect(env.NO_PROXY).toContain('awmg-cli-proxy');
+      expect(env.no_proxy).toBe(env.NO_PROXY);
+    });
+
     it('should sync no_proxy when --env overrides NO_PROXY', () => {
       const configWithEnv = {
         ...mockConfig,
