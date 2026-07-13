@@ -25,7 +25,7 @@ describe('Exit Code Propagation', () => {
 
   describe('Basic Exit Codes', () => {
     test('should propagate exit code 0 (success)', async () => {
-      const result = await runner.runWithSudo('exit 0', {
+      const result = await runner.run('exit 0', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -36,7 +36,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code 1 (general error)', async () => {
-      const result = await runner.runWithSudo('exit 1', {
+      const result = await runner.run('exit 1', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -47,7 +47,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code 2', async () => {
-      const result = await runner.runWithSudo('exit 2', {
+      const result = await runner.run('exit 2', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -57,7 +57,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code 42 (custom)', async () => {
-      const result = await runner.runWithSudo('exit 42', {
+      const result = await runner.run('exit 42', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -67,7 +67,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code 127 (command not found)', async () => {
-      const result = await runner.runWithSudo('nonexistent_command_xyz', {
+      const result = await runner.run('nonexistent_command_xyz', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -77,7 +77,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code 255 (maximum)', async () => {
-      const result = await runner.runWithSudo('exit 255', {
+      const result = await runner.run('exit 255', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -89,7 +89,7 @@ describe('Exit Code Propagation', () => {
 
   describe('Command Exit Codes', () => {
     test('should propagate exit code from successful command', async () => {
-      const result = await runner.runWithSudo('true', {
+      const result = await runner.run('true', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -99,7 +99,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code from failing command', async () => {
-      const result = await runner.runWithSudo('false', {
+      const result = await runner.run('false', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -109,7 +109,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code from test command (success)', async () => {
-      const result = await runner.runWithSudo('test 1 -eq 1', {
+      const result = await runner.run('test 1 -eq 1', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -119,7 +119,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code from test command (failure)', async () => {
-      const result = await runner.runWithSudo('test 1 -eq 2', {
+      const result = await runner.run('test 1 -eq 2', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -129,7 +129,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code from grep (found)', async () => {
-      const result = await runner.runWithSudo('echo "hello world" | grep hello', {
+      const result = await runner.run('echo "hello world" | grep hello', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -139,7 +139,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate exit code from grep (not found)', async () => {
-      const result = await runner.runWithSudo('echo "hello world" | grep xyz', {
+      const result = await runner.run('echo "hello world" | grep xyz', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -151,7 +151,7 @@ describe('Exit Code Propagation', () => {
 
   describe('Pipeline Exit Codes', () => {
     test('should propagate exit code from last command in pipeline', async () => {
-      const result = await runner.runWithSudo('echo "test" | cat | exit 5', {
+      const result = await runner.run('echo "test" | cat | exit 5', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -161,7 +161,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate success from compound command', async () => {
-      const result = await runner.runWithSudo('echo "a" && echo "b" && exit 0', {
+      const result = await runner.run('echo "a" && echo "b" && exit 0', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -171,7 +171,7 @@ describe('Exit Code Propagation', () => {
     }, 120000);
 
     test('should propagate failure from compound command', async () => {
-      const result = await runner.runWithSudo('echo "a" && false && echo "c"', {
+      const result = await runner.run('echo "a" && false && echo "c"', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 60000,

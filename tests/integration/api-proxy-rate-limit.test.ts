@@ -38,7 +38,7 @@ describe('API Proxy Rate Limiting', () => {
       'if [ "$ALL_OK" = "true" ]; then echo "NO_RATE_LIMITS"; else echo "GOT_429"; fi',
     ].join('\n');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -68,7 +68,7 @@ describe('API Proxy Rate Limiting', () => {
       'echo "$RESULTS"',
     ].join('\n');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -94,7 +94,7 @@ describe('API Proxy Rate Limiting', () => {
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -121,7 +121,7 @@ describe('API Proxy Rate Limiting', () => {
       `curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -157,7 +157,7 @@ describe('API Proxy Rate Limiting', () => {
       'if [ "$ALL_OK" = "true" ]; then echo "NO_RATE_LIMITS_HIT"; else echo "RATE_LIMIT_429_DETECTED"; fi',
     ].join('\n');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -182,7 +182,7 @@ describe('API Proxy Rate Limiting', () => {
       `curl -s http://${API_PROXY_IP}:10000/health`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -215,7 +215,7 @@ describe('API Proxy Rate Limiting', () => {
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],

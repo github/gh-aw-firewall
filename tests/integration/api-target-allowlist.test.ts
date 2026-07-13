@@ -24,7 +24,7 @@ describe('API Target Allowlist', () => {
   });
 
   test('should automatically add copilot-api-target to allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://example.com',
       {
         allowDomains: ['github.com'], // Note: NOT including example.com
@@ -44,7 +44,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should automatically add openai-api-target to allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://custom.openai-router.internal',
       {
         allowDomains: ['github.com'], // Note: NOT including custom.openai-router.internal
@@ -64,7 +64,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should automatically add anthropic-api-target to allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://example.net',
       {
         allowDomains: ['github.com'], // Note: NOT including example.net
@@ -84,7 +84,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should add api-target from environment variable to allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://example.org',
       {
         allowDomains: ['github.com'], // Note: NOT including example.org
@@ -104,7 +104,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should not add default api-targets to allowlist automatically', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://api.githubcopilot.com',
       {
         allowDomains: ['github.com'], // Note: NOT including default api.githubcopilot.com
@@ -120,7 +120,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should not duplicate domains if api-target is already in allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://api.custom.com',
       {
         allowDomains: ['api.custom.com', 'github.com'], // Already includes api.custom.com
@@ -150,7 +150,7 @@ describe('API Target Allowlist', () => {
   }, 120000);
 
   test('should add multiple api-targets when multiple are specified', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing multiple api-targets"',
       {
         allowDomains: ['github.com'],

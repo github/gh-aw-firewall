@@ -60,7 +60,7 @@ describe('One-Shot Token Protection', () => {
         echo "Second read: [$SECOND_READ]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -90,7 +90,7 @@ describe('One-Shot Token Protection', () => {
         echo "Second read: [$SECOND_READ]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -118,7 +118,7 @@ describe('One-Shot Token Protection', () => {
         echo "Second read: [$SECOND_READ]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -154,7 +154,7 @@ describe('One-Shot Token Protection', () => {
         echo "OpenAI second: [$OPENAI_SECOND]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -188,7 +188,7 @@ describe('One-Shot Token Protection', () => {
         echo "Third: [$THIRD]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -228,7 +228,7 @@ print(f"Second: [{second}]")
 PYEOF
       `.trim();
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -269,7 +269,7 @@ print(f"Second getenv: [{second}]")
 PYEOF
       `.trim();
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -300,7 +300,7 @@ PYEOF
         echo "Second read: [$SECOND_READ]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -329,7 +329,7 @@ PYEOF
         echo "Second read: [$SECOND_READ]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -361,7 +361,7 @@ print(f"Second: [{second}]")
 PYEOF
       `.trim();
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -391,7 +391,7 @@ PYEOF
         echo "Third: [$THIRD]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -427,7 +427,7 @@ PYEOF
         echo "OpenAI second: [$OPENAI_SECOND]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -459,7 +459,7 @@ PYEOF
         echo "Second: [$SECOND]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -487,7 +487,7 @@ PYEOF
         echo "Second: [$SECOND]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],
@@ -511,7 +511,7 @@ PYEOF
         echo "Second: [$SECOND]"
       `;
 
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         testScript,
         {
           allowDomains: ['localhost'],

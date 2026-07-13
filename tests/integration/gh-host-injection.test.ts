@@ -25,7 +25,7 @@ describe('GH_HOST Auto-Injection', () => {
   });
 
   test('should set GH_HOST for GHEC instance (*.ghe.com)', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $GH_HOST',
       {
         allowDomains: ['github.com'],
@@ -42,7 +42,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should set GH_HOST for GHES instance', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $GH_HOST',
       {
         allowDomains: ['github.com'],
@@ -59,7 +59,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should set GH_HOST for GHES instance with custom port', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $GH_HOST',
       {
         allowDomains: ['github.com'],
@@ -76,7 +76,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should not set GH_HOST for public github.com', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "if [ -z \\"$GH_HOST\\" ]; then echo GH_HOST_NOT_SET; else echo GH_HOST=$GH_HOST; fi"',
       {
         allowDomains: ['github.com'],
@@ -93,7 +93,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should not set GH_HOST when GITHUB_SERVER_URL is not set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "if [ -z \\"$GH_HOST\\" ]; then echo GH_HOST_NOT_SET; else echo GH_HOST=$GH_HOST; fi"',
       {
         allowDomains: ['github.com'],
@@ -108,7 +108,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should log debug message when GH_HOST is auto-injected', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "test"',
       {
         allowDomains: ['github.com'],
@@ -125,7 +125,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should work with --env-all flag', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $GH_HOST',
       {
         allowDomains: ['github.com'],
@@ -143,7 +143,7 @@ describe('GH_HOST Auto-Injection', () => {
   }, 120000);
 
   test('should handle GITHUB_SERVER_URL with trailing slash', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $GH_HOST',
       {
         allowDomains: ['github.com'],

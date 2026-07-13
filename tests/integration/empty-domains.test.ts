@@ -28,7 +28,7 @@ describe('Empty Domains (No Network Access)', () => {
   describe('Network Blocking', () => {
     test('should block all network access when no domains are specified', async () => {
       // Try to access a website without any allowed domains
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f --max-time 5 https://example.com',
         {
           allowDomains: [], // Empty domains list
@@ -42,7 +42,7 @@ describe('Empty Domains (No Network Access)', () => {
     }, 120000);
 
     test('should block HTTPS traffic when no domains are specified', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f --max-time 5 https://api.github.com/zen',
         {
           allowDomains: [],
@@ -55,7 +55,7 @@ describe('Empty Domains (No Network Access)', () => {
     }, 120000);
 
     test('should block HTTP traffic when no domains are specified', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f --max-time 5 http://httpbin.org/get',
         {
           allowDomains: [],
@@ -70,7 +70,7 @@ describe('Empty Domains (No Network Access)', () => {
 
   describe('Offline Commands', () => {
     test('should allow commands that do not require network access', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo "Hello, offline world!"',
         {
           allowDomains: [],
@@ -84,7 +84,7 @@ describe('Empty Domains (No Network Access)', () => {
     }, 120000);
 
     test('should allow file system operations without network', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "echo test > /tmp/test.txt && cat /tmp/test.txt && rm /tmp/test.txt"',
         {
           allowDomains: [],
@@ -98,7 +98,7 @@ describe('Empty Domains (No Network Access)', () => {
     }, 120000);
 
     test('should allow local computations without network', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "expr 2 + 2"',
         {
           allowDomains: [],
@@ -114,7 +114,7 @@ describe('Empty Domains (No Network Access)', () => {
 
   describe('Debug Output', () => {
     test('should indicate no domains are configured in debug output', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo "test"',
         {
           allowDomains: [],
@@ -133,7 +133,7 @@ describe('Empty Domains (No Network Access)', () => {
     test('should block network access even when DNS resolution succeeds', async () => {
       // DNS lookups should work (we allow DNS traffic), but connecting should fail
       // because the domain isn't in the allowlist
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "host example.com > /dev/null 2>&1 && curl -f --max-time 5 https://example.com || echo network_blocked"',
         {
           allowDomains: [],

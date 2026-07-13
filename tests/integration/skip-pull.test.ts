@@ -27,7 +27,7 @@ describe('Skip Pull Flag', () => {
 
   test('should succeed with --skip-pull when images are pre-downloaded', async () => {
     // test-integration-suite.yml pre-builds local images before this job runs.
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "skip-pull works"',
       {
         allowDomains: ['github.com'],
@@ -43,7 +43,7 @@ describe('Skip Pull Flag', () => {
 
   test('should fail with --skip-pull when images are not available locally', async () => {
     // Use a non-existent image tag so Docker cannot find it locally
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "should not reach here"',
       {
         allowDomains: ['github.com'],
@@ -58,7 +58,7 @@ describe('Skip Pull Flag', () => {
   }, 120000);
 
   test('should reject --skip-pull with --build-local', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "should not reach here"',
       {
         allowDomains: ['github.com'],

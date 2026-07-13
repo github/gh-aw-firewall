@@ -33,7 +33,7 @@ describe('Blocked Domains Functionality', () => {
     // Allow github.com but block a specific subdomain
     // Note: Currently blocked domains are checked against the ACL, so this tests
     // that the blocking mechanism is properly configured
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
@@ -47,7 +47,7 @@ describe('Blocked Domains Functionality', () => {
   }, 120000);
 
   test('should allow requests to allowed domains', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
@@ -60,7 +60,7 @@ describe('Blocked Domains Functionality', () => {
   }, 120000);
 
   test('should block requests to non-allowed domains', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --max-time 5 https://example.com',
       {
         allowDomains: ['github.com'],
@@ -75,7 +75,7 @@ describe('Blocked Domains Functionality', () => {
 
   test('should handle multiple blocked domains', async () => {
     // Test that multiple allowed domains work together
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "curl --max-time 10 https://api.github.com/zen && echo success"',
       {
         allowDomains: ['github.com', 'npmjs.org'],
@@ -89,7 +89,7 @@ describe('Blocked Domains Functionality', () => {
   }, 120000);
 
   test('should show allowed domains in debug output', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "test"',
       {
         allowDomains: ['github.com', 'example.com'],
@@ -130,7 +130,7 @@ describe('Domain Allowlist Edge Cases', () => {
 
   test('should handle case-insensitive domain matching', async () => {
     // Test that domains are matched case-insensitively
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl --max-time 10 https://API.GITHUB.COM/zen',
       {
         allowDomains: ['github.com'],
@@ -146,7 +146,7 @@ describe('Domain Allowlist Edge Cases', () => {
     // Trailing dots in FQDN format (e.g., "github.com.") are not currently
     // normalized by the domain allowlist. Squid treats "github.com." and
     // "github.com" as different domains, so the request is blocked.
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com.'],
@@ -159,7 +159,7 @@ describe('Domain Allowlist Edge Cases', () => {
   }, 120000);
 
   test('should handle domains with leading/trailing whitespace in config', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['  github.com  '],
@@ -173,7 +173,7 @@ describe('Domain Allowlist Edge Cases', () => {
 
   test('should block IP address access when only domain is allowed', async () => {
     // Direct IP access should be blocked when only domain is in allowlist
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "ip=$(dig +short api.github.com | head -1); curl -fk --max-time 5 https://$ip 2>&1 || echo blocked"',
       {
         allowDomains: ['github.com'],
@@ -200,7 +200,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   });
 
   test('should block specific subdomain while allowing parent domain', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
@@ -213,7 +213,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   }, 120000);
 
   test('should still allow non-blocked subdomains when parent is allowed', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --retry 3 --retry-all-errors --retry-delay 1 --max-time 10 https://github.com',
       {
         allowDomains: ['github.com'],
@@ -226,7 +226,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   }, 120000);
 
   test('should block domain that is also in the allow list (block takes precedence)', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --max-time 5 https://example.com',
       {
         allowDomains: ['example.com'],
@@ -239,7 +239,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   }, 120000);
 
   test('should block wildcard pattern while allowing parent domain', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -f --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
@@ -252,7 +252,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   }, 120000);
 
   test('should handle multiple blocked domains', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "' +
         'curl -f --max-time 10 https://api.github.com/zen 2>&1; api_exit=$?; ' +
         'curl -f --max-time 10 https://raw.githubusercontent.com 2>&1; raw_exit=$?; ' +
@@ -270,7 +270,7 @@ describe('Block Domains Deny-List (--block-domains)', () => {
   }, 120000);
 
   test('should show blocked domains in debug output', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "test"',
       {
         allowDomains: ['github.com'],

@@ -24,7 +24,7 @@ describe('GHES Auto-Populate', () => {
   });
 
   test('should automatically add GHES domains when ENGINE_API_TARGET is set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing GHES domain auto-population"',
       {
         allowDomains: [], // Explicitly empty - domains should come from ENGINE_API_TARGET
@@ -47,7 +47,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should add Copilot API domains when ENGINE_API_TARGET is set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://api.githubcopilot.com',
       {
         allowDomains: [], // Explicitly empty
@@ -65,7 +65,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should add enterprise Copilot API domains when ENGINE_API_TARGET is set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://api.enterprise.githubcopilot.com',
       {
         allowDomains: [], // Explicitly empty
@@ -83,7 +83,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should add telemetry Copilot API domains when ENGINE_API_TARGET is set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -s https://telemetry.enterprise.githubcopilot.com',
       {
         allowDomains: [], // Explicitly empty
@@ -101,7 +101,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should not duplicate domains if already in allowlist', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing no duplication"',
       {
         allowDomains: ['github.mycompany.com', 'api.githubcopilot.com'],
@@ -132,7 +132,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should combine ENGINE_API_TARGET domains with --allow-domains flag', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing combined domains"',
       {
         allowDomains: ['example.com'],
@@ -155,7 +155,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should handle ENGINE_API_TARGET without api. prefix', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing non-api prefix"',
       {
         allowDomains: [],
@@ -180,7 +180,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should ignore invalid ENGINE_API_TARGET gracefully', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing invalid ENGINE_API_TARGET"',
       {
         allowDomains: ['github.com'],
@@ -202,7 +202,7 @@ describe('GHES Auto-Populate', () => {
   }, 120000);
 
   test('should work without ENGINE_API_TARGET set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "Testing without ENGINE_API_TARGET"',
       {
         allowDomains: ['github.com'],

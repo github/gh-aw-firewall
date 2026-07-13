@@ -54,7 +54,7 @@ describe('CLI Proxy Sidecar', () => {
 
   describe('Token Isolation', () => {
     test('should not expose GITHUB_TOKEN in agent environment', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "if [ -z \\"$GITHUB_TOKEN\\" ]; then echo GITHUB_TOKEN_NOT_SET; else echo GITHUB_TOKEN=$GITHUB_TOKEN; fi"',
         cliProxyDefaults,
       );
@@ -65,7 +65,7 @@ describe('CLI Proxy Sidecar', () => {
     }, 180000);
 
     test('should not expose GH_TOKEN in agent environment', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "if [ -z \\"$GH_TOKEN\\" ]; then echo GH_TOKEN_NOT_SET; else echo GH_TOKEN=$GH_TOKEN; fi"',
         {
           ...cliProxyDefaults,
@@ -81,7 +81,7 @@ describe('CLI Proxy Sidecar', () => {
     }, 180000);
 
     test('should set AWF_CLI_PROXY_URL in agent environment', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "echo AWF_CLI_PROXY_URL=$AWF_CLI_PROXY_URL"',
         cliProxyDefaults,
       );
@@ -95,7 +95,7 @@ describe('CLI Proxy Sidecar', () => {
     test('should install gh wrapper that routes to cli-proxy', async () => {
       // The gh wrapper should be at /usr/local/bin/gh or accessible via PATH.
       // Running 'which gh' should find it.
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "which gh && head -3 $(which gh)"',
         cliProxyDefaults,
       );
@@ -109,7 +109,7 @@ describe('CLI Proxy Sidecar', () => {
     test('should execute gh commands through the wrapper', async () => {
       // gh --version should work through the proxy (it runs locally in the sidecar)
       // Note: this tests that the wrapper → HTTP POST → server.js → execFile chain works
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'gh --version',
         cliProxyDefaults,
       );
@@ -125,7 +125,7 @@ describe('CLI Proxy Sidecar', () => {
     approvedIntegrityLiveTest(
       'should preserve array JSON responses for gh api issue comment endpoints under approved integrity',
       async () => {
-        const result = await runner.runWithSudo(
+        const result = await runner.run(
           'bash -o pipefail -c \'gh api "repos/github/gh-aw-firewall/issues/1/comments?per_page=1" | jq -er type\'',
           {
             ...cliProxyDefaults,
@@ -145,7 +145,7 @@ describe('CLI Proxy Sidecar', () => {
   describe('Meta-command Denial', () => {
     test('should block auth subcommand', async () => {
       // 'auth' is always denied (meta-command)
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         `bash -c 'curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST http://${CLI_PROXY_IP}:${CLI_PROXY_PORT}/exec -H "Content-Type: application/json" -d "{\\"args\\":[\\"auth\\",\\"status\\"]}"'`,
         cliProxyDefaults,
       );

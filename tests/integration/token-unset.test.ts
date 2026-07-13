@@ -51,7 +51,7 @@ describe('Token Unsetting from Entrypoint Environ', () => {
       fi
     `;
 
-    const result = await runner.runWithSudo(command, {
+    const result = await runner.run(command, {
       allowDomains: ['example.com'],
       buildLocal: true,
       logLevel: 'debug',
@@ -91,7 +91,7 @@ describe('Token Unsetting from Entrypoint Environ', () => {
       fi
     `;
 
-    const result = await runner.runWithSudo(command, {
+    const result = await runner.run(command, {
       allowDomains: ['example.com'],
       buildLocal: true,
       logLevel: 'debug',
@@ -131,7 +131,7 @@ describe('Token Unsetting from Entrypoint Environ', () => {
       fi
     `;
 
-    const result = await runner.runWithSudo(command, {
+    const result = await runner.run(command, {
       allowDomains: ['example.com'],
       buildLocal: true,
       logLevel: 'debug',
@@ -192,7 +192,7 @@ describe('Token Unsetting from Entrypoint Environ', () => {
       fi
     `;
 
-    const result = await runner.runWithSudo(command, {
+    const result = await runner.run(command, {
       allowDomains: ['example.com'],
       buildLocal: true,
       logLevel: 'debug',
@@ -227,7 +227,7 @@ describe('Token Unsetting from Entrypoint Environ', () => {
       fi
     `;
 
-    const result = await runner.runWithSudo(command, {
+    const result = await runner.run(command, {
       allowDomains: ['example.com'],
       buildLocal: true,
       logLevel: 'debug',
