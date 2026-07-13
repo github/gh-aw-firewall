@@ -83,7 +83,7 @@ describe('Chroot Edge Cases', () => {
       fs.writeFileSync(markerPath, 'toolcache-ok\n');
 
       try {
-        const result = await runner.runWithSudo(`cat "${markerPath}"`, {
+        const result = await runner.run(`cat "${markerPath}"`, {
           allowDomains: ['localhost'],
           logLevel: 'debug',
           timeout: 120000,
@@ -267,7 +267,7 @@ describe('Chroot Edge Cases', () => {
   // ---------- Individual: Working directory tests (different containerWorkDir options) ----------
   describe('Working Directory Handling', () => {
     test('should respect container-workdir in chroot mode', async () => {
-      const result = await runner.runWithSudo('pwd', {
+      const result = await runner.run('pwd', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -279,7 +279,7 @@ describe('Chroot Edge Cases', () => {
     }, 120000);
 
     test('should fall back to home directory if workdir does not exist', async () => {
-      const result = await runner.runWithSudo('pwd', {
+      const result = await runner.run('pwd', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -295,7 +295,7 @@ describe('Chroot Edge Cases', () => {
   // ---------- Individual: Exit code propagation (tests AWF process exit code) ----------
   describe('Exit Code Propagation', () => {
     test('should propagate exit code 0', async () => {
-      const result = await runner.runWithSudo('exit 0', {
+      const result = await runner.run('exit 0', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -305,7 +305,7 @@ describe('Chroot Edge Cases', () => {
     }, 120000);
 
     test('should propagate exit code 1', async () => {
-      const result = await runner.runWithSudo('exit 1', {
+      const result = await runner.run('exit 1', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -315,7 +315,7 @@ describe('Chroot Edge Cases', () => {
     }, 120000);
 
     test('should propagate exit code from failed command', async () => {
-      const result = await runner.runWithSudo('false', {
+      const result = await runner.run('false', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -325,7 +325,7 @@ describe('Chroot Edge Cases', () => {
     }, 120000);
 
     test('should propagate exit code 127 for command not found', async () => {
-      const result = await runner.runWithSudo('nonexistent_command_xyz123', {
+      const result = await runner.run('nonexistent_command_xyz123', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -338,7 +338,7 @@ describe('Chroot Edge Cases', () => {
   // ---------- Individual: Network tests (different domains per test) ----------
   describe('Network Firewall Enforcement', () => {
     test('should allow HTTPS to whitelisted domains', async () => {
-      const result = await runner.runWithSudo('curl -s -o /dev/null -w "%{http_code}" https://api.github.com', {
+      const result = await runner.run('curl -s -o /dev/null -w "%{http_code}" https://api.github.com', {
         allowDomains: ['api.github.com'],
         logLevel: 'debug',
         timeout: 60000,
@@ -353,7 +353,7 @@ describe('Chroot Edge Cases', () => {
     }, 120000);
 
     test('should block HTTPS to non-whitelisted domains', async () => {
-      const result = await runner.runWithSudo('curl -s --connect-timeout 5 https://example.com 2>&1', {
+      const result = await runner.run('curl -s --connect-timeout 5 https://example.com 2>&1', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 30000,
@@ -364,7 +364,7 @@ describe('Chroot Edge Cases', () => {
     }, 60000);
 
     test('should block HTTP to non-whitelisted domains', async () => {
-      const result = await runner.runWithSudo('curl -f --connect-timeout 5 http://example.com 2>&1', {
+      const result = await runner.run('curl -f --connect-timeout 5 http://example.com 2>&1', {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         timeout: 30000,

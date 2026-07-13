@@ -1,7 +1,7 @@
 /**
  * Batch Runner - runs multiple commands in a single AWF container invocation.
  *
- * Each test that calls runner.runWithSudo() spawns a full Docker container
+ * Each test that calls runner.run() spawns a full Docker container
  * lifecycle (~15-25s overhead). This utility batches commands that share the
  * same allowDomains config into one invocation, cutting container startups
  * from ~73 to ~27 across the chroot test suite.
@@ -101,7 +101,7 @@ export async function runBatch(
   options: AwfOptions,
 ): Promise<BatchResults> {
   const script = generateScript(commands);
-  const result = await runner.runWithSudo(script, options);
+  const result = await runner.run(script, options);
   const parsed = parseResults(result.stdout, commands);
 
   return {
