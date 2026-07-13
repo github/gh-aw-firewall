@@ -30,7 +30,7 @@ describe('DNS Resolution via Docker Embedded DNS', () => {
     // DNS resolution uses Docker embedded DNS (127.0.0.11) which forwards
     // to upstream servers configured via docker-compose dns: field
     const result = await runner.run(
-      'nslookup github.com',
+      'dig github.com +short',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
@@ -39,12 +39,12 @@ describe('DNS Resolution via Docker Embedded DNS', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('Address');
+    expect(result.stdout.trim()).toMatch(/\d+\.\d+\.\d+\.\d+/);
   }, 120000);
 
   test('should resolve multiple domains sequentially', async () => {
     const result = await runner.run(
-      'bash -c "nslookup github.com && nslookup api.github.com"',
+      'bash -c "dig github.com +short && dig api.github.com +short"',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
@@ -53,7 +53,7 @@ describe('DNS Resolution via Docker Embedded DNS', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('github.com');
+    expect(result.stdout.trim()).toMatch(/\d+\.\d+\.\d+\.\d+/);
   }, 120000);
 
   test('should resolve DNS with dig command via Docker embedded DNS', async () => {
@@ -89,7 +89,7 @@ describe('DNS Resolution via Docker Embedded DNS', () => {
   test('should work with custom DNS servers for Docker forwarding', async () => {
     // Custom --dns-servers configures Docker embedded DNS upstream forwarding
     const result = await runner.run(
-      'nslookup github.com',
+      'dig github.com +short',
       {
         allowDomains: ['github.com'],
         dnsServers: ['1.1.1.1'],
@@ -99,7 +99,7 @@ describe('DNS Resolution via Docker Embedded DNS', () => {
     );
 
     expect(result).toSucceed();
-    expect(result.stdout).toContain('Address');
+    expect(result.stdout.trim()).toMatch(/\d+\.\d+\.\d+\.\d+/);
   }, 120000);
 });
 
@@ -121,10 +121,10 @@ describe('DNS Exfiltration Prevention', () => {
   });
 
   test('should block direct DNS queries to non-configured DNS servers (Quad9)', async () => {
-    // Direct DNS to non-configured servers should be blocked (prevents DNS exfiltration)
-    // Default upstream is 8.8.8.8/8.8.4.4, so 9.9.9.9 (Quad9) is not allowed
+    // Direct DNS to non-configured servers should be blocked.
+    // In network-isolation mode the internal network has no route to external IPs.
     const result = await runner.run(
-      'nslookup example.com 9.9.9.9',
+      'dig @9.9.9.9 example.com +short +timeout=5',
       {
         allowDomains: ['example.com'],
         logLevel: 'debug',
@@ -137,9 +137,9 @@ describe('DNS Exfiltration Prevention', () => {
   }, 120000);
 
   test('should block direct DNS queries to OpenDNS', async () => {
-    // OpenDNS (208.67.222.222) is not in the default upstream list
+    // OpenDNS (208.67.222.222) is not reachable from the internal network
     const result = await runner.run(
-      'nslookup example.com 208.67.222.222',
+      'dig @208.67.222.222 example.com +short +timeout=5',
       {
         allowDomains: ['example.com'],
         logLevel: 'debug',
@@ -152,9 +152,9 @@ describe('DNS Exfiltration Prevention', () => {
   }, 120000);
 
   test('should block direct DNS queries to Cloudflare when not configured', async () => {
-    // Cloudflare DNS (1.1.1.1) is not in the default upstream list (8.8.8.8/8.8.4.4)
+    // Cloudflare DNS (1.1.1.1) is not reachable from the internal network
     const result = await runner.run(
-      'nslookup example.com 1.1.1.1',
+      'dig @1.1.1.1 example.com +short +timeout=5',
       {
         allowDomains: ['example.com'],
         logLevel: 'debug',
