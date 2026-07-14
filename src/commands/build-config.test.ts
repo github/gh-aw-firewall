@@ -502,10 +502,8 @@ describe('buildConfig', () => {
       const config = buildConfig(makeInputs({
         options: { ...makeInputs().options, legacySecurity: true, securityMode: 'strict' },
       }));
-      // securityMode is checked first, returns undefined for 'strict',
-      // but legacySecurity won't be reached because securityMode branch returns early
-      // Actually, the function checks securityMode first — if 'strict' it returns undefined
-      expect(config.legacySecurity).toBeUndefined();
+      // --legacy-security takes precedence over deprecated --security-mode
+      expect(config.legacySecurity).toBe(true);
     });
   });
 });

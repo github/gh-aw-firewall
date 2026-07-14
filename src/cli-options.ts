@@ -13,7 +13,7 @@ const optionGroupHeaders: Record<string, string> = {
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
-  'enable-api-proxy': 'API Proxy:',
+  'copilot-api-target': 'API Proxy:',
   'log-level': 'Logging & Debug:',
 };
 
@@ -299,13 +299,17 @@ program
   )
 
   // -- API Proxy (always enabled, flags retained for backward compatibility) --
-  .option(
-    '--enable-api-proxy',
-    '[DEPRECATED] The API proxy is always enabled. This flag is ignored.'
+  .addOption(
+    new Option(
+      '--enable-api-proxy',
+      '[DEPRECATED] The API proxy is always enabled. This flag is ignored.'
+    ).hideHelp()
   )
-  .option(
-    '--no-enable-api-proxy',
-    '[REMOVED] The API proxy cannot be disabled. Passing this flag is an error.'
+  .addOption(
+    new Option(
+      '--no-enable-api-proxy',
+      '[REMOVED] The API proxy cannot be disabled. Passing this flag is an error.'
+    ).hideHelp()
   )
   .option(
     '--copilot-api-target <host>',

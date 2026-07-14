@@ -10,7 +10,13 @@ import { logger } from '../logger';
  * 2. `--security-mode compat` (deprecated, maps to legacySecurity=true)
  */
 function resolveLegacySecurity(options: Record<string, unknown>): boolean | undefined {
-  // Handle deprecated --security-mode flag
+  // Preferred new flag takes precedence
+  const legacySecurity = options.legacySecurity as boolean | undefined;
+  if (legacySecurity !== undefined) {
+    return legacySecurity || undefined;
+  }
+
+  // Handle deprecated --security-mode flag (only if --legacy-security not specified)
   const securityMode = options.securityMode as string | undefined;
   if (securityMode === 'compat') {
     logger.warn(
@@ -25,9 +31,7 @@ function resolveLegacySecurity(options: Record<string, unknown>): boolean | unde
     return undefined;
   }
 
-  // Handle --legacy-security boolean
-  const legacySecurity = options.legacySecurity as boolean | undefined;
-  return legacySecurity || undefined;
+  return undefined;
 }
 
 /**

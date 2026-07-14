@@ -42,9 +42,18 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
 }
 
 describe('applySecurityMode', () => {
+  let mockExit: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
     (runtimeUsesComposeAgent as jest.Mock).mockReturnValue(true);
+    mockExit = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      throw new Error(`process.exit(${code})`);
+    });
+  });
+
+  afterEach(() => {
+    mockExit.mockRestore();
   });
 
   describe('strict security (default)', () => {
@@ -69,10 +78,11 @@ describe('applySecurityMode', () => {
       expect(config.enableApiProxy).toBe(true);
     });
 
-    it('should throw when --no-enable-api-proxy is passed', () => {
+    it('should exit when --no-enable-api-proxy is passed', () => {
       const config = makeConfig({ enableApiProxy: false });
-      expect(() => applySecurityMode(config)).toThrow(
-        '--no-enable-api-proxy is not allowed',
+      expect(() => applySecurityMode(config)).toThrow('process.exit(1)');
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--no-enable-api-proxy is not allowed'),
       );
     });
 

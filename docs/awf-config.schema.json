@@ -493,10 +493,15 @@
       "description": "Security and isolation configuration.",
       "additionalProperties": false,
       "properties": {
+        "legacySecurity": {
+          "type": "boolean",
+          "description": "Enable legacy security mode (sudo, host-access, iptables). When omitted or false, strict security is enforced (network-isolation + API proxy credential injection)."
+        },
         "securityMode": {
           "type": "string",
           "enum": ["strict", "compat"],
-          "description": "Security enforcement mode. 'strict' (default) enforces network-isolation, API proxy credential injection, and rejects host-access/DinD. 'compat' preserves legacy iptables-based mode (requires sudo)."
+          "description": "[DEPRECATED] Use legacySecurity instead. Will be removed in a future release.",
+          "deprecated": true
         },
         "sslBump": {
           "type": "boolean",

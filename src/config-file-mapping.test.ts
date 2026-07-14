@@ -11,7 +11,8 @@ describe('mapAwfFileConfigToCliOptions', () => {
 
     expect(result.allowDomains).toBe('github.com,api.github.com');
     expect(result.dnsServers).toBe('1.1.1.1,1.0.0.1');
-    expect(result.enableApiProxy).toBe(true);
+    // enableApiProxy is no longer mapped — API proxy is always on (#6207)
+    expect(result.enableApiProxy).toBeUndefined();
     expect(result.anthropicApiTarget).toBe('api.anthropic.com');
     expect(result.anthropicApiBasePath).toBe('/anthropic');
     expect(result.agentTimeout).toBe('15');
@@ -268,6 +269,27 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.allowHostServicePorts).toBe('5432');
     expect(result.difcProxyHost).toBe('proxy.example.com');
     expect(result.difcProxyCaCert).toBe('/path/ca.crt');
+  });
+
+  it('maps security.legacySecurity boolean', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      security: { legacySecurity: true },
+    });
+    expect(result.legacySecurity).toBe(true);
+  });
+
+  it('maps deprecated security.securityMode compat to legacySecurity', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      security: { securityMode: 'compat' },
+    });
+    expect(result.legacySecurity).toBe(true);
+  });
+
+  it('does not set legacySecurity for deprecated security.securityMode strict', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      security: { securityMode: 'strict' },
+    });
+    expect(result.legacySecurity).toBeUndefined();
   });
 
   it('maps container fields', () => {

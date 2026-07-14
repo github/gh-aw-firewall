@@ -108,10 +108,13 @@ export function applySecurityMode(config: WrapperConfig): void {
  */
 function handleApiProxyDeprecation(config: WrapperConfig): void {
   if (config.enableApiProxy === false) {
-    throw new Error(
-      '--no-enable-api-proxy is not allowed. The API proxy is always enabled for credential isolation.\n' +
-      'Remove the --no-enable-api-proxy flag from your command.',
+    logger.error(
+      '❌ --no-enable-api-proxy is not allowed. The API proxy is always enabled for credential isolation.',
     );
+    logger.error(
+      '   Remove the --no-enable-api-proxy flag from your command.',
+    );
+    process.exit(1);
   }
   if (config.enableApiProxy === true) {
     logger.warn(
