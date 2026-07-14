@@ -20,6 +20,7 @@ export function buildSystemMounts(
       ? [
         '/sys:/host/sys:ro',
         '/dev:/host/dev:ro',
+        '/dev/null:/host/dev/null:rw',
       ]
       : [
         '/usr:/host/usr:ro',
@@ -30,6 +31,7 @@ export function buildSystemMounts(
         '/opt:/host/opt:ro',
         '/sys:/host/sys:ro',
         '/dev:/host/dev:ro',
+        '/dev/null:/host/dev/null:rw',
       ]),
     `${workspaceDir}:/host${workspaceDir}:rw`,
     '/tmp:/host/tmp:rw',

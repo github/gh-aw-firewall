@@ -547,16 +547,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "::group::Install libcap2-bin (capsh required for AWF chroot mode)"
-          sudo apt-get update -qq && sudo apt-get install -y -qq libcap2-bin
-          # Ensure capsh is in default PATH for AWF's chroot prereq check
-          # (chroot /host /bin/sh uses minimal PATH that excludes /usr/sbin)
-          if [ -x /usr/sbin/capsh ] && [ ! -e /usr/bin/capsh ]; then
-            sudo ln -s /usr/sbin/capsh /usr/bin/capsh
-          fi
-          echo "capsh path: $(command -v capsh)"
-          echo "::endgroup::"
-
           echo "::group::Install gVisor (runsc)"
           ARCH=$(uname -m)
           URL="https://storage.googleapis.com/gvisor/releases/release/20250707.0/${ARCH}"
@@ -592,6 +582,18 @@ jobs:
           echo "::endgroup::"
       - name: Install AWF binary
         run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.32
+      - name: Build AWF from source (test branch - includes /dev/null rw mount fix)
+        run: |
+          cd "${GITHUB_WORKSPACE}"
+          npm ci --ignore-scripts
+          npm run build
+          chmod +x dist/cli.js
+          # Override installed AWF with source-built version
+          sudo ln -sf "${GITHUB_WORKSPACE}/dist/cli.js" /usr/local/bin/awf
+          # Build container images from source (includes entrypoint capsh check fix)
+          docker build -t ghcr.io/github/gh-aw-firewall/agent:0.27.32 containers/agent/
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:0.27.32 containers/squid/
+          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:0.27.32 containers/api-proxy/
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
