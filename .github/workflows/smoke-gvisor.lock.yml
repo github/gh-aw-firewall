@@ -549,6 +549,11 @@ jobs:
 
           echo "::group::Install libcap2-bin (capsh required for AWF chroot mode)"
           sudo apt-get update -qq && sudo apt-get install -y -qq libcap2-bin
+          # Ensure capsh is in default PATH for AWF's chroot prereq check
+          # (chroot /host /bin/sh uses minimal PATH that excludes /usr/sbin)
+          if [ -x /usr/sbin/capsh ] && [ ! -e /usr/bin/capsh ]; then
+            sudo ln -s /usr/sbin/capsh /usr/bin/capsh
+          fi
           echo "capsh path: $(command -v capsh)"
           echo "::endgroup::"
 
