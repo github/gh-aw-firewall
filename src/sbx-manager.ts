@@ -145,10 +145,11 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   }
 
   // Mount /tmp so agent runtime files (prompts, logs) are accessible.
-  // Mount /usr/local/bin for Copilot CLI and other installed tools.
+  // Mount /usr/local for CLI tools and npm global packages (bin/ contains symlinks
+  // to ../lib/node_modules/... so both must be in the same mount for resolution).
   // Mount $HOME for agent writable dirs (.cache, .config, .local, etc.)
   const homePath = process.env.HOME || '/home/runner';
-  for (const sysPath of ['/tmp', '/usr/local/bin', homePath]) {
+  for (const sysPath of ['/tmp', '/usr/local', homePath]) {
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);
