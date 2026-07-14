@@ -69,6 +69,7 @@ const ENV_KEYS = [
   'GEMINI_API_BASE_PATH',
   'AWF_CAPTURE_BLOCKED_LLM_REQUESTS',
   'AWF_MAX_BLOCKED_CAPTURE_BYTES',
+  'AWF_DEBUG_TOKENS',
 ] as const;
 
 describe('buildConfig', () => {
@@ -468,6 +469,25 @@ describe('buildConfig', () => {
     it('should leave maxCapturedBytes undefined when neither option nor env var is set', () => {
       const config = buildConfig(makeInputs());
       expect(config.maxCapturedBytes).toBeUndefined();
+    });
+  });
+
+  describe('debugTokens via AWF_DEBUG_TOKENS', () => {
+    it('should set debugTokens true when AWF_DEBUG_TOKENS=1', () => {
+      process.env.AWF_DEBUG_TOKENS = '1';
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBe(true);
+    });
+
+    it('should leave debugTokens undefined when AWF_DEBUG_TOKENS is not set', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBeUndefined();
+    });
+
+    it('should leave debugTokens undefined for non-1 AWF_DEBUG_TOKENS', () => {
+      process.env.AWF_DEBUG_TOKENS = '0';
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBeUndefined();
     });
   });
 
