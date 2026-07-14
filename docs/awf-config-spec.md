@@ -104,7 +104,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.upstreamProxy` → `--upstream-proxy`
 - `network.isolation` → `--network-isolation` *(experimental; enforces egress via Docker network topology instead of host iptables)*
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
-- `apiProxy.enabled` → `--enable-api-proxy`
+- `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
 - `apiProxy.enableTokenSteering` → `--enable-token-steering`
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
@@ -161,6 +161,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - When both `apiProxy.targets.antigravity` and `apiProxy.targets.gemini` are set, `antigravity` takes precedence per field.
 - `apiProxy.targets.vertex.host` → `--vertex-api-target`
 - `apiProxy.targets.vertex.basePath` → `--vertex-api-base-path`
+- `security.legacySecurity` → `--legacy-security`
+- `security.securityMode` → `--security-mode <strict|compat>` *([DEPRECATED] Use `security.legacySecurity` instead)*
 - `security.sslBump` → `--ssl-bump`
 - `security.enableDlp` → `--enable-dlp`
 - `security.enableHostAccess` → `--enable-host-access`
