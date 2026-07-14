@@ -592,8 +592,16 @@ jobs:
           docker run --rm --runtime=runsc hello-world
           echo "✅ gVisor runtime verified"
           echo "::endgroup::"
-      - name: Install AWF binary
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.27.31
+      - name: Build AWF from source (includes gVisor /dev/null rw mount fix)
+        run: |
+          cd "${GITHUB_WORKSPACE}"
+          npm ci --ignore-scripts
+          npm run build
+          chmod +x dist/cli.js
+          sudo ln -sf "${GITHUB_WORKSPACE}/dist/cli.js" /usr/local/bin/awf
+          docker build -t ghcr.io/github/gh-aw-firewall/agent:0.27.31 containers/agent/
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:0.27.31 containers/squid/
+          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:0.27.31 containers/api-proxy/
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
@@ -620,7 +628,7 @@ jobs:
           GH_AW_SKILL_DIR: ".codex/skills"
         run: bash "${RUNNER_TEMP}/gh-aw/actions/restore_inline_skills.sh"
       - name: Download container images
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-firewall/agent:0.27.31@sha256:84d861cb6da723ac10b7a00dddf778be681b8cd74b2091f18ce1d67fe4b3e7a1 ghcr.io/github/gh-aw-firewall/api-proxy:0.27.31@sha256:80d982fe7925c640d76cbbfbe94081d2d34f7657b7c37494d8d5488f5dae3c63 ghcr.io/github/gh-aw-firewall/squid:0.27.31@sha256:c05a3f086946fab0833e078f46d35571080f187ca72f038958d45aa5cc150494 ghcr.io/github/gh-aw-mcpg:latest@sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477 ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b ghcr.io/github/github-mcp-server:v1.5.0@sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-mcpg:latest@sha256:63e46b56dfd70895a701b6fc6dd0189e11e2d875f327f1781e81b31848735477 ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b ghcr.io/github/github-mcp-server:v1.5.0@sha256:e25564dccc9110a70a77b9df560cbde11aa392fcb5f08b9abe5c4ebc6d146ea4
       - name: Generate Safe Outputs Config
         run: |
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
