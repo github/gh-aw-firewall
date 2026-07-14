@@ -3,6 +3,7 @@ import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { parseDomainConfig } from './domain-acl';
 import {
   addApiProxyAllowRules,
+  addAllowedIpRules,
   addBlockedDomainRules,
   addBothProtocolAllowRules,
   addDefaultDenyRule,
@@ -63,6 +64,7 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
 
   addPortSafetyRules(state);
   addApiProxyAllowRules(state, apiProxyIp);
+  addAllowedIpRules(state, domains);
   addRawIpBlockRules(state);
   addDlpRules(state, enableDlp);
   addBlockedDomainRules(state, blockedDomains);

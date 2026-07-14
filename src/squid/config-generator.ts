@@ -59,6 +59,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     sslBumpUrlAccessSection,
     portAclsAndRules,
     apiProxySection,
+    allowedIpSection,
     dnsSection,
   } = buildConfigSections({
     enableDlp,
@@ -67,6 +68,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     caFiles,
     sslDbPath,
     urlPatterns,
+    domains,
     domainsByProto,
     patternsByProto,
     enableHostAccess,
@@ -119,7 +121,7 @@ acl localnet src fe80::/10
 
 ${portAclsAndRules}
 ${apiProxySection}
-# Deny CONNECT to raw IP addresses (IPv4 and IPv6)
+${allowedIpSection}# Deny CONNECT to raw IP addresses (IPv4 and IPv6)
 # Prevents bypassing domain-based filtering via direct IP connections
 acl dst_ipv4 dstdom_regex ^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$
 acl dst_ipv6 dstdom_regex ^\\[?[0-9a-fA-F:]+\\]?$
