@@ -547,6 +547,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "::group::Install libcap2-bin (capsh required for AWF chroot mode)"
+          sudo apt-get update -qq && sudo apt-get install -y -qq libcap2-bin
+          echo "capsh path: $(command -v capsh)"
+          echo "::endgroup::"
+
           echo "::group::Install gVisor (runsc)"
           ARCH=$(uname -m)
           URL="https://storage.googleapis.com/gvisor/releases/release/20250707.0/${ARCH}"
