@@ -4,7 +4,6 @@ import {
   logger,
   mockBuildConfigOnce,
   setupConfigAssemblyTestSuite,
-  validateRateLimitFlags,
 } from './config-assembly.test-utils';
 
 describe('config-assembly', () => {
