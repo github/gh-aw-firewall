@@ -505,5 +505,12 @@ describe('buildConfig', () => {
       // --legacy-security takes precedence over deprecated --security-mode
       expect(config.legacySecurity).toBe(true);
     });
+
+    it('should treat explicit --legacy-security false as undefined', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, legacySecurity: false },
+      }));
+      expect(config.legacySecurity).toBeUndefined();
+    });
   });
 });
