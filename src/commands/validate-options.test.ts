@@ -36,6 +36,7 @@ const STUB_CONFIG = {
   blockedDomains: undefined,
   agentCommand: 'echo hi',
   logLevel: 'info',
+  legacySecurity: true,
   keepContainers: false,
   tty: false,
   workDir: '/tmp/workdir',
@@ -64,7 +65,7 @@ const STUB_CONFIG = {
   enableDind: false,
   enableDlp: false,
   allowedUrls: undefined,
-  enableApiProxy: false,
+  enableApiProxy: undefined,
   anthropicAutoCache: false,
   anthropicCacheTailTtl: undefined,
   modelAliases: undefined,
@@ -514,29 +515,14 @@ describe('validateOptions', () => {
       );
     });
 
-    it('exits when rate limit flags are used without --enable-api-proxy', () => {
-      mockedOptionParsers.validateRateLimitFlags.mockReturnValue({
-        valid: false,
-        error: '--rpm requires --enable-api-proxy',
-      });
-      expect(() => validateOptions(validOptions(), 'echo hi')).toThrow('process.exit called');
-      expect(mockedLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--rpm requires --enable-api-proxy'),
-      );
-    });
+    // Note: "rate limit flags without --enable-api-proxy" is no longer testable
+    // because applySecurityMode always forces enableApiProxy=true.
+    // The validateRateLimitFlags check is now dead code for this scenario.
   });
 
   describe('feature flag compatibility', () => {
-    it('exits when --enable-token-steering is used without --enable-api-proxy', () => {
-      mockedOptionParsers.validateEnableTokenSteeringFlag.mockReturnValue({
-        valid: false,
-        error: '--enable-token-steering requires --enable-api-proxy',
-      });
-      expect(() => validateOptions(validOptions(), 'echo hi')).toThrow('process.exit called');
-      expect(mockedLogger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--enable-token-steering requires --enable-api-proxy'),
-      );
-    });
+    // Note: "--enable-token-steering without --enable-api-proxy" is no longer testable
+    // because applySecurityMode always forces enableApiProxy=true.
 
     it('exits when --skip-pull and --build-local are combined', () => {
       mockedOptionParsers.validateSkipPullWithBuildLocal.mockReturnValue({

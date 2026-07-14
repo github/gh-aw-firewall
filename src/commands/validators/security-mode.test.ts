@@ -27,9 +27,6 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     proxyLogsDir: '/tmp/logs',
     dnsServers: ['8.8.8.8'],
     enableHostAccess: false,
-    // networkIsolation and enableApiProxy are intentionally left undefined here
-    // to match the CLI default behaviour — users who do not explicitly pass
-    // --network-isolation or --enable-api-proxy will have undefined, not false.
     enableDind: false,
     sslBump: false,
     enableDlp: false,
@@ -50,18 +47,15 @@ describe('applySecurityMode', () => {
     (runtimeUsesComposeAgent as jest.Mock).mockReturnValue(true);
   });
 
-  describe('strict mode (default)', () => {
-    it('should force networkIsolation on when undefined (not explicitly set)', () => {
-      const config = makeConfig({ securityMode: 'strict', networkIsolation: undefined });
+  describe('strict security (default)', () => {
+    it('should force networkIsolation on when undefined', () => {
+      const config = makeConfig({ networkIsolation: undefined });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(true);
-      expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('--no-network-isolation'),
-      );
     });
 
     it('should force networkIsolation on and warn when explicitly disabled', () => {
-      const config = makeConfig({ securityMode: 'strict', networkIsolation: false });
+      const config = makeConfig({ networkIsolation: false });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(true);
       expect(logger.warn).toHaveBeenCalledWith(
@@ -69,30 +63,33 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should force enableApiProxy on when undefined (not explicitly set)', () => {
-      const config = makeConfig({ securityMode: 'strict', enableApiProxy: undefined });
+    it('should always force enableApiProxy on', () => {
+      const config = makeConfig({ enableApiProxy: undefined });
       applySecurityMode(config);
       expect(config.enableApiProxy).toBe(true);
-      expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('--no-enable-api-proxy'),
+    });
+
+    it('should throw when --no-enable-api-proxy is passed', () => {
+      const config = makeConfig({ enableApiProxy: false });
+      expect(() => applySecurityMode(config)).toThrow(
+        '--no-enable-api-proxy is not allowed',
       );
     });
 
-    it('should force enableApiProxy on and warn when explicitly disabled', () => {
-      const config = makeConfig({ securityMode: 'strict', enableApiProxy: false });
+    it('should warn when --enable-api-proxy is explicitly passed', () => {
+      const config = makeConfig({ enableApiProxy: true });
       applySecurityMode(config);
-      expect(config.enableApiProxy).toBe(true);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('--no-enable-api-proxy was ignored'),
+        expect.stringContaining('--enable-api-proxy is deprecated'),
       );
+      expect(config.enableApiProxy).toBe(true);
     });
 
-    it('should be the default when securityMode is undefined', () => {
-      const config = makeConfig({ securityMode: undefined });
+    it('should be the default when legacySecurity is undefined', () => {
+      const config = makeConfig({ legacySecurity: undefined });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(true);
       expect(config.enableApiProxy).toBe(true);
-      expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it('should override enableHostAccess with warning', () => {
@@ -104,7 +101,7 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should clear allowHostServicePorts when set (prevents downstream re-enable of host access)', () => {
+    it('should clear allowHostServicePorts when set', () => {
       const config = makeConfig({ allowHostServicePorts: '5432,6379' });
       applySecurityMode(config);
       expect(config.allowHostServicePorts).toBeUndefined();
@@ -113,7 +110,7 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should clear allowHostServicePorts and allowHostPorts set alongside enableHostAccess', () => {
+    it('should clear allowHostServicePorts and allowHostPorts alongside enableHostAccess', () => {
       const config = makeConfig({
         enableHostAccess: true,
         allowHostPorts: '3000,8080',
@@ -143,19 +140,17 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should warn that --security-mode compat is required for overridden options', () => {
+    it('should warn that --legacy-security is required for overridden options', () => {
       const config = makeConfig({ enableHostAccess: true, enableDind: true });
       applySecurityMode(config);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('--security-mode compat'),
+        expect.stringContaining('--legacy-security'),
       );
     });
 
     it('should not warn when compatible options are already set', () => {
       const config = makeConfig({
-        securityMode: 'strict',
         networkIsolation: true,
-        enableApiProxy: true,
         enableHostAccess: false,
         enableDind: false,
       });
@@ -169,43 +164,44 @@ describe('applySecurityMode', () => {
       });
 
       it('should skip network-isolation enforcement for microVM runtimes', () => {
-        const config = makeConfig({ securityMode: 'strict', containerRuntime: 'sbx' });
+        const config = makeConfig({ containerRuntime: 'sbx' });
         applySecurityMode(config);
         expect(config.networkIsolation).toBeUndefined();
-        expect(logger.warn).not.toHaveBeenCalledWith(
-          expect.stringContaining('network-isolation'),
-        );
       });
 
       it('should still enforce api-proxy for microVM runtimes', () => {
-        const config = makeConfig({ securityMode: 'strict', containerRuntime: 'sbx' });
+        const config = makeConfig({ containerRuntime: 'sbx' });
         applySecurityMode(config);
         expect(config.enableApiProxy).toBe(true);
       });
     });
   });
 
-  describe('compat mode', () => {
-    it('should not modify any config values', () => {
+  describe('legacy security mode', () => {
+    it('should not override host-access or dind', () => {
       const config = makeConfig({
-        securityMode: 'compat',
+        legacySecurity: true,
         networkIsolation: false,
-        enableApiProxy: false,
         enableHostAccess: true,
         enableDind: true,
       });
       applySecurityMode(config);
       expect(config.networkIsolation).toBe(false);
-      expect(config.enableApiProxy).toBe(false);
       expect(config.enableHostAccess).toBe(true);
       expect(config.enableDind).toBe(true);
     });
 
-    it('should log info about compat mode', () => {
-      const config = makeConfig({ securityMode: 'compat' });
+    it('should still force api-proxy on in legacy mode', () => {
+      const config = makeConfig({ legacySecurity: true });
+      applySecurityMode(config);
+      expect(config.enableApiProxy).toBe(true);
+    });
+
+    it('should log info about legacy security mode', () => {
+      const config = makeConfig({ legacySecurity: true });
       applySecurityMode(config);
       expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('compat security mode'),
+        expect.stringContaining('legacy security mode'),
       );
     });
   });

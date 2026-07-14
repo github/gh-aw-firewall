@@ -284,8 +284,8 @@ export class AwfRunner {
     // Add awf path
     args.push('node', this.awfPath);
 
-    // runWithSudo uses the legacy iptables path, which requires compat mode
-    args.push('--security-mode', 'compat');
+    // runWithSudo uses the legacy iptables path
+    args.push('--legacy-security');
 
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {

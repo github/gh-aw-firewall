@@ -29,26 +29,10 @@ describe('config-assembly', () => {
       );
     });
 
-    it('should exit if rate limit flags are used without --enable-api-proxy', () => {
-      (validateRateLimitFlags as jest.Mock).mockReturnValueOnce({
-        valid: false,
-        error: 'Rate limit flags require --enable-api-proxy',
-      });
-
-      expect(() => {
-        callAssembleWith();
-      }).toThrow('process.exit(1)');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        'Rate limit flags require --enable-api-proxy',
-      );
-    });
+    // Note: "rate limit flags without --enable-api-proxy" test removed —
+    // API proxy is always enabled, so this scenario cannot occur.
 
     it('should set rate limit config when API proxy is enabled', () => {
-      mockBuildConfigOnce({
-        enableApiProxy: true,
-      });
-
       const mockRateLimitConfig = {
         enabled: true,
         rpm: 100,

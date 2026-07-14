@@ -245,11 +245,11 @@ program
     'Enforce egress via Docker network topology (internal network +\n' +
     '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
     '                                       Not yet supported with --dns-over-https or --enable-host-access.\n' +
-    '                                       Enabled by default in --security-mode strict.'
+    '                                       Enabled by default (strict security).'
   )
   .option(
     '--no-network-isolation',
-    'Disable network-isolation mode (requires --security-mode compat in strict mode).'
+    'Disable network-isolation mode (requires --legacy-security).'
   )
   .option(
     '--topology-attach <name>',
@@ -280,11 +280,16 @@ program
   )
   .addOption(
     new Option(
+      '--legacy-security',
+      'Enable legacy security mode (sudo, host-access, iptables).\n' +
+      '                                       Default behavior is strict security (network-isolation + api-proxy).',
+    )
+  )
+  .addOption(
+    new Option(
       '--security-mode <mode>',
-      'Security enforcement mode (default: strict).\n' +
-      '                                       strict: network-isolation + api-proxy, no sudo/iptables.\n' +
-      '                                       compat: legacy iptables mode, requires sudo.',
-    ).choices(['strict', 'compat']).default('strict')
+      '[DEPRECATED] Use --legacy-security instead.',
+    ).choices(['strict', 'compat']).hideHelp()
   )
   .option(
     '--enable-dlp',
@@ -293,15 +298,14 @@ program
     false
   )
 
-  // -- API Proxy --
+  // -- API Proxy (always enabled, flags retained for backward compatibility) --
   .option(
     '--enable-api-proxy',
-    'Enable API proxy sidecar for secure credential injection.\n' +
-    '                                       Supports OpenAI (Codex) and Anthropic (Claude) APIs.'
+    '[DEPRECATED] The API proxy is always enabled. This flag is ignored.'
   )
   .option(
     '--no-enable-api-proxy',
-    'Disable the API proxy sidecar (requires --security-mode compat in strict mode).'
+    '[REMOVED] The API proxy cannot be disabled. Passing this flag is an error.'
   )
   .option(
     '--copilot-api-target <host>',

@@ -1,5 +1,34 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
 import { resolveApiCredentials } from './resolve-credentials';
+import { logger } from '../logger';
+
+/**
+ * Resolves the effective `legacySecurity` value from CLI options.
+ *
+ * Sources (in priority order):
+ * 1. `--legacy-security` boolean flag (preferred)
+ * 2. `--security-mode compat` (deprecated, maps to legacySecurity=true)
+ */
+function resolveLegacySecurity(options: Record<string, unknown>): boolean | undefined {
+  // Handle deprecated --security-mode flag
+  const securityMode = options.securityMode as string | undefined;
+  if (securityMode === 'compat') {
+    logger.warn(
+      '⚠️  --security-mode compat is deprecated. Use --legacy-security instead.',
+    );
+    return true;
+  }
+  if (securityMode === 'strict') {
+    logger.warn(
+      '⚠️  --security-mode is deprecated. Strict security is the default; remove the flag.',
+    );
+    return undefined;
+  }
+
+  // Handle --legacy-security boolean
+  const legacySecurity = options.legacySecurity as boolean | undefined;
+  return legacySecurity || undefined;
+}
 
 /**
  * Inputs required to assemble a {@link WrapperConfig}.
@@ -116,7 +145,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     sslBump: options.sslBump as boolean,
     enableDind: options.enableDind as boolean,
     enableDlp: options.enableDlp as boolean,
-    securityMode: options.securityMode as 'strict' | 'compat' | undefined,
+    legacySecurity: resolveLegacySecurity(options),
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean | undefined,
     modelFallback:

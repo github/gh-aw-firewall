@@ -88,7 +88,7 @@ export interface AwfFileConfig {
     };
   };
   security?: {
-    securityMode?: 'strict' | 'compat';
+    legacySecurity?: boolean;
     sslBump?: boolean;
     enableDlp?: boolean;
     enableHostAccess?: boolean;
