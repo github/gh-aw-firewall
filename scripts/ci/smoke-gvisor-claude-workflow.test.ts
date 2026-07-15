@@ -8,10 +8,10 @@ describe('smoke gVisor Claude workflow', () => {
   it('disables Bun JIT to prevent SIGSEGV/SIGABRT crashes under gVisor', () => {
     const lock = fs.readFileSync(smokeGvisorClaudeLockPath, 'utf-8');
 
-    // BUN_JSC_useJIT=0 must be passed to the AWF command so JavaScriptCore runs
-    // in interpreter mode. Without this, Bun's JSC JIT compiler triggers
-    // SIGSEGV/SIGABRT under gVisor due to incompatible W^X memory operations.
-    // Reference: https://bun.sh/docs/runtime/gvisor
+// BUN_JSC_useJIT=0 must be passed to the AWF command so JavaScriptCore runs
+// in interpreter mode. This avoids the SIGSEGV/SIGABRT failures observed when
+// Claude Code's Bun runtime enables JIT in this gVisor workflow.
+// Reference for the option: https://github.com/oven-sh/bun/issues/22901
     expect(lock).toContain('BUN_JSC_useJIT=0');
     expect(lock).toContain('--env BUN_JSC_useJIT=0');
   });
