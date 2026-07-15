@@ -79,7 +79,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable the API proxy sidecar container. When enabled, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY) are held exclusively in the sidecar and excluded from the agent environment. The agent receives proxy-routing base URLs instead. See docs/awf-config-spec.md §9 for credential isolation semantics."
+          "deprecated": true,
+          "description": "[DEPRECATED] The API proxy sidecar is always enabled; this field is ignored. Source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY) are always held exclusively in the sidecar and excluded from the agent environment. The negated CLI form --no-enable-api-proxy is rejected at runtime. See docs/awf-config-spec.md §9.3 for details."
         },
         "enableTokenSteering": {
           "type": "boolean",
@@ -709,7 +710,7 @@
     },
     "environment": {
       "type": "object",
-      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. When apiProxy.enabled is true, source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for credential isolation rules.",
+      "description": "Environment variable propagation into the agent container. Merge behavior is: AWF-reserved variables are set by AWF and are not overridden by envAll or envFile; if envAll is true, host environment variables are forwarded next; envFile is then applied only for variables not already present, so it does not override envAll; CLI -e/--env has highest precedence and may override any variable, including AWF-reserved ones. Source credentials (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are always excluded from the agent and held in the API proxy sidecar. See docs/awf-config-spec.md §8–9 for credential isolation rules.",
       "additionalProperties": false,
       "properties": {
         "envFile": {
@@ -725,7 +726,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Environment variable names to exclude when envAll is true. IMPORTANT: Excluding LLM API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) without setting apiProxy.enabled=true will cause agent authentication failures. Use apiProxy.enabled=true for credential isolation instead of manual exclusion."
+          "description": "Environment variable names to exclude when envAll is true. Note: LLM API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are always excluded from the agent by the API proxy sidecar regardless of this setting."
         }
       }
     },
