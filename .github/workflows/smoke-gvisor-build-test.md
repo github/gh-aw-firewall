@@ -193,20 +193,6 @@ steps:
       fi
     env:
       GOROOT: ${{ steps.env-info.outputs.GOROOT || '' }}
-  - name: Network isolation check
-    id: net-check
-    run: |
-      echo "::group::Blocked domain test"
-      BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com 2>/dev/null || echo "000")
-      echo "example.com returned: $BLOCKED_CODE"
-      if [ "$BLOCKED_CODE" = "000" ] || [ "$BLOCKED_CODE" = "403" ]; then
-        echo "NET_ISOLATION=PASS" >> "$GITHUB_OUTPUT"
-        echo "✅ Network isolation working (blocked domain returned $BLOCKED_CODE)"
-      else
-        echo "NET_ISOLATION=FAIL" >> "$GITHUB_OUTPUT"
-        echo "❌ Network isolation failed (blocked domain returned $BLOCKED_CODE)"
-      fi
-      echo "::endgroup::"
   - name: Write results summary
     run: |
       mkdir -p /tmp/gh-aw/agent
@@ -217,8 +203,7 @@ steps:
         "node_build": "${{ steps.build-node.outputs.NODE_BUILD_STATUS }}",
         "node_test": "${{ steps.test-node.outputs.NODE_TEST_STATUS }}",
         "go_build": "${{ steps.build-go.outputs.GO_BUILD_STATUS }}",
-        "go_test": "${{ steps.build-go.outputs.GO_TEST_STATUS }}",
-        "net_isolation": "${{ steps.net-check.outputs.NET_ISOLATION }}"
+        "go_test": "${{ steps.build-go.outputs.GO_TEST_STATUS }}"
       }
       RESULTS_EOF
       cat /tmp/gh-aw/agent/build-test-results.json
@@ -275,9 +260,20 @@ The JSON contains:
 - `node_test`: Node.js test status (PASS/FAIL)
 - `go_build`: Go build status (PASS/FAIL/CLONE_FAILED)
 - `go_test`: Go test status (PASS/FAIL/SKIPPED)
-- `net_isolation`: Network isolation check (PASS/FAIL)
 
-## Step 2: Output (MANDATORY)
+## Step 2: Network Isolation Check
+
+Run this command to verify the AWF firewall is blocking non-whitelisted domains:
+
+```bash
+BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com 2>/dev/null || echo "000")
+echo "example.com returned: $BLOCKED_CODE"
+```
+
+- If `$BLOCKED_CODE` is `000` (connection refused/timeout) or `403` (Squid denied): **PASS** — network isolation is working.
+- If `$BLOCKED_CODE` is `200` or any other success code: **FAIL** — the firewall did not block the request.
+
+## Step 3: Output (MANDATORY)
 
 **If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **brief** comment on the current pull request with:
 
