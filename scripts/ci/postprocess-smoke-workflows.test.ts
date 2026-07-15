@@ -28,6 +28,7 @@ import {
   issueDuplicationConclusionConcurrencySentinel,
 } from './workflow-patch-patterns';
 import { buildCopySessionStateStep } from './workflow-step-builders';
+import { injectBunJitDisableFlagForGvisorAwf } from './gvisor-claude-bun-jit';
 
 describe('installStepRegex', () => {
   it('should match unquoted /opt/gh-aw path', () => {
@@ -86,6 +87,42 @@ describe('installStepRegex', () => {
     const match = input.match(installStepRegex);
     expect(match).not.toBeNull();
     expect(match![1]).toBe('          ');
+  });
+});
+
+describe('injectBunJitDisableFlagForGvisorAwf', () => {
+  it('injects BUN_JSC_useJIT=0 for a gVisor AWF command that uses sudo', () => {
+    const input =
+      'containerRuntime\\":\\"gvisor\\"\n' +
+      'sudo -E awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --tty\n';
+
+    const result = injectBunJitDisableFlagForGvisorAwf(input);
+
+    expect(result).toContain('sudo -E awf --env BUN_JSC_useJIT=0 --config');
+  });
+
+  it('injects BUN_JSC_useJIT=0 for a gVisor AWF command without sudo', () => {
+    const input =
+      'containerRuntime\\":\\"gvisor\\"\n' +
+      'awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --tty\n';
+
+    const result = injectBunJitDisableFlagForGvisorAwf(input);
+
+    expect(result).toContain('awf --env BUN_JSC_useJIT=0 --config');
+  });
+
+  it('does not inject outside gVisor workflows', () => {
+    const input = 'awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --tty\n';
+
+    expect(injectBunJitDisableFlagForGvisorAwf(input)).toBe(input);
+  });
+
+  it('is idempotent when the Bun JIT flag is already present', () => {
+    const input =
+      'containerRuntime\\":\\"gvisor\\"\n' +
+      'awf --env BUN_JSC_useJIT=0 --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --tty\n';
+
+    expect(injectBunJitDisableFlagForGvisorAwf(input)).toBe(input);
   });
 });
 

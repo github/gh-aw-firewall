@@ -5,6 +5,7 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
+import { injectBunJitDisableFlagForGvisorAwf } from './gvisor-claude-bun-jit';
 
 const repoRoot = path.resolve(__dirname, '../..');
 
@@ -103,20 +104,13 @@ try {
 const gvisorClaudeLockPath = path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml');
 try {
   const gvisorClaudeOriginal = fs.readFileSync(gvisorClaudeLockPath, 'utf-8');
-  if (!gvisorClaudeOriginal.includes('BUN_JSC_useJIT')) {
-    const gvisorClaudePatched = gvisorClaudeOriginal.replace(
-      /sudo -E awf /g,
-      'sudo -E awf --env BUN_JSC_useJIT=0 '
-    );
-    if (gvisorClaudePatched !== gvisorClaudeOriginal) {
-      fs.writeFileSync(gvisorClaudeLockPath, gvisorClaudePatched);
-      console.log(`  Injected --env BUN_JSC_useJIT=0 to disable Bun JIT under gVisor`);
-      console.log(`Updated ${gvisorClaudeLockPath}`);
-    } else {
-      console.log(`Skipping ${gvisorClaudeLockPath}: no AWF command found to patch.`);
-    }
+  const gvisorClaudePatched = injectBunJitDisableFlagForGvisorAwf(gvisorClaudeOriginal);
+  if (gvisorClaudePatched !== gvisorClaudeOriginal) {
+    fs.writeFileSync(gvisorClaudeLockPath, gvisorClaudePatched);
+    console.log(`  Injected --env BUN_JSC_useJIT=0 for the gVisor AWF command`);
+    console.log(`Updated ${gvisorClaudeLockPath}`);
   } else {
-    console.log(`Skipping ${gvisorClaudeLockPath}: BUN_JSC_useJIT already present.`);
+    console.log(`Skipping ${gvisorClaudeLockPath}: no Bun JIT patch needed.`);
   }
 } catch {
   console.log(`Skipping ${gvisorClaudeLockPath}: file not found.`);
