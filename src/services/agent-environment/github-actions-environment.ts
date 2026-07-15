@@ -50,9 +50,9 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
   }
 
   if (environment.NO_PROXY !== environment.no_proxy) {
-    if (config.additionalEnv?.NO_PROXY) {
+    if (Object.prototype.hasOwnProperty.call(config.additionalEnv ?? {}, 'NO_PROXY')) {
       environment.no_proxy = environment.NO_PROXY;
-    } else if (config.additionalEnv?.no_proxy) {
+    } else if (Object.prototype.hasOwnProperty.call(config.additionalEnv ?? {}, 'no_proxy')) {
       environment.NO_PROXY = environment.no_proxy;
     }
   }

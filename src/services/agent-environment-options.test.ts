@@ -495,6 +495,17 @@ describe('agent environment: options', () => {
       expect(env.no_proxy).toBe(env.NO_PROXY);
     });
 
+    it('should sync empty no_proxy when --env clears NO_PROXY', () => {
+      const configWithEnv = {
+        ...mockConfig,
+        additionalEnv: { NO_PROXY: '' },
+      };
+      const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.NO_PROXY).toBe('');
+      expect(env.no_proxy).toBe('');
+    });
+
     it('should sync NO_PROXY when --env overrides no_proxy', () => {
       const configWithEnv = {
         ...mockConfig,
@@ -504,6 +515,17 @@ describe('agent environment: options', () => {
       const env = result.services.agent.environment as Record<string, string>;
       expect(env.no_proxy).toBe('custom.local,127.0.0.1');
       expect(env.NO_PROXY).toBe(env.no_proxy);
+    });
+
+    it('should sync empty NO_PROXY when --env clears no_proxy', () => {
+      const configWithEnv = {
+        ...mockConfig,
+        additionalEnv: { no_proxy: '' },
+      };
+      const result = generateDockerCompose(configWithEnv, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.no_proxy).toBe('');
+      expect(env.NO_PROXY).toBe('');
     });
   });
 

@@ -314,9 +314,12 @@ When `--env-all` IS active, all host variables not in the excluded set
 
 ### 8.5 Explicit Overrides
 
-Variables passed via `-e` / `--env` MUST override all other sources,
-including AWF-reserved variables. This is the only mechanism by which proxy
-routing variables MAY be overridden.
+Variables passed via `-e` / `--env` MUST override values from `--env-all`
+and `--env-file`.
+
+Reserved proxy routing variables MAY be overridden only via `-e` / `--env`.
+Other AWF-reserved variables and source credentials protected by credential
+isolation (§9) MUST NOT be overridden.
 
 > **Note:** There is no config-file equivalent for `-e` / `--env`. Individual
 > environment variable injection is a runtime concern, not a static
