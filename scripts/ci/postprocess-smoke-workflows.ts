@@ -95,11 +95,11 @@ try {
 }
 
 // ── gVisor + Claude: disable Bun JIT to prevent SIGSEGV/SIGABRT crashes ─────
-// Claude Code uses the Bun runtime with JavaScriptCore (JSC). Under gVisor,
-// JSC's JIT compiler triggers SIGSEGV/SIGABRT because gVisor restricts the
-// W^X memory operations required by JIT engines. Setting BUN_JSC_useJIT=0
-// forces JSC into interpreter mode, which is slower but stable under gVisor.
-// Reference: https://bun.sh/docs/runtime/gvisor
+// Claude Code uses Bun with JavaScriptCore (JSC). Enabling JSC's JIT causes
+// SIGSEGV/SIGABRT in this gVisor workflow. BUN_JSC_useJIT=0 is Bun's supported
+// override for disabling JIT and forcing interpreter mode, which is slower but
+// avoids the observed crashes.
+// Reference for the option: https://github.com/oven-sh/bun/issues/22901
 const gvisorClaudeLockPath = path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml');
 try {
   const gvisorClaudeOriginal = fs.readFileSync(gvisorClaudeLockPath, 'utf-8');
