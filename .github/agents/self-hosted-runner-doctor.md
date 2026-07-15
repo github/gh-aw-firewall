@@ -243,7 +243,7 @@ Establish these facts before matching a failure mode:
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |
 | `diagnosis=unknown` from `awf-cli-proxy` DIFC probe (proxy reachable, no connection error) with `GITHUB_SERVER_URL=*.ghe.com`, or `diagnosis=reachable-but-api-error (HTTP NNN)` | C7 |
 | `HTTP 404` / `404 Not Found` downloading `runsc` from `storage.googleapis.com` during gVisor install | D5 |
-| `Error: sbx is not available` or `spawn sbx ENOENT` with `--container-runtime sbx` | D6 |
+| `Docker sbx CLI not found. Install sbx to use --container-runtime sbx.`, `Error: sbx is not available`, or `spawn sbx ENOENT` with `--container-runtime sbx` | D6 |
 
 ## Known unresolved items
 
