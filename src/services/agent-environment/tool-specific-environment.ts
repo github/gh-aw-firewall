@@ -15,6 +15,7 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
   const commandExecutableBase = path.posix.basename(commandExecutable.replace(/\\/g, '/'));
   const isCopilotCommand = commandExecutableBase.toLowerCase() === 'copilot';
   const isCodexCommand = commandExecutableBase.toLowerCase() === 'codex';
+  const isClaudeCommand = commandExecutableBase.toLowerCase() === 'claude';
   const stagedBinaryName = extractCommandBinaryName(config.agentCommand);
   const hasCopilotProviderApiKey = !!config.copilotProviderApiKey;
 
@@ -42,6 +43,16 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
 
   if (isCodexCommand) {
     environment.AWF_PREFLIGHT_BINARY = 'codex';
+  }
+
+  // Claude Code uses Bun with JavaScriptCore (JSC). Under gVisor's userspace
+  // kernel, JSC's JIT compiler triggers SIGSEGV/SIGABRT crashes. Setting
+  // BUN_JSC_useJIT=0 forces Bun into interpreter-only mode, which is slower
+  // but avoids the observed crashes.
+  // Reference: https://github.com/oven-sh/bun/issues/22901
+  if (isClaudeCommand && config.containerRuntime === 'gvisor') {
+    environment.BUN_JSC_useJIT = '0';
+    logger.info('gVisor runtime detected with Claude — disabled Bun JIT (BUN_JSC_useJIT=0)');
   }
 
   if (stagedBinaryName && shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {

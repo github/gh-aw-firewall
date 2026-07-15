@@ -5,7 +5,7 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
-import { injectBunJitDisableFlagForGvisorAwf } from './gvisor-claude-bun-jit';
+
 
 const repoRoot = path.resolve(__dirname, '../..');
 
@@ -93,27 +93,6 @@ try {
   }
 } catch {
   console.log(`Skipping ${gvisorLockPath}: file not found.`);
-}
-
-// ── gVisor + Claude: disable Bun JIT to prevent SIGSEGV/SIGABRT crashes ─────
-// Claude Code uses Bun with JavaScriptCore (JSC). Enabling JSC's JIT causes
-// SIGSEGV/SIGABRT in this gVisor workflow. BUN_JSC_useJIT=0 is Bun's supported
-// override for disabling JIT and forcing interpreter mode, which is slower but
-// avoids the observed crashes.
-// Reference for the option: https://github.com/oven-sh/bun/issues/22901
-const gvisorClaudeLockPath = path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml');
-try {
-  const gvisorClaudeOriginal = fs.readFileSync(gvisorClaudeLockPath, 'utf-8');
-  const gvisorClaudePatched = injectBunJitDisableFlagForGvisorAwf(gvisorClaudeOriginal);
-  if (gvisorClaudePatched !== gvisorClaudeOriginal) {
-    fs.writeFileSync(gvisorClaudeLockPath, gvisorClaudePatched);
-    console.log(`  Injected --env BUN_JSC_useJIT=0 for the gVisor AWF command`);
-    console.log(`Updated ${gvisorClaudeLockPath}`);
-  } else {
-    console.log(`Skipping ${gvisorClaudeLockPath}: no Bun JIT patch needed.`);
-  }
-} catch {
-  console.log(`Skipping ${gvisorClaudeLockPath}: file not found.`);
 }
 
 // sbx CLI install + daemon auth steps that gh-aw v0.82.8 dropped from compilation.
