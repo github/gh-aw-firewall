@@ -214,6 +214,18 @@ describe('createCopilotAdapter — Copilot Business auth format', () => {
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers['Authorization']).toBe('token ghu_business_token_123');
   });
+
+  it('ignores offline-mode dummy BYOK sentinel and still uses GitHub token format on Business target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_business_token_123',
+      COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
+      COPILOT_API_TARGET: 'api.business.githubcopilot.com',
+      AWF_PLATFORM_TYPE: 'ghec',
+      GITHUB_SERVER_URL: 'https://myorg.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_business_token_123');
+  });
 });
 
 describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {

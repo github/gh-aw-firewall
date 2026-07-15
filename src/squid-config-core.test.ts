@@ -163,4 +163,46 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('http_access allow CONNECT allowed_https_only');
     });
   });
+
+  describe('Raw IP Address Allow Rules', () => {
+    it('should add dst-based allow rules for raw IPs in allowed domains before raw-IP deny', () => {
+      const config: SquidConfig = {
+        domains: ['github.com', '172.30.0.1', 'api.openai.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+
+      // Should have a dst ACL allow for the IP
+      expect(result).toContain('acl allow_ip_172_30_0_1 dst 172.30.0.1');
+      expect(result).toContain('http_access allow allow_ip_172_30_0_1');
+
+      // The allow rule must appear before the raw-IP deny
+      const allowPos = result.indexOf('http_access allow allow_ip_172_30_0_1');
+      const denyPos = result.indexOf('http_access deny dst_ipv4');
+      expect(allowPos).toBeGreaterThan(-1);
+      expect(denyPos).toBeGreaterThan(-1);
+      expect(allowPos).toBeLessThan(denyPos);
+    });
+
+    it('should not generate IP allow rules when no raw IPs are in domains', () => {
+      const config: SquidConfig = {
+        domains: ['github.com', 'api.openai.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+
+      expect(result).not.toContain('allow_ip_');
+    });
+
+    it('should handle multiple raw IPs in allowed domains', () => {
+      const config: SquidConfig = {
+        domains: ['172.30.0.1', '10.0.0.5', 'github.com'],
+        port: defaultPort,
+      };
+      const result = generateSquidConfig(config);
+
+      expect(result).toContain('acl allow_ip_172_30_0_1 dst 172.30.0.1');
+      expect(result).toContain('acl allow_ip_10_0_0_5 dst 10.0.0.5');
+    });
+  });
 });

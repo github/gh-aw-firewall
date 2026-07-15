@@ -37,7 +37,11 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
   }
 
   if (config.additionalEnv) {
-    Object.assign(environment, config.additionalEnv);
+    for (const [key, value] of Object.entries(config.additionalEnv)) {
+      if (!excludedEnvVars.has(key)) {
+        environment[key] = value;
+      }
+    }
   }
 
   if (environment.NO_PROXY !== environment.no_proxy) {

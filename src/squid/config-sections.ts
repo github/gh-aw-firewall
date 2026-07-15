@@ -139,6 +139,33 @@ http_access allow from_api_proxy
 ` : '';
 }
 
+const IPV4_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
+
+/**
+ * Generate allow rules for raw IP addresses that appear in the allowed domains list.
+ *
+ * Squid's raw-IP deny rules (`http_access deny dst_ipv4/dst_ipv6`) block all
+ * requests to IP addresses to prevent bypassing domain-based filtering.  However,
+ * when the operator explicitly whitelists an IP (e.g. `172.30.0.1` for the MCP
+ * gateway), those requests must be allowed.  This function emits `dst`-based
+ * allow rules that fire *before* the blanket raw-IP deny.
+ */
+function generateAllowedIpSection(domains: string[]): string {
+  const ips = domains.filter(d => IPV4_REGEX.test(d));
+  if (ips.length === 0) return '';
+
+  const lines = [
+    '# Allow explicitly whitelisted IP addresses before raw-IP deny rules.',
+    '# When an operator adds a raw IP to --allow-domains (e.g. for the MCP gateway),',
+    '# it must be allowed through before the blanket dst_ipv4/dst_ipv6 deny.',
+  ];
+  for (const ip of ips) {
+    lines.push(`acl allow_ip_${ip.replace(/\./g, '_')} dst ${ip}`);
+    lines.push(`http_access allow allow_ip_${ip.replace(/\./g, '_')}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
 function generateDnsSection(dnsServers?: string[]): string {
   return `dns_nameservers ${(dnsServers && dnsServers.length > 0) ? dnsServers.join(' ') : DEFAULT_DNS_SERVERS.join(' ')}`;
 }
@@ -150,6 +177,7 @@ function generateConfigSections(options: {
   caFiles?: SquidConfig['caFiles'];
   sslDbPath?: string;
   urlPatterns?: string[];
+  domains?: string[];
   domainsByProto: DomainsByProto;
   patternsByProto: PatternsByProto;
   enableHostAccess?: boolean;
@@ -165,6 +193,7 @@ function generateConfigSections(options: {
   sslBumpUrlAccessSection: string;
   portAclsAndRules: string;
   apiProxySection: string;
+  allowedIpSection: string;
   dnsSection: string;
 } {
   const {
@@ -174,6 +203,7 @@ function generateConfigSections(options: {
     caFiles,
     sslDbPath,
     urlPatterns,
+    domains,
     domainsByProto,
     patternsByProto,
     enableHostAccess,
@@ -195,6 +225,7 @@ function generateConfigSections(options: {
   });
   const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);
   const apiProxySection = generateApiProxySection(apiProxyIp);
+  const allowedIpSection = generateAllowedIpSection(domains ?? []);
   const dnsSection = generateDnsSection(dnsServers);
 
   return {
@@ -205,6 +236,7 @@ function generateConfigSections(options: {
     sslBumpUrlAccessSection,
     portAclsAndRules,
     apiProxySection,
+    allowedIpSection,
     dnsSection,
   };
 }

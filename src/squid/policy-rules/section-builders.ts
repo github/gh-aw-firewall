@@ -88,6 +88,23 @@ export function addRawIpBlockRules(state: PolicyRuleState): void {
   });
 }
 
+const IPV4_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
+
+export function addAllowedIpRules(state: PolicyRuleState, domains?: string[]): void {
+  if (!domains) return;
+  const ips = domains.filter(d => IPV4_REGEX.test(d));
+  for (const ip of ips) {
+    pushRule(state, {
+      id: `allow-ip-${ip.replace(/\./g, '-')}`,
+      action: 'allow',
+      aclName: `allow_ip_${ip.replace(/\./g, '_')}`,
+      protocol: 'both',
+      domains: [ip],
+      description: `Allow explicitly whitelisted IP ${ip} before raw-IP deny rules`,
+    });
+  }
+}
+
 export function addDlpRules(state: PolicyRuleState, enableDlp?: boolean): void {
   if (!enableDlp) {
     return;
