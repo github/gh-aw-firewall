@@ -94,6 +94,34 @@ try {
   console.log(`Skipping ${gvisorLockPath}: file not found.`);
 }
 
+// ── gVisor + Claude: disable Bun JIT to prevent SIGSEGV/SIGABRT crashes ─────
+// Claude Code uses the Bun runtime with JavaScriptCore (JSC). Under gVisor,
+// JSC's JIT compiler triggers SIGSEGV/SIGABRT because gVisor restricts the
+// W^X memory operations required by JIT engines. Setting BUN_JSC_useJIT=0
+// forces JSC into interpreter mode, which is slower but stable under gVisor.
+// Reference: https://bun.sh/docs/runtime/gvisor
+const gvisorClaudeLockPath = path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml');
+try {
+  const gvisorClaudeOriginal = fs.readFileSync(gvisorClaudeLockPath, 'utf-8');
+  if (!gvisorClaudeOriginal.includes('BUN_JSC_useJIT')) {
+    const gvisorClaudePatched = gvisorClaudeOriginal.replace(
+      /sudo -E awf /g,
+      'sudo -E awf --env BUN_JSC_useJIT=0 '
+    );
+    if (gvisorClaudePatched !== gvisorClaudeOriginal) {
+      fs.writeFileSync(gvisorClaudeLockPath, gvisorClaudePatched);
+      console.log(`  Injected --env BUN_JSC_useJIT=0 to disable Bun JIT under gVisor`);
+      console.log(`Updated ${gvisorClaudeLockPath}`);
+    } else {
+      console.log(`Skipping ${gvisorClaudeLockPath}: no AWF command found to patch.`);
+    }
+  } else {
+    console.log(`Skipping ${gvisorClaudeLockPath}: BUN_JSC_useJIT already present.`);
+  }
+} catch {
+  console.log(`Skipping ${gvisorClaudeLockPath}: file not found.`);
+}
+
 // sbx CLI install + daemon auth steps that gh-aw v0.82.8 dropped from compilation.
 // Injected after "Install awf binary (local)", before "Determine automatic lockdown mode".
 const SBX_INSTALL_AND_AUTH_STEPS =
