@@ -500,7 +500,10 @@
         },
         "securityMode": {
           "type": "string",
-          "enum": ["strict", "compat"],
+          "enum": [
+            "strict",
+            "compat"
+          ],
           "description": "[DEPRECATED] Use legacySecurity instead. Will be removed in a future release.",
           "deprecated": true
         },
@@ -633,7 +636,10 @@
         },
         "containerRuntime": {
           "type": "string",
-          "enum": ["gvisor", "sbx"],
+          "enum": [
+            "gvisor",
+            "sbx"
+          ],
           "description": "Container runtime for the agent container. \"gvisor\" runs the agent under gVisor's runsc runtime (OCI runtime, compose-based). \"sbx\" runs the agent inside a Docker sbx microVM with hypervisor isolation; infrastructure containers (squid-proxy, api-proxy) stay in Docker Compose on the host and the sbx proxy chains upstream through AWF's Squid for domain filtering. Only the agent uses the custom runtime; infrastructure containers always use the default runc runtime."
         }
       }

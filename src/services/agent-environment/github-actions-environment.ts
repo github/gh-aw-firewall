@@ -4,6 +4,7 @@ import {
 } from '../../github-env';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { PROXY_ENV_VARS } from '../../upstream-proxy';
 
 interface GitHubActionsEnvironmentParams {
   config: WrapperConfig;
@@ -37,8 +38,12 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
   }
 
   if (config.additionalEnv) {
+    // Proxy vars are in the exclusion set to prevent host proxy leakage via
+    // envAll, but explicit --env overrides (additionalEnv) should still be
+    // able to set them (e.g. NO_PROXY customization).
+    const proxyVarSet = new Set<string>(PROXY_ENV_VARS);
     for (const [key, value] of Object.entries(config.additionalEnv)) {
-      if (!excludedEnvVars.has(key)) {
+      if (!excludedEnvVars.has(key) || proxyVarSet.has(key)) {
         environment[key] = value;
       }
     }
