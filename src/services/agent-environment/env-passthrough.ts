@@ -56,7 +56,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
   ] as const;
 
   for (const v of alwaysForwardVars) {
-    if (process.env[v]) {
+    if (process.env[v] && !excludedEnvVars.has(v)) {
       environment[v] = process.env[v]!;
     }
   }

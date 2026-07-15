@@ -51,8 +51,8 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ Ports:                           │       │     http://172.30.0.30:10000    │
 │ - 10000 (OpenAI proxy)          │◄──────│ ✓ COPILOT_API_URL=               │
 │ - 10001 (Anthropic proxy)       │       │     http://172.30.0.30:10002    │
-│ - 10002 (Copilot proxy)         │       │ ✓ GITHUB_TOKEN=ghp_...           │
-│ - 10003 (Gemini proxy)          │       │   (protected by one-shot-token)  │
+│ - 10002 (Copilot proxy)         │       │ ✗ GITHUB_TOKEN — excluded        │
+│ - 10003 (Gemini proxy)          │       │   (not present in agent env)     │
 │ Injects auth headers:            │       │ User command execution:          │
 │ - x-api-key: sk-ant-...         │       │   claude-code, copilot, etc.     │
 │ - Authorization: Bearer sk-...   │       └──────────────────────────────────┘
@@ -125,8 +125,8 @@ agent:
     - COPILOT_API_URL=http://172.30.0.30:10002
     - GOOGLE_GEMINI_BASE_URL=http://172.30.0.30:10003
     - GEMINI_API_BASE_URL=http://172.30.0.30:10003
-    # GitHub token for MCP servers (protected separately)
-    - GITHUB_TOKEN=ghp_...
+    # GITHUB_TOKEN / GH_TOKEN are NOT present — excluded by the API-proxy
+    # exclusion set to prevent credential extraction via /proc/self/environ
   networks:
     awf-net:
       ipv4_address: 172.30.0.20
@@ -307,7 +307,7 @@ The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard H
 
 **Source:** `containers/agent/one-shot-token/`
 
-While API keys don't exist in the agent container, other tokens (like `GITHUB_TOKEN`) do. AWF uses an `LD_PRELOAD` library to protect these:
+While API keys don't exist in the agent container, other tokens may still be present. AWF uses an `LD_PRELOAD` library as defense-in-depth for any token that does reach the container:
 
 ```c
 // Intercept getenv() calls
@@ -329,9 +329,9 @@ char* getenv(const char* name) {
 ```
 
 **Protected tokens by default:**
-- `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` (though not passed to agent when api-proxy is enabled)
+- `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` (not passed to agent when api-proxy is enabled)
 - `OPENAI_API_KEY`, `OPENAI_KEY`
-- `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN`
+- `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN` (not passed to agent when api-proxy is enabled)
 - `GITHUB_API_TOKEN`, `GITHUB_PAT`, `GH_ACCESS_TOKEN`
 - `CODEX_API_KEY`
 - `COPILOT_PROVIDER_API_KEY` (Copilot BYOK upstream provider key)

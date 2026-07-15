@@ -137,6 +137,13 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     })).toBe('gho_real_token');
   });
+
+  it('uses COPILOT_GITHUB_TOKEN when COPILOT_PROVIDER_API_KEY is the offline-mode dummy sentinel', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'gho_real_token',
+      COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
+    })).toBe('gho_real_token');
+  });
 });
 
 describe('resolveApiKey', () => {
@@ -146,6 +153,10 @@ describe('resolveApiKey', () => {
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is the AWF placeholder', () => {
     expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+  });
+
+  it('returns undefined when COPILOT_PROVIDER_API_KEY is the offline-mode dummy sentinel', () => {
+    expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode' })).toBeUndefined();
   });
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is not set', () => {

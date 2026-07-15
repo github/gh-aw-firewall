@@ -34,11 +34,20 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GEMINI_API_BASE_URL');
     excludedEnvVars.add('GOOGLE_API_KEY');
     excludedEnvVars.add('GOOGLE_VERTEX_BASE_URL');
+    // GitHub tokens are excluded when API proxy is enabled (strict mode):
+    // the agent must not hold live credentials that can be extracted via
+    // /proc/self/environ or environment inspection.
+    excludedEnvVars.add('GITHUB_TOKEN');
+    excludedEnvVars.add('GH_TOKEN');
+    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
   }
 
   if (config.difcProxyHost) {
+    // Redundant with enableApiProxy block above, kept for explicit documentation:
+    // when DIFC proxy handles GitHub auth, tokens must never reach the agent.
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
+    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
   }
 
   if (config.excludeEnv && config.excludeEnv.length > 0) {

@@ -28,18 +28,18 @@ describe('Token Isolation from Agent Environment', () => {
   test('should never expose GITHUB_TOKEN in /proc/1/environ', async () => {
     const testToken = 'ghp_test_token_12345678901234567890';
 
+    // Pass expected value via a non-sensitive env var so the script can compare
+    // without embedding the raw token (which would leak via entrypoint command echo).
     const command = `
-      # Check that the real token value never appears in /proc/1/environ
-      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "${testToken}"; then
+      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "$AWF_TEST_EXPECT"; then
         echo "FAIL: Real GITHUB_TOKEN found in /proc/1/environ"
         exit 1
       else
         echo "SUCCESS: Real GITHUB_TOKEN not in /proc/1/environ"
       fi
 
-      # Also check printenv doesn't show the real token
       TOKEN_VALUE=$(printenv GITHUB_TOKEN 2>/dev/null || echo "")
-      if [ "$TOKEN_VALUE" = "${testToken}" ]; then
+      if [ "$TOKEN_VALUE" = "$AWF_TEST_EXPECT" ]; then
         echo "FAIL: Real GITHUB_TOKEN visible via printenv"
         exit 1
       else
@@ -55,12 +55,14 @@ describe('Token Isolation from Agent Environment', () => {
       env: {
         GITHUB_TOKEN: testToken,
       },
+      cliEnv: {
+        AWF_TEST_EXPECT: testToken,
+      },
     });
 
     expect(result).toSucceed();
     expect(result.stdout).toContain('SUCCESS: Real GITHUB_TOKEN not in /proc/1/environ');
     expect(result.stdout).toContain('SUCCESS: Real GITHUB_TOKEN not visible via printenv');
-    // The real token must never appear in any output
     expect(result.stdout).not.toContain(testToken);
   }, 120000);
 
@@ -68,7 +70,7 @@ describe('Token Isolation from Agent Environment', () => {
     const testToken = 'sk-test_openai_key_1234567890';
 
     const command = `
-      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "${testToken}"; then
+      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "$AWF_TEST_EXPECT"; then
         echo "FAIL: Real OPENAI_API_KEY found in /proc/1/environ"
         exit 1
       else
@@ -76,7 +78,7 @@ describe('Token Isolation from Agent Environment', () => {
       fi
 
       TOKEN_VALUE=$(printenv OPENAI_API_KEY 2>/dev/null || echo "")
-      if [ "$TOKEN_VALUE" = "${testToken}" ]; then
+      if [ "$TOKEN_VALUE" = "$AWF_TEST_EXPECT" ]; then
         echo "FAIL: Real OPENAI_API_KEY visible via printenv"
         exit 1
       else
@@ -92,6 +94,9 @@ describe('Token Isolation from Agent Environment', () => {
       env: {
         OPENAI_API_KEY: testToken,
       },
+      cliEnv: {
+        AWF_TEST_EXPECT: testToken,
+      },
     });
 
     expect(result).toSucceed();
@@ -104,7 +109,7 @@ describe('Token Isolation from Agent Environment', () => {
     const testToken = 'sk-ant-test_key_1234567890';
 
     const command = `
-      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "${testToken}"; then
+      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "$AWF_TEST_EXPECT"; then
         echo "FAIL: Real ANTHROPIC_API_KEY found in /proc/1/environ"
         exit 1
       else
@@ -112,7 +117,7 @@ describe('Token Isolation from Agent Environment', () => {
       fi
 
       TOKEN_VALUE=$(printenv ANTHROPIC_API_KEY 2>/dev/null || echo "")
-      if [ "$TOKEN_VALUE" = "${testToken}" ]; then
+      if [ "$TOKEN_VALUE" = "$AWF_TEST_EXPECT" ]; then
         echo "FAIL: Real ANTHROPIC_API_KEY visible via printenv"
         exit 1
       else
@@ -128,6 +133,9 @@ describe('Token Isolation from Agent Environment', () => {
       env: {
         ANTHROPIC_API_KEY: testToken,
       },
+      cliEnv: {
+        AWF_TEST_EXPECT: testToken,
+      },
     });
 
     expect(result).toSucceed();
@@ -141,15 +149,16 @@ describe('Token Isolation from Agent Environment', () => {
     const openaiKey = 'sk-multi_openai_test';
     const anthropicKey = 'sk-ant-multi_test';
 
+    // Pass expected values via non-sensitive env vars for comparison
     const command = `
       FAIL=0
 
       # Check /proc/1/environ for any real token values
       ENVIRON=$(cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n")
 
-      echo "$ENVIRON" | grep -q "${ghToken}" && echo "FAIL: GITHUB_TOKEN in environ" && FAIL=1
-      echo "$ENVIRON" | grep -q "${openaiKey}" && echo "FAIL: OPENAI_API_KEY in environ" && FAIL=1
-      echo "$ENVIRON" | grep -q "${anthropicKey}" && echo "FAIL: ANTHROPIC_API_KEY in environ" && FAIL=1
+      echo "$ENVIRON" | grep -q "$AWF_TEST_GH" && echo "FAIL: GITHUB_TOKEN in environ" && FAIL=1
+      echo "$ENVIRON" | grep -q "$AWF_TEST_OAI" && echo "FAIL: OPENAI_API_KEY in environ" && FAIL=1
+      echo "$ENVIRON" | grep -q "$AWF_TEST_ANT" && echo "FAIL: ANTHROPIC_API_KEY in environ" && FAIL=1
 
       if [ $FAIL -eq 0 ]; then
         echo "SUCCESS: No real tokens found in /proc/1/environ"
@@ -158,9 +167,9 @@ describe('Token Isolation from Agent Environment', () => {
       fi
 
       # Verify printenv doesn't return real values
-      [ "$(printenv GITHUB_TOKEN 2>/dev/null)" = "${ghToken}" ] && echo "FAIL: GITHUB_TOKEN via printenv" && exit 1
-      [ "$(printenv OPENAI_API_KEY 2>/dev/null)" = "${openaiKey}" ] && echo "FAIL: OPENAI_API_KEY via printenv" && exit 1
-      [ "$(printenv ANTHROPIC_API_KEY 2>/dev/null)" = "${anthropicKey}" ] && echo "FAIL: ANTHROPIC_API_KEY via printenv" && exit 1
+      [ "$(printenv GITHUB_TOKEN 2>/dev/null)" = "$AWF_TEST_GH" ] && echo "FAIL: GITHUB_TOKEN via printenv" && exit 1
+      [ "$(printenv OPENAI_API_KEY 2>/dev/null)" = "$AWF_TEST_OAI" ] && echo "FAIL: OPENAI_API_KEY via printenv" && exit 1
+      [ "$(printenv ANTHROPIC_API_KEY 2>/dev/null)" = "$AWF_TEST_ANT" ] && echo "FAIL: ANTHROPIC_API_KEY via printenv" && exit 1
 
       echo "SUCCESS: No real tokens visible via printenv"
     `;
@@ -174,6 +183,11 @@ describe('Token Isolation from Agent Environment', () => {
         GITHUB_TOKEN: ghToken,
         OPENAI_API_KEY: openaiKey,
         ANTHROPIC_API_KEY: anthropicKey,
+      },
+      cliEnv: {
+        AWF_TEST_GH: ghToken,
+        AWF_TEST_OAI: openaiKey,
+        AWF_TEST_ANT: anthropicKey,
       },
     });
 
@@ -189,7 +203,7 @@ describe('Token Isolation from Agent Environment', () => {
     const testToken = 'copilot_test_token_never_exposed';
 
     const command = `
-      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "${testToken}"; then
+      if cat /proc/1/environ 2>/dev/null | tr "\\0" "\\n" | grep -q "$AWF_TEST_EXPECT"; then
         echo "FAIL: Real COPILOT_GITHUB_TOKEN found in /proc/1/environ"
         exit 1
       else
@@ -197,7 +211,7 @@ describe('Token Isolation from Agent Environment', () => {
       fi
 
       TOKEN_VALUE=$(printenv COPILOT_GITHUB_TOKEN 2>/dev/null || echo "")
-      if [ "$TOKEN_VALUE" = "${testToken}" ]; then
+      if [ "$TOKEN_VALUE" = "$AWF_TEST_EXPECT" ]; then
         echo "FAIL: Real COPILOT_GITHUB_TOKEN visible via printenv"
         exit 1
       else
@@ -212,6 +226,9 @@ describe('Token Isolation from Agent Environment', () => {
       timeout: 60000,
       env: {
         COPILOT_GITHUB_TOKEN: testToken,
+      },
+      cliEnv: {
+        AWF_TEST_EXPECT: testToken,
       },
     });
 
