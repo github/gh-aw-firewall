@@ -211,6 +211,7 @@ Establish these facts before matching a failure mode:
 | D3 | `--enable-dind` still exists after DinD removal | Legacy flag cleanup is incomplete | Known unresolved cleanup item | `awf --help | grep enable-dind` | #1727 |
 | D4 | Enterprise LLM gateway needs an injected auth header | API proxy lacks a user extension point for that hop | Known unresolved proposal | No general probe; capture the required header flow in the report | #4849 |
 | D5 | gVisor install step exits with `HTTP 404` / download failure; `runsc` binary not found; AWF exits with `runtime 'gvisor' is not available` or compose up fails immediately after `--container-runtime gvisor` | The `gh-aw`-compiler-generated gVisor install step (or smoke-test lock files) pins a specific gVisor release tag (e.g. `20250623.0`); if that artifact is no longer available from `storage.googleapis.com`, the download returns 404 | Manually update the affected generated `.lock.yml` install step to a currently available release (for example, `20250707.0`), or upgrade to a `gh-aw` release containing the corresponding `DefaultGVisorVersion` update and recompile. PR github/gh-aw-firewall#6143 only patched this repository's four smoke-test lock files; it did not add an AWF configuration option or release an AWF fix. | `ARCH=$(uname -m); curl -sI https://storage.googleapis.com/gvisor/releases/release/20250623.0/${ARCH}/runsc` — HTTP 404 confirms the pinned artifact is unavailable; replace the tag with an available release and retry | github/gh-aw-firewall#6143 |
+| D6 | AWF exits with `Error: sbx is not available` or `spawn sbx ENOENT` when `--container-runtime sbx` is set; agent never starts; infrastructure containers (Squid, api-proxy) start normally but no microVM is created | `--container-runtime sbx` added in AWF PR github/gh-aw-firewall#6101 (merged 2026-07-11) requires the `sbx` CLI on the runner; `isSbxAvailable()` preflight fails if `sbx` is absent | Install the `sbx` CLI on the runner; the microVM routes egress through Squid via `DOCKER_SANDBOXES_PROXY`; standard domain whitelisting applies. **Experimental** — CI runner support tracked in github/gh-aw-firewall#6117. | `which sbx && sbx --version` — absence confirms; `docker info` | github/gh-aw-firewall#6101, github/gh-aw-firewall#6117 |
 
 ## Error-string quick lookup
 
@@ -242,6 +243,7 @@ Establish these facts before matching a failure mode:
 | Bind-mounted `/tmp/...` files are missing inside DinD containers | A1 |
 | `diagnosis=unknown` from `awf-cli-proxy` DIFC probe (proxy reachable, no connection error) with `GITHUB_SERVER_URL=*.ghe.com`, or `diagnosis=reachable-but-api-error (HTTP NNN)` | C7 |
 | `HTTP 404` / `404 Not Found` downloading `runsc` from `storage.googleapis.com` during gVisor install | D5 |
+| `Error: sbx is not available` or `spawn sbx ENOENT` with `--container-runtime sbx` | D6 |
 
 ## Known unresolved items
 
