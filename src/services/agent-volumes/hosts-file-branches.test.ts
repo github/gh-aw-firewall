@@ -221,10 +221,9 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
 
     const mount = generateHostsFileMount(config);
 
-    // Should return the fallback path (with random suffix)
-    expect(mount).toMatch(/chroot-hosts-[0-9a-f]{12}:\/host\/etc\/hosts:ro$/);
+    // Should return the fallback path (mkdtempSync in os.tmpdir)
+    expect(mount).toMatch(/awf-chroot-[A-Za-z0-9]+\/hosts:\/host\/etc\/hosts:ro$/);
     const hostsPath = mount.split(':')[0];
-    expect(hostsPath).toMatch(new RegExp(`^${tmpDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/chroot-hosts-[0-9a-f]{12}$`));
     expect(actual.existsSync(hostsPath)).toBe(true);
     expect(mockWriteFileSync).toHaveBeenCalledTimes(2);
   });
@@ -310,7 +309,7 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
     });
 
     const mount = generateHostsFileMount(config);
-    expect(mount).toMatch(/chroot-hosts-[0-9a-f]{12}:\/host\/etc\/hosts:ro$/);
+    expect(mount).toMatch(/awf-chroot-[A-Za-z0-9]+\/hosts:\/host\/etc\/hosts:ro$/);
 
     const warnMsg: string = logger.warn.mock.calls[0][0];
     expect(warnMsg).toContain('(cannot stat)');

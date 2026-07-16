@@ -1,5 +1,5 @@
-import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
 import { logger } from '../../logger';
@@ -96,12 +96,11 @@ export function generateHostsFileMount(config: WrapperConfig): string {
         `  Falling back to writing hosts file directly in hostsRootDir.`
       );
 
-      // Fallback: write hosts file directly in hostsRootDir with a secure
-      // random name.  hostsRootDir === config.workDir (a unique per-run
-      // directory with mode 0o700), so a subdirectory is not required for
-      // isolation.
-      const randomSuffix = crypto.randomBytes(6).toString('hex');
-      const fallbackPath = path.join(hostsRootDir, `chroot-hosts-${randomSuffix}`);
+      // Fallback: create a fresh temp directory via mkdtempSync (which CodeQL
+      // recognizes as a secure temp-file pattern) at the OS tmpdir level,
+      // bypassing whatever is blocking writes inside the workDir subdirectory.
+      const fallbackDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-chroot-'));
+      const fallbackPath = path.join(fallbackDir, 'hosts');
       fs.writeFileSync(fallbackPath, hostsContent, { mode: 0o644 });
       return `${fallbackPath}:/host/etc/hosts:ro`;
     }
