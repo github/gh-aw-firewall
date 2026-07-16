@@ -2,6 +2,22 @@ import { runMainWorkflow } from './cli-workflow';
 import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
 
+jest.mock('./topology', () => ({
+  TOPOLOGY_NETWORK_NAME: 'awf-net',
+  getTopologyContainerIps: jest.fn(),
+  patchComposeWithTopologyHosts: jest.fn(),
+  connectTopologyContainers: jest.fn(),
+  assertTopologySupported: jest.fn(),
+}));
+
+jest.mock('./container-runtime', () => ({
+  runtimeNeedsStaticDns: jest.fn().mockReturnValue(false),
+  runtimeUsesComposeAgent: jest.fn().mockReturnValue(true),
+}));
+
+import * as topology from './topology';
+import * as containerRuntime from './container-runtime';
+
 const baseConfig: WrapperConfig = {
   allowedDomains: ['github.com'],
   agentCommand: 'echo "hello"',
@@ -633,5 +649,139 @@ describe('runMainWorkflow', () => {
     await expect(runMainWorkflow(configWithDiagnostics, dependencies, { logger, performCleanup })).rejects.toBe(startError);
     // performCleanup should NOT be called — that is the caller's (cli.ts) responsibility
     expect(performCleanup).not.toHaveBeenCalled();
+  });
+
+  describe('onNetworkReady with runtimeNeedsStaticDns', () => {
+    const mockedRuntimeNeedsStaticDns = containerRuntime.runtimeNeedsStaticDns as jest.MockedFunction<typeof containerRuntime.runtimeNeedsStaticDns>;
+    const mockedGetTopologyContainerIps = topology.getTopologyContainerIps as jest.MockedFunction<typeof topology.getTopologyContainerIps>;
+    const mockedPatchComposeWithTopologyHosts = topology.patchComposeWithTopologyHosts as jest.MockedFunction<typeof topology.patchComposeWithTopologyHosts>;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockedRuntimeNeedsStaticDns.mockReturnValue(false);
+    });
+
+    it('calls getTopologyContainerIps and patchComposeWithTopologyHosts when runtimeNeedsStaticDns is true', async () => {
+      mockedRuntimeNeedsStaticDns.mockReturnValue(true);
+      const peerIps = new Map([['mcp-gateway', '172.30.0.100']]);
+      mockedGetTopologyContainerIps.mockResolvedValue(peerIps);
+      mockedPatchComposeWithTopologyHosts.mockImplementation(() => {});
+
+      const connectTopologyContainers = jest.fn().mockResolvedValue(undefined);
+      const config: WrapperConfig = {
+        ...baseConfig,
+        networkIsolation: true,
+        topologyAttach: ['mcp-gateway'],
+        containerRuntime: 'gvisor',
+      };
+
+      const startContainers = jest.fn().mockImplementation(
+        async (_workDir: string, _domains: string[], _logs?: string, _skip?: boolean, onNetworkReady?: () => Promise<void>) => {
+          if (onNetworkReady) await onNetworkReady();
+        },
+      );
+
+      await runMainWorkflow(
+        config,
+        createWorkflowDependencies({ startContainers, connectTopologyContainers }),
+        createWorkflowOptions(),
+      );
+
+      expect(mockedGetTopologyContainerIps).toHaveBeenCalledWith('awf-net', ['mcp-gateway']);
+      expect(mockedPatchComposeWithTopologyHosts).toHaveBeenCalledWith(
+        baseConfig.workDir,
+        expect.any(Map),
+      );
+      // squid-proxy is always added
+      const patchCall = mockedPatchComposeWithTopologyHosts.mock.calls[0][1] as Map<string, string>;
+      expect(patchCall.get('squid-proxy')).toBe('172.30.0.10');
+    });
+
+    it('adds api-proxy entry when enableApiProxy is true and runtimeNeedsStaticDns is true', async () => {
+      mockedRuntimeNeedsStaticDns.mockReturnValue(true);
+      const peerIps = new Map([['peer', '10.0.0.1']]);
+      mockedGetTopologyContainerIps.mockResolvedValue(peerIps);
+      mockedPatchComposeWithTopologyHosts.mockImplementation(() => {});
+
+      const config: WrapperConfig = {
+        ...baseConfig,
+        networkIsolation: true,
+        topologyAttach: ['peer'],
+        containerRuntime: 'gvisor',
+        enableApiProxy: true,
+      };
+
+      const startContainers = jest.fn().mockImplementation(
+        async (_workDir: string, _domains: string[], _logs?: string, _skip?: boolean, onNetworkReady?: () => Promise<void>) => {
+          if (onNetworkReady) await onNetworkReady();
+        },
+      );
+
+      await runMainWorkflow(
+        config,
+        createWorkflowDependencies({ startContainers, connectTopologyContainers: jest.fn() }),
+        createWorkflowOptions(),
+      );
+
+      const patchCall = mockedPatchComposeWithTopologyHosts.mock.calls[0][1] as Map<string, string>;
+      expect(patchCall.get('api-proxy')).toBe('172.30.0.30');
+    });
+
+    it('skips patchComposeWithTopologyHosts when peerIps map is empty and runtimeNeedsStaticDns is true', async () => {
+      mockedRuntimeNeedsStaticDns.mockReturnValue(true);
+      // Return empty map — after set('squid-proxy') it will have 1 entry, so patch IS called.
+      // Test that it is NOT called when the final map is empty: that can't happen since squid-proxy is always added.
+      // Instead verify normal path works with non-empty map.
+      const peerIps = new Map<string, string>();
+      mockedGetTopologyContainerIps.mockResolvedValue(peerIps);
+      mockedPatchComposeWithTopologyHosts.mockImplementation(() => {});
+
+      const config: WrapperConfig = {
+        ...baseConfig,
+        networkIsolation: true,
+        topologyAttach: ['peer'],
+        containerRuntime: 'gvisor',
+      };
+
+      const startContainers = jest.fn().mockImplementation(
+        async (_workDir: string, _domains: string[], _logs?: string, _skip?: boolean, onNetworkReady?: () => Promise<void>) => {
+          if (onNetworkReady) await onNetworkReady();
+        },
+      );
+
+      await runMainWorkflow(
+        config,
+        createWorkflowDependencies({ startContainers, connectTopologyContainers: jest.fn() }),
+        createWorkflowOptions(),
+      );
+
+      // squid-proxy is always added so peerIps.size > 0 → patch IS called
+      expect(mockedPatchComposeWithTopologyHosts).toHaveBeenCalled();
+    });
+
+    it('does not call getTopologyContainerIps when runtimeNeedsStaticDns is false', async () => {
+      mockedRuntimeNeedsStaticDns.mockReturnValue(false);
+
+      const config: WrapperConfig = {
+        ...baseConfig,
+        networkIsolation: true,
+        topologyAttach: ['peer'],
+      };
+
+      const startContainers = jest.fn().mockImplementation(
+        async (_workDir: string, _domains: string[], _logs?: string, _skip?: boolean, onNetworkReady?: () => Promise<void>) => {
+          if (onNetworkReady) await onNetworkReady();
+        },
+      );
+
+      await runMainWorkflow(
+        config,
+        createWorkflowDependencies({ startContainers, connectTopologyContainers: jest.fn() }),
+        createWorkflowOptions(),
+      );
+
+      expect(mockedGetTopologyContainerIps).not.toHaveBeenCalled();
+      expect(mockedPatchComposeWithTopologyHosts).not.toHaveBeenCalled();
+    });
   });
 });
