@@ -19,8 +19,8 @@ permissions:
 
 jobs:
   file-permissions-check:
-    name: Check File Permission Patterns
-    runs-on: ubuntu-latest
+    name: Check File Permission Patterns (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
 
     strategy:
@@ -76,26 +76,39 @@ jobs:
             // Simulate restrictive umask
             const oldUmask = process.umask(0o177);
 
-            // Create a temp workDir like AWF does
-            const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-ci-verify-'));
+            // Exercise the actual built generateHostsFileMount function
+            // It requires a WrapperConfig-shaped object with workDir and allowedDomains
+            const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-ci-integration-'));
             fs.chmodSync(workDir, 0o700);
 
-            // Create a chroot subdir like hosts-file.ts does
-            const chrootDir = fs.mkdtempSync(path.join(workDir, 'chroot-'));
-            fs.chmodSync(chrootDir, 0o700);
+            try {
+              const { generateHostsFileMount } = require('./dist/services/agent-volumes/hosts-file');
+              const config = {
+                workDir,
+                allowedDomains: ['github.com', 'api.github.com'],
+                enableHostAccess: false,
+                dockerHostPathPrefix: undefined,
+              };
+              const mountString = generateHostsFileMount(config);
 
-            // Write hosts file
-            const hostsPath = path.join(chrootDir, 'hosts');
-            fs.writeFileSync(hostsPath, '127.0.0.1 localhost\n', { mode: 0o644 });
+              // Verify the mount string has the expected format: <path>:/host/etc/hosts:ro
+              if (!mountString.endsWith(':/host/etc/hosts:ro')) {
+                console.error('Unexpected mount format:', mountString);
+                process.exit(1);
+              }
 
-            // Verify
-            const content = fs.readFileSync(hostsPath, 'utf-8');
-            if (!content.includes('localhost')) {
-              process.exit(1);
+              // Verify the hosts file was actually created and is readable
+              const hostsPath = mountString.split(':')[0];
+              const content = fs.readFileSync(hostsPath, 'utf-8');
+              if (!content.includes('localhost')) {
+                console.error('Hosts file missing localhost entry');
+                process.exit(1);
+              }
+
+              console.log('✅ generateHostsFileMount works under umask 0177');
+              console.log('   Mount:', mountString);
+            } finally {
+              process.umask(oldUmask);
+              fs.rmSync(workDir, { recursive: true, force: true });
             }
-
-            // Cleanup
-            process.umask(oldUmask);
-            fs.rmSync(workDir, { recursive: true, force: true });
-            console.log('✅ hosts-file integration pattern verified under umask 0177');
           "

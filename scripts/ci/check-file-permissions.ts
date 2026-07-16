@@ -49,11 +49,31 @@ function checkMkdtempSyncChmod(findings: Finding[]): void {
       // Skip comments
       if (line.trim().startsWith('//') || line.trim().startsWith('*')) continue;
 
-      // Extract the variable name assigned from mkdtempSync
-      const assignMatch = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:fs\.)?mkdtempSync/);
-      if (!assignMatch) continue;
+      // Handle both single-line and multiline assignments:
+      //   const dir = fs.mkdtempSync(...)        — single line
+      //   const dir =\n  fs.mkdtempSync(...)     — split across lines
+      let varName: string | null = null;
 
-      const varName = assignMatch[1];
+      // Try single-line match
+      const singleLineMatch = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:fs\.)?mkdtempSync/);
+      if (singleLineMatch) {
+        varName = singleLineMatch[1];
+      } else {
+        // Check if mkdtempSync is on a continuation line (look back up to 3 lines for assignment)
+        for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+          const prevLine = lines[j];
+          const assignMatch = prevLine.match(/(?:const|let|var)\s+(\w+)\s*=\s*$/);
+          if (assignMatch) {
+            varName = assignMatch[1];
+            break;
+          }
+          // Also match: const dir = \n  something.mkdtempSync
+          const trailingAssign = prevLine.match(/(?:const|let|var)\s+(\w+)\s*=\s*\S/);
+          if (trailingAssign) break; // assignment completed on that line, not ours
+        }
+      }
+
+      if (!varName) continue;
 
       // Look for chmodSync on that variable within the next 5 lines
       let foundChmod = false;
@@ -380,7 +400,7 @@ function testMkdtempWithRestrictiveUmask(): RuntimeTestResult {
 
 /**
  * Demonstrates the failure mode: mkdtempSync WITHOUT chmod under restrictive
- * umask should fail to allow file creation.
+ * umask should fail to allow file creation on Linux.
  */
 function testMkdtempWithoutChmodFails(): RuntimeTestResult {
   const oldUmask = process.umask(0o177);
@@ -393,13 +413,28 @@ function testMkdtempWithoutChmodFails(): RuntimeTestResult {
     // Try to write — this should fail with EACCES under mode 0600
     const testFile = path.join(dir, 'test');
     try {
-      fs.writeFileSync(testFile, 'test');
-      // If it succeeds, the OS/filesystem ignores umask for dirs (e.g., macOS tmpfs)
+      fs.writeFileSync(testFile, 'test', { mode: 0o600 });
+      // If it succeeds, the OS/filesystem ignores directory execute bit for owner
       fs.unlinkSync(testFile);
+
+      // On Linux, this MUST fail — if it doesn't, the umask isn't being applied
+      // and our chmod fix has no testable effect on this environment.
+      if (os.platform() === 'linux') {
+        return {
+          name: 'mkdtempSync-without-chmod-fails (umask enforcement)',
+          passed: false,
+          message:
+            `Dir mode=${mode.toString(8)} but file write succeeded on Linux. ` +
+            `Expected EACCES — the runner environment does not enforce directory execute bits, ` +
+            `so permission bugs cannot be caught here.`,
+        };
+      }
+
+      // macOS and other platforms may allow this (owner bypass)
       return {
         name: 'mkdtempSync-without-chmod-fails (umask enforcement)',
         passed: true,
-        message: `Dir mode=${mode.toString(8)}. OS allows file creation regardless (expected on macOS); chmod is still needed for Linux runners.`,
+        message: `Dir mode=${mode.toString(8)}. OS allows file creation regardless (expected on ${os.platform()}); chmod is still needed for Linux runners.`,
       };
     } catch (writeErr: unknown) {
       if (writeErr && typeof writeErr === 'object' && 'code' in writeErr && writeErr.code === 'EACCES') {
@@ -442,7 +477,7 @@ function testMkdirSyncModeWithChmod(): RuntimeTestResult {
 
     // Verify writable
     const testFile = path.join(dir, 'test');
-    fs.writeFileSync(testFile, 'test');
+    fs.writeFileSync(testFile, 'test', { mode: 0o600 });
     fs.unlinkSync(testFile);
     fs.rmdirSync(dir);
 
@@ -525,7 +560,7 @@ function testNestedDirectoryPermissions(): RuntimeTestResult {
 
     // Write file at level 2
     const filePath = path.join(level2, 'data.txt');
-    fs.writeFileSync(filePath, 'nested test');
+    fs.writeFileSync(filePath, 'nested test', { mode: 0o644 });
     const content = fs.readFileSync(filePath, 'utf-8');
 
     if (content !== 'nested test') {
@@ -567,12 +602,12 @@ function testCleanupRenamePattern(): RuntimeTestResult {
     const agentLogs = path.join(workDir, 'agent-logs');
     fs.mkdirSync(agentLogs);
     fs.chmodSync(agentLogs, 0o755);
-    fs.writeFileSync(path.join(agentLogs, 'test.log'), 'log data');
+    fs.writeFileSync(path.join(agentLogs, 'test.log'), 'log data', { mode: 0o644 });
 
     const squidLogs = path.join(workDir, 'squid-logs');
     fs.mkdirSync(squidLogs);
     fs.chmodSync(squidLogs, 0o755);
-    fs.writeFileSync(path.join(squidLogs, 'access.log'), 'squid data');
+    fs.writeFileSync(path.join(squidLogs, 'access.log'), 'squid data', { mode: 0o644 });
 
     // Test renameSync (artifact preservation pattern)
     const dest = path.join(os.tmpdir(), `awf-perm-cleanup-dest-${Date.now()}`);
@@ -608,58 +643,58 @@ function testCleanupRenamePattern(): RuntimeTestResult {
 }
 
 /**
- * Simulates cross-UID cleanup: creates files owned by current user in a dir
- * with restricted permissions, then verifies rmSync handles or reports errors.
+ * Tests the chmod-repair-retry pattern used in removeWorkDirectories():
+ * When rmSync fails on a restricted directory, chmod to fix permissions
+ * then retry. This validates the local repair logic (not the Docker-based
+ * fixArtifactPermissionsForRootless which requires a real Docker daemon).
  */
-function testCrossUidCleanupResilience(): RuntimeTestResult {
+function testChmodRepairRetryPattern(): RuntimeTestResult {
   let testDir = '';
   try {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-perm-crossuid-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-perm-repair-'));
     fs.chmodSync(testDir, 0o700);
 
-    // Create a subdirectory and remove write permission (simulates root-owned dir)
+    // Create a subdirectory, write a file, then restrict permissions
     const restrictedDir = path.join(testDir, 'restricted');
     fs.mkdirSync(restrictedDir);
-    fs.chmodSync(restrictedDir, 0o755); // ensure writable for file creation
-    fs.writeFileSync(path.join(restrictedDir, 'file.txt'), 'data');
-    fs.chmodSync(restrictedDir, 0o555); // now restrict to read+execute only
+    fs.chmodSync(restrictedDir, 0o755);
+    fs.writeFileSync(path.join(restrictedDir, 'file.txt'), 'data', { mode: 0o644 });
+    // Now remove write permission (simulates root-owned dir after container exit)
+    fs.chmodSync(restrictedDir, 0o555);
 
-    // rmSync with force:true should still work (force ignores ENOENT, but
-    // EACCES on the directory itself depends on OS behavior)
+    // Attempt removal — may fail with EACCES/EPERM/ENOTEMPTY
     try {
       fs.rmSync(restrictedDir, { recursive: true, force: true });
       return {
-        name: 'cross-uid-cleanup-resilience',
+        name: 'chmod-repair-retry-pattern',
         passed: true,
-        message: 'rmSync with force:true handles restricted directories (OS allowed removal)',
+        message: 'rmSync with force:true succeeded on restricted directory (OS owner bypass)',
       };
     } catch (err: unknown) {
-      // On some systems, even force:true can't remove dirs we can't write to
-      // This is expected — the test validates we detect and handle this
       const code = err && typeof err === 'object' && 'code' in err ? (err as any).code : 'unknown';
       if (code === 'EACCES' || code === 'EPERM' || code === 'ENOTEMPTY') {
-        // Fix permissions and retry — this is what fixArtifactPermissionsForRootless does
+        // This is the repair pattern from removeWorkDirectories():
+        // chmod to restore permissions, then retry removal
         fs.chmodSync(restrictedDir, 0o755);
         fs.rmSync(restrictedDir, { recursive: true, force: true });
         return {
-          name: 'cross-uid-cleanup-resilience',
+          name: 'chmod-repair-retry-pattern',
           passed: true,
-          message: `rmSync correctly fails with ${code} on restricted dir; chmod + retry succeeds (matches rootless repair pattern)`,
+          message: `rmSync fails with ${code} on restricted dir; chmod(0755) + retry succeeds`,
         };
       }
       throw err;
     }
   } catch (err: unknown) {
     return {
-      name: 'cross-uid-cleanup-resilience',
+      name: 'chmod-repair-retry-pattern',
       passed: false,
       message: `Failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   } finally {
     if (testDir) {
       try {
-        // Ensure we can clean up
-        fs.chmodSync(testDir, 0o755);
+        // Ensure cleanup
         for (const entry of fs.readdirSync(testDir)) {
           const p = path.join(testDir, entry);
           try { fs.chmodSync(p, 0o755); } catch { /* */ }
@@ -696,7 +731,7 @@ function testChrootHomeMountpointPattern(): RuntimeTestResult {
 
     // Verify leaf is writable
     const testFile = path.join(current, 'test');
-    fs.writeFileSync(testFile, 'tool data');
+    fs.writeFileSync(testFile, 'tool data', { mode: 0o644 });
     const content = fs.readFileSync(testFile, 'utf-8');
     if (content !== 'tool data') {
       throw new Error('Content verification failed');
@@ -790,7 +825,7 @@ function main(): void {
     testHostsFileMountPattern(),
     testNestedDirectoryPermissions(),
     testCleanupRenamePattern(),
-    testCrossUidCleanupResilience(),
+    testChmodRepairRetryPattern(),
     testChrootHomeMountpointPattern(),
   ];
 
