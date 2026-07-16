@@ -1,6 +1,11 @@
 import {
+  assembleAndValidateConfig,
+  buildConfig,
   buildRateLimitConfig,
   callAssembleWith,
+  createMinimalAgentOptions,
+  createMinimalLogAndLimits,
+  createMinimalNetworkOptions,
   logger,
   mockBuildConfigOnce,
   setupConfigAssemblyTestSuite,
@@ -89,6 +94,28 @@ describe('config-assembly', () => {
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining('API proxy enabled: OpenAI=true, Anthropic=true'),
       );
+    });
+  });
+
+  describe('model policy config assembly handoff', () => {
+    it('passes allowedModels and disallowedModels from logAndLimits into buildConfig', () => {
+      const logAndLimits = {
+        ...createMinimalLogAndLimits(),
+        allowedModels: ['gpt-5.6-sol', 'claude-sonnet-*'],
+        disallowedModels: ['gpt-4*'],
+      };
+
+      assembleAndValidateConfig(
+        {},
+        'echo test',
+        logAndLimits,
+        createMinimalNetworkOptions(),
+        createMinimalAgentOptions(),
+      );
+
+      const buildConfigArgs = (buildConfig as jest.Mock).mock.calls[0][0];
+      expect(buildConfigArgs.allowedModels).toEqual(['gpt-5.6-sol', 'claude-sonnet-*']);
+      expect(buildConfigArgs.disallowedModels).toEqual(['gpt-4*']);
     });
   });
 });

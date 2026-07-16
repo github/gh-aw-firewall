@@ -286,7 +286,13 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
     // to another family member when that exact model is already available.
     const providerModels = (availableModels[currentProvider] || []);
     const direct = providerModels.find(m => m.toLowerCase() === key);
-    if (direct && _isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+    if (direct) {
+      if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+        // Model is advertised but blocked by policy — treat as terminal to prevent
+        // a denied model from being silently rewritten to a permitted family member.
+        log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
+        return null;
+      }
       log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
       return {
         resolvedModel: direct,

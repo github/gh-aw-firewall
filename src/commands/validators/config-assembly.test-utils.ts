@@ -219,6 +219,7 @@ export function setupConfigAssemblyTestSuite(): void {
 
 export {
   assembleAndValidateConfig,
+  buildConfig,
   logger,
   warnClassicPATWithCopilotModel,
   validateRateLimitFlags,
