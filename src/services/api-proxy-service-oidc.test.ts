@@ -1,5 +1,5 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, useTempWorkDir } from './service-test-setup.test-utils';
-import { mockNetworkConfigWithProxy } from './api-proxy-service.test-utils';
+import { mockNetworkConfigWithProxy, saveAndClearOidcEnvironment } from './api-proxy-service.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -20,29 +20,14 @@ describe('API proxy sidecar: OIDC env forwarding', () => {
   );
 
       describe('OIDC runtime env forwarding', () => {
-        let savedEnv: Record<string, string | undefined>;
-        const oidcVars = [
-          'AWF_AUTH_TYPE',
-          'ACTIONS_ID_TOKEN_REQUEST_URL',
-          'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
-        ];
+        let restoreOidcEnvironment: () => void;
 
         beforeEach(() => {
-          savedEnv = {};
-          for (const key of oidcVars) {
-            savedEnv[key] = process.env[key];
-            delete process.env[key];
-          }
+          restoreOidcEnvironment = saveAndClearOidcEnvironment();
         });
 
         afterEach(() => {
-          for (const key of oidcVars) {
-            if (savedEnv[key] !== undefined) {
-              process.env[key] = savedEnv[key];
-            } else {
-              delete process.env[key];
-            }
-          }
+          restoreOidcEnvironment();
         });
 
         it('should forward ACTIONS_ID_TOKEN_REQUEST_* when AWF_AUTH_TYPE normalizes to github-oidc', () => {
