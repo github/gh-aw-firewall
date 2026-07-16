@@ -112,9 +112,10 @@ Prefer the narrowest match. Examples:
 - `[WARN] Rootless artifact permission repair failed ... (exit 1)` with little/no stderr detail, plus cleanup warnings around chroot-home removal and `Command completed with exit code: 1` → B11 (repair warning lacked stderr context; non-zero exit originates from agent command, not cleanup)
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
-- `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog)
+- `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog; also check for `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` sentinel suppressing GitHub-token auth path — fixed in github/gh-aw-firewall#6237)
 - `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 - `Error: invalid key 'build-tools'` with `--image-tag build-tools=sha256:...` → A17 (build-tools not in IMAGE_DIGEST_KEYS)
+- `SIGSEGV` / `SIGABRT` crash with Claude Code (Bun runtime) under `--container-runtime gvisor`; retries all fail → D7 (JSC JIT incompatible with gVisor W^X restrictions; pass `--env BUN_JSC_useJIT=0`)
 
 ### 4. Check for known gaps and notable fixes
 
@@ -136,7 +137,9 @@ B11 / github/gh-aw-firewall#6072 — Rootless permission-repair diagnostics were
 
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
-C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872.
+C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872. **Additional fix (github/gh-aw-firewall#6237):** `gh-aw`'s offline mode sets `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` as a sentinel. In AWF before github/gh-aw-firewall#6237, this sentinel was treated as a real BYOK key, suppressing the GitHub-token auth path and producing `400` on Business/Enterprise targets. Fixed by treating `dummy-byok-key-for-offline-mode` as a non-credential sentinel (same class as AWF placeholder tokens).
+
+D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **Fix:** pass `--env BUN_JSC_useJIT=0` to force JSC into interpreter mode; a `postprocess-smoke-workflows.ts` hook auto-injects this flag for `smoke-gvisor-claude` workflows on recompile.
 
 ### 5. Avoid duplicate triage
 
