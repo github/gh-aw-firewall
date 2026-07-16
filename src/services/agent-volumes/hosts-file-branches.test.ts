@@ -288,4 +288,31 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
     expect(warnMsg).toContain('Falling back');
     expect(warnMsg).toContain('chrootHostsDir:');
   });
+
+  it('reports "(cannot stat)" when statSync fails during EACCES diagnostics', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logger } = require('../../logger');
+    const eaccesError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+
+    // writeFileSync: first call EACCES, second call (fallback) succeeds
+    mockWriteFileSync
+      .mockImplementationOnce(() => { throw eaccesError; })
+      .mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+        actual.writeFileSync(...args)
+      );
+
+    // statSync: always throw during diagnostics (covers the catch blocks)
+    mockStatSync.mockImplementation(() => { throw new Error('stat failed'); });
+
+    const config = makeConfig({
+      workDir: tmpDir,
+      allowedDomains: [],
+    });
+
+    const mount = generateHostsFileMount(config);
+    expect(mount).toMatch(/chroot-hosts:\/host\/etc\/hosts:ro$/);
+
+    const warnMsg: string = logger.warn.mock.calls[0][0];
+    expect(warnMsg).toContain('(cannot stat)');
+  });
 });
