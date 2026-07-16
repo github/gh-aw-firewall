@@ -85,7 +85,7 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Setup Go
-    uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+    uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
     with:
       go-version: '1.22'
   - name: Capture environment info
@@ -194,16 +194,23 @@ steps:
     env:
       GOROOT: ${{ steps.env-info.outputs.GOROOT || '' }}
   - name: Write results summary
+    env:
+      EXPR_STEPS_ENV_INFO_OUTPUTS_GVISOR_CONFIRMED: ${{ steps.env-info.outputs.GVISOR_CONFIRMED }}
+      EXPR_STEPS_ENV_INFO_OUTPUTS_SMOKE_HTTP_CODE: ${{ steps.env-info.outputs.SMOKE_HTTP_CODE }}
+      EXPR_STEPS_BUILD_NODE_OUTPUTS_NODE_BUILD_STATUS: ${{ steps.build-node.outputs.NODE_BUILD_STATUS }}
+      EXPR_STEPS_TEST_NODE_OUTPUTS_NODE_TEST_STATUS: ${{ steps.test-node.outputs.NODE_TEST_STATUS }}
+      EXPR_STEPS_BUILD_GO_OUTPUTS_GO_BUILD_STATUS: ${{ steps.build-go.outputs.GO_BUILD_STATUS }}
+      EXPR_STEPS_BUILD_GO_OUTPUTS_GO_TEST_STATUS: ${{ steps.build-go.outputs.GO_TEST_STATUS }}
     run: |
       mkdir -p /tmp/gh-aw/agent
       cat > /tmp/gh-aw/agent/build-test-results.json << RESULTS_EOF
       {
-        "gvisor_confirmed": "${{ steps.env-info.outputs.GVISOR_CONFIRMED }}",
-        "http_code": "${{ steps.env-info.outputs.SMOKE_HTTP_CODE }}",
-        "node_build": "${{ steps.build-node.outputs.NODE_BUILD_STATUS }}",
-        "node_test": "${{ steps.test-node.outputs.NODE_TEST_STATUS }}",
-        "go_build": "${{ steps.build-go.outputs.GO_BUILD_STATUS }}",
-        "go_test": "${{ steps.build-go.outputs.GO_TEST_STATUS }}"
+        "gvisor_confirmed": "$EXPR_STEPS_ENV_INFO_OUTPUTS_GVISOR_CONFIRMED",
+        "http_code": "$EXPR_STEPS_ENV_INFO_OUTPUTS_SMOKE_HTTP_CODE",
+        "node_build": "$EXPR_STEPS_BUILD_NODE_OUTPUTS_NODE_BUILD_STATUS",
+        "node_test": "$EXPR_STEPS_TEST_NODE_OUTPUTS_NODE_TEST_STATUS",
+        "go_build": "$EXPR_STEPS_BUILD_GO_OUTPUTS_GO_BUILD_STATUS",
+        "go_test": "$EXPR_STEPS_BUILD_GO_OUTPUTS_GO_TEST_STATUS"
       }
       RESULTS_EOF
       cat /tmp/gh-aw/agent/build-test-results.json
