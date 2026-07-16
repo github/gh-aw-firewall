@@ -1,0 +1,101 @@
+name: File Permissions Checker
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'scripts/ci/check-file-permissions.ts'
+      - '.github/workflows/file-permissions-checker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'scripts/ci/check-file-permissions.ts'
+      - '.github/workflows/file-permissions-checker.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  file-permissions-check:
+    name: Check File Permission Patterns
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        # Test on multiple runner images to catch environment-specific umask issues
+        include:
+          - os: ubuntu-latest
+            name: Ubuntu Latest
+          - os: ubuntu-24.04
+            name: Ubuntu 24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report environment umask
+        run: |
+          echo "## Environment Info" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "Runner: ${{ matrix.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "umask: $(umask)" >> $GITHUB_STEP_SUMMARY
+          echo "uid: $(id -u)" >> $GITHUB_STEP_SUMMARY
+          echo "gid: $(id -g)" >> $GITHUB_STEP_SUMMARY
+          echo "/tmp permissions: $(stat -c '%a %U:%G' /tmp)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run file permissions checker
+        run: npx ts-node scripts/ci/check-file-permissions.ts
+
+      - name: Verify under restrictive umask (0177)
+        run: |
+          echo "Running AWF file permission tests with umask 0177 (simulates problematic runners)..."
+          umask 0177
+          npx ts-node scripts/ci/check-file-permissions.ts
+
+      - name: Verify hosts-file.ts integration (build + import)
+        run: |
+          npm run build
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const os = require('os');
+
+            // Simulate restrictive umask
+            const oldUmask = process.umask(0o177);
+
+            // Create a temp workDir like AWF does
+            const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-ci-verify-'));
+            fs.chmodSync(workDir, 0o700);
+
+            // Create a chroot subdir like hosts-file.ts does
+            const chrootDir = fs.mkdtempSync(path.join(workDir, 'chroot-'));
+            fs.chmodSync(chrootDir, 0o700);
+
+            // Write hosts file
+            const hostsPath = path.join(chrootDir, 'hosts');
+            fs.writeFileSync(hostsPath, '127.0.0.1 localhost\n', { mode: 0o644 });
+
+            // Verify
+            const content = fs.readFileSync(hostsPath, 'utf-8');
+            if (!content.includes('localhost')) {
+              process.exit(1);
+            }
+
+            // Cleanup
+            process.umask(oldUmask);
+            fs.rmSync(workDir, { recursive: true, force: true });
+            console.log('✅ hosts-file integration pattern verified under umask 0177');
+          "

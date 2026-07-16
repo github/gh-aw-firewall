@@ -69,6 +69,9 @@ export function generateHostsFileMount(config: WrapperConfig): string {
     pruneStaleChrootStageDirs(hostsRootDir);
   }
   const chrootHostsDir = fs.mkdtempSync(path.join(hostsRootDir, 'chroot-'));
+  // Explicitly set mode 0o700 to override restrictive umask (e.g., 0177 on some runners)
+  // which causes mkdtempSync to create dirs with mode 0o600 (missing execute bit).
+  fs.chmodSync(chrootHostsDir, 0o700);
   const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
 
   try {
@@ -100,6 +103,8 @@ export function generateHostsFileMount(config: WrapperConfig): string {
       // recognizes as a secure temp-file pattern) at the OS tmpdir level,
       // bypassing whatever is blocking writes inside the workDir subdirectory.
       const fallbackDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-chroot-'));
+      // Explicit chmod to override restrictive umask (same fix as primary path above)
+      fs.chmodSync(fallbackDir, 0o700);
       const fallbackPath = path.join(fallbackDir, 'hosts');
       fs.writeFileSync(fallbackPath, hostsContent, { mode: 0o644 });
       return `${fallbackPath}:/host/etc/hosts:ro`;
