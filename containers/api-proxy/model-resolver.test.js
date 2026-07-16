@@ -144,6 +144,17 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-5.4');
   });
 
+  it('returns the requested model unchanged when provider advertises an exact match', () => {
+    const result = resolveModel(
+      'gpt-5.6-sol',
+      { 'gpt-5': ['openai/gpt-5*'] },
+      { openai: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.5'] },
+      'openai'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5.6-sol');
+  });
+
   it('should fall back to highest available gpt-5 model when requested gpt-5 minor is unavailable', () => {
     const result = resolveModel(
       'gpt-5.5',

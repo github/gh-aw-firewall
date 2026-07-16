@@ -55,6 +55,8 @@ interface BuildConfigInputs {
   memoryLimit: string | undefined;
   agentImage: string | undefined;
   modelAliases: Record<string, string[]> | undefined;
+  allowedModels: string[] | undefined;
+  disallowedModels: string[] | undefined;
   maxEffectiveTokens: number | undefined;
   maxAiCredits: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
@@ -90,6 +92,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     memoryLimit,
     agentImage,
     modelAliases,
+    allowedModels,
+    disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
     effectiveTokenModelMultipliers,
@@ -158,6 +162,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     anthropicAutoCache: options.anthropicAutoCache as boolean,
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     modelAliases,
+    allowedModels,
+    disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
     effectiveTokenModelMultipliers,

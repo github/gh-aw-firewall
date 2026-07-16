@@ -281,6 +281,22 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
 
   if (!aliasEntry) {
+    // Prefer exact provider-advertised model names over family-alias fallback.
+    // This avoids silently rewriting a concrete user request (e.g. gpt-5.6-sol)
+    // to another family member when that exact model is already available.
+    const providerModels = (availableModels[currentProvider] || []);
+    const direct = providerModels.find(m => m.toLowerCase() === key);
+    if (direct && _isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+      log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+      return {
+        resolvedModel: direct,
+        log,
+        fallback: fallbackConfig.enabled
+          ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+          : undefined,
+      };
+    }
+
     // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
     // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
     // define "gpt-5" alias patterns.

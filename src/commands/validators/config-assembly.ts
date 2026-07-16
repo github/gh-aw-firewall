@@ -51,6 +51,8 @@ export function assembleAndValidateConfig(
     memoryLimit: logAndLimits.memoryLimit,
     agentImage: logAndLimits.agentImage,
     modelAliases: logAndLimits.modelAliases,
+    allowedModels: logAndLimits.allowedModels,
+    disallowedModels: logAndLimits.disallowedModels,
     maxEffectiveTokens: logAndLimits.maxEffectiveTokens,
     maxAiCredits: logAndLimits.maxAiCredits,
     effectiveTokenModelMultipliers: logAndLimits.effectiveTokenModelMultipliers,

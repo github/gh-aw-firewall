@@ -34,6 +34,8 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
     memoryLimit: undefined,
     agentImage: undefined,
     modelAliases: undefined,
+    allowedModels: undefined,
+    disallowedModels: undefined,
     maxEffectiveTokens: undefined,
     maxAiCredits: undefined,
     effectiveTokenModelMultipliers: undefined,
@@ -100,6 +102,17 @@ describe('buildConfig', () => {
     it('should return a config with the expected allowedDomains', () => {
       const config = buildConfig(makeInputs({ allowedDomains: ['example.com', 'api.example.com'] }));
       expect(config.allowedDomains).toEqual(['example.com', 'api.example.com']);
+    });
+
+    describe('model policy fields', () => {
+      it('should pass through allowedModels and disallowedModels', () => {
+        const config = buildConfig(makeInputs({
+          allowedModels: ['gpt-5.6-sol'],
+          disallowedModels: ['gpt-5.6-luna'],
+        }));
+        expect(config.allowedModels).toEqual(['gpt-5.6-sol']);
+        expect(config.disallowedModels).toEqual(['gpt-5.6-luna']);
+      });
     });
 
     it('should set agentCommand from inputs', () => {
