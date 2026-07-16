@@ -620,8 +620,9 @@ function testCrossUidCleanupResilience(): RuntimeTestResult {
     // Create a subdirectory and remove write permission (simulates root-owned dir)
     const restrictedDir = path.join(testDir, 'restricted');
     fs.mkdirSync(restrictedDir);
+    fs.chmodSync(restrictedDir, 0o755); // ensure writable for file creation
     fs.writeFileSync(path.join(restrictedDir, 'file.txt'), 'data');
-    fs.chmodSync(restrictedDir, 0o555); // read+execute only
+    fs.chmodSync(restrictedDir, 0o555); // now restrict to read+execute only
 
     // rmSync with force:true should still work (force ignores ENOENT, but
     // EACCES on the directory itself depends on OS behavior)
