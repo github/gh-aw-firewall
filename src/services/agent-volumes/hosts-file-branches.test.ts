@@ -22,6 +22,7 @@ jest.mock('../../logger', () => ({
 
 const mockReaddirSync = jest.fn();
 const mockStatSync = jest.fn();
+const mockWriteFileSync = jest.fn();
 
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
@@ -29,6 +30,7 @@ jest.mock('fs', () => {
     ...actual,
     readdirSync: (...args: Parameters<typeof actual.readdirSync>) => mockReaddirSync(...args),
     statSync: (...args: Parameters<typeof actual.statSync>) => mockStatSync(...args),
+    writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => mockWriteFileSync(...args),
   };
 });
 
@@ -63,6 +65,9 @@ describe('generateHostsFileMount – localhostDetected branch', () => {
     );
     mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
       actual.statSync(...args)
+    );
+    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+      actual.writeFileSync(...args)
     );
   });
 
@@ -132,6 +137,9 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
     mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
       actual.statSync(...args)
     );
+    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+      actual.writeFileSync(...args)
+    );
   });
 
   afterEach(() => {
@@ -171,5 +179,90 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
 
     expect(() => generateHostsFileMount(config)).not.toThrow();
     expect(mockStatSync).toHaveBeenCalled();
+  });
+});
+
+describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = actual.mkdtempSync(path.join(os.tmpdir(), 'awf-eacces-'));
+    jest.clearAllMocks();
+    mockReaddirSync.mockImplementation((...args: Parameters<typeof actual.readdirSync>) =>
+      actual.readdirSync(...args)
+    );
+    mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
+      actual.statSync(...args)
+    );
+    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+      actual.writeFileSync(...args)
+    );
+  });
+
+  afterEach(() => {
+    actual.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('falls back to writing hosts file directly in hostsRootDir on EACCES', () => {
+    const eaccesError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+
+    // First writeFileSync call (inside mkdtemp'd dir) throws EACCES;
+    // second call (fallback to hostsRootDir) succeeds.
+    mockWriteFileSync
+      .mockImplementationOnce(() => { throw eaccesError; })
+      .mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+        actual.writeFileSync(...args)
+      );
+
+    const config = makeConfig({
+      workDir: tmpDir,
+      allowedDomains: [],
+    });
+
+    const mount = generateHostsFileMount(config);
+
+    // Should return the fallback path
+    expect(mount).toMatch(/chroot-hosts:\/host\/etc\/hosts:ro$/);
+    const hostsPath = mount.split(':')[0];
+    expect(hostsPath).toBe(path.join(tmpDir, 'chroot-hosts'));
+    expect(actual.existsSync(hostsPath)).toBe(true);
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-throws non-EACCES write errors', () => {
+    const enoentError = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    mockWriteFileSync.mockImplementationOnce(() => { throw enoentError; });
+
+    const config = makeConfig({
+      workDir: tmpDir,
+      allowedDomains: [],
+    });
+
+    expect(() => generateHostsFileMount(config)).toThrow('ENOENT');
+  });
+
+  it('emits diagnostic warning with uid/gid and stat info on EACCES fallback', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { logger } = require('../../logger');
+    const eaccesError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+
+    mockWriteFileSync
+      .mockImplementationOnce(() => { throw eaccesError; })
+      .mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+        actual.writeFileSync(...args)
+      );
+
+    const config = makeConfig({
+      workDir: tmpDir,
+      allowedDomains: [],
+    });
+
+    generateHostsFileMount(config);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const warnMsg: string = logger.warn.mock.calls[0][0];
+    expect(warnMsg).toContain('EACCES writing chroot hosts file');
+    expect(warnMsg).toContain('Falling back');
+    expect(warnMsg).toContain('chrootHostsDir:');
   });
 });

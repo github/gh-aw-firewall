@@ -69,7 +69,40 @@ export function generateHostsFileMount(config: WrapperConfig): string {
   }
   const chrootHostsDir = fs.mkdtempSync(path.join(hostsRootDir, 'chroot-'));
   const chrootHostsPath = path.join(chrootHostsDir, 'hosts');
-  fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
+
+  try {
+    fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'EACCES') {
+      // Emit diagnostics so we can trace the root cause (runner environment, AppArmor, etc.)
+      const uid = process.getuid?.() ?? '?';
+      const gid = process.getgid?.() ?? '?';
+      let dirStat = '(cannot stat)';
+      try {
+        const st = fs.statSync(chrootHostsDir);
+        dirStat = `uid=${st.uid} gid=${st.gid} mode=${(st.mode & 0o7777).toString(8)}`;
+      } catch { /* best effort */ }
+      let parentStat = '(cannot stat)';
+      try {
+        const st = fs.statSync(hostsRootDir);
+        parentStat = `uid=${st.uid} gid=${st.gid} mode=${(st.mode & 0o7777).toString(8)}`;
+      } catch { /* best effort */ }
+      logger.warn(
+        `EACCES writing chroot hosts file (process uid=${uid} gid=${gid}):\n` +
+        `  target: ${chrootHostsPath}\n` +
+        `  chrootHostsDir: ${chrootHostsDir} [${dirStat}]\n` +
+        `  hostsRootDir:   ${hostsRootDir} [${parentStat}]\n` +
+        `  Falling back to writing hosts file directly in hostsRootDir.`
+      );
+
+      // Fallback: write hosts file directly in hostsRootDir (config.workDir is
+      // already unique per run, so a subdirectory is not required for isolation).
+      const fallbackPath = path.join(hostsRootDir, 'chroot-hosts');
+      fs.writeFileSync(fallbackPath, hostsContent, { mode: 0o644 });
+      return `${fallbackPath}:/host/etc/hosts:ro`;
+    }
+    throw err;
+  }
 
   return `${chrootHostsPath}:/host/etc/hosts:ro`;
 }
