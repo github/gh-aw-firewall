@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
@@ -95,13 +96,13 @@ export function generateHostsFileMount(config: WrapperConfig): string {
         `  Falling back to writing hosts file directly in hostsRootDir.`
       );
 
-      // Fallback: write hosts file directly in hostsRootDir.
-      // This is only reached when useDockerHostStaging is false, meaning
-      // hostsRootDir === config.workDir which is a unique per-run directory
-      // (mode 0o700). A subdirectory is therefore not required for isolation.
-      // Use 'wx' (O_EXCL) to prevent any symlink-based TOCTOU attack.
-      const fallbackPath = path.join(hostsRootDir, 'chroot-hosts');
-      fs.writeFileSync(fallbackPath, hostsContent, { flag: 'wx', mode: 0o644 });
+      // Fallback: write hosts file directly in hostsRootDir with a secure
+      // random name.  hostsRootDir === config.workDir (a unique per-run
+      // directory with mode 0o700), so a subdirectory is not required for
+      // isolation.
+      const randomSuffix = crypto.randomBytes(6).toString('hex');
+      const fallbackPath = path.join(hostsRootDir, `chroot-hosts-${randomSuffix}`);
+      fs.writeFileSync(fallbackPath, hostsContent, { mode: 0o644 });
       return `${fallbackPath}:/host/etc/hosts:ro`;
     }
     throw err;
