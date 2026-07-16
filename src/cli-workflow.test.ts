@@ -727,7 +727,7 @@ describe('runMainWorkflow', () => {
       expect(patchCall.get('api-proxy')).toBe('172.30.0.30');
     });
 
-    it('skips patchComposeWithTopologyHosts when peerIps map is empty and runtimeNeedsStaticDns is true', async () => {
+    it('patches topology hosts with squid-proxy when the peerIps map is initially empty', async () => {
       mockedRuntimeNeedsStaticDns.mockReturnValue(true);
       // Return empty map — after set('squid-proxy') it will have 1 entry, so patch IS called.
       // Test that it is NOT called when the final map is empty: that can't happen since squid-proxy is always added.
