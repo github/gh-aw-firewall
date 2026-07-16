@@ -241,6 +241,29 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
     expect(() => generateHostsFileMount(config)).toThrow('ENOENT');
   });
 
+  it('re-throws EACCES errors in staging mode (shared hostsRootDir – no safe fallback)', () => {
+    // Use a /tmp-prefixed path so shouldUseDockerHostStaging() returns true,
+    // meaning hostsRootDir is a shared staging directory.
+    const stagingTmpDir = actual.mkdtempSync(path.join('/tmp', 'awf-staging-eacces-'));
+    try {
+      const eaccesError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      mockWriteFileSync.mockImplementationOnce(() => { throw eaccesError; });
+
+      const config = makeConfig({
+        workDir: stagingTmpDir,
+        allowedDomains: [],
+        dockerHostPathPrefix: stagingTmpDir,  // triggers useDockerHostStaging = true
+      });
+
+      // EACCES must propagate – no fallback when hostsRootDir is shared
+      expect(() => generateHostsFileMount(config)).toThrow('EACCES');
+      // The fallback writeFileSync must NOT have been called
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    } finally {
+      actual.rmSync(stagingTmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('emits diagnostic warning with uid/gid and stat info on EACCES fallback', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { logger } = require('../../logger');

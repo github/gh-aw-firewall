@@ -73,7 +73,7 @@ export function generateHostsFileMount(config: WrapperConfig): string {
   try {
     fs.writeFileSync(chrootHostsPath, hostsContent, { mode: 0o644 });
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'EACCES') {
+    if (!useDockerHostStaging && err && typeof err === 'object' && 'code' in err && err.code === 'EACCES') {
       // Emit diagnostics so we can trace the root cause (runner environment, AppArmor, etc.)
       const uid = process.getuid?.() ?? '?';
       const gid = process.getgid?.() ?? '?';
@@ -95,10 +95,13 @@ export function generateHostsFileMount(config: WrapperConfig): string {
         `  Falling back to writing hosts file directly in hostsRootDir.`
       );
 
-      // Fallback: write hosts file directly in hostsRootDir (config.workDir is
-      // already unique per run, so a subdirectory is not required for isolation).
+      // Fallback: write hosts file directly in hostsRootDir.
+      // This is only reached when useDockerHostStaging is false, meaning
+      // hostsRootDir === config.workDir which is a unique per-run directory
+      // (mode 0o700). A subdirectory is therefore not required for isolation.
+      // Use 'wx' (O_EXCL) to prevent any symlink-based TOCTOU attack.
       const fallbackPath = path.join(hostsRootDir, 'chroot-hosts');
-      fs.writeFileSync(fallbackPath, hostsContent, { mode: 0o644 });
+      fs.writeFileSync(fallbackPath, hostsContent, { flag: 'wx', mode: 0o644 });
       return `${fallbackPath}:/host/etc/hosts:ro`;
     }
     throw err;
