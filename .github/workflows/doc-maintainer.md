@@ -8,6 +8,7 @@ on:
     max: 1
 permissions:
   contents: read
+  copilot-requests: write
   issues: read
   pull-requests: read
 sandbox:
