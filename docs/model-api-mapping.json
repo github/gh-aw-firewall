@@ -222,16 +222,10 @@
           "notes": "Previous generation fast model."
         },
         {
-          "family": "claude-3-7-sonnet",
-          "patterns": ["claude-3-7-sonnet*"],
+          "family": "claude-3.7-sonnet",
+          "patterns": ["claude-3-7-sonnet*", "claude-3.7-sonnet*"],
           "endpoints": ["messages"],
           "notes": "Previous generation extended thinking model. 200K token context."
-        },
-        {
-          "family": "claude-3-5-sonnet",
-          "patterns": ["claude-3-5-sonnet*", "claude-3.5-sonnet*"],
-          "endpoints": ["messages"],
-          "notes": "Previous generation. 200K token context."
         },
         {
           "family": "claude-3-opus",

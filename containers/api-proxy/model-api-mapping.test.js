@@ -96,6 +96,13 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toEqual(['messages']);
     });
 
+    it('finds Claude 3.7 Sonnet as messages endpoint', () => {
+      const result = lookupModelEndpoints('claude-3-7-sonnet-latest', 'anthropic');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('claude-3.7-sonnet');
+      expect(result.endpoints).toEqual(['messages']);
+    });
+
     it('finds models without provider hint', () => {
       const result = lookupModelEndpoints('gpt-5.5');
       expect(result).not.toBeNull();
@@ -119,7 +126,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-07-15T06:00:05Z');
+      expect(reflect.last_updated).toBe('2026-07-16T06:03:36Z');
       expect(reflect.error).toBeNull();
     });
   });
