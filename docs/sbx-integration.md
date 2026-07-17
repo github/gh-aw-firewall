@@ -267,11 +267,12 @@ equivalents for your VMM. Concretely, a KVM backend must:
 This is the property that keeps AWF's guarantees intact. Your VMM must force all
 sandbox egress through AWF's host-side Squid:
 
-- If the VMM offers an upstream-proxy knob analogous to
+- If the VMM offers an enforced upstream-proxy knob analogous to
   `DOCKER_SANDBOXES_PROXY`, point it at `http://<squidGatewayIp>:3128`.
-- If not, configure the guest's `HTTP_PROXY`/`HTTPS_PROXY` (and, ideally,
-  transparent iptables redirect inside the guest as defense-in-depth) toward the
-  same Squid endpoint.
+- Otherwise, enforce egress outside the guest (for example at the VMM/TAP or
+  host firewall) so the guest can reach only Squid. Guest `HTTP_PROXY` /
+  `HTTPS_PROXY` settings may improve client compatibility, but are not an
+  enforceable security boundary.
 - Reproduce the boundary-crossing addressing that the sbx path uses: Squid at the
   **bridge gateway IP + published port** (not the internal `172.30.0.x`), and the
   api-proxy via a host-reachable name (`host.docker.internal`). See the
