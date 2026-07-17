@@ -175,17 +175,21 @@ reachable** — the VM is on its own network. AWF compensates with two indirecti
 
 - **Squid** is reached at the **sbx gateway IP** (`172.17.0.0` in code, i.e. the
   docker0 bridge range) on its published port `3128`, rather than the internal
-  `172.30.0.10`. AWF sets `DOCKER_SANDBOXES_PROXY = http://<squidIp>:3128` so the
-  sandbox's own proxy chains upstream into AWF's Squid, where the domain ACL is
-  enforced.
+  `172.30.0.10`. AWF sets `HTTP_PROXY`/`HTTPS_PROXY` inside the sandbox to
+  `http://172.17.0.0:3128`, so proxy-aware agent tools route through AWF's Squid
+  domain ACL. `DOCKER_SANDBOXES_PROXY` (the sbx daemon-level upstream knob) is
+  **not** currently set by AWF — it must be present when the sbx daemon starts, a
+  point AWF does not control — so the sbx daemon's own egress is not filtered by
+  AWF's Squid.
 - **The api-proxy** (credential injection) is reached via
   `host.docker.internal`, which resolves to the docker0 bridge from inside the
   VM. `COPILOT_*` / proxy env vars are pointed there instead of at
   `172.30.0.30`.
 
-The net effect: agent egress is filtered by AWF's Squid **in addition to** sbx's
-own host-side proxy, and credentials are injected by AWF's api-proxy — preserving
-AWF's security model even though the agent lives in a foreign microVM.
+The net effect: agent tools that respect `HTTP_PROXY`/`HTTPS_PROXY` route through
+AWF's Squid domain ACL; credentials are injected by AWF's api-proxy. Tools that
+bypass proxy env vars are subject only to sbx's own host-side policy, not AWF's
+ACL.
 
 ### Configuration surface
 
@@ -204,7 +208,7 @@ AWF's security model even though the agent lives in a foreign microVM.
 flowchart TB
   subgraph host["Host (CI runner / dev machine)"]
     cli["awf CLI (main-action.ts)"]
-    sbxproxy["sbx host-side proxy<br/>(DOCKER_SANDBOXES_PROXY)"]
+    sbxproxy["sbx host-side proxy<br/>(daemon-level)"]
     subgraph compose["Docker Compose (infra only)"]
       squid["Squid proxy<br/>domain ACL"]
       apiproxy["api-proxy<br/>credential injection"]
@@ -214,11 +218,12 @@ flowchart TB
     end
   end
   cli -->|sbx create/exec| vm
-  agent --> sbxproxy
-  sbxproxy -->|upstream = squid gateway:3128| squid
+  agent -->|"HTTP_PROXY/HTTPS_PROXY (proxy-aware)"| squid
+  agent -->|proxy-unaware tools| sbxproxy
   agent -->|COPILOT_* via host.docker.internal| apiproxy
   apiproxy --> squid
   squid -->|allowed domains| internet["Internet"]
+  sbxproxy -->|not filtered by AWF ACL| internet
 ```
 
 ## Part 3 — Adding another KVM-based microVM backend
