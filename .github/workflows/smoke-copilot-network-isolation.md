@@ -86,7 +86,7 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
-  - name: Validate safe outputs were invoked
+  - name: Validate egress verdict and safe outputs
     run: |
       OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
       if [ ! -s "$OUTPUTS_FILE" ]; then
@@ -102,6 +102,22 @@ post-steps:
         fi
         echo "add_comment verified for PR trigger"
       fi
+      # The agent must persist a machine-readable egress verdict inside the safe
+      # output body so this post-step can assert BOTH outcomes independently.
+      # Without this, the workflow could stay green even if the allowlist broke
+      # (allowed host unreachable) or leaked (denied host reachable).
+      VERDICT=$(grep -oE 'EGRESS_RESULT allow=(pass|fail) deny=(pass|fail)' "$OUTPUTS_FILE" | tail -1)
+      if [ -z "$VERDICT" ]; then
+        echo "::error::No machine-readable 'EGRESS_RESULT allow=... deny=...' marker found in safe outputs. The agent must report the outcome of both egress checks."
+        exit 1
+      fi
+      echo "Egress verdict: $VERDICT"
+      if [ "$VERDICT" != "EGRESS_RESULT allow=pass deny=pass" ]; then
+        echo "::error::Egress enforcement regression detected. Expected 'allow=pass deny=pass' but got: $VERDICT"
+        echo "::error::allow=fail => an allowlisted host was unreachable; deny=fail => a non-allowlisted host was reachable."
+        exit 1
+      fi
+      echo "Egress enforcement verified: allowed host reachable, denied host blocked"
       echo "Safe output validation passed"
 ---
 
@@ -150,6 +166,23 @@ curl -sS -o /dev/null -w "denied=%{http_code}\n" --max-time 15 https://example.c
 
 ✅ if it prints `OK: example.com was blocked`, ❌ if it prints `UNEXPECTED`.
 
+## Record the machine-readable verdict
+
+After running BOTH checks, decide the outcome of each:
+
+- `allow=pass` if test 1 printed an HTTP status (curl exit 0); otherwise `allow=fail`.
+- `deny=pass` if test 2 printed `OK: example.com was blocked`; otherwise `deny=fail`.
+
+You MUST include this exact machine-readable line (its own line, verbatim
+format) inside the body of the safe output you emit below — the post-step
+parses it and fails the workflow unless both are `pass`:
+
+```
+EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>
+```
+
+Report the real observed results — do not hard-code `pass`.
+
 ## Pre-Fetched PR Data
 
 ```
@@ -161,6 +194,7 @@ ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
 **If triggered by a pull request** (check: `${{ github.event_name }}` equals
 "pull_request"), you MUST call `add_comment` to post a **very brief** comment
 (max 5-10 lines) on the current pull request with:
+- The `EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line (verbatim)
 - ✅ or ❌ for the allowed-domain check (test 1)
 - ✅ or ❌ for the blocked-domain check (test 2)
 - Overall status: PASS (both checks as expected) or FAIL
@@ -171,4 +205,6 @@ If all tests pass on a pull request trigger:
   `smoke-copilot-network-isolation` to the pull request
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop`
-with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
+with a concise PASS/FAIL summary that also includes the
+`EGRESS_RESULT allow=<pass|fail> deny=<pass|fail>` line (verbatim).
+Do NOT attempt to add pull request comments or labels when there is no pull request.
