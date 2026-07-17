@@ -42,6 +42,6 @@ describe('security guard workflow optimization config', () => {
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toMatch(/github\/gh-aw-actions\/setup@[a-f0-9]{40}/);
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.5.0');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.6.0');
   });
 });
