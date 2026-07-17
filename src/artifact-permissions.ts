@@ -88,7 +88,7 @@ export function fixArtifactPermissionsForRootless(
         // expected and non-fatal, so log them at debug to avoid alarming users
         // who otherwise see a scary WARN for a benign, non-blocking condition.
         const isBenignPermissionError =
-          !!stderr && /operation not permitted|permission denied|not permitted|EPERM|EACCES/i.test(stderr);
+          !!stderr && /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|EPERM|EACCES)/i.test(stderr);
         const detail = `for ${dir} (exit ${result.exitCode})` + (stderr ? `: ${stderr}` : '');
         if (isBenignPermissionError) {
           logger.debug(
