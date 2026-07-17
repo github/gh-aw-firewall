@@ -155,7 +155,10 @@ The agent runs **chrooted to `/host`**, so it reads `/host/etc/hosts`, not the
 container's `/etc/hosts`. Docker's `extra_hosts` only populates the *container's*
 `/etc/hosts` (outside the chroot). `topology.ts` therefore also **appends peer
 entries to the bind-mounted `/host/etc/hosts` file** (falling back gracefully in
-sysroot-stage mode where no such mount exists). A new netstack-based runtime must
+sysroot-stage mode where no such mount exists). **Today, that chroot-hosts patch
+only runs in the topology-attach startup path in `cli-workflow.ts`**; ordinary
+compose runs rely on the IP-based proxy env vars and do not automatically mirror
+every static hostname into `/host/etc/hosts`. A new netstack-based runtime must
 account for both files.
 :::
 
@@ -163,16 +166,18 @@ account for both files.
 
 AWF's defense-in-depth relies on iptables DNAT (port 80/443 → Squid:3128) applied
 inside the agent's network namespace. gVisor must support those rules for that
-fallback to hold. This is verified by
-`.github/workflows/test-gvisor-compat.yml`, which confirms iptables DNAT and
-proxy reachability inside a `runsc` sandbox.
+fallback to hold. `.github/workflows/test-gvisor-compat.yml` is a **manual,
+non-gating diagnostic probe** that exercises iptables DNAT and proxy reachability
+inside a `runsc` sandbox; it is useful evidence, but not an enforced guarantee in
+CI.
 
 ### Runtime-specific compatibility shims
 
-- **Bun JIT crash on Claude** (`tool-specific-environment.ts`) — when the agent
-  is Claude *and* the runtime is gVisor, AWF sets `BUN_JSC_useJIT=0` to force
-  Bun's interpreter, avoiding a JIT crash under gVisor
-  ([oven-sh/bun#22901](https://github.com/oven-sh/bun/issues/22901)).
+- **Claude/Bun workaround under gVisor** (`tool-specific-environment.ts`) —
+  when the agent is Claude *and* the runtime is gVisor, AWF sets
+  `BUN_JSC_useJIT=0` to force Bun's interpreter. This is an AWF workaround for
+  crashes observed under that combination, rather than a behavior guaranteed by a
+  public upstream repro.
 
 ### Configuration surface
 
@@ -221,9 +226,12 @@ myruntime: {
 },
 ```
 
-That single entry makes `resolveDockerRuntime` set the compose `runtime:` field
-and (optionally) turns on the static-DNS workaround — no other code changes are
-required for the common case, because the agent remains a compose service.
+That single entry makes `resolveDockerRuntime` set the compose `runtime:` field.
+For the common `needsStaticDns: false` case, no other code changes are required,
+because the agent remains a compose service. For `needsStaticDns: true` runtimes,
+registration only turns on the container-side `extra_hosts` wiring; if hostname
+resolution must also work inside the chroot, wire up the `/host/etc/hosts` patch
+path as well (today that happens only in the topology-attach flow).
 
 ### 2. Decide on the DNS model
 
