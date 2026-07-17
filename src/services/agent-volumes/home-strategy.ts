@@ -3,6 +3,7 @@ import * as path from 'path';
 import { logger } from '../../logger';
 import { resolveRunnerToolCachePath } from '../../runner-tool-cache';
 import { WrapperConfig } from '../../types';
+import { HOME_TOOL_SUBDIRS } from './home-whitelist';
 
 interface HomeMountsParams {
   config: WrapperConfig;
@@ -42,21 +43,13 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   mounts.push(`${sessionStatePath}:/host${effectiveHome}/.copilot/session-state:rw`);
   mounts.push(`${agentLogsPath}:/host${effectiveHome}/.copilot/logs:rw`);
 
-  mounts.push(`${effectiveHome}/.cache:/host${effectiveHome}/.cache:rw`);
-  mounts.push(`${effectiveHome}/.config:/host${effectiveHome}/.config:rw`);
-  mounts.push(`${effectiveHome}/.local:/host${effectiveHome}/.local:rw`);
-
-  mounts.push(`${effectiveHome}/.anthropic:/host${effectiveHome}/.anthropic:rw`);
-  mounts.push(`${effectiveHome}/.claude:/host${effectiveHome}/.claude:rw`);
+  for (const subdir of HOME_TOOL_SUBDIRS) {
+    mounts.push(`${effectiveHome}/${subdir}:/host${effectiveHome}/${subdir}:rw`);
+  }
 
   if (config.geminiApiKey || config.googleApiKey) {
     mounts.push(`${effectiveHome}/.gemini:/host${effectiveHome}/.gemini:rw`);
   }
-
-  mounts.push(`${effectiveHome}/.cargo:/host${effectiveHome}/.cargo:rw`);
-  mounts.push(`${effectiveHome}/.rustup:/host${effectiveHome}/.rustup:rw`);
-  mounts.push(`${effectiveHome}/.npm:/host${effectiveHome}/.npm:rw`);
-  mounts.push(`${effectiveHome}/.nvm:/host${effectiveHome}/.nvm:rw`);
 
   const runnerToolCacheDir = resolveRunnerToolCachePath(config, effectiveHome);
   if (runnerToolCacheDir) {

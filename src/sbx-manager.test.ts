@@ -6,6 +6,7 @@ import {
   sanitizeEnvForSbx,
   SBX_DEFAULT_NAME,
 } from './sbx-manager';
+import * as fs from 'fs';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
 
@@ -13,6 +14,13 @@ import { logger } from './logger';
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
+// Mock fs so home-mount curation (existsSync) is deterministic per test.
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return { ...actual, existsSync: jest.fn(() => false) };
+});
+
+const mockedExistsSync = fs.existsSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -81,7 +89,16 @@ describe('sbx-manager', () => {
   });
 
   describe('createSandbox', () => {
+    beforeEach(() => {
+      // Default: no host $HOME subdirs exist, so home-mount curation is a no-op
+      // unless a test opts in. Individual tests re-mock as needed.
+      mockedExistsSync.mockReset();
+      mockedExistsSync.mockReturnValue(false);
+    });
+
     it('uses shell agent, configured mounts, and sanitized env', async () => {
+      // No host $HOME subdirs exist → only workspace, extra mounts, /tmp and
+      // /usr/local/bin are mounted (the whole $HOME is never mounted).
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // auth check
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' }); // sbx create
@@ -101,7 +118,6 @@ describe('sbx-manager', () => {
         '/tmp/gh-aw:ro',
         '/tmp',
         '/usr/local/bin',
-        process.env.HOME || '/home/runner',
       ], expect.objectContaining({
         input: 'y\n',
       }));
@@ -110,6 +126,56 @@ describe('sbx-manager', () => {
       // separately by execInSandbox() which uses sanitizeEnvForSbx().
       const sbxCreateCall = mockExecaFn.mock.calls[1][2];
       expect(sbxCreateCall.env).toBeUndefined();
+    });
+
+    it('never mounts the whole $HOME (only whitelisted subdirs that exist)', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      // Simulate a host home that contains both tool dirs AND credential stores.
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        return (
+          s === `${homePath}/.cache` ||
+          s === `${homePath}/.config` ||
+          s === `${homePath}/.copilot` ||
+          s === `${homePath}/.aws` ||
+          s === `${homePath}/.ssh` ||
+          s === `${homePath}/.docker`
+        );
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // The whole home is never mounted...
+      expect(args).not.toContain(homePath);
+      // ...whitelisted tool/state dirs that exist ARE mounted...
+      expect(args).toContain(`${homePath}/.cache`);
+      expect(args).toContain(`${homePath}/.config`);
+      expect(args).toContain(`${homePath}/.copilot`);
+      // ...and credential stores are NEVER mounted, even though they exist.
+      expect(args).not.toContain(`${homePath}/.aws`);
+      expect(args).not.toContain(`${homePath}/.ssh`);
+      expect(args).not.toContain(`${homePath}/.docker`);
+    });
+
+    it('skips whitelisted home subdirs that do not exist on the host', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.npm`,
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      expect(args).toContain(`${homePath}/.npm`);
+      expect(args).not.toContain(`${homePath}/.cache`);
+      expect(args).not.toContain(`${homePath}/.rustup`);
     });
 
     it('uses SBX_DEFAULT_NAME when no name provided', async () => {
@@ -258,6 +324,9 @@ describe('sbx-manager', () => {
 
     it('skips system paths already in workspace or dedup list', async () => {
       const home = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${home}/.cache`,
+      );
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
@@ -274,7 +343,9 @@ describe('sbx-manager', () => {
       const tmpCount = args.filter(a => a === '/tmp').length;
       expect(tmpCount).toBe(1);
       expect(args).toContain('/usr/local/bin');
-      expect(args).toContain(home);
+      // The whole $HOME is never mounted; only existing whitelisted subdirs are.
+      expect(args).not.toContain(home);
+      expect(args).toContain(`${home}/.cache`);
     });
   });
 

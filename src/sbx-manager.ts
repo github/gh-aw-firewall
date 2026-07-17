@@ -23,7 +23,9 @@
  */
 
 import execa from 'execa';
+import * as fs from 'fs';
 import { logger } from './logger';
+import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
@@ -144,15 +146,33 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     }
   }
 
-  // Mount /tmp so agent runtime files (prompts, logs) are accessible.
-  // Mount /usr/local/bin for Copilot CLI and other installed tools.
-  // Mount $HOME for agent writable dirs (.cache, .config, .local, etc.)
-  const homePath = process.env.HOME || '/home/runner';
-  for (const sysPath of ['/tmp', '/usr/local/bin', homePath]) {
+  // Mount /tmp so agent runtime files (prompts, logs) are accessible, and
+  // /usr/local/bin for Copilot CLI and other installed tools.
+  for (const sysPath of ['/tmp', '/usr/local/bin']) {
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);
     }
+  }
+
+  // SECURITY: never mount the whole $HOME into the microVM. sbx mounts are
+  // positional (host path == guest path) and cannot express the per-file
+  // /dev/null credential overlays that compose mode uses (see
+  // credential-hiding.ts), so the only way to keep host secrets out of the VM
+  // is to curate which $HOME subdirs are mounted. We share the same whitelist
+  // as the compose chroot home strategy (HOME_TOOL_SUBDIRS) plus the agent
+  // state dirs (.copilot, .gemini). Credential stores such as ~/.aws, ~/.ssh,
+  // ~/.docker, ~/.kube, ~/.azure, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
+  // whitelisted, so they never enter the sandbox. Only paths that exist on the
+  // host are mounted, because sbx requires the mount source to exist.
+  const homePath = process.env.HOME || '/home/runner';
+  const homeSubdirs = ['.copilot', ...HOME_TOOL_SUBDIRS, '.gemini'];
+  for (const subdir of homeSubdirs) {
+    const hostSubdir = `${homePath}/${subdir}`;
+    if (seenPaths.has(hostSubdir)) continue;
+    if (!fs.existsSync(hostSubdir)) continue;
+    seenPaths.add(hostSubdir);
+    args.push(hostSubdir);
   }
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
