@@ -13,9 +13,11 @@ agent container. It is written for two audiences:
 
 :::note
 gVisor is the **compose-model** counterpart to the microVM backend documented in
-[Docker Sandboxes (sbx) integration](./sbx-integration.md). With gVisor the agent
-stays an ordinary Docker Compose service (just with a hardened runtime); with sbx
-the agent leaves compose entirely and runs in a microVM. See also
+the pending
+[Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331).
+With gVisor the agent stays an ordinary Docker Compose service (just with a
+hardened runtime); with sbx the agent leaves compose entirely and runs in a
+microVM. See also
 [Sandbox design](./sandbox-design.md) for why the *default* backend is plain
 Docker + Squid.
 :::
@@ -270,5 +272,5 @@ service.
 - AWF source: `src/container-runtime.ts`, `src/services/agent-service.ts`,
   `src/topology.ts`, `src/services/agent-environment/tool-specific-environment.ts`
 - CI: `.github/workflows/test-gvisor-compat.yml`, `.github/workflows/smoke-gvisor*.md`
-- Related: [Docker Sandboxes (sbx) integration](./sbx-integration.md),
+- Related: [Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331),
   [Sandbox design](./sandbox-design.md)
