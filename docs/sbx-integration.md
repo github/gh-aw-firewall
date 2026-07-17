@@ -291,8 +291,9 @@ infra-only compose, (b) build the agent environment with its network targets,
 
 - **Daemon/proxy ordering** — don't force registry/daemon auth through Squid
   before Squid is healthy (sbx unsets `DOCKER_SANDBOXES_PROXY` during `create`).
-- **Health gating across the boundary** — there's no compose `depends_on` into a
-  VM, so poll api-proxy/Squid health explicitly before launching the agent.
+- **Cross-boundary health checks** — compose `depends_on` does not extend into a
+  VM. The current sbx path polls api-proxy and probes Squid, but logs/warns and
+  proceeds on failure; a backend requiring a true health gate must abort startup.
 - **Env leakage during management vs. interior** — management commands may need
   host env for auth; the *interior* env must be sanitized. Keep those two paths
   separate.
