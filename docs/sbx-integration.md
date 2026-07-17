@@ -280,12 +280,12 @@ sandbox egress through AWF's host-side Squid:
 
 ### 4. Wire it into `main-action.ts`
 
-Follow the existing pattern: gate on `useSbx = !runtimeUsesComposeAgent(...)`
-(consider generalizing this to `useMicroVm`), then provide `startContainers` and
-`runAgentCommand` wrappers that (a) start infra-only compose, (b) build the agent
-env with microVM network targets, (c) create the VM, (d) health-check the
-api-proxy and Squid across the boundary, and (e) exec the agent. Add teardown to
-the cleanup branch.
+Introduce runtime-specific manager dispatch keyed by `config.containerRuntime`;
+do not gate all microVM backends through the current sbx-specific branch. The
+selected manager must provide start/run/cleanup wrappers that (a) start
+infra-only compose, (b) build the agent environment with its network targets,
+(c) create the VM, (d) check api-proxy and Squid across the boundary, and
+(e) execute and tear down the agent with that backend's lifecycle commands.
 
 ### 5. Things to get right (lessons from the sbx path)
 
