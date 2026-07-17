@@ -154,13 +154,58 @@ describe('sbx-manager', () => {
       const args: string[] = mockExecaFn.mock.calls[1][1];
       // The whole home is never mounted...
       expect(args).not.toContain(homePath);
-      // ...whitelisted tool/state dirs that exist ARE mounted...
+      // ...whitelisted tool dirs that exist ARE mounted...
       expect(args).toContain(`${homePath}/.cache`);
-      expect(args).toContain(`${homePath}/.copilot`);
       // ...and credential stores are NEVER mounted, even though they exist.
       expect(args).not.toContain(`${homePath}/.aws`);
       expect(args).not.toContain(`${homePath}/.ssh`);
       expect(args).not.toContain(`${homePath}/.docker`);
+    });
+
+    it('mounts credential-nesting tool dirs child-by-child, excluding nested secret files', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const nesting = [
+        `${homePath}/.cargo`,
+        `${homePath}/.claude`,
+        `${homePath}/.copilot`,
+        `${homePath}/.gemini`,
+      ];
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => nesting.includes(String(p)));
+      mockedReaddirSync.mockImplementation((p: fs.PathLike) => {
+        switch (String(p)) {
+          case `${homePath}/.cargo`:
+            return ['bin', 'registry', 'credentials', 'credentials.toml'];
+          case `${homePath}/.claude`:
+            return ['settings.json', 'projects', '.credentials.json'];
+          case `${homePath}/.copilot`:
+            return ['session-state', 'logs', 'config.json'];
+          case `${homePath}/.gemini`:
+            return ['tmp', 'oauth_creds.json', 'google_accounts.json'];
+          default:
+            return [];
+        }
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // Parents are never mounted wholesale.
+      for (const parent of nesting) expect(args).not.toContain(parent);
+      // Benign children ARE mounted individually.
+      expect(args).toContain(`${homePath}/.cargo/registry`);
+      expect(args).toContain(`${homePath}/.claude/settings.json`);
+      expect(args).toContain(`${homePath}/.copilot/session-state`);
+      expect(args).toContain(`${homePath}/.gemini/tmp`);
+      // Nested credential files are NEVER mounted.
+      expect(args).not.toContain(`${homePath}/.cargo/credentials`);
+      expect(args).not.toContain(`${homePath}/.cargo/credentials.toml`);
+      expect(args).not.toContain(`${homePath}/.claude/.credentials.json`);
+      expect(args).not.toContain(`${homePath}/.copilot/config.json`);
+      expect(args).not.toContain(`${homePath}/.gemini/oauth_creds.json`);
+      expect(args).not.toContain(`${homePath}/.gemini/google_accounts.json`);
     });
 
     it('mounts ~/.config child-by-child and excludes nested credential dirs', async () => {

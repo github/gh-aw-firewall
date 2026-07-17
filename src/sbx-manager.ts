@@ -25,7 +25,7 @@
 import execa from 'execa';
 import * as fs from 'fs';
 import { logger } from './logger';
-import { HOME_TOOL_SUBDIRS, CREDENTIAL_SUBDIR_NAMES, CREDENTIAL_NESTING_SUBDIRS } from './services/agent-volumes/home-whitelist';
+import { HOME_TOOL_SUBDIRS, CREDENTIAL_EXCLUSIONS_BY_PARENT } from './services/agent-volumes/home-whitelist';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
@@ -166,14 +166,16 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // whitelisted, so they never enter the sandbox. Only paths that exist on the
   // host are mounted, because sbx requires the mount source to exist.
   //
-  // Some whitelisted dirs (notably ~/.config) legitimately hold tool settings
-  // but can also nest credential stores (e.g. .config/gh, .config/gcloud).
+  // Several whitelisted dirs legitimately hold tool settings but also nest a
+  // credential store — e.g. .config/gh, .config/gcloud, .cargo/credentials,
+  // .claude/.credentials.json, .copilot/config.json, .gemini/oauth_creds.json.
   // Because sbx cannot mask a nested path once the parent is mounted, those
-  // parents are mounted child-by-child with the known credential subdirs
-  // (CREDENTIAL_SUBDIR_NAMES) filtered out.
+  // parents are mounted child-by-child with the known credential children
+  // (CREDENTIAL_EXCLUSIONS_BY_PARENT — directories or files) filtered out.
   const homePath = process.env.HOME || '/home/runner';
-  const nestingSubdirs = new Set<string>(CREDENTIAL_NESTING_SUBDIRS);
-  const credentialNames = new Set<string>(CREDENTIAL_SUBDIR_NAMES);
+  const credentialExclusions = new Map<string, Set<string>>(
+    Object.entries(CREDENTIAL_EXCLUSIONS_BY_PARENT).map(([parent, names]) => [parent, new Set(names)]),
+  );
   const homeSubdirs = ['.copilot', ...HOME_TOOL_SUBDIRS, '.gemini'];
   for (const subdir of homeSubdirs) {
     const hostSubdir = `${homePath}/${subdir}`;
@@ -181,13 +183,14 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     if (!fs.existsSync(hostSubdir)) continue;
     seenPaths.add(hostSubdir);
 
-    if (nestingSubdirs.has(subdir)) {
-      // Mount each child individually so credential subdirs can be excluded.
+    const excluded = credentialExclusions.get(subdir);
+    if (excluded) {
+      // Mount each child individually so credential dirs/files can be excluded.
       // The parent mount point itself is created by sbx for the mounted
-      // children, so the excluded credential dirs simply never exist in the VM.
+      // children, so the excluded credential paths simply never exist in the VM.
       for (const child of fs.readdirSync(hostSubdir)) {
-        if (credentialNames.has(child)) {
-          logger.info(`[sbx] Excluding credential directory from sandbox: ${subdir}/${child}`);
+        if (excluded.has(child)) {
+          logger.info(`[sbx] Excluding credential path from sandbox: ${subdir}/${child}`);
           continue;
         }
         const childPath = `${hostSubdir}/${child}`;
