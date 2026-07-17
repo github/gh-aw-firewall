@@ -204,17 +204,17 @@ AWF's security model even though the agent lives in a foreign microVM.
 flowchart TB
   subgraph host["Host (CI runner / dev machine)"]
     cli["awf CLI (main-action.ts)"]
+    sbxproxy["sbx host-side proxy<br/>(DOCKER_SANDBOXES_PROXY)"]
     subgraph compose["Docker Compose (infra only)"]
       squid["Squid proxy<br/>domain ACL"]
       apiproxy["api-proxy<br/>credential injection"]
     end
     subgraph vm["sbx microVM (KVM)"]
       agent["Agent command"]
-      sbxproxy["sbx host-side proxy<br/>(DOCKER_SANDBOXES_PROXY)"]
-      agent --> sbxproxy
     end
   end
   cli -->|sbx create/exec| vm
+  agent --> sbxproxy
   sbxproxy -->|upstream = squid gateway:3128| squid
   agent -->|COPILOT_* via host.docker.internal| apiproxy
   apiproxy --> squid
