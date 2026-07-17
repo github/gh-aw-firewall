@@ -131,10 +131,10 @@ Three capability queries drive the rest of the codebase:
 
 #### Secret sanitization
 
-`sanitizeEnvForSbx()` strips any env var whose name matches
-`TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL|PAT$|DOCKER_PAT|DOCKER_USERNAME` before
-env reaches the sandbox interior via `sbx exec`. This is defense-in-depth on top
-of sbx's own credential isolation.
+`sanitizeEnvForSbx()` strips secret-looking keys from the inherited `process.env`
+used to launch the `sbx` CLI. Explicit entries passed through
+`execInSandbox(..., { environment })` become `--env` arguments without this
+filtering, so callers must sanitize that assembled guest environment separately.
 
 :::caution
 `sbx create` is deliberately **not** run with the sanitized env. The management
