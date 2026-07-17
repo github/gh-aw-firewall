@@ -146,6 +146,61 @@ not-yet-ready Squid) and `XDG_CONFIG_HOME` (so the sbx CLI finds credentials in
 `$HOME/.config`, not wherever the Copilot harness pointed it).
 :::
 
+### Volume mounting & toolchain sharing
+
+The most important structural difference from AWF's Docker/gVisor path is that
+the microVM does **not** use a chroot. In compose mode the agent is bind-mounted
+under `/host/...` and then `chroot`s into it; sbx instead uses **positional path
+mounts where the host path maps to the identical path inside the VM**
+(`/home/runner/work/...` on the host is `/home/runner/work/...` in the guest).
+The generated command is:
+
+```text
+sbx create --name <name> shell <workspaceDir> [extraMount...] /tmp /usr/local/bin $HOME
+```
+
+(`shell` is sbx's generic agent image, which supplies the guest base OS.)
+
+What `createSandbox()` shares, in order:
+
+1. **Workspace** — `workspaceDir = $GITHUB_WORKSPACE || process.cwd()`, the first
+   positional mount, read-write. This is the repo checkout the agent edits.
+2. **Extra mounts** — `config.volumeMounts` (from `--volume`). AWF stores these
+   Docker-style (`host:container:mode`), but sbx only accepts a positional
+   `hostPath` with an optional `:ro` suffix, so the manager parses out the host
+   path and mode and **discards the container-path segment** (host path = guest
+   path). Default is read-write; `ro` mode becomes `hostPath:ro`.
+3. **Three always-added system mounts** that carry the toolchain and runtime state:
+   - **`/usr/local/bin`** — the toolchain seam. The Copilot CLI and other
+     host-installed tools live here and are mounted straight in. Note it is
+     *narrow*: only `/usr/local/bin`, **not** `/usr`, `/lib`, `/lib64`, or `/opt`.
+   - **`/tmp`** — agent runtime files (rendered prompts, logs).
+   - **`$HOME`** (`$HOME || /home/runner`) — writable agent dirs (`.cache`,
+     `.config`, `.local`, `.anthropic`, `.copilot`, …).
+
+A `seenPaths` set deduplicates so no path is mounted twice, and
+`execInSandbox(..., { workDir })` passes `--workdir` so commands run inside the
+mounted workspace.
+
+| Aspect | sbx (microVM) | Docker / gVisor (compose agent) |
+| --- | --- | --- |
+| Path model | Host path **==** guest path | Bind-mounted under `/host`, then `chroot /host` |
+| System libraries | From the sbx `shell` **guest image** | Host `/usr`,`/bin`,`/lib`,`/lib64`,`/opt` mounted read-only |
+| Toolchain binaries | Host `/usr/local/bin` mounted in | Host binaries mounted at `/host/tmp/awf-runner-bin` (ro) |
+| Workspace | `workspaceDir` positional (rw) | `<workspaceDir>:/host<workspaceDir>:rw` |
+| Home | Whole `$HOME` mounted (rw) | Empty home volume with only whitelisted subdirs |
+
+:::caution Toolchain portability
+Because host system libraries are **not** shared into the VM, a binary in
+`/usr/local/bin` that dynamically links against host-specific libraries — or
+expects an interpreter/runtime under `/usr` — can fail inside the microVM unless
+the sbx guest image already provides a compatible base. This is the sharpest
+contrast with compose mode's broad read-only `/usr`+`/lib` mounts, and the single
+most important detail to plan for when building a **KVM-based microVM backend**:
+you must either ship a guest image whose base matches the tools you mount in, or
+widen the mount set to include the libraries those tools need.
+:::
+
 ### Wiring into the main workflow (`src/commands/main-action.ts`)
 
 `main-action.ts` decides `useSbx = !runtimeUsesComposeAgent(config.containerRuntime)`
