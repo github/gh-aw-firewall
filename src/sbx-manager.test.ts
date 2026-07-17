@@ -14,13 +14,14 @@ import { logger } from './logger';
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-// Mock fs so home-mount curation (existsSync) is deterministic per test.
+// Mock fs so home-mount curation (existsSync/readdirSync) is deterministic per test.
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
-  return { ...actual, existsSync: jest.fn(() => false) };
+  return { ...actual, existsSync: jest.fn(() => false), readdirSync: jest.fn(() => []) };
 });
 
 const mockedExistsSync = fs.existsSync as jest.Mock;
+const mockedReaddirSync = fs.readdirSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -94,6 +95,8 @@ describe('sbx-manager', () => {
       // unless a test opts in. Individual tests re-mock as needed.
       mockedExistsSync.mockReset();
       mockedExistsSync.mockReturnValue(false);
+      mockedReaddirSync.mockReset();
+      mockedReaddirSync.mockReturnValue([]);
     });
 
     it('uses shell agent, configured mounts, and sanitized env', async () => {
@@ -153,12 +156,40 @@ describe('sbx-manager', () => {
       expect(args).not.toContain(homePath);
       // ...whitelisted tool/state dirs that exist ARE mounted...
       expect(args).toContain(`${homePath}/.cache`);
-      expect(args).toContain(`${homePath}/.config`);
       expect(args).toContain(`${homePath}/.copilot`);
       // ...and credential stores are NEVER mounted, even though they exist.
       expect(args).not.toContain(`${homePath}/.aws`);
       expect(args).not.toContain(`${homePath}/.ssh`);
       expect(args).not.toContain(`${homePath}/.docker`);
+    });
+
+    it('mounts ~/.config child-by-child and excludes nested credential dirs', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.config`,
+      );
+      // .config nests both benign tool config and credential stores.
+      mockedReaddirSync.mockImplementation((p: fs.PathLike) =>
+        String(p) === `${homePath}/.config`
+          ? ['nvim', 'pip', 'gh', 'gcloud', 'rclone']
+          : [],
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // The parent .config is never mounted wholesale...
+      expect(args).not.toContain(`${homePath}/.config`);
+      // ...benign tool config subdirs ARE mounted individually...
+      expect(args).toContain(`${homePath}/.config/nvim`);
+      expect(args).toContain(`${homePath}/.config/pip`);
+      // ...and known credential subdirs are NEVER mounted.
+      expect(args).not.toContain(`${homePath}/.config/gh`);
+      expect(args).not.toContain(`${homePath}/.config/gcloud`);
+      expect(args).not.toContain(`${homePath}/.config/rclone`);
     });
 
     it('skips whitelisted home subdirs that do not exist on the host', async () => {

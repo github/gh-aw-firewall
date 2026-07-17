@@ -25,7 +25,7 @@
 import execa from 'execa';
 import * as fs from 'fs';
 import { logger } from './logger';
-import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
+import { HOME_TOOL_SUBDIRS, CREDENTIAL_SUBDIR_NAMES, CREDENTIAL_NESTING_SUBDIRS } from './services/agent-volumes/home-whitelist';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
@@ -165,13 +165,39 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // ~/.docker, ~/.kube, ~/.azure, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
   // whitelisted, so they never enter the sandbox. Only paths that exist on the
   // host are mounted, because sbx requires the mount source to exist.
+  //
+  // Some whitelisted dirs (notably ~/.config) legitimately hold tool settings
+  // but can also nest credential stores (e.g. .config/gh, .config/gcloud).
+  // Because sbx cannot mask a nested path once the parent is mounted, those
+  // parents are mounted child-by-child with the known credential subdirs
+  // (CREDENTIAL_SUBDIR_NAMES) filtered out.
   const homePath = process.env.HOME || '/home/runner';
+  const nestingSubdirs = new Set<string>(CREDENTIAL_NESTING_SUBDIRS);
+  const credentialNames = new Set<string>(CREDENTIAL_SUBDIR_NAMES);
   const homeSubdirs = ['.copilot', ...HOME_TOOL_SUBDIRS, '.gemini'];
   for (const subdir of homeSubdirs) {
     const hostSubdir = `${homePath}/${subdir}`;
     if (seenPaths.has(hostSubdir)) continue;
     if (!fs.existsSync(hostSubdir)) continue;
     seenPaths.add(hostSubdir);
+
+    if (nestingSubdirs.has(subdir)) {
+      // Mount each child individually so credential subdirs can be excluded.
+      // The parent mount point itself is created by sbx for the mounted
+      // children, so the excluded credential dirs simply never exist in the VM.
+      for (const child of fs.readdirSync(hostSubdir)) {
+        if (credentialNames.has(child)) {
+          logger.info(`[sbx] Excluding credential directory from sandbox: ${subdir}/${child}`);
+          continue;
+        }
+        const childPath = `${hostSubdir}/${child}`;
+        if (seenPaths.has(childPath)) continue;
+        seenPaths.add(childPath);
+        args.push(childPath);
+      }
+      continue;
+    }
+
     args.push(hostSubdir);
   }
 
