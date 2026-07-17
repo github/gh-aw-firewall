@@ -53,6 +53,12 @@ safe-outputs:
       - docs/sbx-integration.md
       - docs/gvisor-integration.md
 timeout-minutes: 25
+steps:
+  - name: Ensure recent git history is available
+    run: |
+      if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+        git fetch --prune --unshallow
+      fi
 ---
 
 # sbx & gVisor Documentation Updater
@@ -106,7 +112,7 @@ The docs cite specific source files. Verify the doc claims still match the code 
 Also review changes merged in the **last 7 days** that touch these areas, so the docs reflect recent work:
 
 ```bash
-git log --since="7 days ago" --oneline -- src/container-runtime.ts src/sbx-manager.ts src/commands/main-action.ts src/services/agent-service.ts src/topology.ts
+git log --since="7 days ago" --oneline -- src/container-runtime.ts src/sbx-manager.ts src/commands/main-action.ts src/services/agent-service.ts src/topology.ts src/services/agent-environment/tool-specific-environment.ts src/commands/validators/security-mode.ts
 ```
 
 For any recently changed file a doc references, read the relevant section and confirm the doc still matches (flag names, IPs, function names, env var names, behavior).
