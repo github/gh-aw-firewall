@@ -141,10 +141,10 @@ identical to default Docker mode*: AWF applies selective bind mounts under
   read-only (system libraries and toolchains come from the host, unlike sbx).
 - `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` → `/host/tmp`
   read-write.
-- Host-installed tool binaries are mounted at **`/host/tmp/awf-runner-bin`** (ro)
-  rather than `/host/usr/local/bin`, because `/host/usr` is mounted read-only and
-  Docker cannot then create `local/bin` under it (matters in DinD/ARC staged
-  filesystems); `entrypoint.sh` prepends that dir to `PATH`.
+- When `chroot.binariesSourcePath` is configured, that tool directory is additionally
+  mounted at **`/host/tmp/awf-runner-bin`** (ro), and `entrypoint.sh` prepends it
+  to `PATH`. This is especially useful for DinD/ARC staged filesystems where the
+  runner-installed binaries are not present in the mounted `/usr` tree.
 - An empty home volume exposes only whitelisted `$HOME` subdirs; select `/etc`
   files (SSL certs, `passwd`, `group`, `hosts`, …) are mounted individually.
 
