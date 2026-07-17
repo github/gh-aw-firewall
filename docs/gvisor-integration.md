@@ -148,21 +148,20 @@ identical to default Docker mode*: AWF applies selective bind mounts under
 - An empty home volume exposes only whitelisted `$HOME` subdirs; select `/etc`
   files (SSL certs, `passwd`, `group`, `hosts`, …) are mounted individually.
 
-The gVisor-specific twist is **how those mounts are accessed**. In a `runsc`
-sandbox the application never touches host files directly. All filesystem I/O is
-proxied by the **Gofer** — a separate host-side process, one per sandbox, that
-the Sentry talks to over an internal protocol (LISAFS/9P). The Sentry holds no
-host file descriptors for the bind mounts; it asks the Gofer, which enforces that
-only the explicitly mounted paths are reachable. Practical consequences:
+The gVisor-specific twist is **how those mounts are accessed**. A `runsc`
+sandbox uses a separate host-side **Gofer** process to mediate path-based
+filesystem operations over LISAFS. With directfs (enabled by default in current
+`runsc`), the Gofer can pass an opened host file descriptor to the Sentry, which
+then performs data I/O directly and avoids repeated Gofer round trips. (9P was
+the legacy Sentry-Gofer protocol.) Practical consequences:
 
-- **Isolation:** the mount set is the *only* host filesystem the sandbox can
-  reach, and even those pass through the Gofer boundary rather than raw host FDs —
-  an extra containment layer on top of AWF's selective mounts.
-- **Compatibility:** operations the Gofer models imperfectly (some `mmap`
-  sharing, exotic `ioctl`s, dense small-file I/O) can behave differently or run
-  slower than a native bind mount. This is the filesystem analogue of the syscall
-  shims noted below, and the thing to validate when a tool "works in Docker but
-  not under gVisor."
+- **Isolation:** the sandbox is restricted to the filesystem tree assembled for
+  it; the Gofer controls path resolution and opening, while directfs constrains
+  subsequent access to the descriptors it passes to the Sentry.
+- **Compatibility:** filesystem behavior still follows gVisor's implementation;
+  operations such as some `mmap` sharing and exotic `ioctl`s can differ from a
+  native bind mount. This is the filesystem analogue of the syscall shims noted
+  below and should be validated when a tool works in Docker but not under gVisor.
 
 :::note
 Because gVisor reuses the compose agent, there is **no sbx-style host-path ==
