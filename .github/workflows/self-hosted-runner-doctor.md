@@ -115,7 +115,7 @@ Prefer the narrowest match. Examples:
 - `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog; also check for `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` sentinel suppressing GitHub-token auth path — fixed in github/gh-aw-firewall#6237)
 - `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 - `Error: invalid key 'build-tools'` with `--image-tag build-tools=sha256:...` → A17 (build-tools not in IMAGE_DIGEST_KEYS)
-- `SIGSEGV` / `SIGABRT` crash with Claude Code (Bun runtime) under `--container-runtime gvisor`; retries all fail → D7 (JSC JIT incompatible with gVisor W^X restrictions; pass `--env BUN_JSC_useJIT=0`)
+- `SIGSEGV` / `SIGABRT` crash with Claude Code (Bun runtime) under `--container-runtime gvisor`; retries all fail → D7 (JSC JIT incompatible with gVisor W^X restrictions; AWF ≥ github/gh-aw-firewall#6276 auto-injects `BUN_JSC_useJIT=0`; for older AWF pass `--env BUN_JSC_useJIT=0`)
 
 ### 4. Check for known gaps and notable fixes
 
@@ -139,7 +139,7 @@ C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residen
 
 C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872. **Additional fix (github/gh-aw-firewall#6237):** `gh-aw`'s offline mode sets `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` as a sentinel. In AWF before github/gh-aw-firewall#6237, this sentinel was treated as a real BYOK key, suppressing the GitHub-token auth path and producing `400` on Business/Enterprise targets. Fixed by treating `dummy-byok-key-for-offline-mode` as a non-credential sentinel (same class as AWF placeholder tokens).
 
-D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **Fix:** pass `--env BUN_JSC_useJIT=0` to force JSC into interpreter mode; a `postprocess-smoke-workflows.ts` hook auto-injects this flag for `smoke-gvisor-claude` workflows on recompile.
+D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261, github/gh-aw-firewall#6276 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **AWF (PR github/gh-aw-firewall#6276) automatically sets `BUN_JSC_useJIT=0`** at runtime via `buildToolEnvironment()` when Claude runs under gVisor — no workflow change required. For older AWF builds without github/gh-aw-firewall#6276, pass `--env BUN_JSC_useJIT=0` as a manual fallback.
 
 ### 5. Avoid duplicate triage
 
