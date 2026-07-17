@@ -186,7 +186,7 @@ mounted workspace.
 | --- | --- | --- |
 | Path model | Host path **==** guest path | Bind-mounted under `/host`, then `chroot /host` |
 | System libraries | From the sbx `shell` **guest image** | Host `/usr`,`/bin`,`/lib`,`/lib64`,`/opt` mounted read-only |
-| Toolchain binaries | Host `/usr/local/bin` mounted in | Host binaries mounted at `/host/tmp/awf-runner-bin` (ro) |
+| Toolchain binaries | Host `/usr/local/bin` mounted in | `/usr` from the host or sysroot; optional `chroot.binariesSourcePath` overlay at `/host/tmp/awf-runner-bin` (ro) |
 | Workspace | `workspaceDir` positional (rw) | `<workspaceDir>:/host<workspaceDir>:rw` |
 | Home | Whole `$HOME` mounted (rw) | Empty home volume with only whitelisted subdirs |
 
