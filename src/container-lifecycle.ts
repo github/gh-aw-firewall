@@ -15,6 +15,7 @@ import {
   handleHealthcheckError,
   logContainerLogsToStderr,
   reportBlockedDomains,
+  detectDnsResolutionFailure,
 } from './container-startup-diagnostics';
 import { checkSquidLogs } from './squid-log-reader';
 
@@ -80,13 +81,25 @@ async function attemptContainerStartup(
   }
 }
 
-function createCliProxyStartupError(): Error {
-  return new Error(
+function createCliProxyStartupError(dnsFailureHost?: string | null): Error {
+  let message =
     `AWF firewall failed to start: ${CLI_PROXY_CONTAINER_NAME} could not connect to the external DIFC proxy (or exited before establishing a connection). ` +
     `Failing fast to avoid repeated in-agent retries. ` +
     `The agent was never invoked. ` +
-    `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`
-  );
+    `See ${CLI_PROXY_CONTAINER_NAME} container logs above for details.`;
+
+  if (dnsFailureHost) {
+    message +=
+      `\n\nDNS resolution failed for "${dnsFailureHost}" (getaddrinfo EAI_AGAIN/ENOTFOUND). ` +
+      `On ARC/DinD runners, containers created by the Docker-in-Docker daemon run on the DinD ` +
+      `Docker network, which does not forward DNS to the Kubernetes cluster resolver. If ` +
+      `"${dnsFailureHost}" is a Kubernetes Service name, the cli-proxy cannot resolve it. ` +
+      `To fix this, address the DIFC proxy by IP instead of a Service name, or configure the ` +
+      `DinD daemon's DNS (e.g. dockerd --dns <kube-dns-ip>) so container lookups reach ` +
+      `Kubernetes DNS. See https://github.github.io/gh-aw/guides/arc-dind-copilot-agent/ for details.`;
+  }
+
+  return new Error(message);
 }
 
 function createRepeatedApiProxyStartupError(): Error {
@@ -117,7 +130,8 @@ async function handleRetryStartupFailure(
   }
   if (await didContainerFailStartup(retryErrorMsg, CLI_PROXY_CONTAINER_NAME)) {
     await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
-    throw createCliProxyStartupError();
+    const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
+    throw createCliProxyStartupError(dnsFailureHost);
   }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
   // through to the Squid log diagnostic path below as if it were the first error.
@@ -178,7 +192,8 @@ async function handleStartupFailure(
 
   if (firstAttemptCliProxyStartupFailure) {
     await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
-    throw createCliProxyStartupError();
+    const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
+    throw createCliProxyStartupError(dnsFailureHost);
   }
 
   await handleHealthcheckError(errorMsg, error, workDir, proxyLogsDir, allowedDomains);
