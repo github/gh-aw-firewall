@@ -13,9 +13,11 @@ agent container. It is written for two audiences:
 
 :::note
 gVisor is the **compose-model** counterpart to the microVM backend documented in
-[Docker Sandboxes (sbx) integration](./sbx-integration.md). With gVisor the agent
-stays an ordinary Docker Compose service (just with a hardened runtime); with sbx
-the agent leaves compose entirely and runs in a microVM. See also
+the pending
+[Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331).
+With gVisor the agent stays an ordinary Docker Compose service (just with a
+hardened runtime); with sbx the agent leaves compose entirely and runs in a
+microVM. See also
 [Sandbox design](./sandbox-design.md) for why the *default* backend is plain
 Docker + Squid.
 :::
@@ -127,6 +129,48 @@ if (config.containerRuntime) {
 }
 ```
 
+### Volume mounting & filesystem access (the Gofer)
+
+gVisor uses AWF's **standard compose agent** — the same service definition as the
+default Docker runtime, only with `runtime: runsc`. So the *mount set is
+identical to default Docker mode*: AWF applies selective bind mounts under
+`/host` (see `src/services/agent-volumes/system-mounts.ts`) and the agent
+`chroot`s into `/host` before running:
+
+- `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` → `/host/*`
+  read-only (system libraries and toolchains come from the host, unlike sbx).
+- `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` → `/host/tmp`
+  read-write.
+- When `chroot.binariesSourcePath` is configured, that tool directory is additionally
+  mounted at **`/host/tmp/awf-runner-bin`** (ro), and `entrypoint.sh` prepends it
+  to `PATH`. This is especially useful for DinD/ARC staged filesystems where the
+  runner-installed binaries are not present in the mounted `/usr` tree.
+- An empty home volume exposes only whitelisted `$HOME` subdirs; select `/etc`
+  files (SSL certs, `passwd`, `group`, `hosts`, …) are mounted individually.
+
+The gVisor-specific twist is **how those mounts are accessed**. A `runsc`
+sandbox uses a separate host-side **Gofer** process to mediate path-based
+filesystem operations over LISAFS. With directfs (enabled by default in current
+`runsc`), the Gofer can pass an opened host file descriptor to the Sentry, which
+then performs data I/O directly and avoids repeated Gofer round trips. (9P was
+the legacy Sentry-Gofer protocol.) Practical consequences:
+
+- **Isolation:** the sandbox is restricted to the filesystem tree assembled for
+  it; the Gofer controls path resolution and opening, while directfs constrains
+  subsequent access to the descriptors it passes to the Sentry.
+- **Compatibility:** filesystem behavior still follows gVisor's implementation;
+  operations such as some `mmap` sharing and exotic `ioctl`s can differ from a
+  native bind mount. This is the filesystem analogue of the syscall shims noted
+  below and should be validated when a tool works in Docker but not under gVisor.
+
+:::note
+Because gVisor reuses the compose agent, there is **no sbx-style host-path ==
+guest-path** behavior here: the agent sees files under `/host` (pre-chroot) and
+at their normal paths (post-chroot), exactly as in default Docker mode. A new
+compose-model runtime inherits this mount set for free; a new *microVM* runtime
+(like sbx) must define its own sharing scheme instead.
+:::
+
 ### The netstack DNS problem (and the fix)
 
 gVisor's userspace netstack has an isolated sandbox loopback that **cannot reach
@@ -153,7 +197,10 @@ The agent runs **chrooted to `/host`**, so it reads `/host/etc/hosts`, not the
 container's `/etc/hosts`. Docker's `extra_hosts` only populates the *container's*
 `/etc/hosts` (outside the chroot). `topology.ts` therefore also **appends peer
 entries to the bind-mounted `/host/etc/hosts` file** (falling back gracefully in
-sysroot-stage mode where no such mount exists). A new netstack-based runtime must
+sysroot-stage mode where no such mount exists). **Today, that chroot-hosts patch
+only runs in the topology-attach startup path in `cli-workflow.ts`**; ordinary
+compose runs rely on the IP-based proxy env vars and do not automatically mirror
+every static hostname into `/host/etc/hosts`. A new netstack-based runtime must
 account for both files.
 :::
 
@@ -161,16 +208,18 @@ account for both files.
 
 AWF's defense-in-depth relies on iptables DNAT (port 80/443 → Squid:3128) applied
 inside the agent's network namespace. gVisor must support those rules for that
-fallback to hold. This is verified by
-`.github/workflows/test-gvisor-compat.yml`, which confirms iptables DNAT and
-proxy reachability inside a `runsc` sandbox.
+fallback to hold. `.github/workflows/test-gvisor-compat.yml` is a **manual,
+non-gating diagnostic probe** that exercises iptables DNAT and proxy reachability
+inside a `runsc` sandbox; it is useful evidence, but not an enforced guarantee in
+CI.
 
 ### Runtime-specific compatibility shims
 
-- **Bun JIT crash on Claude** (`tool-specific-environment.ts`) — when the agent
-  is Claude *and* the runtime is gVisor, AWF sets `BUN_JSC_useJIT=0` to force
-  Bun's interpreter, avoiding a JIT crash under gVisor
-  ([oven-sh/bun#22901](https://github.com/oven-sh/bun/issues/22901)).
+- **Claude/Bun workaround under gVisor** (`tool-specific-environment.ts`) —
+  when the agent is Claude *and* the runtime is gVisor, AWF sets
+  `BUN_JSC_useJIT=0` to force Bun's interpreter. This is an AWF workaround for
+  crashes observed under that combination, rather than a behavior guaranteed by a
+  public upstream repro.
 
 ### Configuration surface
 
@@ -219,9 +268,12 @@ myruntime: {
 },
 ```
 
-That single entry makes `resolveDockerRuntime` set the compose `runtime:` field
-and (optionally) turns on the static-DNS workaround — no other code changes are
-required for the common case, because the agent remains a compose service.
+That single entry makes `resolveDockerRuntime` set the compose `runtime:` field.
+For the common `needsStaticDns: false` case, no other code changes are required,
+because the agent remains a compose service. For `needsStaticDns: true` runtimes,
+registration only turns on the container-side `extra_hosts` wiring; if hostname
+resolution must also work inside the chroot, wire up the `/host/etc/hosts` patch
+path as well (today that happens only in the topology-attach flow).
 
 ### 2. Decide on the DNS model
 
@@ -270,5 +322,5 @@ service.
 - AWF source: `src/container-runtime.ts`, `src/services/agent-service.ts`,
   `src/topology.ts`, `src/services/agent-environment/tool-specific-environment.ts`
 - CI: `.github/workflows/test-gvisor-compat.yml`, `.github/workflows/smoke-gvisor*.md`
-- Related: [Docker Sandboxes (sbx) integration](./sbx-integration.md),
+- Related: [Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331),
   [Sandbox design](./sandbox-design.md)

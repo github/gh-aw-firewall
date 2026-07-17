@@ -72,6 +72,30 @@ describe('artifact-permissions', () => {
     }
   });
 
+  it('does not warn for benign permission errors on restricted runners', () => {
+    const auditDir = makeTempDir();
+    let errorSpy: jest.SpyInstance | undefined;
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({
+        stdout: '',
+        stderr: 'chmod: /fix: Operation not permitted',
+        exitCode: 1,
+      });
+      fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
+      // At the default 'info' log level, the benign case is logged at debug
+      // (suppressed) and must never surface as a [WARN] ... failed message.
+      const warnedFailure = (errorSpy.mock.calls as unknown[][]).some(
+        call => typeof call[0] === 'string' && /\[WARN\].*repair failed/i.test(call[0]),
+      );
+      expect(warnedFailure).toBe(false);
+    } finally {
+      errorSpy?.mockRestore();
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs rootless permission repair with translated mount paths', () => {
     const auditDir = makeTempDir();
     try {

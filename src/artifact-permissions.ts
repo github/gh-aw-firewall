@@ -80,10 +80,24 @@ export function fixArtifactPermissionsForRootless(
 
       if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
         const stderr = result.stderr?.trim();
-        logger.warn(
-          `Rootless artifact permission repair failed for ${dir} (exit ${result.exitCode})` +
-            (stderr ? `: ${stderr}` : ''),
-        );
+        // Ownership/permission repair is best-effort: the agent has already
+        // finished and its artifacts are still readable by the owning user.
+        // On rootless or restricted runners (e.g. ARC/DinD with a non-root
+        // runner container) the repair container may be denied CHOWN/chmod,
+        // producing "Operation not permitted" / "Permission denied". Those are
+        // expected and non-fatal, so log them at debug to avoid alarming users
+        // who otherwise see a scary WARN for a benign, non-blocking condition.
+        const isBenignPermissionError =
+          !!stderr && /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|EPERM|EACCES)/i.test(stderr);
+        const detail = `for ${dir} (exit ${result.exitCode})` + (stderr ? `: ${stderr}` : '');
+        if (isBenignPermissionError) {
+          logger.debug(
+            `Rootless artifact permission repair skipped ${detail}. ` +
+              `This is expected on restricted runners and does not affect the run.`,
+          );
+        } else {
+          logger.warn(`Rootless artifact permission repair failed ${detail}`);
+        }
       }
     } catch (error) {
       logger.warn(`Rootless artifact permission repair failed for ${dir}:`, error);
