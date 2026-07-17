@@ -240,10 +240,10 @@ myvm: {
 },
 ```
 
-That one line makes `runtimeUsesComposeAgent('myvm')` return `false`, which
-already causes AWF to (a) omit the agent from `docker-compose.yml`, (b) skip the
-Docker network-isolation override in strict mode, and (c) route lifecycle through
-the microVM path instead of `docker logs`/`docker wait`.
+That entry makes `runtimeUsesComposeAgent('myvm')` return `false`, which omits
+its agent from `docker-compose.yml` and skips the Docker network-isolation
+override in strict mode. It does **not** select the new manager: the current
+main workflow treats every microVM entry as sbx until runtime-specific dispatch is added.
 
 ### 2. Implement a manager (mirror `sbx-manager.ts`)
 
