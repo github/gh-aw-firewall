@@ -36,8 +36,9 @@ Docker Sandboxes stacks five isolation layers:
   macOS/Windows it uses the platform hypervisor. Agent processes inside the VM
   are invisible to the host.
 - **Network isolation** — *all* HTTP/HTTPS egress is forced through a **host-side
-  proxy** that enforces a deny-by-default domain policy. Raw TCP, UDP, and ICMP
-  are blocked at the network layer; DNS resolution goes through the proxy.
+  proxy** that enforces the sandbox's configured network policy (Open, Balanced,
+  or Locked Down). Raw TCP, UDP, and ICMP are blocked at the network layer; DNS
+  resolution goes through the proxy. AWF separately applies its deny-by-default Squid ACL.
 - **Docker Engine isolation** — each sandbox runs its own Docker daemon inside
   the VM. `docker build` / `docker compose up` execute against the in-VM engine,
   with no path to the host daemon.
