@@ -4,6 +4,7 @@ import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
+import { buildNoProxyEnv } from './no-proxy-utils';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 
@@ -141,8 +142,7 @@ function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<string, stri
     HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
     https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
     // Prevent curl health check from routing localhost through Squid
-    NO_PROXY: 'localhost,127.0.0.1,::1',
-    no_proxy: 'localhost,127.0.0.1,::1',
+    ...buildNoProxyEnv(),
   };
 }
 
