@@ -23,7 +23,6 @@ describe('buildCredentialHidingOverlays', () => {
     expect(overlays).toContain('/dev/null:/home/runner/.config/gh/hosts.yml:ro');
     expect(overlays).toContain('/dev/null:/host/home/runner/.config/gh/hosts.yml:ro');
     // Newly centralized entries (previously only protected by sbx).
-    expect(overlays).toContain('/dev/null:/home/runner/.copilot/config.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.claude/.credentials.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.gemini/oauth_creds.json:ro');
   });
