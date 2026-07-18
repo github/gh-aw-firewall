@@ -175,8 +175,31 @@ What `createSandbox()` shares, in order:
      host-installed tools live here and are mounted straight in. Note it is
      *narrow*: only `/usr/local/bin`, **not** `/usr`, `/lib`, `/lib64`, or `/opt`.
    - **`/tmp`** — agent runtime files (rendered prompts, logs).
-   - **`$HOME`** (`$HOME || /home/runner`) — writable agent dirs (`.cache`,
-     `.config`, `.local`, `.anthropic`, `.copilot`, …).
+   - **`$HOME` tool dirs** — a **curated whitelist** of writable agent dirs, not
+     the whole home directory. The manager mounts only the subdirs that exist on
+     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`,
+     `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`) plus the agent
+     state dirs `.copilot` and `.gemini`. Credential-store dirs such as `.aws`,
+     `.ssh`, `.docker`, `.kube`, `.azure` and `.gnupg` are **never** whitelisted,
+     so they never enter the VM. Each whitelisted dir is mounted **wholesale** (as
+     a directory — sbx positional mounts cannot target an individual file, so its
+     loose files like `~/.copilot/mcp-config.json` are preserved).
+
+**Scrubbing nested credential stores.** Several whitelisted dirs legitimately
+hold tool settings but also stash a secret in a well-known child — e.g.
+`.config/gh`, `.config/gcloud`, `.cargo/credentials`, `.claude/.credentials.json`,
+`.copilot/config.json`, `.gemini/oauth_creds.json`. Because the parent is mounted
+wholesale and sbx cannot overlay or mask a nested path, the manager instead
+**moves those credential paths aside on the host before `sbx create` and restores
+them after the sandbox is torn down** (`scrubHomeCredentials` /
+`restoreHomeCredentials` in `sbx-manager.ts`). The move target is a
+`.awf-sbx-cred-backup-<pid>` dir at the home root — never a mounted subdir — so
+the secrets are absent from the VM while the benign tool state stays available.
+This is the sbx analog of compose mode's `/dev/null` credential overlays, and the
+per-parent list (`CREDENTIAL_PATHS_BY_PARENT` in
+`services/agent-volumes/home-whitelist.ts`) is shared to prevent drift. The agent
+receives whatever credentials it needs through the api-proxy or environment, not
+by reading the host's on-disk auth store, so removing these paths is safe.
 
 A `seenPaths` set deduplicates so no path is mounted twice, and
 `execInSandbox(..., { workDir })` passes `--workdir` so commands run inside the
@@ -188,7 +211,7 @@ mounted workspace.
 | System libraries | From the sbx `shell` **guest image** | Host `/usr`,`/bin`,`/lib`,`/lib64`,`/opt` mounted read-only |
 | Toolchain binaries | Host `/usr/local/bin` mounted in | `/usr` from the host or sysroot; optional `chroot.binariesSourcePath` overlay at `/host/tmp/awf-runner-bin` (ro) |
 | Workspace | `workspaceDir` positional (rw) | `<workspaceDir>:/host<workspaceDir>:rw` |
-| Home | Whole `$HOME` mounted (rw) | Empty home volume with only whitelisted subdirs |
+| Home | Curated `$HOME` tool-dir whitelist (rw), nested credential stores scrubbed before create | Empty home volume with only whitelisted subdirs |
 
 :::caution Toolchain portability
 Because host system libraries are **not** shared into the VM, a binary in

@@ -3,6 +3,7 @@ import {
   execInSandbox,
   isSbxAvailable,
   removeSandbox,
+  restoreHomeCredentials,
   sanitizeEnvForSbx,
   SBX_DEFAULT_NAME,
 } from './sbx-manager';
@@ -14,14 +15,22 @@ import { logger } from './logger';
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
-// Mock fs so home-mount curation (existsSync/readdirSync) is deterministic per test.
+// Mock fs so home-mount curation and credential scrub/restore are deterministic.
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
-  return { ...actual, existsSync: jest.fn(() => false), readdirSync: jest.fn(() => []) };
+  return {
+    ...actual,
+    existsSync: jest.fn(() => false),
+    readdirSync: jest.fn(() => []),
+    renameSync: jest.fn(() => undefined),
+    mkdirSync: jest.fn(() => undefined),
+    rmSync: jest.fn(() => undefined),
+  };
 });
 
 const mockedExistsSync = fs.existsSync as jest.Mock;
 const mockedReaddirSync = fs.readdirSync as jest.Mock;
+const mockedRenameSync = fs.renameSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -97,6 +106,12 @@ describe('sbx-manager', () => {
       mockedExistsSync.mockReturnValue(false);
       mockedReaddirSync.mockReset();
       mockedReaddirSync.mockReturnValue([]);
+      mockedRenameSync.mockReset();
+      mockedRenameSync.mockReturnValue(undefined);
+      // Ensure no scrubbed state leaks between tests.
+      restoreHomeCredentials();
+      mockedRenameSync.mockReset();
+      mockedRenameSync.mockReturnValue(undefined);
     });
 
     it('uses shell agent, configured mounts, and sanitized env', async () => {
@@ -162,29 +177,25 @@ describe('sbx-manager', () => {
       expect(args).not.toContain(`${homePath}/.docker`);
     });
 
-    it('mounts credential-nesting tool dirs child-by-child, excluding nested secret files', async () => {
+    it('mounts credential-nesting tool dirs wholesale and scrubs nested secrets before create', async () => {
       const homePath = process.env.HOME || '/home/runner';
-      const nesting = [
+      const parents = [
         `${homePath}/.cargo`,
         `${homePath}/.claude`,
         `${homePath}/.copilot`,
         `${homePath}/.gemini`,
       ];
-      mockedExistsSync.mockImplementation((p: fs.PathLike) => nesting.includes(String(p)));
-      mockedReaddirSync.mockImplementation((p: fs.PathLike) => {
-        switch (String(p)) {
-          case `${homePath}/.cargo`:
-            return ['bin', 'registry', 'credentials', 'credentials.toml'];
-          case `${homePath}/.claude`:
-            return ['settings.json', 'projects', '.credentials.json'];
-          case `${homePath}/.copilot`:
-            return ['session-state', 'logs', 'config.json'];
-          case `${homePath}/.gemini`:
-            return ['tmp', 'oauth_creds.json', 'google_accounts.json'];
-          default:
-            return [];
-        }
-      });
+      const secrets = [
+        `${homePath}/.cargo/credentials`,
+        `${homePath}/.cargo/credentials.toml`,
+        `${homePath}/.claude/.credentials.json`,
+        `${homePath}/.copilot/config.json`,
+        `${homePath}/.gemini/oauth_creds.json`,
+        `${homePath}/.gemini/google_accounts.json`,
+      ];
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => parents.includes(String(p)) || secrets.includes(String(p)),
+      );
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
@@ -192,32 +203,27 @@ describe('sbx-manager', () => {
       await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
 
       const args: string[] = mockExecaFn.mock.calls[1][1];
-      // Parents are never mounted wholesale.
-      for (const parent of nesting) expect(args).not.toContain(parent);
-      // Benign children ARE mounted individually.
-      expect(args).toContain(`${homePath}/.cargo/registry`);
-      expect(args).toContain(`${homePath}/.claude/settings.json`);
-      expect(args).toContain(`${homePath}/.copilot/session-state`);
-      expect(args).toContain(`${homePath}/.gemini/tmp`);
-      // Nested credential files are NEVER mounted.
-      expect(args).not.toContain(`${homePath}/.cargo/credentials`);
-      expect(args).not.toContain(`${homePath}/.cargo/credentials.toml`);
-      expect(args).not.toContain(`${homePath}/.claude/.credentials.json`);
-      expect(args).not.toContain(`${homePath}/.copilot/config.json`);
-      expect(args).not.toContain(`${homePath}/.gemini/oauth_creds.json`);
-      expect(args).not.toContain(`${homePath}/.gemini/google_accounts.json`);
+      // Parents ARE mounted wholesale (as directories) so their loose files work.
+      for (const parent of parents) expect(args).toContain(parent);
+      // No individual file is ever passed as a positional mount.
+      for (const secret of secrets) expect(args).not.toContain(secret);
+      // Each nested credential path is moved aside on the host before create.
+      const movedOriginals = mockedRenameSync.mock.calls.map((c) => String(c[0]));
+      for (const secret of secrets) expect(movedOriginals).toContain(secret);
+
+      restoreHomeCredentials();
     });
 
-    it('mounts ~/.config child-by-child and excludes nested credential dirs', async () => {
+    it('mounts ~/.config wholesale and scrubs nested credential dirs before create', async () => {
       const homePath = process.env.HOME || '/home/runner';
+      const secrets = [
+        `${homePath}/.config/gh`,
+        `${homePath}/.config/gcloud`,
+        `${homePath}/.config/rclone`,
+      ];
       mockedExistsSync.mockImplementation(
-        (p: fs.PathLike) => String(p) === `${homePath}/.config`,
-      );
-      // .config nests both benign tool config and credential stores.
-      mockedReaddirSync.mockImplementation((p: fs.PathLike) =>
-        String(p) === `${homePath}/.config`
-          ? ['nvim', 'pip', 'gh', 'gcloud', 'rclone']
-          : [],
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.config` || secrets.includes(String(p)),
       );
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
@@ -226,15 +232,48 @@ describe('sbx-manager', () => {
       await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
 
       const args: string[] = mockExecaFn.mock.calls[1][1];
-      // The parent .config is never mounted wholesale...
-      expect(args).not.toContain(`${homePath}/.config`);
-      // ...benign tool config subdirs ARE mounted individually...
-      expect(args).toContain(`${homePath}/.config/nvim`);
-      expect(args).toContain(`${homePath}/.config/pip`);
-      // ...and known credential subdirs are NEVER mounted.
-      expect(args).not.toContain(`${homePath}/.config/gh`);
-      expect(args).not.toContain(`${homePath}/.config/gcloud`);
-      expect(args).not.toContain(`${homePath}/.config/rclone`);
+      // The parent .config IS mounted wholesale so benign tool config still works.
+      expect(args).toContain(`${homePath}/.config`);
+      // Known credential subdirs are moved aside before create, not mounted.
+      for (const secret of secrets) expect(args).not.toContain(secret);
+      const movedOriginals = mockedRenameSync.mock.calls.map((c) => String(c[0]));
+      for (const secret of secrets) expect(movedOriginals).toContain(secret);
+
+      restoreHomeCredentials();
+    });
+
+    it('restores scrubbed credentials after the sandbox is removed', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.copilot/config.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.copilot` ||
+          String(p) === secret ||
+          String(p).includes('.awf-sbx-cred-backup'),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      // The secret was moved to a backup during create.
+      const createMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
+      const scrubMove = createMoves.find(([from]) => from === secret);
+      expect(scrubMove).toBeDefined();
+      const backupPath = scrubMove![1];
+
+      mockedRenameSync.mockClear();
+      // removeSandbox: stop + rm both succeed, then restore runs.
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await removeSandbox(SBX_DEFAULT_NAME);
+
+      // The backup is moved back to its original location after teardown.
+      const restoreMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
+      expect(restoreMoves).toContainEqual([backupPath, secret]);
     });
 
     it('skips whitelisted home subdirs that do not exist on the host', async () => {

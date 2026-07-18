@@ -39,11 +39,10 @@ export const HOME_TOOL_SUBDIRS = [
 /**
  * Credential/token stores that live *inside* an otherwise-whitelisted `$HOME`
  * subdir, keyed by the parent subdir's basename. Each value lists the immediate
- * child basenames (directories **or** files) that must never be exposed to the
- * agent.
+ * child basenames (directories **or** files) that are credential stores.
  *
  * Whitelisted dirs such as `.config`, `.cargo`, `.claude`, `.copilot` and
- * `.gemini` are needed for legitimate tool settings, but each also stashes
+ * `.gemini` are needed for legitimate tool settings/state, but each also stashes
  * secrets in a well-known child:
  *
  * - `.config/gh`, `.config/gcloud`, … — per-CLI token stores
@@ -53,18 +52,19 @@ export const HOME_TOOL_SUBDIRS = [
  * - `.gemini/oauth_creds.json`, `.gemini/google_accounts.json` — Gemini OAuth
  *
  * Compose mode blanks these individual paths with `/dev/null` overlays
- * (`credential-hiding.ts`); sbx cannot mask a nested path once the parent is
- * mounted, so it instead mounts these parents **child-by-child** and skips the
- * basenames listed here. sbx recreates the parent mount point for the surviving
- * children, so the excluded secrets never exist inside the microVM while the
- * benign tool state still works.
+ * (`credential-hiding.ts`). sbx mounts are positional virtiofs passthroughs
+ * (host path == guest path, directory-granular) and cannot overlay or mask an
+ * individual nested path, nor mount a single file. So the sbx backend instead
+ * mounts these parents **wholesale** (so their required files still work) but
+ * temporarily **moves these credential paths aside on the host before
+ * `sbx create` and restores them after the sandbox is torn down** — keeping the
+ * secrets out of the VM without dropping the benign tool state the agent needs.
  *
- * SECURITY: entries here are credential-centric, so excluding them wholesale
- * does not break general tooling — an agent that needs a service's credentials
- * should receive them through the API proxy or environment, not by reading the
- * host's on-disk auth store.
+ * SECURITY: entries here are credential-centric. The agent receives whatever
+ * credentials it legitimately needs through the API proxy or environment, not by
+ * reading the host's on-disk auth store, so hiding these paths is safe.
  */
-export const CREDENTIAL_EXCLUSIONS_BY_PARENT: Readonly<Record<string, readonly string[]>> = {
+export const CREDENTIAL_PATHS_BY_PARENT: Readonly<Record<string, readonly string[]>> = {
   '.config': [
     'gh', // GitHub CLI: hosts.yml (oauth_token)
     'gcloud', // Google Cloud SDK: credentials.db, access_tokens.db, application_default_credentials.json
@@ -93,10 +93,3 @@ export const CREDENTIAL_EXCLUSIONS_BY_PARENT: Readonly<Record<string, readonly s
     'access_tokens.json', // Gemini CLI cached access tokens
   ],
 };
-
-/**
- * Whitelisted home subdirs that must be mounted one child at a time (filtering
- * {@link CREDENTIAL_EXCLUSIONS_BY_PARENT}) because they nest credential stores
- * that sbx cannot mask once the parent is mounted wholesale.
- */
-export const CREDENTIAL_NESTING_SUBDIRS: readonly string[] = Object.keys(CREDENTIAL_EXCLUSIONS_BY_PARENT);
