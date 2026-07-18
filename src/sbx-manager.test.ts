@@ -182,14 +182,12 @@ describe('sbx-manager', () => {
       const parents = [
         `${homePath}/.cargo`,
         `${homePath}/.claude`,
-        `${homePath}/.copilot`,
         `${homePath}/.gemini`,
       ];
       const secrets = [
         `${homePath}/.cargo/credentials`,
         `${homePath}/.cargo/credentials.toml`,
         `${homePath}/.claude/.credentials.json`,
-        `${homePath}/.copilot/config.json`,
         `${homePath}/.gemini/oauth_creds.json`,
         `${homePath}/.gemini/google_accounts.json`,
       ];
@@ -244,10 +242,10 @@ describe('sbx-manager', () => {
 
     it('restores scrubbed credentials after the sandbox is removed', async () => {
       const homePath = process.env.HOME || '/home/runner';
-      const secret = `${homePath}/.copilot/config.json`;
+      const secret = `${homePath}/.claude/.credentials.json`;
       mockedExistsSync.mockImplementation(
         (p: fs.PathLike) =>
-          String(p) === `${homePath}/.copilot` ||
+          String(p) === `${homePath}/.claude` ||
           String(p) === secret ||
           String(p).includes('.awf-sbx-cred-backup'),
       );

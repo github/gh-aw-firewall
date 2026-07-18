@@ -188,7 +188,7 @@ What `createSandbox()` shares, in order:
 **Scrubbing nested credential stores.** Several whitelisted dirs legitimately
 hold tool settings but also stash a secret in a well-known child — e.g.
 `.config/gh`, `.config/gcloud`, `.cargo/credentials`, `.claude/.credentials.json`,
-`.copilot/config.json`, `.gemini/oauth_creds.json`. Because the parent is mounted
+`.gemini/oauth_creds.json`. Because the parent is mounted
 wholesale and sbx cannot overlay or mask a nested path, the manager instead
 **moves those credential paths aside on the host before `sbx create` and restores
 them after the sandbox is torn down** (`scrubHomeCredentials` /
