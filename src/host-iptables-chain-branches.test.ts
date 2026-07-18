@@ -44,7 +44,7 @@ describe('host-iptables-chain branch coverage', () => {
         // iptables --version — fails with a non-ENOENT error
         .mockRejectedValueOnce(originalError);
 
-      await expect(checkPermissionsAndSetupChain('FW_TEST')).rejects.toThrow('Unexpected iptables failure');
+      await expect(checkPermissionsAndSetupChain('FW_TEST')).rejects.toBe(originalError);
     });
   });
 
