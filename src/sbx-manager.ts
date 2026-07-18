@@ -25,6 +25,7 @@
 import execa from 'execa';
 import * as fs from 'fs';
 import * as path from 'path';
+import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
 import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
 import { credentialEntriesUnderMountedParents } from './config/mount-policy';
@@ -79,11 +80,9 @@ export function sanitizeEnvForSbx(
   overrides: Record<string, string> = {},
 ): Record<string, string | undefined> {
   const clean: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!SECRET_ENV_PATTERNS.some((p) => p.test(key))) {
-      clean[key] = value;
-    }
-  }
+  copyEnvEntries(process.env, clean, {
+    keyPredicate: (key) => !SECRET_ENV_PATTERNS.some((p) => p.test(key)),
+  });
   return { ...clean, ...overrides };
 }
 

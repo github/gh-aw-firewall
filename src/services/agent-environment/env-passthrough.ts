@@ -1,4 +1,5 @@
 import { MAX_ENV_VALUE_SIZE } from '../../constants';
+import { copyEnvEntries } from '../../env-utils';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 
@@ -13,16 +14,14 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
 
   if (config.envAll) {
     const skippedLargeVars: string[] = [];
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !excludedEnvVars.has(key) && !Object.prototype.hasOwnProperty.call(environment, key)) {
-        const valueSizeBytes = Buffer.byteLength(value, 'utf8');
-        if (valueSizeBytes > MAX_ENV_VALUE_SIZE) {
-          skippedLargeVars.push(`${key} (${(valueSizeBytes / 1024).toFixed(0)} KB)`);
-          continue;
-        }
-        environment[key] = value;
-      }
-    }
+    copyEnvEntries(process.env, environment, {
+      excludedKeys: excludedEnvVars,
+      noOverwrite: true,
+      maxValueSizeBytes: MAX_ENV_VALUE_SIZE,
+      onSkippedOversized: (key, sizeBytes) => {
+        skippedLargeVars.push(`${key} (${(sizeBytes / 1024).toFixed(0)} KB)`);
+      },
+    });
 
     if (skippedLargeVars.length > 0) {
       logger.warn(`Skipped ${skippedLargeVars.length} oversized env var(s) from --env-all passthrough (>${(MAX_ENV_VALUE_SIZE / 1024).toFixed(0)} KB each):`);

@@ -1,3 +1,4 @@
+import { copyEnvEntries } from '../../env-utils';
 import { SslConfig } from '../../host-env';
 import { WrapperConfig } from '../../types';
 
@@ -13,13 +14,11 @@ export function buildOtelEnvironment(params: OtelEnvironmentParams): void {
     return;
   }
 
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith('OTEL_') && value !== undefined
-        && !excludedEnvVars.has(key)
-        && !Object.prototype.hasOwnProperty.call(environment, key)) {
-      environment[key] = value;
-    }
-  }
+  copyEnvEntries(process.env, environment, {
+    excludedKeys: excludedEnvVars,
+    noOverwrite: true,
+    keyPredicate: (key) => key.startsWith('OTEL_'),
+  });
 }
 
 export function buildSslEnvironment(environment: Record<string, string>, sslConfig?: SslConfig): void {
