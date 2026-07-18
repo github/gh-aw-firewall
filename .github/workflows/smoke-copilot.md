@@ -11,8 +11,8 @@ on:
   reaction: "eyes"
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
+  issues: read
   actions: read
   copilot-requests: write
 name: Smoke Copilot
