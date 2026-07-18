@@ -1,17 +1,33 @@
 import execa from 'execa';
 import { logger } from './logger';
 import { getLocalDockerEnv } from './docker-host';
+import {
+  NETWORK_NAME,
+  NETWORK_SUBNET,
+  SQUID_IP,
+  AGENT_IP,
+  API_PROXY_IP,
+  DOH_PROXY_IP,
+  CLI_PROXY_IP,
+  HOST_GATEWAY,
+} from './config/network-policy';
 
-export const NETWORK_NAME = 'awf-net';
+// Network topology (names, subnet, static IPs) is centralized in
+// src/config/sandbox-network-policy.json and re-exported here so existing
+// import sites keep working unchanged.
+export {
+  NETWORK_NAME,
+  NETWORK_SUBNET,
+  SQUID_IP,
+  AGENT_IP,
+  API_PROXY_IP,
+  DOH_PROXY_IP,
+  CLI_PROXY_IP,
+};
+
 export const CHAIN_NAME = 'FW_WRAPPER';
 export const CHAIN_NAME_V6 = 'FW_WRAPPER_V6';
-export const NETWORK_SUBNET = '172.30.0.0/24';
-export const AWF_NETWORK_GATEWAY = '172.30.0.1';
-export const SQUID_IP = '172.30.0.10';
-export const AGENT_IP = '172.30.0.20';
-export const API_PROXY_IP = '172.30.0.30';
-export const DOH_PROXY_IP = '172.30.0.40';
-export const CLI_PROXY_IP = '172.30.0.50';
+export const AWF_NETWORK_GATEWAY = HOST_GATEWAY;
 
 // Cache for ip6tables availability check (only checked once per run)
 let ip6tablesAvailableCache: boolean | null = null;

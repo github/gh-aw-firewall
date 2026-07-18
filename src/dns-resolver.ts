@@ -1,11 +1,16 @@
 import * as fs from 'fs';
 import { isIP } from 'net';
 import { logger as defaultLogger } from './logger';
+import { DEFAULT_DNS_SERVERS } from './config/network-policy';
 
 type Logger = typeof defaultLogger;
 
-/** Fallback when no usable resolvers are detected on the host */
-export const DEFAULT_DNS_SERVERS = ['8.8.8.8', '8.8.4.4'];
+/**
+ * Fallback when no usable resolvers are detected on the host.
+ * Centralized in src/config/sandbox-network-policy.json and re-exported here so
+ * existing import sites keep working unchanged.
+ */
+export { DEFAULT_DNS_SERVERS };
 
 /**
  * Paths to try for resolv.conf, in priority order.

@@ -4,14 +4,16 @@ import execa from 'execa';
 import * as yaml from 'js-yaml';
 import { getLocalDockerEnv } from './docker-host';
 import { logger } from './logger';
+import { NETWORK_NAME } from './config/network-policy';
 
 /**
  * Deterministic name of the internal Docker network used by network-isolation
  * (topology) mode. Pinned via `name:` in the generated compose file so that
  * externally-launched trusted containers (mcp-gateway, DIFC proxy) can be
  * attached to it with a stable `docker network connect <TOPOLOGY_NETWORK_NAME>`.
+ * Centralized in src/config/sandbox-network-policy.json.
  */
-export const TOPOLOGY_NETWORK_NAME = 'awf-net';
+export const TOPOLOGY_NETWORK_NAME = NETWORK_NAME;
 
 const DAEMON_PING_TIMEOUT_MS = 5000;
 const DAEMON_PING_RETRIES = 3;
