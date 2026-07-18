@@ -45,6 +45,26 @@ describe('network-policy', () => {
       expect(networkPolicy.dns.embeddedResolver).toBe('127.0.0.11');
       expect(networkPolicy.legacyIptables.blockedPorts.length).toBeGreaterThan(0);
     });
+
+    it('deeply freezes the policy tree, including nested objects and arrays', () => {
+      expect(Object.isFrozen(networkPolicy)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.topology)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.topology.hosts)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.topology.hosts.squid)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.proxies.apiProxy.ports)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.dns.defaultUpstreamServers)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.legacyIptables.blockedPorts)).toBe(true);
+      expect(Object.isFrozen(networkPolicy.legacyIptables.blockedPorts[0])).toBe(true);
+    });
+
+    it('prevents live accessors from diverging via mutation', () => {
+      // The object returned by apiProxyPorts() is the frozen policy node, so a
+      // stray mutation cannot silently change it out from under other callers.
+      expect(Object.isFrozen(apiProxyPorts())).toBe(true);
+      expect(() => {
+        (apiProxyPorts() as { openai: number }).openai = 1;
+      }).toThrow();
+    });
   });
 
   describe('topology invariants', () => {

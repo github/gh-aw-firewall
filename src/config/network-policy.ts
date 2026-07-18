@@ -293,8 +293,24 @@ function validate(input: unknown): NetworkPolicy {
   };
 }
 
-/** The validated, frozen network policy loaded from the JSON config. */
-export const networkPolicy: NetworkPolicy = validate(rawPolicy);
+/**
+ * Recursively freezes an object tree so the exported policy is immutable at
+ * runtime, not just in the type system (`readonly` is erased by `tsc`). This
+ * guarantees live accessors like {@link apiProxyPorts} can never diverge from
+ * constants captured during module initialization.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** The validated, deeply-frozen network policy loaded from the JSON config. */
+export const networkPolicy: NetworkPolicy = deepFreeze(validate(rawPolicy));
 
 // ---------------------------------------------------------------------------
 // CORE accessors — consumed by the default network-isolation (topology) path.
@@ -306,7 +322,7 @@ export const NETWORK_NAME: string = networkPolicy.topology.networkName;
 /** Name of the external bridge network Squid is dual-homed onto (sole egress). */
 export const EXTERNAL_BRIDGE_NAME: string = networkPolicy.topology.externalBridgeName;
 
-/** Default IPv4 subnet (CIDR) of the internal topology network. */
+/** IPv4 subnet (CIDR) of the internal topology network, shared by all runtimes. */
 export const NETWORK_SUBNET: string = networkPolicy.topology.subnet;
 
 /** Fixed IP of the Squid egress proxy on the internal network. */

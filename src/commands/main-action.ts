@@ -32,7 +32,7 @@ import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
-import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP } from '../host-iptables-shared';
+import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from '../host-iptables-shared';
 
 /** Report whether a secret is set (and its length) without exposing the value. */
 function redactSecret(value: string | undefined): string {
@@ -279,7 +279,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           sbxEnvironment = buildAgentEnvironment({
             config,
             networkConfig: {
-              subnet: '172.30.0.0/24',
+              subnet: NETWORK_SUBNET,
               squidIp: SBX_GATEWAY_IP,
               agentIp: AGENT_IP,
               proxyIp: config.enableApiProxy ? SBX_HOST_DOCKER_INTERNAL : undefined,
@@ -297,7 +297,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             const credentialEnv = buildAgentCredentialEnv({
               config,
               networkConfig: {
-                subnet: '172.30.0.0/24',
+                subnet: NETWORK_SUBNET,
                 squidIp: SBX_GATEWAY_IP,
                 agentIp: AGENT_IP,
                 proxyIp: SBX_HOST_DOCKER_INTERNAL,

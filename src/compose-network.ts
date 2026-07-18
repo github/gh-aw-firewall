@@ -55,7 +55,7 @@ export function buildComposeNetworks(params: BuildComposeNetworksParams): Docker
             config: [{ subnet: networkConfig.subnet }],
           },
         },
-        'awf-ext': {
+        [EXTERNAL_BRIDGE_NAME]: {
           driver: 'bridge',
         },
       },
