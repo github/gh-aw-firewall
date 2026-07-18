@@ -52,7 +52,6 @@
       { "path": ".cargo/credentials", "type": "file", "reason": "crates.io registry token" },
       { "path": ".cargo/credentials.toml", "type": "file", "reason": "crates.io registry token (newer cargo)" },
       { "path": ".claude/.credentials.json", "type": "file", "reason": "Claude Code OAuth tokens" },
-      { "path": ".copilot/config.json", "type": "file", "reason": "Copilot CLI persisted auth token" },
       { "path": ".gemini/oauth_creds.json", "type": "file", "reason": "Gemini CLI OAuth tokens" },
       { "path": ".gemini/google_accounts.json", "type": "file", "reason": "Gemini CLI account identity" },
       { "path": ".gemini/access_tokens.json", "type": "file", "reason": "Gemini CLI cached access tokens" },

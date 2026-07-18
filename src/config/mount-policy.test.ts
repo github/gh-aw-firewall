@@ -117,7 +117,7 @@ describe('mount-policy', () => {
 
       expect(paths).toContain('.config/gh');
       expect(paths).toContain('.cargo/credentials');
-      expect(paths).toContain('.copilot/config.json');
+      expect(paths).toContain('.claude/.credentials.json');
       // Never-mounted parents are excluded.
       expect(paths).not.toContain('.ssh/id_rsa');
       expect(paths).not.toContain('.aws/credentials');

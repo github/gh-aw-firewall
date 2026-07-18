@@ -268,7 +268,7 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // individual file, so child-by-child expansion would drop loose files the
   // agent needs (e.g. ~/.copilot/mcp-config.json). Several of these dirs also
   // nest a credential store — e.g. .config/gh, .cargo/credentials,
-  // .claude/.credentials.json, .copilot/config.json, .gemini/oauth_creds.json.
+  // .claude/.credentials.json, .gemini/oauth_creds.json.
   // Those specific paths are moved aside on the host BEFORE `sbx create` (see
   // scrubHomeCredentials below) and restored after teardown, so the benign tool
   // state stays available while the secrets never enter the microVM.
