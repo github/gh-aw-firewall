@@ -64,6 +64,8 @@ export function fixArtifactPermissionsForRootless(
           'DAC_OVERRIDE',
           '--cap-add',
           'FOWNER',
+          '--entrypoint',
+          'sh',
           '-e',
           `TUID=${uid}`,
           '-e',
@@ -71,7 +73,6 @@ export function fixArtifactPermissionsForRootless(
           '-v',
           mount,
           imageRef,
-          'sh',
           '-c',
           'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
         ],
@@ -80,6 +81,8 @@ export function fixArtifactPermissionsForRootless(
 
       if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
         const stderr = result.stderr?.trim();
+        const stdout = result.stdout?.trim();
+        const errorDetail = stderr || stdout;
         // Ownership/permission repair is best-effort: the agent has already
         // finished and its artifacts are still readable by the owning user.
         // On rootless or restricted runners (e.g. ARC/DinD with a non-root
@@ -88,8 +91,8 @@ export function fixArtifactPermissionsForRootless(
         // expected and non-fatal, so log them at debug to avoid alarming users
         // who otherwise see a scary WARN for a benign, non-blocking condition.
         const isBenignPermissionError =
-          !!stderr && /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|EPERM|EACCES)/i.test(stderr);
-        const detail = `for ${dir} (exit ${result.exitCode})` + (stderr ? `: ${stderr}` : '');
+          !!errorDetail && /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|EPERM|EACCES)/i.test(errorDetail);
+        const detail = `for ${dir} (exit ${result.exitCode})` + (errorDetail ? `: ${errorDetail}` : '');
         if (isBenignPermissionError) {
           logger.debug(
             `Rootless artifact permission repair skipped ${detail}. ` +
