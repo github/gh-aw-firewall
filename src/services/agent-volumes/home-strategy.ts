@@ -45,6 +45,7 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
 
   for (const subdir of HOME_TOOL_SUBDIRS) {
     if (subdir === '.copilot') continue; // handled specially above (existence check + session-state/logs sub-mounts)
+    if (subdir === '.gemini' && !config.geminiApiKey && !config.googleApiKey) continue; // only mount when Gemini/Vertex credentials are present
     mounts.push(`${effectiveHome}/${subdir}:/host${effectiveHome}/${subdir}:rw`);
   }
 
