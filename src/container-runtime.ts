@@ -114,6 +114,33 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
   },
 };
 
+/**
+ * Aliases for runtime names that should resolve to the same capabilities as a
+ * canonical registry entry.  This lets users pass either the friendly name
+ * (`gvisor`) or the raw Docker OCI runtime name (`runsc`) and get identical
+ * behavior — without an alias, `runsc` would fall through to the unknown-runtime
+ * defaults (iptables-capable), reintroducing the gVisor egress bug.
+ */
+const RUNTIME_ALIASES: Readonly<Record<string, string>> = {
+  runsc: 'gvisor',
+};
+
+/**
+ * Canonicalizes a user-facing runtime name to its registry key, following the
+ * alias table.  Unknown names are returned unchanged.
+ */
+function canonicalRuntime(runtime: string): string {
+  return RUNTIME_ALIASES[runtime] ?? runtime;
+}
+
+/**
+ * Looks up the capabilities for a runtime name, following aliases.  Returns
+ * `undefined` for unknown names (raw Docker runtime identifiers / default runc).
+ */
+function lookupCapabilities(runtime: string): RuntimeCapabilities | undefined {
+  return RUNTIME_REGISTRY[canonicalRuntime(runtime)];
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -124,7 +151,7 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
  * runtime field.
  */
 export function resolveDockerRuntime(runtime: string): string | undefined {
-  const entry = RUNTIME_REGISTRY[runtime];
+  const entry = lookupCapabilities(runtime);
   if (entry) return entry.dockerRuntime;
   // Unknown name — pass through as a raw Docker runtime identifier
   return runtime;
@@ -140,7 +167,7 @@ export function resolveDockerRuntime(runtime: string): string | undefined {
  */
 export function runtimeNeedsStaticDns(runtime: string | undefined): boolean {
   if (!runtime) return false;
-  return RUNTIME_REGISTRY[runtime]?.needsStaticDns ?? false;
+  return lookupCapabilities(runtime)?.needsStaticDns ?? false;
 }
 
 /**
@@ -157,7 +184,7 @@ export function runtimeNeedsStaticDns(runtime: string | undefined): boolean {
  */
 export function runtimeUsesIptables(runtime: string | undefined): boolean {
   if (!runtime) return true;
-  return RUNTIME_REGISTRY[runtime]?.usesIptables ?? true;
+  return lookupCapabilities(runtime)?.usesIptables ?? true;
 }
 
 /**
@@ -172,7 +199,18 @@ export function runtimeUsesIptables(runtime: string | undefined): boolean {
  */
 export function runtimeUsesComposeAgent(runtime: string | undefined): boolean {
   if (!runtime) return true;
-  const entry = RUNTIME_REGISTRY[runtime];
+  const entry = lookupCapabilities(runtime);
   if (!entry) return true; // unknown runtime → assume compose
   return entry.executionModel === 'compose';
+}
+
+/**
+ * Returns `true` when the configured runtime is gVisor, accepting either the
+ * friendly name (`gvisor`) or the raw Docker OCI runtime name (`runsc`).  Use
+ * this instead of a direct `=== 'gvisor'` comparison so both spellings are
+ * handled consistently.
+ */
+export function isGvisorRuntime(runtime: string | undefined): boolean {
+  if (!runtime) return false;
+  return canonicalRuntime(runtime) === 'gvisor';
 }

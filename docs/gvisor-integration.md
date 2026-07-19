@@ -217,12 +217,28 @@ container for gVisor at all** — the runtime is registered with
 - sets `AWF_SKIP_IPTABLES_INIT=1` so `entrypoint.sh` doesn't wait for the (absent)
   init-container ready-file handshake.
 
-Egress is enforced **solely** through the `HTTP_PROXY`/`HTTPS_PROXY` env vars
-pointing at Squid. Because the iptables NAT bypass for the MCP gateway is gone,
-`proxy-environment.ts` adds the network gateway IP (e.g. `172.30.0.1`) and
-`host.docker.internal` to `NO_PROXY` for non-iptables runtimes, so proxy-aware
-MCP clients (rmcp) connect to the gateway **directly** instead of being routed
-through Squid and rejected with `403 ERR_ACCESS_DENIED`.
+**Internet egress** for proxy-aware clients is routed through Squid via the
+`HTTP_PROXY`/`HTTPS_PROXY` env vars. There is one deliberate exception: because
+the iptables NAT bypass for the MCP gateway is gone, `proxy-environment.ts` adds
+the network gateway IP (e.g. `172.30.0.1`) and `host.docker.internal` to
+`NO_PROXY` for non-iptables runtimes, so proxy-aware MCP clients (rmcp) connect
+to the gateway **directly** instead of being routed through Squid and rejected
+with `403 ERR_ACCESS_DENIED`.
+
+Note that `NO_PROXY`/`HTTP_PROXY` are **client-side routing hints, not a security
+boundary** — the agent controls its own environment and could reach the gateway
+with or without them. The enforced egress boundary is external to the agent and
+runtime-independent:
+
+- **Strict/default mode** (`networkIsolation: true`): the agent sits on an
+  internal Docker network with no route off-host except through the dual-homed
+  Squid; the network topology is the boundary.
+- **Legacy mode** (`networkIsolation: false`): host-level iptables in the
+  `DOCKER-USER` (FORWARD) chain default-denies container→internet traffic
+  (`host-iptables-rules.ts`) — this is what produces "No route to host" and is
+  unaffected by which runtime the agent uses. The container-level iptables that
+  gVisor skips was only ever a defense-in-depth DNAT fallback, never the primary
+  boundary.
 
 :::caution Proxy-unaware tools under gVisor
 With no iptables DNAT fallback, tools that ignore `HTTP_PROXY`/`HTTPS_PROXY`

@@ -3,6 +3,7 @@ import { COPILOT_PLACEHOLDER_TOKEN } from '../../constants/placeholders';
 import { logger } from '../../logger';
 import { extractCommandBinaryName, shouldUseDockerHostStaging } from '../agent-volumes/docker-host-staging';
 import { WrapperConfig } from '../../types';
+import { isGvisorRuntime } from '../../container-runtime';
 
 interface ToolEnvironmentParams {
   config: WrapperConfig;
@@ -50,7 +51,7 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
   // BUN_JSC_useJIT=0 forces Bun into interpreter-only mode, which is slower
   // but avoids the observed crashes.
   // Reference: https://github.com/oven-sh/bun/issues/22901
-  if (isClaudeCommand && config.containerRuntime === 'gvisor') {
+  if (isClaudeCommand && isGvisorRuntime(config.containerRuntime)) {
     environment.BUN_JSC_useJIT = '0';
     logger.info('gVisor runtime detected with Claude — disabled Bun JIT (BUN_JSC_useJIT=0)');
   }
