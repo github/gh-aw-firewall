@@ -438,12 +438,14 @@ The default protected token list is:
 ```
 COPILOT_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, GITHUB_API_TOKEN,
 GITHUB_PAT, GH_ACCESS_TOKEN, OPENAI_API_KEY, OPENAI_KEY,
-ANTHROPIC_API_KEY, CLAUDE_API_KEY, CODEX_API_KEY,
-COPILOT_PROVIDER_API_KEY
+ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_API_KEY,
+CODEX_API_KEY, COPILOT_PROVIDER_API_KEY
 ```
 
-Placeholder compatibility values (§9.2 item 3) are not secrets and MUST
-NOT be subject to one-shot protection.
+Placeholder compatibility values (§9.2 item 3) are not secrets. However,
+provider credential variable names such as `ANTHROPIC_AUTH_TOKEN` MAY remain
+on the protection list as defense-in-depth so unexpectedly forwarded real
+credentials are still scrubbed on first read.
 
 ### 9.5 OIDC Authentication
 

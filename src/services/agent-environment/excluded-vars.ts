@@ -26,6 +26,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('OPENAI_KEY');
     excludedEnvVars.add('CODEX_API_KEY');
     excludedEnvVars.add('ANTHROPIC_API_KEY');
+    excludedEnvVars.add('ANTHROPIC_AUTH_TOKEN');
     excludedEnvVars.add('CLAUDE_API_KEY');
     excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
     excludedEnvVars.add('COPILOT_PROVIDER_API_KEY');

@@ -431,6 +431,7 @@ unset_sensitive_tokens() {
     "OPENAI_KEY"
     # Anthropic/Claude tokens
     "ANTHROPIC_API_KEY"
+    "ANTHROPIC_AUTH_TOKEN"
     "CLAUDE_API_KEY"
     "CLAUDE_CODE_OAUTH_TOKEN"
     # Codex tokens
