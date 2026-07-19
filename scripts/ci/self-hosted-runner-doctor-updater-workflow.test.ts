@@ -29,6 +29,6 @@ describe('runner doctor updater workflow config', () => {
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
     expect(lock).toContain('Compute scan window');
     expect(lock).toMatch(/memory-none-nopolicy-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-/);
-    expect(lock).toMatch(/github\/gh-aw-actions\/setup@[a-f0-9]{40}/);
+    expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
   });
 });
