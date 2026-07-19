@@ -71,7 +71,7 @@ env:
   # AWF_AUTH_* are set at workflow-level env (rather than engine.env) because
   # gh-aw's strict mode allowlist for engine.env does not currently include
   # the AWF_AUTH_AZURE_* variables. awf reads these from the agent step's
-  # process.env (via `sudo -E awf …`) and forwards them to the api-proxy
+  # process.env (via `awf …`) and forwards them to the api-proxy
   # sidecar (see src/services/api-proxy-service-config.ts), which uses them
   # for the GitHub OIDC → Azure AD federated-credential token exchange. The
   # agent container itself does not need these values — only the sidecar.
