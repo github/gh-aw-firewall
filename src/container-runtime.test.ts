@@ -1,4 +1,4 @@
-import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
+import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent, runtimeUsesIptables } from './container-runtime';
 import { sanitizeEnvForSbx } from './sbx-manager';
 
 describe('container-runtime', () => {
@@ -38,8 +38,27 @@ describe('container-runtime', () => {
     });
   });
 
-  describe('runtimeUsesComposeAgent', () => {
-    it('returns true when no runtime is configured', () => {
+  describe('runtimeUsesIptables', () => {
+    it('returns false for gvisor (isolated netstack)', () => {
+      expect(runtimeUsesIptables('gvisor')).toBe(false);
+    });
+
+    it('returns false for sbx (microVM manages own egress)', () => {
+      expect(runtimeUsesIptables('sbx')).toBe(false);
+    });
+
+    it('returns true for unknown runtimes (share host netns)', () => {
+      expect(runtimeUsesIptables('kata')).toBe(true);
+      expect(runtimeUsesIptables('runsc')).toBe(true);
+    });
+
+    it('returns true for undefined/empty (default runc)', () => {
+      expect(runtimeUsesIptables(undefined)).toBe(true);
+      expect(runtimeUsesIptables('')).toBe(true);
+    });
+  });
+
+  describe('runtimeUsesComposeAgent', () => {    it('returns true when no runtime is configured', () => {
       expect(runtimeUsesComposeAgent(undefined)).toBe(true);
     });
 

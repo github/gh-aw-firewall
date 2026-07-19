@@ -7,6 +7,7 @@ import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
+import { runtimeUsesIptables } from '../container-runtime';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 interface AssembleOptionalServicesParams {
@@ -43,6 +44,13 @@ function presetSidecarIpEnvVars(
   if (config.networkIsolation) {
     // Tell the agent entrypoint to skip the iptables-init handshake.
     environment.AWF_NETWORK_ISOLATION = '1';
+  }
+
+  if (!runtimeUsesIptables(config.containerRuntime)) {
+    // Runtimes whose network stack can't be governed by host-netns iptables
+    // (e.g. gVisor's isolated netstack) have no iptables-init container, so the
+    // ready-file handshake would never complete.  Tell the entrypoint to skip it.
+    environment.AWF_SKIP_IPTABLES_INIT = '1';
   }
 }
 
@@ -144,9 +152,9 @@ function assembleSysrootService(
 
 function assembleIptablesInitService(
   params: AssembleOptionalServicesParams,
-  networkIsolation: boolean,
+  skipIptables: boolean,
 ): void {
-  if (networkIsolation) return;
+  if (skipIptables) return;
 
   const { services, agentService, environment, config, networkConfig, initSignalDir } = params;
 
@@ -250,10 +258,15 @@ export function assembleOptionalServices(
   const includeComposeAgent = params.includeComposeAgent !== false;
   const sysrootActive = isSysrootEnabled(config);
 
+  // Skip the iptables-init container when egress isn't governed by host-netns
+  // iptables — either topology-based network isolation, or a runtime whose
+  // network stack can't use those rules (e.g. gVisor's isolated netstack).
+  const skipIptables = networkIsolation || !runtimeUsesIptables(config.containerRuntime);
+
   presetSidecarIpEnvVars(environment, config, networkConfig);
   if (includeComposeAgent) {
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
-    assembleIptablesInitService(params, networkIsolation);
+    assembleIptablesInitService(params, skipIptables);
   }
   assembleApiProxyService(params);
   assembleDohProxyService(params);

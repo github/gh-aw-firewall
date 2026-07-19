@@ -139,8 +139,11 @@ wait_for_iptables() {
 #
 # In network-isolation (topology) mode there is no iptables-init container —
 # egress is enforced by Docker network topology — so skip the handshake.
-if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ]; then
-  echo "[entrypoint] Network-isolation mode: skipping iptables init container wait"
+# Likewise for runtimes whose network stack can't be governed by host-netns
+# iptables (e.g. gVisor's isolated netstack): AWF_SKIP_IPTABLES_INIT is set and
+# egress relies on the HTTP_PROXY/HTTPS_PROXY env vars instead.
+if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ] || [ "${AWF_SKIP_IPTABLES_INIT:-}" = "1" ]; then
+  echo "[entrypoint] iptables-init skipped (proxy-based egress): skipping init container wait"
 else
   echo "[entrypoint] Waiting for iptables initialization from init container..."
   INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds

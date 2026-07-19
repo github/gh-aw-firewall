@@ -74,6 +74,21 @@ interface RuntimeCapabilities {
    * @see https://github.com/google/gvisor/issues/7469
    */
   readonly needsStaticDns: boolean;
+
+  /**
+   * When `true`, AWF sets up egress control via the `awf-iptables-init` container,
+   * which applies host-netns iptables DNAT/RETURN rules inside the agent's network
+   * namespace (redirect port 80/443 → Squid, and bypass Squid for the MCP gateway).
+   *
+   * When `false`, those rules cannot govern the agent's traffic — e.g. gVisor's
+   * userspace netstack is isolated from the host network namespace, so the
+   * iptables-init container is skipped entirely and egress relies solely on the
+   * `HTTP_PROXY`/`HTTPS_PROXY` env vars plus `NO_PROXY` (the MCP gateway is reached
+   * directly instead of via an iptables bypass).
+   *
+   * @see https://github.com/google/gvisor/issues/7469
+   */
+  readonly usesIptables: boolean;
 }
 
 /**
@@ -86,12 +101,16 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
     executionModel: 'compose',
     dockerRuntime: 'runsc',
     needsStaticDns: true,
+    // gVisor's isolated netstack can't be governed by host-netns iptables rules,
+    // so skip the iptables-init container and route egress via proxy env vars.
+    usesIptables: false,
   },
   // Future: Docker sbx microVM backend
   sbx: {
     executionModel: 'microvm',
     dockerRuntime: undefined,
     needsStaticDns: false,   // sbx manages its own DNS
+    usesIptables: false,     // microVM manages its own network egress
   },
 };
 
@@ -122,6 +141,23 @@ export function resolveDockerRuntime(runtime: string): string | undefined {
 export function runtimeNeedsStaticDns(runtime: string | undefined): boolean {
   if (!runtime) return false;
   return RUNTIME_REGISTRY[runtime]?.needsStaticDns ?? false;
+}
+
+/**
+ * Returns `true` when AWF should set up egress control for the runtime via the
+ * `awf-iptables-init` container (host-netns iptables DNAT/RETURN rules).
+ *
+ * Returns `false` for runtimes whose network stack cannot be governed by those
+ * rules (e.g. gVisor's isolated netstack, or microVM backends that manage their
+ * own egress).  For these, AWF skips the iptables-init container and relies on
+ * proxy env vars + `NO_PROXY`.
+ *
+ * Defaults to `true` for unknown/undefined runtimes (raw Docker runtime names
+ * and the default runc), which share the host network namespace.
+ */
+export function runtimeUsesIptables(runtime: string | undefined): boolean {
+  if (!runtime) return true;
+  return RUNTIME_REGISTRY[runtime]?.usesIptables ?? true;
 }
 
 /**
