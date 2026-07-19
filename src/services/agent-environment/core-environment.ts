@@ -13,13 +13,7 @@ export function buildCoreEnvironment(params: AgentEnvironmentParams): Record<str
     SQUID_PROXY_HOST: 'squid-proxy',
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
-    // Prepend the user-local bin dir so rootless installs (e.g. `copilot`
-    // installed to ~/.local/bin by install_copilot_cli.sh --rootless on ARC/DinD
-    // runners) are resolvable by name. The compose runtimes rebuild PATH in
-    // entrypoint.sh (which already adds $HOME/.local/bin), but the sbx microVM
-    // runs `bash -lc` with exactly this injected PATH and has no entrypoint, so
-    // the entry must be present here for sbx to find the binary.
-    PATH: `${homeDir}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     ...(config.tty ? {
       FORCE_COLOR: '1',
       TERM: 'xterm-256color',

@@ -29,6 +29,7 @@ import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
 import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
 import { credentialEntriesUnderMountedParents } from './config/mount-policy';
+import { getRealUserHome } from './host-identity';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
@@ -271,7 +272,12 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // Those specific paths are moved aside on the host BEFORE `sbx create` (see
   // scrubHomeCredentials below) and restored after teardown, so the benign tool
   // state stays available while the secrets never enter the microVM.
-  const homePath = process.env.HOME || '/home/runner';
+  // Resolve the home the SAME way buildCoreEnvironment() does (getRealUserHome,
+  // which honors SUDO_USER), so the wholesale-mounted tool dirs land at exactly
+  // the $HOME the agent sees inside the VM. Using process.env.HOME here would
+  // diverge under sudo (e.g. /root vs /home/alice), mounting .local at a path
+  // the guest's $HOME never points at and hiding a rootless-installed binary.
+  const homePath = getRealUserHome();
   for (const subdir of HOME_TOOL_SUBDIRS) {
     const hostSubdir = `${homePath}/${subdir}`;
     if (seenPaths.has(hostSubdir)) continue;
@@ -341,6 +347,20 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
 }
 
 /**
+ * Wraps an agent command so the rootless install dir (~/.local/bin) is on PATH
+ * when it runs. sbx executes commands via a login shell (`bash -lc`), which
+ * sources /etc/profile — and on Debian/Ubuntu that unconditionally resets PATH,
+ * discarding anything injected via `--env PATH=...`. Prepending the export to
+ * the command itself runs AFTER login initialization, so a copilot binary
+ * installed rootless to ~/.local/bin (install_copilot_cli.sh --rootless) stays
+ * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
+ * which matches the wholesale-mounted home tool dirs.
+ */
+export function withLocalBinOnPath(command: string): string {
+  return `export PATH="$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
+}
+
+/**
  * Executes a command inside the sandbox, streaming stdout/stderr.
  * Returns the exit code of the command.
  */
@@ -364,7 +384,7 @@ export async function execInSandbox(
     }
   }
 
-  args.push(name, 'bash', '-lc', command);
+  args.push(name, 'bash', '-lc', withLocalBinOnPath(command));
 
   try {
     const result = await execa('sbx', args, {

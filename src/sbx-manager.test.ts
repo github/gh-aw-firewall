@@ -5,6 +5,7 @@ import {
   removeSandbox,
   restoreHomeCredentials,
   sanitizeEnvForSbx,
+  withLocalBinOnPath,
   SBX_DEFAULT_NAME,
 } from './sbx-manager';
 import * as fs from 'fs';
@@ -547,6 +548,24 @@ describe('sbx-manager', () => {
       expect(callOptions.timeout).toBe(5 * 60 * 1000);
     });
 
+    it('wraps the command so ~/.local/bin is on PATH after login init', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0 });
+
+      await execInSandbox('awf-agent-test', 'copilot --version');
+
+      const args: string[] = mockExecaFn.mock.calls[0][1];
+      // The command runs via a login shell (`bash -lc`) whose /etc/profile can
+      // reset PATH, so the export must be embedded in the command string.
+      expect(args).toContain('-lc');
+      const shellCommand = args[args.length - 1];
+      expect(shellCommand).toBe(
+        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
+      );
+      expect(shellCommand.indexOf('.local/bin')).toBeLessThan(
+        shellCommand.indexOf('copilot --version'),
+      );
+    });
+
     it('does not set timeout when timeoutMinutes is not specified', async () => {
       mockExecaFn.mockResolvedValueOnce({ exitCode: 0 });
 
@@ -554,6 +573,25 @@ describe('sbx-manager', () => {
 
       const callOptions = mockExecaFn.mock.calls[0][2];
       expect(callOptions.timeout).toBeUndefined();
+    });
+  });
+
+  describe('withLocalBinOnPath', () => {
+    it('prepends ~/.local/bin using the runtime $HOME', () => {
+      expect(withLocalBinOnPath('copilot')).toBe(
+        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot',
+      );
+    });
+
+    it('guards against an empty PATH producing a trailing colon', () => {
+      // ${PATH:+:$PATH} appends the existing PATH only when it is non-empty, so
+      // no empty element (which the shell treats as the cwd) is introduced.
+      expect(withLocalBinOnPath('x')).toContain('${PATH:+:$PATH}');
+    });
+
+    it('preserves the original command verbatim', () => {
+      const cmd = 'foo && bar | baz > out.txt';
+      expect(withLocalBinOnPath(cmd).endsWith(`; ${cmd}`)).toBe(true);
     });
   });
 
