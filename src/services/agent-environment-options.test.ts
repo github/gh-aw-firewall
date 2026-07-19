@@ -99,7 +99,10 @@ describe('agent environment: options', () => {
 
       // Should NOT pass through excluded vars
       expect(env.PATH).not.toBe(originalPath);
-      expect(env.PATH).toBe('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
+      expect(env.PATH).toContain('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
+      // Rootless-install location must be on PATH so sbx can resolve binaries
+      // installed to ~/.local/bin (e.g. copilot via --rootless).
+      expect(env.PATH).toMatch(/\/\.local\/bin:/);
 
       // Should pass through non-excluded vars
       expect(env.CUSTOM_HOST_VAR).toBe('test_value');
