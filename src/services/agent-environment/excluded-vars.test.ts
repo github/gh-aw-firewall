@@ -74,6 +74,10 @@ describe('buildExclusionSet', () => {
       expect(buildExclusionSet(config).has('ANTHROPIC_API_KEY')).toBe(true);
     });
 
+    it('should exclude ANTHROPIC_AUTH_TOKEN', () => {
+      expect(buildExclusionSet(config).has('ANTHROPIC_AUTH_TOKEN')).toBe(true);
+    });
+
     it('should exclude CLAUDE_API_KEY', () => {
       expect(buildExclusionSet(config).has('CLAUDE_API_KEY')).toBe(true);
     });
@@ -128,6 +132,10 @@ describe('buildExclusionSet', () => {
 
     it('should NOT exclude ANTHROPIC_API_KEY', () => {
       expect(buildExclusionSet(config).has('ANTHROPIC_API_KEY')).toBe(false);
+    });
+
+    it('should NOT exclude ANTHROPIC_AUTH_TOKEN', () => {
+      expect(buildExclusionSet(config).has('ANTHROPIC_AUTH_TOKEN')).toBe(false);
     });
 
     it('should NOT exclude COPILOT_GITHUB_TOKEN', () => {
@@ -215,6 +223,7 @@ describe('buildExclusionSet', () => {
       });
       const set = buildExclusionSet(config);
       expect(set.has('ANTHROPIC_API_KEY')).toBe(true);
+      expect(set.has('ANTHROPIC_AUTH_TOKEN')).toBe(true);
       expect(set.has('GITHUB_TOKEN')).toBe(true);
       expect(set.has('CUSTOM_SECRET')).toBe(true);
       expect(set.has('PATH')).toBe(true);

@@ -1,6 +1,7 @@
 import { WrapperConfig } from '../../types';
 import { NetworkConfig } from '../squid-service';
 import { buildNoProxyValue } from '../no-proxy-utils';
+import { runtimeUsesIptables } from '../../container-runtime';
 
 interface ProxyEnvironmentParams {
   config: WrapperConfig;
@@ -13,7 +14,13 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
 
   const noProxyHosts: string[] = ['0.0.0.0', networkConfig.squidIp, networkConfig.agentIp];
 
-  if (config.enableHostAccess) {
+  // The MCP gateway is served on the network gateway (e.g. 172.30.0.1). In
+  // standard mode an iptables NAT RETURN rule bypasses Squid for it. Runtimes
+  // whose netstack can't use host-netns iptables (e.g. gVisor) have no such
+  // bypass, so add the gateway to NO_PROXY so proxy-aware clients (rmcp) connect
+  // to it directly instead of being routed through Squid and rejected.
+  const gatewayNeedsNoProxy = config.enableHostAccess || !runtimeUsesIptables(config.containerRuntime);
+  if (gatewayNeedsNoProxy) {
     const subnetBase = networkConfig.subnet.split('/')[0];
     const parts = subnetBase.split('.');
     const networkGatewayIp = `${parts[0]}.${parts[1]}.${parts[2]}.1`;

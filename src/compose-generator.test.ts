@@ -321,6 +321,45 @@ describe('generateDockerCompose', () => {
       });
     });
 
+    describe('gVisor runtime (non-iptables compose agent)', () => {
+      it('omits iptables-init but keeps the compose agent when networkIsolation is false', () => {
+        const config = {
+          ...mockConfig,
+          containerRuntime: 'gvisor',
+          networkIsolation: false,
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services.agent).toBeDefined();
+        expect(result.services['iptables-init']).toBeUndefined();
+      });
+
+      it('sets AWF_SKIP_IPTABLES_INIT (not AWF_NETWORK_ISOLATION) in the agent environment', () => {
+        const config = {
+          ...mockConfig,
+          containerRuntime: 'gvisor',
+          networkIsolation: false,
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services.agent.environment?.AWF_SKIP_IPTABLES_INIT).toBe('1');
+        expect(result.services.agent.environment?.AWF_NETWORK_ISOLATION).toBeUndefined();
+      });
+
+      it('treats the raw runsc runtime name the same as gvisor', () => {
+        const config = {
+          ...mockConfig,
+          containerRuntime: 'runsc',
+          networkIsolation: false,
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+
+        expect(result.services.agent).toBeDefined();
+        expect(result.services['iptables-init']).toBeUndefined();
+        expect(result.services.agent.environment?.AWF_SKIP_IPTABLES_INIT).toBe('1');
+      });
+    });
+
     describe('microVM runtime (sbx)', () => {
       it('omits compose agent and agent-only helper services', () => {
         const config = {

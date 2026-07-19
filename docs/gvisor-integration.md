@@ -99,8 +99,8 @@ gVisor is registered with `executionModel: 'compose'`:
 
 ```ts
 const RUNTIME_REGISTRY = {
-  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true },
-  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false },
+  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true, usesIptables: false },
+  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
 };
 ```
 
@@ -204,14 +204,51 @@ every static hostname into `/host/etc/hosts`. A new netstack-based runtime must
 account for both files.
 :::
 
-### iptables DNAT must work inside the sandbox
+### gVisor skips iptables entirely (proxy-based egress)
 
-AWF's defense-in-depth relies on iptables DNAT (port 80/443 → Squid:3128) applied
-inside the agent's network namespace. gVisor must support those rules for that
-fallback to hold. `.github/workflows/test-gvisor-compat.yml` is a **manual,
-non-gating diagnostic probe** that exercises iptables DNAT and proxy reachability
-inside a `runsc` sandbox; it is useful evidence, but not an enforced guarantee in
-CI.
+gVisor's userspace netstack is **isolated from the host network namespace**, so
+the host-netns iptables DNAT/RETURN rules that `awf-iptables-init` installs
+(port 80/443 → Squid, plus the NAT `RETURN` bypass for the MCP gateway) never
+govern the sandbox's traffic. AWF therefore **does not run the iptables-init
+container for gVisor at all** — the runtime is registered with
+`usesIptables: false` in `container-runtime.ts`, which:
+
+- skips `assembleIptablesInitService()` (`optional-services.ts`), and
+- sets `AWF_SKIP_IPTABLES_INIT=1` so `entrypoint.sh` doesn't wait for the (absent)
+  init-container ready-file handshake.
+
+**Internet egress** for proxy-aware clients is routed through Squid via the
+`HTTP_PROXY`/`HTTPS_PROXY` env vars. There is one deliberate exception: because
+the iptables NAT bypass for the MCP gateway is gone, `proxy-environment.ts` adds
+the network gateway IP (e.g. `172.30.0.1`) and `host.docker.internal` to
+`NO_PROXY` for non-iptables runtimes, so proxy-aware MCP clients (rmcp) connect
+to the gateway **directly** instead of being routed through Squid and rejected
+with `403 ERR_ACCESS_DENIED`.
+
+Note that `NO_PROXY`/`HTTP_PROXY` are **client-side routing hints, not a security
+boundary** — the agent controls its own environment and could reach the gateway
+with or without them. The enforced egress boundary is external to the agent and
+runtime-independent:
+
+- **Strict/default mode** (`networkIsolation: true`): the agent sits on an
+  internal Docker network with no route off-host except through the dual-homed
+  Squid; the network topology is the boundary.
+- **Legacy mode** (`networkIsolation: false`): host-level iptables in the
+  `DOCKER-USER` (FORWARD) chain default-denies container→internet traffic
+  (`host-iptables-rules.ts`) — this is what produces "No route to host" and is
+  unaffected by which runtime the agent uses. The container-level iptables that
+  gVisor skips was only ever a defense-in-depth DNAT fallback, never the primary
+  boundary.
+
+:::caution Proxy-unaware tools under gVisor
+With no iptables DNAT fallback, tools that ignore `HTTP_PROXY`/`HTTPS_PROXY`
+(e.g. a raw `/dev/tcp` connection) have no route to external hosts and will fail
+with "No route to host". Egress under gVisor requires proxy-aware clients.
+:::
+
+`.github/workflows/test-gvisor-compat.yml` remains a **manual, non-gating
+diagnostic probe** for iptables/proxy reachability inside a `runsc` sandbox; it
+documents the historical behavior but is not part of the enforced egress path.
 
 ### Runtime-specific compatibility shims
 
@@ -265,6 +302,7 @@ myruntime: {
   executionModel: 'compose',
   dockerRuntime: 'my-oci-runtime',   // the name registered in daemon.json
   needsStaticDns: false,             // true if its netstack can't reach 127.0.0.11
+  usesIptables: true,                // false if host-netns iptables can't govern its traffic
 },
 ```
 
@@ -282,11 +320,14 @@ Set `needsStaticDns: true` only if the runtime cannot reach Docker's embedded DN
 `/etc/hosts` via `extra_hosts` *and* the chrooted `/host/etc/hosts`) and ensure
 topology peers are patched into both.
 
-### 3. Confirm the network fallback works
+### 3. Confirm the network egress model
 
-AWF's iptables DNAT-to-Squid path must function inside the runtime's network
-namespace. Add a compat check modeled on `test-gvisor-compat.yml` before relying
-on it.
+If the runtime shares the host network namespace (`usesIptables: true`), AWF's
+iptables DNAT-to-Squid path must function inside it — add a compat check modeled
+on `test-gvisor-compat.yml`. If the runtime has an isolated netstack
+(`usesIptables: false`, like gVisor), AWF skips iptables entirely and relies on
+the `HTTP_PROXY`/`HTTPS_PROXY` env vars plus a `NO_PROXY` entry for the MCP
+gateway; ensure the agent's tools are all proxy-aware.
 
 ### 4. Ensure the runtime is installed
 
@@ -302,7 +343,7 @@ viable and may be faster.
 | --- | --- | --- |
 | Host-kernel / syscall isolation | ✅ owns it (Sentry) | selects the runtime |
 | In-sandbox network stack | ✅ netstack | works around its DNS limits |
-| Domain egress ACL | — | ✅ Squid + iptables DNAT |
+| Domain egress ACL | — | ✅ Squid (via `HTTP_PROXY`/`HTTPS_PROXY`; no iptables under gVisor) |
 | Credential injection | — | ✅ api-proxy (`COPILOT_*`) |
 | Chroot + capability drop | — | ✅ entrypoint / capsh |
 | Lifecycle | OCI runtime under compose | ✅ `docker compose` + `docker wait` |

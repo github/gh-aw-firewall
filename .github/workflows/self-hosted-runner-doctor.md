@@ -102,8 +102,10 @@ Prefer the narrowest match. Examples:
 - `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
 - `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
 - `node: command not found` on ARC/DinD with `runner.topology: arc-dind` even when binary is correctly installed → A16 (sysroot filter was over-broad and dropped the workspace mount)
-- `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
+- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5
 - `EACCES` in upload-artifact after sudo:false → B6
+- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8 (gVisor userspace netstack bypasses the usual iptables DNAT path; patched AWF adds `172.30.0.1` to `NO_PROXY`)
+- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9 (older AWF mounted the entire host `$HOME` into sbx; fixed in github/gh-aw-firewall#6336)
 - `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
 - `EACCES: permission denied, mkdir '/tmp/gh-aw/...'` before containers start on a persistent runner → B8 (stale root-owned pre-flight dirs)
 - `FATAL: http_port: IPv6 is not available` → B3
@@ -134,6 +136,12 @@ B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible i
 B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair.
 
 B11 / github/gh-aw-firewall#6072 — Rootless permission-repair diagnostics were too opaque and could mislead triage when the agent already exited non-zero. **Improved in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**: repair-container stderr is now included in the `[WARN]` message, and chroot-home cleanup noise is reduced by downgrading that log to `debug`.
+
+B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix. `detectDnsResolutionFailure()` now augments the startup error with the unresolved host and recommends using the proxy IP or `dockerd --dns <cluster-dns-ip>`.
+
+D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor` or raw `runsc`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED` because gVisor's userspace netstack does not use the host iptables DNAT bypass. **Fixed in AWF (PR github/gh-aw-firewall#6401)**: `runtimeUsesIptables()` now skips `awf-iptables-init` for `gvisor`, its `runsc` alias, and `sbx`, and the MCP gateway plus `host.docker.internal` are added to `NO_PROXY` for proxy-aware clients. Caveat: proxy-unaware raw sockets (for example `/dev/tcp`) still fail with `No route to host` under gVisor.
+
+D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`. **Fixed in AWF (PR github/gh-aw-firewall#6336)**: sbx now mounts only whitelisted home subdirectories, and `scrubHomeCredentials()` / `restoreHomeCredentials()` temporarily move nested credential files out of the mounted tree during sandbox lifetime.
 
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 

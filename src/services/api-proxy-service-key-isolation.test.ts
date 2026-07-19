@@ -111,6 +111,15 @@ describe('API proxy sidecar: API key isolation', () => {
         });
       });
 
+      it('should not leak host ANTHROPIC_AUTH_TOKEN to agent when api-proxy is enabled with envAll', () => {
+        withEnvVar('ANTHROPIC_AUTH_TOKEN', 'sk-ant-p-host-secret', () => {
+          const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-secret', envAll: true };
+          const env = getAgentEnvironment(configWithProxy);
+          expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-ant-placeholder-key-for-credential-isolation');
+          expect(env.ANTHROPIC_AUTH_TOKEN).not.toBe('sk-ant-p-host-secret');
+        });
+      });
+
       it('should pass GITHUB_API_URL to agent when api-proxy is enabled with envAll', () => {
         // GITHUB_API_URL must remain in the agent environment even when api-proxy is enabled.
         // The Copilot CLI needs it to locate the GitHub API (token exchange, user info, etc.).

@@ -43,7 +43,7 @@ else
 fi
 
 # Verify hardening: token names should NOT appear in binary
-if strings -a "${OUTPUT_FILE}" | grep -qE '(COPILOT_GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)'; then
+if strings -a "${OUTPUT_FILE}" | grep -qE '(COPILOT_GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN)'; then
     echo "[build] WARNING: Cleartext token names still present in binary"
     exit 1
 else

@@ -3,6 +3,7 @@ const {
     resolveCopilotAuthToken,
     resolveApiKey,
     stripBearerPrefix,
+    classifyGithubServerHost,
     isGhesInstance,
     copilotTargetRequiresGitHubTokenPrefix,
   },
@@ -224,6 +225,28 @@ describe('isGhesInstance', () => {
       AWF_PLATFORM_TYPE: 'ghec-self-hosted',
       GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
     })).toBe(false);
+  });
+});
+
+describe('classifyGithubServerHost', () => {
+  it('classifies github.com as github', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://github.com' })).toEqual({ kind: 'github' });
+  });
+
+  it('classifies *.ghe.com hosts as ghec and returns the tenant subdomain', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://myorg.ghe.com' })).toEqual({
+      kind: 'ghec',
+      subdomain: 'myorg',
+    });
+  });
+
+  it('classifies non-ghe.com enterprise hosts as ghes', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://ghes.mycompany.com' })).toEqual({ kind: 'ghes' });
+  });
+
+  it('classifies invalid or missing values safely', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'not-a-url' })).toEqual({ kind: 'invalid' });
+    expect(classifyGithubServerHost({})).toEqual({ kind: 'missing' });
   });
 });
 
