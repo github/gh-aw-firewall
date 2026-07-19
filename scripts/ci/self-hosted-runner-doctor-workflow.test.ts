@@ -64,11 +64,29 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('**Improved in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**');
       expect(content).toContain('The non-zero exit code comes from `runAgentCommand()` before cleanup; cleanup warnings do not override it.');
       expect(content).toContain('| `[WARN] Rootless artifact permission repair failed ... (exit 1)` with little/no stderr detail, plus cleanup warnings around chroot-home removal and `Command completed with exit code: 1` | B11 |');
+      expect(content).toContain('`detectDnsResolutionFailure()`');
+      expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
+      expect(content).toContain('github/gh-aw-firewall#6326, github/gh-aw-firewall#6328');
+      expect(content).toContain('expected on restricted runners');
+      expect(content).toContain('Post-#6328: a `[WARN] Rootless artifact permission repair failed` message indicates a genuine failure');
+      expect(content).toContain('| D8 | MCP tool calls (`safeoutputs`, `github`) return `403 ERR_ACCESS_DENIED` under `--container-runtime gvisor`; agent completes but never writes safe outputs; smoke tests fail at "Validate safe outputs were invoked"; direct `/dev/tcp` connections fail with `No route to host` |');
+      expect(content).toContain('`runtimeUsesIptables()` returns `false` for `gvisor`/`sbx`');
+      expect(content).toContain('AWF_SKIP_IPTABLES_INIT=1');
+      expect(content).toContain('| D9 | On `--container-runtime sbx`, credential files (`~/.aws/credentials`, `~/.ssh/id_rsa`, `~/.docker/config.json`, `~/.kube/config`, `~/.azure/`, `~/.gnupg/`, `~/.netrc`, `~/.config/gh/hosts.yml`, `~/.config/gcloud/`, `~/.cargo/credentials.toml`, `~/.claude/.credentials.json`, `~/.copilot/config.json`, `~/.gemini/oauth_creds.json`) are visible to the agent inside the sbx microVM |');
+      expect(content).toContain('`scrubHomeCredentials()` moves them aside to `.awf-sbx-cred-backup-<pid>`');
+      expect(content).toContain('| `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor`; agent finishes but safe-output validation fails | D8');
+      expect(content).toContain('| Credential files (`~/.aws`, `~/.ssh`, `~/.docker/config.json`, `~/.kube`, `~/.config/gh`, `~/.cargo/credentials.toml`, etc.) visible inside sbx microVM under `--container-runtime sbx` | D9');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(source).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
+    expect(source).toContain('- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor`; safe-output validation fails even though the agent completed → D8');
+    expect(source).toContain('- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9');
+    expect(source).toContain('D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED`');
+    expect(source).toContain('D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`.');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
+    expect(portableAgent).toContain('- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor`; safe-output validation fails even though the agent completed → D8');
+    expect(portableAgent).toContain('- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9');
   });
 });
