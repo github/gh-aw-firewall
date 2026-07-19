@@ -40,7 +40,7 @@ The following tokens are unset from the entrypoint's environment:
 
 - **GitHub tokens**: COPILOT_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, GITHUB_API_TOKEN, GITHUB_PAT, GH_ACCESS_TOKEN, GITHUB_PERSONAL_ACCESS_TOKEN
 - **OpenAI tokens**: OPENAI_API_KEY, OPENAI_KEY
-- **Anthropic/Claude tokens**: ANTHROPIC_API_KEY, CLAUDE_API_KEY, CLAUDE_CODE_OAUTH_TOKEN
+- **Anthropic/Claude tokens**: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_API_KEY, CLAUDE_CODE_OAUTH_TOKEN
 - **Codex tokens**: CODEX_API_KEY
 - **Copilot BYOK provider tokens**: COPILOT_PROVIDER_API_KEY
 
