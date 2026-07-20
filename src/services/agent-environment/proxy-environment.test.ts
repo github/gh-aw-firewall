@@ -35,4 +35,50 @@ describe('buildProxyEnvironment', () => {
     expect(env.NO_PROXY.split(',')).toContain('172.30.0.1');
     expect(env.NO_PROXY.split(',')).toContain('host.docker.internal');
   });
+
+  describe('topology-attached peers', () => {
+    it('exempts topology peers from proxy routing for a compose agent in isolation mode', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: true,
+        topologyAttach: ['awmg-mcpg', 'awmg-cli-proxy'],
+      });
+      expect(env.NO_PROXY.split(',')).toContain('awmg-mcpg');
+      expect(env.NO_PROXY.split(',')).toContain('awmg-cli-proxy');
+      expect(env.no_proxy).toBe(env.NO_PROXY);
+    });
+
+    it('exempts the DIFC/cli-proxy host even when not listed in topologyAttach', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: true,
+        difcProxyHost: 'awmg-cli-proxy',
+      });
+      expect(env.NO_PROXY.split(',')).toContain('awmg-cli-proxy');
+    });
+
+    it('does NOT exempt topology peers outside network-isolation mode', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: false,
+        topologyAttach: ['awmg-mcpg'],
+      });
+      expect(env.NO_PROXY.split(',')).not.toContain('awmg-mcpg');
+    });
+
+    it('does NOT exempt topology peers for a microVM (sbx) agent', () => {
+      // The sbx microVM runs off awf-net and cannot resolve or route to these
+      // container hostnames; NO_PROXY there would break the connection rather
+      // than fix it, so peers are deliberately omitted for microVM backends.
+      const env = run({
+        ...baseConfig,
+        containerRuntime: 'sbx',
+        networkIsolation: true,
+        topologyAttach: ['awmg-mcpg'],
+        difcProxyHost: 'awmg-cli-proxy',
+      });
+      expect(env.NO_PROXY.split(',')).not.toContain('awmg-mcpg');
+      expect(env.NO_PROXY.split(',')).not.toContain('awmg-cli-proxy');
+    });
+  });
 });
