@@ -37,10 +37,9 @@ tools:
   github: false
   bash: false
 
+model: summarization
 engine:
   id: copilot
-  model: summarization
-
 safe-outputs:
   threat-detection:
     enabled: false

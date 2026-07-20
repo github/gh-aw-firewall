@@ -25,10 +25,9 @@ tools:
     toolsets: [issues]
   bash: true
 
+model: gpt-5.4-mini
 engine:
   id: copilot
-  model: gpt-5.4-mini
-
 safe-outputs:
   threat-detection:
     enabled: false

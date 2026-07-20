@@ -10,9 +10,9 @@ permissions:
   pull-requests: read
   discussions: read
 max-turns: 4
+model: claude-haiku-4.5
 engine:
   id: copilot
-  model: claude-haiku-4.5
 imports:
   - uses: shared/mcp/gh-aw.md
 tools:
