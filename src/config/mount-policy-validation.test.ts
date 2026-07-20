@@ -239,6 +239,11 @@ describe('mount-policy validate – parseCredentials', () => {
     await expect(loadModule(bad)).rejects.toThrow('credentials must be an object');
   });
 
+  it('throws when credentials is null', async () => {
+    const bad = { ...validJson, credentials: null };
+    await expect(loadModule(bad)).rejects.toThrow('credentials must be an object');
+  });
+
   it('throws when credentials.entries is not an array', async () => {
     const bad = { ...validJson, credentials: { entries: 'bad' } };
     await expect(loadModule(bad)).rejects.toThrow('credentials.entries must be an array');
