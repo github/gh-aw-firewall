@@ -35,11 +35,6 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
     if (config.topologyAttach) {
       noProxyHosts.push(...config.topologyAttach);
     }
-    // The DIFC/cli-proxy is normally also listed in topologyAttach, but exempt
-    // it explicitly in case it is configured independently.
-    if (config.difcProxyHost) {
-      noProxyHosts.push(config.difcProxyHost);
-    }
   }
 
   // The MCP gateway is served on the network gateway (e.g. 172.30.0.1). In
