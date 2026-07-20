@@ -30,7 +30,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('🩺 Runner Doctor');
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
-    expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
+    expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@(?:[a-f0-9]{40}|v\d+\.\d+\.\d+)/);
   });
 
   it('keeps the shared catalog, workflow playbook, and portable agent aligned for new failure modes', () => {
@@ -73,7 +73,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| D8 | MCP tool calls (`safeoutputs`, `github`) return `403 ERR_ACCESS_DENIED` under `--container-runtime gvisor` or raw `runsc`; agent completes but never writes safe outputs; smoke tests fail at "Validate safe outputs were invoked"; direct `/dev/tcp` connections fail with `No route to host` |');
       expect(content).toContain('`runtimeUsesIptables()` returns `false` for `gvisor` and its raw `runsc` alias (plus `sbx`)');
       expect(content).toContain('AWF_SKIP_IPTABLES_INIT=1');
-      expect(content).toContain('| D9 | On `--container-runtime sbx`, credential files (`~/.aws/credentials`, `~/.ssh/id_rsa`, `~/.docker/config.json`, `~/.kube/config`, `~/.azure/`, `~/.gnupg/`, `~/.netrc`, `~/.config/gh/hosts.yml`, `~/.config/gcloud/`, `~/.cargo/credentials.toml`, `~/.claude/.credentials.json`, `~/.copilot/config.json`, `~/.gemini/oauth_creds.json`) are visible to the agent inside the sbx microVM |');
+      expect(content).toContain('| D9 | On `--container-runtime sbx`, credential files (`~/.aws/credentials`, `~/.ssh/id_rsa`, `~/.docker/config.json`, `~/.kube/config`, `~/.azure/`, `~/.gnupg/`, `~/.netrc`, `~/.config/gh/hosts.yml`, `~/.config/gcloud/`, `~/.cargo/credentials.toml`, `~/.claude/.credentials.json`, `~/.gemini/oauth_creds.json`) are visible to the agent inside the sbx microVM |');
       expect(content).toContain('`scrubHomeCredentials()` moves them aside to `.awf-sbx-cred-backup-<pid>`');
       expect(content).toContain('| `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; agent finishes but safe-output validation fails | D8');
       expect(content).toContain('| Credential files (`~/.aws`, `~/.ssh`, `~/.docker/config.json`, `~/.kube`, `~/.config/gh`, `~/.cargo/credentials.toml`, etc.) visible inside sbx microVM under `--container-runtime sbx` | D9');
