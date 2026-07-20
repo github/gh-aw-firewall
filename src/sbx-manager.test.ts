@@ -3,14 +3,14 @@ import {
   execInSandbox,
   isSbxAvailable,
   removeSandbox,
-  restoreHomeCredentials,
-  sanitizeEnvForSbx,
-  withLocalBinOnPath,
   SBX_DEFAULT_NAME,
+  testHelpers,
 } from './sbx-manager';
 import * as fs from 'fs';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
+
+const { restoreHomeCredentials, sanitizeEnvForSbx, withLocalBinOnPath } = testHelpers;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());

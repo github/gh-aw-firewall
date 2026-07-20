@@ -52,32 +52,12 @@ const SECRET_ENV_PATTERNS = [
 /** Default sandbox name (single-sandbox-per-run model). */
 export const SBX_DEFAULT_NAME = `${SBX_NAME_PREFIX}-${process.pid}`;
 
-export interface SbxConfig {
-  /** Sandbox name (defaults to `awf-agent-<pid>`). */
-  name?: string;
-  /** Workspace directory to mount into the sandbox. */
-  workspaceDir: string;
-  /** Squid proxy IP for DOCKER_SANDBOXES_PROXY. */
-  squidIp: string;
-  /** Squid proxy port (default 3128). */
-  squidPort?: number;
-  /** Additional workspace mounts (read-only paths). */
-  extraMounts?: string[];
-}
-
-export interface SbxExecOptions {
-  timeoutMinutes?: number;
-  workDir?: string;
-  environment?: Record<string, string>;
-  tty?: boolean;
-}
-
 /**
  * Strips secret-bearing env vars from process.env so they never reach
  * the sbx CLI or the sandbox interior.  Returns a shallow copy with
  * only non-secret entries plus any explicit overrides.
  */
-export function sanitizeEnvForSbx(
+function sanitizeEnvForSbx(
   overrides: Record<string, string> = {},
 ): Record<string, string | undefined> {
   const clean: Record<string, string | undefined> = {};
@@ -157,7 +137,7 @@ function scrubHomeCredentials(homePath: string): void {
  * MUST run only after the sandbox is removed, because the home dirs are live
  * mounts — restoring while the VM is running would re-expose the secrets.
  */
-export function restoreHomeCredentials(): void {
+function restoreHomeCredentials(): void {
   for (const { original, backup } of scrubbedCredentials) {
     try {
       if (fs.existsSync(backup)) {
@@ -186,7 +166,18 @@ export function restoreHomeCredentials(): void {
  * Creates a Docker sbx sandbox with workspace mounts.
  * Sets `DOCKER_SANDBOXES_PROXY` to chain all egress through AWF's Squid.
  */
-export async function createSandbox(config: SbxConfig): Promise<string> {
+export async function createSandbox(config: {
+  /** Sandbox name (defaults to `awf-agent-<pid>`). */
+  name?: string;
+  /** Workspace directory to mount into the sandbox. */
+  workspaceDir: string;
+  /** Squid proxy IP for DOCKER_SANDBOXES_PROXY. */
+  squidIp: string;
+  /** Squid proxy port (default 3128). */
+  squidPort?: number;
+  /** Additional workspace mounts (read-only paths). */
+  extraMounts?: string[];
+}): Promise<string> {
   const name = config.name || SBX_DEFAULT_NAME;
   const squidPort = config.squidPort || 3128;
   const proxyUrl = `http://${config.squidIp}:${squidPort}`;
@@ -356,9 +347,17 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
  * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
  * which matches the wholesale-mounted home tool dirs.
  */
-export function withLocalBinOnPath(command: string): string {
+function withLocalBinOnPath(command: string): string {
   return `export PATH="$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
 }
+
+/** @internal Exposed for unit tests only. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  sanitizeEnvForSbx,
+  restoreHomeCredentials,
+  withLocalBinOnPath,
+};
 
 /**
  * Executes a command inside the sandbox, streaming stdout/stderr.
@@ -367,7 +366,12 @@ export function withLocalBinOnPath(command: string): string {
 export async function execInSandbox(
   name: string,
   command: string,
-  options?: SbxExecOptions,
+  options?: {
+    timeoutMinutes?: number;
+    workDir?: string;
+    environment?: Record<string, string>;
+    tty?: boolean;
+  },
 ): Promise<{ exitCode: number }> {
   logger.info(`Executing in sandbox "${name}": ${command}`);
 
