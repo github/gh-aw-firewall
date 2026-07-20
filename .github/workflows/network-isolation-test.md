@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+model: claude-haiku-4-5
 engine:
   id: copilot
-  model: claude-haiku-4-5
 network:
   allowed:
     - defaults

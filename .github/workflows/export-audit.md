@@ -15,9 +15,9 @@ permissions:
   issues: read
 
 max-turns: 6
+model: claude-sonnet-4.5
 engine:
   id: copilot
-  model: claude-sonnet-4.5
 sandbox:
   agent:
     id: awf

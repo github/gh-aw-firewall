@@ -15,9 +15,9 @@ max-turns: 6
 concurrency:
   group: "security-guard-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
+model: claude-haiku-4-5
 engine:
   id: copilot
-  model: claude-haiku-4-5
 tools:
   github:
     mode: gh-proxy
