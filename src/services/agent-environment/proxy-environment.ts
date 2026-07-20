@@ -2,6 +2,7 @@ import { WrapperConfig } from '../../types';
 import { NetworkConfig } from '../squid-service';
 import { buildNoProxyValue } from '../no-proxy-utils';
 import { runtimeUsesIptables, runtimeUsesComposeAgent } from '../../container-runtime';
+import { parseDifcProxyHost } from '../../host-env';
 
 interface ProxyEnvironmentParams {
   config: WrapperConfig;
@@ -36,10 +37,12 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
       noProxyHosts.push(...config.topologyAttach);
     }
     // The DIFC/cli-proxy host is addressed by proxy-aware clients directly and
-    // must bypass Squid even when it isn't listed in topologyAttach. Strip any
-    // ":port" suffix since undici matches NO_PROXY against the hostname only.
+    // must bypass Squid even when it isn't listed in topologyAttach.
+    // Use parseDifcProxyHost to correctly strip scheme prefixes and handle
+    // bracketed IPv6 (e.g. https://proxy.internal:443, [::1]:18443), since
+    // undici matches NO_PROXY against the hostname only.
     if (config.difcProxyHost) {
-      noProxyHosts.push(config.difcProxyHost.split(':')[0]);
+      noProxyHosts.push(parseDifcProxyHost(config.difcProxyHost).host);
     }
   }
 

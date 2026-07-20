@@ -57,6 +57,34 @@ describe('buildProxyEnvironment', () => {
       expect(env.NO_PROXY.split(',')).toContain('awmg-cli-proxy');
     });
 
+    it('strips port suffix from difcProxyHost', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: true,
+        difcProxyHost: 'awmg-cli-proxy:8443',
+      });
+      expect(env.NO_PROXY.split(',')).toContain('awmg-cli-proxy');
+      expect(env.NO_PROXY.split(',')).not.toContain('awmg-cli-proxy:8443');
+    });
+
+    it('strips scheme and port from a scheme-prefixed difcProxyHost', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: true,
+        difcProxyHost: 'https://proxy.internal:443',
+      });
+      expect(env.NO_PROXY.split(',')).toContain('proxy.internal');
+    });
+
+    it('strips brackets and port from a bracketed IPv6 difcProxyHost', () => {
+      const env = run({
+        ...baseConfig,
+        networkIsolation: true,
+        difcProxyHost: '[::1]:18443',
+      });
+      expect(env.NO_PROXY.split(',')).toContain('::1');
+    });
+
     it('does NOT exempt topology peers outside network-isolation mode', () => {
       const env = run({
         ...baseConfig,
