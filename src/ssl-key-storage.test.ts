@@ -39,11 +39,12 @@ import * as path from 'path';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import {
   mountSslTmpfs,
-  secureWipeFile,
   cleanupSslKeyMaterial,
+  testHelpers,
 } from './ssl-key-storage';
 
 const FAKE_FD = 42;
+const { secureWipeFile } = testHelpers;
 
 describe('ssl-key-storage', () => {
   beforeEach(() => {
