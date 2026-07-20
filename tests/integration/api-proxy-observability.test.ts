@@ -28,7 +28,7 @@ describe('API Proxy Observability', () => {
   });
 
   test('should return valid JSON metrics from /metrics endpoint', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -52,7 +52,7 @@ describe('API Proxy Observability', () => {
   }, 180000);
 
   test('should include metrics_summary in /health response', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10000/health`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -74,7 +74,7 @@ describe('API Proxy Observability', () => {
 
   test('should return X-Request-ID header in proxy responses', async () => {
     // Make a request to the Anthropic proxy and check for x-request-id in response headers
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -102,7 +102,7 @@ describe('API Proxy Observability', () => {
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -122,7 +122,7 @@ describe('API Proxy Observability', () => {
   }, 180000);
 
   test('should include rate_limits in /health when rate limiting is active', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c 'curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -d "{\\"model\\":\\"test\\"}" > /dev/null && curl -s http://${API_PROXY_IP}:10000/health'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -142,7 +142,7 @@ describe('API Proxy Observability', () => {
   }, 180000);
 
   test('should preserve custom X-Request-ID when valid', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -H "X-Request-ID: my-custom-trace-abc123" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -162,7 +162,7 @@ describe('API Proxy Observability', () => {
   }, 180000);
 
   test('should reject invalid X-Request-ID and generate a new one', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c 'curl -s -i -X POST http://${API_PROXY_IP}:10001/v1/messages -H "Content-Type: application/json" -H "X-Request-ID: <script>alert(1)</script>" -d "{\\"model\\":\\"test\\"}"'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -193,7 +193,7 @@ describe('API Proxy Observability', () => {
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -224,7 +224,7 @@ describe('API Proxy Observability', () => {
       `curl -s http://${API_PROXY_IP}:10000/metrics`,
     ].join(' && ');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c '${script}'`,
       {
         allowDomains: ['api.anthropic.com'],

@@ -30,7 +30,7 @@ describe('API Proxy Sidecar', () => {
     // This is the first test to run and may trigger a cold Docker build for the
     // api-proxy / iptables-init images (not pre-built in the CI "Build local containers"
     // step). Allow up to 5 minutes for the build + startup + run + teardown.
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10001/health`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -50,7 +50,7 @@ describe('API Proxy Sidecar', () => {
   }, 360000);
 
   test('should start api-proxy sidecar with OpenAI key and pass healthcheck', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10000/health`,
       {
         allowDomains: ['api.openai.com'],
@@ -70,7 +70,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should set ANTHROPIC_BASE_URL in agent when Anthropic key is provided', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL"',
       {
         allowDomains: ['api.anthropic.com'],
@@ -89,7 +89,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should set ANTHROPIC_AUTH_TOKEN to placeholder in agent when Anthropic key is provided', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo ANTHROPIC_AUTH_TOKEN=$ANTHROPIC_AUTH_TOKEN"',
       {
         allowDomains: ['api.anthropic.com'],
@@ -108,7 +108,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should set OPENAI_BASE_URL in agent when OpenAI key is provided', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo OPENAI_BASE_URL=$OPENAI_BASE_URL"',
       {
         allowDomains: ['api.openai.com'],
@@ -129,7 +129,7 @@ describe('API Proxy Sidecar', () => {
   test('should route Anthropic API requests through Squid', async () => {
     // Use a fake API key — the request will reach api.anthropic.com via Squid
     // and get an auth error (401), but that proves the proxy routes through Squid.
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c "curl -s -X POST http://${API_PROXY_IP}:10001/v1/messages -H 'Content-Type: application/json' -d '{\"model\":\"claude-3-haiku-20240307\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -154,7 +154,7 @@ describe('API Proxy Sidecar', () => {
   test('should set both health and Anthropic endpoints with Anthropic key only', async () => {
     // When only Anthropic key is provided, port 10000 should still serve /health
     // (needed for Docker healthcheck) and port 10001 should serve the Anthropic proxy
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `bash -c "curl -s http://${API_PROXY_IP}:10000/health && echo && curl -s http://${API_PROXY_IP}:10001/health"`,
       {
         allowDomains: ['api.anthropic.com'],
@@ -177,7 +177,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should start api-proxy sidecar with Copilot key and pass healthcheck', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10002/health`,
       {
         allowDomains: ['api.githubcopilot.com'],
@@ -197,7 +197,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should set COPILOT_API_URL in agent when Copilot token is provided', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo COPILOT_API_URL=$COPILOT_API_URL"',
       {
         allowDomains: ['api.githubcopilot.com'],
@@ -216,7 +216,7 @@ describe('API Proxy Sidecar', () => {
   }, 180000);
 
   test('should set COPILOT_TOKEN to placeholder in agent when Copilot token is provided', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo COPILOT_TOKEN=$COPILOT_TOKEN"',
       {
         allowDomains: ['api.githubcopilot.com'],
@@ -236,7 +236,7 @@ describe('API Proxy Sidecar', () => {
 
   test('should report copilot in health providers when Copilot token is provided', async () => {
     // When Copilot token is provided, the main health endpoint should report copilot: true
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       `curl -s http://${API_PROXY_IP}:10000/health`,
       {
         allowDomains: ['api.githubcopilot.com'],
@@ -261,7 +261,7 @@ describe('API Proxy Sidecar', () => {
     // Instead, the agent should use COPILOT_API_URL pointing to the proxy, which correctly
     // routes to api.enterprise.githubcopilot.com.
     // See: github/gh-aw#20875
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "if [ -z \\"$GITHUB_API_URL\\" ]; then echo GITHUB_API_URL_NOT_SET; else echo GITHUB_API_URL=$GITHUB_API_URL; fi"',
       {
         allowDomains: ['api.githubcopilot.com'],
@@ -286,7 +286,7 @@ describe('API Proxy Sidecar', () => {
 
   test('should pass GITHUB_API_URL to agent when api-proxy is NOT enabled', async () => {
     // When api-proxy is disabled, GITHUB_API_URL should be passed through normally
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo GITHUB_API_URL=$GITHUB_API_URL"',
       {
         allowDomains: ['api.githubcopilot.com'],

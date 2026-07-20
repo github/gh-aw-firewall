@@ -44,7 +44,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
     // In chroot mode, the host PATH is used and may include docker.
     // Verify docker is not installed in the CONTAINER image (not in the chroot).
     // Check that docker socket is not available (the important security boundary).
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'test -S /var/run/docker.sock && echo "docker_socket_found" || echo "no_docker_socket"',
       {
         allowDomains: ['github.com'],
@@ -59,7 +59,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
   }, 360000);
 
   test('docker run should fail gracefully', async () => {
-    const result = await runner.runWithSudo('docker run alpine echo hello', {
+    const result = await runner.run('docker run alpine echo hello', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 300000,
@@ -74,7 +74,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
   }, 360000);
 
   test('docker-compose should not be available', async () => {
-    const result = await runner.runWithSudo('which docker-compose', {
+    const result = await runner.run('which docker-compose', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 300000,
@@ -87,7 +87,7 @@ describe('Docker-in-Docker removal (PR #205)', () => {
   }, 360000);
 
   test('verify docker socket is not mounted', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'test -S /var/run/docker.sock && echo "mounted" || echo "not mounted"',
       {
         allowDomains: ['github.com'],

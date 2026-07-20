@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { WrapperConfig } from './types';
-import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from './env-utils';
+import { copyEnvEntries, getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from './env-utils';
 
 function makeWrapperConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -147,5 +147,111 @@ describe('getLowerCaseProcessEnvValue', () => {
   it('returns undefined for blank process env values', () => {
     process.env.TEST_LOWERCASE_ENV_VALUE = '   ';
     expect(getLowerCaseProcessEnvValue('TEST_LOWERCASE_ENV_VALUE')).toBeUndefined();
+  });
+});
+
+describe('copyEnvEntries', () => {
+  it('copies all defined entries from source to target', () => {
+    const source: Record<string, string | undefined> = { A: 'a', B: 'b' };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target);
+    expect(target).toEqual({ A: 'a', B: 'b' });
+  });
+
+  it('skips entries with undefined values', () => {
+    const source: Record<string, string | undefined> = { A: 'a', B: undefined };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target);
+    expect(target).toEqual({ A: 'a' });
+  });
+
+  it('skips keys in excludedKeys', () => {
+    const source: Record<string, string | undefined> = { A: 'a', B: 'b', C: 'c' };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target, { excludedKeys: new Set(['B']) });
+    expect(target).toEqual({ A: 'a', C: 'c' });
+  });
+
+  it('allows keys in allowKeys even when they are also in excludedKeys', () => {
+    const source: Record<string, string | undefined> = { A: 'a', B: 'b' };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target, {
+      excludedKeys: new Set(['A', 'B']),
+      allowKeys: new Set(['B']),
+    });
+    expect(target).toEqual({ B: 'b' });
+  });
+
+  it('does not overwrite existing keys when noOverwrite is true', () => {
+    const source: Record<string, string | undefined> = { A: 'new', B: 'new' };
+    const target: Record<string, string> = { A: 'original' };
+    copyEnvEntries(source, target, { noOverwrite: true });
+    expect(target).toEqual({ A: 'original', B: 'new' });
+  });
+
+  it('overwrites existing keys when noOverwrite is false (default)', () => {
+    const source: Record<string, string | undefined> = { A: 'new' };
+    const target: Record<string, string> = { A: 'original' };
+    copyEnvEntries(source, target);
+    expect(target).toEqual({ A: 'new' });
+  });
+
+  it('only copies keys matching keyPredicate', () => {
+    const source: Record<string, string | undefined> = { OTEL_FOO: 'x', OTHER: 'y' };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target, { keyPredicate: (k) => k.startsWith('OTEL_') });
+    expect(target).toEqual({ OTEL_FOO: 'x' });
+  });
+
+  it('skips entries exceeding maxValueSizeBytes and calls onSkippedOversized', () => {
+    const bigValue = 'x'.repeat(200);
+    const source: Record<string, string | undefined> = { SMALL: 'hi', BIG: bigValue };
+    const target: Record<string, string> = {};
+    const skipped: Array<{ key: string; sizeBytes: number }> = [];
+    copyEnvEntries(source, target, {
+      maxValueSizeBytes: 10,
+      onSkippedOversized: (key, sizeBytes) => skipped.push({ key, sizeBytes }),
+    });
+    expect(target).toEqual({ SMALL: 'hi' });
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].key).toBe('BIG');
+    expect(skipped[0].sizeBytes).toBe(200);
+  });
+
+  it('copies entries at exactly maxValueSizeBytes (boundary is exclusive)', () => {
+    const value = 'x'.repeat(10);
+    const source: Record<string, string | undefined> = { V: value };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target, { maxValueSizeBytes: 10 });
+    expect(target).toEqual({ V: value });
+  });
+
+  it('skips entries one byte over maxValueSizeBytes', () => {
+    const value = 'x'.repeat(11);
+    const source: Record<string, string | undefined> = { V: value };
+    const target: Record<string, string> = {};
+    copyEnvEntries(source, target, { maxValueSizeBytes: 10 });
+    expect(target).toEqual({});
+  });
+
+  it('applies all filters together', () => {
+    const source: Record<string, string | undefined> = {
+      OTEL_KEEP: 'ok',
+      OTEL_EXCLUDED: 'no',
+      OTEL_BIG: 'x'.repeat(200),
+      OTEL_EXISTING: 'old',
+      OTHER: 'ignored',
+    };
+    const target: Record<string, string> = { OTEL_EXISTING: 'original' };
+    const skipped: string[] = [];
+    copyEnvEntries(source, target, {
+      excludedKeys: new Set(['OTEL_EXCLUDED']),
+      noOverwrite: true,
+      keyPredicate: (k) => k.startsWith('OTEL_'),
+      maxValueSizeBytes: 10,
+      onSkippedOversized: (key) => skipped.push(key),
+    });
+    expect(target).toEqual({ OTEL_EXISTING: 'original', OTEL_KEEP: 'ok' });
+    expect(skipped).toEqual(['OTEL_BIG']);
   });
 });

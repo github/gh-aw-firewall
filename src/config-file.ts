@@ -88,6 +88,9 @@ export interface AwfFileConfig {
     };
   };
   security?: {
+    legacySecurity?: boolean;
+    /** @deprecated Use legacySecurity instead */
+    securityMode?: 'strict' | 'compat';
     sslBump?: boolean;
     enableDlp?: boolean;
     enableHostAccess?: boolean;

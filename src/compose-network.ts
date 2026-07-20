@@ -1,5 +1,6 @@
 import { DockerComposeConfig } from './types';
 import { TOPOLOGY_NETWORK_NAME } from './topology';
+import { EXTERNAL_BRIDGE_NAME, EMBEDDED_DNS_RESOLVER } from './config/network-policy';
 import { NetworkConfig } from './services/squid-service';
 
 interface BuildComposeNetworksParams {
@@ -35,14 +36,14 @@ export function buildComposeNetworks(params: BuildComposeNetworksParams): Docker
     // sole egress path. No host iptables and no NET_ADMIN are involved.
     squidService.networks = {
       ...(squidService.networks || {}),
-      'awf-ext': {},
+      [EXTERNAL_BRIDGE_NAME]: {},
     };
 
     // The agent must resolve names via Docker's embedded resolver (127.0.0.11),
     // which forwards through the daemon's network rather than the agent's, so it
     // still works on an internal network. The configured external DNS servers are
     // unreachable from an internal network.
-    agentService.dns = ['127.0.0.11'];
+    agentService.dns = [EMBEDDED_DNS_RESOLVER];
 
     return {
       services,
@@ -54,14 +55,13 @@ export function buildComposeNetworks(params: BuildComposeNetworksParams): Docker
             config: [{ subnet: networkConfig.subnet }],
           },
         },
-        'awf-ext': {
+        [EXTERNAL_BRIDGE_NAME]: {
           driver: 'bridge',
         },
       },
       ...(namedVolumes && { volumes: namedVolumes }),
     };
   }
-
   return {
     services,
     networks: {

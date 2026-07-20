@@ -60,7 +60,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: localhost-only test
     test('should show package info without network', async () => {
-      const result = await runner.runWithSudo('pip3 show pip', {
+      const result = await runner.run('pip3 show pip', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -99,7 +99,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: blocking test (different domain)
     test('should be blocked from npm registry without domain', async () => {
-      const result = await runner.runWithSudo('npm view chalk version 2>&1', {
+      const result = await runner.run('npm view chalk version 2>&1', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -140,7 +140,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: localhost test
     test('should execute rustc from host via chroot', async () => {
-      const result = await runner.runWithSudo('rustc --version', {
+      const result = await runner.run('rustc --version', {
         allowDomains: ['localhost'],
         logLevel: 'debug',
         timeout: 60000,
@@ -182,7 +182,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: maven (different domain)
     test('should execute maven from host via chroot', async () => {
-      const result = await runner.runWithSudo('mvn --version 2>&1', {
+      const result = await runner.run('mvn --version 2>&1', {
         allowDomains: ['repo.maven.apache.org', 'repo1.maven.org'],
         logLevel: 'debug',
         timeout: 60000,
@@ -224,7 +224,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: NuGet restore (different domains, long timeout)
     test('should create and build a .NET project with NuGet restore', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
         'dotnet new console -o buildtest --no-restore && ' +
         'cd buildtest && dotnet restore && dotnet build --no-restore && ' +
@@ -243,7 +243,7 @@ describe('Chroot Package Manager Support', () => {
 
     // Individual: blocking test (localhost only)
     test('should be blocked from NuGet without domain whitelisting', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
         'dotnet new console -o blocktest --no-restore 2>&1 && ' +
         'cd blocktest && ' +
@@ -326,7 +326,7 @@ describe('Chroot Package Manager Support', () => {
   // ---------- Go modules ----------
   describe('Go modules', () => {
     test('should show go env', async () => {
-      const result = await runner.runWithSudo('go env GOPATH GOPROXY', {
+      const result = await runner.run('go env GOPATH GOPROXY', {
         allowDomains: ['proxy.golang.org', 'sum.golang.org'],
         logLevel: 'debug',
         timeout: 60000,
@@ -336,7 +336,7 @@ describe('Chroot Package Manager Support', () => {
     }, 120000);
 
     test('should list go modules (no network needed for empty list)', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'cd /tmp && mkdir -p gotest && cd gotest && go mod init test 2>&1 && go mod tidy 2>&1 && cat go.mod',
         {
           allowDomains: ['localhost'],
@@ -353,7 +353,7 @@ describe('Chroot Package Manager Support', () => {
   // ---------- Package Installation ----------
   describe('Package Installation', () => {
     test('should install a Python package via pip and verify import', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'PIPDIR=$(mktemp -d) && ' +
         'pip3 install --no-cache-dir --target $PIPDIR requests 2>&1 && ' +
         'PYTHONPATH=$PIPDIR python3 -c "import requests; print(requests.__version__)" && ' +
@@ -372,7 +372,7 @@ describe('Chroot Package Manager Support', () => {
     }, 180000);
 
     test('should install an npm package and verify require', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'NPMDIR=$(mktemp -d) && cd $NPMDIR && npm init -y 2>&1 && ' +
         'npm install chalk@4 2>&1 && ' +
         'NODE_PATH=$NPMDIR/node_modules node -e "require(\'chalk\')" && echo "npm_install_ok" && ' +
@@ -389,7 +389,7 @@ describe('Chroot Package Manager Support', () => {
     }, 180000);
 
     test('should build a Rust project with a dependency via cargo', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
         'CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse ' +
         'cargo init --name awftest 2>&1 && ' +

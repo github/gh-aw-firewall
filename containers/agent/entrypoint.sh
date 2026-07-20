@@ -139,8 +139,11 @@ wait_for_iptables() {
 #
 # In network-isolation (topology) mode there is no iptables-init container —
 # egress is enforced by Docker network topology — so skip the handshake.
-if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ]; then
-  echo "[entrypoint] Network-isolation mode: skipping iptables init container wait"
+# Likewise for runtimes whose network stack can't be governed by host-netns
+# iptables (e.g. gVisor's isolated netstack): AWF_SKIP_IPTABLES_INIT is set and
+# egress relies on the HTTP_PROXY/HTTPS_PROXY env vars instead.
+if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ] || [ "${AWF_SKIP_IPTABLES_INIT:-}" = "1" ]; then
+  echo "[entrypoint] iptables-init skipped (proxy-based egress): skipping init container wait"
 else
   echo "[entrypoint] Waiting for iptables initialization from init container..."
   INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
@@ -428,6 +431,7 @@ unset_sensitive_tokens() {
     "OPENAI_KEY"
     # Anthropic/Claude tokens
     "ANTHROPIC_API_KEY"
+    "ANTHROPIC_AUTH_TOKEN"
     "CLAUDE_API_KEY"
     "CLAUDE_CODE_OAUTH_TOKEN"
     # Codex tokens
@@ -810,7 +814,9 @@ check_chroot_prereqs() {
   fi
 
   # Verify capsh is available on the host (required for privilege drop)
-  if ! chroot /host /bin/sh -c 'command -v capsh >/dev/null 2>&1'; then
+  # Use -x file tests instead of command -v to avoid /dev/null redirects
+  # (gVisor mounts /dev read-only inside chroots, breaking >/dev/null)
+  if ! chroot /host /bin/sh -c '[ -x /usr/sbin/capsh ] || [ -x /usr/bin/capsh ]'; then
     echo "[entrypoint][ERROR] capsh not found on host system"
     echo "[entrypoint][ERROR] Install capsh (Debian/Ubuntu: libcap2-bin; RHEL/Fedora: libcap)"
     exit 1
@@ -1314,7 +1320,7 @@ run_chroot_command() {
   fi
 
   run_agent_with_token_protection chroot /host /bin/bash -c "
-    cd '${CHROOT_WORKDIR}' 2>/dev/null || cd /
+    cd '${CHROOT_WORKDIR}' 2>/dev/null || cd / 2>/dev/null || true
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'

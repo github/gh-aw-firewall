@@ -61,4 +61,20 @@ export interface SecurityOptions {
    * @default false
    */
   enableDlp?: boolean;
+
+  /**
+   * Enable legacy security mode.
+   *
+   * When true, enables the legacy iptables-based configuration that allows
+   * host-access, DinD, and requires sudo/NET_ADMIN.
+   *
+   * When false or unset (default), strict security is enforced: network-isolation
+   * (Docker network topology), API proxy (credential injection), and host-access /
+   * DinD passthrough are rejected.
+   *
+   * API proxy is always enabled regardless of this setting.
+   *
+   * @default false
+   */
+  legacySecurity?: boolean;
 }

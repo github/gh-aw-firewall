@@ -47,7 +47,7 @@ safe-outputs:
 timeout-minutes: 20
 steps:
   - name: Setup Go
-    uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+    uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
     with:
       go-version: '1.22'
   - name: Capture host versions for verification
@@ -87,15 +87,15 @@ steps:
 
       # Test Python version in chroot
       echo "Testing Python..."
-      CHROOT_PYTHON=$(sudo -E awf --build-local --allow-domains localhost -- python3 --version 2>&1 | grep -oP 'Python \d+\.\d+\.\d+' | head -1) || CHROOT_PYTHON="FAILED"
+      CHROOT_PYTHON=$(awf --build-local --allow-domains localhost -- python3 --version 2>&1 | grep -oP 'Python \d+\.\d+\.\d+' | head -1) || CHROOT_PYTHON="FAILED"
 
       # Test Node version in chroot
       echo "Testing Node..."
-      CHROOT_NODE=$(sudo -E awf --build-local --allow-domains localhost -- node --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1) || CHROOT_NODE="FAILED"
+      CHROOT_NODE=$(awf --build-local --allow-domains localhost -- node --version 2>&1 | grep -oP 'v\d+\.\d+\.\d+' | head -1) || CHROOT_NODE="FAILED"
 
       # Test Go version in chroot
       echo "Testing Go..."
-      CHROOT_GO=$(sudo -E awf --build-local --allow-domains localhost -- go version 2>&1 | grep -oP 'go\d+\.\d+(\.\d+)?' | head -1) || CHROOT_GO="FAILED"
+      CHROOT_GO=$(awf --build-local --allow-domains localhost -- go version 2>&1 | grep -oP 'go\d+\.\d+(\.\d+)?' | head -1) || CHROOT_GO="FAILED"
 
       # Save chroot versions
       {

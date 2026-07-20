@@ -15,6 +15,8 @@ import { processAgentImageOption } from '../../domain-utils';
 export interface LogAndLimitsResult {
   logLevel: LogLevel;
   modelAliases: Record<string, string[]> | undefined;
+  allowedModels: string[] | undefined;
+  disallowedModels: string[] | undefined;
   maxEffectiveTokens: number | undefined;
   maxAiCredits: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
@@ -32,6 +34,8 @@ type ValidatorOptions = Record<string, unknown>;
 type ModelMultiplierOptionsResult = Pick<
   LogAndLimitsResult,
   | 'modelAliases'
+  | 'allowedModels'
+  | 'disallowedModels'
   | 'maxEffectiveTokens'
   | 'maxAiCredits'
   | 'effectiveTokenModelMultipliers'
@@ -69,6 +73,8 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
   // Model aliases may be injected via config file (not a Commander option),
   // so access through a Record cast with a proper type annotation.
   const modelAliases = options.modelAliases as Record<string, string[]> | undefined;
+  const allowedModels = options.allowedModels as string[] | undefined;
+  const disallowedModels = options.disallowedModels as string[] | undefined;
   const maxEffectiveTokensOption = options.maxEffectiveTokens as string | number | undefined;
   const maxAiCreditsOption = options.maxAiCredits as string | number | undefined;
   const effectiveTokenDefaultModelMultiplierOption = options
@@ -111,6 +117,8 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
 
   return {
     modelAliases,
+    allowedModels,
+    disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
     effectiveTokenModelMultipliers,

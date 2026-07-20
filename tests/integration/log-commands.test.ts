@@ -30,7 +30,7 @@ describe('Log Commands', () => {
   });
 
   test('should generate logs during firewall operation', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'curl -sS --max-time 10 https://api.github.com/zen',
       {
         allowDomains: ['github.com'],
@@ -64,7 +64,7 @@ describe('Log Commands', () => {
   }, 120000);
 
   test('should parse log entries correctly', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "curl -f https://api.github.com/zen && curl -f https://example.com 2>&1 || true"',
       {
         allowDomains: ['github.com'],
@@ -101,7 +101,7 @@ describe('Log Commands', () => {
   }, 120000);
 
   test('should distinguish allowed vs blocked requests in logs', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "curl -f --max-time 10 https://api.github.com/zen; curl -f --max-time 5 https://example.com 2>&1 || true"',
       {
         allowDomains: ['github.com'],

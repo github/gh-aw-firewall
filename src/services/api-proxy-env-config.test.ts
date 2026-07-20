@@ -1,4 +1,5 @@
 import { baseConfig } from '../test-helpers/docker-test-fixtures.test-utils';
+import { saveAndClearOidcEnvironment } from './api-proxy-service.test-utils';
 import {
   testHelpers,
   buildApiProxyBaseEnv,
@@ -345,26 +346,14 @@ describe('buildModelPolicyEnv', () => {
 });
 
 describe('buildOidcEnv', () => {
-  let savedEnv: Record<string, string | undefined>;
-  const oidcVars = [
-    'AWF_AUTH_TYPE',
-    'ACTIONS_ID_TOKEN_REQUEST_URL',
-    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
-  ];
+  let restoreOidcEnvironment: () => void;
 
   beforeEach(() => {
-    savedEnv = {};
-    for (const key of oidcVars) {
-      savedEnv[key] = process.env[key];
-      delete process.env[key];
-    }
+    restoreOidcEnvironment = saveAndClearOidcEnvironment();
   });
 
   afterEach(() => {
-    for (const key of oidcVars) {
-      if (savedEnv[key] !== undefined) process.env[key] = savedEnv[key];
-      else delete process.env[key];
-    }
+    restoreOidcEnvironment();
   });
 
   it('forwards ACTIONS_ID_TOKEN_REQUEST_* when auth type is github-oidc', () => {

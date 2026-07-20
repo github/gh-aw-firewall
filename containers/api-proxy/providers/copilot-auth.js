@@ -4,6 +4,8 @@ const { normalizeApiTarget } = require('../proxy-utils');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./copilot-byok');
 const { URL } = require('url');
 
+const COPILOT_DUMMY_BYOK_OFFLINE_TOKEN = 'dummy-byok-key-for-offline-mode';
+
 /**
  * Strip any accidental "Bearer " or "token " prefix from a raw credential
  * value and trim
@@ -22,10 +24,12 @@ function stripBearerPrefix(value) {
 
 /**
  * Returns the COPILOT_PROVIDER_API_KEY value from env if it is a real BYOK credential,
- * or undefined in two cases:
+ * or undefined in three cases:
  *   1. COPILOT_PROVIDER_API_KEY is not set (or is empty/whitespace-only).
  *   2. COPILOT_PROVIDER_API_KEY equals the known AWF placeholder sentinel — it was injected
  *      by AWF for credential isolation and is not a usable BYOK credential.
+ *   3. COPILOT_PROVIDER_API_KEY equals gh-aw's offline-mode dummy BYOK sentinel
+ *      (`dummy-byok-key-for-offline-mode`) and should not suppress COPILOT_GITHUB_TOKEN.
  *
  * The case-(2) placeholder check is defense-in-depth: in AWF's normal flow the placeholder
  * is never written into the sidecar's own COPILOT_PROVIDER_API_KEY (src/services/api-proxy-
@@ -40,7 +44,9 @@ function stripBearerPrefix(value) {
  */
 function resolveApiKey(env) {
   const key = stripBearerPrefix(env.COPILOT_PROVIDER_API_KEY);
-  return key === COPILOT_PLACEHOLDER_TOKEN ? undefined : key;
+  return (key === COPILOT_PLACEHOLDER_TOKEN || key === COPILOT_DUMMY_BYOK_OFFLINE_TOKEN)
+    ? undefined
+    : key;
 }
 
 /**
@@ -66,6 +72,27 @@ function resolveCopilotAuthToken(env = process.env) {
 }
 
 /**
+ * Classify GITHUB_SERVER_URL by host type for auth-routing derivation logic.
+ *
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @returns {{kind: 'missing'|'invalid'|'github'|'ghec'|'ghes', subdomain?: string}}
+ */
+function classifyGithubServerHost(env = process.env) {
+  const serverUrl = env.GITHUB_SERVER_URL;
+  if (!serverUrl) return { kind: 'missing' };
+  try {
+    const hostname = new URL(serverUrl).hostname;
+    if (hostname === 'github.com') return { kind: 'github' };
+    if (hostname.endsWith('.ghe.com')) {
+      return { kind: 'ghec', subdomain: hostname.slice(0, -8) };
+    }
+    return { kind: 'ghes' };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+/**
  * Derive the Copilot API target hostname from environment variables.
  *
  * Priority:
@@ -85,21 +112,9 @@ function deriveCopilotApiTarget(env = process.env) {
     // fall through to auto-derivation when the value is malformed.
     if (target) return target;
   }
-  const serverUrl = env.GITHUB_SERVER_URL;
-  if (serverUrl) {
-    try {
-      const hostname = new URL(serverUrl).hostname;
-      if (hostname !== 'github.com') {
-        if (hostname.endsWith('.ghe.com')) {
-          const subdomain = hostname.slice(0, -8); // Remove '.ghe.com'
-          return `copilot-api.${subdomain}.ghe.com`;
-        }
-        return 'api.enterprise.githubcopilot.com';
-      }
-    } catch {
-      // Invalid URL — fall through to default
-    }
-  }
+  const serverHost = classifyGithubServerHost(env);
+  if (serverHost.kind === 'ghec') return `copilot-api.${serverHost.subdomain}.ghe.com`;
+  if (serverHost.kind === 'ghes') return 'api.enterprise.githubcopilot.com';
   return 'api.githubcopilot.com';
 }
 
@@ -119,18 +134,8 @@ function deriveGitHubApiTarget(env = process.env) {
     const target = normalizeApiTarget(env.GITHUB_API_URL);
     if (target) return target;
   }
-  const serverUrl = env.GITHUB_SERVER_URL;
-  if (serverUrl) {
-    try {
-      const hostname = new URL(serverUrl).hostname;
-      if (hostname !== 'github.com' && hostname.endsWith('.ghe.com')) {
-        const subdomain = hostname.slice(0, -8);
-        return `api.${subdomain}.ghe.com`;
-      }
-    } catch {
-      // Invalid URL — fall through to default
-    }
-  }
+  const serverHost = classifyGithubServerHost(env);
+  if (serverHost.kind === 'ghec') return `api.${serverHost.subdomain}.ghe.com`;
   return 'api.github.com';
 }
 
@@ -222,15 +227,7 @@ function isGhesInstance(resolvedTarget, env = process.env) {
   if (env.AWF_PLATFORM_TYPE && env.AWF_PLATFORM_TYPE !== 'ghes') return false;
 
   if (resolvedTarget === 'api.enterprise.githubcopilot.com') return true;
-
-  const serverUrl = env.GITHUB_SERVER_URL;
-  if (!serverUrl) return false;
-  try {
-    const hostname = new URL(serverUrl).hostname;
-    return hostname !== 'github.com' && !hostname.endsWith('.ghe.com');
-  } catch {
-    return false;
-  }
+  return classifyGithubServerHost(env).kind === 'ghes';
 }
 
 /**
@@ -297,6 +294,7 @@ module.exports = {
   deriveGitHubApiBasePath,
   isGithubCopilotCatalogTarget,
   isGhesInstance,
+  classifyGithubServerHost,
   copilotTargetRequiresGitHubTokenPrefix,
   getCopilotModelFallbackPolicy,
   // Exported for unit-test access only; not part of the public API.
@@ -309,6 +307,7 @@ module.exports = {
     deriveGitHubApiBasePath,
     isGithubCopilotCatalogTarget,
     isGhesInstance,
+    classifyGithubServerHost,
     copilotTargetRequiresGitHubTokenPrefix,
     getCopilotModelFallbackPolicy,
   },

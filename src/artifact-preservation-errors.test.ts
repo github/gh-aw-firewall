@@ -198,9 +198,13 @@ describe('artifact-preservation – error paths', () => {
             'run',
             '--pull',
             'never',
+            '--entrypoint',
+            'sh',
             '-v',
             `/host${path.resolve(auditDir)}:/fix:rw`,
             'ghcr.io/github/gh-aw-firewall/agent:latest',
+            '-c',
+            'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
           ]),
           expect.objectContaining({ reject: false }),
         );

@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
@@ -13,7 +13,7 @@ const optionGroupHeaders: Record<string, string> = {
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
-  'enable-api-proxy': 'API Proxy:',
+  'copilot-api-target': 'API Proxy:',
   'log-level': 'Logging & Debug:',
 };
 
@@ -242,10 +242,14 @@ program
   )
   .option(
     '--network-isolation',
-    'Experimental: enforce egress via Docker network topology (internal network +\n' +
+    'Enforce egress via Docker network topology (internal network +\n' +
     '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
-    '                                       Not yet supported with --dns-over-https or --enable-host-access.',
-    false
+    '                                       Not yet supported with --dns-over-https or --enable-host-access.\n' +
+    '                                       Enabled by default (strict security).'
+  )
+  .option(
+    '--no-network-isolation',
+    'Disable network-isolation mode (requires --legacy-security).'
   )
   .option(
     '--topology-attach <name>',
@@ -274,6 +278,19 @@ program
     '                                       WARNING: allows firewall bypass via docker run',
     false
   )
+  .addOption(
+    new Option(
+      '--legacy-security',
+      'Enable legacy security mode (sudo, host-access, iptables).\n' +
+      '                                       Default behavior is strict security (network-isolation + api-proxy).',
+    )
+  )
+  .addOption(
+    new Option(
+      '--security-mode <mode>',
+      '[DEPRECATED] Use --legacy-security instead.',
+    ).choices(['strict', 'compat']).hideHelp()
+  )
   .option(
     '--enable-dlp',
     'Enable DLP (Data Loss Prevention) scanning to block credential\n' +
@@ -281,12 +298,18 @@ program
     false
   )
 
-  // -- API Proxy --
-  .option(
-    '--enable-api-proxy',
-    'Enable API proxy sidecar for secure credential injection.\n' +
-    '                                       Supports OpenAI (Codex) and Anthropic (Claude) APIs.',
-    false
+  // -- API Proxy (always enabled, flags retained for backward compatibility) --
+  .addOption(
+    new Option(
+      '--enable-api-proxy',
+      '[DEPRECATED] The API proxy is always enabled. This flag is ignored.'
+    ).hideHelp()
+  )
+  .addOption(
+    new Option(
+      '--no-enable-api-proxy',
+      '[REMOVED] The API proxy cannot be disabled. Passing this flag is an error.'
+    ).hideHelp()
   )
   .option(
     '--copilot-api-target <host>',

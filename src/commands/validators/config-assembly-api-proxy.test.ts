@@ -1,6 +1,11 @@
 import {
+  assembleAndValidateConfig,
+  buildConfig,
   buildRateLimitConfig,
   callAssembleWith,
+  createMinimalAgentOptions,
+  createMinimalLogAndLimits,
+  createMinimalNetworkOptions,
   logger,
   mockBuildConfigOnce,
   setupConfigAssemblyTestSuite,
@@ -29,10 +34,17 @@ describe('config-assembly', () => {
       );
     });
 
-    it('should exit if rate limit flags are used without --enable-api-proxy', () => {
+    // Note: "rate limit flags without --enable-api-proxy" scenario cannot occur
+    // in production (API proxy is always enabled), but we test the validation
+    // path for completeness.
+    it('should exit if rate limit flags are invalid', () => {
+      mockBuildConfigOnce({
+        enableApiProxy: true,
+      });
+
       (validateRateLimitFlags as jest.Mock).mockReturnValueOnce({
         valid: false,
-        error: 'Rate limit flags require --enable-api-proxy',
+        error: '--rate-limit-rpm requires --enable-api-proxy',
       });
 
       expect(() => {
@@ -40,15 +52,11 @@ describe('config-assembly', () => {
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
-        'Rate limit flags require --enable-api-proxy',
+        expect.stringContaining('--rate-limit-rpm requires --enable-api-proxy'),
       );
     });
 
     it('should set rate limit config when API proxy is enabled', () => {
-      mockBuildConfigOnce({
-        enableApiProxy: true,
-      });
-
       const mockRateLimitConfig = {
         enabled: true,
         rpm: 100,
@@ -86,6 +94,28 @@ describe('config-assembly', () => {
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining('API proxy enabled: OpenAI=true, Anthropic=true'),
       );
+    });
+  });
+
+  describe('model policy config assembly handoff', () => {
+    it('passes allowedModels and disallowedModels from logAndLimits into buildConfig', () => {
+      const logAndLimits = {
+        ...createMinimalLogAndLimits(),
+        allowedModels: ['gpt-5.6-sol', 'claude-sonnet-*'],
+        disallowedModels: ['gpt-4*'],
+      };
+
+      assembleAndValidateConfig(
+        {},
+        'echo test',
+        logAndLimits,
+        createMinimalNetworkOptions(),
+        createMinimalAgentOptions(),
+      );
+
+      const buildConfigArgs = (buildConfig as jest.Mock).mock.calls[0][0];
+      expect(buildConfigArgs.allowedModels).toEqual(['gpt-5.6-sol', 'claude-sonnet-*']);
+      expect(buildConfigArgs.disallowedModels).toEqual(['gpt-4*']);
     });
   });
 });

@@ -51,13 +51,13 @@ describe('Volume Mount Functionality', () => {
     const testFile = path.join(testDir, 'test.txt');
     fs.writeFileSync(testFile, 'Hello from host');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'cat /data/test.txt',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -66,13 +66,13 @@ describe('Volume Mount Functionality', () => {
   }, 120000);
 
   test('Test 2: Read-write custom mount', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c \'echo "Written from container" > /data/output.txt\'',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:rw`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -94,7 +94,7 @@ describe('Volume Mount Functionality', () => {
     fs.writeFileSync(path.join(dir1, 'file1.txt'), 'Content 1');
     fs.writeFileSync(path.join(dir2, 'file2.txt'), 'Content 2');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c "cat /mount1/file1.txt && cat /mount2/file2.txt"',
       {
         allowDomains: ['github.com'],
@@ -103,7 +103,7 @@ describe('Volume Mount Functionality', () => {
           `${dir1}:/mount1:ro`,
           `${dir2}:/mount2:ro`,
         ],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -119,13 +119,13 @@ describe('Volume Mount Functionality', () => {
     fs.writeFileSync(secretFile, 'Secret data', { mode: 0o600 });
 
     try {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         `sh -c "cat /data/test.txt && cat ${secretFile}"`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
           volumeMounts: [`${testDir}:/data:ro`],
-          timeout: 30000,
+          timeout: 60000,
         }
       );
 
@@ -144,13 +144,13 @@ describe('Volume Mount Functionality', () => {
   test('Test 5: No /host mount with custom mounts', async () => {
     fs.writeFileSync(path.join(testDir, 'allowed.txt'), 'Allowed data');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c "cat /data/allowed.txt && ls /host"',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -162,13 +162,13 @@ describe('Volume Mount Functionality', () => {
   }, 120000);
 
   test('Test 6: Essential mounts still work (HOME directory)', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c "echo $HOME && test -d $HOME"',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -177,13 +177,13 @@ describe('Volume Mount Functionality', () => {
   }, 120000);
 
   test('Test 7: Backward compatibility - no custom mounts uses blanket mount', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'ls /host/tmp | head -5',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         // No volumeMounts specified
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -193,13 +193,13 @@ describe('Volume Mount Functionality', () => {
   }, 120000);
 
   test('Test 8: Mount without mode defaults to rw', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c \'echo "Test write" > /data/write-test.txt\'',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data`], // No mode specified
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -211,13 +211,13 @@ describe('Volume Mount Functionality', () => {
   }, 120000);
 
   test('Test 9: Debug logging shows mount configuration', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "test"',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${testDir}:/data:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -232,13 +232,13 @@ describe('Volume Mount Functionality', () => {
     fs.mkdirSync(projectDir);
     fs.writeFileSync(path.join(projectDir, 'README.md'), '# Test Project');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'cat /workspace/README.md',
       {
         allowDomains: ['github.com'],
         logLevel: 'debug',
         volumeMounts: [`${projectDir}:/workspace:ro`],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 
@@ -253,7 +253,7 @@ describe('Volume Mount Functionality', () => {
     fs.mkdirSync(rwDir);
     fs.writeFileSync(path.join(roDir, 'config.txt'), 'Config data');
 
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'sh -c "cat /config/config.txt && echo \\"Log entry\\" > /logs/app.log"',
       {
         allowDomains: ['github.com'],
@@ -262,7 +262,7 @@ describe('Volume Mount Functionality', () => {
           `${roDir}:/config:ro`,
           `${rwDir}:/logs:rw`,
         ],
-        timeout: 30000,
+        timeout: 60000,
       }
     );
 

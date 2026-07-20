@@ -28,7 +28,7 @@ describe('Environment Variable Handling', () => {
   });
 
   test('should pass environment variable to container', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $TEST_VAR',
       {
         allowDomains: ['github.com'],
@@ -46,7 +46,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should pass multiple environment variables', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "echo $VAR1 $VAR2 $VAR3"',
       {
         allowDomains: ['github.com'],
@@ -67,7 +67,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should handle environment variable with special characters', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo "$SPECIAL_VAR"',
       {
         allowDomains: ['github.com'],
@@ -84,7 +84,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should handle empty environment variable value', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "if [ -z \\"$EMPTY_VAR\\" ]; then echo empty; else echo not_empty; fi"',
       {
         allowDomains: ['github.com'],
@@ -101,7 +101,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should preserve PATH environment variable', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $PATH',
       {
         allowDomains: ['github.com'],
@@ -116,7 +116,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should have HOME environment variable set', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $HOME',
       {
         allowDomains: ['github.com'],
@@ -131,7 +131,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should not leak sensitive environment variables by default', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'printenv | grep -E "TOKEN|SECRET|PASSWORD|KEY" || echo "none found"',
       {
         allowDomains: ['github.com'],
@@ -146,7 +146,7 @@ describe('Environment Variable Handling', () => {
   }, 120000);
 
   test('should handle numeric environment variable values', async () => {
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'echo $NUM_VAR',
       {
         allowDomains: ['github.com'],
@@ -164,7 +164,7 @@ describe('Environment Variable Handling', () => {
 
   describe('--env-all flag', () => {
     test('should pass host environment variables into container', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo $AWF_TEST_CUSTOM_VAR',
         {
           allowDomains: ['github.com'],
@@ -182,7 +182,7 @@ describe('Environment Variable Handling', () => {
     }, 120000);
 
     test('should set proxy environment variables inside container', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "echo HTTP_PROXY=$HTTP_PROXY && echo HTTPS_PROXY=$HTTPS_PROXY"',
         {
           allowDomains: ['github.com'],
@@ -199,7 +199,7 @@ describe('Environment Variable Handling', () => {
 
     test('should set JAVA_TOOL_OPTIONS with JVM proxy properties', async () => {
       // Use printenv instead of bash -c to avoid quoting issues with envAll
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'printenv JAVA_TOOL_OPTIONS || echo "JAVA_TOOL_OPTIONS_NOT_SET"',
         {
           allowDomains: ['github.com'],
@@ -217,7 +217,7 @@ describe('Environment Variable Handling', () => {
     }, 120000);
 
     test('should work together with explicit -e flags', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "echo HOST_VAR=$AWF_TEST_HOST_VAR && echo CLI_VAR=$AWF_TEST_CLI_VAR"',
         {
           allowDomains: ['github.com'],
@@ -239,7 +239,7 @@ describe('Environment Variable Handling', () => {
     }, 120000);
 
     test('explicit -e should override --env-all for same variable', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo $AWF_TEST_OVERRIDE_VAR',
         {
           allowDomains: ['github.com'],
@@ -263,7 +263,7 @@ describe('Environment Variable Handling', () => {
     test('should have standard PATH entries in container', async () => {
       // In chroot mode, the container uses the host's PATH.
       // Verify that standard system paths are always present.
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo $PATH',
         {
           allowDomains: ['github.com'],

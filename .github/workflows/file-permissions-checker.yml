@@ -1,0 +1,114 @@
+name: File Permissions Checker
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'scripts/ci/check-file-permissions.ts'
+      - '.github/workflows/file-permissions-checker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'scripts/ci/check-file-permissions.ts'
+      - '.github/workflows/file-permissions-checker.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  file-permissions-check:
+    name: Check File Permission Patterns (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        # Test on multiple runner images to catch environment-specific umask issues
+        include:
+          - os: ubuntu-latest
+            name: Ubuntu Latest
+          - os: ubuntu-24.04
+            name: Ubuntu 24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report environment umask
+        run: |
+          echo "## Environment Info" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "Runner: ${{ matrix.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "umask: $(umask)" >> $GITHUB_STEP_SUMMARY
+          echo "uid: $(id -u)" >> $GITHUB_STEP_SUMMARY
+          echo "gid: $(id -g)" >> $GITHUB_STEP_SUMMARY
+          echo "/tmp permissions: $(stat -c '%a %U:%G' /tmp)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run file permissions checker
+        run: npx ts-node scripts/ci/check-file-permissions.ts
+
+      - name: Verify under restrictive umask (0177)
+        run: |
+          echo "Running AWF file permission tests with umask 0177 (simulates problematic runners)..."
+          umask 0177
+          npx ts-node scripts/ci/check-file-permissions.ts
+
+      - name: Verify hosts-file.ts integration (build + import)
+        run: |
+          npm run build
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const os = require('os');
+
+            // Simulate restrictive umask
+            const oldUmask = process.umask(0o177);
+
+            // Exercise the actual built generateHostsFileMount function
+            // It requires a WrapperConfig-shaped object with workDir and allowedDomains
+            const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-ci-integration-'));
+            fs.chmodSync(workDir, 0o700);
+
+            try {
+              const { generateHostsFileMount } = require('./dist/services/agent-volumes/hosts-file');
+              const config = {
+                workDir,
+                allowedDomains: ['github.com', 'api.github.com'],
+                enableHostAccess: false,
+                dockerHostPathPrefix: undefined,
+              };
+              const mountString = generateHostsFileMount(config);
+
+              // Verify the mount string has the expected format: <path>:/host/etc/hosts:ro
+              if (!mountString.endsWith(':/host/etc/hosts:ro')) {
+                console.error('Unexpected mount format:', mountString);
+                process.exit(1);
+              }
+
+              // Verify the hosts file was actually created and is readable
+              const hostsPath = mountString.split(':')[0];
+              const content = fs.readFileSync(hostsPath, 'utf-8');
+              if (!content.includes('localhost')) {
+                console.error('Hosts file missing localhost entry');
+                process.exit(1);
+              }
+
+              console.log('✅ generateHostsFileMount works under umask 0177');
+              console.log('   Mount:', mountString);
+            } finally {
+              process.umask(oldUmask);
+              fs.rmSync(workDir, { recursive: true, force: true });
+            }
+          "

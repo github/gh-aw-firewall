@@ -23,7 +23,13 @@
  */
 
 import execa from 'execa';
+import * as fs from 'fs';
+import * as path from 'path';
+import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
+import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
+import { credentialEntriesUnderMountedParents } from './config/mount-policy';
+import { getRealUserHome } from './host-identity';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
@@ -75,12 +81,105 @@ export function sanitizeEnvForSbx(
   overrides: Record<string, string> = {},
 ): Record<string, string | undefined> {
   const clean: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!SECRET_ENV_PATTERNS.some((p) => p.test(key))) {
-      clean[key] = value;
+  copyEnvEntries(process.env, clean, {
+    keyPredicate: (key) => !SECRET_ENV_PATTERNS.some((p) => p.test(key)),
+  });
+  return { ...clean, ...overrides };
+}
+
+/** Records a credential path that was moved aside before `sbx create`. */
+interface ScrubbedCredential {
+  /** Original host path (inside a wholesale-mounted home dir). */
+  original: string;
+  /** Backup location the path was moved to (outside any mount). */
+  backup: string;
+}
+
+/**
+ * Credential paths moved aside for the current sandbox, plus the temp backup
+ * root that holds them. Module-level because scrub happens in createSandbox and
+ * restore happens later in removeSandbox (after the live mount is gone).
+ */
+let scrubbedCredentials: ScrubbedCredential[] = [];
+let credentialBackupRoot: string | undefined;
+
+/**
+ * Moves known credential stores out of the wholesale-mounted `$HOME` tool dirs
+ * before the sandbox is created, so they never enter the microVM. The paths are
+ * moved (not deleted) to a backup dir at the home root — which is NOT one of the
+ * mounted subdirs — and restored by {@link restoreHomeCredentials} after the
+ * sandbox is torn down. This is the sbx analog of compose mode's `/dev/null`
+ * credential overlays; the credential list comes from the central mount policy
+ * so the two backends can't drift.
+ */
+function scrubHomeCredentials(homePath: string): void {
+  scrubbedCredentials = [];
+  credentialBackupRoot = undefined;
+
+  const mountedParents = new Set<string>(HOME_TOOL_SUBDIRS);
+  for (const entry of credentialEntriesUnderMountedParents(mountedParents)) {
+    const original = path.join(homePath, entry.path);
+    if (!fs.existsSync(original)) continue;
+
+    if (!credentialBackupRoot) {
+      // A dotted dir at the home ROOT is never in the mounted subdir set, so
+      // the backup itself can't leak into the VM.
+      credentialBackupRoot = path.join(homePath, `.awf-sbx-cred-backup-${process.pid}`);
+      try {
+        fs.mkdirSync(credentialBackupRoot, { recursive: true });
+      } catch (err) {
+        logger.warn(`[sbx] Could not create credential backup dir: ${(err as Error).message}`);
+        credentialBackupRoot = undefined;
+        return;
+      }
+    }
+
+    const backup = path.join(credentialBackupRoot, entry.path.replace(/\//g, '__'));
+    try {
+      fs.renameSync(original, backup);
+      scrubbedCredentials.push({ original, backup });
+      logger.info(`[sbx] Hid credential path from sandbox: ${entry.path}`);
+    } catch (err) {
+      logger.warn(`[sbx] Could not hide credential path ${original}: ${(err as Error).message}`);
     }
   }
-  return { ...clean, ...overrides };
+
+  if (scrubbedCredentials.length > 0 && credentialBackupRoot) {
+    logger.info(
+      `[sbx] Moved ${scrubbedCredentials.length} credential path(s) aside to ${credentialBackupRoot} for the duration of the sandbox`,
+    );
+  }
+}
+
+/**
+ * Restores any credential paths that {@link scrubHomeCredentials} moved aside.
+ * Idempotent and non-throwing; safe to call even when nothing was scrubbed.
+ * MUST run only after the sandbox is removed, because the home dirs are live
+ * mounts — restoring while the VM is running would re-expose the secrets.
+ */
+export function restoreHomeCredentials(): void {
+  for (const { original, backup } of scrubbedCredentials) {
+    try {
+      if (fs.existsSync(backup)) {
+        fs.renameSync(backup, original);
+      }
+    } catch (err) {
+      logger.warn(
+        `[sbx] Could not restore credential path ${original} from ${backup}: ${(err as Error).message}. ` +
+          `The original is preserved at ${backup}.`,
+      );
+    }
+  }
+  scrubbedCredentials = [];
+
+  if (credentialBackupRoot) {
+    try {
+      fs.rmSync(credentialBackupRoot, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup of the (now-empty) backup dir
+    }
+    credentialBackupRoot = undefined;
+  }
 }
 
 /**
@@ -144,18 +243,54 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
     }
   }
 
-  // Mount /tmp so agent runtime files (prompts, logs) are accessible.
-  // Mount /usr/local/bin for Copilot CLI and other installed tools.
-  // Mount $HOME for agent writable dirs (.cache, .config, .local, etc.)
-  const homePath = process.env.HOME || '/home/runner';
-  for (const sysPath of ['/tmp', '/usr/local/bin', homePath]) {
+  // Mount /tmp so agent runtime files (prompts, logs) are accessible, and
+  // /usr/local/bin for Copilot CLI and other installed tools.
+  for (const sysPath of ['/tmp', '/usr/local/bin']) {
     if (!seenPaths.has(sysPath)) {
       seenPaths.add(sysPath);
       args.push(sysPath);
     }
   }
 
+  // SECURITY: never mount the whole $HOME into the microVM. sbx mounts are
+  // positional (host path == guest path) and cannot express the per-file
+  // /dev/null credential overlays that compose mode uses (see
+  // credential-hiding.ts), so the only way to keep host secrets out of the VM
+  // is to curate which $HOME subdirs are mounted. The central mount policy
+  // (HOME_TOOL_SUBDIRS) lists the allowed tool-state dirs including agent-state
+  // dirs (.copilot, .gemini). Credential stores such as ~/.aws, ~/.ssh,
+  // ~/.docker, ~/.kube, ~/.azure, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
+  // whitelisted, so they never enter the sandbox. Only paths that exist on the
+  // host are mounted, because sbx requires the mount source to exist.
+  //
+  // Each whitelisted parent is mounted WHOLESALE (as a directory): sbx mounts
+  // are positional, directory-granular virtiofs passthroughs and cannot mount an
+  // individual file, so child-by-child expansion would drop loose files the
+  // agent needs (e.g. ~/.copilot/mcp-config.json). Several of these dirs also
+  // nest a credential store — e.g. .config/gh, .cargo/credentials,
+  // .claude/.credentials.json, .gemini/oauth_creds.json.
+  // Those specific paths are moved aside on the host BEFORE `sbx create` (see
+  // scrubHomeCredentials below) and restored after teardown, so the benign tool
+  // state stays available while the secrets never enter the microVM.
+  // Resolve the home the SAME way buildCoreEnvironment() does (getRealUserHome,
+  // which honors SUDO_USER), so the wholesale-mounted tool dirs land at exactly
+  // the $HOME the agent sees inside the VM. Using process.env.HOME here would
+  // diverge under sudo (e.g. /root vs /home/alice), mounting .local at a path
+  // the guest's $HOME never points at and hiding a rootless-installed binary.
+  const homePath = getRealUserHome();
+  for (const subdir of HOME_TOOL_SUBDIRS) {
+    const hostSubdir = `${homePath}/${subdir}`;
+    if (seenPaths.has(hostSubdir)) continue;
+    if (!fs.existsSync(hostSubdir)) continue;
+    seenPaths.add(hostSubdir);
+    args.push(hostSubdir);
+  }
+
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
+
+  // Move known credential stores out of the wholesale-mounted home dirs before
+  // the sandbox exists, and remember them so they can be restored on teardown.
+  scrubHomeCredentials(homePath);
 
   // Do NOT pass a custom `env` to sbx create. The sanitized env (which strips
   // vars matching TOKEN, SECRET, KEY, etc.) also strips variables the sbx CLI
@@ -196,6 +331,9 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   const exitCode = createResult.exitCode ?? 1;
 
   if (exitCode !== 0 && !sbxSucceeded) {
+    // Sandbox never came up — restore the scrubbed credentials immediately so a
+    // failed run doesn't leave the user's home directory mutated.
+    restoreHomeCredentials();
     // Log full debug output for diagnostics
     if (stdout) logger.info(`[sbx] create stdout: ${stdout.substring(0, 2000)}`);
     if (stderr) logger.info(`[sbx] create stderr: ${stderr.substring(0, 2000)}`);
@@ -206,6 +344,20 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
 
   logger.info(`[sbx] Sandbox "${name}" created (exit=${exitCode}, detected=${sbxSucceeded}). stdout=${stdout.substring(0, 200)}`);
   return name;
+}
+
+/**
+ * Wraps an agent command so the rootless install dir (~/.local/bin) is on PATH
+ * when it runs. sbx executes commands via a login shell (`bash -lc`), which
+ * sources /etc/profile — and on Debian/Ubuntu that unconditionally resets PATH,
+ * discarding anything injected via `--env PATH=...`. Prepending the export to
+ * the command itself runs AFTER login initialization, so a copilot binary
+ * installed rootless to ~/.local/bin (install_copilot_cli.sh --rootless) stays
+ * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
+ * which matches the wholesale-mounted home tool dirs.
+ */
+export function withLocalBinOnPath(command: string): string {
+  return `export PATH="$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
 }
 
 /**
@@ -232,7 +384,7 @@ export async function execInSandbox(
     }
   }
 
-  args.push(name, 'bash', '-lc', command);
+  args.push(name, 'bash', '-lc', withLocalBinOnPath(command));
 
   try {
     const result = await execa('sbx', args, {
@@ -291,8 +443,14 @@ export async function removeSandbox(name: string): Promise<void> {
     logger.warn(
       `Failed to remove sandbox "${name}" (exit ${(rmResult.exitCode ?? 1)}${stderr ? `: ${stderr}` : ''})`
     );
+    // Still restore credentials — the sandbox is being torn down regardless, and
+    // leaving the user's home scrubbed would be worse than a stale sandbox.
+    restoreHomeCredentials();
     return;
   }
+
+  // Sandbox is gone (mounts released) → safe to move credentials back.
+  restoreHomeCredentials();
 
   logger.info(`Sandbox "${name}" removed`);
 }

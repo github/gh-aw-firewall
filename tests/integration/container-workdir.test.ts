@@ -29,7 +29,7 @@ describe('Container Working Directory', () => {
   });
 
   test('should use default working directory (user home in chroot mode)', async () => {
-    const result = await runner.runWithSudo('pwd', {
+    const result = await runner.run('pwd', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 60000,
@@ -44,7 +44,7 @@ describe('Container Working Directory', () => {
   }, 120000);
 
   test('should use custom working directory when --container-workdir is specified', async () => {
-    const result = await runner.runWithSudo('pwd', {
+    const result = await runner.run('pwd', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 60000,
@@ -57,7 +57,7 @@ describe('Container Working Directory', () => {
 
   test('should execute commands in the specified working directory', async () => {
     // Create a file in /tmp and verify we can list it from /tmp working directory
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "touch testfile.txt && ls -la | grep testfile"',
       {
         allowDomains: ['github.com'],
@@ -72,7 +72,7 @@ describe('Container Working Directory', () => {
   }, 120000);
 
   test('should work with home directory as working directory', async () => {
-    const result = await runner.runWithSudo('pwd', {
+    const result = await runner.run('pwd', {
       allowDomains: ['github.com'],
       logLevel: 'debug',
       timeout: 60000,
@@ -86,7 +86,7 @@ describe('Container Working Directory', () => {
 
   test('should allow relative path access from custom working directory', async () => {
     // Verify that relative paths work correctly from the custom workdir
-    const result = await runner.runWithSudo(
+    const result = await runner.run(
       'bash -c "cd .. && pwd"',
       {
         allowDomains: ['github.com'],

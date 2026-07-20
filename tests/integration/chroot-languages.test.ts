@@ -178,7 +178,7 @@ describe('Chroot Language Support', () => {
   // ---------- Individual: Java compile tests (longer timeout) ----------
   describe('Java', () => {
     test('should compile and run Java Hello World', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && ' +
         'echo \'public class Hello { public static void main(String[] args) { System.out.println("Hello from Java"); } }\' > $TESTDIR/Hello.java && ' +
         'cd $TESTDIR && javac Hello.java && java Hello && rm -rf $TESTDIR',
@@ -194,7 +194,7 @@ describe('Chroot Language Support', () => {
     }, 180000);
 
     test('should access Java standard library (java.util)', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && ' +
         'cat > $TESTDIR/TestUtil.java << \'EOF\'\n' +
         'import java.util.Arrays;\n' +
@@ -223,7 +223,7 @@ describe('Chroot Language Support', () => {
   // ---------- Individual: .NET compile test (different domains, long timeout) ----------
   describe('.NET', () => {
     test('should create and run a .NET console app', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'TESTDIR=$(mktemp -d) && cd $TESTDIR && ' +
         'dotnet new console -o testapp --no-restore && ' +
         'cd testapp && dotnet restore && dotnet run && ' +

@@ -1,5 +1,38 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
 import { resolveApiCredentials } from './resolve-credentials';
+import { logger } from '../logger';
+
+/**
+ * Resolves the effective `legacySecurity` value from CLI options.
+ *
+ * Sources (in priority order):
+ * 1. `--legacy-security` boolean flag (preferred)
+ * 2. `--security-mode compat` (deprecated, maps to legacySecurity=true)
+ */
+function resolveLegacySecurity(options: Record<string, unknown>): boolean | undefined {
+  // Preferred new flag takes precedence
+  const legacySecurity = options.legacySecurity as boolean | undefined;
+  if (legacySecurity !== undefined) {
+    return legacySecurity || undefined;
+  }
+
+  // Handle deprecated --security-mode flag (only if --legacy-security not specified)
+  const securityMode = options.securityMode as string | undefined;
+  if (securityMode === 'compat') {
+    logger.warn(
+      '⚠️  --security-mode compat is deprecated. Use --legacy-security instead.',
+    );
+    return true;
+  }
+  if (securityMode === 'strict') {
+    logger.warn(
+      '⚠️  --security-mode is deprecated. Strict security is the default; remove the flag.',
+    );
+    return undefined;
+  }
+
+  return undefined;
+}
 
 /**
  * Inputs required to assemble a {@link WrapperConfig}.
@@ -22,6 +55,8 @@ interface BuildConfigInputs {
   memoryLimit: string | undefined;
   agentImage: string | undefined;
   modelAliases: Record<string, string[]> | undefined;
+  allowedModels: string[] | undefined;
+  disallowedModels: string[] | undefined;
   maxEffectiveTokens: number | undefined;
   maxAiCredits: number | undefined;
   effectiveTokenModelMultipliers: Record<string, number> | undefined;
@@ -57,6 +92,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     memoryLimit,
     agentImage,
     modelAliases,
+    allowedModels,
+    disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
     effectiveTokenModelMultipliers,
@@ -108,7 +145,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
-    networkIsolation: options.networkIsolation as boolean,
+    networkIsolation: options.networkIsolation as boolean | undefined,
     topologyAttach: options.topologyAttach as string[] | undefined,
     localhostDetected,
     allowHostPorts: options.allowHostPorts as string | undefined,
@@ -116,14 +153,17 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     sslBump: options.sslBump as boolean,
     enableDind: options.enableDind as boolean,
     enableDlp: options.enableDlp as boolean,
+    legacySecurity: resolveLegacySecurity(options),
     allowedUrls,
-    enableApiProxy: options.enableApiProxy as boolean,
+    enableApiProxy: options.enableApiProxy as boolean | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
     requestedModel: options.requestedModel as string | undefined,
     anthropicAutoCache: options.anthropicAutoCache as boolean,
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     modelAliases,
+    allowedModels,
+    disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
     effectiveTokenModelMultipliers,

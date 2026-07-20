@@ -77,6 +77,13 @@ describe('agent environment: credentials', () => {
     }
   });
 
+  it('should include ANTHROPIC_AUTH_TOKEN in AWF_ONE_SHOT_TOKENS', () => {
+    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+
+    expect(env.AWF_ONE_SHOT_TOKENS).toContain('ANTHROPIC_AUTH_TOKEN');
+  });
+
   it('should pass through GITHUB_TOKEN when present in environment', () => {
     const originalEnv = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'ghp_testtoken123';
@@ -107,6 +114,30 @@ describe('agent environment: credentials', () => {
         process.env.GITHUB_TOKEN = originalEnv;
       }
     }
+  });
+
+  it('should block GITHUB_TOKEN via additionalEnv when enableApiProxy is true', () => {
+    const configWithProxy = {
+      ...mockConfig,
+      enableApiProxy: true,
+      additionalEnv: { GITHUB_TOKEN: 'ghp_real_secret_token_12345' },
+    };
+    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.GITHUB_TOKEN).not.toBe('ghp_real_secret_token_12345');
+  });
+
+  it('should block GH_TOKEN via additionalEnv when enableApiProxy is true', () => {
+    const configWithProxy = {
+      ...mockConfig,
+      enableApiProxy: true,
+      additionalEnv: { GH_TOKEN: 'ghp_real_secret_token_12345' },
+    };
+    const proxyNetworkConfig = { ...mockNetworkConfig, proxyIp: '172.30.0.30' };
+    const result = generateDockerCompose(configWithProxy, proxyNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.GH_TOKEN).not.toBe('ghp_real_secret_token_12345');
   });
 
   it('should pass through ACTIONS_ID_TOKEN_REQUEST_URL when present in environment', () => {

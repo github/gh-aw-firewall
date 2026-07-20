@@ -573,17 +573,17 @@ describe('Auth Matrix — Credential Isolation', () => {
     expect(headers.Authorization).toBe('Bearer sk-real-byok-key');
   });
 
-  it('Copilot dummy BYOK key is used as-is at the adapter level', () => {
-    // The 'dummy-byok-key-for-offline-mode' string has no special handling
-    // in the adapter — it's treated as a regular BYOK key. The Copilot CLI
-    // auth layer (copilot-auth.js) is where placeholder detection occurs.
+  it('Copilot offline-mode dummy BYOK key is treated as absent', () => {
+    // gh-aw injects this sentinel for Copilot CLI offline mode. The proxy
+    // should ignore it and continue using COPILOT_GITHUB_TOKEN.
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'ghu_real_token',
       COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
     });
     const headers = adapter.getAuthHeaders(fakeReq());
-    // BYOK key is present so it's used for inference
-    expect(headers.Authorization).toBe('Bearer dummy-byok-key-for-offline-mode');
+    expect(headers.Authorization).toMatch(/^Bearer\s+/);
+    expect(headers.Authorization).toContain('ghu_real_token');
+    expect(headers.Authorization).not.toContain('dummy-byok-key-for-offline-mode');
   });
 });
 

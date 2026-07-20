@@ -45,6 +45,7 @@ const DEFAULT_SENSITIVE_TOKENS: &[&str] = &[
     "OPENAI_KEY",
     // Anthropic/Claude tokens
     "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_API_KEY",
     // Codex tokens
     "CODEX_API_KEY",

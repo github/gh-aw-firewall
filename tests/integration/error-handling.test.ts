@@ -28,7 +28,7 @@ describe('Error Handling', () => {
 
   describe('Network Errors', () => {
     test('should handle blocked domain gracefully', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f https://example.com --max-time 5',
         {
           allowDomains: ['github.com'],
@@ -44,7 +44,7 @@ describe('Error Handling', () => {
 
     test('should handle connection refused gracefully', async () => {
       // Trying to connect to localhost where no server is running
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f http://localhost:12345 --max-time 5 || echo "connection failed"',
         {
           allowDomains: ['github.com'],
@@ -58,7 +58,7 @@ describe('Error Handling', () => {
     }, 120000);
 
     test('should handle DNS resolution failure gracefully', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f https://this-domain-definitely-does-not-exist-xyz123.com --max-time 5 || echo "dns failed"',
         {
           allowDomains: ['this-domain-definitely-does-not-exist-xyz123.com'],
@@ -74,7 +74,7 @@ describe('Error Handling', () => {
 
   describe('Command Errors', () => {
     test('should handle command not found', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'nonexistent_command_xyz123',
         {
           allowDomains: ['github.com'],
@@ -88,7 +88,7 @@ describe('Error Handling', () => {
     }, 120000);
 
     test('should handle permission denied', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'cat /etc/shadow 2>&1 || echo "permission denied handled"',
         {
           allowDomains: ['github.com'],
@@ -102,7 +102,7 @@ describe('Error Handling', () => {
     }, 120000);
 
     test('should handle file not found', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'cat /nonexistent/file/path 2>&1 || echo "file not found handled"',
         {
           allowDomains: ['github.com'],
@@ -118,7 +118,7 @@ describe('Error Handling', () => {
 
   describe('Script Errors', () => {
     test('should handle bash syntax errors', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "if then fi" 2>&1 || echo "syntax error caught"',
         {
           allowDomains: ['github.com'],
@@ -134,7 +134,7 @@ describe('Error Handling', () => {
     test('should handle division by zero in bash', async () => {
       // Use expr for division to avoid bash arithmetic expansion in outer shell.
       // bash $((1/0)) fails during expansion before || can catch it.
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'expr 1 / 0 2>&1 || echo "division error caught"',
         {
           allowDomains: ['github.com'],
@@ -151,7 +151,7 @@ describe('Error Handling', () => {
   describe('Process Signals', () => {
     test('should handle SIGTERM from command', async () => {
       // Self-terminate with SIGTERM
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "kill -TERM $$ 2>/dev/null; exit 0" || echo "signal handled"',
         {
           allowDomains: ['github.com'],
@@ -170,7 +170,7 @@ describe('Error Handling', () => {
   describe('Recovery After Errors', () => {
     test('should continue working after command failure', async () => {
       // First run a failing command
-      await runner.runWithSudo(
+      await runner.run(
         'false',
         {
           allowDomains: ['github.com'],
@@ -180,7 +180,7 @@ describe('Error Handling', () => {
       );
 
       // Then run a successful command
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo "recovery test"',
         {
           allowDomains: ['github.com'],

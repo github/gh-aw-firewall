@@ -34,6 +34,8 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
     memoryLimit: undefined,
     agentImage: undefined,
     modelAliases: undefined,
+    allowedModels: undefined,
+    disallowedModels: undefined,
     maxEffectiveTokens: undefined,
     maxAiCredits: undefined,
     effectiveTokenModelMultipliers: undefined,
@@ -69,6 +71,7 @@ const ENV_KEYS = [
   'GEMINI_API_BASE_PATH',
   'AWF_CAPTURE_BLOCKED_LLM_REQUESTS',
   'AWF_MAX_BLOCKED_CAPTURE_BYTES',
+  'AWF_DEBUG_TOKENS',
 ] as const;
 
 describe('buildConfig', () => {
@@ -99,6 +102,17 @@ describe('buildConfig', () => {
     it('should return a config with the expected allowedDomains', () => {
       const config = buildConfig(makeInputs({ allowedDomains: ['example.com', 'api.example.com'] }));
       expect(config.allowedDomains).toEqual(['example.com', 'api.example.com']);
+    });
+
+    describe('model policy fields', () => {
+      it('should pass through allowedModels and disallowedModels', () => {
+        const config = buildConfig(makeInputs({
+          allowedModels: ['gpt-5.6-sol'],
+          disallowedModels: ['gpt-5.6-luna'],
+        }));
+        expect(config.allowedModels).toEqual(['gpt-5.6-sol']);
+        expect(config.disallowedModels).toEqual(['gpt-5.6-luna']);
+      });
     });
 
     it('should set agentCommand from inputs', () => {
@@ -468,6 +482,68 @@ describe('buildConfig', () => {
     it('should leave maxCapturedBytes undefined when neither option nor env var is set', () => {
       const config = buildConfig(makeInputs());
       expect(config.maxCapturedBytes).toBeUndefined();
+    });
+  });
+
+  describe('debugTokens via AWF_DEBUG_TOKENS', () => {
+    it('should set debugTokens true when AWF_DEBUG_TOKENS=1', () => {
+      process.env.AWF_DEBUG_TOKENS = '1';
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBe(true);
+    });
+
+    it('should leave debugTokens undefined when AWF_DEBUG_TOKENS is not set', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBeUndefined();
+    });
+
+    it('should leave debugTokens undefined for non-1 AWF_DEBUG_TOKENS', () => {
+      process.env.AWF_DEBUG_TOKENS = '0';
+      const config = buildConfig(makeInputs());
+      expect(config.debugTokens).toBeUndefined();
+    });
+  });
+
+  describe('resolveLegacySecurity (via options)', () => {
+    it('should set legacySecurity true when --legacy-security is passed', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, legacySecurity: true },
+      }));
+      expect(config.legacySecurity).toBe(true);
+    });
+
+    it('should leave legacySecurity undefined when --legacy-security is not passed', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.legacySecurity).toBeUndefined();
+    });
+
+    it('should map deprecated --security-mode compat to legacySecurity true', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, securityMode: 'compat' },
+      }));
+      expect(config.legacySecurity).toBe(true);
+    });
+
+    it('should leave legacySecurity undefined for deprecated --security-mode strict', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, securityMode: 'strict' },
+      }));
+      expect(config.legacySecurity).toBeUndefined();
+    });
+
+    it('should prefer --legacy-security over deprecated --security-mode', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, legacySecurity: true, securityMode: 'strict' },
+      }));
+      // --legacy-security takes precedence over deprecated --security-mode
+      expect(config.legacySecurity).toBe(true);
+    });
+
+    it('should treat explicit --legacy-security false as undefined', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, legacySecurity: false },
+      }));
+      expect(config.legacySecurity).toBeUndefined();
     });
   });
 });

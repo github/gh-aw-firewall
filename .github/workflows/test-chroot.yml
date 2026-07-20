@@ -185,7 +185,6 @@ jobs:
           echo "Captured GOROOT: ${GOROOT_VALUE}"
 
           # Rust/Cargo: CARGO_HOME is needed so entrypoint can add $CARGO_HOME/bin to PATH
-          # The rust-toolchain action sets CARGO_HOME but sudo may not preserve it
           if [ -n "$CARGO_HOME" ]; then
             echo "CARGO_HOME=${CARGO_HOME}" >> $GITHUB_ENV
             echo "Captured CARGO_HOME: ${CARGO_HOME}"
@@ -198,7 +197,6 @@ jobs:
           fi
 
           # Java: JAVA_HOME is needed so entrypoint can add $JAVA_HOME/bin to PATH
-          # The setup-java action sets JAVA_HOME but sudo may not preserve it
           if [ -n "$JAVA_HOME" ]; then
             echo "JAVA_HOME=${JAVA_HOME}" >> $GITHUB_ENV
             echo "Captured JAVA_HOME: ${JAVA_HOME}"

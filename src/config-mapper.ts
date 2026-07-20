@@ -27,7 +27,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     networkIsolation: config.network?.isolation,
     topologyAttach: config.network?.topologyAttach,
 
-    enableApiProxy: config.apiProxy?.enabled,
+    // apiProxy.enabled is ignored — API proxy is always on (see #6207).
+    // We deliberately don't map it to enableApiProxy to avoid triggering
+    // CLI deprecation warnings/errors from config-file values.
     enableTokenSteering: config.apiProxy?.enableTokenSteering,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
@@ -85,6 +87,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicTokenUrl: config.apiProxy?.auth?.anthropicTokenUrl,
 
     sslBump: config.security?.sslBump,
+    legacySecurity: config.security?.legacySecurity ??
+      (config.security?.securityMode === 'compat' ? true : undefined),
     enableDlp: config.security?.enableDlp,
     enableHostAccess: config.security?.enableHostAccess,
     allowHostPorts: joinPorts(config.security?.allowHostPorts),

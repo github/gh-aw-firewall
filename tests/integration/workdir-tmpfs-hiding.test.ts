@@ -41,7 +41,7 @@ describe('WorkDir tmpfs Hiding', () => {
     test('Test 1: docker-compose.yml is not readable in workDir', async () => {
       // Run AWF with a command that tries to find and read docker-compose.yml
       // The workDir is /tmp/awf-<timestamp>, so we glob for it
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'for d in /tmp/awf-*/; do if [ -f "$d/docker-compose.yml" ]; then cat "$d/docker-compose.yml"; echo "FOUND_COMPOSE"; fi; done\'',
         {
           allowDomains: ['github.com'],
@@ -61,7 +61,7 @@ describe('WorkDir tmpfs Hiding', () => {
 
     test('Test 2: workDir appears empty to the agent', async () => {
       // List contents of any awf workdir - tmpfs should make it appear empty
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'for d in /tmp/awf-*/; do if [ -d "$d" ]; then echo "DIR:$d"; ls -la "$d" 2>&1; fi; done\'',
         {
           allowDomains: ['github.com'],
@@ -79,7 +79,7 @@ describe('WorkDir tmpfs Hiding', () => {
 
     test('Test 3: sensitive env vars are not leaked via workDir files', async () => {
       // Pass a known secret via env and verify it cannot be found in workDir files
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'find /tmp/awf-* -type f 2>/dev/null | while read f; do cat "$f" 2>/dev/null; done | grep -c "SECRET_CANARY_VALUE" || echo "0"\'',
         {
           allowDomains: ['github.com'],
@@ -101,7 +101,7 @@ describe('WorkDir tmpfs Hiding', () => {
     test('Test 4: docker-compose.yml is not readable at /host workDir path', async () => {
       // In chroot mode, the host filesystem is at /host
       // Try to read docker-compose.yml via the /host prefix
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'for d in /host/tmp/awf-*/; do if [ -f "$d/docker-compose.yml" ]; then cat "$d/docker-compose.yml"; echo "FOUND_COMPOSE"; fi; done\'',
         {
           allowDomains: ['github.com'],
@@ -117,7 +117,7 @@ describe('WorkDir tmpfs Hiding', () => {
     }, 120000);
 
     test('Test 5: /host workDir also appears empty', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'for d in /host/tmp/awf-*/; do if [ -d "$d" ]; then echo "DIR:$d"; ls -la "$d" 2>&1; fi; done\'',
         {
           allowDomains: ['github.com'],
@@ -135,7 +135,7 @@ describe('WorkDir tmpfs Hiding', () => {
   describe('Security Verification', () => {
     test('Test 6: grep for secrets in workDir finds nothing', async () => {
       // Simulate an attack: search for common secret patterns in any awf workDir
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'sh -c \'grep -r "GITHUB_TOKEN\\|ANTHROPIC_API_KEY\\|COPILOT_GITHUB_TOKEN\\|_authToken" /tmp/awf-*/ 2>&1 || true\' | grep -v "^\\[" | head -5',
         {
           allowDomains: ['github.com'],
@@ -153,7 +153,7 @@ describe('WorkDir tmpfs Hiding', () => {
     }, 120000);
 
     test('Test 7: debug logs confirm tmpfs overlay is configured', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'echo "test"',
         {
           allowDomains: ['github.com'],

@@ -33,6 +33,21 @@ describe('host-iptables-chain branch coverage', () => {
   // ENOENT / "not found" error.  This path re-throws as a user-readable
   // "iptables is required but was not found" message.
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // checkPermissionsAndSetupChain – iptables --version fails with a non-ENOENT
+  // error (e.g. unexpected system error).  This path re-throws the original error.
+  // -------------------------------------------------------------------------
+  describe('checkPermissionsAndSetupChain – iptables --version fails with non-ENOENT error', () => {
+    it('rethrows the original error when iptables --version fails for a non-missing-command reason', async () => {
+      const originalError = new Error('Unexpected iptables failure');
+      mockedExeca
+        // iptables --version — fails with a non-ENOENT error
+        .mockRejectedValueOnce(originalError);
+
+      await expect(checkPermissionsAndSetupChain('FW_TEST')).rejects.toBe(originalError);
+    });
+  });
+
   describe('checkPermissionsAndSetupChain – DOCKER-USER check fails with ENOENT', () => {
     it('throws a user-readable message when DOCKER-USER list reports iptables not found', async () => {
       mockedExeca

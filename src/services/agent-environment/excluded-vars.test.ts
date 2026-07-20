@@ -74,6 +74,10 @@ describe('buildExclusionSet', () => {
       expect(buildExclusionSet(config).has('ANTHROPIC_API_KEY')).toBe(true);
     });
 
+    it('should exclude ANTHROPIC_AUTH_TOKEN', () => {
+      expect(buildExclusionSet(config).has('ANTHROPIC_AUTH_TOKEN')).toBe(true);
+    });
+
     it('should exclude CLAUDE_API_KEY', () => {
       expect(buildExclusionSet(config).has('CLAUDE_API_KEY')).toBe(true);
     });
@@ -105,6 +109,18 @@ describe('buildExclusionSet', () => {
     it('should exclude GOOGLE_VERTEX_BASE_URL (Vertex AI base URL)', () => {
       expect(buildExclusionSet(config).has('GOOGLE_VERTEX_BASE_URL')).toBe(true);
     });
+
+    it('should exclude GITHUB_TOKEN (credential isolation)', () => {
+      expect(buildExclusionSet(config).has('GITHUB_TOKEN')).toBe(true);
+    });
+
+    it('should exclude GH_TOKEN (credential isolation)', () => {
+      expect(buildExclusionSet(config).has('GH_TOKEN')).toBe(true);
+    });
+
+    it('should exclude GITHUB_PERSONAL_ACCESS_TOKEN (credential isolation)', () => {
+      expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(true);
+    });
   });
 
   describe('when enableApiProxy is false', () => {
@@ -118,12 +134,28 @@ describe('buildExclusionSet', () => {
       expect(buildExclusionSet(config).has('ANTHROPIC_API_KEY')).toBe(false);
     });
 
+    it('should NOT exclude ANTHROPIC_AUTH_TOKEN', () => {
+      expect(buildExclusionSet(config).has('ANTHROPIC_AUTH_TOKEN')).toBe(false);
+    });
+
     it('should NOT exclude COPILOT_GITHUB_TOKEN', () => {
       expect(buildExclusionSet(config).has('COPILOT_GITHUB_TOKEN')).toBe(false);
     });
 
     it('should NOT exclude GEMINI_API_KEY', () => {
       expect(buildExclusionSet(config).has('GEMINI_API_KEY')).toBe(false);
+    });
+
+    it('should NOT exclude GITHUB_TOKEN', () => {
+      expect(buildExclusionSet(config).has('GITHUB_TOKEN')).toBe(false);
+    });
+
+    it('should NOT exclude GH_TOKEN', () => {
+      expect(buildExclusionSet(config).has('GH_TOKEN')).toBe(false);
+    });
+
+    it('should NOT exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+      expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(false);
     });
   });
 
@@ -137,10 +169,14 @@ describe('buildExclusionSet', () => {
     it('should exclude GH_TOKEN', () => {
       expect(buildExclusionSet(config).has('GH_TOKEN')).toBe(true);
     });
+
+    it('should exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+      expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(true);
+    });
   });
 
-  describe('when difcProxyHost is not set', () => {
-    const config = makeConfig({ difcProxyHost: undefined });
+  describe('when difcProxyHost is not set and enableApiProxy is false', () => {
+    const config = makeConfig({ difcProxyHost: undefined, enableApiProxy: false });
 
     it('should NOT exclude GITHUB_TOKEN', () => {
       expect(buildExclusionSet(config).has('GITHUB_TOKEN')).toBe(false);
@@ -148,6 +184,10 @@ describe('buildExclusionSet', () => {
 
     it('should NOT exclude GH_TOKEN', () => {
       expect(buildExclusionSet(config).has('GH_TOKEN')).toBe(false);
+    });
+
+    it('should NOT exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+      expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(false);
     });
   });
 
@@ -183,6 +223,7 @@ describe('buildExclusionSet', () => {
       });
       const set = buildExclusionSet(config);
       expect(set.has('ANTHROPIC_API_KEY')).toBe(true);
+      expect(set.has('ANTHROPIC_AUTH_TOKEN')).toBe(true);
       expect(set.has('GITHUB_TOKEN')).toBe(true);
       expect(set.has('CUSTOM_SECRET')).toBe(true);
       expect(set.has('PATH')).toBe(true);

@@ -28,7 +28,7 @@ describe('Wildcard Pattern Matching', () => {
 
   describe('Leading Wildcard Patterns (*.domain.com)', () => {
     test('should allow subdomain with *.github.com pattern', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['*.github.com'],
@@ -41,7 +41,7 @@ describe('Wildcard Pattern Matching', () => {
     }, 120000);
 
     test('should allow raw.githubusercontent.com with *.githubusercontent.com pattern', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -fsS https://raw.githubusercontent.com/octocat/Hello-World/master/README',
         {
           allowDomains: ['*.githubusercontent.com', 'github.com'],
@@ -55,7 +55,7 @@ describe('Wildcard Pattern Matching', () => {
 
     test('should allow nested subdomains with wildcard', async () => {
       // Allow any subdomain of github.com
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['*.github.com'],
@@ -70,7 +70,7 @@ describe('Wildcard Pattern Matching', () => {
 
   describe('Case Insensitivity', () => {
     test('should match domain case-insensitively', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -sS https://API.GITHUB.COM/zen',
         {
           allowDomains: ['github.com'],
@@ -83,7 +83,7 @@ describe('Wildcard Pattern Matching', () => {
     }, 120000);
 
     test('should match wildcard pattern case-insensitively', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -sS https://API.GITHUB.COM/zen',
         {
           allowDomains: ['*.GitHub.COM'],
@@ -98,7 +98,7 @@ describe('Wildcard Pattern Matching', () => {
 
   describe('Plain Domain Matching', () => {
     test('should allow exact domain match', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -fsS https://github.com/robots.txt',
         {
           allowDomains: ['github.com'],
@@ -111,7 +111,7 @@ describe('Wildcard Pattern Matching', () => {
     }, 120000);
 
     test('should allow subdomains of plain domain (github.com allows api.github.com)', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -sS https://api.github.com/zen',
         {
           allowDomains: ['github.com'],
@@ -126,7 +126,7 @@ describe('Wildcard Pattern Matching', () => {
 
   describe('Multiple Patterns', () => {
     test('should allow domains matching any of multiple patterns', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "curl -sS https://api.github.com/zen && echo success"',
         {
           allowDomains: ['*.github.com', '*.gitlab.com', '*.bitbucket.org'],
@@ -140,7 +140,7 @@ describe('Wildcard Pattern Matching', () => {
     }, 120000);
 
     test('should combine wildcard and plain domain patterns', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "curl -sS https://api.github.com/zen && echo success"',
         {
           allowDomains: ['github.com', '*.githubusercontent.com'],
@@ -156,7 +156,7 @@ describe('Wildcard Pattern Matching', () => {
 
   describe('Non-Matching Patterns', () => {
     test('should block domain not matching any pattern', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f https://example.com --max-time 5',
         {
           allowDomains: ['*.github.com'],
@@ -170,7 +170,7 @@ describe('Wildcard Pattern Matching', () => {
 
     test('should block similar-looking domain', async () => {
       // "notgithub.com" should not match "*.github.com"
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'curl -f https://notgithub.com --max-time 5',
         {
           allowDomains: ['*.github.com'],

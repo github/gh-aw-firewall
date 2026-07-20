@@ -28,7 +28,7 @@ describe('Git Operations', () => {
 
   describe('Git HTTPS Operations', () => {
     test('should allow git ls-remote to allowed domain', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git ls-remote https://github.com/octocat/Hello-World.git HEAD',
         {
           allowDomains: ['github.com'],
@@ -43,7 +43,7 @@ describe('Git Operations', () => {
     }, 120000);
 
     test('should allow git ls-remote to subdomain', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git ls-remote https://github.com/octocat/Hello-World.git HEAD',
         {
           allowDomains: ['github.com'],
@@ -56,7 +56,7 @@ describe('Git Operations', () => {
     }, 120000);
 
     test('should block git ls-remote to non-allowed domain', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git ls-remote https://gitlab.com/gitlab-org/gitlab.git HEAD',
         {
           allowDomains: ['github.com'],
@@ -69,7 +69,7 @@ describe('Git Operations', () => {
     }, 120000);
 
     test('should allow git clone to allowed domain', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git clone --depth 1 https://github.com/octocat/Hello-World.git /tmp/hello-world && ls /tmp/hello-world',
         {
           allowDomains: ['github.com'],
@@ -84,7 +84,7 @@ describe('Git Operations', () => {
     }, 180000);
 
     test('should block git clone to non-allowed domain', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git clone --depth 1 https://gitlab.com/gitlab-org/gitlab.git /tmp/gitlab',
         {
           allowDomains: ['github.com'],
@@ -99,7 +99,7 @@ describe('Git Operations', () => {
 
   describe('Git Config', () => {
     test('should preserve git config', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git config --global --list || echo "no global config"',
         {
           allowDomains: ['github.com'],
@@ -112,7 +112,7 @@ describe('Git Operations', () => {
     }, 120000);
 
     test('should allow setting git config', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'git config --global user.email "test@example.com" && git config --global user.email',
         {
           allowDomains: ['github.com'],
@@ -128,7 +128,7 @@ describe('Git Operations', () => {
 
   describe('Multiple Git Operations', () => {
     test('should handle sequential git operations', async () => {
-      const result = await runner.runWithSudo(
+      const result = await runner.run(
         'bash -c "git ls-remote https://github.com/octocat/Hello-World.git HEAD && git ls-remote https://github.com/octocat/Spoon-Knife.git HEAD"',
         {
           allowDomains: ['github.com'],

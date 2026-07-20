@@ -241,7 +241,10 @@ export class AwfRunner {
   }
 
   /**
-   * Run awf with sudo (required for iptables manipulation)
+   * Run awf with sudo in compat mode (legacy iptables-based enforcement).
+   *
+   * Prefer `run()` for new tests — it uses the default strict security mode
+   * (network-isolation, no sudo required).
    *
    * @param command - Command to execute:
    *   - String: Complete shell command (may contain $vars, pipes, redirects)
@@ -280,6 +283,9 @@ export class AwfRunner {
 
     // Add awf path
     args.push('node', this.awfPath);
+
+    // runWithSudo uses the legacy iptables path
+    args.push('--legacy-security');
 
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {

@@ -3,6 +3,7 @@ const {
     resolveCopilotAuthToken,
     resolveApiKey,
     stripBearerPrefix,
+    classifyGithubServerHost,
     isGhesInstance,
     copilotTargetRequiresGitHubTokenPrefix,
   },
@@ -137,6 +138,13 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
     })).toBe('gho_real_token');
   });
+
+  it('uses COPILOT_GITHUB_TOKEN when COPILOT_PROVIDER_API_KEY is the offline-mode dummy sentinel', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'gho_real_token',
+      COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
+    })).toBe('gho_real_token');
+  });
 });
 
 describe('resolveApiKey', () => {
@@ -146,6 +154,10 @@ describe('resolveApiKey', () => {
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is the AWF placeholder', () => {
     expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN })).toBeUndefined();
+  });
+
+  it('returns undefined when COPILOT_PROVIDER_API_KEY is the offline-mode dummy sentinel', () => {
+    expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode' })).toBeUndefined();
   });
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is not set', () => {
@@ -213,6 +225,28 @@ describe('isGhesInstance', () => {
       AWF_PLATFORM_TYPE: 'ghec-self-hosted',
       GITHUB_SERVER_URL: 'https://ghes.mycompany.com',
     })).toBe(false);
+  });
+});
+
+describe('classifyGithubServerHost', () => {
+  it('classifies github.com as github', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://github.com' })).toEqual({ kind: 'github' });
+  });
+
+  it('classifies *.ghe.com hosts as ghec and returns the tenant subdomain', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://myorg.ghe.com' })).toEqual({
+      kind: 'ghec',
+      subdomain: 'myorg',
+    });
+  });
+
+  it('classifies non-ghe.com enterprise hosts as ghes', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'https://ghes.mycompany.com' })).toEqual({ kind: 'ghes' });
+  });
+
+  it('classifies invalid or missing values safely', () => {
+    expect(classifyGithubServerHost({ GITHUB_SERVER_URL: 'not-a-url' })).toEqual({ kind: 'invalid' });
+    expect(classifyGithubServerHost({})).toEqual({ kind: 'missing' });
   });
 });
 

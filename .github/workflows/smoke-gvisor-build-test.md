@@ -85,7 +85,7 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Setup Go
-    uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+    uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
     with:
       go-version: '1.22'
   - name: Capture environment info
@@ -193,32 +193,24 @@ steps:
       fi
     env:
       GOROOT: ${{ steps.env-info.outputs.GOROOT || '' }}
-  - name: Network isolation check
-    id: net-check
-    run: |
-      echo "::group::Blocked domain test"
-      BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com 2>/dev/null || echo "000")
-      echo "example.com returned: $BLOCKED_CODE"
-      if [ "$BLOCKED_CODE" = "000" ] || [ "$BLOCKED_CODE" = "403" ]; then
-        echo "NET_ISOLATION=PASS" >> "$GITHUB_OUTPUT"
-        echo "✅ Network isolation working (blocked domain returned $BLOCKED_CODE)"
-      else
-        echo "NET_ISOLATION=FAIL" >> "$GITHUB_OUTPUT"
-        echo "❌ Network isolation failed (blocked domain returned $BLOCKED_CODE)"
-      fi
-      echo "::endgroup::"
   - name: Write results summary
+    env:
+      EXPR_STEPS_ENV_INFO_OUTPUTS_GVISOR_CONFIRMED: ${{ steps.env-info.outputs.GVISOR_CONFIRMED }}
+      EXPR_STEPS_ENV_INFO_OUTPUTS_SMOKE_HTTP_CODE: ${{ steps.env-info.outputs.SMOKE_HTTP_CODE }}
+      EXPR_STEPS_BUILD_NODE_OUTPUTS_NODE_BUILD_STATUS: ${{ steps.build-node.outputs.NODE_BUILD_STATUS }}
+      EXPR_STEPS_TEST_NODE_OUTPUTS_NODE_TEST_STATUS: ${{ steps.test-node.outputs.NODE_TEST_STATUS }}
+      EXPR_STEPS_BUILD_GO_OUTPUTS_GO_BUILD_STATUS: ${{ steps.build-go.outputs.GO_BUILD_STATUS }}
+      EXPR_STEPS_BUILD_GO_OUTPUTS_GO_TEST_STATUS: ${{ steps.build-go.outputs.GO_TEST_STATUS }}
     run: |
       mkdir -p /tmp/gh-aw/agent
       cat > /tmp/gh-aw/agent/build-test-results.json << RESULTS_EOF
       {
-        "gvisor_confirmed": "${{ steps.env-info.outputs.GVISOR_CONFIRMED }}",
-        "http_code": "${{ steps.env-info.outputs.SMOKE_HTTP_CODE }}",
-        "node_build": "${{ steps.build-node.outputs.NODE_BUILD_STATUS }}",
-        "node_test": "${{ steps.test-node.outputs.NODE_TEST_STATUS }}",
-        "go_build": "${{ steps.build-go.outputs.GO_BUILD_STATUS }}",
-        "go_test": "${{ steps.build-go.outputs.GO_TEST_STATUS }}",
-        "net_isolation": "${{ steps.net-check.outputs.NET_ISOLATION }}"
+        "gvisor_confirmed": "$EXPR_STEPS_ENV_INFO_OUTPUTS_GVISOR_CONFIRMED",
+        "http_code": "$EXPR_STEPS_ENV_INFO_OUTPUTS_SMOKE_HTTP_CODE",
+        "node_build": "$EXPR_STEPS_BUILD_NODE_OUTPUTS_NODE_BUILD_STATUS",
+        "node_test": "$EXPR_STEPS_TEST_NODE_OUTPUTS_NODE_TEST_STATUS",
+        "go_build": "$EXPR_STEPS_BUILD_GO_OUTPUTS_GO_BUILD_STATUS",
+        "go_test": "$EXPR_STEPS_BUILD_GO_OUTPUTS_GO_TEST_STATUS"
       }
       RESULTS_EOF
       cat /tmp/gh-aw/agent/build-test-results.json
@@ -275,9 +267,20 @@ The JSON contains:
 - `node_test`: Node.js test status (PASS/FAIL)
 - `go_build`: Go build status (PASS/FAIL/CLONE_FAILED)
 - `go_test`: Go test status (PASS/FAIL/SKIPPED)
-- `net_isolation`: Network isolation check (PASS/FAIL)
 
-## Step 2: Output (MANDATORY)
+## Step 2: Network Isolation Check
+
+Run this command to verify the AWF firewall is blocking non-whitelisted domains:
+
+```bash
+BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com 2>/dev/null || echo "000")
+echo "example.com returned: $BLOCKED_CODE"
+```
+
+- If `$BLOCKED_CODE` is `000` (connection refused/timeout) or `403` (Squid denied): **PASS** — network isolation is working.
+- If `$BLOCKED_CODE` is `200` or any other success code: **FAIL** — the firewall did not block the request.
+
+## Step 3: Output (MANDATORY)
 
 **If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **brief** comment on the current pull request with:
 

@@ -4,6 +4,8 @@ import {
 } from '../../github-env';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { PROXY_ENV_VARS } from '../../upstream-proxy';
+import { copyEnvEntries } from '../../env-utils';
 
 interface GitHubActionsEnvironmentParams {
   config: WrapperConfig;
@@ -29,21 +31,27 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
 
   if (config.envFile) {
     const fileEnv = readEnvFile(config.envFile);
-    for (const [key, value] of Object.entries(fileEnv)) {
-      if (!excludedEnvVars.has(key) && !Object.prototype.hasOwnProperty.call(environment, key)) {
-        environment[key] = value;
-      }
-    }
+    copyEnvEntries(fileEnv, environment, {
+      excludedKeys: excludedEnvVars,
+      noOverwrite: true,
+    });
   }
 
   if (config.additionalEnv) {
-    Object.assign(environment, config.additionalEnv);
+    // Proxy vars are in the exclusion set to prevent host proxy leakage via
+    // envAll, but explicit --env overrides (additionalEnv) should still be
+    // able to set them (e.g. NO_PROXY customization).
+    const proxyVarSet = new Set<string>(PROXY_ENV_VARS);
+    copyEnvEntries(config.additionalEnv, environment, {
+      excludedKeys: excludedEnvVars,
+      allowKeys: proxyVarSet,
+    });
   }
 
   if (environment.NO_PROXY !== environment.no_proxy) {
-    if (config.additionalEnv?.NO_PROXY) {
+    if (Object.prototype.hasOwnProperty.call(config.additionalEnv ?? {}, 'NO_PROXY')) {
       environment.no_proxy = environment.NO_PROXY;
-    } else if (config.additionalEnv?.no_proxy) {
+    } else if (Object.prototype.hasOwnProperty.call(config.additionalEnv ?? {}, 'no_proxy')) {
       environment.NO_PROXY = environment.no_proxy;
     }
   }
