@@ -36,7 +36,6 @@ type PreserveDirectoryOptions = {
   permissionErrorMessage: string;
   preserveErrorMessage: string;
   chmodPreservedDir?: boolean;
-  runtimeDirMustExist?: boolean;
 };
 
 function preserveDirectory({
@@ -51,11 +50,10 @@ function preserveDirectory({
   permissionErrorMessage,
   preserveErrorMessage,
   chmodPreservedDir = false,
-  runtimeDirMustExist = true,
 }: PreserveDirectoryOptions): void {
   if (runtimeDir) {
     const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
-    if (!runtimeDirMustExist || fs.existsSync(targetDir)) {
+    if (fs.existsSync(targetDir)) {
       try {
         execa.sync('chmod', ['-R', 'a+rX', targetDir]);
         logger.info(`${availableLabel} available at: ${targetDir}`);
@@ -156,7 +154,6 @@ export function preserveCleanupArtifacts(
     permissionErrorMessage: 'Could not fix squid log permissions:',
     preserveErrorMessage: 'Could not preserve squid logs:',
     chmodPreservedDir: true,
-    runtimeDirMustExist: false,
   });
 
   if (auditDir) {
