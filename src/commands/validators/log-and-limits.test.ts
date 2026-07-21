@@ -72,6 +72,8 @@ describe('validateLogAndLimits – success paths', () => {
     expect(result.maxEffectiveTokens).toBeUndefined();
     expect(result.maxRuns).toBeUndefined();
     expect(result.maxCacheMisses).toBeUndefined();
+    expect(result.allowedModels).toBeUndefined();
+    expect(result.disallowedModels).toBeUndefined();
     expect(result.memoryLimit).toBe('6g');
     expect(result.agentImage).toBe('default');
   });
@@ -145,12 +147,23 @@ describe('validateLogAndLimits – success paths', () => {
     const result = validateLogAndLimits(minimalOptions({ modelAliases: aliases }));
     expect(result.modelAliases).toEqual(aliases);
   });
+
+  it('passes allowedModels/disallowedModels through', () => {
+    const result = validateLogAndLimits(minimalOptions({
+      allowedModels: ['gpt-5.6-sol'],
+      disallowedModels: ['gpt-5.6-luna'],
+    }));
+    expect(result.allowedModels).toEqual(['gpt-5.6-sol']);
+    expect(result.disallowedModels).toEqual(['gpt-5.6-luna']);
+  });
 });
 
 describe('logAndLimitsTestHelpers', () => {
   it('validates model multiplier options in isolation', () => {
     const result = logAndLimitsTestHelpers.validateModelMultiplierOptions({
       modelAliases: { fast: ['gpt-4.1-mini'] },
+      allowedModels: ['gpt-5.6-sol'],
+      disallowedModels: ['gpt-5.6-luna'],
       maxEffectiveTokens: '1000',
       maxAiCredits: '2.5',
       effectiveTokenDefaultModelMultiplier: '1.25',
@@ -161,6 +174,8 @@ describe('logAndLimitsTestHelpers', () => {
 
     expect(result).toEqual({
       modelAliases: { fast: ['gpt-4.1-mini'] },
+      allowedModels: ['gpt-5.6-sol'],
+      disallowedModels: ['gpt-5.6-luna'],
       maxEffectiveTokens: 1000,
       maxAiCredits: 2.5,
       effectiveTokenModelMultipliers: { 'gpt-4': 3, 'claude-3': 4 },

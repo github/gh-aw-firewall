@@ -3,8 +3,8 @@ import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
 import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptables-shared';
+import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
-import { runtimeNeedsStaticDns } from './container-runtime';
 
 /**
  * Dependencies injected into the main workflow.
@@ -133,18 +133,34 @@ export async function runMainWorkflow(
           logger.info(`Attaching ${config.topologyAttach!.length} trusted container(s) to the internal network...`);
           await dependencies.connectTopologyContainers!(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
 
-          // When the agent uses a runtime whose network stack cannot reach
-          // Docker's embedded DNS (e.g. gVisor), inject /etc/hosts entries for
-          // topology peers and compose-internal services so hostname resolution
-          // works without DNS.
-          if (runtimeNeedsStaticDns(config.containerRuntime)) {
+          // Docker's embedded DNS (127.0.0.11) is not always reachable from
+          // inside the sandbox: gVisor's userspace netstack cannot reach it,
+          // and on ARC/DinD runners the Docker-in-Docker network does not
+          // forward lookups to the Kubernetes cluster resolver — which is what
+          // produces "getaddrinfo EAI_AGAIN <peer>" failures.
+          //
+          // Every peer we might resolve here is known in advance with a fixed
+          // IP: the topology peers (e.g. the MCP gateway) are discovered via
+          // `getTopologyContainerIps`, and the compose-internal proxies have
+          // static IPs. So we always pre-register them in /etc/hosts whenever
+          // network isolation is active. This is a no-op when embedded DNS
+          // works (the entries match what DNS would return) and prevents the
+          // DNS-isolation failure when it does not — turning a diagnosis into a
+          // fix. Previously this ran only for gVisor; ARC/DinD needs it too.
+          {
             const peerIps = await getTopologyContainerIps(TOPOLOGY_NETWORK_NAME, config.topologyAttach!);
 
             // Include compose-internal services whose hostnames the agent may
             // need to resolve — normally handled by Docker DNS at 127.0.0.11.
-            peerIps.set('squid-proxy', SQUID_IP);
-            if (config.enableApiProxy) {
-              peerIps.set('api-proxy', API_PROXY_IP);
+            // Uses the same service→name mapping as the gVisor compose path
+            // (buildInternalServiceHosts); the topology path sources the fixed
+            // sidecar IPs from constants since it has no host networkConfig.
+            for (const [name, ip] of Object.entries(buildInternalServiceHosts({
+              squidIp: SQUID_IP,
+              apiProxyIp: config.enableApiProxy ? API_PROXY_IP : undefined,
+              cliProxyIp: config.difcProxyHost ? CLI_PROXY_IP : undefined,
+            }))) {
+              peerIps.set(name, ip);
             }
 
             if (peerIps.size > 0) {

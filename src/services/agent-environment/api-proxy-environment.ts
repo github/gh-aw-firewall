@@ -44,7 +44,7 @@ export function buildApiProxyEnvironment(params: ApiProxyEnvironmentParams): voi
   environment.AWF_USER_UID = getSafeHostUid();
   environment.AWF_USER_GID = getSafeHostGid();
 
-  if (config.geminiApiKey) {
+  if (config.geminiApiKey || config.googleApiKey) {
     environment.AWF_GEMINI_ENABLED = '1';
   }
 }

@@ -7,6 +7,7 @@ import {
 import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
 import { buildRuntimeImageRef } from '../image-tag';
 import { resolveDockerRuntime, runtimeNeedsStaticDns } from '../container-runtime';
+import { buildInternalServiceHosts } from './internal-service-hosts';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -175,13 +176,14 @@ export function buildAgentService(params: AgentServiceParams): any {
     // compose-internal services the agent may need to reach by hostname.
     // See: https://github.com/google/gvisor/issues/7469
     if (runtimeNeedsStaticDns(config.containerRuntime)) {
-      if (!agentService.extra_hosts) {
-        agentService.extra_hosts = {};
-      }
-      agentService.extra_hosts['squid-proxy'] = networkConfig.squidIp;
-      if (networkConfig.proxyIp) {
-        agentService.extra_hosts['api-proxy'] = networkConfig.proxyIp;
-      }
+      agentService.extra_hosts = {
+        ...agentService.extra_hosts,
+        ...buildInternalServiceHosts({
+          squidIp: networkConfig.squidIp,
+          apiProxyIp: networkConfig.proxyIp,
+          cliProxyIp: networkConfig.cliProxyIp,
+        }),
+      };
       logger.debug('Injected compose-internal service hosts for static DNS compatibility');
     }
   }

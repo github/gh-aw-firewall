@@ -133,7 +133,7 @@ agent:
 ```
 
 :::danger[Security design]
-API keys are intentionally excluded from the agent container environment. When `--enable-api-proxy` is set, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and related keys are added to the excluded environment variables list in `docker-manager.ts`.
+API credentials are intentionally excluded from the agent container environment. The API proxy is always enabled, and `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and related credentials are added to the excluded environment variables list in `src/services/agent-environment/excluded-vars.ts`.
 :::
 
 ### 3. API proxy: credential injection layer
@@ -329,7 +329,7 @@ char* getenv(const char* name) {
 ```
 
 **Protected tokens by default:**
-- `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` (not passed to agent when api-proxy is enabled)
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY` (`ANTHROPIC_AUTH_TOKEN` is usually a placeholder in agent mode, but stays protected in case a real value is forwarded)
 - `OPENAI_API_KEY`, `OPENAI_KEY`
 - `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN` (not passed to agent when api-proxy is enabled)
 - `GITHUB_API_TOKEN`, `GITHUB_PAT`, `GH_ACCESS_TOKEN`
@@ -349,7 +349,7 @@ unset_sensitive_tokens() {
     "GITHUB_API_TOKEN" "GITHUB_PAT" "GH_ACCESS_TOKEN"
     "GITHUB_PERSONAL_ACCESS_TOKEN"
     "OPENAI_API_KEY" "OPENAI_KEY"
-    "ANTHROPIC_API_KEY" "CLAUDE_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN"
+    "ANTHROPIC_API_KEY" "ANTHROPIC_AUTH_TOKEN" "CLAUDE_API_KEY" "CLAUDE_CODE_OAUTH_TOKEN"
     "CODEX_API_KEY"
     "COPILOT_PROVIDER_API_KEY"
   )

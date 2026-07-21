@@ -77,6 +77,36 @@ export async function logContainerLogsToStderr(containerName: string): Promise<v
 }
 
 /**
+ * Scans a container's recent logs for a DNS resolution failure of the form
+ * `getaddrinfo EAI_AGAIN <hostname>` (or `ENOTFOUND`). On ARC/DinD runners the
+ * cli-proxy runs inside a Docker network managed by the DinD daemon, which does
+ * not forward DNS to the Kubernetes cluster resolver. When the external DIFC
+ * proxy is addressed by a Kubernetes Service name (e.g. `awmg-cli-proxy`), the
+ * lookup fails with EAI_AGAIN and the generic "could not connect" error hides
+ * the real (DNS-isolation) root cause.
+ *
+ * @returns the unresolved hostname when a DNS failure is detected, otherwise null.
+ */
+export async function detectDnsResolutionFailure(containerName: string): Promise<string | null> {
+  try {
+    const result = await execa('docker', ['logs', '--tail', '50', containerName], {
+      reject: false,
+      env: getLocalDockerEnv(),
+    });
+    if (result.exitCode !== 0) {
+      return null;
+    }
+    const combined = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    // Matches: "getaddrinfo EAI_AGAIN awmg-cli-proxy" or "getaddrinfo ENOTFOUND host"
+    const match = combined.match(/getaddrinfo\s+(?:EAI_AGAIN|ENOTFOUND)\s+([^\s:"']+)/i);
+    return match ? match[1] : null;
+  } catch (error) {
+    logger.debug(`Could not scan ${containerName} logs for DNS failures:`, error);
+    return null;
+  }
+}
+
+/**
  * Classifies and logs each blocked target, then emits actionable fix suggestions.
  * Extracted to avoid duplicating this logic between the startup-error path
  * (which uses `logger.error`) and the post-run warning path (which uses `logger.warn`).

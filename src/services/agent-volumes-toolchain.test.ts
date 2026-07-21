@@ -47,6 +47,17 @@ describe('agent service', () => {
     expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
   });
 
+  it('should mount ~/.gemini when googleApiKey is configured (Vertex AI)', () => {
+    const configWithVertex = { ...getConfig(), googleApiKey: 'AIza-test-google-key' };
+    const result = generateDockerCompose(configWithVertex, mockNetworkConfig);
+    const volumes = result.services.agent.volumes as string[];
+
+    const homeDir = process.env.HOME || '/root';
+    // Vertex AI uses the Gemini CLI's ~/.gemini directory; it must be mounted
+    // so the Gemini CLI can store config and auth state when using Vertex.
+    expect(volumes).toContain(`${homeDir}/.gemini:/host${homeDir}/.gemini:rw`);
+  });
+
   it('should mount container.runnerToolCachePath when it points to a real directory', () => {
     const toolcacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-toolcache-'));
 

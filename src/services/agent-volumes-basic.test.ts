@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -163,6 +164,16 @@ describe('agent service', () => {
     // Should include /etc subdirectories (read-only)
     expect(volumes).toContain('/etc/ssl:/host/etc/ssl:ro');
     expect(volumes).toContain('/etc/ca-certificates:/host/etc/ca-certificates:ro');
+    if (fs.existsSync('/etc/pki/ca-trust/extracted')) {
+      expect(volumes).toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+    } else {
+      expect(volumes).not.toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+    }
+    if (fs.existsSync('/etc/pki/tls/certs')) {
+      expect(volumes).toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+    } else {
+      expect(volumes).not.toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+    }
     expect(volumes).toContain('/etc/alternatives:/host/etc/alternatives:ro');
     expect(volumes).toContain('/etc/ld.so.cache:/host/etc/ld.so.cache:ro');
     // /etc/hosts is always a custom hosts file in a secure chroot temp dir (for pre-resolved domains)

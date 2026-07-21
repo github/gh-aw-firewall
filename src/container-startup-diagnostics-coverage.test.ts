@@ -19,6 +19,7 @@ import {
   logContainerLogsToStderr,
   handleHealthcheckError,
   reportBlockedDomains,
+  detectDnsResolutionFailure,
 } from './container-startup-diagnostics';
 import { logger } from './logger';
 import { checkSquidLogs } from './squid-log-reader';
@@ -163,6 +164,37 @@ describe('logContainerLogsToStderr', () => {
       expect.any(Error)
     );
     debugSpy.mockRestore();
+  });
+});
+
+// ─── detectDnsResolutionFailure ───────────────────────────────────────────────
+
+describe('detectDnsResolutionFailure', () => {
+  it('extracts the unresolved host from an EAI_AGAIN log line', async () => {
+    mockExecaFn.mockResolvedValueOnce(
+      execaOk('[tcp-tunnel] Upstream error (::1:48644): getaddrinfo EAI_AGAIN awmg-cli-proxy', '', 0),
+    );
+    await expect(detectDnsResolutionFailure('awf-cli-proxy')).resolves.toBe('awmg-cli-proxy');
+  });
+
+  it('extracts the unresolved host from an ENOTFOUND log line', async () => {
+    mockExecaFn.mockResolvedValueOnce(execaOk('', 'getaddrinfo ENOTFOUND difc-proxy.svc', 0));
+    await expect(detectDnsResolutionFailure('awf-cli-proxy')).resolves.toBe('difc-proxy.svc');
+  });
+
+  it('returns null when no DNS failure appears in the logs', async () => {
+    mockExecaFn.mockResolvedValueOnce(execaOk('[cli-proxy] connection refused', '', 0));
+    await expect(detectDnsResolutionFailure('awf-cli-proxy')).resolves.toBeNull();
+  });
+
+  it('returns null when docker logs exits non-zero', async () => {
+    mockExecaFn.mockResolvedValueOnce(execaOk('', 'No such container', 1));
+    await expect(detectDnsResolutionFailure('awf-missing')).resolves.toBeNull();
+  });
+
+  it('returns null and swallows exceptions', async () => {
+    mockExecaFn.mockRejectedValueOnce(new Error('docker CLI not found'));
+    await expect(detectDnsResolutionFailure('awf-cli-proxy')).resolves.toBeNull();
   });
 });
 

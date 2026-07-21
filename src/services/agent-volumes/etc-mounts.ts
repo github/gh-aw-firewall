@@ -4,6 +4,36 @@ import { WrapperConfig } from '../../types';
 import { shouldUseDockerHostStaging, stageHostFile, getDockerHostStageRoot } from './docker-host-staging';
 import { getSafeHostUid, getSafeHostGid } from '../../host-identity';
 import { isSysrootEnabled } from '../sysroot-service';
+import { etcAllowlist } from '../../config/mount-policy';
+
+const OPTIONAL_ETC_CA_MOUNTS = new Set<string>([
+  '/etc/pki/ca-trust/extracted',
+  '/etc/pki/tls/certs',
+]);
+
+function normalizeDockerHostPathPrefix(prefix: string): string {
+  const trimmed = prefix.trim();
+  if (!trimmed) return '';
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.replace(/\/+$/, '') || '/';
+}
+
+function bindMountSourceExists(hostPath: string, config: WrapperConfig): boolean {
+  if (fs.existsSync(hostPath)) {
+    return true;
+  }
+
+  if (!config.dockerHostPathPrefix) {
+    return false;
+  }
+
+  const normalizedPrefix = normalizeDockerHostPathPrefix(config.dockerHostPathPrefix);
+  if (!normalizedPrefix || normalizedPrefix === '/') {
+    return false;
+  }
+
+  return fs.existsSync(`${normalizedPrefix}${hostPath}`);
+}
 
 /**
  * Synthesize a minimal /etc/passwd or /etc/group file in the staging directory.
@@ -66,13 +96,9 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
     return [];
   }
 
-  const mounts: string[] = [
-    '/etc/ssl:/host/etc/ssl:ro',
-    '/etc/ca-certificates:/host/etc/ca-certificates:ro',
-    '/etc/alternatives:/host/etc/alternatives:ro',
-    '/etc/ld.so.cache:/host/etc/ld.so.cache:ro',
-    '/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro',
-  ];
+  const mounts: string[] = etcAllowlist()
+    .filter((p) => !OPTIONAL_ETC_CA_MOUNTS.has(p) || bindMountSourceExists(p, config))
+    .map((p) => `${p}:/host${p}:ro`);
 
   if (!shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {
     mounts.push('/etc/passwd:/host/etc/passwd:ro');

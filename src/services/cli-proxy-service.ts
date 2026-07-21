@@ -6,6 +6,7 @@ import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
+import { buildNoProxyEnv } from './no-proxy-utils';
 
 interface CliProxyBuildResult {
   /** The cli-proxy service definition to add to Docker Compose services. */
@@ -76,8 +77,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       ...(process.env.GH_TOKEN && { GH_TOKEN: process.env.GH_TOKEN }),
       ...(process.env.GITHUB_TOKEN && !process.env.GH_TOKEN && { GH_TOKEN: process.env.GITHUB_TOKEN }),
       // Prevent curl/node from routing localhost or host.docker.internal through Squid
-      NO_PROXY: `localhost,127.0.0.1,::1,host.docker.internal`,
-      no_proxy: `localhost,127.0.0.1,::1,host.docker.internal`,
+      ...buildNoProxyEnv(['host.docker.internal']),
     },
     healthcheck: {
       test: ['CMD', 'curl', '-f', `http://127.0.0.1:${CLI_PROXY_PORT}/health`],

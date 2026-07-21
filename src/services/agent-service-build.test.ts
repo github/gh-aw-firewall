@@ -581,6 +581,21 @@ describe('agent service', () => {
       });
     });
 
+    it('should inject cli-proxy host when cliProxyIp is present', () => {
+      const configWithRuntime = {
+        ...mockConfig,
+        containerRuntime: 'gvisor',
+      };
+      const networkWithCliProxy = {
+        ...mockNetworkConfig,
+        cliProxyIp: '172.30.0.50',
+      };
+      const result = generateDockerCompose(configWithRuntime, networkWithCliProxy);
+      const agent = result.services.agent as any;
+
+      expect(agent.extra_hosts['cli-proxy']).toBe('172.30.0.50');
+    });
+
     it('should not inject api-proxy host when proxyIp is absent', () => {
       const configWithRuntime = {
         ...mockConfig,

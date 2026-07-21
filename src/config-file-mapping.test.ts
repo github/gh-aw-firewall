@@ -216,6 +216,17 @@ describe('mapAwfFileConfigToCliOptions', () => {
     });
   });
 
+  it('maps allowedModels and disallowedModels fields', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        allowedModels: ['gpt-5.6-sol'],
+        disallowedModels: ['gpt-5.6-luna'],
+      },
+    });
+    expect(result.allowedModels).toEqual(['gpt-5.6-sol']);
+    expect(result.disallowedModels).toEqual(['gpt-5.6-luna']);
+  });
+
   it('maps modelRouter fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

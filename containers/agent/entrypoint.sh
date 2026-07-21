@@ -139,8 +139,11 @@ wait_for_iptables() {
 #
 # In network-isolation (topology) mode there is no iptables-init container —
 # egress is enforced by Docker network topology — so skip the handshake.
-if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ]; then
-  echo "[entrypoint] Network-isolation mode: skipping iptables init container wait"
+# Likewise for runtimes whose network stack can't be governed by host-netns
+# iptables (e.g. gVisor's isolated netstack): AWF_SKIP_IPTABLES_INIT is set and
+# egress relies on the HTTP_PROXY/HTTPS_PROXY env vars instead.
+if [ "${AWF_NETWORK_ISOLATION:-}" = "1" ] || [ "${AWF_SKIP_IPTABLES_INIT:-}" = "1" ]; then
+  echo "[entrypoint] iptables-init skipped (proxy-based egress): skipping init container wait"
 else
   echo "[entrypoint] Waiting for iptables initialization from init container..."
   INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
@@ -428,6 +431,7 @@ unset_sensitive_tokens() {
     "OPENAI_KEY"
     # Anthropic/Claude tokens
     "ANTHROPIC_API_KEY"
+    "ANTHROPIC_AUTH_TOKEN"
     "CLAUDE_API_KEY"
     "CLAUDE_CODE_OAUTH_TOKEN"
     # Codex tokens
@@ -701,9 +705,10 @@ copy_awf_ca_cert() {
 
 copy_system_ca_bundle() {
   # Detect and copy the host system CA bundle to a chroot-accessible path.
-  # On Amazon Linux / RHEL-family systems, the CA bundle lives under /etc/pki/
-  # which is not mounted into the chroot. This function finds the system bundle
-  # and copies it to /tmp/awf-lib/ so TLS works regardless of distro.
+  # On Amazon Linux / RHEL-family systems, the CA bundle often lives under
+  # /etc/pki/. This function finds the system bundle and, when it is not already
+  # accessible in the chroot, copies it to /tmp/awf-lib/ so TLS works regardless
+  # of distro.
   #
   # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
   # proxy validation. We only append the system bundle to that staged AWF CA.
@@ -758,11 +763,11 @@ copy_system_ca_bundle() {
   fi
 
   # Check if the bundle is already accessible inside the chroot via existing mounts.
-  # AWF mounts /etc/ssl and /etc/ca-certificates into the chroot; paths under those
-  # prefixes are already visible. Paths under /etc/pki (RHEL/Amazon Linux) are not.
+  # AWF mounts the common CA roots under /etc/ssl, /etc/ca-certificates, and the
+  # RHEL/Amazon Linux CA roots under /etc/pki/ca-trust/extracted and /etc/pki/tls/certs.
   local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
   case "$CHROOT_RELATIVE" in
-    /etc/ssl/*|/etc/ca-certificates/*)
+    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/extracted/*|/etc/pki/tls/certs/*)
       # Already accessible via existing bind mounts
       export SSL_CERT_FILE="$CHROOT_RELATIVE"
       export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"
@@ -774,7 +779,7 @@ copy_system_ca_bundle() {
       ;;
   esac
 
-  # Bundle is not accessible in chroot (e.g., /etc/pki paths). Copy it.
+  # Bundle is not accessible in chroot. Copy it.
   if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
     if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
        [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then

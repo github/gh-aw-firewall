@@ -1,0 +1,70 @@
+{
+  "$comment": "Central declarative allow/deny policy for what the host filesystem exposes to an agent, shared by ALL sandbox runtimes (Docker/runc compose, gVisor/runsc compose, and the sbx microVM). This is the single source of truth so the runtimes cannot drift. Loaded and validated by src/config/mount-policy.ts. Paths under `home.*` and `credentials.entries[].path` are relative to the agent's $HOME. See docs/mount-policy.md.",
+  "system": {
+    "$comment": "Read-only host directories mounted under /host for the compose runtimes (Docker + gVisor). The sbx microVM does NOT use these — it gets system libraries from its guest image — so this section is compose-only. Modes and the special /dev/null:rw overlay are applied in code (system-mounts.ts).",
+    "directories": {
+      "default": ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/sys", "/dev"],
+      "sysroot": ["/sys", "/dev"]
+    },
+    "etc": ["/etc/ssl", "/etc/ca-certificates", "/etc/pki/ca-trust/extracted", "/etc/pki/tls/certs", "/etc/alternatives", "/etc/ld.so.cache", "/etc/nsswitch.conf"]
+  },
+  "home": {
+    "$comment": "Agent $HOME exposure. `toolSubdirs` is the ALLOW list: tool caches, language toolchains and agent state the agent legitimately needs. `forbiddenSubdirs` is a DENY guard: dirs whose primary purpose is storing credentials and which must NEVER be added to the allow list. Compose mounts an empty home + binds toolSubdirs on top; sbx mounts toolSubdirs wholesale instead of the whole $HOME.",
+    "toolSubdirs": [
+      ".cache",
+      ".config",
+      ".local",
+      ".anthropic",
+      ".claude",
+      ".cargo",
+      ".rustup",
+      ".npm",
+      ".nvm",
+      ".copilot",
+      ".gemini"
+    ],
+    "forbiddenSubdirs": [
+      ".aws",
+      ".ssh",
+      ".docker",
+      ".kube",
+      ".azure",
+      ".gnupg",
+      ".netrc",
+      ".gitconfig",
+      ".git-credentials"
+    ]
+  },
+  "credentials": {
+    "$comment": "DENY list of on-disk credential/token stores. Each entry's `path` is $HOME-relative. Compose blanks the credential FILES with /dev/null overlays: for a directory entry it masks the enumerated `files`; for a file entry it masks the path itself. sbx moves the whole `path` aside on the host before `sbx create` and restores it afterward, but ONLY when the entry's top-level parent is a mounted home dir (otherwise the path never enters the microVM anyway). Agents receive the credentials they need via the api-proxy or environment, never from these on-disk stores.",
+    "entries": [
+      { "path": ".docker/config.json", "type": "file", "reason": "Docker registry auth" },
+      { "path": ".npmrc", "type": "file", "reason": "npm auth token" },
+      { "path": ".composer/auth.json", "type": "file", "reason": "Composer registry auth" },
+      { "path": ".ssh/id_rsa", "type": "file", "reason": "SSH private key (RSA)" },
+      { "path": ".ssh/id_ed25519", "type": "file", "reason": "SSH private key (Ed25519)" },
+      { "path": ".ssh/id_ecdsa", "type": "file", "reason": "SSH private key (ECDSA)" },
+      { "path": ".ssh/id_dsa", "type": "file", "reason": "SSH private key (DSA)" },
+      { "path": ".aws/credentials", "type": "file", "reason": "AWS access keys" },
+      { "path": ".aws/config", "type": "file", "reason": "AWS config (may embed SSO/credentials)" },
+      { "path": ".kube/config", "type": "file", "reason": "Kubernetes cluster credentials" },
+      { "path": ".azure/credentials", "type": "file", "reason": "Azure credentials" },
+      { "path": ".cargo/credentials", "type": "file", "reason": "crates.io registry token" },
+      { "path": ".cargo/credentials.toml", "type": "file", "reason": "crates.io registry token (newer cargo)" },
+      { "path": ".claude/.credentials.json", "type": "file", "reason": "Claude Code OAuth tokens" },
+      { "path": ".gemini/oauth_creds.json", "type": "file", "reason": "Gemini CLI OAuth tokens" },
+      { "path": ".gemini/google_accounts.json", "type": "file", "reason": "Gemini CLI account identity" },
+      { "path": ".gemini/access_tokens.json", "type": "file", "reason": "Gemini CLI cached access tokens" },
+      { "path": ".config/gh", "type": "dir", "files": ["hosts.yml"], "reason": "GitHub CLI OAuth token" },
+      { "path": ".config/gcloud", "type": "dir", "files": ["credentials.db", "access_tokens.db", "application_default_credentials.json"], "reason": "Google Cloud SDK credentials" },
+      { "path": ".config/doctl", "type": "dir", "files": ["config.yaml"], "reason": "DigitalOcean CLI token" },
+      { "path": ".config/heroku", "type": "dir", "reason": "Heroku CLI credential store" },
+      { "path": ".config/hub", "type": "dir", "reason": "legacy hub CLI OAuth token" },
+      { "path": ".config/rclone", "type": "dir", "files": ["rclone.conf"], "reason": "rclone remote credentials" },
+      { "path": ".config/containers", "type": "dir", "files": ["auth.json"], "reason": "container registry credentials" },
+      { "path": ".config/pulumi", "type": "dir", "files": ["credentials.json"], "reason": "Pulumi access tokens" },
+      { "path": ".config/op", "type": "dir", "reason": "1Password CLI state" },
+      { "path": ".config/helm", "type": "dir", "files": ["repositories.yaml"], "reason": "Helm repository auth" }
+    ]
+  }
+}

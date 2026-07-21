@@ -72,6 +72,49 @@ describe('artifact-permissions', () => {
     }
   });
 
+  it('logs stdout when stderr is empty and command writes only to stdout', () => {
+    const auditDir = makeTempDir();
+    let warnSpy: jest.SpyInstance | undefined;
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({
+        stdout: '[entrypoint] Timed out waiting for iptables init container after 30s',
+        stderr: '',
+        exitCode: 1,
+      });
+      fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Timed out waiting for iptables init container'));
+    } finally {
+      warnSpy?.mockRestore();
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not warn for benign permission errors on restricted runners', () => {
+    const auditDir = makeTempDir();
+    let errorSpy: jest.SpyInstance | undefined;
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({
+        stdout: '',
+        stderr: 'chmod: /fix: Operation not permitted',
+        exitCode: 1,
+      });
+      fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined);
+      // At the default 'info' log level, the benign case is logged at debug
+      // (suppressed) and must never surface as a [WARN] ... failed message.
+      const warnedFailure = (errorSpy.mock.calls as unknown[][]).some(
+        call => typeof call[0] === 'string' && /\[WARN\].*repair failed/i.test(call[0]),
+      );
+      expect(warnedFailure).toBe(false);
+    } finally {
+      errorSpy?.mockRestore();
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
   it('runs rootless permission repair with translated mount paths', () => {
     const auditDir = makeTempDir();
     try {
@@ -89,9 +132,13 @@ describe('artifact-permissions', () => {
           'run',
           '--pull',
           'never',
+          '--entrypoint',
+          'sh',
           '-v',
           `/host${path.resolve(auditDir)}:/fix:rw`,
           'ghcr.io/github/gh-aw-firewall/agent:latest',
+          '-c',
+          'chown -R "$TUID:$TGID" /fix 2>/dev/null; chmod -R a+rwX /fix',
         ]),
         expect.objectContaining({ reject: false }),
       );

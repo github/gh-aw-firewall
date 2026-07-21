@@ -5,6 +5,7 @@ import {
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { PROXY_ENV_VARS } from '../../upstream-proxy';
+import { copyEnvEntries } from '../../env-utils';
 
 interface GitHubActionsEnvironmentParams {
   config: WrapperConfig;
@@ -30,11 +31,10 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
 
   if (config.envFile) {
     const fileEnv = readEnvFile(config.envFile);
-    for (const [key, value] of Object.entries(fileEnv)) {
-      if (!excludedEnvVars.has(key) && !Object.prototype.hasOwnProperty.call(environment, key)) {
-        environment[key] = value;
-      }
-    }
+    copyEnvEntries(fileEnv, environment, {
+      excludedKeys: excludedEnvVars,
+      noOverwrite: true,
+    });
   }
 
   if (config.additionalEnv) {
@@ -42,11 +42,10 @@ export function buildGitHubActionsEnvironment(params: GitHubActionsEnvironmentPa
     // envAll, but explicit --env overrides (additionalEnv) should still be
     // able to set them (e.g. NO_PROXY customization).
     const proxyVarSet = new Set<string>(PROXY_ENV_VARS);
-    for (const [key, value] of Object.entries(config.additionalEnv)) {
-      if (!excludedEnvVars.has(key) || proxyVarSet.has(key)) {
-        environment[key] = value;
-      }
-    }
+    copyEnvEntries(config.additionalEnv, environment, {
+      excludedKeys: excludedEnvVars,
+      allowKeys: proxyVarSet,
+    });
   }
 
   if (environment.NO_PROXY !== environment.no_proxy) {

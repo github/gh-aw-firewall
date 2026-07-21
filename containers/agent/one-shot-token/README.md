@@ -46,6 +46,7 @@ By default, the library protects these token variables:
 
 **Anthropic/Claude:**
 - `ANTHROPIC_API_KEY`
+- `ANTHROPIC_AUTH_TOKEN`
 - `CLAUDE_API_KEY`
 
 **Codex:**

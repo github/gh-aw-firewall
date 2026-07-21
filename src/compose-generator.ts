@@ -12,6 +12,7 @@ import { assembleOptionalServices } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
 import { runtimeUsesComposeAgent } from './container-runtime';
 import { API_PROXY_PORTS } from './types/ports';
+import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
 
 /**
  * Generates Docker Compose configuration
@@ -153,7 +154,7 @@ export function generateDockerCompose(
     if (config.networkIsolation) {
       proxyService.networks = {
         ...(proxyService.networks || {}),
-        'awf-ext': {},
+        [EXTERNAL_BRIDGE_NAME]: {},
       };
     }
   }

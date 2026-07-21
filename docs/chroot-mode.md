@@ -180,6 +180,8 @@ In chroot mode, selective paths are mounted for security instead of the entire f
 | `/opt` | `/host/opt:ro` | Tool cache (Python, Node, Go) |
 | `/etc/ssl` | `/host/etc/ssl:ro` | SSL certificates |
 | `/etc/ca-certificates` | `/host/etc/ca-certificates:ro` | CA certificates |
+| `/etc/pki/ca-trust/extracted` | `/host/etc/pki/ca-trust/extracted:ro` | RHEL/Amazon Linux extracted CA bundle roots |
+| `/etc/pki/tls/certs` | `/host/etc/pki/tls/certs:ro` | RHEL/Amazon Linux CA certificate directory |
 | `/etc/passwd` | `/host/etc/passwd:ro` | User lookup |
 | `/etc/group` | `/host/etc/group:ro` | Group lookup |
 
@@ -191,7 +193,7 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 **Note:** As of v0.13.13, `/proc` is no longer bind-mounted. Instead, a fresh container-scoped procfs is mounted at `/host/proc` during entrypoint initialization. This provides dynamic `/proc/self/exe` resolution required by Java and .NET runtimes.
 
-**System CA Bundle Detection:** The entrypoint automatically detects the host system CA bundle from common locations (Debian/Ubuntu `/etc/ssl/certs/ca-certificates.crt`, RHEL/Amazon Linux `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/pki/tls/cert.pem`, macOS `/etc/ssl/cert.pem`). If the bundle is not already accessible in the chroot via existing mounts (e.g., `/etc/pki` paths), it is copied to `/tmp/awf-lib/system-ca-certificates.crt` and `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` are set to point at it.
+**System CA Bundle Detection:** The entrypoint automatically detects the host system CA bundle from common locations (Debian/Ubuntu `/etc/ssl/certs/ca-certificates.crt`, RHEL/Amazon Linux `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/pki/tls/cert.pem`, macOS `/etc/ssl/cert.pem`). If the bundle is not already accessible in the chroot via the mounted CA paths, it is copied to `/tmp/awf-lib/system-ca-certificates.crt` and `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` are set to point at it.
 
 ### Read-Write Mounts
 

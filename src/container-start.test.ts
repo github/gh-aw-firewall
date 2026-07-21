@@ -275,6 +275,27 @@ describe('startContainers', () => {
     expectComposeUpAttempts(1);
   });
 
+  it('includes DNS failure details when awf-cli-proxy startup fails with EAI_AGAIN', async () => {
+    // 1. docker rm (initial cleanup)
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+    // 2. docker compose up (fails with cli-proxy unhealthy)
+    mockExecaFn.mockRejectedValueOnce(new Error('dependency failed to start: container awf-cli-proxy is unhealthy'));
+    // 3. docker inspect awf-api-proxy (fallback check - healthy)
+    mockExecaFn.mockResolvedValueOnce({ stdout: 'running|healthy', stderr: '', exitCode: 0 } as any);
+    // 4. docker inspect awf-squid (fallback check - healthy)
+    mockExecaFn.mockResolvedValueOnce({ stdout: 'running|healthy', stderr: '', exitCode: 0 } as any);
+    // 5. docker logs --tail 50 awf-cli-proxy (diagnostics before fail-fast throw)
+    mockExecaFn.mockResolvedValueOnce({ stdout: 'cli-proxy startup logs', stderr: '', exitCode: 0 } as any);
+    // 6. docker logs --tail 50 awf-cli-proxy (DNS failure scan)
+    mockExecaFn.mockResolvedValueOnce({
+      stdout: 'Error: getaddrinfo EAI_AGAIN my-service.svc.cluster.local',
+      stderr: '',
+      exitCode: 0
+    } as any);
+
+    await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow('my-service.svc.cluster.local');
+  });
+
   it('should route retry error through Squid diagnostics when retry fails with non-api-proxy error', async () => {
     // Create access.log with denied entries so Squid diagnostics fire
     const squidLogsDir = path.join(getDir(), 'squid-logs');

@@ -1,5 +1,7 @@
-import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
-import { sanitizeEnvForSbx } from './sbx-manager';
+import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent, runtimeUsesIptables, isGvisorRuntime } from './container-runtime';
+import { testHelpers } from './sbx-manager';
+
+const { sanitizeEnvForSbx } = testHelpers;
 
 describe('container-runtime', () => {
   describe('resolveDockerRuntime', () => {
@@ -13,8 +15,11 @@ describe('container-runtime', () => {
 
     it('passes through unknown runtime names unchanged', () => {
       expect(resolveDockerRuntime('kata')).toBe('kata');
-      expect(resolveDockerRuntime('runsc')).toBe('runsc');
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
+    });
+
+    it('resolves the runsc alias to gVisor (docker runtime runsc)', () => {
+      expect(resolveDockerRuntime('runsc')).toBe('runsc');
     });
   });
 
@@ -29,7 +34,10 @@ describe('container-runtime', () => {
 
     it('returns false for unknown runtimes', () => {
       expect(runtimeNeedsStaticDns('kata')).toBe(false);
-      expect(runtimeNeedsStaticDns('runsc')).toBe(false);
+    });
+
+    it('returns true for the runsc alias (same as gvisor)', () => {
+      expect(runtimeNeedsStaticDns('runsc')).toBe(true);
     });
 
     it('returns false for undefined/empty', () => {
@@ -38,8 +46,30 @@ describe('container-runtime', () => {
     });
   });
 
-  describe('runtimeUsesComposeAgent', () => {
-    it('returns true when no runtime is configured', () => {
+  describe('runtimeUsesIptables', () => {
+    it('returns false for gvisor (isolated netstack)', () => {
+      expect(runtimeUsesIptables('gvisor')).toBe(false);
+    });
+
+    it('returns false for sbx (microVM manages own egress)', () => {
+      expect(runtimeUsesIptables('sbx')).toBe(false);
+    });
+
+    it('returns true for unknown runtimes (share host netns)', () => {
+      expect(runtimeUsesIptables('kata')).toBe(true);
+    });
+
+    it('returns false for the runsc alias (same as gvisor)', () => {
+      expect(runtimeUsesIptables('runsc')).toBe(false);
+    });
+
+    it('returns true for undefined/empty (default runc)', () => {
+      expect(runtimeUsesIptables(undefined)).toBe(true);
+      expect(runtimeUsesIptables('')).toBe(true);
+    });
+  });
+
+  describe('runtimeUsesComposeAgent', () => {    it('returns true when no runtime is configured', () => {
       expect(runtimeUsesComposeAgent(undefined)).toBe(true);
     });
 
@@ -54,6 +84,23 @@ describe('container-runtime', () => {
     it('returns true for unknown runtimes (assumed compose)', () => {
       expect(runtimeUsesComposeAgent('kata')).toBe(true);
       expect(runtimeUsesComposeAgent('runsc')).toBe(true);
+    });
+  });
+
+  describe('isGvisorRuntime', () => {
+    it('returns true for the gvisor friendly name', () => {
+      expect(isGvisorRuntime('gvisor')).toBe(true);
+    });
+
+    it('returns true for the raw runsc runtime name', () => {
+      expect(isGvisorRuntime('runsc')).toBe(true);
+    });
+
+    it('returns false for other/undefined runtimes', () => {
+      expect(isGvisorRuntime('sbx')).toBe(false);
+      expect(isGvisorRuntime('kata')).toBe(false);
+      expect(isGvisorRuntime(undefined)).toBe(false);
+      expect(isGvisorRuntime('')).toBe(false);
     });
   });
 });

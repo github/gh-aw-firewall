@@ -1,0 +1,61 @@
+{
+  "$comment": "Central declarative NETWORK policy shared by ALL runtimes. The PRIMARY, default path is network-isolation (topology) mode: the agent runs on an `internal` Docker network whose only egress is the dual-homed Squid proxy — NO iptables (host or container), no NET_ADMIN. In that mode egress restriction is STRUCTURAL (default-deny by routing): blocked ports/CIDRs have no route out, so they are denied by construction rather than by rules. The `legacyIptables` section below is consumed ONLY by the uncommon --legacy-security / --enable-host-access path (host iptables + the container setup-iptables.sh NAT script). Every value here is a logical Docker network address (subnet, static IP, port, network name) that the daemon resolves — it carries NO host-filesystem or host-network assumptions, so the policy is ARC/DinD safe and needs no --docker-host-path-prefix translation. Loaded and validated by src/config/network-policy.ts.",
+
+  "topology": {
+    "$comment": "CORE — consumed by the default iptables-less path. Compose IPAM assigns these static IPs on the internal `networkName`; Squid is dual-homed onto `externalBridgeName` as the sole egress. `subnet` is the fixed subnet all runtimes use. `hostGateway` lives in `legacyIptables`, not here — the default path never touches the host network.",
+    "networkName": "awf-net",
+    "externalBridgeName": "awf-ext",
+    "subnet": "172.30.0.0/24",
+    "hosts": {
+      "squid": { "ip": "172.30.0.10", "role": "egress-proxy", "required": true, "dualHomed": true },
+      "agent": { "ip": "172.30.0.20", "role": "workload", "required": true },
+      "apiProxy": { "ip": "172.30.0.30", "role": "credential-proxy", "required": false },
+      "dohProxy": { "ip": "172.30.0.40", "role": "dns-proxy", "required": false },
+      "cliProxy": { "ip": "172.30.0.50", "role": "difc-proxy", "required": false }
+    }
+  },
+
+  "proxies": {
+    "$comment": "CORE — sidecar listen ports. In topology mode the agent reaches these by IP:port over the internal network (Squid via HTTP(S)_PROXY, api-proxy directly). Replaces the manual 'keep in sync' list that used to live in src/types/ports.ts.",
+    "squid": { "port": 3128 },
+    "apiProxy": {
+      "ports": { "openai": 10000, "anthropic": 10001, "copilot": 10002, "gemini": 10003, "vertex": 10004 },
+      "healthPort": 10000
+    },
+    "cliProxy": { "port": 11000 },
+    "dohProxy": { "upstreamPort": 443 }
+  },
+
+  "dns": {
+    "$comment": "CORE — in topology mode the agent resolves ONLY via Docker's embedded resolver (`embeddedResolver`, 127.0.0.11), which forwards through the daemon; external DNS is unreachable from the internal network by design. `defaultUpstreamServers` is the fallback the daemon/Squid use (and the legacy path allow-lists) when the user passes no --dns-servers. `port` is the sole permitted DNS port.",
+    "embeddedResolver": "127.0.0.11",
+    "defaultUpstreamServers": ["8.8.8.8", "8.8.4.4"],
+    "port": 53
+  },
+
+  "legacyIptables": {
+    "$comment": "UNCOMMON — consumed ONLY by --legacy-security (host + container iptables) and --enable-host-access. In the default topology path these are enforced structurally by routing and are NOT applied as rules. Centralized here so the host-iptables backend, the container setup-iptables.sh NAT script, and sbx share one list instead of drifting. `hostGateway` is the host-network touch point that makes this path ARC/DinD-fragile — another reason it is not the default.",
+    "hostGateway": "172.30.0.1",
+    "blockedPorts": [
+      { "port": 22, "reason": "SSH" },
+      { "port": 23, "reason": "Telnet" },
+      { "port": 25, "reason": "SMTP" },
+      { "port": 110, "reason": "POP3" },
+      { "port": 143, "reason": "IMAP" },
+      { "port": 445, "reason": "SMB" },
+      { "port": 1433, "reason": "Microsoft SQL Server" },
+      { "port": 1521, "reason": "Oracle DB" },
+      { "port": 3306, "reason": "MySQL" },
+      { "port": 3389, "reason": "RDP" },
+      { "port": 5432, "reason": "PostgreSQL" },
+      { "port": 6379, "reason": "Redis" },
+      { "port": 27017, "reason": "MongoDB" },
+      { "port": 27018, "reason": "MongoDB shard" },
+      { "port": 28017, "reason": "MongoDB web status" }
+    ],
+    "blockedCidrs": [
+      { "cidr": "169.254.0.0/16", "reason": "Link-local incl. cloud metadata 169.254.169.254 (SSRF)" },
+      { "cidr": "224.0.0.0/4", "reason": "Multicast" }
+    ]
+  }
+}

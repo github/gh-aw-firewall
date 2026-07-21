@@ -3,16 +3,35 @@ import {
   execInSandbox,
   isSbxAvailable,
   removeSandbox,
-  sanitizeEnvForSbx,
   SBX_DEFAULT_NAME,
+  testHelpers,
 } from './sbx-manager';
+import * as fs from 'fs';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
+
+const { restoreHomeCredentials, sanitizeEnvForSbx, withLocalBinOnPath } = testHelpers;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('./logger', () => require('./test-helpers/mock-logger.test-utils').loggerMockFactory());
+// Mock fs so home-mount curation and credential scrub/restore are deterministic.
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: jest.fn(() => false),
+    readdirSync: jest.fn(() => []),
+    renameSync: jest.fn(() => undefined),
+    mkdirSync: jest.fn(() => undefined),
+    rmSync: jest.fn(() => undefined),
+  };
+});
+
+const mockedExistsSync = fs.existsSync as jest.Mock;
+const mockedReaddirSync = fs.readdirSync as jest.Mock;
+const mockedRenameSync = fs.renameSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -81,7 +100,24 @@ describe('sbx-manager', () => {
   });
 
   describe('createSandbox', () => {
+    beforeEach(() => {
+      // Default: no host $HOME subdirs exist, so home-mount curation is a no-op
+      // unless a test opts in. Individual tests re-mock as needed.
+      mockedExistsSync.mockReset();
+      mockedExistsSync.mockReturnValue(false);
+      mockedReaddirSync.mockReset();
+      mockedReaddirSync.mockReturnValue([]);
+      mockedRenameSync.mockReset();
+      mockedRenameSync.mockReturnValue(undefined);
+      // Ensure no scrubbed state leaks between tests.
+      restoreHomeCredentials();
+      mockedRenameSync.mockReset();
+      mockedRenameSync.mockReturnValue(undefined);
+    });
+
     it('uses shell agent, configured mounts, and sanitized env', async () => {
+      // No host $HOME subdirs exist → only workspace, extra mounts, /tmp and
+      // /usr/local/bin are mounted (the whole $HOME is never mounted).
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' }) // auth check
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' }); // sbx create
@@ -101,7 +137,6 @@ describe('sbx-manager', () => {
         '/tmp/gh-aw:ro',
         '/tmp',
         '/usr/local/bin',
-        process.env.HOME || '/home/runner',
       ], expect.objectContaining({
         input: 'y\n',
       }));
@@ -110,6 +145,151 @@ describe('sbx-manager', () => {
       // separately by execInSandbox() which uses sanitizeEnvForSbx().
       const sbxCreateCall = mockExecaFn.mock.calls[1][2];
       expect(sbxCreateCall.env).toBeUndefined();
+    });
+
+    it('never mounts the whole $HOME (only whitelisted subdirs that exist)', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      // Simulate a host home that contains both tool dirs AND credential stores.
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        return (
+          s === `${homePath}/.cache` ||
+          s === `${homePath}/.config` ||
+          s === `${homePath}/.copilot` ||
+          s === `${homePath}/.aws` ||
+          s === `${homePath}/.ssh` ||
+          s === `${homePath}/.docker`
+        );
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // The whole home is never mounted...
+      expect(args).not.toContain(homePath);
+      // ...whitelisted tool dirs that exist ARE mounted...
+      expect(args).toContain(`${homePath}/.cache`);
+      // ...and credential stores are NEVER mounted, even though they exist.
+      expect(args).not.toContain(`${homePath}/.aws`);
+      expect(args).not.toContain(`${homePath}/.ssh`);
+      expect(args).not.toContain(`${homePath}/.docker`);
+    });
+
+    it('mounts credential-nesting tool dirs wholesale and scrubs nested secrets before create', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const parents = [
+        `${homePath}/.cargo`,
+        `${homePath}/.claude`,
+        `${homePath}/.gemini`,
+      ];
+      const secrets = [
+        `${homePath}/.cargo/credentials`,
+        `${homePath}/.cargo/credentials.toml`,
+        `${homePath}/.claude/.credentials.json`,
+        `${homePath}/.gemini/oauth_creds.json`,
+        `${homePath}/.gemini/google_accounts.json`,
+      ];
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => parents.includes(String(p)) || secrets.includes(String(p)),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // Parents ARE mounted wholesale (as directories) so their loose files work.
+      for (const parent of parents) expect(args).toContain(parent);
+      // No individual file is ever passed as a positional mount.
+      for (const secret of secrets) expect(args).not.toContain(secret);
+      // Each nested credential path is moved aside on the host before create.
+      const movedOriginals = mockedRenameSync.mock.calls.map((c) => String(c[0]));
+      for (const secret of secrets) expect(movedOriginals).toContain(secret);
+
+      restoreHomeCredentials();
+    });
+
+    it('mounts ~/.config wholesale and scrubs nested credential dirs before create', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secrets = [
+        `${homePath}/.config/gh`,
+        `${homePath}/.config/gcloud`,
+        `${homePath}/.config/rclone`,
+      ];
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.config` || secrets.includes(String(p)),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      // The parent .config IS mounted wholesale so benign tool config still works.
+      expect(args).toContain(`${homePath}/.config`);
+      // Known credential subdirs are moved aside before create, not mounted.
+      for (const secret of secrets) expect(args).not.toContain(secret);
+      const movedOriginals = mockedRenameSync.mock.calls.map((c) => String(c[0]));
+      for (const secret of secrets) expect(movedOriginals).toContain(secret);
+
+      restoreHomeCredentials();
+    });
+
+    it('restores scrubbed credentials after the sandbox is removed', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.claude` ||
+          String(p) === secret ||
+          String(p).includes('.awf-sbx-cred-backup'),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      // The secret was moved to a backup during create.
+      const createMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
+      const scrubMove = createMoves.find(([from]) => from === secret);
+      expect(scrubMove).toBeDefined();
+      const backupPath = scrubMove![1];
+
+      mockedRenameSync.mockClear();
+      // removeSandbox: stop + rm both succeed, then restore runs.
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await removeSandbox(SBX_DEFAULT_NAME);
+
+      // The backup is moved back to its original location after teardown.
+      const restoreMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
+      expect(restoreMoves).toContainEqual([backupPath, secret]);
+    });
+
+    it('skips whitelisted home subdirs that do not exist on the host', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.npm`,
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      expect(args).toContain(`${homePath}/.npm`);
+      expect(args).not.toContain(`${homePath}/.cache`);
+      expect(args).not.toContain(`${homePath}/.rustup`);
     });
 
     it('uses SBX_DEFAULT_NAME when no name provided', async () => {
@@ -258,6 +438,9 @@ describe('sbx-manager', () => {
 
     it('skips system paths already in workspace or dedup list', async () => {
       const home = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${home}/.cache`,
+      );
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
@@ -274,7 +457,9 @@ describe('sbx-manager', () => {
       const tmpCount = args.filter(a => a === '/tmp').length;
       expect(tmpCount).toBe(1);
       expect(args).toContain('/usr/local/bin');
-      expect(args).toContain(home);
+      // The whole $HOME is never mounted; only existing whitelisted subdirs are.
+      expect(args).not.toContain(home);
+      expect(args).toContain(`${home}/.cache`);
     });
   });
 
@@ -363,6 +548,24 @@ describe('sbx-manager', () => {
       expect(callOptions.timeout).toBe(5 * 60 * 1000);
     });
 
+    it('wraps the command so ~/.local/bin is on PATH after login init', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0 });
+
+      await execInSandbox('awf-agent-test', 'copilot --version');
+
+      const args: string[] = mockExecaFn.mock.calls[0][1];
+      // The command runs via a login shell (`bash -lc`) whose /etc/profile can
+      // reset PATH, so the export must be embedded in the command string.
+      expect(args).toContain('-lc');
+      const shellCommand = args[args.length - 1];
+      expect(shellCommand).toBe(
+        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
+      );
+      expect(shellCommand.indexOf('.local/bin')).toBeLessThan(
+        shellCommand.indexOf('copilot --version'),
+      );
+    });
+
     it('does not set timeout when timeoutMinutes is not specified', async () => {
       mockExecaFn.mockResolvedValueOnce({ exitCode: 0 });
 
@@ -370,6 +573,25 @@ describe('sbx-manager', () => {
 
       const callOptions = mockExecaFn.mock.calls[0][2];
       expect(callOptions.timeout).toBeUndefined();
+    });
+  });
+
+  describe('withLocalBinOnPath', () => {
+    it('prepends ~/.local/bin using the runtime $HOME', () => {
+      expect(withLocalBinOnPath('copilot')).toBe(
+        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot',
+      );
+    });
+
+    it('guards against an empty PATH producing a trailing colon', () => {
+      // ${PATH:+:$PATH} appends the existing PATH only when it is non-empty, so
+      // no empty element (which the shell treats as the cwd) is introduced.
+      expect(withLocalBinOnPath('x')).toContain('${PATH:+:$PATH}');
+    });
+
+    it('preserves the original command verbatim', () => {
+      const cmd = 'foo && bar | baz > out.txt';
+      expect(withLocalBinOnPath(cmd).endsWith(`; ${cmd}`)).toBe(true);
     });
   });
 

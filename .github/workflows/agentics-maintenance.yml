@@ -94,7 +94,11 @@ jobs:
       discussions: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -113,7 +117,11 @@ jobs:
       issues: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -132,7 +140,11 @@ jobs:
       pull-requests: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -152,7 +164,11 @@ jobs:
       actions: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -181,7 +197,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -196,9 +216,15 @@ jobs:
             await main();
 
       - name: Install gh-aw
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup-cli@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
         with:
           version: v0.82.10
+=======
+        uses: github/gh-aw-actions/setup-cli@9400dbf79835d033cff68666b4db511c52cde431
+        with:
+          version: 9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
 
       - name: Run operation
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -228,7 +254,11 @@ jobs:
       pull-requests: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -275,7 +305,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -321,7 +355,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -336,9 +374,15 @@ jobs:
             await main();
 
       - name: Install gh-aw
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup-cli@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
         with:
           version: v0.82.10
+=======
+        uses: github/gh-aw-actions/setup-cli@9400dbf79835d033cff68666b4db511c52cde431
+        with:
+          version: 9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
 
       - name: Create missing labels
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -367,7 +411,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -382,9 +430,15 @@ jobs:
             await main();
 
       - name: Install gh-aw
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup-cli@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
         with:
           version: v0.82.10
+=======
+        uses: github/gh-aw-actions/setup-cli@9400dbf79835d033cff68666b4db511c52cde431
+        with:
+          version: 9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
 
       - name: Restore activity report logs cache
         id: activity_report_logs_cache
@@ -472,7 +526,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -487,9 +545,15 @@ jobs:
             await main();
 
       - name: Install gh-aw
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup-cli@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
         with:
           version: v0.82.10
+=======
+        uses: github/gh-aw-actions/setup-cli@9400dbf79835d033cff68666b4db511c52cde431
+        with:
+          version: 9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
 
       - name: Restore forecast report logs cache
         id: forecast_report_logs_cache
@@ -564,7 +628,11 @@ jobs:
       issues: write
     steps:
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -601,7 +669,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
+=======
+        uses: github/gh-aw/actions/setup@9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -616,9 +688,15 @@ jobs:
             await main();
 
       - name: Install gh-aw
+<<<<<<< HEAD
         uses: github/gh-aw-actions/setup-cli@05205436a78512d71a2d842e46586ed05f4fa058 # v0.82.10
         with:
           version: v0.82.10
+=======
+        uses: github/gh-aw-actions/setup-cli@9400dbf79835d033cff68666b4db511c52cde431
+        with:
+          version: 9400dbf79835d033cff68666b4db511c52cde431
+>>>>>>> origin/main
 
       - name: Validate workflows and file issue on findings
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

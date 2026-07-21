@@ -1,3 +1,5 @@
+import { systemDirectories } from '../../config/mount-policy';
+
 function normalizeChrootBinariesSourcePath(chrootBinariesSourcePath?: string): string | undefined {
   if (!chrootBinariesSourcePath) {
     return undefined;
@@ -15,24 +17,14 @@ export function buildSystemMounts(
   chrootBinariesSourcePath?: string,
   useSysroot = false
 ): string[] {
+  // Read-only system directories come from the central mount policy. /sys and
+  // /dev are always ro; /dev/null is re-added rw so chrooted tools can write to
+  // it. The sysroot variant (arc-dind) omits /usr,/bin,/lib,… because the
+  // sysroot volume already provides them.
+  const systemDirMounts = systemDirectories(useSysroot).map((dir) => `${dir}:/host${dir}:ro`);
   const mounts = [
-    ...(useSysroot
-      ? [
-        '/sys:/host/sys:ro',
-        '/dev:/host/dev:ro',
-        '/dev/null:/host/dev/null:rw',
-      ]
-      : [
-        '/usr:/host/usr:ro',
-        '/bin:/host/bin:ro',
-        '/sbin:/host/sbin:ro',
-        '/lib:/host/lib:ro',
-        '/lib64:/host/lib64:ro',
-        '/opt:/host/opt:ro',
-        '/sys:/host/sys:ro',
-        '/dev:/host/dev:ro',
-        '/dev/null:/host/dev/null:rw',
-      ]),
+    ...systemDirMounts,
+    '/dev/null:/host/dev/null:rw',
     `${workspaceDir}:/host${workspaceDir}:rw`,
     '/tmp:/host/tmp:rw',
   ];

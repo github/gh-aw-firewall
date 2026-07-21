@@ -39,6 +39,22 @@ describe('optional-services helpers', () => {
       expect(environment.AWF_API_PROXY_IP).toBeUndefined();
       expect(environment.AWF_CLI_PROXY_IP).toBeUndefined();
       expect(environment.AWF_NETWORK_ISOLATION).toBeUndefined();
+      expect(environment.AWF_SKIP_IPTABLES_INIT).toBeUndefined();
+    });
+
+    it('sets AWF_SKIP_IPTABLES_INIT for gVisor without network isolation', () => {
+      const environment: Record<string, string> = {};
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        containerRuntime: 'gvisor',
+      };
+
+      testHelpers.presetSidecarIpEnvVars(environment, config, mockNetworkConfig);
+
+      expect(environment.AWF_SKIP_IPTABLES_INIT).toBe('1');
+      // gVisor is not network-isolation (topology) mode
+      expect(environment.AWF_NETWORK_ISOLATION).toBeUndefined();
     });
   });
 

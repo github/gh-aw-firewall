@@ -86,6 +86,8 @@ export const createMinimalLogAndLimits = (): LogAndLimitsResult => ({
   memoryLimit: undefined,
   agentImage: undefined,
   modelAliases: {},
+  allowedModels: undefined,
+  disallowedModels: undefined,
   maxEffectiveTokens: undefined,
   maxAiCredits: undefined,
   effectiveTokenModelMultipliers: {},
@@ -217,6 +219,7 @@ export function setupConfigAssemblyTestSuite(): void {
 
 export {
   assembleAndValidateConfig,
+  buildConfig,
   logger,
   warnClassicPATWithCopilotModel,
   validateRateLimitFlags,

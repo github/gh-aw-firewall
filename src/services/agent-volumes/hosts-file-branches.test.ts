@@ -53,27 +53,53 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   } as WrapperConfig;
 }
 
+function restoreDefaultFsMocks(): void {
+  mockReaddirSync.mockImplementation((...args: Parameters<typeof actual.readdirSync>) =>
+    actual.readdirSync(...args)
+  );
+  mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
+    actual.statSync(...args)
+  );
+  mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
+    actual.writeFileSync(...args)
+  );
+}
+
+function createHostsFileTestHarness(
+  prefix: string,
+  options: {
+    rootDir?: string;
+    extraSetup?: () => void;
+  } = {}
+): {
+  getTmpDir: () => string;
+  setup: () => void;
+  cleanup: () => void;
+} {
+  let tmpDir = '';
+
+  return {
+    getTmpDir: () => tmpDir,
+    setup: () => {
+      tmpDir = actual.mkdtempSync(path.join(options.rootDir ?? os.tmpdir(), prefix));
+      jest.clearAllMocks();
+      restoreDefaultFsMocks();
+      options.extraSetup?.();
+    },
+    cleanup: () => {
+      if (tmpDir) {
+        actual.rmSync(tmpDir, { recursive: true, force: true });
+        tmpDir = '';
+      }
+    },
+  };
+}
+
 describe('generateHostsFileMount – localhostDetected branch', () => {
-  let tmpDir: string;
+  const { getTmpDir, setup, cleanup } = createHostsFileTestHarness('awf-hosts-');
 
-  beforeEach(() => {
-    tmpDir = actual.mkdtempSync(path.join(os.tmpdir(), 'awf-hosts-'));
-    jest.clearAllMocks();
-    // Default: delegate to real implementations
-    mockReaddirSync.mockImplementation((...args: Parameters<typeof actual.readdirSync>) =>
-      actual.readdirSync(...args)
-    );
-    mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
-      actual.statSync(...args)
-    );
-    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
-      actual.writeFileSync(...args)
-    );
-  });
-
-  afterEach(() => {
-    actual.rmSync(tmpDir, { recursive: true, force: true });
-  });
+  beforeEach(setup);
+  afterEach(cleanup);
 
   it('replaces 127.0.0.1 localhost with gateway IP when localhostDetected is true', () => {
     const gatewayIp = '172.17.0.1';
@@ -82,7 +108,7 @@ describe('generateHostsFileMount – localhostDetected branch', () => {
     mockExecaSync.mockReturnValue({ stdout: gatewayIp, stderr: '' });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
       enableHostAccess: true,
       localhostDetected: true,
@@ -104,7 +130,7 @@ describe('generateHostsFileMount – localhostDetected branch', () => {
     mockExecaSync.mockReturnValue({ stdout: gatewayIp, stderr: '' });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
       enableHostAccess: true,
       localhostDetected: false,
@@ -121,30 +147,18 @@ describe('generateHostsFileMount – localhostDetected branch', () => {
 });
 
 describe('pruneStaleChrootStageDirs – error handling', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
+  const { getTmpDir, setup, cleanup } = createHostsFileTestHarness('awf-prune-', {
     // Use /tmp/ prefix so shouldUseDockerHostStaging() returns true
     // (it requires paths starting with /tmp); os.tmpdir() on macOS
     // returns /var/folders/… which would skip the staging code path.
-    tmpDir = actual.mkdtempSync(path.join('/tmp', 'awf-prune-'));
-    jest.clearAllMocks();
-    mockExecaSync.mockReturnValue({ stdout: '', stderr: '' });
-    // Default: delegate to real implementations
-    mockReaddirSync.mockImplementation((...args: Parameters<typeof actual.readdirSync>) =>
-      actual.readdirSync(...args)
-    );
-    mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
-      actual.statSync(...args)
-    );
-    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
-      actual.writeFileSync(...args)
-    );
+    rootDir: '/tmp',
+    extraSetup: () => {
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: '' });
+    },
   });
 
-  afterEach(() => {
-    actual.rmSync(tmpDir, { recursive: true, force: true });
-  });
+  beforeEach(setup);
+  afterEach(cleanup);
 
   it('swallows readdirSync error when scanning chroot staging root fails', () => {
     // Trigger dockerHostPathPrefix path so pruneStaleChrootStageDirs is called
@@ -153,9 +167,9 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
     });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
-      dockerHostPathPrefix: tmpDir,  // non-empty → shouldUseDockerHostStaging returns true
+      dockerHostPathPrefix: getTmpDir(),  // non-empty → shouldUseDockerHostStaging returns true
     });
 
     expect(() => generateHostsFileMount(config)).not.toThrow();
@@ -163,7 +177,7 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
 
   it('swallows statSync error for individual chroot staging directory entries', () => {
     // Create a chroot- dir inside the docker-host staging root so pruneStaleChrootStageDirs iterates over it
-    const stageRoot = path.join(tmpDir, 'awf-docker-host-stage');
+    const stageRoot = path.join(getTmpDir(), 'awf-docker-host-stage');
     const staleDir = path.join(stageRoot, 'chroot-stale');
     actual.mkdirSync(staleDir, { recursive: true });
 
@@ -172,9 +186,9 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
     });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
-      dockerHostPathPrefix: tmpDir,
+      dockerHostPathPrefix: getTmpDir(),
     });
 
     expect(() => generateHostsFileMount(config)).not.toThrow();
@@ -183,25 +197,10 @@ describe('pruneStaleChrootStageDirs – error handling', () => {
 });
 
 describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
-  let tmpDir: string;
+  const { getTmpDir, setup, cleanup } = createHostsFileTestHarness('awf-eacces-');
 
-  beforeEach(() => {
-    tmpDir = actual.mkdtempSync(path.join(os.tmpdir(), 'awf-eacces-'));
-    jest.clearAllMocks();
-    mockReaddirSync.mockImplementation((...args: Parameters<typeof actual.readdirSync>) =>
-      actual.readdirSync(...args)
-    );
-    mockStatSync.mockImplementation((...args: Parameters<typeof actual.statSync>) =>
-      actual.statSync(...args)
-    );
-    mockWriteFileSync.mockImplementation((...args: Parameters<typeof actual.writeFileSync>) =>
-      actual.writeFileSync(...args)
-    );
-  });
-
-  afterEach(() => {
-    actual.rmSync(tmpDir, { recursive: true, force: true });
-  });
+  beforeEach(setup);
+  afterEach(cleanup);
 
   it('falls back to writing hosts file directly in hostsRootDir on EACCES', () => {
     const eaccesError = Object.assign(new Error('EACCES'), { code: 'EACCES' });
@@ -215,7 +214,7 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
       );
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
     });
 
@@ -233,7 +232,7 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
     mockWriteFileSync.mockImplementationOnce(() => { throw enoentError; });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
     });
 
@@ -275,7 +274,7 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
       );
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
     });
 
@@ -304,7 +303,7 @@ describe('generateHostsFileMount – EACCES writeFileSync fallback', () => {
     mockStatSync.mockImplementation(() => { throw new Error('stat failed'); });
 
     const config = makeConfig({
-      workDir: tmpDir,
+      workDir: getTmpDir(),
       allowedDomains: [],
     });
 

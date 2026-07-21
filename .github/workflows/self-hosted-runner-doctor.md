@@ -102,19 +102,25 @@ Prefer the narrowest match. Examples:
 - `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
 - `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
 - `node: command not found` on ARC/DinD with `runner.topology: arc-dind` even when binary is correctly installed → A16 (sysroot filter was over-broad and dropped the workspace mount)
-- `EAI_AGAIN <awmg-cli-proxy>` in network-isolation + topology-attach → B5
+- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5
 - `EACCES` in upload-artifact after sudo:false → B6
+- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8 (gVisor userspace netstack bypasses the usual iptables DNAT path; patched AWF adds `172.30.0.1` to `NO_PROXY`)
+- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9 (older AWF mounted the entire host `$HOME` into sbx; fixed in github/gh-aw-firewall#6336)
+- Copilot CLI exits immediately (exit code 1, ~0.5 s, zero stdout/stderr) after AWF upgrade on Docker or gVisor but not sbx → B14 (`~/.copilot/config.json` incorrectly added to credential deny list; fixed in github/gh-aw-firewall#6374)
+- `copilot: command not found` inside `--container-runtime sbx` when binary is at `~/.local/bin/copilot` → D10 (`bash -lc` login init resets injected PATH in sbx; fixed by wrapping the executed command with `export PATH="$HOME/.local/bin${PATH:+:$PATH}"` in github/gh-aw-firewall#6407)
+- `TCP_DENIED` in Squid access log for a topology peer or `difcProxyHost` during agent run; in-session MCP/HTTP calls to those hosts fail in network-isolation mode → B13 (topology peer hostnames and `difcProxyHost` not added to `NO_PROXY`; fixed in github/gh-aw-firewall#6189 and github/gh-aw-firewall#6438)
 - `EACCES` + `unlink` on `/tmp/awf-...-chroot-home/<path>` during AWF cleanup (not upload-artifact) → B7 (rootless UID-remapped chroot-home files)
 - `EACCES: permission denied, mkdir '/tmp/gh-aw/...'` before containers start on a persistent runner → B8 (stale root-owned pre-flight dirs)
 - `FATAL: http_port: IPv6 is not available` → B3
 - `No CA certificates were loaded from the system` in chroot on RHEL/Fedora/Amazon Linux → B9 (missing /etc/pki/ mount)
-- `[WARN] Rootless artifact permission repair failed` with each attempt taking ~30 s (registry timeout, not instant) → B10 (compound tag@digest ref causes Docker to attempt GHCR manifest verification even under `--pull never`)
+- `[WARN] Rootless artifact permission repair failed` with each attempt taking ~30 s (timeout, not instant) → B10 (compound tag@digest ref causes Docker to attempt GHCR manifest verification even under `--pull never`; or, even with a tag-only ref, `docker run` missing `--entrypoint sh` causes AWF's own `entrypoint.sh` to run and wait ~30 s for iptables-init — fixed in github/gh-aw-firewall#6342/github/gh-aw-firewall#6356)
 - `[WARN] Rootless artifact permission repair failed ... (exit 1)` with little/no stderr detail, plus cleanup warnings around chroot-home removal and `Command completed with exit code: 1` → B11 (repair warning lacked stderr context; non-zero exit originates from agent command, not cleanup)
 - `none of the git remotes correspond to the GH_HOST environment variable` → C4
 - `400 bad request: Authorization header is badly formatted` → C3
-- `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog)
+- `400 bad request: Authorization header is badly formatted` on `*.ghe.com` with `COPILOT_API_TARGET=api.business.githubcopilot.com` → C8 (platform-type guard short-circuits token-prefix catalog; also check for `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` sentinel suppressing GitHub-token auth path — fixed in github/gh-aw-firewall#6237)
 - `diagnosis=unknown` (proxy reachable, no connection error) or `reachable-but-api-error` from DIFC probe with `GITHUB_SERVER_URL=*.ghe.com` → C7 (DIFC proxy not enterprise-host-aware)
 - `Error: invalid key 'build-tools'` with `--image-tag build-tools=sha256:...` → A17 (build-tools not in IMAGE_DIGEST_KEYS)
+- `SIGSEGV` / `SIGABRT` crash with Claude Code (Bun runtime) under `--container-runtime gvisor`; retries all fail → D7 (JSC JIT incompatible with gVisor W^X restrictions; AWF ≥ github/gh-aw-firewall#6276 auto-injects `BUN_JSC_useJIT=0`; for older AWF pass `--env BUN_JSC_useJIT=0`)
 
 ### 4. Check for known gaps and notable fixes
 
@@ -130,13 +136,27 @@ B8 / github/gh-aw-firewall#5983 — Pre-flight EACCES on persistent runners from
 
 B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible in chroot is **fixed** in AWF version including github/gh-aw-firewall#5783. Workaround: copy `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` to a chroot-visible path and set `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE`/`GIT_SSL_CAINFO`.
 
-B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair.
+B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair. **Additional fix (github/gh-aw-firewall#6342 / github/gh-aw-firewall#6356, merged 2026-07-18):** Even with a tag-only ref, `docker run` was missing `--entrypoint sh`, causing AWF's `entrypoint.sh` to run in place of the repair command and wait ~30 s for an iptables-init container that never starts in this context. The fix adds `--entrypoint sh`, passes the command via `-c`, and captures stdout alongside stderr.
 
 B11 / github/gh-aw-firewall#6072 — Rootless permission-repair diagnostics were too opaque and could mislead triage when the agent already exited non-zero. **Improved in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**: repair-container stderr is now included in the `[WARN]` message, and chroot-home cleanup noise is reduced by downgrading that log to `debug`.
 
+B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix. `detectDnsResolutionFailure()` now augments the startup error with the unresolved host and recommends using the proxy IP or `dockerd --dns <cluster-dns-ip>`.
+
+B13 / github/gh-aw-firewall#6189, github/gh-aw-firewall#6438 — In `--network-isolation` mode, MCP tool calls to topology-attached peers or to a `difcProxyHost` were failing because those hosts were not included in `NO_PROXY`. **Fixed in AWF (PR github/gh-aw-firewall#6189, merged 2026-07-20):** topology peer hostnames are added to `NO_PROXY`. **Fixed in AWF (PR github/gh-aw-firewall#6438, merged 2026-07-20):** `config.difcProxyHost` (stripped of `:port`) is also added to `NO_PROXY`. Upgrade to AWF including both PRs.
+
+B14 / github/gh-aw-firewall#6339, github/gh-aw-firewall#6374 — After the centralized mount-policy refactor (github/gh-aw-firewall#6339), `~/.copilot/config.json` was incorrectly added to the credential deny list, causing AWF to overlay it with a read-only `/dev/null` bind mount. The Copilot CLI atomically rewrites this file at startup via temp-file + rename; the read-only overlay makes the rename fail and the CLI exits silently (exit 1, ~0.5 s). **Fixed in AWF (PR github/gh-aw-firewall#6374, merged 2026-07-18):** `config.json` is removed from the deny list and restored to read-write. Workaround (older AWF): downgrade past github/gh-aw-firewall#6339 or pass `--keep-containers` and inspect for `EROFS`/rename errors.
+
+D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor` or raw `runsc`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED` because gVisor's userspace netstack does not use the host iptables DNAT bypass. **Fixed in AWF (PR github/gh-aw-firewall#6401)**: `runtimeUsesIptables()` now skips `awf-iptables-init` for `gvisor`, its `runsc` alias, and `sbx`, and the MCP gateway plus `host.docker.internal` are added to `NO_PROXY` for proxy-aware clients. Caveat: proxy-unaware raw sockets (for example `/dev/tcp`) still fail with `No route to host` under gVisor.
+
+D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`. **Fixed in AWF (PR github/gh-aw-firewall#6336)**: sbx now mounts only whitelisted home subdirectories, and `scrubHomeCredentials()` / `restoreHomeCredentials()` temporarily move nested credential files out of the mounted tree during sandbox lifetime.
+
+D10 / github/gh-aw-firewall#6407 — On `--container-runtime sbx`, the Copilot CLI installed rootless to `~/.local/bin` was not found because sbx executes commands via `bash -lc` (login shell), and login initialization can reset PATH and discard `--env PATH=...`. **Fixed in AWF (PR github/gh-aw-firewall#6407, merged 2026-07-19):** sbx now wraps the executed command with `export PATH="$HOME/.local/bin${PATH:+:$PATH}"` after login initialization (`withLocalBinOnPath()` in `sbx-manager.ts`). Workaround (older AWF): invoke `$HOME/.local/bin/copilot` directly, or prefix the agent command with `export PATH="$HOME/.local/bin${PATH:+:$PATH}"; ...`.
+
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
-C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872.
+C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872. **Additional fix (github/gh-aw-firewall#6237):** `gh-aw`'s offline mode sets `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` as a sentinel. In AWF before github/gh-aw-firewall#6237, this sentinel was treated as a real BYOK key, suppressing the GitHub-token auth path and producing `400` on Business/Enterprise targets. Fixed by treating `dummy-byok-key-for-offline-mode` as a non-credential sentinel (same class as AWF placeholder tokens).
+
+D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261, github/gh-aw-firewall#6276 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **AWF (PR github/gh-aw-firewall#6276) automatically sets `BUN_JSC_useJIT=0`** at runtime via `buildToolEnvironment()` when Claude runs under gVisor — no workflow change required. For older AWF builds without github/gh-aw-firewall#6276, pass `--env BUN_JSC_useJIT=0` as a manual fallback.
 
 ### 5. Avoid duplicate triage
 

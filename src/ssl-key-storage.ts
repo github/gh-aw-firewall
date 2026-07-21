@@ -77,9 +77,8 @@ export async function unmountSslTmpfs(sslDir: string): Promise<void> {
  * cannot be guaranteed on all filesystems (for example, journaling/COW).
  *
  * @param filePath - Path to the file to securely wipe
- * @internal Exported for testing
  */
-export function secureWipeFile(filePath: string): void {
+function secureWipeFile(filePath: string): void {
   let fd: number | undefined;
 
   try {
@@ -167,3 +166,7 @@ export function cleanupSslKeyMaterial(workDir: string): void {
 
   logger.debug('SSL key material securely wiped');
 }
+
+/** @internal Exposed for unit tests. */
+// ts-prune-ignore-next
+export const testHelpers = { secureWipeFile };
