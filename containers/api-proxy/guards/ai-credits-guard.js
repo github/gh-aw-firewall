@@ -142,13 +142,15 @@ function resolveModelPricing(model, state = aiCreditsState) {
  * Only rejects when maxAiCredits is active and no default pricing is configured.
  *
  * @param {string} model
+ * @param {string} [provider]
  * @returns {{ rejected: boolean, model: string, error: object } | null}
  */
-function checkUnknownModelRejection(model) {
+function checkUnknownModelRejection(model, provider = undefined) {
   const config = getAiCreditsConfig();
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
+  if (provider === PROVIDER_COPILOT && model.toLowerCase() === 'auto') return null;
 
   const pricing = resolveModelPricing(model);
   if (pricing) return null; // model resolved, don't reject

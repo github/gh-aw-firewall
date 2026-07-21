@@ -8,6 +8,7 @@ const {
   canonicalizeModel,
   resetAiCreditsGuardForTests,
 } = require('./ai-credits-guard');
+const { PROVIDER_COPILOT, PROVIDER_OPENAI } = require('../provider-names');
 const { collectLogOutput } = require('../test-helpers/log-test-helpers');
 
 describe('ai-credits-guard', () => {
@@ -467,6 +468,14 @@ describe('ai-credits-guard', () => {
 
       const sonnet5 = checkUnknownModelRejection('claude-sonnet-5');
       expect(sonnet5).toBeNull();
+    });
+
+    it('allows the Copilot auto selector without default pricing', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      expect(checkUnknownModelRejection('auto', PROVIDER_COPILOT)).toBeNull();
+      expect(checkUnknownModelRejection('auto', PROVIDER_OPENAI)).not.toBeNull();
     });
   });
 });

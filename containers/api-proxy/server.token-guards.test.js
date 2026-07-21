@@ -284,6 +284,19 @@ describe('proxyRequest max-ai-credits guard', () => {
     return makeReqFactory('/v1/chat/completions', headers);
   }
 
+  function makeModelReq(body, headers = {}) {
+    const req = makeReq(headers);
+    const bodyBuf = Buffer.from(body);
+    const originalEmit = req.emit.bind(req);
+    req.emit = function(event, ...args) {
+      if (event === 'end') {
+        originalEmit('data', bodyBuf);
+      }
+      return originalEmit(event, ...args);
+    };
+    return req;
+  }
+
   beforeEach(() => {
     process.env.AWF_MAX_AI_CREDITS = '0.1';
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
@@ -326,6 +339,20 @@ describe('proxyRequest max-ai-credits guard', () => {
     expect(payload.error.type).toBe('ai_credits_limit_exceeded');
     expect(payload.error.max_ai_credits).toBe(0.1);
     expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('allows Copilot auto requests through the ai credits request guard', async () => {
+    const upstreamRequest = makeProxyReq();
+    const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
+
+    const req = makeModelReq(JSON.stringify({ model: 'auto', messages: [] }));
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+    req.emit('end');
+    await flushPromises();
+
+    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
   });
 });
 

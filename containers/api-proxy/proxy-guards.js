@@ -172,7 +172,7 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     checkUnknownModelRejection,
     getModelPolicyBlockState,
     buildModelPolicyError,
-  }, model);
+  }, model, provider);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;

@@ -17,7 +17,7 @@ const HTTP_STATUS_LINES = {
 function enforceWebSocketGuards({ socket, logRequest, requestId, provider }, guardDeps) {
   // WebSocket upgrade requests have no JSON body, so model-specific guards
   // receive null and are skipped (their getters return null for null models).
-  const guardChecks = buildCommonGuardChecks(guardDeps, null);
+  const guardChecks = buildCommonGuardChecks(guardDeps, null, provider);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;
