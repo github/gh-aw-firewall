@@ -210,6 +210,26 @@ export function patchComposeWithTopologyHosts(
     agentService.extra_hosts[name] = ip;
   }
 
+  // Also give the squid-proxy container the same name→IP mappings. Squid resolves
+  // proxied destinations via its external `dns_nameservers`, which cannot resolve
+  // Docker-only peer hostnames (e.g. `awmg-mcpg`). Squid reads `/etc/hosts`
+  // (hosts_file directive) before falling back to DNS, so extra_hosts lets it
+  // resolve these peers. Without this, a NO_PROXY-ignoring client's request
+  // passes the domain ACL but fails when Squid tries to resolve the peer name.
+  // The phased startup patches this before the full `docker compose up`, which
+  // recreates squid-proxy to pick up the new extra_hosts.
+  const squidService = compose?.services?.['squid-proxy'];
+  if (squidService) {
+    if (!squidService.extra_hosts) {
+      squidService.extra_hosts = {};
+    }
+    for (const [name, ip] of peerIps) {
+      squidService.extra_hosts[name] = ip;
+    }
+  } else {
+    log.warn('Could not find squid-proxy service in docker-compose.yml; skipping Squid topology DNS patch');
+  }
+
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
   log.info(`Patched docker-compose.yml with ${peerIps.size} topology peer host(s) for static DNS compatibility`);
 

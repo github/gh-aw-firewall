@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import { WrapperConfig, API_PROXY_PORTS, DockerComposeConfig } from './types';
 import { logger } from './logger';
 import { generatePolicyManifest, generateSquidConfig } from './squid-config';
+import { resolveTopologyPeerHosts } from './topology-peers';
 import { generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
 import { parseUrlPatterns } from './domain-matchers';
 import { SslConfig, SQUID_PORT } from './host-env';
@@ -331,6 +332,11 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
       apiProxyIp: networkConfig.proxyIp,
       apiProxyPorts: Object.values(API_PROXY_PORTS),
     } : {}),
+    // Allow trusted topology peers (MCP gateway, DIFC/cli-proxy) on any port in
+    // network-isolation mode, for proxy clients that ignore NO_PROXY. DNS for
+    // these Docker-only names is provided via the squid-proxy extra_hosts patch
+    // (see patchComposeWithTopologyHosts in topology.ts).
+    topologyPeers: resolveTopologyPeerHosts(config),
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
   fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });
