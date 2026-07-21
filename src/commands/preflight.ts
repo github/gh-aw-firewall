@@ -176,6 +176,20 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     logger.debug.bind(logger)
   );
 
+  // In network-isolation (topology) mode, automatically add topology-attached
+  // container hostnames to the Squid allowed-domain ACL.  NO_PROXY is also set
+  // for these containers (in proxy-environment.ts) so that proxy-aware clients
+  // connect directly; adding them here ensures Squid does not block requests
+  // from tools that honour HTTP(S)_PROXY but ignore NO_PROXY.
+  if (options.networkIsolation && Array.isArray(options.topologyAttach)) {
+    for (const containerName of options.topologyAttach as string[]) {
+      if (!allowedDomains.includes(containerName)) {
+        allowedDomains.push(containerName);
+        logger.debug(`Network-isolation: auto-allowing topology peer "${containerName}" in Squid ACL`);
+      }
+    }
+  }
+
   validateAllowedDomains(allowedDomains);
 
   return { allowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
