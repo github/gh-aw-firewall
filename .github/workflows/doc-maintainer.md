@@ -51,11 +51,7 @@ jobs:
             echo "has_changes=$HAS_CHANGES"
             echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
-<<<<<<< HEAD
-max-turns: 15
-=======
 max-turns: 30
->>>>>>> origin/main
 model: claude-haiku-4.5
 engine:
   id: copilot
