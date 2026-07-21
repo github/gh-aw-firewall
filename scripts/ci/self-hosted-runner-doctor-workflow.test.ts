@@ -68,6 +68,11 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`detectDnsResolutionFailure()`');
       expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
       expect(content).toContain('github/gh-aw-firewall#6326, github/gh-aw-firewall#6328');
+      expect(content).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#6460, merged 2026-07-21):** `/etc/pki/ca-trust` and `/etc/pki/tls` are now included in the chroot mount policy');
+      expect(content).toContain('github/gh-aw-firewall#5733, github/gh-aw-firewall#5783, github/gh-aw-firewall#6460');
+      expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#6473, merged 2026-07-21):** Topology peer hostnames and `difcProxyHost` are also auto-added to the Squid ACL allowlist');
+      expect(content).toContain('confirm topology hostname appears in generated `allowedDomains` in compose YAML after github/gh-aw-firewall#6473');
+      expect(content).toContain('github/gh-aw-firewall#6189, github/gh-aw-firewall#6438, github/gh-aw-firewall#6473');
       expect(content).toContain('expected on restricted runners');
       expect(content).toContain('Post-#6328: a `[WARN] Rootless artifact permission repair failed` message indicates a genuine failure');
       expect(content).toContain('| D8 | MCP tool calls (`safeoutputs`, `github`) return `403 ERR_ACCESS_DENIED` under `--container-runtime gvisor` or raw `runsc`; agent completes but never writes safe outputs; smoke tests fail at "Validate safe outputs were invoked"; direct `/dev/tcp` connections fail with `No route to host` |');
