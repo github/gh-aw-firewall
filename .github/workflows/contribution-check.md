@@ -15,9 +15,9 @@ max-turns: 4
 concurrency:
   group: "contribution-check-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
+model: gpt-5.4-mini
 engine:
   id: copilot
-  model: gpt-5.4-mini
 tools:
   edit:
   github: false

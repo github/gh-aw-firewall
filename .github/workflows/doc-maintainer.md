@@ -25,7 +25,7 @@ jobs:
       skip_agent: ${{ steps.check.outputs.skip_agent }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       - name: Check for relevant changes
@@ -51,9 +51,9 @@ jobs:
             echo "skip_agent=$SKIP_AGENT"
           } >> "$GITHUB_OUTPUT"
 max-turns: 15
+model: claude-haiku-4.5
 engine:
   id: copilot
-  model: claude-haiku-4.5
 tools:
   edit:
   bash: false
