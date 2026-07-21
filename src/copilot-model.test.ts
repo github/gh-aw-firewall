@@ -16,6 +16,11 @@ describe('validateCopilotModel', () => {
     expect(result).toEqual({ valid: true, resolvedModel: 'gpt-5.3-codex' });
   });
 
+  it('accepts the Copilot auto model', () => {
+    const result = validateCopilotModel(' auto ');
+    expect(result).toEqual({ valid: true, resolvedModel: 'auto' });
+  });
+
   it.each([
     'gpt-4.5',
     'gpt-5.1',

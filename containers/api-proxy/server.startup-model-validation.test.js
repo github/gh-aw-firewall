@@ -67,6 +67,16 @@ describe('validateRequestedModel', () => {
     }));
   });
 
+  it('treats the Copilot auto model as available without requiring it in provider model lists', () => {
+    process.env.AWF_REQUESTED_MODEL = 'auto';
+    cachedModels.copilot = ['gpt-4o', 'gpt-4o-mini'];
+    validateRequestedModel();
+    expect(logRequest).toHaveBeenCalledWith('info', 'model_validation', expect.objectContaining({
+      requested_model: 'auto',
+      resolved_via: 'direct',
+    }));
+  });
+
   it('searches across multiple providers', () => {
     process.env.AWF_REQUESTED_MODEL = 'claude-sonnet-4-5';
     cachedModels.copilot = ['gpt-4o'];

@@ -225,6 +225,27 @@ describe('config-assembly', () => {
       );
     });
 
+    it('should allow COPILOT_MODEL=auto', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'auto' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
     it('should allow COPILOT_MODEL that matches a runtime alias key and resolves to a valid concrete model', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',

@@ -127,6 +127,13 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-4o');
   });
 
+  it('should treat the Copilot auto model as a pass-through', () => {
+    const result = resolveModel('auto', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('auto');
+    expect(result.fallback.activated).toBe(false);
+  });
+
   it('should be case-insensitive for alias lookup', () => {
     const result = resolveModel('SONNET', aliases, availableModels, 'copilot');
     expect(result).not.toBeNull();
@@ -356,6 +363,12 @@ describe('rewriteModelInBody', () => {
     // gpt-4o is a direct match, but the resolved model equals the original so we return null
     const result = rewriteModelInBody(body, 'copilot', aliases, availableModels);
     expect(result).toBeNull(); // No rewrite needed
+  });
+
+  it('should not rewrite the Copilot auto model', () => {
+    const body = Buffer.from(JSON.stringify({ model: 'auto', messages: [] }));
+    const result = rewriteModelInBody(body, 'copilot', aliases, availableModels);
+    expect(result).toBeNull();
   });
 
   it('should return null for non-JSON body', () => {
