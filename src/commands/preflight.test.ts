@@ -343,6 +343,32 @@ describe('resolveAllowedDomains', () => {
     });
     expect(result.allowedDomains).toEqual([]);
   });
+
+  it('does not add topology container names for a non-compose runtime (e.g. sbx)', () => {
+    const result = resolveAllowedDomains({
+      networkIsolation: true,
+      containerRuntime: 'sbx',
+      topologyAttach: ['awmg-mcpg'],
+    });
+    expect(result.allowedDomains).not.toContain('awmg-mcpg');
+  });
+
+  it('adds topology container names for an explicit compose runtime', () => {
+    const result = resolveAllowedDomains({
+      networkIsolation: true,
+      containerRuntime: 'runc',
+      topologyAttach: ['awmg-mcpg'],
+    });
+    expect(result.allowedDomains).toContain('awmg-mcpg');
+  });
+
+  it('auto-allows the DIFC/cli-proxy host even when not listed in topologyAttach', () => {
+    const result = resolveAllowedDomains({
+      networkIsolation: true,
+      difcProxyHost: 'https://awmg-cli-proxy:18443',
+    });
+    expect(result.allowedDomains).toContain('awmg-cli-proxy');
+  });
 });
 
 describe('parseDomainOptions', () => {

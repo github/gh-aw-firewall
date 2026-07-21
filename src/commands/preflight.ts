@@ -8,6 +8,8 @@ import { parseDomains, parseDomainsFile } from '../domain-utils';
 import { processLocalhostKeyword } from '../option-parsers';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
+import { runtimeUsesComposeAgent } from '../container-runtime';
+import { parseDifcProxyHost } from '../host-env';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -177,12 +179,37 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   );
 
   // In network-isolation (topology) mode, automatically add topology-attached
-  // container hostnames to the Squid allowed-domain ACL.  NO_PROXY is also set
-  // for these containers (in proxy-environment.ts) so that proxy-aware clients
-  // connect directly; adding them here ensures Squid does not block requests
-  // from tools that honour HTTP(S)_PROXY but ignore NO_PROXY.
-  if (options.networkIsolation && Array.isArray(options.topologyAttach)) {
-    for (const containerName of options.topologyAttach as string[]) {
+  // container hostnames to the Squid allowed-domain ACL. NO_PROXY is also set
+  // for these peers (in proxy-environment.ts) so that proxy-aware clients
+  // (undici/rmcp) connect directly; adding them here ensures Squid does not
+  // block requests from tools that honour HTTP(S)_PROXY but ignore NO_PROXY.
+  //
+  // Gating mirrors buildProxyEnvironment exactly: only meaningful when the agent
+  // actually shares awf-net, i.e. a compose-managed agent (runc, gVisor). For
+  // microVM backends (Docker sbx) the agent runs off awf-net and reaches peers
+  // through its own proxy-chaining path, so these hostnames are skipped there
+  // too — keeping the ACL and NO_PROXY code paths consistent.
+  //
+  // NOTE ON SQUID SEMANTICS: these names are emitted as dstdomain ACL entries
+  // via formatDomainForSquid, which prepends a leading dot (e.g. "awmg-mcpg" ->
+  // ".awmg-mcpg"). Squid therefore matches the host itself *and* any subdomain
+  // (*.awmg-mcpg). This is safe for internal Docker hostnames (they are not
+  // public domains, and a bare label like "github" matches host "github", not
+  // "github.com"), but operators should avoid topology names that collide with
+  // trusted public labels.
+  if (options.networkIsolation && runtimeUsesComposeAgent(options.containerRuntime as string | undefined)) {
+    const topologyPeers: string[] = [];
+    if (Array.isArray(options.topologyAttach)) {
+      topologyPeers.push(...(options.topologyAttach as string[]));
+    }
+    // Mirror proxy-environment.ts: the DIFC/cli-proxy host bypasses Squid via
+    // NO_PROXY even when it isn't listed in topologyAttach, so it must also be
+    // allowed through Squid for NO_PROXY-ignoring proxy clients. Strip any
+    // scheme/port so the ACL sees the bare hostname.
+    if (typeof options.difcProxyHost === 'string' && options.difcProxyHost.trim() !== '') {
+      topologyPeers.push(parseDifcProxyHost(options.difcProxyHost).host);
+    }
+    for (const containerName of topologyPeers) {
       if (!allowedDomains.includes(containerName)) {
         allowedDomains.push(containerName);
         logger.debug(`Network-isolation: auto-allowing topology peer "${containerName}" in Squid ACL`);
