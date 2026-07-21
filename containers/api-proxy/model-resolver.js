@@ -270,7 +270,7 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   const key = requestedModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
 
-  if (key === 'auto') {
+  if (currentProvider === 'copilot' && key === 'auto') {
     log.push('[model-resolver] special pass-through: "auto"');
     return {
       resolvedModel: requestedModel,
