@@ -764,10 +764,10 @@ copy_system_ca_bundle() {
 
   # Check if the bundle is already accessible inside the chroot via existing mounts.
   # AWF mounts the common CA roots under /etc/ssl, /etc/ca-certificates, and the
-  # RHEL/Amazon Linux CA roots under /etc/pki/{ca-trust,tls}.
+  # RHEL/Amazon Linux CA roots under /etc/pki/ca-trust/extracted and /etc/pki/tls/certs.
   local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
   case "$CHROOT_RELATIVE" in
-    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/*|/etc/pki/tls/*)
+    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/extracted/*|/etc/pki/tls/certs/*)
       # Already accessible via existing bind mounts
       export SSL_CERT_FILE="$CHROOT_RELATIVE"
       export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"
@@ -779,7 +779,7 @@ copy_system_ca_bundle() {
       ;;
   esac
 
-  # Bundle is not accessible in chroot (e.g., /etc/pki paths). Copy it.
+  # Bundle is not accessible in chroot. Copy it.
   if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
     if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
        [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then

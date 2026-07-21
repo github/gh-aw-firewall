@@ -144,8 +144,8 @@ describe('mount-policy', () => {
         expect.arrayContaining([
           '/etc/ssl',
           '/etc/ca-certificates',
-          '/etc/pki/ca-trust',
-          '/etc/pki/tls',
+          '/etc/pki/ca-trust/extracted',
+          '/etc/pki/tls/certs',
           '/etc/nsswitch.conf',
         ]),
       );

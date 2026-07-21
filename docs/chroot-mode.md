@@ -180,8 +180,8 @@ In chroot mode, selective paths are mounted for security instead of the entire f
 | `/opt` | `/host/opt:ro` | Tool cache (Python, Node, Go) |
 | `/etc/ssl` | `/host/etc/ssl:ro` | SSL certificates |
 | `/etc/ca-certificates` | `/host/etc/ca-certificates:ro` | CA certificates |
-| `/etc/pki/ca-trust` | `/host/etc/pki/ca-trust:ro` | RHEL/Amazon Linux CA bundle roots |
-| `/etc/pki/tls` | `/host/etc/pki/tls:ro` | RHEL/Amazon Linux CA bundle and symlink targets |
+| `/etc/pki/ca-trust/extracted` | `/host/etc/pki/ca-trust/extracted:ro` | RHEL/Amazon Linux extracted CA bundle roots |
+| `/etc/pki/tls/certs` | `/host/etc/pki/tls/certs:ro` | RHEL/Amazon Linux CA certificate directory |
 | `/etc/passwd` | `/host/etc/passwd:ro` | User lookup |
 | `/etc/group` | `/host/etc/group:ro` | Group lookup |
 
