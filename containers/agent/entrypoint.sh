@@ -705,9 +705,10 @@ copy_awf_ca_cert() {
 
 copy_system_ca_bundle() {
   # Detect and copy the host system CA bundle to a chroot-accessible path.
-  # On Amazon Linux / RHEL-family systems, the CA bundle lives under /etc/pki/
-  # which is not mounted into the chroot. This function finds the system bundle
-  # and copies it to /tmp/awf-lib/ so TLS works regardless of distro.
+  # On Amazon Linux / RHEL-family systems, the CA bundle often lives under
+  # /etc/pki/. This function finds the system bundle and, when it is not already
+  # accessible in the chroot, copies it to /tmp/awf-lib/ so TLS works regardless
+  # of distro.
   #
   # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
   # proxy validation. We only append the system bundle to that staged AWF CA.
@@ -762,11 +763,11 @@ copy_system_ca_bundle() {
   fi
 
   # Check if the bundle is already accessible inside the chroot via existing mounts.
-  # AWF mounts /etc/ssl and /etc/ca-certificates into the chroot; paths under those
-  # prefixes are already visible. Paths under /etc/pki (RHEL/Amazon Linux) are not.
+  # AWF mounts the common CA roots under /etc/ssl, /etc/ca-certificates, and the
+  # RHEL/Amazon Linux CA roots under /etc/pki/{ca-trust,tls}.
   local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
   case "$CHROOT_RELATIVE" in
-    /etc/ssl/*|/etc/ca-certificates/*)
+    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/*|/etc/pki/tls/*)
       # Already accessible via existing bind mounts
       export SSL_CERT_FILE="$CHROOT_RELATIVE"
       export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"

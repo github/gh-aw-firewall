@@ -149,6 +149,12 @@ else
   fail "copy_system_ca_bundle() does not safely append system roots to the staged AWF CA bundle"
 fi
 
+if printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq '/etc/pki/ca-trust/*|/etc/pki/tls/*)'; then
+  pass "copy_system_ca_bundle() treats mounted RHEL/Amazon Linux CA paths as chroot-accessible"
+else
+  fail "copy_system_ca_bundle() does not recognize mounted RHEL/Amazon Linux CA paths as chroot-accessible"
+fi
+
 if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
   pass "run_chroot_command() cleans up copied system CA bundles"
 else

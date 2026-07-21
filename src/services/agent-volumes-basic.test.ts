@@ -163,6 +163,8 @@ describe('agent service', () => {
     // Should include /etc subdirectories (read-only)
     expect(volumes).toContain('/etc/ssl:/host/etc/ssl:ro');
     expect(volumes).toContain('/etc/ca-certificates:/host/etc/ca-certificates:ro');
+    expect(volumes).toContain('/etc/pki/ca-trust:/host/etc/pki/ca-trust:ro');
+    expect(volumes).toContain('/etc/pki/tls:/host/etc/pki/tls:ro');
     expect(volumes).toContain('/etc/alternatives:/host/etc/alternatives:ro');
     expect(volumes).toContain('/etc/ld.so.cache:/host/etc/ld.so.cache:ro');
     // /etc/hosts is always a custom hosts file in a secure chroot temp dir (for pre-resolved domains)

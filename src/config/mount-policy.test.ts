@@ -141,7 +141,13 @@ describe('mount-policy', () => {
 
     it('exposes the always-mounted /etc allow list', () => {
       expect(etcAllowlist()).toEqual(
-        expect.arrayContaining(['/etc/ssl', '/etc/ca-certificates', '/etc/nsswitch.conf']),
+        expect.arrayContaining([
+          '/etc/ssl',
+          '/etc/ca-certificates',
+          '/etc/pki/ca-trust',
+          '/etc/pki/tls',
+          '/etc/nsswitch.conf',
+        ]),
       );
     });
   });

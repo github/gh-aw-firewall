@@ -51,6 +51,8 @@ describe('buildEtcMounts', () => {
       const mounts = buildEtcMounts(config);
       expect(mounts).toContain('/etc/ssl:/host/etc/ssl:ro');
       expect(mounts).toContain('/etc/ca-certificates:/host/etc/ca-certificates:ro');
+      expect(mounts).toContain('/etc/pki/ca-trust:/host/etc/pki/ca-trust:ro');
+      expect(mounts).toContain('/etc/pki/tls:/host/etc/pki/tls:ro');
       expect(mounts).toContain('/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro');
     });
   });
