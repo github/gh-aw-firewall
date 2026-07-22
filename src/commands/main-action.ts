@@ -364,7 +364,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         }
       : startContainers;
 
-    const sbxRunAgentCommand = useSbx
+    const workflowRunAgentCommand = useSbx
       ? async (_workDir: string, _allowedDomains: string[], _proxyLogsDir?: string, agentTimeoutMinutes?: number) => {
           if (!sbxName) throw new Error('Sandbox not created');
           logger.info(`[sbx] Launching agent command in sandbox "${sbxName}" (timeout: ${agentTimeoutMinutes ?? 'none'} min)`);
@@ -390,7 +390,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
           return { exitCode: result.exitCode, blockedDomains: [] as string[] };
         }
-      : runAgentCommand;
+      : (workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number) =>
+          runAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes, config.containerRuntime);
 
     exitCode = await runMainWorkflow(
       config,
@@ -399,7 +400,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         setupHostIptables,
         writeConfigs,
         startContainers: sbxStartContainers,
-        runAgentCommand: sbxRunAgentCommand,
+        runAgentCommand: workflowRunAgentCommand,
         collectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,

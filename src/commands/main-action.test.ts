@@ -192,6 +192,28 @@ describe('createMainAction', () => {
       expect(mockedDockerManager.setAwfDockerHost).toHaveBeenCalledWith('/var/run/docker.sock');
     });
 
+    it('passes containerRuntime through to runAgentCommand', async () => {
+      mockedValidateOptions.validateOptions.mockReturnValue({
+        ...STUB_CONFIG,
+        containerRuntime: 'gvisor',
+      } as unknown as import('../types').WrapperConfig);
+      mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
+        await deps.runAgentCommand('/tmp/awf-test', ['github.com'], undefined, 10);
+        return 0;
+      });
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedDockerManager.runAgentCommand).toHaveBeenCalledWith(
+        '/tmp/awf-test',
+        ['github.com'],
+        undefined,
+        10,
+        'gvisor'
+      );
+    });
+
     it('registers signal handlers', async () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});

@@ -18,6 +18,10 @@ import {
   detectDnsResolutionFailure,
 } from './container-startup-diagnostics';
 import { checkSquidLogs } from './squid-log-reader';
+import { isGvisorRuntime } from './container-runtime';
+
+const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
+const MAX_GVISOR_AGENT_RETRIES = 1;
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
   const composeArgs = ['compose', 'up', '-d'];
@@ -251,55 +255,80 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 /**
  * Runs the agent command in the container and reports any blocked domains
  */
-export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number): Promise<{ exitCode: number; blockedDomains: string[] }> {
+export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number, containerRuntime?: string): Promise<{ exitCode: number; blockedDomains: string[] }> {
   logger.info('Executing agent command...');
 
   try {
-    // Stream logs in real-time using docker logs -f (follow mode)
-    // Run this in the background and wait for the container to exit separately
-    const logsProcess = execa('docker', ['logs', '-f', AGENT_CONTAINER_NAME], {
-      stdio: 'inherit',
-      reject: false,
-      env: getLocalDockerEnv(),
-    });
-
-    let exitCode: number;
-
-    if (agentTimeoutMinutes) {
-      const timeoutMs = agentTimeoutMinutes * 60 * 1000;
-      logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
-
-      // Race docker wait against a timeout
-      const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
-        type: 'completed' as const,
-        exitCodeStr: result.stdout,
-      }));
-
-      let timeoutTimer: ReturnType<typeof setTimeout>;
-      const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
-        timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+    const executeAgentAttempt = async (logsSince?: string): Promise<number> => {
+      // Stream logs in real-time using docker logs -f (follow mode)
+      // Run this in the background and wait for the container to exit separately
+      const logArgs = ['logs', ...(logsSince ? ['--since', logsSince] : []), '-f', AGENT_CONTAINER_NAME];
+      const logsProcess = execa('docker', logArgs, {
+        stdio: 'inherit',
+        reject: false,
+        env: getLocalDockerEnv(),
       });
 
-      const raceResult = await Promise.race([waitPromise, timeoutPromise]);
+      let exitCode: number;
 
-      if (raceResult.type === 'timeout') {
-        logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
-        // Stop the container gracefully (10 second grace period before SIGKILL)
-        await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
-        exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
+      if (agentTimeoutMinutes) {
+        const timeoutMs = agentTimeoutMinutes * 60 * 1000;
+        logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
+
+        // Race docker wait against a timeout
+        const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
+          type: 'completed' as const,
+          exitCodeStr: result.stdout,
+        }));
+
+        let timeoutTimer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
+          timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+        });
+
+        const raceResult = await Promise.race([waitPromise, timeoutPromise]);
+
+        if (raceResult.type === 'timeout') {
+          logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
+          // Stop the container gracefully (10 second grace period before SIGKILL)
+          await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
+          exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
+        } else {
+          // Clear the timeout timer so it doesn't keep the event loop alive
+          clearTimeout(timeoutTimer!);
+          exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
+        }
       } else {
-        // Clear the timeout timer so it doesn't keep the event loop alive
-        clearTimeout(timeoutTimer!);
-        exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
+        // No timeout - wait indefinitely
+        const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() });
+        exitCode = parseInt(exitCodeStr.trim(), 10);
       }
-    } else {
-      // No timeout - wait indefinitely
-      const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() });
-      exitCode = parseInt(exitCodeStr.trim(), 10);
-    }
 
-    // Wait for the logs process to finish (it should exit automatically when container stops)
-    await logsProcess;
+      // Wait for the logs process to finish (it should exit automatically when container stops)
+      await logsProcess;
+      return exitCode;
+    };
+
+    let exitCode = await executeAgentAttempt();
+
+    if (isGvisorRuntime(containerRuntime)) {
+      for (let attempt = 1; attempt <= MAX_GVISOR_AGENT_RETRIES; attempt++) {
+        if (!GVISOR_RETRYABLE_AGENT_EXIT_CODES.has(exitCode)) {
+          break;
+        }
+
+        logger.warn(
+          `gVisor agent exited with code ${exitCode} before startup completed; retrying container launch (${attempt}/${MAX_GVISOR_AGENT_RETRIES})...`
+        );
+        const logsSince = new Date().toISOString();
+        await execa('docker', ['start', AGENT_CONTAINER_NAME], {
+          stdout: process.stderr,
+          stderr: 'inherit',
+          env: getLocalDockerEnv(),
+        });
+        exitCode = await executeAgentAttempt(logsSince);
+      }
+    }
 
     // If the container was killed externally (e.g. by fastKillAgentContainer in a
     // signal handler), skip the remaining log analysis — the container state is
