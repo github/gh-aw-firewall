@@ -28,7 +28,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
     fi
 
-# Install required packages and Node.js 22
+# Install required packages, GitHub CLI 2.96.0, Node.js 22.23.1, and npm 11.18.0
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
@@ -65,31 +65,60 @@ RUN set -eux; \
       force_archive_mirror; \
       apt-get install -y --no-install-recommends "$@"; \
     }; \
-    PKGS="iptables curl ca-certificates git gh gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
+    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
-    # Install Node.js 22 from NodeSource
-    # Check if Node.js 22 is already installed (common in runner images)
+    # Install GitHub CLI 2.96.0 from the official GitHub CLI apt repository
+    # (Ubuntu's bundled gh package is 2.4.0 compiled with Go 1.18 — vulnerable)
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && \
+    apt_install_retry gh=2.96.0 && \
+    # Install Node.js 22.23.1 from NodeSource
     # Note: node --version segfaults under QEMU arm64 emulation, so detect QEMU
     # and skip the pre-check — just always install from NodeSource on QEMU.
     UNDER_QEMU=false && \
     if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
-    if [ "$UNDER_QEMU" = "true" ] || ! command -v node >/dev/null 2>&1 || ! node --version 2>/dev/null | grep -qE '^v22\.'; then \
-        # Remove any existing nodejs packages first to avoid conflicts
-        apt-get remove -y nodejs npm || true && \
-        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-        apt-get install -y nodejs && \
-        # Verify Node.js 22 was installed correctly (skip under QEMU — node segfaults)
-        if [ "$UNDER_QEMU" = "true" ]; then \
-            echo "Skipping node --version check (QEMU emulation detected)" && \
-            dpkg -l nodejs | grep -q "22\." || (echo "ERROR: nodejs 22 package not installed" && exit 1); \
-        else \
-            node --version | grep -q "^v22\." || (echo "ERROR: Node.js 22 not installed correctly" && exit 1) && \
-            npx --version || (echo "ERROR: npx not found" && exit 1); \
-        fi; \
+    # Remove any existing nodejs packages first to avoid conflicts
+    apt-get remove -y nodejs npm || true && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs=22.23.1-1nodesource1 && \
+    # Hold gh and nodejs so the later apt-get upgrade does not silently replace the exact versions
+    apt-mark hold gh nodejs && \
+    # Verify Node.js 22.23.1 was installed correctly (skip under QEMU — node segfaults)
+    if [ "$UNDER_QEMU" = "true" ]; then \
+        echo "Skipping node --version check (QEMU emulation detected)" && \
+        dpkg -l nodejs | grep -q "22\.23\.1" || (echo "ERROR: nodejs 22.23.1 package not installed" && exit 1); \
+    else \
+        node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: Node.js 22.23.1 not installed correctly" && exit 1) && \
+        npx --version || (echo "ERROR: npx not found" && exit 1); \
     fi && \
+    # Replace NodeSource's bundled npm 10.x with npm 11.18.0
+    # Download the tarball and verify its SHA-256 before installing
+    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-11.18.0.tgz" && \
+    NPM_TGZ_SHA256="73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e" && \
+    curl -fsSL "$NPM_TGZ_URL" -o /tmp/npm-11.18.0.tgz && \
+    echo "${NPM_TGZ_SHA256}  /tmp/npm-11.18.0.tgz" | sha256sum -c - && \
+    # Remove stale npm 10.x trees so scanners do not retain them
+    rm -rf /usr/lib/node_modules/npm /usr/local/lib/node_modules/npm && \
+    rm -f /usr/bin/npm /usr/bin/npx /usr/local/bin/npm /usr/local/bin/npx && \
+    # Extract npm 11.18.0 manually — avoids executing node under QEMU (node segfaults there)
+    mkdir -p /usr/local/lib/node_modules/npm && \
+    tar -xzf /tmp/npm-11.18.0.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
+    chmod +x /usr/local/lib/node_modules/npm/bin/npm-cli.js \
+             /usr/local/lib/node_modules/npm/bin/npx-cli.js && \
+    ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    # Verify version on non-QEMU builds (node segfaults under QEMU)
+    if [ "$UNDER_QEMU" = "false" ]; then \
+        npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: npm 11.18.0 not installed correctly" && exit 1); \
+    fi && \
+    rm -f /tmp/npm-11.18.0.tgz && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional system packages for GitHub Actions runner parity

@@ -1,9 +1,15 @@
 # Node.js API proxy for credential management
 # Routes through Squid to respect domain whitelisting
-FROM node:22-alpine
+FROM node:22.23.1-alpine3.24
 
-# Install curl for healthchecks
-RUN apk add --no-cache curl
+# Install curl for healthchecks (>=8.21.0-r0 to fix CVE in 8.20.x)
+RUN apk add --no-cache "curl>=8.21.0-r0"
+
+# Upgrade npm to 11.18.0 to replace the vulnerable npm 10.x bundled with Node 22
+# and assert both Node and npm versions are exactly what we expect
+RUN npm install --global npm@11.18.0 && \
+    node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: expected Node.js v22.23.1" && exit 1) && \
+    npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: expected npm 11.18.0" && exit 1)
 
 # Create app directory
 WORKDIR /app
