@@ -16,7 +16,6 @@ jest.mock('./container-runtime', () => ({
 }));
 
 import * as topology from './topology';
-import * as containerRuntime from './container-runtime';
 
 const baseConfig: WrapperConfig = {
   allowedDomains: ['github.com'],
@@ -659,13 +658,11 @@ describe('runMainWorkflow', () => {
   });
 
   describe('onNetworkReady static DNS pre-registration', () => {
-    const mockedRuntimeNeedsStaticDns = containerRuntime.runtimeNeedsStaticDns as jest.MockedFunction<typeof containerRuntime.runtimeNeedsStaticDns>;
     const mockedGetTopologyContainerIps = topology.getTopologyContainerIps as jest.MockedFunction<typeof topology.getTopologyContainerIps>;
     const mockedPatchComposeWithTopologyHosts = topology.patchComposeWithTopologyHosts as jest.MockedFunction<typeof topology.patchComposeWithTopologyHosts>;
 
     beforeEach(() => {
       jest.clearAllMocks();
-      mockedRuntimeNeedsStaticDns.mockReturnValue(false);
     });
 
     /**
@@ -673,17 +670,14 @@ describe('runMainWorkflow', () => {
      * Each test only needs to declare the inputs and assertions unique to it.
      */
     const runNetworkIsolationWorkflow = async ({
-      needsStaticDns = false,
       peerIps = new Map<string, string>(),
       configOverrides = {},
       connectTopologyContainers = jest.fn(),
     }: {
-      needsStaticDns?: boolean;
       peerIps?: Map<string, string>;
       configOverrides?: Partial<WrapperConfig>;
       connectTopologyContainers?: jest.Mock;
     } = {}) => {
-      mockedRuntimeNeedsStaticDns.mockReturnValue(needsStaticDns);
       mockedGetTopologyContainerIps.mockResolvedValue(peerIps);
       mockedPatchComposeWithTopologyHosts.mockImplementation(() => {});
 
@@ -706,10 +700,9 @@ describe('runMainWorkflow', () => {
       );
     };
 
-    it('calls getTopologyContainerIps and patchComposeWithTopologyHosts when runtimeNeedsStaticDns is true', async () => {
+    it('calls getTopologyContainerIps and patchComposeWithTopologyHosts under network isolation', async () => {
       const connectTopologyContainers = jest.fn().mockResolvedValue(undefined);
       await runNetworkIsolationWorkflow({
-        needsStaticDns: true,
         peerIps: new Map([['mcp-gateway', '172.30.0.100']]),
         configOverrides: { topologyAttach: ['mcp-gateway'], containerRuntime: 'gvisor' },
         connectTopologyContainers,
@@ -725,9 +718,8 @@ describe('runMainWorkflow', () => {
       expect(patchCall.get('squid-proxy')).toBe('172.30.0.10');
     });
 
-    it('adds api-proxy entry when enableApiProxy is true and runtimeNeedsStaticDns is true', async () => {
+    it('adds api-proxy entry when enableApiProxy is true under network isolation', async () => {
       await runNetworkIsolationWorkflow({
-        needsStaticDns: true,
         peerIps: new Map([['peer', '10.0.0.1']]),
         configOverrides: { topologyAttach: ['peer'], containerRuntime: 'gvisor', enableApiProxy: true },
       });
@@ -741,7 +733,6 @@ describe('runMainWorkflow', () => {
       // Test that it is NOT called when the final map is empty: that can't happen since squid-proxy is always added.
       // Instead verify normal path works with non-empty map.
       await runNetworkIsolationWorkflow({
-        needsStaticDns: true,
         peerIps: new Map<string, string>(),
         configOverrides: { topologyAttach: ['peer'], containerRuntime: 'gvisor' },
       });
@@ -750,7 +741,7 @@ describe('runMainWorkflow', () => {
       expect(mockedPatchComposeWithTopologyHosts).toHaveBeenCalled();
     });
 
-    it('pre-registers topology hosts under network isolation even when runtimeNeedsStaticDns is false', async () => {
+    it('pre-registers topology hosts under network isolation for non-gVisor runtime too', async () => {
       // Embedded DNS is also unreliable on ARC/DinD with the standard runtime,
       // so pre-registration must happen for all network-isolation runs, not
       // only gVisor.
