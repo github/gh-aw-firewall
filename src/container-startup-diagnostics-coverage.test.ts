@@ -407,4 +407,54 @@ describe('reportBlockedDomains – additional branches', () => {
     expect(fixMsg).toContain('existing.com');
     expect(fixMsg).toContain('newsite.io');
   });
+
+  // ─── port-issue branch (lines 161-162, 181) ────────────────────────────────
+
+  it('classifies non-standard port as portIssue when domain is in allowlist', () => {
+    const messages: string[] = [];
+    const result = reportBlockedDomains(
+      [{ target: 'github.com:8080', domain: 'github.com', port: '8080' }],
+      ['github.com'],
+      msg => messages.push(msg)
+    );
+    expect(result.portIssues).toHaveLength(1);
+    expect(result.portIssues[0].port).toBe('8080');
+    expect(messages).toContain(
+      '  - Blocked: github.com:8080 (port 8080 not allowed, only 80 and 443 are permitted)'
+    );
+    const fixMsg = messages.find(m => m.startsWith('To fix port issues:'));
+    expect(fixMsg).toContain('Use standard ports 80');
+  });
+
+  it('emits port-fix suggestion for multiple non-standard port blocks', () => {
+    const messages: string[] = [];
+    const result = reportBlockedDomains(
+      [
+        { target: 'api.github.com:9000', domain: 'api.github.com', port: '9000' },
+        { target: 'api.github.com:9001', domain: 'api.github.com', port: '9001' },
+      ],
+      ['github.com'],
+      msg => messages.push(msg)
+    );
+    expect(result.portIssues).toHaveLength(2);
+    const portFixMsgs = messages.filter(m => m.startsWith('To fix port issues:'));
+    expect(portFixMsgs).toHaveLength(1); // Only one suggestion even for multiple port issues
+  });
+
+  // ─── wildcard subdomain matching with non-standard port (covers lines 139-142, 161-162, 181) ──
+
+  it('matches wildcard *.github.com against a subdomain blocked on non-standard port', () => {
+    const messages: string[] = [];
+    const result = reportBlockedDomains(
+      [{ target: 'api.github.com:9090', domain: 'api.github.com', port: '9090' }],
+      ['*.github.com'],
+      msg => messages.push(msg)
+    );
+    // Domain IS matched by wildcard, port is non-standard → portIssue
+    expect(result.portIssues).toHaveLength(1);
+    expect(messages).toContain(
+      '  - Blocked: api.github.com:9090 (port 9090 not allowed, only 80 and 443 are permitted)'
+    );
+    expect(messages.some(m => m.startsWith('To fix port issues:'))).toBe(true);
+  });
 });
