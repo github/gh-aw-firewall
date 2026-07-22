@@ -73,7 +73,7 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 ## Container Architecture
 
 ### Squid Container (`containers/squid/`)
-- Based on `ubuntu/squid:latest`
+- Based on `alpine:3.24` with Squid installed from Alpine packages
 - Mounts dynamically-generated `squid.conf` from work directory
 - Exposes port 3128 for proxy traffic
 - Logs to shared volume `squid-logs:/var/log/squid`
