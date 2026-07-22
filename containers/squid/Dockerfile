@@ -13,17 +13,13 @@ RUN set -eux; \
       openssl \
       shadow \
       squid; \
-    # Preserve AWF runtime contract: proxy user/group must be uid/gid 13.
-    if getent group proxy >/dev/null 2>&1; then \
-      groupmod -g 13 proxy; \
-    else \
-      addgroup -S -g 13 proxy; \
-    fi; \
-    if id -u proxy >/dev/null 2>&1; then \
-      usermod -u 13 -g 13 proxy; \
-    else \
-      adduser -S -D -H -u 13 -G proxy proxy; \
-    fi
+    # Alpine base assigns GID 13 to the 'news' group (and UID 9 to the 'news' user).
+    # AWF requires proxy user/group at UID/GID 13 for log-dir ownership compatibility.
+    # Remove the 'news' account first so those IDs are free to assign to 'proxy'.
+    userdel news 2>/dev/null || true; \
+    groupdel news 2>/dev/null || true; \
+    groupadd -r -g 13 proxy; \
+    useradd -r -u 13 -g proxy -M -s /sbin/nologin proxy
 
 # Create log directory and SSL database directory, ensure proxy user owns them
 RUN mkdir -p /var/log/squid /var/spool/squid /var/run/squid && \

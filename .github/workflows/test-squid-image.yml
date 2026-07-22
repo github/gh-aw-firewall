@@ -1,0 +1,99 @@
+name: Squid Image Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'containers/squid/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-squid-image:
+    name: Validate Squid Image (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set up QEMU (for arm64 emulation)
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+        with:
+          platforms: arm64
+
+      - name: Build Squid image (${{ matrix.platform }})
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./containers/squid
+          push: false
+          load: true
+          platforms: ${{ matrix.platform }}
+          tags: awf-squid-test:pr
+
+      - name: Assert Berkeley DB / Sleepycat packages absent
+        run: |
+          # apk info lists all installed packages in the Alpine image.
+          # Any hit means a Berkeley DB package crept back in — fail fast.
+          FOUND=$(docker run --rm --user root --entrypoint sh awf-squid-test:pr -c \
+            'apk info 2>/dev/null | grep -iE "^(db|libdb|db5|sleepycat|berkeley)" || true')
+          if [ -n "$FOUND" ]; then
+            echo "::error::Berkeley DB / Sleepycat packages detected in squid image:"
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "OK: No Berkeley DB / Sleepycat packages detected"
+
+      - name: Assert no Berkeley DB shared libraries in filesystem
+        run: |
+          FOUND=$(docker run --rm --user root --entrypoint sh awf-squid-test:pr -c \
+            'find / -xdev -name "libdb*.so*" 2>/dev/null || true')
+          if [ -n "$FOUND" ]; then
+            echo "::error::Berkeley DB shared libraries found in squid image filesystem:"
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "OK: No libdb*.so* shared libraries found"
+
+      - name: Assert proxy user exists at UID 13
+        run: |
+          ENTRY=$(docker run --rm --user root --entrypoint sh awf-squid-test:pr -c \
+            'getent passwd proxy')
+          echo "passwd entry: $ENTRY"
+          # Format: proxy:x:13:13:...
+          UID_VAL=$(echo "$ENTRY" | cut -d: -f3)
+          if [ "$UID_VAL" != "13" ]; then
+            echo "::error::proxy user has UID $UID_VAL, expected 13"
+            exit 1
+          fi
+          echo "OK: proxy user has UID 13"
+
+      - name: Assert proxy group exists at GID 13
+        run: |
+          ENTRY=$(docker run --rm --user root --entrypoint sh awf-squid-test:pr -c \
+            'getent group proxy')
+          echo "group entry: $ENTRY"
+          # Format: proxy:x:13:
+          GID_VAL=$(echo "$ENTRY" | cut -d: -f3)
+          if [ "$GID_VAL" != "13" ]; then
+            echo "::error::proxy group has GID $GID_VAL, expected 13"
+            exit 1
+          fi
+          echo "OK: proxy group has GID 13"
+
+      - name: Assert squid binary is present and executable
+        run: |
+          docker run --rm --user root --entrypoint sh awf-squid-test:pr -c \
+            'squid --version 2>&1 | head -1'
+          echo "OK: squid binary is present"
