@@ -28,8 +28,8 @@
         {
           "family": "gpt-5.5",
           "patterns": ["gpt-5.5*"],
-          "endpoints": ["responses"],
-          "notes": "Responses API only. Not present in OpenAI OpenAPI spec v2.3.0; reserved for future gpt-5.5 family models."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page."
         },
         {
           "family": "gpt-5.4",
