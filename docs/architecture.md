@@ -100,11 +100,11 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
 When the firewall is running with gVisor runtime, it implements automatic recovery for transient startup crashes:
 
 - **Retryable Exit Codes:** Exit codes 134 (abort) and 139 (segmentation fault) are treated as startup crashes
-- **Startup Window:** Only crashes occurring within the first 30 seconds of container launch are retried (this window covers V8/Node.js initialization before user code runs)
+- **Startup Window:** Only eligible exits from containers whose measured runtime is less than 30 seconds are retried; runtime is used as a heuristic for an initialization crash and does not prove that user code has not started
 - **Retry Limit:** The container will be restarted once (maximum 1 retry attempt per command execution)
 - **Implementation:** Located in `src/container-lifecycle.ts`
 
-This recovery mechanism prevents transient initialization failures from causing entire workflow failures, while still preserving exit codes for actual user command failures.
+This recovery mechanism retries likely transient initialization failures. If a retry occurs, the command's final exit code is taken from the restarted attempt.
 
 ## Traffic Flow
 
