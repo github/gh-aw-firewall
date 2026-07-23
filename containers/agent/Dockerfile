@@ -65,9 +65,30 @@ RUN set -eux; \
       force_archive_mirror; \
       apt-get install -y --no-install-recommends "$@"; \
     }; \
-    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
+    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin"; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
+    # Install gosu 1.19 from GitHub releases (compiled with Go 1.24.6 — avoids Ubuntu's
+    # apt gosu which is compiled with Go 1.18 and carries 44 stdlib CVEs including Critical ones).
+    # Checksums sourced from https://github.com/tianon/gosu/releases/tag/1.19
+    GOSU_VERSION="1.19" && \
+    GOSU_ARCH="$(dpkg --print-architecture)" && \
+    case "$GOSU_ARCH" in \
+      amd64)   GOSU_SHA256="52c8749d0142edd234e9d6bd5237dff2d81e71f43537e2f4f66f75dd4b243dd0" ;; \
+      arm64)   GOSU_SHA256="3a8ef022d82c0bc4a98bcb144e77da714c25fcfa64dccc57f6aba7ae47ff1a44" ;; \
+      armhf)   GOSU_SHA256="8457a0bfd28e016c2c7d8ea6e5f7eed1376033ffbd36491bb455094c8b1dc9fd" ;; \
+      armel)   GOSU_SHA256="6b6a27eb5b5f1efe74978f51aceb773cf004db34e9019f869c056ac8ebc232d9" ;; \
+      ppc64el) GOSU_SHA256="52102a5903b79dcf6287cf1fbc3a3157393989195a8c95e4788556cd35650ae3" ;; \
+      s390x)   GOSU_SHA256="6717b460d0b1a8fabbdca1fa3cbe7ea0e1c0d64f3ed252e1e1e101ed4e16d9e2" ;; \
+      i386)    GOSU_SHA256="4b38085eecdf33a79b6a2f1df8d36e2a93c93346679106127fcbd605aebf01c9" ;; \
+      riscv64) GOSU_SHA256="17ece9173569485c29875058d0edd4cd4a70c00f4cfa6a11b04050e25fda2297" ;; \
+      *) echo "Unsupported architecture: $GOSU_ARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}" \
+        -o /usr/local/bin/gosu && \
+    echo "${GOSU_SHA256}  /usr/local/bin/gosu" | sha256sum -c - && \
+    chmod +x /usr/local/bin/gosu && \
+    gosu --version && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
     # Install GitHub CLI 2.96.0 from the official GitHub CLI apt repository
@@ -79,26 +100,45 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && \
     apt_install_retry gh=2.96.0 && \
-    # Install Node.js 22.23.1 from NodeSource
+    # Install Node.js 22.23.1 from the official Node.js binary distribution
+    # (nodejs.org), NOT the NodeSource apt repo. The NodeSource .deb is tracked by
+    # a Debian/NodeSource security feed that yields false-positive CVE matches
+    # (e.g. CVE-2023-44487 and CVE-2026-45447) against a binary that is already
+    # patched (22.23.1 bundles OpenSSL 3.5.7). The official tarball carries no .deb
+    # metadata, so grype matches it via NVD CPE data instead, which correctly
+    # excludes 22.23.1 for both CVEs.
+    # Checksums sourced from https://nodejs.org/dist/v22.23.1/SHASUMS256.txt
     # Note: node --version segfaults under QEMU arm64 emulation, so detect QEMU
-    # and skip the pre-check — just always install from NodeSource on QEMU.
+    # and skip the runtime version check there.
     UNDER_QEMU=false && \
     if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
-    # Remove any existing nodejs packages first to avoid conflicts
+    # Remove any existing nodejs packages first to avoid conflicting detections
     apt-get remove -y nodejs npm || true && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs=22.23.1-1nodesource1 && \
-    # Hold gh and nodejs so the later apt-get upgrade does not silently replace the exact versions
-    apt-mark hold gh nodejs && \
-    # Verify Node.js 22.23.1 was installed correctly (skip under QEMU — node segfaults)
+    NODE_VERSION="v22.23.1" && \
+    NODE_DPKG_ARCH="$(dpkg --print-architecture)" && \
+    case "$NODE_DPKG_ARCH" in \
+      amd64) NODE_ARCH="x64";    NODE_SHA256="7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129" ;; \
+      arm64) NODE_ARCH="arm64";  NODE_SHA256="543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d" ;; \
+      armhf) NODE_ARCH="armv7l"; NODE_SHA256="03c56ac0bd3ef3cce967c2f7b2f7ac2259a4ae7ceeaa661291aadf65729a8b53" ;; \
+      *) echo "Unsupported architecture for Node.js: $NODE_DPKG_ARCH" >&2; exit 1 ;; \
+    esac && \
+    NODE_TARBALL="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" && \
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}" && \
+    echo "${NODE_SHA256}  /tmp/${NODE_TARBALL}" | sha256sum -c - && \
+    # Extract bin/, lib/, include/, share/ into /usr/local (strip the top-level dir)
+    tar -xzf "/tmp/${NODE_TARBALL}" -C /usr/local --strip-components=1 --no-same-owner && \
+    rm -f "/tmp/${NODE_TARBALL}" && \
+    # Hold gh so the later apt-get upgrade does not silently replace the pinned version
+    apt-mark hold gh && \
+    # Verify Node.js 22.23.1 was installed correctly (skip node exec under QEMU — segfaults)
     if [ "$UNDER_QEMU" = "true" ]; then \
         echo "Skipping node --version check (QEMU emulation detected)" && \
-        dpkg -l nodejs | grep -q "22\.23\.1" || (echo "ERROR: nodejs 22.23.1 package not installed" && exit 1); \
+        test -x /usr/local/bin/node || (echo "ERROR: /usr/local/bin/node missing" && exit 1); \
     else \
         node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: Node.js 22.23.1 not installed correctly" && exit 1) && \
         npx --version || (echo "ERROR: npx not found" && exit 1); \
     fi && \
-    # Replace NodeSource's bundled npm 10.x with npm 11.18.0
+    # Replace Node's bundled npm 10.x with npm 11.18.0
     # Download the tarball and verify its SHA-256 before installing
     NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-11.18.0.tgz" && \
     NPM_TGZ_SHA256="73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e" && \

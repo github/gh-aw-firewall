@@ -8,6 +8,7 @@ on:
     events: [pull_request]
     remove_label: false
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read

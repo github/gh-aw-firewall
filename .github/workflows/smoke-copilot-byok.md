@@ -10,6 +10,7 @@ on:
     remove_label: false
   reaction: "rocket"
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
@@ -22,15 +23,15 @@ engine:
     # the COPILOT_GITHUB_TOKEN path (auto-injected by gh-aw under the MCP
     # sandbox); this workflow instead drives the COPILOT_PROVIDER_API_KEY code
     # path (via the AWF sandbox + api-proxy sidecar) so both BYOK auth surfaces
-    # have CI coverage. We reuse the COPILOT_GITHUB_TOKEN secret value because
-    # the target upstream is still api.githubcopilot.com (CAPI), which accepts
+    # have CI coverage. We reuse the workflow's github.token value because the
+    # target upstream is still api.githubcopilot.com (CAPI), which accepts
     # the same Bearer token regardless of variable name. The value is wired in
     # under engine.env (rather than the workflow-level env) because gh-aw's
     # strict mode allowlists this exact variable here to keep the secret out of
     # the agent container — AWF then forwards it to the api-proxy sidecar and
     # injects a placeholder into the agent env (see
     # src/services/api-proxy-credential-env.ts).
-    COPILOT_PROVIDER_API_KEY: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+    COPILOT_PROVIDER_API_KEY: ${{ github.token }}
 network:
   allowed:
     - defaults

@@ -14,6 +14,9 @@
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "https-proxy-agent": "^7.0.6"
   },
+  "overrides": {
+    "@opentelemetry/propagator-jaeger": "2.10.0"
+  },
   "devDependencies": {
     "jest": "^30.2.0"
   },

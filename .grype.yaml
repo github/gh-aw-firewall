@@ -1,0 +1,41 @@
+# Grype vulnerability scanner configuration for gh-aw-firewall container images.
+#
+# This file is mounted into the grype container by the supply-chain-scan workflow
+# so that known-accepted / unresolvable findings do not block every PR.
+#
+# Each entry must include a justification comment explaining:
+#   1. Why the finding cannot be fixed in the image layer we control.
+#   2. What the risk acceptance decision is and who should revisit it.
+#
+# Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
+
+ignore:
+  # ── grpc v1.81.1 embedded in gh CLI binary ───────────────────────────────────
+  #
+  # GHSA-hrxh-6v49-42gf (google.golang.org/grpc v1.81.1 -> 1.82.1, CRITICAL,
+  # CVSS 9.1):
+  #   Three server-side grpc-go issues: an xDS RBAC authorization bypass
+  #   (fail-open on unsupported matchers), an HTTP/2 rapid-reset mitigation
+  #   bypass (DoS), and a panic on crafted xDS RBAC policies.
+  #
+  #   Risk acceptance — NOT REACHABLE in our usage:
+  #     grpc v1.81.1 is a transitive dependency compiled into the `gh` CLI
+  #     binary. `gh` is a client: it does not run a gRPC server, use xDS RBAC,
+  #     or accept HTTP/2 from untrusted peers, so none of the vulnerable code
+  #     paths are exercised. The finding is present but not exploitable here.
+  #   Present in the agent image (gh via the GitHub CLI apt repo) and the
+  #   cli-proxy image (gh from the official release tarball).
+  #
+  #   No fix is shippable today: gh 2.96.0 (latest release as of 2026-07-23)
+  #   still pins grpc v1.81.1, and building gh from unreleased trunk would ship
+  #   an untagged, non-official binary (worse supply-chain risk than a
+  #   non-reachable finding). The fix (grpc v1.82.1) is already merged on gh
+  #   trunk, so the next tagged gh release will carry it.
+  #   Revisit: once gh CLI >= v2.97.0 (grpc >= 1.82.1) is released, bump the
+  #   `gh=` pin in agent/Dockerfile and cli-proxy/Dockerfile and DELETE this
+  #   entry. Tracked in github/gh-aw-firewall.
+  - vulnerability: GHSA-hrxh-6v49-42gf
+    package:
+      name: google.golang.org/grpc
+      version: "v1.81.1"
+      type: go-module

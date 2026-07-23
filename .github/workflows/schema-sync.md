@@ -7,6 +7,7 @@ description: >
 on:
   schedule: daily on weekdays
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
