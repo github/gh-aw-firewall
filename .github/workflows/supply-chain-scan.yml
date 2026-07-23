@@ -1,0 +1,50 @@
+name: Supply Chain Scan
+
+# Deterministic (non-agentic) supply-chain gate. Runs on every pull request.
+#
+# Uses the gh-aw compile pipeline's opt-in Anchore scanners against the
+# container images recorded in the `gh-aw-manifest` headers of the compiled
+# `.github/workflows/*.lock.yml` files:
+#   --syft   generate a Software Bill of Materials (SBOM) per image
+#   --grype  scan images for known CVEs / insecure libraries
+#   --grant  enforce the license allowlist in `.grant.yaml`
+#
+# All three scanners run via Docker (anchore/{syft,grype,grant}), which is
+# preinstalled on GitHub-hosted `ubuntu-latest` runners. `--strict` makes any
+# finding or scan error fail the job so this acts as a real gate.
+#
+# To make this a *required* check, add "Supply Chain Scan / scan" to the
+# branch protection rule / ruleset for the default branch.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Compile + Syft/Grype/Grant
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
+
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@598bade62fe1591518c081cd854cb931a2e8547f # v0.83.1
+        with:
+          version: v0.83.1
+
+      - name: Compile with supply-chain scanners
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh aw compile --strict --syft --grype --grant

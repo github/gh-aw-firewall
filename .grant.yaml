@@ -1,0 +1,12 @@
+# License policy for `gh aw compile --grant` container image license scanning.
+# Grant (Anchore) evaluates packages in the container images referenced by
+# compiled `.github/workflows/*.lock.yml` manifests against this allowlist.
+require-license: true
+require-known-license: true
+
+allow:
+  - MIT
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
