@@ -22,6 +22,7 @@ ignore:
   - vulnerability: CVE-2023-44487
     package:
       name: nodejs
+      version: "22.23.1-1nodesource1"
       type: deb
 
   # CVE-2026-45447 (Node.js, High):
@@ -33,6 +34,7 @@ ignore:
   - vulnerability: CVE-2026-45447
     package:
       name: nodejs
+      version: "22.23.1-1nodesource1"
       type: deb
 
   # ── grpc v1.81.1 embedded in gh CLI binary ───────────────────────────────────
@@ -50,4 +52,5 @@ ignore:
   - vulnerability: GHSA-hrxh-6v49-42gf
     package:
       name: google.golang.org/grpc
+      version: "v1.81.1"
       type: go-module

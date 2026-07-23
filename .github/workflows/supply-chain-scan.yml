@@ -35,7 +35,7 @@ jobs:
   scan:
     name: Compile + Syft/Grype/Grant
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -78,6 +78,45 @@ jobs:
                   '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
+              ])
+              print('::endgroup::', flush=True)
+              if r.returncode != 0:
+                  rc = r.returncode
+          sys.exit(rc)
+          PYEOF
+
+      - name: Build and scan PR container images (Grype v0.116.0)
+        # Builds agent, api-proxy, and cli-proxy from the Dockerfiles in this PR and scans them.
+        # The lock-manifest step above scans immutable published digests (pre-PR images); this
+        # step is what validates the Dockerfile CVE fixes are actually effective.
+        run: |
+          python3 - <<'PYEOF'
+          import os, subprocess, sys
+          cwd = os.getcwd()
+          containers = [
+              ('agent',     'containers/agent'),
+              ('api-proxy', 'containers/api-proxy'),
+              ('cli-proxy', 'containers/cli-proxy'),
+          ]
+          rc = 0
+          for name, context in containers:
+              tag = f'awf-pr-scan-{name}:pr'
+              tar = f'/tmp/awf-pr-scan-{name}.tar'
+              print(f'::group::docker build {name}', flush=True)
+              b = subprocess.run(['docker', 'build', '-t', tag, context])
+              print('::endgroup::', flush=True)
+              if b.returncode != 0:
+                  print(f'::error::docker build failed for {name}', flush=True)
+                  rc = b.returncode
+                  continue
+              subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
+              print(f'::group::grype {name} (PR build)', flush=True)
+              r = subprocess.run([
+                  'docker', 'run', '--rm',
+                  '-v', f'{tar}:{tar}:ro',
+                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
+                  'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                  f'docker-archive:{tar}', '--fail-on', 'high',
               ])
               print('::endgroup::', flush=True)
               if r.returncode != 0:
