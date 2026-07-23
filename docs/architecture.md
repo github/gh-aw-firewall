@@ -95,6 +95,17 @@ The firewall uses a containerized architecture with Squid proxy for L7 (HTTP/HTT
   - Allow traffic to Squid proxy itself
   - Redirect all HTTP (port 80) and HTTPS (port 443) to Squid via DNAT (NAT table)
 
+### gVisor Startup Crash Recovery
+
+When the firewall is running with gVisor runtime, it implements automatic recovery for transient startup crashes:
+
+- **Retryable Exit Codes:** Exit codes 134 (abort) and 139 (segmentation fault) are treated as startup crashes
+- **Startup Window:** Only crashes occurring within the first 30 seconds of container launch are retried (this window covers V8/Node.js initialization before user code runs)
+- **Retry Limit:** The container will be restarted once (maximum 1 retry attempt per command execution)
+- **Implementation:** Located in `src/container-lifecycle.ts`
+
+This recovery mechanism prevents transient initialization failures from causing entire workflow failures, while still preserving exit codes for actual user command failures.
+
 ## Traffic Flow
 
 ```
@@ -127,6 +138,11 @@ The wrapper generates:
 1. **Squid proxy starts first** with healthcheck
 2. **Agent container waits** for Squid to be healthy
 3. **iptables rules applied** in agent container to redirect all HTTP/HTTPS traffic
+4. **gVisor Startup Crash Recovery** (when using gVisor runtime):
+   - If the agent container exits during startup with crash codes (134, 139), the firewall will retry once
+   - Only retries if the container crashed within 30 seconds (before any agent work began)
+   - Prevents transient crashes during V8/Node.js initialization from failing the entire workflow
+   - Exit codes 134 (abort) and 139 (segfault) are considered retryable startup crashes
 
 ### 3. Traffic Routing
 - All HTTP (port 80) and HTTPS (port 443) traffic → Squid proxy
