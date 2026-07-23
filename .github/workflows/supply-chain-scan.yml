@@ -94,6 +94,7 @@ jobs:
                   '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
+                  '--config', '/root/.grype.yaml',
               ])
               print('::endgroup::', flush=True)
               if r.returncode != 0:
@@ -138,6 +139,7 @@ jobs:
                   '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'docker-archive:{tar}', '--fail-on', 'high',
+                  '--config', '/root/.grype.yaml',
               ])
               print('::endgroup::', flush=True)
               if r.returncode != 0:
