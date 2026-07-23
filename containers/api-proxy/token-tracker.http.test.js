@@ -301,6 +301,103 @@ describe('trackTokenUsage', () => {
     }, 10);
   });
 
+  test('records usage when the downstream client closes but proxyRes never ends', (done) => {
+    // Codex/OpenAI /responses reads until the terminal `response.completed`
+    // event, then tears down the DOWNSTREAM socket (res) and ends its turn —
+    // taking the sandbox (and this proxy) down before the UPSTREAM keep-alive
+    // socket (proxyRes) emits 'end'/'close'/'aborted'. A plain pipe does not
+    // propagate the downstream close to proxyRes, so finalization must be
+    // driven off the downstream `res` close or the usage is dropped.
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-downstream-close',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 640, output_tokens: 90, total_tokens: 730 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    // proxyRes never emits 'end'/'close'/'aborted' — only the client bails.
+    res.emit('close');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        640,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        90,
+      );
+      done();
+    }, 10);
+  });
+
+  test('does not double-count usage when downstream close follows a clean end', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-end-then-downstream-close',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 300, output_tokens: 50, total_tokens: 350 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+    // Node emits 'close' on the client socket after the response is flushed —
+    // must be ignored because the upstream already ended cleanly.
+    res.emit('close');
+
+    setTimeout(() => {
+      const inputCalls = metricsRef.increment.mock.calls.filter(
+        (c) => c[0] === 'input_tokens_total',
+      );
+      expect(inputCalls).toHaveLength(1);
+      expect(inputCalls[0][2]).toBe(300);
+      done();
+    }, 10);
+  });
+
   test('warns when cache-read was observed in events but rolled-up value is zero', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'text/event-stream' };

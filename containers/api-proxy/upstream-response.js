@@ -147,7 +147,7 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     setupTokenTracking(proxyRes, body, {
-      requestId, provider, req, startTime, billingInfo,
+      requestId, provider, req, res, startTime, billingInfo,
       initiatorSent, span, isStreaming,
       trackTokenUsage,
       sanitizeForLog,

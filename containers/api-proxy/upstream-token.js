@@ -3,7 +3,7 @@
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 
 function setupTokenTracking(proxyRes, body, {
-  requestId, provider, req, startTime, billingInfo,
+  requestId, provider, req, res, startTime, billingInfo,
   initiatorSent, span, isStreaming,
   trackTokenUsage, sanitizeForLog, metrics, otel, logRequest,
 }) {
@@ -17,7 +17,7 @@ function setupTokenTracking(proxyRes, body, {
     } catch { /* non-JSON body */ }
   }
   trackTokenUsage(proxyRes, {
-    requestId, provider, path: sanitizeForLog(req.url), startTime, metrics, billingInfo, initiatorSent, requestModel,
+    requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel,
     onUsage: (normalizedUsage, model) => {
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
       const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);

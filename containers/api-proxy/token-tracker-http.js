@@ -135,8 +135,10 @@ function createChunkHandler(state, { requestId, provider }) {
  * @param {object} state - Mutable tracking state
  * @param {(text: string) => void} onChunk - Decoded-chunk callback
  * @param {() => void} onFinalize - Finalization callback
+ * @param {object|null} [res] - Downstream client response, used to detect the
+ *   client tearing down the connection (see onPrematureClose below)
  */
-function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
+function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res = null) {
   // Finalization must run at most once. Both the clean-completion path ('end')
   // and the premature-close fallback ('aborted'/'close') route through here so
   // usage is never written twice.
@@ -203,6 +205,20 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
   };
   proxyRes.on('aborted', onPrematureClose);
   proxyRes.on('close', onPrematureClose);
+
+  // The upstream stream (proxyRes) and the downstream client stream (res) are
+  // separate sockets bridged by `proxyRes.pipe(res)`. Codex reads until the
+  // terminal `response.completed` event then immediately tears down the
+  // DOWNSTREAM socket and ends its turn — which tears down the whole sandbox
+  // (including this proxy) before the UPSTREAM keep-alive socket emits its
+  // 'end'/'close'. A plain pipe does not propagate a downstream close back to
+  // proxyRes, so without watching `res` here finalization would never run and
+  // the already-parsed usage would be dropped. The finalizeOnce/endedCleanly
+  // guards make this a no-op on clean completions (where proxyRes 'end' runs
+  // first and res 'close' follows).
+  if (res && typeof res.on === 'function') {
+    res.on('close', onPrematureClose);
+  }
 }
 
 /**
@@ -435,9 +451,10 @@ function finalizeHttpTracking(state, proxyRes, opts) {
  * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
+ * @param {object} [opts.res] - Downstream client response; watched for 'close' so usage is finalized when the client (e.g. Codex) tears down the connection before the upstream stream ends cleanly
  */
 function trackTokenUsage(proxyRes, opts) {
-  const { requestId, provider, path: reqPath } = opts;
+  const { requestId, provider, path: reqPath, res } = opts;
   const streaming = isStreamingResponse(proxyRes.headers);
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
@@ -490,7 +507,7 @@ function trackTokenUsage(proxyRes, opts) {
 
   const onChunk = createChunkHandler(state, { requestId, provider });
   const onFinalize = () => finalizeHttpTracking(state, proxyRes, opts);
-  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize);
+  wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }
 
 module.exports = { trackTokenUsage, createChunkHandler, finalizeHttpTracking, extractUsageFromTrackedState, buildAndWriteTokenRecord };
