@@ -76,19 +76,19 @@ function parseByokExtraHeaders(raw) {
     'AWF_BYOK_EXTRA_HEADERS: invalid JSON; ignoring extra headers',
     'AWF_BYOK_EXTRA_HEADERS: expected a JSON object; ignoring extra headers',
     (name) => {
-    const lowerName = name.toLowerCase();
+      const lowerName = name.toLowerCase();
 
       // Prevent prototype pollution / special keys in header maps.
-    if (lowerName === '__proto__' || lowerName === 'constructor' || lowerName === 'prototype') {
+      if (lowerName === '__proto__' || lowerName === 'constructor' || lowerName === 'prototype') {
         return `AWF_BYOK_EXTRA_HEADERS: "${name}" is not an allowed header name; skipping`;
-    }
+      }
 
-    if (PROTECTED_HEADER_NAMES.has(lowerName)) {
+      if (PROTECTED_HEADER_NAMES.has(lowerName)) {
         return `AWF_BYOK_EXTRA_HEADERS: "${name}" is an auth-critical header and cannot be overridden; skipping`;
-    }
-    if (!isValidHeaderName(name)) {
+      }
+      if (!isValidHeaderName(name)) {
         return `AWF_BYOK_EXTRA_HEADERS: "${name}" is not a valid HTTP header name; skipping`;
-    }
+      }
       return null;
     },
     (name) => `AWF_BYOK_EXTRA_HEADERS: value for "${name}" must be a string; skipping`,
