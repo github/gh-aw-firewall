@@ -65,9 +65,30 @@ RUN set -eux; \
       force_archive_mirror; \
       apt-get install -y --no-install-recommends "$@"; \
     }; \
-    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd gosu libcap2-bin"; \
+    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin"; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
+    # Install gosu 1.19 from GitHub releases (compiled with Go 1.24.6 — avoids Ubuntu's
+    # apt gosu which is compiled with Go 1.18 and carries 44 stdlib CVEs including Critical ones).
+    # Checksums sourced from https://github.com/tianon/gosu/releases/tag/1.19
+    GOSU_VERSION="1.19" && \
+    GOSU_ARCH="$(dpkg --print-architecture)" && \
+    case "$GOSU_ARCH" in \
+      amd64)   GOSU_SHA256="52c8749d0142edd234e9d6bd5237dff2d81e71f43537e2f4f66f75dd4b243dd0" ;; \
+      arm64)   GOSU_SHA256="3a8ef022d82c0bc4a98bcb144e77da714c25fcfa64dccc57f6aba7ae47ff1a44" ;; \
+      armhf)   GOSU_SHA256="8457a0bfd28e016c2c7d8ea6e5f7eed1376033ffbd36491bb455094c8b1dc9fd" ;; \
+      armel)   GOSU_SHA256="6b6a27eb5b5f1efe74978f51aceb773cf004db34e9019f869c056ac8ebc232d9" ;; \
+      ppc64el) GOSU_SHA256="52102a5903b79dcf6287cf1fbc3a3157393989195a8c95e4788556cd35650ae3" ;; \
+      s390x)   GOSU_SHA256="6717b460d0b1a8fabbdca1fa3cbe7ea0e1c0d64f3ed252e1e1e101ed4e16d9e2" ;; \
+      i386)    GOSU_SHA256="4b38085eecdf33a79b6a2f1df8d36e2a93c93346679106127fcbd605aebf01c9" ;; \
+      riscv64) GOSU_SHA256="17ece9173569485c29875058d0edd4cd4a70c00f4cfa6a11b04050e25fda2297" ;; \
+      *) echo "Unsupported architecture: $GOSU_ARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}" \
+        -o /usr/local/bin/gosu && \
+    echo "${GOSU_SHA256}  /usr/local/bin/gosu" | sha256sum -c - && \
+    chmod +x /usr/local/bin/gosu && \
+    gosu --version && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
     # Install GitHub CLI 2.96.0 from the official GitHub CLI apt repository

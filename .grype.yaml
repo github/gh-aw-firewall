@@ -1,0 +1,53 @@
+# Grype vulnerability scanner configuration for gh-aw-firewall container images.
+#
+# This file is mounted into the grype container by the supply-chain-scan workflow
+# so that known-accepted / unresolvable findings do not block every PR.
+#
+# Each entry must include a justification comment explaining:
+#   1. Why the finding cannot be fixed in the image layer we control.
+#   2. What the risk acceptance decision is and who should revisit it.
+#
+# Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
+
+ignore:
+  # ── Node.js 22.x false positives from the NodeSource deb package ────────────
+  #
+  # CVE-2023-44487 (HTTP/2 Rapid Reset, CVSS 7.5 High, KEV):
+  #   Node.js v20.8.1+ and v18.18.0+ already contain the fix.  Node.js 22 was
+  #   GA-released in April 2024, well after the October 2023 patch.  The
+  #   NodeSource deb metadata does not carry a "patched" tag for this CVE, so
+  #   grype reports it as an active finding against 22.23.1-1nodesource1.
+  #   This is a scanner false-positive; the binary is patched.
+  #   Revisit: if NodeSource publishes updated package metadata, remove this entry.
+  - vulnerability: CVE-2023-44487
+    package:
+      name: nodejs
+      type: deb
+
+  # CVE-2026-45447 (Node.js, High):
+  #   Marked "wont-fix" by the NodeSource package maintainer for the 22.x deb.
+  #   22.23.1 is the latest available 22.x NodeSource build; there is no patched
+  #   package to upgrade to at this time.
+  #   Revisit: when a newer NodeSource nodejs build is published that addresses
+  #   this CVE, remove this entry and pin to the new version in agent/Dockerfile.
+  - vulnerability: CVE-2026-45447
+    package:
+      name: nodejs
+      type: deb
+
+  # ── grpc v1.81.1 embedded in gh CLI binary ───────────────────────────────────
+  #
+  # GHSA-hrxh-6v49-42gf (google.golang.org/grpc v1.81.1 -> 1.82.1, High):
+  #   The gh CLI 2.96.0 (latest stable release as of 2026-07-23) embeds grpc
+  #   v1.81.1.  There is no newer gh release with grpc >= 1.82.1 available.
+  #   Rebuilding gh from source with an updated go.mod is not feasible in our
+  #   container build pipeline.
+  #   This affects both the agent image (gh installed via GitHub CLI apt repo)
+  #   and the cli-proxy image (gh installed from the official release tarball).
+  #   Revisit: once gh CLI releases a version that upgrades grpc to >= 1.82.1,
+  #   pin to that version in agent/Dockerfile and cli-proxy/Dockerfile, then
+  #   remove this entry.
+  - vulnerability: GHSA-hrxh-6v49-42gf
+    package:
+      name: google.golang.org/grpc
+      type: go-module

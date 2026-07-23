@@ -68,12 +68,14 @@ jobs:
                   for c in json.loads(m.group(1)).get('containers', []):
                       images.add(c.get('pinned_image', c.get('image')))
           home = os.path.expanduser('~')
+          cwd = os.getcwd()
           rc = 0
           for image in sorted(images):
               print(f'::group::grype {image}', flush=True)
               r = subprocess.run([
                   'docker', 'run', '--rm',
                   '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
+                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
               ])
