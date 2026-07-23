@@ -29,9 +29,6 @@ safe-outputs:
   noop:
     max: 1
 timeout-minutes: 60
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 steps:
   - name: Prepare analysis workspace

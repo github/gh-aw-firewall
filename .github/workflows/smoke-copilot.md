@@ -41,9 +41,6 @@ safe-outputs:
     run-success: "📰 VERDICT: [{workflow_name}]({run_url}) has concluded. All systems operational. This is a developing story. 🎤"
     run-failure: "📰 DEVELOPING STORY: [{workflow_name}]({run_url}) reports {status}. Our correspondents are investigating the incident..."
 timeout-minutes: 15
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 jobs:
   verify_token_usage:

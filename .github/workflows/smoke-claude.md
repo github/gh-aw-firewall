@@ -19,9 +19,6 @@ max-turns: 8
 model: claude-haiku-4-5
 engine:
   id: claude
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 jobs:
   verify_token_usage:
