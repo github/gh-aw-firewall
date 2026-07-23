@@ -398,6 +398,55 @@ describe('trackTokenUsage', () => {
     }, 10);
   });
 
+  test('waits for upstream usage if downstream closes before usage arrives', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-downstream-close-before-usage',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    // Downstream closes first, before any usage has been observed.
+    res.emit('close');
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 111, output_tokens: 22, total_tokens: 133 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        111,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        22,
+      );
+      done();
+    }, 10);
+  });
+
   test('warns when cache-read was observed in events but rolled-up value is zero', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'text/event-stream' };

@@ -217,7 +217,11 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res =
   // guards make this a no-op on clean completions (where proxyRes 'end' runs
   // first and res 'close' follows).
   if (res && typeof res.on === 'function') {
-    res.on('close', onPrematureClose);
+    res.on('close', () => {
+      if (!state.streaming) return;
+      if (Object.keys(state.streamingUsage).length === 0) return;
+      onPrematureClose();
+    });
   }
 }
 
