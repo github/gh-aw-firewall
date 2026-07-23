@@ -2,9 +2,9 @@ name: Supply Chain Scan
 
 # Deterministic supply-chain gate that runs on every pull request.
 #
-# Uses the gh-aw compile pipeline's opt-in Anchore scanners against the
-# container images recorded in the `gh-aw-manifest` headers of the compiled
-# `.github/workflows/*.lock.yml` files.
+# Uses the gh-aw compile pipeline's opt-in Anchore scanners (Syft/Grype/Grant)
+# against the container images recorded in the `gh-aw-manifest` headers of the
+# compiled `.github/workflows/*.lock.yml` files.
 #
 # Scanner images are pinned to reviewed digests so scan behaviour is
 # reproducible:
@@ -12,8 +12,19 @@ name: Supply Chain Scan
 #   grype   anchore/grype@sha256:fd4ab4d...  (v0.116.0)
 #   grant   anchore/grant@sha256:17246361... (v0.6.8)
 #
-# All three scanners run via Docker (pre-installed on `ubuntu-latest`). Any
-# finding or scan error fails the job.
+# Blocking vs. report-only:
+#   * BLOCKING gate = "Build and scan PR container images". It rebuilds the
+#     first-party images (agent, api-proxy, cli-proxy) from the Dockerfiles in
+#     the PR and fails on any High/Critical CVE. This is the only step that
+#     reflects the changes in a PR, so it is the one that gates merges.
+#   * REPORT-ONLY = the Grype and Grant scans of the `gh-aw-manifest` digests.
+#     Those digests are IMMUTABLE already-published first-party images plus
+#     upstream third-party images (playwright, github-mcp-server, gh-aw-node,
+#     mcpg, ...). A PR cannot rebuild or patch them, so their findings are
+#     surfaced as warnings but never fail the job (that would make the gate
+#     permanently red until the next release / upstream bump).
+#
+# All scanners run via Docker (pre-installed on `ubuntu-latest`).
 #
 # To make this a *required* check, add
 # "Supply Chain Scan / Compile + Syft/Grype/Grant"
@@ -35,7 +46,7 @@ jobs:
   scan:
     name: Compile + Syft/Grype/Grant
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -56,7 +67,12 @@ jobs:
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Scan images for CVEs (Grype v0.116.0)
+      - name: Scan published & third-party images for CVEs (report-only, Grype v0.116.0)
+        # Scans the immutable image digests recorded in the compiled .lock.yml
+        # gh-aw-manifest headers: already-published first-party images plus
+        # upstream third-party images that a PR cannot rebuild. Findings are
+        # REPORTED as warnings but do NOT fail the job. The blocking CVE gate is
+        # the "Build and scan PR container images" step below.
         # anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
         run: |
           python3 - <<'PYEOF'
@@ -68,14 +84,62 @@ jobs:
                   for c in json.loads(m.group(1)).get('containers', []):
                       images.add(c.get('pinned_image', c.get('image')))
           home = os.path.expanduser('~')
-          rc = 0
+          cwd = os.getcwd()
+          flagged = []
           for image in sorted(images):
               print(f'::group::grype {image}', flush=True)
               r = subprocess.run([
                   'docker', 'run', '--rm',
                   '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
+                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
+                  '--config', '/root/.grype.yaml',
+              ])
+              print('::endgroup::', flush=True)
+              if r.returncode != 0:
+                  flagged.append(image)
+          if flagged:
+              print(f'::warning::{len(flagged)} published/third-party image(s) have High/Critical CVEs '
+                    f'(report-only, not blocking): ' + ', '.join(flagged), flush=True)
+          # Report-only: never fail the job on immutable published / third-party images.
+          sys.exit(0)
+          PYEOF
+
+      - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
+        # Builds agent, api-proxy, and cli-proxy from the Dockerfiles in this PR
+        # and scans them with --fail-on high. This is the BLOCKING supply-chain
+        # gate: it is the only scan that reflects the CVE fixes in a PR, so a
+        # High/Critical finding here fails the job.
+        run: |
+          python3 - <<'PYEOF'
+          import os, subprocess, sys
+          cwd = os.getcwd()
+          containers = [
+              ('agent',     'containers/agent'),
+              ('api-proxy', 'containers/api-proxy'),
+              ('cli-proxy', 'containers/cli-proxy'),
+          ]
+          rc = 0
+          for name, context in containers:
+              tag = f'awf-pr-scan-{name}:pr'
+              tar = f'/tmp/awf-pr-scan-{name}.tar'
+              print(f'::group::docker build {name}', flush=True)
+              b = subprocess.run(['docker', 'build', '-t', tag, context])
+              print('::endgroup::', flush=True)
+              if b.returncode != 0:
+                  print(f'::error::docker build failed for {name}', flush=True)
+                  rc = b.returncode
+                  continue
+              subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
+              print(f'::group::grype {name} (PR build)', flush=True)
+              r = subprocess.run([
+                  'docker', 'run', '--rm',
+                  '-v', f'{tar}:{tar}:ro',
+                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
+                  'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                  f'docker-archive:{tar}', '--fail-on', 'high',
+                  '--config', '/root/.grype.yaml',
               ])
               print('::endgroup::', flush=True)
               if r.returncode != 0:
@@ -83,7 +147,10 @@ jobs:
           sys.exit(rc)
           PYEOF
 
-      - name: Check image licenses (Grant v0.6.8)
+      - name: Check image licenses (report-only, Grant v0.6.8)
+        # License findings on the immutable published / third-party manifest
+        # digests are reported as warnings but do NOT fail the job (same
+        # rationale as the report-only CVE scan above).
         # anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 = v0.6.8
         run: |
           python3 - <<'PYEOF'
@@ -96,7 +163,7 @@ jobs:
                       images.add(c.get('pinned_image', c.get('image')))
           home = os.path.expanduser('~')
           cwd = os.getcwd()
-          rc = 0
+          flagged = []
           for image in sorted(images):
               print(f'::group::grant {image}', flush=True)
               r = subprocess.run([
@@ -108,6 +175,10 @@ jobs:
               ])
               print('::endgroup::', flush=True)
               if r.returncode != 0:
-                  rc = r.returncode
-          sys.exit(rc)
+                  flagged.append(image)
+          if flagged:
+              print(f'::warning::{len(flagged)} image(s) have license findings '
+                    f'(report-only, not blocking): ' + ', '.join(flagged), flush=True)
+          # Report-only: never fail the job on immutable published / third-party images.
+          sys.exit(0)
           PYEOF

@@ -10,6 +10,7 @@ on:
     remove_label: false
   reaction: "rocket"
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
