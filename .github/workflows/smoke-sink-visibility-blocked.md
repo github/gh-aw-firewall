@@ -8,6 +8,7 @@ description: >-
 on:
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
 engine:
   id: copilot

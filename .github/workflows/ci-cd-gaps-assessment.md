@@ -4,6 +4,7 @@ on:
   schedule: weekly on Monday
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
   actions: read
   issues: read
