@@ -188,8 +188,13 @@ describe('runAgentCommand', () => {
   });
 
   it.each([134, 139])('should retry one gVisor startup crash when agent exits with code %i', async (crashExitCode) => {
+    // Simulate a short container runtime (within the startup crash window)
+    const startedAt = new Date(Date.now() - 1000).toISOString();   // started 1s ago
+    const finishedAt = new Date().toISOString();                    // finished now
+
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f (attempt 1)
     mockExecaFn.mockResolvedValueOnce({ stdout: String(crashExitCode), stderr: '', exitCode: 0 } as any); // docker wait (attempt 1)
+    mockExecaFn.mockResolvedValueOnce({ stdout: `${startedAt} ${finishedAt}`, stderr: '', exitCode: 0 } as any); // docker inspect
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker start
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f (attempt 2)
     mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any); // docker wait (attempt 2)
@@ -213,6 +218,25 @@ describe('runAgentCommand', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it.each([134, 139])('should not retry gVisor crash %i when container ran past the startup window', async (crashExitCode) => {
+    // Simulate a long container runtime (beyond the 30s startup crash window)
+    const startedAt = new Date(Date.now() - 60_000).toISOString(); // started 60s ago
+    const finishedAt = new Date().toISOString();
+
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+    mockExecaFn.mockResolvedValueOnce({ stdout: String(crashExitCode), stderr: '', exitCode: 0 } as any); // docker wait
+    mockExecaFn.mockResolvedValueOnce({ stdout: `${startedAt} ${finishedAt}`, stderr: '', exitCode: 0 } as any); // docker inspect
+
+    const result = await runAgentCommand(getDir(), ['github.com'], undefined, undefined, 'gvisor');
+
+    expect(result.exitCode).toBe(crashExitCode);
+    expect(mockExecaFn).not.toHaveBeenCalledWith(
+      'docker',
+      ['start', 'awf-agent'],
+      expect.anything()
+    );
   });
 
   it('should not retry exit code 139 outside gVisor', async () => {

@@ -275,6 +275,57 @@ describe('container-lifecycle retry and timeout branches', () => {
 
   // ─── fastKillAgentContainer ──────────────────────────────────────────────────
 
+  describe('runAgentCommand – gVisor retry shares overall timeout budget', () => {
+    it('returns 124 on the retry when the overall budget is exhausted', async () => {
+      // Simulate the scenario where attempt 1 uses nearly all of the budget, leaving
+      // the retry with no remaining time.  We spy on Date.now() to control what each
+      // call returns without needing fake timers.
+      const baseTime = 1_700_000_000_000; // arbitrary fixed timestamp
+      const dateSpy = jest.spyOn(Date, 'now')
+        // Call 1: overallDeadlineMs computation in runAgentCommand
+        .mockReturnValueOnce(baseTime)
+        // Call 2: remainingMs inside first executeAgentAttempt — still within budget
+        .mockReturnValueOnce(baseTime)
+        // All subsequent calls (incl. retry's remainingMs) — past the 1-min deadline
+        .mockReturnValue(baseTime + 70_000);
+
+      try {
+        // docker inspect returns a short runtime (startup crash confirmed)
+        const startedAt = new Date(baseTime).toISOString();
+        const finishedAt = new Date(baseTime + 500).toISOString();
+
+        mockExecaFn
+          .mockResolvedValueOnce(ok() as any)                             // docker logs -f (attempt 1)
+          .mockResolvedValueOnce(ok('134') as any)                        // docker wait → startup crash
+          .mockResolvedValueOnce(ok(`${startedAt} ${finishedAt}`) as any) // docker inspect
+          .mockResolvedValueOnce(ok() as any)                             // docker start
+          .mockResolvedValueOnce(ok() as any)                             // docker logs -f (attempt 2)
+          .mockResolvedValueOnce(ok() as any);                            // docker stop -t 10 (budget expired)
+
+        const result = await runAgentCommand(getDir(), ['github.com'], undefined, 1, 'gvisor');
+
+        expect(result.exitCode).toBe(124);
+
+        // docker start was called (retry was initiated)
+        expect(mockExecaFn).toHaveBeenCalledWith(
+          'docker',
+          ['start', 'awf-agent'],
+          expect.anything()
+        );
+
+        // docker wait was called only once (attempt 1); retry bailed immediately
+        const waitCalls = mockExecaFn.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[])[0] === 'wait'
+        );
+        expect(waitCalls).toHaveLength(1);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+  });
+
+  // ─── fastKillAgentContainer ──────────────────────────────────────────────────
+
   describe('fastKillAgentContainer', () => {
     it('calls docker stop with the default 3-second timeout', async () => {
       mockExecaFn.mockResolvedValueOnce(ok() as any);

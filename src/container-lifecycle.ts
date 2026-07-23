@@ -22,6 +22,9 @@ import { isGvisorRuntime } from './container-runtime';
 
 const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
 const MAX_GVISOR_AGENT_RETRIES = 1;
+// Containers that exit within this window are assumed to have crashed during
+// Node/V8 initialisation (before any agent work began) and are safe to restart.
+const GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000;
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
   const composeArgs = ['compose', 'up', '-d'];
@@ -253,12 +256,38 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 }
 
 /**
+ * Returns `true` when a container's measured runtime is short enough to
+ * indicate a Node/V8 startup crash (i.e. no agent work was performed yet).
+ * Uses `docker inspect` to obtain the container's start/finish timestamps.
+ * Returns `false` conservatively when the timing cannot be determined.
+ */
+async function isGvisorStartupCrash(containerName: string): Promise<boolean> {
+  try {
+    const { stdout } = await execa(
+      'docker',
+      ['inspect', '--format', '{{.State.StartedAt}} {{.State.FinishedAt}}', containerName],
+      { reject: false, env: getLocalDockerEnv() }
+    );
+    const parts = stdout.trim().split(' ');
+    if (parts.length !== 2) return false;
+    const runtimeMs = new Date(parts[1]).getTime() - new Date(parts[0]).getTime();
+    return runtimeMs >= 0 && runtimeMs < GVISOR_STARTUP_CRASH_WINDOW_MS;
+  } catch {
+    // Cannot determine — do not retry
+    return false;
+  }
+}
+
+/**
  * Runs the agent command in the container and reports any blocked domains
  */
 export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number, containerRuntime?: string): Promise<{ exitCode: number; blockedDomains: string[] }> {
   logger.info('Executing agent command...');
 
   try {
+    // Compute the absolute deadline once so the retry shares the same budget.
+    const overallDeadlineMs = agentTimeoutMinutes ? Date.now() + agentTimeoutMinutes * 60 * 1000 : undefined;
+
     const executeAgentAttempt = async (logsSince?: string): Promise<number> => {
       // Stream logs in real-time using docker logs -f (follow mode)
       // Run this in the background and wait for the container to exit separately
@@ -271,11 +300,20 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
 
       let exitCode: number;
 
-      if (agentTimeoutMinutes) {
-        const timeoutMs = agentTimeoutMinutes * 60 * 1000;
+      if (overallDeadlineMs !== undefined) {
+        const remainingMs = overallDeadlineMs - Date.now();
+
+        if (remainingMs <= 0) {
+          // No time left (budget exhausted by a previous attempt).
+          logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
+          await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
+          await logsProcess;
+          return 124;
+        }
+
         logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
 
-        // Race docker wait against a timeout
+        // Race docker wait against the remaining budget.
         const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
           type: 'completed' as const,
           exitCodeStr: result.stdout,
@@ -283,7 +321,7 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
 
         let timeoutTimer: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
-          timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+          timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), remainingMs);
         });
 
         const raceResult = await Promise.race([waitPromise, timeoutPromise]);
@@ -314,6 +352,16 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
     if (isGvisorRuntime(containerRuntime)) {
       for (let attempt = 1; attempt <= MAX_GVISOR_AGENT_RETRIES; attempt++) {
         if (!GVISOR_RETRYABLE_AGENT_EXIT_CODES.has(exitCode)) {
+          break;
+        }
+
+        // Only retry when there is concrete evidence that the crash occurred
+        // before the agent began any work (i.e. it was a pure startup crash).
+        const startupCrash = await isGvisorStartupCrash(AGENT_CONTAINER_NAME);
+        if (!startupCrash) {
+          logger.debug(
+            `gVisor agent exited with code ${exitCode} but ran longer than the startup window (${GVISOR_STARTUP_CRASH_WINDOW_MS / 1000}s); not retrying`
+          );
           break;
         }
 
