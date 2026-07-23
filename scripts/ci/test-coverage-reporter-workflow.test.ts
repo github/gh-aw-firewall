@@ -58,7 +58,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
     expect(lock).not.toContain('GITHUB_TOOLSETS');
     expect(lock).not.toContain('github_mcp_tools_with_safeoutputs_prompt.md');
-    expect(lock).toContain('GH_AW_MCP_CLI_SERVERS_LIST: ${{ steps.mount-mcp-clis.outputs.mcp-cli-servers-list }}');
+    expect(lock).toContain("GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'");
     expect(lock).toContain('"safeoutputs": {');
     expect(lock).not.toContain('"github": {');
     expect(lock).not.toContain('shell(');

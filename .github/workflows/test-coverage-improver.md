@@ -22,8 +22,6 @@ env:
   COPILOT_MODEL: claude-haiku-4-5
 
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false
