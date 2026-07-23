@@ -43,8 +43,6 @@ sandbox:
     id: awf
     runtime: gvisor
     sudo: true
-  mcp:
-    version: v0.3.32
 strict: false
 jobs:
   verify_gvisor:

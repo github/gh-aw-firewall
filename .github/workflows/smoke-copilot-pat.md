@@ -48,9 +48,6 @@ safe-outputs:
     run-success: "🔑 [{workflow_name}]({run_url}) PAT auth validated. All systems operational. ✅"
     run-failure: "🔑 [{workflow_name}]({run_url}) reports {status}. PAT auth path may have issues..."
 timeout-minutes: 15
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 steps:
   - name: Pre-compute smoke test data

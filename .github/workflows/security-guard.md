@@ -23,8 +23,6 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests, repos]
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false

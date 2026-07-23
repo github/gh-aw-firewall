@@ -1,0 +1,60 @@
+# License policy for grant container image license scanning.
+# Grant (Anchore) evaluates packages in the container images referenced by
+# compiled `.github/workflows/*.lock.yml` manifests against this allowlist.
+#
+# Allowlist derived from actual syft scans of the current image set:
+# squid (Alpine 3.24), agent (Ubuntu 22.04), api-proxy (node:alpine).
+#
+# require-known-license: false — Ubuntu/Debian packages report many non-SPDX
+# license strings (e.g. "GPL-2+", "Artistic", file-hash identifiers) that
+# syft cannot normalise to SPDX identifiers. Treating unknown identifiers as
+# failures would block the scan on every Ubuntu-derived image; the allowlist
+# still gates any *known* SPDX license that is not explicitly permitted.
+require-license: true
+require-known-license: false
+
+allow:
+  # Permissive
+  - 0BSD
+  - MIT
+  - MIT-0
+  - X11
+  - Apache-2.0
+  - BSD-1-Clause
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - BSD-4-Clause
+  - ISC
+  - Zlib
+  - curl
+  - BlueOak-1.0.0
+  - BSL-1.0
+  - EDL-1.0
+  - HPND
+  - HPND-sell-variant
+  - PHP-3.0
+  - PHP-3.01
+  - Artistic-2.0
+  - SIL-OFL-1.1
+  - CC0-1.0
+  - CC-BY-3.0
+  - CC-BY-4.0
+  - CC-BY-SA-3.0
+  - OpenLDAP
+  # Weak copyleft
+  - MPL-2.0
+  - LGPL-2.0-only
+  - LGPL-2.0-or-later
+  - LGPL-2.1-only
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+  # Strong copyleft (present in Alpine/Ubuntu system packages — e.g. bash,
+  # squid, net-tools, shadow, coreutils)
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  # Documentation
+  - GFDL-1.2-no-invariants-or-later
+  - GFDL-1.3-no-invariants-or-later
