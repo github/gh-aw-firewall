@@ -13,14 +13,17 @@ const { getConfig } = useAgentVolumesTestConfig();
 describe('agent service', () => {
   it('should pre-resolve allowed domains into chroot-hosts file', () => {
     // Mock getent to return a resolved IP for a test domain
+    // Use domains that are unlikely to appear in the runner's /etc/hosts
+    const testDomainA = 'awf-test-alpha.internal';
+    const testDomainB = 'awf-test-beta.internal';
     mockExecaSync.mockImplementation((...args: any[]) => {
       if (args[0] === 'getent' && args[1]?.[0] === 'hosts') {
         const domain = args[1][1];
-        if (domain === 'github.com') {
-          return { stdout: '140.82.121.4      github.com', stderr: '', exitCode: 0 };
+        if (domain === testDomainA) {
+          return { stdout: `140.82.121.4      ${testDomainA}`, stderr: '', exitCode: 0 };
         }
-        if (domain === 'npmjs.org') {
-          return { stdout: '104.16.22.35      npmjs.org', stderr: '', exitCode: 0 };
+        if (domain === testDomainB) {
+          return { stdout: `104.16.22.35      ${testDomainB}`, stderr: '', exitCode: 0 };
         }
         throw new Error('Resolution failed');
       }
@@ -30,7 +33,7 @@ describe('agent service', () => {
 
     const config = {
       ...getConfig(),
-      allowedDomains: ['github.com', 'npmjs.org', '*.wildcard.com'],
+      allowedDomains: [testDomainA, testDomainB, '*.wildcard.com'],
     };
     generateDockerCompose(config, mockNetworkConfig);
 
@@ -42,8 +45,8 @@ describe('agent service', () => {
     const content = fs.readFileSync(chrootHostsPath, 'utf8');
 
     // Should contain pre-resolved domains
-    expect(content).toContain('140.82.121.4\tgithub.com');
-    expect(content).toContain('104.16.22.35\tnpmjs.org');
+    expect(content).toContain(`140.82.121.4\t${testDomainA}`);
+    expect(content).toContain(`104.16.22.35\t${testDomainB}`);
     // Should NOT contain wildcard domains (can't be resolved)
     expect(content).not.toContain('wildcard.com');
 
