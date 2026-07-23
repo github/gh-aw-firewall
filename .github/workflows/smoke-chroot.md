@@ -9,6 +9,7 @@ on:
     remove_label: false
   reaction: "rocket"
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
@@ -17,8 +18,6 @@ name: Smoke Chroot
 engine:
   id: copilot
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false

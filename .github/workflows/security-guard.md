@@ -8,6 +8,7 @@ on:
     events: [pull_request]
     remove_label: false
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
@@ -23,8 +24,6 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests, repos]
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false

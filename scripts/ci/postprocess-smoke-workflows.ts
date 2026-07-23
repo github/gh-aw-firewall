@@ -30,10 +30,12 @@ const codexWorkflowPaths = [
 // and --skip-pull -> --build-local rewrites would replace the released bundle
 // with a source build, which is incompatible (e.g. the standalone awf bundle
 // rejects --build-local: "requires a full repository checkout").
-const releaseModeLockFiles = new Set<string>([
-  'network-isolation-test.lock.yml',
-  'build-test-network-isolation.lock.yml',
-]);
+//
+// Currently empty: all workflows (including the network-isolation variants)
+// build awf/firewall from the repo's own source and use the compiler-default
+// mcp gateway version. The full-repo checkout injected by the post-processor
+// makes --build-local valid everywhere.
+const releaseModeLockFiles = new Set<string>([]);
 
 // Auto-discover all lock files so new workflows are automatically included.
 // This avoids the recurring bug where adding a new workflow .md file and

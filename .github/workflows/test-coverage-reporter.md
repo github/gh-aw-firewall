@@ -15,14 +15,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   actions: read
   issues: read
   discussions: read
 
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false

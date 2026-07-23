@@ -10,6 +10,7 @@ on:
     remove_label: false
   reaction: "rocket"
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
@@ -28,8 +29,6 @@ engine:
 sandbox:
   agent:
     id: awf
-  mcp:
-    version: v0.3.32
 strict: false
 network:
   allowed:

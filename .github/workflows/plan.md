@@ -6,6 +6,7 @@ on:
     name: plan
     events: [issue_comment, discussion_comment]
 permissions:
+  copilot-requests: write
   contents: read
   discussions: read
   issues: read

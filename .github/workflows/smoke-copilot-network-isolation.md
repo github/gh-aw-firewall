@@ -42,8 +42,6 @@ safe-outputs:
     run-failure: "🛡️ [{workflow_name}]({run_url}) reports {status} while checking network isolation. Investigate the egress model."
 timeout-minutes: 15
 sandbox:
-  mcp:
-    version: v0.3.32
   agent:
     sudo: false
 strict: false
