@@ -190,9 +190,15 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
   // usage has already been accumulated per-chunk in state, so finalize it here
   // instead of dropping the record. Skipped when the stream ended cleanly to
   // avoid finalizing before a decompressor has flushed.
+  let prematureCloseHandled = false;
   const onPrematureClose = () => {
-    if (endedCleanly) return;
-    if (decompressor) { try { decompressor.end(); } catch { /* ignore */ } }
+    if (endedCleanly || prematureCloseHandled) return;
+    prematureCloseHandled = true;
+    if (decompressor) {
+      decompressor.once('error', finalizeOnce);
+      try { decompressor.end(); } catch { finalizeOnce(); }
+      return;
+    }
     finalizeOnce();
   };
   proxyRes.on('aborted', onPrematureClose);
