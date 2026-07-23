@@ -100,26 +100,45 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && \
     apt_install_retry gh=2.96.0 && \
-    # Install Node.js 22.23.1 from NodeSource
+    # Install Node.js 22.23.1 from the official Node.js binary distribution
+    # (nodejs.org), NOT the NodeSource apt repo. The NodeSource .deb is tracked by
+    # a Debian/NodeSource security feed that yields false-positive CVE matches
+    # (e.g. CVE-2023-44487 and CVE-2026-45447) against a binary that is already
+    # patched (22.23.1 bundles OpenSSL 3.5.7). The official tarball carries no .deb
+    # metadata, so grype matches it via NVD CPE data instead, which correctly
+    # excludes 22.23.1 for both CVEs.
+    # Checksums sourced from https://nodejs.org/dist/v22.23.1/SHASUMS256.txt
     # Note: node --version segfaults under QEMU arm64 emulation, so detect QEMU
-    # and skip the pre-check — just always install from NodeSource on QEMU.
+    # and skip the runtime version check there.
     UNDER_QEMU=false && \
     if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
-    # Remove any existing nodejs packages first to avoid conflicts
+    # Remove any existing nodejs packages first to avoid conflicting detections
     apt-get remove -y nodejs npm || true && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs=22.23.1-1nodesource1 && \
-    # Hold gh and nodejs so the later apt-get upgrade does not silently replace the exact versions
-    apt-mark hold gh nodejs && \
-    # Verify Node.js 22.23.1 was installed correctly (skip under QEMU — node segfaults)
+    NODE_VERSION="v22.23.1" && \
+    NODE_DPKG_ARCH="$(dpkg --print-architecture)" && \
+    case "$NODE_DPKG_ARCH" in \
+      amd64) NODE_ARCH="x64";    NODE_SHA256="7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129" ;; \
+      arm64) NODE_ARCH="arm64";  NODE_SHA256="543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d" ;; \
+      armhf) NODE_ARCH="armv7l"; NODE_SHA256="03c56ac0bd3ef3cce967c2f7b2f7ac2259a4ae7ceeaa661291aadf65729a8b53" ;; \
+      *) echo "Unsupported architecture for Node.js: $NODE_DPKG_ARCH" >&2; exit 1 ;; \
+    esac && \
+    NODE_TARBALL="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" && \
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_TARBALL}" -o "/tmp/${NODE_TARBALL}" && \
+    echo "${NODE_SHA256}  /tmp/${NODE_TARBALL}" | sha256sum -c - && \
+    # Extract bin/, lib/, include/, share/ into /usr/local (strip the top-level dir)
+    tar -xzf "/tmp/${NODE_TARBALL}" -C /usr/local --strip-components=1 --no-same-owner && \
+    rm -f "/tmp/${NODE_TARBALL}" && \
+    # Hold gh so the later apt-get upgrade does not silently replace the pinned version
+    apt-mark hold gh && \
+    # Verify Node.js 22.23.1 was installed correctly (skip node exec under QEMU — segfaults)
     if [ "$UNDER_QEMU" = "true" ]; then \
         echo "Skipping node --version check (QEMU emulation detected)" && \
-        dpkg -l nodejs | grep -q "22\.23\.1" || (echo "ERROR: nodejs 22.23.1 package not installed" && exit 1); \
+        test -x /usr/local/bin/node || (echo "ERROR: /usr/local/bin/node missing" && exit 1); \
     else \
         node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: Node.js 22.23.1 not installed correctly" && exit 1) && \
         npx --version || (echo "ERROR: npx not found" && exit 1); \
     fi && \
-    # Replace NodeSource's bundled npm 10.x with npm 11.18.0
+    # Replace Node's bundled npm 10.x with npm 11.18.0
     # Download the tarball and verify its SHA-256 before installing
     NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-11.18.0.tgz" && \
     NPM_TGZ_SHA256="73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e" && \
