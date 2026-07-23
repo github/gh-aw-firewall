@@ -56,9 +56,33 @@ jobs:
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      # Persist Grype's vulnerability DB across runs. The unique run_id key never
+      # hits exactly, so each run restores the newest prior DB via restore-keys,
+      # refreshes it if a newer DB exists (see `db update` below), then saves the
+      # result under a fresh key. This keeps the DB current while avoiding a full
+      # cold download on every run.
+      - name: Cache Grype vulnerability DB
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/grype-db
+          key: grype-db-v6-${{ github.run_id }}
+          restore-keys: |
+            grype-db-v6-
+
       - name: Scan images for CVEs (Grype v0.116.0)
         # anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
+        env:
+          GRYPE_DB: ${{ runner.temp }}/grype-db
         run: |
+          mkdir -p "$GRYPE_DB"
+          # Warm the vulnerability DB exactly once. Without a shared cache, every
+          # per-image `docker run --rm` would re-download the full DB (~1 min
+          # each), which is the dominant cost of this job.
+          docker run --rm \
+            -v "$GRYPE_DB:/cache" \
+            -e GRYPE_DB_CACHE_DIR=/cache \
+            anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 \
+            db update
           python3 - <<'PYEOF'
           import json, os, re, glob, subprocess, sys
           images = set()
@@ -68,12 +92,17 @@ jobs:
                   for c in json.loads(m.group(1)).get('containers', []):
                       images.add(c.get('pinned_image', c.get('image')))
           home = os.path.expanduser('~')
+          db_cache = os.environ['GRYPE_DB']
           rc = 0
           for image in sorted(images):
               print(f'::group::grype {image}', flush=True)
               r = subprocess.run([
                   'docker', 'run', '--rm',
                   '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
+                  '-v', f'{db_cache}:/cache',
+                  '-e', 'GRYPE_DB_CACHE_DIR=/cache',
+                  '-e', 'GRYPE_DB_AUTO_UPDATE=false',
+                  '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
                   'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
               ])
