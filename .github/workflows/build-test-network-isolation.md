@@ -3,6 +3,7 @@ description: Build Test Suite (Network Isolation) - build-test matrix running un
 on:
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read

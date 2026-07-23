@@ -3,6 +3,7 @@ description: Network Isolation Test - Minimal manual smoke test for the experime
 on:
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
 model: claude-haiku-4-5
 engine:

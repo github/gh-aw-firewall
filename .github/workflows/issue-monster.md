@@ -12,6 +12,7 @@ on:
   skip-if-no-match: "is:issue is:open"
 
 permissions:
+  copilot-requests: write
   actions: read
   contents: read
   issues: read
