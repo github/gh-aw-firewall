@@ -49,11 +49,8 @@ safe-outputs:
     run-failure: "**Build Test (Network Isolation) Failed** [{workflow_name}]({run_url}) - See logs for details"
 timeout-minutes: 45
 sandbox:
-  mcp:
-    version: v0.3.30
   agent:
     sudo: false
-    version: v0.27.10
 strict: false
 ---
 
@@ -62,8 +59,8 @@ strict: false
 **IMPORTANT: Keep all outputs concise. Report results clearly with pass/fail status.**
 
 This is the standard build-test matrix running under the **experimental AWF
-network-isolation topology** (`sudo: false`, latest released firewall and MCP
-gateway container images — no local builds).
+network-isolation topology** (`sudo: false`, locally-built firewall from the
+repo source and the compiler-default MCP gateway image).
 
 You must run ALL of the following build test tasks sequentially. After completing all tasks, produce a single combined summary table and post it as a comment on the current pull request.
 

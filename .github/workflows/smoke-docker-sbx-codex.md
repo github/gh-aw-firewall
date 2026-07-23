@@ -43,8 +43,6 @@ sandbox:
     id: awf
     runtime: docker-sbx
     sudo: true
-  mcp:
-    version: latest
 strict: false
 jobs:
   verify_token_usage:
