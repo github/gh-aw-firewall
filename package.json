@@ -63,8 +63,8 @@
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.5",
-    "@typescript-eslint/eslint-plugin": "^8.64.0",
-    "@typescript-eslint/parser": "^8.64.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "babel-jest": "^30.2.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.7.0",
@@ -74,9 +74,9 @@
     "husky": "^9.1.7",
     "jest": "^30.4.2",
     "markdownlint-cli2": "^0.23.1",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.64.0"
+    "typescript-eslint": "^8.65.0"
   },
   "overrides": {
     "test-exclude": "^7.0.1",
