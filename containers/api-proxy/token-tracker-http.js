@@ -126,6 +126,10 @@ function createChunkHandler(state, { requestId, provider }) {
 /**
  * Wire data/end event listeners onto proxyRes and optional decompressor.
  *
+ * Finalization runs on a clean 'end' or, as a fallback, on a premature
+ * 'aborted'/'close' so streaming responses whose sockets are torn down without
+ * a clean end (common with SSE clients) still record their accumulated usage.
+ *
  * @param {object} proxyRes - Upstream response stream
  * @param {object|null} decompressor - Zlib decompressor stream, or null
  * @param {object} state - Mutable tracking state
@@ -133,6 +137,21 @@ function createChunkHandler(state, { requestId, provider }) {
  * @param {() => void} onFinalize - Finalization callback
  */
 function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
+  // Finalization must run at most once. Both the clean-completion path ('end')
+  // and the premature-close fallback ('aborted'/'close') route through here so
+  // usage is never written twice.
+  let finalized = false;
+  const finalizeOnce = () => {
+    if (finalized) return;
+    finalized = true;
+    onFinalize();
+  };
+
+  // Tracks whether the upstream stream completed cleanly. When true, the
+  // premature-close fallback is a no-op so we don't finalize with a
+  // still-flushing decompressor.
+  let endedCleanly = false;
+
   if (decompressor) {
     // Feed decompressed text to our parser
     decompressor.on('data', (decompressedChunk) => {
@@ -146,11 +165,12 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
     });
 
     proxyRes.on('end', () => {
+      endedCleanly = true;
       try { decompressor.end(); } catch { /* ignore */ }
     });
 
     // Finalize on decompressor end
-    decompressor.on('end', onFinalize);
+    decompressor.on('end', finalizeOnce);
   } else {
     // No compression — parse raw chunks directly
     proxyRes.on('data', (chunk) => {
@@ -158,8 +178,25 @@ function wireListeners(proxyRes, decompressor, state, onChunk, onFinalize) {
       onChunk(chunk.toString('utf8'));
     });
 
-    proxyRes.on('end', onFinalize);
+    proxyRes.on('end', () => {
+      endedCleanly = true;
+      finalizeOnce();
+    });
   }
+
+  // Fallback for prematurely-closed connections. Streaming (SSE) clients such
+  // as Codex/OpenAI /responses frequently tear down the socket after receiving
+  // the final event, so proxyRes emits 'aborted'/'close' but never 'end'. The
+  // usage has already been accumulated per-chunk in state, so finalize it here
+  // instead of dropping the record. Skipped when the stream ended cleanly to
+  // avoid finalizing before a decompressor has flushed.
+  const onPrematureClose = () => {
+    if (endedCleanly) return;
+    if (decompressor) { try { decompressor.end(); } catch { /* ignore */ } }
+    finalizeOnce();
+  };
+  proxyRes.on('aborted', onPrematureClose);
+  proxyRes.on('close', onPrematureClose);
 }
 
 /**
