@@ -198,7 +198,10 @@ RUN set -eux; \
       force_archive_mirror; \
       apt-get install -y --no-install-recommends "$@"; \
     }; \
-    PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd"; \
+    # python3 is commonly needed by workflows and is also required by the
+    # release-time seccomp regression check (scripts/ci/check-agent-seccomp-syscalls.sh),
+    # which uses python3+ctypes to fire name_to_handle_at/open_by_handle_at.
+    PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
     apt_update_retry && \
     apt_install_retry $PARITY_PKGS && \
     rm -rf /var/lib/apt/lists/*
