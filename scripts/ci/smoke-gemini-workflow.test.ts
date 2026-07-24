@@ -35,7 +35,7 @@ describe('smoke gemini workflow output requirements', () => {
     expect(lock).toContain('--exclude-env GEMINI_API_KEY');
   });
 
-  it('lock file uses local build (postprocessed)', () => {
+  it('lock file installs AWF binary', () => {
     const lock = fs.readFileSync(smokeGeminiLockPath, 'utf-8');
 
     expect(lock).toContain('--build-local');
