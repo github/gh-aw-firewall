@@ -7,6 +7,7 @@ on:
     name: runner-doctor
     events: [issue_comment]
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read

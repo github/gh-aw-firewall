@@ -8,6 +8,7 @@ on:
     query: 'is:issue is:open label:runner-doctor'
     max: 1
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
