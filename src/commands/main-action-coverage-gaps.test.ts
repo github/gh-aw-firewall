@@ -4,6 +4,7 @@ const mockWriteFileSync = jest.fn();
 const mockChmodSync = jest.fn();
 const mockOpenSync = jest.fn().mockReturnValue(42);
 const mockCloseSync = jest.fn();
+const mockExecSync = jest.fn();
 
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
@@ -16,6 +17,10 @@ jest.mock('fs', () => {
     closeSync: (...args: unknown[]) => mockCloseSync(...args),
   };
 });
+
+jest.mock('child_process', () => ({
+  execSync: (...args: unknown[]) => mockExecSync(...args),
+}));
 
 import { createMainAction } from './main-action';
 
@@ -35,7 +40,6 @@ jest.mock('../sbx-manager');
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
-import * as hostIptables from '../host-iptables';
 import * as cliWorkflow from '../cli-workflow';
 import * as redactSecrets from '../redact-secrets';
 import * as optionParsers from '../option-parsers';
@@ -45,10 +49,10 @@ import * as preflight from './preflight';
 import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
+import { DOH_PROXY_IP } from '../host-iptables-shared';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
-const mockedHostIptables = hostIptables as jest.Mocked<typeof hostIptables>;
 const mockedCliWorkflow = cliWorkflow as jest.Mocked<typeof cliWorkflow>;
 const mockedRedactSecrets = redactSecrets as jest.Mocked<typeof redactSecrets>;
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
@@ -80,11 +84,12 @@ describe('createMainAction coverage gaps', () => {
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
+  const savedGithubWorkspace = process.env.GITHUB_WORKSPACE;
 
   beforeEach(() => {
     jest.clearAllMocks();
     processExitSpy = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
-      if (code !== 0) {
+      if (code === 1) {
         throw new Error(`process.exit: ${code}`);
       }
       return undefined as never;
@@ -114,6 +119,11 @@ describe('createMainAction coverage gaps', () => {
   });
 
   afterEach(() => {
+    if (savedGithubWorkspace === undefined) {
+      delete process.env.GITHUB_WORKSPACE;
+    } else {
+      process.env.GITHUB_WORKSPACE = savedGithubWorkspace;
+    }
     processExitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
   });
@@ -183,6 +193,9 @@ describe('createMainAction coverage gaps', () => {
         .mockResolvedValueOnce({ exitCode: 0 }) // api-proxy health
         .mockResolvedValueOnce({ exitCode: 0 }) // squid diag
         .mockResolvedValueOnce({ exitCode: 42 }); // agent command fails
+      mockExecSync
+        .mockReturnValueOnce('api-proxy diagnostic log\n')
+        .mockReturnValueOnce('healthy\n');
 
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
         await deps.startContainers('/tmp/awf-test', ['github.com']);
@@ -191,12 +204,27 @@ describe('createMainAction coverage gaps', () => {
       });
 
       const action = createMainAction(getOptionValueSource);
-      // process.exit(42) is caught by the outer try-catch which then calls process.exit(1)
-      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+      await action(['echo hi'], {});
 
-      // Should log agent exit code
+      expect(processExitSpy).toHaveBeenCalledWith(42);
       expect(mockedLogger.info).toHaveBeenCalledWith(
         expect.stringContaining('Agent command exited with code 42'),
+      );
+      expect(mockExecSync).toHaveBeenNthCalledWith(
+        1,
+        'docker logs --tail 80 awf-api-proxy 2>&1',
+        { encoding: 'utf-8', timeout: 10000 },
+      );
+      expect(mockExecSync).toHaveBeenNthCalledWith(
+        2,
+        'docker inspect --format={{.State.Health.Status}} awf-api-proxy 2>&1',
+        { encoding: 'utf-8', timeout: 5000 },
+      );
+      expect(mockedLogger.info).toHaveBeenCalledWith(
+        '[sbx-diag] api-proxy logs:\napi-proxy diagnostic log\n',
+      );
+      expect(mockedLogger.info).toHaveBeenCalledWith(
+        '[sbx-diag] api-proxy health status: healthy',
       );
     });
   });
@@ -286,8 +314,16 @@ describe('createMainAction coverage gaps', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      // sbxEnvironment should have been built; just verify no fatal errors
-      expect(mockedSbxManager.createSandbox).toHaveBeenCalled();
+      expect(mockedSbxManager.execInSandbox).toHaveBeenLastCalledWith(
+        'awf-agent-test',
+        'echo hi',
+        expect.objectContaining({
+          environment: expect.objectContaining({
+            AWF_DOH_ENABLED: 'true',
+            AWF_DOH_PROXY_IP: DOH_PROXY_IP,
+          }),
+        }),
+      );
     });
   });
 
@@ -311,7 +347,7 @@ describe('createMainAction coverage gaps', () => {
       await action(['echo hi'], {});
 
       expect(mockedSbxManager.createSandbox).toHaveBeenCalledWith(
-        expect.objectContaining({ workspaceDir: expect.any(String) }),
+        expect.objectContaining({ workspaceDir: process.cwd() }),
       );
     });
 
@@ -336,8 +372,6 @@ describe('createMainAction coverage gaps', () => {
       expect(mockedSbxManager.createSandbox).toHaveBeenCalledWith(
         expect.objectContaining({ workspaceDir: '/github/workspace' }),
       );
-
-      delete process.env.GITHUB_WORKSPACE;
     });
   });
 });
